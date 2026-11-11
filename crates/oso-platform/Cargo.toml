@@ -19,21 +19,19 @@ objc2-core-foundation.workspace = true
 objc2-core-graphics.workspace = true
 objc2-core-text.workspace = true
 unicode-segmentation.workspace = true
-# The clipboard (ADR 0074) on every macOS build, and the native window layer (ADR 0070).
+# The clipboard (ADR 0074) and oso's own window layer, the default on macOS (ADR 0070,
+# stage 3).
 objc2.workspace = true
 objc2-foundation.workspace = true
 objc2-app-kit.workspace = true
-# The native window layer only, with `native-window`.
-objc2-quartz-core = { workspace = true, optional = true }
-raw-window-handle = { workspace = true, optional = true }
+objc2-quartz-core.workspace = true
+raw-window-handle.workspace = true
+log.workspace = true
 
 [features]
 # Process spawning (ADR 0010, ADR 0047) and the log lines of the dev tooling. The
 # control sockets' transport is in every build (ADR 0085). Enabled only by `oso/dev`.
 dev = ["dep:log"]
-# oso's own window layer in place of winit, on macOS (ADR 0070, stage 2). Off by default
-# until it is at parity; the tip crate's `native-window` turns it on.
-native-window = ["dep:log", "dep:objc2-quartz-core", "dep:raw-window-handle"]
 
 [lints]
 workspace = true

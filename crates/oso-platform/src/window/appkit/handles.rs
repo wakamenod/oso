@@ -201,6 +201,15 @@ impl Window {
             .push(Request::DiscardComposition);
     }
 
+    /// Whether oso wants the input source to type ASCII, as while a prompt for a file's
+    /// name is open (ADR 0106). Applied once the handler returns, as the other requests are.
+    pub fn set_ascii_input(&self, wanted: bool) {
+        self.state
+            .requests
+            .borrow_mut()
+            .push(Request::AsciiInput(wanted));
+    }
+
     /// Whether the app wants secure input, as while a buffer that may hold secrets is
     /// selected (ADR 0073). It is held only while oso is active and the window has the
     /// keyboard as well.

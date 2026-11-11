@@ -8,7 +8,7 @@ private to its user: no core dumps, and private directories (ADR 0062), and
 control sockets' transport lives in `control`, in every build, for the dev socket
 and the agent channel (ADR 0085); only the dev tooling and the agent channel
 listen. Process spawning lives in `process`, behind the `dev` feature. `window` holds the window layer's events, which the tip crate's
-winit adapter builds too, and with `native-window` the macOS backend in `window/appkit/`
+winit adapter builds too, and on macOS the window system itself, in `window/appkit/`
 (ADR 0070).
 
 - Depends on no workspace crate. It is the only crate that may use OS

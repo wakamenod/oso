@@ -17,7 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::panic::AssertUnwindSafe;
 
 use objc2::exception;
-use objc2::rc::{AutoreleasePool, Retained, autoreleasepool};
+use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
@@ -31,6 +31,7 @@ use objc2_foundation::{
 };
 use objc2_quartz_core::{CALayer, CAMetalLayer};
 
+use super::key_text;
 use super::keys::{self, Route};
 use super::{Delivery, State};
 use crate::window::utf16;
@@ -456,24 +457,18 @@ impl OsoView {
     /// Gives the handler the key `event` is, by the names oso uses.
     fn deliver_key(&self, event: &NSEvent) {
         let named = keys::named(event.keyCode());
-        // A named key needs neither text. The key without modifiers, a layout's translation,
-        // matters only with Control or Option held (ADR 0033); otherwise it is the key's own.
-        let (characters, base) = if named.is_some() {
-            (None, None)
-        } else {
-            let characters = event.characters();
-            let held = keys::held(event.modifierFlags());
-            let base = if held.contains(Held::CONTROL) || held.contains(Held::ALT) {
-                event.charactersByApplyingModifiers(NSEventModifierFlags::empty())
-            } else {
-                characters.clone()
-            };
-            (characters, base)
-        };
         autoreleasepool(|pool| {
+            // A named key needs neither text.
+            let (key, base) = match named {
+                Some(named) => (SystemKey::Named(named), SystemKey::Named(named)),
+                None => {
+                    let (key, base) = key_text::key_texts(event, pool);
+                    (key_text::system_key(key), key_text::system_key(base))
+                }
+            };
             let input = KeyInput {
-                key: system_key(named, characters.as_deref(), pool),
-                base: system_key(named, base.as_deref(), pool),
+                key,
+                base,
                 repeat: event.isARepeat(),
             };
             self.ivars()
@@ -548,25 +543,6 @@ impl OsoView {
         let in_window = self.convertRect_toView(rect, None);
         self.window()
             .map_or(in_window, |window| window.convertRectToScreen(in_window))
-    }
-}
-
-/// A key by its code if it has a name, and otherwise by the text it types, borrowed for as
-/// long as `pool`.
-fn system_key<'p>(
-    named: Option<crate::window::SystemNamed>,
-    text: Option<&'p NSString>,
-    pool: AutoreleasePool<'p>,
-) -> SystemKey<'p> {
-    match (named, text) {
-        (Some(named), _) => SystemKey::Named(named),
-        // SAFETY: `pool` is the innermost autorelease pool here, as `deliver_key` makes it, and
-        // NSString's text does not change while it is borrowed; the key lives inside the pool.
-        (None, Some(text)) => match unsafe { text.to_str(pool) } {
-            "" => SystemKey::Dead,
-            text => SystemKey::Character(text),
-        },
-        (None, None) => SystemKey::Unidentified,
     }
 }
 

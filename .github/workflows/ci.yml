@@ -86,6 +86,12 @@ jobs:
       - name: Public API on macOS
         if: runner.os == 'macOS'
         run: just public-api-macos-check
+      # The macOS release binary has oso's own window layer, with dev-only code of its own, so
+      # it is searched here too, as the release-safety job searches Linux's (ADR 0016,
+      # ADR 0070).
+      - name: Release safety on macOS
+        if: runner.os == 'macOS'
+        run: just release-safety
       # Warns, and does not fail. The budget is 30 s on the author's Mac, and
       # this runner takes twice as long: 7.6 to 9.4 s against 4.6 s (ADR 0050).
       - name: Test time budget

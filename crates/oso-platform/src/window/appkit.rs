@@ -1,6 +1,6 @@
-//! The native macOS window layer (ADR 0070, stage 2): `NSApplication`'s run loop, one
-//! `NSWindow` and a view of oso's own that takes keys and the input method, reported as
-//! `window`'s events to a [`Handler`].
+//! oso's own macOS window layer, the window system there since ADR 0070's stage 3:
+//! `NSApplication`'s run loop, one `NSWindow` and a view of oso's own that takes keys and the
+//! input method, reported as `window`'s events to a [`Handler`].
 //!
 //! Must not depend on: `text`, `control`, `process` or any workspace crate.
 //!
@@ -14,6 +14,8 @@
 mod delegates;
 mod gate;
 mod handles;
+mod input_source;
+mod key_text;
 mod keys;
 mod quit;
 mod runloop;
@@ -68,6 +70,10 @@ pub fn run<T: 'static, H: Handler<T> + 'static>(start: impl FnOnce(Waker<T>) -> 
     let delegate = AppDelegate::new(mtm, state);
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
+    // The delegate goes when this returns, and the system's notifications must not reach it.
+    // A panic leaves the person on ASCII otherwise, if a prompt for a file's name was open.
+    delegate.stop_observing();
+    state.update_ascii(Some(false));
 
     // The loop stopped: the handler asked to exit, or panicked.
     if let Some(payload) = state.panic.take() {
@@ -149,6 +155,8 @@ enum Request {
     DiscardComposition,
     /// The app's answer to an end it held (`QuitAnswer::Later`).
     AnswerQuit(bool),
+    /// Whether the app wants the input source to type ASCII (ADR 0106).
+    AsciiInput(bool),
 }
 
 /// An event that came while the handler ran. Only those that keep what the app knows of the
@@ -160,6 +168,7 @@ enum Pending {
     Focused,
     ModifiersChanged(super::Held),
     CloseRequested,
+    InputSource(super::InputSource),
 }
 
 /// The window layer's state, on the main thread, for the rest of the process.
@@ -198,6 +207,8 @@ struct State {
     live_resize: Cell<gate::LiveResize>,
     /// An event AppKit dispatched (a key, the modifiers, the wheel) is being handled.
     in_event: Cell<bool>,
+    /// The input source, as the handler was told of it and as oso chose it (ADR 0106).
+    input: RefCell<input_source::SystemTracker>,
     /// The handler's answer to the last request to end, while it is being asked.
     quit_answer: Cell<Option<QuitAnswer>>,
     /// AppKit holds an end for the app's answer (`NSTerminateLater`).
@@ -227,6 +238,7 @@ impl State {
             panic: RefCell::new(None),
             live_resize: Cell::new(gate::LiveResize::default()),
             in_event: Cell::new(false),
+            input: RefCell::new(input_source::Tracker::default()),
             quit_answer: Cell::new(None),
             quit_held: Cell::new(false),
         }
@@ -292,6 +304,7 @@ impl State {
             Delivery::Window(Event::ScaleFactorChanged(_)) => Pending::ScaleFactorChanged,
             Delivery::Window(Event::Occluded(occluded)) => Pending::Occluded(occluded),
             Delivery::Window(Event::Focused) => Pending::Focused,
+            Delivery::Window(Event::InputSource(source)) => Pending::InputSource(source),
             Delivery::Window(Event::ModifiersChanged(held)) => Pending::ModifiersChanged(held),
             Delivery::Window(Event::CloseRequested) => Pending::CloseRequested,
             Delivery::Window(Event::RedrawRequested) => {
@@ -330,6 +343,7 @@ impl State {
                 Pending::Focused => Event::Focused,
                 Pending::ModifiersChanged(held) => Event::ModifiersChanged(held),
                 Pending::CloseRequested => Event::CloseRequested,
+                Pending::InputSource(source) => Event::InputSource(source),
             };
             self.deliver(Delivery::Window(event));
         }
@@ -349,6 +363,10 @@ impl State {
     fn apply(&'static self, request: Request) {
         if let Request::AnswerQuit(yes) = request {
             self.answer_held_quit(yes);
+            return;
+        }
+        if let Request::AsciiInput(wanted) = request {
+            self.update_ascii(Some(wanted));
             return;
         }
         let Some((window, view, _)) = self.window.get() else {
@@ -391,7 +409,7 @@ impl State {
             }
             Request::DiscardComposition => view.discard_marked(),
             // Answered above, with or without a window.
-            Request::AnswerQuit(_) => {}
+            Request::AnswerQuit(_) | Request::AsciiInput(_) => {}
         }
     }
 

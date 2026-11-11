@@ -78,10 +78,6 @@ item notes when it must be settled.
 - By M2-14: kills from a passphrase prompt reach neither the kill ring nor the OS clipboard, and a
   yank into it works. By M3: keyboard macros do not record what is typed there
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- By M2-18: try at the keyboard whether かな reaches oso while the IME is off in a prompt. If it does,
-  it turns the IME on for that prompt, for Japanese file names; if not, the author decides again
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
-  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - `C-x C-f`'s look at a row follows a symbolic link to say what it leads to, which can reach an
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
@@ -228,31 +224,37 @@ item notes when it must be settled.
   name `oso-core`'s. That only `app/shell.rs` names winit is said in the tip crate's
   `AGENTS.md` and not checked by the guard tests
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
-  the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the author's checks at the keyboard of what remains: a window covered by another app and
-  uncovered drawing again with no key, a composition committed when the IME turns off, the
-  candidate window following the segment being converted, no text service reading the view
-  while the IME is off, no Writing Tools for it, the input method's predictions with the
-  cursor's line, a Dock quit asking the exit question, and a real Log Out, cancelled from the
-  system's dialog, going past it, which shows oso reads a real logout's reason
-  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), a live resize, the
-  window's corner dragged slowly and fast, with no text stretched or smeared and no blank
-  frame, `get-state`'s `live_resize` showing a frame for each step
-  ([ADR 0086](adr/0086-frames-during-a-live-resize.md)), and each item above as it lands.
-  The author checked at the keyboard on 2026-11-08
-  what has landed: the candidate window's place, also after a prefix key and back from
-  `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
-  `.env`, other apps in front, Spotlight and quitting
+- What stays to check at the keyboard now that oso's own layer is the default on macOS
+  (ADR 0070, stage 3), with the author's choices in
+  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md): on the default build, the
+  candidate window's place, a full-width space and letter in Japanese mode, and secure input
+  following `.env`; and the input method's predictions with the cursor's line. The author
+  checked at the keyboard on 2026-11-08 the candidate window's place, also after a prefix key
+  and back from `*Messages*`, a full-width space and letter in Japanese mode, and secure input
+  following `.env`, other apps in front, Spotlight and quitting; and on 2026-11-09, on the
+  native layer, a window covered by another app and uncovered drawing again with no key, a
+  composition committed when the IME turns off, the candidate window following the segment
+  being converted, also near the right edge, nothing typed from the Emoji & Symbols palette
+  while the IME is off, a Dock quit asking the exit question, and a live resize with no text
+  stretched or smeared and `get-state`'s `live_resize` showing a frame for each step.
+  Accepted unchecked by the author: Writing Tools, and a real Log Out, which the e2e flow
+  covers with the system's own Apple event
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
-  [ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
+  [ADR 0073](adr/0073-secure-input-in-secret-buffers.md),
+  [ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md),
+  [ADR 0086](adr/0086-frames-during-a-live-resize.md)).
 - Reconversion: a replacement range outside the marked text is ignored for now, and the text
   goes in at the cursor, though the input method now reads the cursor's line. Decide whether
   to apply one inside the excerpt last given, as ADR 0070 allows
   ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
+- On the "Dvorak – QWERTY ⌘" layout, Meta follows Dvorak on oso's own macOS layer: the key
+  in the QWERTY `x` position gives `M-q`, where macOS's Command layer would give `M-x`, as a
+  printable ASCII reading with Shift alone wins over the Command layer. Decide whether Command
+  should follow that layer's QWERTY there ([ADR 0033](adr/0033-key-presses-and-notation.md),
+  [ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - The cursor's line for the input method and typing in one long line: on the native layer,
   typing and deleting in a 10 MB line were about 0.3 ms slower per key once the excerpt was
-  given, in every run on the Mac mini on 2026-11-09, far under the 5 ms gate. Cutting the
+  given, in every run on a second Mac on 2026-11-09, far under the 5 ms gate. Cutting the
   excerpt there takes about 3 µs, with or without an edit before it, handing it to the window
   is a swap, and motion keys, which give a new excerpt too, did not move. Find where the time
   goes with the same build run against itself with no excerpt given

@@ -1,5 +1,5 @@
-//! The native macOS window layer in place of winit (ADR 0070, stage 2), behind
-//! `native-window`: the same loop, window and waker as `shell` gives, over
+//! oso's own macOS window layer, in place of winit there since ADR 0070's stage 3: the same
+//! loop, window and waker as `shell` gives on Windows and Linux, over
 //! `oso_platform::window`'s, so the rest of the app does not know which one runs.
 //!
 //! Must not depend on: what an event does. Each one goes to the app's handler for it, and
@@ -156,6 +156,11 @@ impl Window {
     /// Whether the app wants secure input (ADR 0073).
     pub(super) fn set_secure_input(&self, wanted: bool) {
         self.0.set_secure_input(wanted);
+    }
+
+    /// Whether the app wants the input source to type ASCII (ADR 0106).
+    pub(super) fn set_ascii_input(&self, wanted: bool) {
+        self.0.set_ascii_input(wanted);
     }
 
     /// Whether secure input is wanted, held by the window, and on in the system, for the

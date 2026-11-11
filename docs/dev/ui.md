@@ -338,7 +338,11 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - The OS candidate window is placed just below the cursor, as in other macOS apps.
 - Each commit undoes as one step.
 - The IME is switched off automatically when entering the minibuffer,
-  isearch, a menu or the list of emergency copies, since those use single keys. It is
+  isearch, a menu or the list of emergency copies, since those use single keys. In the
+  prompt for a file's name (`C-x C-f`, `C-x C-w`), the input source switches to ASCII when it
+  opens and back when it closes, and choosing a Japanese input mode there, by `かな` or the
+  menu bar, turns the IME on for that prompt; `英数` turns it off again
+  ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)). It is
   also off while a prefix key (`C-x`) or a prefix argument (`C-u`, `M-5`) waits for the
   next key, in read-only buffers and in buffers that may hold secrets. It goes off only
   once a composition has ended.

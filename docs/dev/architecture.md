@@ -68,10 +68,10 @@ modules inside each crate, are listed in
 Only the tip crate uses winit, and in it only `app/shell.rs`: the rest of the app
 works on oso's own events, keys and window calls, `oso_platform::window`'s, so that a
 window layer of oso's own can replace winit there
-([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). On macOS that layer exists
-behind the `native-window` feature, off by default: `oso_platform::window` runs
-`NSApplication`'s loop with a view of its own, and `app/native.rs` gives the app the same
-loop, window and waker over it. The
+([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). On macOS that layer is the
+window system since stage 3: `oso_platform::window` runs `NSApplication`'s loop with a view
+of its own, and `app/native.rs` gives the app the same loop, window and waker over it.
+winit is built only for Windows and Linux. The
 tip crate owns the window and hands `oso-render` a `wgpu::DisplayAndWindowHandle` and the
 size in pixels; the renderer reports back when it needs a redraw instead of calling into
 the window.
@@ -79,7 +79,8 @@ the window.
 ## Layers
 
 ```
-OS events (winit, through app/shell.rs)
+OS events (oso_platform::window through app/native.rs on macOS,
+           winit through app/shell.rs elsewhere)
    │
    ▼
 Input: key translation into oso_core::key::KeyPress
@@ -244,7 +245,12 @@ A panicking command is caught at the command boundary
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
-  emergency copies and a prompt. Turning off during a composition commits it first, where
+  emergency copies and a prompt. The prompt for a file's name has the window choose an ASCII
+  input source while it is open (`Window::set_ascii_input`), and allows the IME once the person
+  chooses a Japanese input mode there, which oso's macOS layer hears from the system as
+  `Event::InputSource`, never while a buffer that may hold secrets is shown
+  ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)). Turning
+  off during a composition commits it first, where
   typing goes then, on oso's own layer if it would go in as typed there
   (`Dispatcher::types_text`), and otherwise waits for it to end, as always on winit, which
   cannot commit one ([ADR 0069](adr/0069-macos-input-method.md),

@@ -12,7 +12,7 @@ use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::saver::{self, AfterSave, SaveReport};
 use oso_platform::window::Held;
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 use oso_platform::window::{Event, QuitAnswer, QuitReason};
 
 impl App {
@@ -71,7 +71,7 @@ impl App {
     /// ask about modified buffers or wait for saves, and the OS is told no. The end of the
     /// session is never refused: it waits a few seconds for running saves, then the answer
     /// is yes, and [`App::ending`] writes copies of what is at risk.
-    #[cfg(all(target_os = "macos", feature = "native-window"))]
+    #[cfg(target_os = "macos")]
     pub(super) fn quit_requested(
         &mut self,
         event_loop: &Loop<'_>,

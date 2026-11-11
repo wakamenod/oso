@@ -22,7 +22,7 @@ fn secure(state: &Value) -> (bool, bool) {
 }
 
 #[test]
-#[ignore = "opens windows; run with `just e2e-native`"]
+#[ignore = "opens windows; run with `just e2e`"]
 fn secure_input_is_asked_for_only_while_a_secret_buffer_is_selected() {
     let scratch = Scratch::new("secure-input");
     let plain = scratch.write("plain.txt", b"plain text\n");

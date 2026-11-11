@@ -36,13 +36,6 @@ pub(super) const ANSWERS_INPUT_METHOD: bool = false;
 /// reach it through, before the window opens. `started` is when the process started.
 pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {
     let mut builder = winit::event_loop::EventLoop::<UserEvent>::with_user_event();
-    // Building AppKit's default menu delays the first frame by about 55 ms,
-    // and its Command shortcuts would clash with Command = Meta (ADR 0046).
-    #[cfg(target_os = "macos")]
-    {
-        use winit::platform::macos::EventLoopBuilderExtMacOS;
-        builder.with_default_menu(false);
-    }
     // With no window system to reach, as when the display has gone, there is nothing to show:
     // it says why and exits, where a panic would say only where (ADR 0028). Nothing is open
     // yet, so nothing is lost.
@@ -103,13 +96,6 @@ impl Loop<'_> {
     /// Opens the window.
     pub(super) fn open_window(&self) -> Window {
         let attributes = winit::window::Window::default_attributes().with_title("oso Editor");
-        // Option stays Super with a Japanese input source too: winit then gives the input
-        // method the key without Option's character, and `s-a` arrives (ADR 0069).
-        #[cfg(target_os = "macos")]
-        let attributes = {
-            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
-            attributes.with_option_as_alt(OptionAsAlt::Both)
-        };
         Window(Arc::new(self.0.create_window(attributes).unwrap()))
     }
 }
@@ -187,6 +173,10 @@ impl Window {
 
     /// Whether the app wants secure input. Only oso's own window layer gives it (ADR 0073).
     pub(super) fn set_secure_input(&self, _wanted: bool) {}
+
+    /// Whether the app wants the input source to type ASCII. Only oso's own window layer
+    /// chooses one (ADR 0106).
+    pub(super) fn set_ascii_input(&self, _wanted: bool) {}
 
     /// Secure input is not this layer's (ADR 0073), so the dev socket reports none.
     #[cfg(feature = "dev")]
@@ -349,13 +339,13 @@ fn held(state: ModifiersState) -> Held {
     .fold(Held::NONE, |all, (_, oso)| all | oso)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn key_without_modifiers(event: &winit::event::KeyEvent) -> keyboard::Key {
     use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
     event.key_without_modifiers()
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn key_without_modifiers(event: &winit::event::KeyEvent) -> keyboard::Key {
     event.logical_key.clone()
 }

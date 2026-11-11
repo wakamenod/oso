@@ -203,6 +203,20 @@ mod tests {
     }
 
     #[test]
+    fn shifted_symbols_keep_shift_with_control_meta_or_both() {
+        // As the native layer gives them on macOS: the key Shift alone types, and with
+        // Control the unshifted key as the base (ADR 0033).
+        for (shifted, unshifted) in [("<", ","), (">", "."), ("?", "/"), ("_", "-"), ("{", "[")] {
+            let control = translate(ch(shifted), ch(unshifted), CONTROL | SHIFT);
+            assert_eq!(control, press(&format!("C-{shifted}")), "{shifted}");
+            let meta_key = translate(ch(shifted), ch(shifted), meta() | SHIFT);
+            assert_eq!(meta_key, press(&format!("M-{shifted}")), "{shifted}");
+            let both = translate(ch(shifted), ch(unshifted), CONTROL | meta() | SHIFT);
+            assert_eq!(both, press(&format!("C-M-{shifted}")), "{shifted}");
+        }
+    }
+
+    #[test]
     fn meta_and_super_follow_the_platform() {
         assert_eq!(translate(ch("f"), ch("f"), meta()), press("M-f"));
         if cfg!(target_os = "macos") {
