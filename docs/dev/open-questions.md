@@ -8,7 +8,7 @@ item notes when it must be settled.
 
 - **UI of each later feature** (before building it). The M2 UI is decided
   ([`ui.md`](ui.md), [ADR 0026](adr/0026-m2-ui-layout.md)); M3 and later
-  features (avy, ripgrep results, the menu contents, the git status buffer,
+  features (avy, the menu contents, the git status buffer,
   the terminal) are designed when they come up.
 
 ## M1
@@ -108,7 +108,7 @@ item notes when it must be settled.
   overwritten. Overwriting needs `zeroize` or a small `unsafe` outside `oso-core`
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - By M2-14: kills from a passphrase prompt reach neither the kill ring nor the OS clipboard, and a
-  yank into it works. By M3: keyboard macros do not record what is typed there
+  yank into it works
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - `C-x C-f`'s look at a row follows a symbolic link to say what it leads to, which can reach an
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
@@ -229,8 +229,8 @@ item notes when it must be settled.
 
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:
   - The limit should be a pure function beside `window::wheel`, used by both.
-  - By M3: "taller" compares the tiled window alone, also beneath a prompt. Splits of
-    different heights need it per window.
+  - By M3: "taller" compares the tiled window alone, also beneath a prompt. With splits
+    ([ADR 0112](adr/0112-window-splits.md)) it compares each window with its own height.
   - Narrowing and widening do not do the same for `left`. With the cursor far to the right,
     a window made very narrow and wide again stays scrolled sideways, with shorter rows blank.
     Decide whether growing sideways follows the same rule.
@@ -320,6 +320,11 @@ item notes when it must be settled.
   from the configuration's `[aids]`
   ([ADR 0097](adr/0097-visual-aids.md), [ADR 0108](adr/0108-the-user-configuration-file.md)).
 
+- After query-replace, keyboard macros and whitespace cleanup: regexp isearch (`C-M-s`) on
+  query-replace's per-line matcher; the kmacro ring, counters, naming and editing; `E`, `C-r`, `Y`
+  and `N` in query-replace; whitespace settings per mode once modes exist; and whether to read
+  `.editorconfig` ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration
   names the default theme and `<f5>`'s pair
@@ -349,6 +354,15 @@ item notes when it must be settled.
   the lowest layer that still sees buffer offsets, or to `DisplayMap`.
   Its API (`DisplayMap::invalid_bytes`) does not change.
 - Initial set of tree-sitter grammars, beyond Rust, Markdown and TOML.
+- After window splits ([ADR 0112](adr/0112-window-splits.md)):
+  - `C-x 4`: `switch-to-buffer-other-window`, `find-file-other-window` and
+    `kill-buffer-and-window`, with rules for where a buffer is shown, as Emacs's
+    `display-buffer`;
+  - undoing a change of layout, as Emacs's `winner-mode`;
+  - repeating `C-x o` and the resize keys with their last key alone, as Emacs's `repeat-mode`;
+  - clicks that select a window and drags on dividers and modelines, with mouse focus;
+  - one shaped-row cache per buffer shared by its windows, if measuring a buffer shown twice
+    says it is needed.
 - Fuzzing targets and how long they run. The `SumTree`, the rope, the
   display model under random edits, and the streaming decoder and load
   builder (property-tested since M1-6) are the first candidates.

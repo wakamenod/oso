@@ -141,7 +141,7 @@ mod tests {
         assert!(!editor.visual_aids().line_numbers);
         let (_, effects) = run(&mut editor, "global-display-line-numbers-mode", Args::NONE);
         assert!(effects.redraw);
-        assert_eq!(editor.frame().window.gutter.columns, 4);
+        assert_eq!(editor.tiled_regions().gutter.columns, 4);
         assert_eq!(editor.window().size().columns, columns - 4);
     }
 }

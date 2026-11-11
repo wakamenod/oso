@@ -66,9 +66,10 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let mut screen = Screen::default();
     editor.screen(&mut screen);
     let flash = editor.flash_cells(&screen).filter(|_| flashing);
-    draw_text_area(editor, (regions.window.text, &screen), flash, &mut lines);
+    let window = editor.tiled_regions();
+    draw_text_area(editor, (window.text, &screen), flash, &mut lines);
     let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
-    draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
+    draw_spans(&modeline, window.modeline, '=', &mut lines);
     let echo = [status.echo_warnings(), &status.echo[..]];
     draw_spans(&echo, regions.echo, '"', &mut lines);
     draw_float(editor, &mut lines);
