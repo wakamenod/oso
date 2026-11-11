@@ -1330,7 +1330,7 @@ pub fn oso_core::editor::Editor::shows_keys_in_progress(&self) -> bool
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::balance_windows(&mut self) -> bool
-pub fn oso_core::editor::Editor::delete_other_windows(&mut self)
+pub fn oso_core::editor::Editor::delete_other_windows(&mut self) -> bool
 pub fn oso_core::editor::Editor::delete_window(&mut self) -> core::result::Result<(), oso_core::editor::SoleWindow>
 pub fn oso_core::editor::Editor::other_window(&mut self, isize)
 pub fn oso_core::editor::Editor::resize_window(&mut self, oso_core::frame::Way, isize) -> core::result::Result<(), oso_core::editor::CannotResize>
@@ -1834,7 +1834,10 @@ pub fn oso_core::frame::TooSmall::clone(&self) -> oso_core::frame::TooSmall
 impl core::cmp::Eq for oso_core::frame::TooSmall
 impl core::cmp::PartialEq for oso_core::frame::TooSmall
 pub fn oso_core::frame::TooSmall::eq(&self, &oso_core::frame::TooSmall) -> bool
+impl core::error::Error for oso_core::frame::TooSmall
 impl core::fmt::Debug for oso_core::frame::TooSmall
+pub fn oso_core::frame::TooSmall::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::frame::TooSmall
 pub fn oso_core::frame::TooSmall::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::frame::TooSmall
 impl core::marker::StructuralPartialEq for oso_core::frame::TooSmall
@@ -2879,8 +2882,6 @@ pub fn oso_core::window::Window::wrap(&self) -> core::option::Option<&oso_core::
 pub fn oso_core::window::Window::wrap_of(&self, &oso_core::display_map::DisplaySnapshot) -> core::option::Option<&oso_core::display_map::wrap_map::WrapSnapshot>
 impl oso_core::window::Window
 pub fn oso_core::window::Window::places(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::window::Place)>
-impl core::clone::Clone for oso_core::window::Window
-pub fn oso_core::window::Window::clone(&self) -> Self
 impl core::fmt::Debug for oso_core::window::Window
 pub fn oso_core::window::Window::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::window::WindowId(_)

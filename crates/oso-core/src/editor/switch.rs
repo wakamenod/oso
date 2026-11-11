@@ -8,7 +8,7 @@
 use super::Editor;
 use super::follow::clip_selections;
 use crate::buffer::{self, Buffer, BufferId};
-use crate::selection::MarkActive;
+use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Place, Walk};
 
 use super::SCRATCH;
@@ -70,6 +70,9 @@ impl Editor {
         } else {
             self.place_elsewhere(index, buffer)
         };
+        // The wrap it drops gives back what is left of the command's budget.
+        let budget = self.gather_wrap_budget();
+        self.wrap_pool = budget;
         if let Some(place) = self.windows[index].show(buffer).or(elsewhere) {
             // Its wrap first, for the top to stay where the place says (ADR 0103).
             self.sync_wrap(index);
@@ -92,16 +95,17 @@ impl Editor {
             .filter(|id| **id != me)
             .filter_map(|id| self.window_by_id(*id))
             .find(|window| window.has_shown(buffer))?;
-        let mut place = if window.buffer() == buffer {
-            Place {
-                selections: window.selections.clone(),
-                scroll: window.scroll(),
-            }
+        let (selections, scroll) = if window.buffer() == buffer {
+            (&window.selections, window.scroll())
         } else {
-            window.places().find(|(id, _)| *id == buffer)?.1.clone()
+            let (_, place) = window.places().find(|(id, _)| *id == buffer)?;
+            (&place.selections, place.scroll)
         };
-        place.selections.keep_primary();
-        Some(place)
+        let primary = SelectionSet::from_parts(vec![*selections.primary()], 0)?;
+        Some(Place {
+            selections: primary.with_ring(*selections.mark_ring()),
+            scroll,
+        })
     }
 
     /// Puts the window at `index` back where `place` says, in the buffer it shows.

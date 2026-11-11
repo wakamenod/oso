@@ -287,10 +287,17 @@ file or a 10 MB line.
     the tree and the cells, tested without an editor; `frame::Way` (`Across`, `Down`);
   - `frame::layout` taking the tree; `FrameLayout::windows` and `FrameLayout::hit`;
     `WindowRegions::divider`;
-  - `Editor`'s window methods: `split`, `delete_window`, `delete_other_windows`,
-    `select_window`, `other_window`, `windmove`, `resize`, `balance`, `windows_in_order`, and
-    `status_into`, `gutter_into` and the cell functions taking a window's id;
+  - `Editor`'s window methods: `split_window`, `delete_window`, `delete_other_windows`,
+    `select_window`, `other_window`, `windmove`, `resize_window` and `balance_windows`, with
+    `frame::Side` and the refusals `frame::TooSmall`, `editor::SoleWindow`,
+    `editor::NoWindow` and `editor::CannotResize`; `screen_of`, and `status_into`,
+    `gutter_into` and the cell functions taking a window's id. The tree's order is
+    `FrameLayout::windows`;
   - no new public module: `Splits` and `Way` go in `frame`, `WindowId` in `window`.
+- **As built, step 2:** the window commands are registered only in tests until step 3 draws
+  every window and binds their keys, so the app never shows a frame with windows it does not
+  draw. `windmove-up` and `windmove-down` say "No window up from selected window" and "…down…",
+  as Emacs's `windmove` does.
 - **`oso-render`:** `Face::ModelineInactive` and `Face::Divider`, and a divider pane drawn as a
   line.
 - **`oso-platform`:** the wheel event's position.

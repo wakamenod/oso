@@ -527,3 +527,62 @@ fn window_commands_inside_a_prompt_keep_the_window_beneath_by_its_name() {
     assert_eq!(selected(&editor), other);
     assert!(editor.window_by_id(first).is_some());
 }
+
+#[test]
+fn deleting_a_window_that_shows_a_secret_buffer_takes_what_was_said_around_it_along() {
+    let echo = |editor: &Editor| status(editor, editor.window().id()).echo;
+    for others in [false, true] {
+        let mut editor = editor("text", (24, 80));
+        let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/.env")));
+        let me = selected(&editor);
+        let other = editor.split_window(Way::Down, true).unwrap();
+        editor.show(secret);
+        editor.select_window(me);
+        editor.echo("said beside a secret");
+        assert_eq!(echo(&editor), "said beside a secret");
+        editor.begin_command();
+        if others {
+            assert!(editor.delete_other_windows());
+        } else {
+            editor.select_window(other);
+            editor.delete_window().unwrap();
+        }
+        editor.message("said by the command that took it away");
+        editor.end_command();
+        assert!(!editor.shows_secret());
+        assert_eq!(echo(&editor), "", "others: {others}");
+    }
+}
+
+/// What is left of the command's wrap budget, in the pool and every wrap.
+fn budget_left(editor: &Editor) -> usize {
+    editor.wrap_pool
+        + editor
+            .windows
+            .iter()
+            .filter_map(|window| window.wrap_map())
+            .map(crate::display_map::wrap_map::WrapMap::budget_left)
+            .sum::<usize>()
+}
+
+#[test]
+fn new_wraps_in_several_windows_share_one_budget() {
+    let budget = crate::display_map::wrap_map::COMMAND_BUDGET;
+    let mut editor = editor("ab\n", (24, 81));
+    let id = editor.window().buffer();
+    editor.split_window(Way::Across, false).unwrap();
+    editor.split_window(Way::Down, false).unwrap();
+    editor.begin_undo_group();
+    assert_eq!(budget_left(&editor), budget);
+    // Each window makes a wrap here, which used to come with a budget of its own.
+    assert!(editor.set_wraps(id, true));
+    assert!(budget_left(&editor) < budget, "spent some");
+    editor.end_undo_group();
+    editor.begin_undo_group();
+    editor.split_window(Way::Down, false).unwrap();
+    assert!(
+        budget_left(&editor) <= budget,
+        "a split's wrap has none of its own"
+    );
+    editor.end_undo_group();
+}

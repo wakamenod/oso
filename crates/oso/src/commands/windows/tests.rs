@@ -3,9 +3,8 @@
 //!
 //! Must not depend on: `app`, winit or the GPU.
 
-use crate::commands::tests::run;
 use oso_core::buffer::Buffer;
-use oso_core::command::Args;
+use oso_core::command::{Args, Ctx, Effects, ExecuteError};
 use oso_core::editor::Editor;
 use oso_core::frame::FrameSize;
 use oso_core::minibuffer::Kind;
@@ -19,6 +18,20 @@ fn editor() -> Editor {
         columns: 81,
     });
     editor
+}
+
+/// Runs the window command `name` through a registry that has them, as the app's will from
+/// ADR 0112's step 3.
+fn run(editor: &mut Editor, name: &str, args: Args) -> (Result<(), String>, Effects) {
+    let mut registry = crate::commands::registry();
+    registry.register_all(super::COMMANDS).unwrap();
+    let id = registry.lookup(name).unwrap();
+    let mut ctx = Ctx::new(editor);
+    let result = registry.execute(id, &mut ctx, args).map_err(|e| match e {
+        ExecuteError::Failed { error, .. } => error.message().to_owned(),
+        other => panic!("{other}"),
+    });
+    (result, ctx.effects())
 }
 
 /// Runs `name`, which must work.

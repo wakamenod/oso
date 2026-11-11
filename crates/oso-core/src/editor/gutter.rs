@@ -93,7 +93,7 @@ impl Editor {
     pub fn gutter_into(&self, id: WindowId, screen: &Screen, gutter: &mut Gutter) {
         gutter.text.clear();
         gutter.rows.clear();
-        let Some((window, buffer, regions)) = self.tiled_window(id) else {
+        let Some((window, buffer, regions)) = self.window_in_tree(id) else {
             return;
         };
         let columns = regions.gutter.columns;

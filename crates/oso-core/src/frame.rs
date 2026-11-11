@@ -128,6 +128,12 @@ impl WindowRegions {
         divider: None,
     };
 
+    /// Whether the frame had room for it: a window it has none for gets empty regions.
+    pub(crate) fn has_cells(&self) -> bool {
+        let outer = self.outer();
+        outer.rows > 0 && outer.columns > 0
+    }
+
     /// All its cells: its gutter, text, modeline and divider.
     pub(crate) fn outer(&self) -> CellRect {
         CellRect {
@@ -244,8 +250,7 @@ impl FrameLayout {
                     (other.column..other.column + other.columns).contains(&cell)
                 }
             };
-            (*id != window && other.rows > 0 && other.columns > 0 && touches && across)
-                .then_some(*id)
+            (*id != window && regions.has_cells() && touches && across).then_some(*id)
         })
     }
 }

@@ -441,11 +441,11 @@ impl Editor {
     /// from the primary's region, or from the word at each cursor, which it selects.
     fn wanted(&mut self) -> Result<Wanted, CursorError> {
         let (window, buffer) = self.current();
-        let index = window.id();
+        let me = window.id();
         let (id, revision) = (window.buffer(), buffer.revision());
         let selections = &window.selections;
         if let Some(marking) = &self.marking
-            && (marking.window, marking.buffer, marking.revision) == (index, id, revision)
+            && (marking.window, marking.buffer, marking.revision) == (me, id, revision)
             && selections.len() > 1
         {
             return Ok(marking.wanted.clone());
@@ -468,7 +468,7 @@ impl Editor {
         let wanted = Wanted { query, whole_word };
         let revision = self.current().1.revision();
         self.marking = Some(Marking {
-            window: index,
+            window: me,
             buffer: id,
             revision,
             wanted: wanted.clone(),

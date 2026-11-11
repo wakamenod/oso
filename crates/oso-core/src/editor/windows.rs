@@ -91,7 +91,11 @@ impl Editor {
         self.isearch_exit();
         self.splits = splits;
         self.next_window += 1;
-        let window = self.windows[at].split_off(id);
+        let mut window = self.windows[at].split_off(id);
+        // Its wrap spends from the command's one budget, not one of its own (ADR 0112).
+        if let Some(wrap) = window.wrap_map_mut() {
+            wrap.take_budget();
+        }
         let count = self.tiled_count();
         self.windows.insert(count, window);
         if self.selected >= count {
@@ -126,12 +130,12 @@ impl Editor {
     }
 
     /// Deletes every tiled window but the selected one, which takes the whole tiled area. Does
-    /// nothing with one window. Ends isearch.
-    pub fn delete_other_windows(&mut self) {
+    /// nothing with one window. Ends isearch. Returns whether it deleted any.
+    pub fn delete_other_windows(&mut self) -> bool {
         let keep = self.tiled_id();
         let others: Vec<WindowId> = self.splits.iter().filter(|id| *id != keep).collect();
         if others.is_empty() {
-            return;
+            return false;
         }
         self.isearch_exit();
         self.splits = Splits::new(keep);
@@ -139,6 +143,7 @@ impl Editor {
             self.drop_window(id);
         }
         self.lay_out(self.frame.size());
+        true
     }
 
     /// Takes the window `id` out of the editor, once the tree no longer holds it, and selects
@@ -149,6 +154,7 @@ impl Editor {
         };
         // A buffer that may hold secrets goes off the screen with it (ADR 0063).
         if self.shown(&self.windows[index]).is_secret() {
+            self.note_secret_shown();
             self.window_moves_on();
         }
         let was_tiled = self.tiled_index() == index;
@@ -183,13 +189,10 @@ impl Editor {
             return;
         }
         self.isearch_exit();
-        let shown = |editor: &Self| {
-            editor
-                .frame
-                .regions(id)
-                .is_some_and(|regions| regions.outer().rows > 0)
-        };
-        let hidden = !shown(self);
+        let hidden = !self
+            .frame
+            .regions(id)
+            .is_some_and(crate::frame::WindowRegions::has_cells);
         self.make_tiled(id);
         // The selected window always has cells, so a frame too small for every window lays
         // out again around it.
@@ -203,10 +206,7 @@ impl Editor {
     /// are skipped.
     pub fn other_window(&mut self, count: isize) {
         let me = self.tiled_id();
-        let shown = |(_, regions): &&(WindowId, crate::frame::WindowRegions)| {
-            let outer = regions.outer();
-            outer.rows > 0 && outer.columns > 0
-        };
+        let shown = |(_, regions): &&(WindowId, crate::frame::WindowRegions)| regions.has_cells();
         let windows = self.frame.windows();
         let len = windows.iter().filter(shown).count();
         let Some(at) = windows.iter().filter(shown).position(|(id, _)| *id == me) else {

@@ -42,6 +42,15 @@ pub enum Side {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TooSmall;
 
+impl std::fmt::Display for TooSmall {
+    /// As Emacs says it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Window too small for splitting")
+    }
+}
+
+impl std::error::Error for TooSmall {}
+
 /// The tiled windows of a frame, as a tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Splits {

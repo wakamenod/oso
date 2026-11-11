@@ -123,6 +123,11 @@ pub struct Editor {
     next_window: u64,
     /// The tiled windows in the order they were selected, the most recent first (ADR 0112).
     recent: Vec<WindowId>,
+    /// What is left of the command's wrap budget while no window's wrap holds it (ADR 0112).
+    wrap_pool: usize,
+    /// The tiled windows other than the selected one whose cursors or tops an edit moved in
+    /// the command, which follow their cursors when it ends (ADR 0112).
+    moved_windows: Vec<WindowId>,
     undo_scope: Option<UndoScope>,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
@@ -238,6 +243,8 @@ impl Editor {
             next_id: 0,
             next_window: 1,
             recent: vec![FIRST_WINDOW],
+            wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
+            moved_windows: Vec::new(),
             undo_scope: None,
             join_ready: false,
             messages_buffer: BufferId(0),

@@ -117,6 +117,7 @@ pub struct Window {
     way_back: Vec<BufferId>,
 }
 
+#[cfg(test)]
 impl Clone for Window {
     /// A window like this one, whose wrap has a generation of its own, so that no job of this
     /// window reports to it. It keeps the id, so it stands for the same window, as tests

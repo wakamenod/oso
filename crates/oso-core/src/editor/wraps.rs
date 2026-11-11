@@ -17,10 +17,10 @@
 use super::{Editor, Preview};
 use crate::buffer::{BufferId, Rewrap};
 use crate::display_map::DisplaySnapshot;
-use crate::display_map::wrap_map::{WrapJob, WrapMap, WrapReport};
+use crate::display_map::wrap_map::{COMMAND_BUDGET, WrapJob, WrapMap, WrapReport};
 use crate::selection::{OffsetEdit, follow_offset};
 use crate::sum_tree::Bias;
-use crate::window::Scroll;
+use crate::window::{Scroll, Window};
 
 /// The preview's rows of the buffer it shows.
 pub(super) struct PreviewWrap {
@@ -62,7 +62,6 @@ impl Editor {
         for index in 0..self.tiled_count() {
             if self.windows[index].buffer() == id {
                 self.sync_wrap(index);
-                self.pass_wrap_budget(index);
                 let (window, buffer) = self.window_mut(index);
                 let display = buffer.display();
                 window.realize_view(&display);
@@ -76,19 +75,29 @@ impl Editor {
         if index >= self.tiled_count() {
             return;
         }
+        // What it wraps here, and as it follows next, spends from the command's one budget,
+        // a new wrap's own included (ADR 0112).
+        let budget = self.gather_wrap_budget();
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         let (wraps, revision) = (buffer.wraps(), buffer.revision());
         let columns = window.size().columns;
-        match (wraps, window.wrap_map().is_some()) {
+        let unspent = match (wraps, window.wrap_map().is_some()) {
             (true, false) => {
-                let wrap = WrapMap::provisional(&display, columns);
+                let mut wrap = WrapMap::provisional(&display, columns);
+                wrap.take_budget();
+                wrap.give_budget(budget);
                 window.set_wrap(Some(wrap), &display, revision);
+                0
             }
-            (false, true) => window.set_wrap(None, &display, revision),
+            (false, true) => {
+                window.set_wrap(None, &display, revision);
+                budget
+            }
             (true, true) => {
                 let stale = window.wrap_revision() != revision;
                 if let Some(wrap) = window.wrap_map_mut() {
+                    wrap.give_budget(budget);
                     if stale {
                         wrap.reset(&display);
                     }
@@ -98,47 +107,42 @@ impl Editor {
                 if stale {
                     window.realize_top(&display);
                 }
+                0
             }
-            (false, false) => {}
-        }
+            (false, false) => budget,
+        };
+        self.wrap_pool = unspent;
     }
 
     /// Gives the wraps their budget for what comes next: a command, a wheel scroll, a resize or
-    /// a report. All windows share one, which the selected tiled window holds first, or the
-    /// first other window that wraps, and each window followed then takes what is left
-    /// ([`Editor::pass_wrap_budget`], ADR 0112).
+    /// a report. All windows share one (ADR 0112): the selected tiled window holds it first,
+    /// and each window that wraps or follows its cursor after it takes what is left
+    /// ([`Editor::pass_wrap_budget`]). Between them it waits in the editor's pool.
     pub(super) fn refill_wraps(&mut self) {
-        for window in &mut self.windows {
-            if let Some(wrap) = window.wrap_map_mut() {
-                wrap.take_budget();
-            }
-        }
-        let first = std::iter::once(self.tiled_index())
-            .chain(0..self.tiled_count())
-            .find(|&index| self.windows[index].wrap_map().is_some());
-        if let Some(wrap) = first.and_then(|index| self.windows[index].wrap_map_mut()) {
-            wrap.refill();
-        }
+        self.gather_wrap_budget();
+        self.wrap_pool = COMMAND_BUDGET;
+        self.pass_wrap_budget(self.tiled_index());
     }
 
-    /// Moves what is left of the shared wrap budget into the wrap of the window at `index`,
-    /// if it has one, from whichever wraps hold it (ADR 0112).
-    pub(super) fn pass_wrap_budget(&mut self, index: usize) {
-        if self
-            .windows
-            .get(index)
-            .is_none_or(|window| window.wrap_map().is_none())
-        {
-            return;
-        }
-        let mut left = 0usize;
+    /// Takes what is left of the command's wrap budget, from the pool and every wrap, which
+    /// keep none of it.
+    pub(super) fn gather_wrap_budget(&mut self) -> usize {
+        let mut left = std::mem::take(&mut self.wrap_pool);
         for window in &mut self.windows {
             if let Some(wrap) = window.wrap_map_mut() {
                 left = left.saturating_add(wrap.take_budget());
             }
         }
-        if let Some(wrap) = self.windows[index].wrap_map_mut() {
-            wrap.give_budget(left);
+        left.min(COMMAND_BUDGET)
+    }
+
+    /// Moves what is left of the command's wrap budget into the wrap of the window at `index`,
+    /// or into the pool while it has none (ADR 0112).
+    pub(super) fn pass_wrap_budget(&mut self, index: usize) {
+        let left = self.gather_wrap_budget();
+        match self.windows.get_mut(index).and_then(Window::wrap_map_mut) {
+            Some(wrap) => wrap.give_budget(left),
+            None => self.wrap_pool = left,
         }
     }
 
@@ -185,9 +189,15 @@ impl Editor {
     /// panic (ADR 0053).
     pub(super) fn commit_views(&mut self, id: BufferId, moved: MovedViews) {
         let revision = self.buffer(id).map_or(0, |buffer| buffer.revision());
+        let tiled = self.tiled_count();
         for (index, wrap, scroll) in moved {
             if let Some(window) = self.windows.get_mut(index) {
                 window.follow_change(wrap, scroll, revision);
+                // Another tiled window follows its cursor when the command ends (ADR 0112).
+                let id = window.id();
+                if index < tiled && index != self.selected && !self.moved_windows.contains(&id) {
+                    self.moved_windows.push(id);
+                }
             }
         }
     }
@@ -223,7 +233,6 @@ impl Editor {
         self.refill_wraps();
         // A wrap that missed a change starts over, and drops the report.
         self.sync_wrap(index);
-        self.pass_wrap_budget(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         let taken = window

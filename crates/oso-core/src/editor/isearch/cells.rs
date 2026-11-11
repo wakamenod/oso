@@ -55,7 +55,7 @@ impl Editor {
         let Some(query) = &state.query else {
             return;
         };
-        let Some((window, buffer, regions)) = self.selected_tiled(id) else {
+        let Some((window, buffer, regions)) = self.selected_in_tree(id) else {
             return;
         };
         if window.buffer() != state.buffer {

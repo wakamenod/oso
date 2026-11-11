@@ -177,7 +177,7 @@ impl Editor {
     pub fn status_into(&self, id: WindowId, status: &mut Status) {
         // A prompt has no modeline: it speaks of the window beneath (ADR 0072).
         let tiled = self.tiled_id();
-        let Some((window, buffer, regions)) = self.tiled_window(id) else {
+        let Some((window, buffer, regions)) = self.window_in_tree(id) else {
             let mut echo = std::mem::take(&mut status.echo);
             echo.clear();
             self.write_echo_line(&mut echo);

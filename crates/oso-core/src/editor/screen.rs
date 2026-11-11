@@ -22,7 +22,7 @@ impl Editor {
     /// in its line if it is the selected window and no prompt is open, and none for a window
     /// that is not tiled (ADR 0112).
     pub fn screen_of(&self, id: WindowId, out: &mut Screen) {
-        let Some((window, buffer, _)) = self.tiled_window(id) else {
+        let Some((window, buffer, _)) = self.window_in_tree(id) else {
             out.clear();
             return;
         };

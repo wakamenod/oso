@@ -9,9 +9,6 @@ use oso_core::frame::{Side, Way};
 
 use super::not_in_prompt;
 
-/// What a split refused says, as Emacs's does.
-const TOO_SMALL: &str = "Window too small for splitting";
-
 /// The window commands. All are `Look`: none edits text or a file, and the person can undo
 /// any of them with keys (ADR 0112).
 pub const COMMANDS: &[Command] = &[
@@ -133,7 +130,7 @@ fn split(ctx: &mut Ctx<'_>, way: Way, select: bool) -> Result<(), CommandError> 
     not_in_prompt(ctx)?;
     ctx.editor
         .split_window(way, select)
-        .map_err(|_| CommandError::new(TOO_SMALL))?;
+        .map_err(|error| CommandError::new(error.to_string()))?;
     ctx.request_redraw();
     Ok(())
 }
@@ -165,8 +162,7 @@ fn delete_window(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn delete_other_windows(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     not_in_prompt(ctx)?;
-    if ctx.editor.frame().windows().len() > 1 {
-        ctx.editor.delete_other_windows();
+    if ctx.editor.delete_other_windows() {
         ctx.request_redraw();
     }
     Ok(())
