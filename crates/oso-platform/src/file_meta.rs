@@ -259,6 +259,47 @@ fn open_for_reading_around(
     Ok(Some((file, metadata)))
 }
 
+/// Opens the file at `path` for reading if it is itself a regular file, and gives it with its
+/// metadata, read from the open file, as [`open_for_reading`] does, but a link at its last name is
+/// not followed: `None` for a link, as for a directory, a device or a pipe. It is opened without
+/// waiting and without taking a terminal as the controlling one, so that something swapped in after
+/// the look cannot hold the thread, as when a project's ignore files are read (ADR 0114). It
+/// touches the disk, so it belongs off the UI thread.
+///
+/// # Errors
+///
+/// If the path cannot be looked at or opened, with `NotFound` if nothing is there, or if the file's
+/// flags cannot be read or set.
+pub fn open_regular_here(path: &Path) -> io::Result<Option<(File, std::fs::Metadata)>> {
+    if !std::fs::symlink_metadata(path)?.is_file() {
+        return Ok(None);
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(
+        &mut options,
+        libc::O_NONBLOCK | libc::O_NOCTTY | libc::O_NOFOLLOW,
+    );
+    // The reparse point itself, not where it leads.
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0020_0000);
+    let file = match options.open(path) {
+        Ok(file) => file,
+        // A link swapped in after the look.
+        #[cfg(unix)]
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    clear_nonblocking(&file)?;
+    Ok(Some((file, metadata)))
+}
+
 /// Takes `O_NONBLOCK` off `file`.
 #[cfg(unix)]
 fn clear_nonblocking(file: &File) -> io::Result<()> {
@@ -313,7 +354,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::{open_for_reading, open_for_reading_around, open_for_writing};
+    use super::{open_for_reading, open_for_reading_around, open_for_writing, open_regular_here};
 
     struct Scratch(PathBuf);
 
@@ -409,6 +450,36 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn opening_a_regular_file_here_follows_no_link_and_waits_for_no_pipe() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("f");
+        fs::write(&path, b"made up").unwrap();
+        let (mut file, metadata) = open_regular_here(&path).unwrap().unwrap();
+        assert_eq!(metadata.len(), 7);
+        // SAFETY: the descriptor is open while `file` is, and only its flags are read.
+        let flags = unsafe { libc::fcntl(std::os::fd::AsRawFd::as_raw_fd(&file), libc::F_GETFL) };
+        assert_eq!(flags & libc::O_NONBLOCK, 0, "the flag is cleared");
+        let mut read = String::new();
+        std::io::Read::read_to_string(&mut file, &mut read).unwrap();
+        assert_eq!(read, "made up");
+        let link = scratch.0.join("link");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(
+            open_regular_here(&link).unwrap().is_none(),
+            "a link is not followed"
+        );
+        let pipe = scratch.0.join("pipe");
+        let name = CString::new(pipe.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is NUL-terminated, outlives the call and is only read.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(open_regular_here(&pipe).unwrap().is_none());
+        assert!(open_regular_here(&scratch.0).unwrap().is_none());
+        let null = scratch.0.join("null");
+        std::os::unix::fs::symlink("/dev/null", &null).unwrap();
+        assert!(open_regular_here(&null).unwrap().is_none());
     }
 
     #[test]

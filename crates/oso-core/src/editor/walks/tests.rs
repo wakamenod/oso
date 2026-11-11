@@ -46,7 +46,9 @@ fn in_project() -> Editor {
 fn listing() -> (Editor, u64) {
     let mut editor = in_project();
     let (root, name) = editor.project_files_root().unwrap();
-    editor.open_project_files(root, &name).unwrap();
+    editor
+        .open_project_files(root, &name, "project-file")
+        .unwrap();
     let request = editor.take_walk_request().unwrap();
     (editor, request.generation)
 }
@@ -136,7 +138,7 @@ fn the_root_is_the_projects_else_the_files_directory_but_never_home_or_the_top()
 fn the_listing_opens_empty_and_pending_and_asks_for_one_walk() {
     let mut editor = in_project();
     let id = editor
-        .open_project_files(PathBuf::from("/w/oso"), "oso")
+        .open_project_files(PathBuf::from("/w/oso"), "oso", "project-file")
         .unwrap();
     assert_eq!(editor.prompt().unwrap().id(), id);
     assert_eq!(editor.prompt().unwrap().label(), "Find file in oso:");
@@ -200,7 +202,9 @@ fn a_stale_walk_and_a_closed_prompt_are_dropped_and_stop_the_walker() {
     let (mut editor, old) = listing();
     editor.quit();
     let (root, name) = editor.project_files_root().unwrap();
-    editor.open_project_files(root, &name).unwrap();
+    editor
+        .open_project_files(root, &name, "project-file")
+        .unwrap();
     let request = editor.take_walk_request().unwrap();
     assert!(request.generation > old);
     editor.files_walked(old, paths(&["stale.rs"]), None);
@@ -224,18 +228,20 @@ fn a_listing_is_refused_while_one_is_open_and_a_new_one_stops_the_walk_before() 
     let first = {
         editor.quit();
         let (root, name) = editor.project_files_root().unwrap();
-        editor.open_project_files(root, &name).unwrap();
+        editor
+            .open_project_files(root, &name, "project-file")
+            .unwrap();
         editor.take_walk_request().unwrap()
     };
     // A listing over it, as from a prompt that covers it, would leave it without its own.
     assert_eq!(
-        editor.open_project_files(PathBuf::from("/w/oso"), "oso"),
+        editor.open_project_files(PathBuf::from("/w/oso"), "oso", "project-file"),
         Err(crate::minibuffer::PromptError::Invalid)
     );
     assert_eq!(first.live.load(Ordering::Relaxed), first.generation);
     editor.quit();
     editor
-        .open_project_files(PathBuf::from("/w/oso"), "oso")
+        .open_project_files(PathBuf::from("/w/oso"), "oso", "project-file")
         .unwrap();
     let second = editor.take_walk_request().unwrap();
     assert_ne!(first.live.load(Ordering::Relaxed), first.generation);
@@ -271,13 +277,15 @@ fn ret_gives_the_whole_path_and_keeps_the_projects_own_history() {
     // The next listing of it puts that file first; another project's does not.
     let mut editor2 = editor;
     let (root, name) = editor2.project_files_root().unwrap();
-    editor2.open_project_files(root, &name).unwrap();
+    editor2
+        .open_project_files(root, &name, "project-file")
+        .unwrap();
     let generation = editor2.take_walk_request().unwrap().generation;
     editor2.files_walked(generation, paths(&["a.rs", "Cargo.toml"]), None);
     assert_eq!(rows(&editor2), ["Cargo.toml", "a.rs"]);
     editor2.quit();
     editor2
-        .open_project_files(PathBuf::from("/w/other"), "other")
+        .open_project_files(PathBuf::from("/w/other"), "other", "project-file")
         .unwrap();
     let generation = editor2.take_walk_request().unwrap().generation;
     editor2.files_walked(generation, paths(&["a.rs", "Cargo.toml"]), None);
@@ -445,7 +453,7 @@ fn a_listing_beside_a_secret_reads_and_records_no_history() {
     let secret = editor.add_buffer(crate::editor::test_buffers::secret_buffer());
     editor.show(secret);
     editor
-        .open_project_files(PathBuf::from("/w/oso"), "oso")
+        .open_project_files(PathBuf::from("/w/oso"), "oso", "project-file")
         .unwrap();
     let generation = editor.take_walk_request().unwrap().generation;
     editor.files_walked(generation, paths(&["a.rs", "Cargo.toml"]), None);
@@ -541,7 +549,9 @@ fn the_ui_threads_share_of_a_large_batch_with_history_is_under_a_millisecond() {
                     editor.histories.record("project-file:/w/oso", path);
                 }
                 let (root, name) = editor.project_files_root().unwrap();
-                editor.open_project_files(root, &name).unwrap();
+                editor
+                    .open_project_files(root, &name, "project-file")
+                    .unwrap();
                 let generation = editor.take_walk_request().unwrap().generation;
                 // 4000 rows in first, by the worker, then the largest batch merged here.
                 editor.files_walked(generation, scrambled(4000, !japanese), None);

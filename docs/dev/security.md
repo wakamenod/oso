@@ -61,12 +61,18 @@ network features.
   the command asks. `M-x untrust-project` takes the line out without asking.
   Both are `Person`, so the agent channel never runs them.
 - `C-x p f` walks a project's files in-process on its own thread, `oso-walk`,
-  and runs nothing. Links are never followed, so a link in a repository lists
-  only itself, and only when it leads to a file; opening it goes through the
-  loader's verdict, so a file that may hold secrets opens as such a buffer. The
-  project's ignore files are read as patterns and can only hide files. The
-  markers' directories and nested projects are never entered. At most 100,000
-  files are listed, and nothing of the list reaches a log
+  and runs nothing. It reads no directory above the project's root. Links are
+  never followed: a link is resolved by its words and looked at only while
+  every hop stays under the root, and one that leaves it is listed without a
+  look. Opening any row goes through the loader's verdict, so a file that may
+  hold secrets opens as such a buffer.
+- The walk reads the project's ignore files itself, as patterns only: only a
+  regular file that is not a link, opened without waiting, of at most 1 MiB.
+  The person's global excludes may be a link but must be such a file too. They
+  can only hide files. The markers' directories and nested projects, counted
+  as detection counts them, are never entered. At most 100,000 files and
+  32 MiB of paths are listed, and nothing of the list reaches a log: the
+  walker's crates write only warnings
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Trust is stored in `trusted-projects` in oso's configuration directory, by
   the root's path, device and inode (the path alone on Windows), never inside

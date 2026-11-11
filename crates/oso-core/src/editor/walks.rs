@@ -22,10 +22,6 @@ use super::Editor;
 use crate::complete::{Candidate, MAX_INPUT_BYTES, Merge, WORKER_PAST, matched_part};
 use crate::minibuffer::{PromptError, PromptId};
 
-/// The history of the files opened from a project's listing; each project has its own, under
-/// this name and its root.
-const HISTORY: &str = "project-file";
-
 /// The most paths a batch merges on the UI thread; a larger one goes to the worker, as folding
 /// and placing each costs up to half a microsecond (ADR 0114: under 1 ms a batch).
 const MERGED_HERE: usize = 1000;
@@ -131,7 +127,7 @@ impl Editor {
     }
 
     /// Opens a prompt that lists the files of the project at `root`, named `name`, as paths
-    /// from its root, and asks the host to walk it ([`Editor::take_walk_request`]). It opens
+    /// from its root, kept in the history `history`, one for each project, and asks the host to walk it ([`Editor::take_walk_request`]). It opens
     /// empty, and its count shows `…` until the walk ends. Its history is the project's own.
     /// A walk of a listing before stops at its next directory.
     ///
@@ -145,6 +141,7 @@ impl Editor {
         &mut self,
         root: PathBuf,
         name: &str,
+        history: &'static str,
     ) -> Result<PromptId, PromptError> {
         let Some(spelled) = root
             .to_str()
@@ -152,8 +149,9 @@ impl Editor {
         else {
             return Err(PromptError::Invalid);
         };
-        let key = format!("{HISTORY}:{spelled}");
-        let id = self.open_completion(format!("Find file in {name}:"), HISTORY, Arc::from([]))?;
+        // Each project has a history of its own, under the name given and its root.
+        let key = format!("{history}:{spelled}");
+        let id = self.open_completion(format!("Find file in {name}:"), history, Arc::from([]))?;
         let mut history: Arc<[String]> = Arc::from([]);
         if let Some(prompt) = self.prompts.last_mut() {
             if !prompt.around_secret {

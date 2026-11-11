@@ -38,10 +38,10 @@ impl Scratch {
     }
 
     /// Everything a walk of it lists, sorted, and whether it was cut.
-    fn walked(&self, most: usize) -> (Vec<String>, bool) {
+    fn walked(&self, limits: Limits) -> (Vec<String>, bool) {
         let mut all = Vec::new();
         let mut cut = None;
-        walk(&self.0, most, &|| false, &mut |paths, end| {
+        walk(&self.0, limits, &|| false, &mut |paths, end| {
             all.extend(paths.into_iter().map(String::from));
             if let Some(end) = end {
                 cut = Some(end.cut);
@@ -52,7 +52,7 @@ impl Scratch {
     }
 
     fn listed(&self) -> Vec<String> {
-        self.walked(MAX_WALKED).0
+        self.walked(Limits::PROJECT).0
     }
 }
 
@@ -137,17 +137,184 @@ fn a_gitignore_outside_a_git_repository_does_not_apply() {
 
 #[cfg(unix)]
 #[test]
-fn links_are_not_followed_but_a_link_to_a_file_is_listed() {
+fn links_are_not_followed_and_one_is_looked_at_only_while_it_stays_under_the_root() {
     use std::os::unix::fs::symlink;
     let scratch = Scratch::new("links");
     let outside = Scratch::new("links-outside");
     outside.file("secret/id_rsa", "");
-    let target = outside.file("notes.md", "");
     scratch.file("a.rs", "");
-    symlink(&target, scratch.0.join("notes.md")).unwrap();
+    scratch.file("sub/b.rs", "");
+    // Under the root: a file is listed, a directory and nowhere are not, and no link is entered.
+    symlink(scratch.0.join("a.rs"), scratch.0.join("to-a.rs")).unwrap();
+    symlink("sub/b.rs", scratch.0.join("to-b.rs")).unwrap();
+    symlink("sub", scratch.0.join("to-sub")).unwrap();
+    symlink("to-sub/b.rs", scratch.0.join("through-a-link.rs")).unwrap();
+    symlink("missing", scratch.0.join("dangling")).unwrap();
+    symlink("loop-b", scratch.0.join("loop-a")).unwrap();
+    symlink("loop-a", scratch.0.join("loop-b")).unwrap();
+    // Out of the root, at any hop, it is listed without a look: one leading nowhere is too.
     symlink(outside.0.join("secret"), scratch.0.join("secret")).unwrap();
-    symlink(scratch.0.join("missing"), scratch.0.join("dangling")).unwrap();
-    assert_eq!(scratch.listed(), ["a.rs", "notes.md"]);
+    symlink("../nowhere-outside", scratch.0.join("up")).unwrap();
+    symlink("to-sub/../../x", scratch.0.join("up-through-a-link")).unwrap();
+    assert_eq!(
+        scratch.listed(),
+        [
+            "a.rs",
+            "secret",
+            "sub/b.rs",
+            "through-a-link.rs",
+            "to-a.rs",
+            "to-b.rs",
+            "up",
+            "up-through-a-link"
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_ignore_file_that_is_a_link_is_not_read() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("ignore-link");
+    let outside = Scratch::new("ignore-link-outside");
+    let all = outside.file("all", "*\n");
+    scratch.dir(".git/info");
+    for name in [".rgignore", ".ignore", ".gitignore", ".git/info/exclude"] {
+        symlink(&all, scratch.0.join(name)).unwrap();
+    }
+    scratch.file("src/main.rs", "");
+    assert_eq!(
+        scratch.listed(),
+        [".gitignore", ".ignore", ".rgignore", "src/main.rs"]
+    );
+}
+
+#[test]
+fn an_ignore_file_past_its_bound_is_not_read_and_a_directory_of_its_name_is_none() {
+    let scratch = Scratch::new("ignore-large");
+    let large = format!(
+        "*\n{}",
+        "#".repeat(usize::try_from(MAX_IGNORE_FILE).unwrap())
+    );
+    scratch.file(".ignore", &large);
+    scratch.dir(".rgignore");
+    scratch.file(".rgignore/inside.rs", "");
+    scratch.file("src/main.rs", "");
+    assert_eq!(
+        scratch.listed(),
+        [".ignore", ".rgignore/inside.rs", "src/main.rs"]
+    );
+}
+
+#[test]
+fn no_ignore_file_above_the_root_is_read() {
+    let scratch = Scratch::new("above");
+    scratch.file(".ignore", "*\n");
+    scratch.file(".gitignore", "*\n");
+    scratch.dir(".git");
+    scratch.dir("project/.git");
+    scratch.file("project/src/main.rs", "");
+    let project = Scratch(scratch.0.join("project"));
+    assert_eq!(project.listed(), ["src/main.rs"]);
+    std::mem::forget(project);
+}
+
+#[test]
+fn a_deeper_ignore_file_and_a_negation_decide_and_rgignore_comes_first() {
+    let scratch = Scratch::new("precedence");
+    scratch.dir(".git");
+    scratch.file(".gitignore", "*.log\n");
+    scratch.file("keep/.gitignore", "!kept.log\n");
+    scratch.file("keep/kept.log", "");
+    scratch.file("keep/other.log", "");
+    scratch.file(".ignore", "*.tmp\n");
+    scratch.file(".rgignore", "!wanted.tmp\n");
+    scratch.file("wanted.tmp", "");
+    scratch.file("unwanted.tmp", "");
+    assert_eq!(
+        scratch.listed(),
+        [
+            ".gitignore",
+            ".ignore",
+            ".rgignore",
+            "keep/.gitignore",
+            "keep/kept.log",
+            "wanted.tmp"
+        ]
+    );
+}
+
+#[cfg(all(unix, feature = "dev"))]
+#[test]
+fn an_ignore_file_that_is_a_pipe_does_not_hold_the_walk() {
+    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+    let scratch = Scratch::new("ignore-pipe");
+    scratch.dir(".git/info");
+    scratch.file("src/main.rs", "");
+    let mkfifo = Executable::from_path("mkfifo", None).expect("mkfifo is on PATH");
+    for name in [".gitignore", ".ignore", ".git/info/exclude"] {
+        let status = spawn(&Spawn {
+            executable: &mkfifo,
+            args: &[scratch.0.join(name).into_os_string()],
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdout: Sink::Null,
+            stderr: Sink::Null,
+            own_process_group: false,
+        })
+        .and_then(|mut child| child.wait())
+        .expect("cannot run mkfifo");
+        assert!(status.success());
+    }
+    // A pipe is listed as `rg` lists one: not at all, as it is no file.
+    assert_eq!(scratch.listed(), ["src/main.rs"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_marker_counts_as_detection_counts_it() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("markers");
+    let elsewhere = Scratch::new("markers-elsewhere");
+    elsewhere.dir("repo/.git");
+    // Each of these is another project, as detection would find it.
+    scratch.dir("a/.git");
+    scratch.file("a/x.rs", "");
+    scratch.file("b/.git", "gitdir: ../.git/worktrees/b\n");
+    scratch.file("b/x.rs", "");
+    scratch.dir("c/.jj");
+    scratch.file("c/x.rs", "");
+    scratch.dir("d/.hg");
+    scratch.file("d/x.rs", "");
+    // And none of these is: a link, and a `.jj` or `.hg` that is a file.
+    scratch.dir("e");
+    symlink(elsewhere.0.join("repo/.git"), scratch.0.join("e/.git")).unwrap();
+    scratch.file("e/x.rs", "");
+    scratch.file("f/.hg", "");
+    scratch.file("f/x.rs", "");
+    scratch.file("g/.jj", "");
+    scratch.file("g/x.rs", "");
+    assert_eq!(scratch.listed(), ["e/x.rs", "f/x.rs", "g/x.rs"]);
+}
+
+#[test]
+fn a_walk_stops_at_its_bytes_of_paths_and_says_it_was_cut() {
+    let scratch = Scratch::new("bytes");
+    for index in 0..5 {
+        scratch.file(&format!("f{index}.rs"), "");
+    }
+    // Each path is 5 bytes.
+    let (listed, cut) = scratch.walked(Limits {
+        bytes: 14,
+        ..Limits::PROJECT
+    });
+    assert_eq!((listed.len(), cut), (2, true));
+    let (listed, cut) = scratch.walked(Limits {
+        bytes: 25,
+        ..Limits::PROJECT
+    });
+    assert_eq!((listed.len(), cut), (5, false));
 }
 
 #[test]
@@ -156,9 +323,15 @@ fn a_walk_lists_at_most_its_limit_and_says_it_was_cut() {
     for index in 0..5 {
         scratch.file(&format!("f{index}.rs"), "");
     }
-    let (listed, cut) = scratch.walked(3);
+    let (listed, cut) = scratch.walked(Limits {
+        files: 3,
+        ..Limits::PROJECT
+    });
     assert_eq!((listed.len(), cut), (3, true));
-    let (listed, cut) = scratch.walked(5);
+    let (listed, cut) = scratch.walked(Limits {
+        files: 5,
+        ..Limits::PROJECT
+    });
     assert_eq!((listed.len(), cut), (5, false), "exactly the limit is all");
 }
 
@@ -174,7 +347,7 @@ fn a_stopped_walk_ends_at_its_next_entry_with_no_last_batch() {
         looked.get() > 3
     };
     let mut batches = 0;
-    walk(&scratch.0, MAX_WALKED, &stop, &mut |_, _| batches += 1);
+    walk(&scratch.0, Limits::PROJECT, &stop, &mut |_, _| batches += 1);
     assert_eq!(batches, 0);
     assert_eq!(looked.get(), 4, "stopped as soon as it looked");
 }
@@ -217,7 +390,7 @@ fn a_walk_of_a_large_tree_takes_about_as_long_as_rg() {
         .map(|_| {
             let started = std::time::Instant::now();
             let mut count = 0;
-            walk(&tree, MAX_WALKED, &|| false, &mut |paths, _| {
+            walk(&tree, Limits::PROJECT, &|| false, &mut |paths, _| {
                 count += paths.len()
             });
             (started.elapsed(), count)

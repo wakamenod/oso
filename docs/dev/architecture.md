@@ -486,9 +486,11 @@ The UI thread never blocks on I/O or parsing:
   roots of its moment, so the thread never reads the record itself
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - A project's files for `C-x p f` are walked on a thread of their own, `oso-walk`
-  (`crates/oso/src/walk.rs`, glue in `app/walks.rs`), with the `ignore` crate's walker: hidden
-  files in, the markers and nested projects out, links not followed, ripgrep's ignore files read
-  as patterns, at most 100,000 files. Paths come back in batches every 50 ms with the listing's
+  (`crates/oso/src/walk.rs`, glue in `app/walks.rs`): a depth-first walk of its own, matching
+  with a stack of the `ignore` crate's gitignore matchers in ripgrep's order, built from ignore
+  files it reads itself (regular, no link, no wait, at most 1 MiB, none above the root). Hidden
+  files are in, the markers and nested projects out, links are not followed, at most 100,000
+  files and 32 MiB of paths. Paths come back in batches every 50 ms with the listing's
   generation (`UserEvent::Walked`), and a newer listing or the prompt closing moves a shared
   generation on, which stops the walk. The editor merges each batch into the list
   (`editor/walks.rs`, `complete/merge.rs`): sorted on its own and put in place by binary search,

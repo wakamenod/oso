@@ -152,7 +152,7 @@ impl Dispatcher {
             ArgSpec::File { prompt, history } => {
                 self.read_file(editor, id, prefix, prompt, history)
             }
-            ArgSpec::ProjectFile { .. } => self.read_project_file(editor, id, prefix),
+            ArgSpec::ProjectFile { history } => self.read_project_file(editor, id, prefix, history),
             _ => self.execute(
                 editor,
                 id,
@@ -205,13 +205,14 @@ impl Dispatcher {
 
     /// Opens the prompt that lists the files of the current buffer's project for the command
     /// `id`, or of its directory outside one, unless a prompt is selected (ADR 0114). The host
-    /// walks the project, and the list grows as it does. The editor keeps the history, one for
-    /// each project.
+    /// walks the project, and the list grows as it does. The history is the spec's, one for each
+    /// project.
     fn read_project_file(
         &mut self,
         editor: &mut Editor,
         id: CommandId,
         prefix: Option<Prefix>,
+        history: &'static str,
     ) -> (Effects, Result<(), ExecuteError>) {
         let effects = Effects {
             redraw: true,
@@ -228,7 +229,7 @@ impl Dispatcher {
                 return (effects, Ok(()));
             }
         };
-        match editor.open_project_files(root, &name) {
+        match editor.open_project_files(root, &name, history) {
             Ok(prompt) => self.reading.push(Reading {
                 id,
                 prefix,
