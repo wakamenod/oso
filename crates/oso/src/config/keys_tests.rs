@@ -314,3 +314,59 @@ fn a_sequence_has_at_most_max_keys() {
     );
     assert_eq!(f.bound(keys(&loaded), &fits), Some("undo"));
 }
+
+/// The default keys are read as the resolver reads them: a key bound to nothing is taken without
+/// Shift, so `S-<left>` runs `<left>`'s command and `C-X` begins `C-x`'s keys.
+#[test]
+fn shifted_keys_shadow_the_defaults_they_reach_without_shift() {
+    let f = Fixture::new();
+    let mut under = 0;
+    let Some(Binding::Prefix(prefix)) = f.defaults.lookup(&"C-x".parse::<KeySequence>().unwrap().0)
+    else {
+        panic!("C-x is a default prefix");
+    };
+    prefix.bindings(|_, _| under += 1);
+    let cases = [
+        (
+            r#""S-<left> x" = "undo""#,
+            r#"2:1: "S-<left> x": "S-<left>" runs backward-char by default; add "S-<left>" = false to make it a prefix"#.to_owned(),
+        ),
+        (
+            r#""C-A x" = "undo""#,
+            r#"2:1: "C-A x": "C-A" runs mwim-beginning-of-code-or-line by default; add "C-A" = false to make it a prefix"#.to_owned(),
+        ),
+        (
+            r#""C-a x" = false"#,
+            r#"2:1: "C-a x": "C-a" runs mwim-beginning-of-code-or-line by default; add "C-a" = false to make it a prefix"#.to_owned(),
+        ),
+        (
+            r#""C-X 4" = "undo""#,
+            format!(r#"2:1: "C-X 4": "C-X" begins the keys under "C-x" by default, without Shift; this makes it a prefix of its own and hides those {under} default keys"#),
+        ),
+        (
+            r#""C-X C-F" = false"#,
+            format!(r#"2:1: "C-X C-F": "C-X" begins the keys under "C-x" by default, without Shift; this makes it a prefix of its own and hides those {under} default keys"#),
+        ),
+        (
+            r#""C-X" = "undo""#,
+            format!(r#"2:1: "C-X": begins the keys under "C-x" by default, without Shift; this hides those {under} default keys"#),
+        ),
+    ];
+    for (entry, message) in cases {
+        let loaded = f.parse(&format!("[keys.global]\n{entry}\n"));
+        assert_eq!(messages(&loaded), [message], "{entry}");
+    }
+    let user = |text: &str| f.parse(&format!("[keys.global]\n{text}\n"));
+    let loaded = user(r#""S-<left> x" = "undo""#);
+    assert!(keys(&loaded).is_empty(), "S-<left> still selects");
+    let loaded = user(r#""C-a x" = false"#);
+    assert!(keys(&loaded).is_empty(), "C-a still runs its command");
+
+    // Each prefix is warned of once, and not at all where the file unbinds it.
+    let loaded = user("\"C-X 4\" = \"undo\"\n\"C-X 5\" = \"undo\"");
+    assert_eq!(loaded.problems.len(), 1, "{:?}", messages(&loaded));
+    let loaded =
+        user("\"C-X\" = false\n\"C-X 4\" = \"undo\"\n\"C-A\" = false\n\"C-A x\" = \"undo\"");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert_eq!(f.bound(keys(&loaded), "C-A x"), Some("undo"));
+}

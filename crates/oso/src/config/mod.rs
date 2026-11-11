@@ -13,6 +13,7 @@
 //! - Otherwise each entry that is wrong is skipped with a problem, and the rest applies.
 //!   Unknown tables and names are skipped too, so a file written for a newer oso still loads.
 
+mod defaults;
 mod keys;
 mod problems;
 mod settings;

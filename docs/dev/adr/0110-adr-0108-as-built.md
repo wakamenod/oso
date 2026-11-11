@@ -53,6 +53,11 @@ the same day.
 
 ### Step 2: parsing the file
 
+- **The dependency:** `toml` 1.1.8, as ADR 0108 says, at the newest release at least two weeks
+  old; `serde_spanned` and `toml_datetime` are held at 1.1.2 for the same reason. `toml_parser`
+  goes from 1.1.2 to 1.1.5 and `toml_datetime` from 1.1.1 to 1.1.2 for the Android-only proc
+  macro too, which shares them. `toml_writer` joins the lock as `toml`'s optional `display`
+  dependency and is never built.
 - **`config::parse(text, registry, defaults, themes)` is a pure function:** the file's text, the
   registry and default keymap the keys are checked against, and the built-in themes' names, in;
   the user's keymap, the settings and the problems out. It does no I/O and never panics. The
@@ -86,6 +91,15 @@ the same day.
 - **D1's warning counts the default keys bound to commands under the prefix,** at every level:
   `"C-x" = "cmd"` says "a prefix by default; this hides the N default keys under it". It says
   nothing when the file unbinds that key or a shorter one of it, which hides them anyway.
+- **The default keys are read as the resolver reads keys,** with Shift dropped from a key bound
+  to nothing: an entry is pressed through a resolver over the defaults alone. So `"S-<left> x"`
+  and `"C-A x"` are prefixes over a default command (`S-<left>` runs `<left>`'s), and need
+  `"S-<left>" = false` or `"C-A" = false`. An entry whose keys begin a default prefix only without
+  Shift, such as `"C-X 4"` or `"C-X C-F" = false`, makes `C-X` a prefix of the user's own, which
+  no longer reaches `C-x`'s keys: it applies, and `*Messages*` says how many it hides, once for
+  each such prefix.
+- **An unbinding is checked as a binding is:** `"C-a x" = false` would make `C-a` a prefix, and is
+  refused unless `"C-a" = false` is there too.
 - **Unbinding comes before binding,** and within each, shorter sequences before longer ones,
   then the spelling in byte order. So an unbinding wins over a binding it conflicts with
   (`"C-c z a" = false` beside `"C-c z" = "cmd"` skips the second); between bindings, the longer

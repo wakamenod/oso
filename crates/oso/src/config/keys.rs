@@ -10,11 +10,12 @@ use std::collections::HashSet;
 use oso_core::command::{CommandId, Registry};
 use oso_core::key::KeyPress;
 use oso_core::keymap::{
-    BindError, Binding, KeyResolver, Keymap, Layers, Resolution, display_keys, is_cancel,
+    BindError, KeyResolver, Keymap, Layers, Resolution, display_keys, is_cancel,
 };
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
+use super::defaults::Shadows;
 use super::problems::{Found, quoted};
 use super::{TableName, table, type_name};
 
@@ -27,12 +28,12 @@ pub const MAX_ENTRIES: usize = 10_000;
 pub const MAX_KEYS: usize = 16;
 
 /// One entry of `[keys.global]` whose keys parse and may be configured.
-struct Entry<'t> {
+pub(super) struct Entry<'t> {
     /// The keys as the file spells them.
-    spelled: &'t str,
+    pub(super) spelled: &'t str,
     /// Where the keys are in the file.
-    at: usize,
-    keys: Vec<KeyPress>,
+    pub(super) at: usize,
+    pub(super) keys: Vec<KeyPress>,
 }
 
 /// The user's keymap from the `[keys]` table `value`, whose name is at `at`. Entries with a
@@ -101,21 +102,23 @@ fn global(
         (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled))
     });
     let unbound: HashSet<&[KeyPress]> = unbinds.iter().map(|entry| &entry.keys[..]).collect();
+    let mut shadows = Shadows::new(registry, defaults, &unbound);
+    // An unbinding that is refused is still among `unbound`: one under it is refused for the same
+    // keys, which the walk meets first.
+    let unbinds: Vec<&Entry<'_>> = unbinds
+        .iter()
+        .filter(|entry| shadows.allows(entry, found))
+        .collect();
     for entry in &unbinds {
         // Nothing is bound to a command yet, so only an empty sequence could fail, and
         // `read` keeps none.
         let _ = keymap.unbind(&entry.keys);
+        shadows.warn(entry, false, found);
     }
     for (entry, command) in &binds {
-        bind(
-            &mut keymap,
-            entry,
-            *command,
-            registry,
-            defaults,
-            &unbound,
-            found,
-        );
+        if shadows.allows(entry, found) && bind(&mut keymap, entry, *command, found) {
+            shadows.warn(entry, true, found);
+        }
     }
     for entry in &unbinds {
         warn_if_shift_finds_more(&keymap, entry, defaults, found);
@@ -225,99 +228,35 @@ fn entry<'t>(
     Some(Entry { spelled, at, keys })
 }
 
-/// Binds `entry` to `command`, unless it would make a prefix of a default command that the file
-/// does not unbind (D1 in ADR 0110), or conflicts with the file's other entries.
-fn bind(
-    keymap: &mut Keymap,
-    entry: &Entry<'_>,
-    command: CommandId,
-    registry: &Registry,
-    defaults: &Keymap,
-    unbound: &HashSet<&[KeyPress]>,
-    found: &mut Found,
-) {
-    let keys = &entry.keys[..];
-    let hidden = |len: usize| (1..=len).any(|len| unbound.contains(&keys[..len]));
-    let default = defaults_along(defaults, keys);
-    if let Along::Command(len, default) = default
-        && !hidden(len)
-    {
-        let prefix = quoted(display_keys(&keys[..len]));
-        let name = registry
-            .get(default)
-            .map_or("a command", |command| command.name);
-        found.about(
-            entry.at,
-            entry.spelled,
+/// Binds `entry` to `command`, unless it conflicts with the file's other entries. Whether it
+/// bound.
+fn bind(keymap: &mut Keymap, entry: &Entry<'_>, command: CommandId, found: &mut Found) -> bool {
+    let Err(error) = keymap.bind(&entry.keys, command) else {
+        return true;
+    };
+    let (at, spelled) = (entry.at, entry.spelled);
+    match error {
+        BindError::AlreadyBound => found.about(
+            at,
+            spelled,
+            format_args!("these keys are set more than once; skipped"),
+        ),
+        BindError::IsPrefix => found.about(
+            at,
+            spelled,
+            format_args!("other entries set keys after these; skipped"),
+        ),
+        BindError::NonPrefix { len } => found.about(
+            at,
+            spelled,
             format_args!(
-                "{prefix} runs {name} by default; add {prefix} = false to make it a prefix"
+                "{} is bound to a command here, so it cannot be a prefix; skipped",
+                quoted(display_keys(&entry.keys[..len]))
             ),
-        );
-        return;
+        ),
+        BindError::Empty => found.about(at, spelled, format_args!("no keys; skipped")),
     }
-    if let Err(error) = keymap.bind(keys, command) {
-        let (at, spelled) = (entry.at, entry.spelled);
-        match error {
-            BindError::AlreadyBound => found.about(
-                at,
-                spelled,
-                format_args!("these keys are set more than once; skipped"),
-            ),
-            BindError::IsPrefix => found.about(
-                at,
-                spelled,
-                format_args!("other entries set keys after these; skipped"),
-            ),
-            BindError::NonPrefix { len } => found.about(
-                at,
-                spelled,
-                format_args!(
-                    "{} is bound to a command here, so it cannot be a prefix; skipped",
-                    quoted(display_keys(&keys[..len]))
-                ),
-            ),
-            BindError::Empty => found.about(at, spelled, format_args!("no keys; skipped")),
-        }
-        return;
-    }
-    if let Along::Prefix(under) = default
-        && !hidden(keys.len())
-    {
-        let mut count = 0;
-        under.bindings(|_, _| count += 1);
-        found.about(
-            entry.at,
-            entry.spelled,
-            format_args!(
-                "a prefix by default; this hides the {count} default key{} under it",
-                if count == 1 { "" } else { "s" }
-            ),
-        );
-    }
-}
-
-/// What the default keys have along a sequence.
-enum Along<'d> {
-    /// A command on its first `len` keys, shorter than the sequence.
-    Command(usize, CommandId),
-    /// A prefix on the whole sequence.
-    Prefix(&'d Keymap),
-    Nothing,
-}
-
-/// What the defaults have along `keys`, in one walk down their prefix keymaps.
-fn defaults_along<'d>(defaults: &'d Keymap, keys: &[KeyPress]) -> Along<'d> {
-    let mut level = defaults;
-    for (i, key) in keys.iter().enumerate() {
-        let whole = i + 1 == keys.len();
-        match level.get(*key) {
-            Some(Binding::Prefix(under)) if whole => return Along::Prefix(under),
-            Some(Binding::Prefix(under)) => level = under,
-            Some(Binding::Command(command)) if !whole => return Along::Command(i + 1, command),
-            Some(Binding::Command(_) | Binding::Undefined) | None => break,
-        }
-    }
-    Along::Nothing
+    false
 }
 
 /// Warns that an unbinding does nothing, when its last key has Shift and the same keys without
