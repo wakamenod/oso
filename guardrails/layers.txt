@@ -16,7 +16,7 @@
 
 [workspace]
 oso
-oso-render
+oso-render oso-syntax
 oso-core oso-platform
 
 [oso-core]
@@ -29,7 +29,7 @@ window word
 buffer motion search
 undo kill
 load selection
-display_map
+display_map syntax
 complete decode key project rope secret
 sum_tree
 
@@ -58,3 +58,8 @@ saver
 lister
 commands dev keys loader text
 channel project
+
+[oso-syntax]
+crate
+document
+edit language

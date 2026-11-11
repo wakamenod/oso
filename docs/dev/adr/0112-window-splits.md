@@ -66,8 +66,14 @@ marked (question N) was one of those choices, listed under [Questions](#question
   way.
 - **Smallest window (question 1):**
   - A split is refused when either half would have fewer than 2 text rows above its modeline, or
-    fewer than 10 text columns beside its gutter, ADR 0104's narrowest wrap. It says "Window too
-    small for splitting".
+    fewer than 10 text columns, ADR 0104's narrowest wrap, beside the narrowest gutter: 4
+    columns while line numbers are on, none while they are off. It says "Window too small for
+    splitting". Resizing stops at the same size.
+  - A window's own gutter never counts there. It grows with its buffer's line count, which a
+    buffer that may hold secrets in another window must not give away through where a split or
+    a resize stops (ADR 0097). A buffer of 1000 lines or more has a wider gutter, so a window
+    of it at the smallest size keeps fewer than 10 text columns, and does not wrap until it is
+    wider (ADR 0104).
   - When the frame shrinks, every window keeps at least 1 text row and its modeline, and 1 text
     column. Its gutter goes first, as ADR 0097 has it for a narrow frame.
   - When even that does not fit, the windows that do not fit get no cells and are not drawn, those
@@ -287,10 +293,17 @@ file or a 10 MB line.
     the tree and the cells, tested without an editor; `frame::Way` (`Across`, `Down`);
   - `frame::layout` taking the tree; `FrameLayout::windows` and `FrameLayout::hit`;
     `WindowRegions::divider`;
-  - `Editor`'s window methods: `split`, `delete_window`, `delete_other_windows`,
-    `select_window`, `other_window`, `windmove`, `resize`, `balance`, `windows_in_order`, and
-    `status_into`, `gutter_into` and the cell functions taking a window's id;
+  - `Editor`'s window methods: `split_window`, `delete_window`, `delete_other_windows`,
+    `select_window`, `other_window`, `windmove`, `resize_window` and `balance_windows`, with
+    `frame::Side` and the refusals `frame::TooSmall`, `editor::SoleWindow`,
+    `editor::NoWindow` and `editor::CannotResize`; `screen_of`, and `status_into`,
+    `gutter_into` and the cell functions taking a window's id. The tree's order is
+    `FrameLayout::windows`;
   - no new public module: `Splits` and `Way` go in `frame`, `WindowId` in `window`.
+- **As built, step 2:** the window commands are registered only in tests until step 3 draws
+  every window and binds their keys, so the app never shows a frame with windows it does not
+  draw. `windmove-up` and `windmove-down` say "No window up from selected window" and "…down…",
+  as Emacs's `windmove` does.
 - **`oso-render`:** `Face::ModelineInactive` and `Face::Divider`, and a divider pane drawn as a
   line.
 - **`oso-platform`:** the wheel event's position.

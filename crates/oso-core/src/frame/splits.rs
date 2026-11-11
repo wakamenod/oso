@@ -11,24 +11,19 @@
 //! the tree first sets the weights it touches to the cells laid out, so that it works in
 //! cells and keeps what the person sees.
 
-// The editor splits, removes, resizes and balances windows from ADR 0112's step 2.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the window commands come in ADR 0112's step 2")
-)]
-
-use super::{CellRect, FrameLayout, FrameSize, WindowRegions, fitting_gutter};
+use super::{CellRect, FrameLayout, WindowRegions};
 use crate::window::WindowId;
+use cells::{distribute, window_regions};
 
 /// The fewest text rows each half of a split keeps, above its modeline.
 const SPLIT_ROWS: usize = 2;
-/// The fewest text columns each half of a split keeps, beside its gutter: the narrowest a
-/// window wraps at (ADR 0104).
+/// The fewest text columns each half of a split keeps, beside the narrowest gutter: the
+/// narrowest a window wraps at (ADR 0104).
 const SPLIT_COLUMNS: usize = 10;
 
 /// How a run lays out its children.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Way {
+pub enum Way {
     /// Side by side, from the left.
     Across,
     /// Stacked, from the top.
@@ -37,7 +32,7 @@ pub(crate) enum Way {
 
 /// A side of a window, for the window next to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Side {
+pub enum Side {
     Left,
     Right,
     Up,
@@ -46,12 +41,24 @@ pub(crate) enum Side {
 
 /// A split refused, as a half would be smaller than a window may be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TooSmall;
+pub struct TooSmall;
+
+impl std::fmt::Display for TooSmall {
+    /// As Emacs says it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Window too small for splitting")
+    }
+}
+
+impl std::error::Error for TooSmall {}
 
 /// The tiled windows of a frame, as a tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Splits {
     root: Node,
+    /// The columns the narrowest gutter takes while line numbers are on, and 0 while they
+    /// are off, which the smallest window counts in place of its own gutter (ADR 0112).
+    gutter: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,7 +84,15 @@ impl Splits {
     pub(crate) fn new(window: WindowId) -> Self {
         Self {
             root: Node::Window(window),
+            gutter: 0,
         }
+    }
+
+    /// Counts a gutter of `columns` beside each window's 10 text columns in the smallest a
+    /// split or a resize leaves: the narrowest gutter while line numbers are on, 0 while they
+    /// are off.
+    pub(crate) fn set_gutter(&mut self, columns: usize) {
+        self.gutter = columns;
     }
 
     /// The windows in the tree's order: left to right, top to bottom.
@@ -95,7 +110,12 @@ impl Splits {
     /// Splits `at` into two, `at` above or at the left and `new` below or at the right, as
     /// `layout` lays it out. They share its cells, `new` taking the smaller half when they
     /// are odd, and no other window changes. Refused when either half would keep fewer than
-    /// 2 text rows above its modeline, or fewer than 10 text columns beside its gutter.
+    /// 2 text rows above its modeline, or fewer than 10 text columns beside the narrowest
+    /// gutter ([`Splits::set_gutter`]). A window's own gutter never counts: it grows with its
+    /// buffer's line count, which a buffer that may hold secrets must not give away through
+    /// where a split or a resize stops (ADR 0097). A gutter wider than the narrowest leaves
+    /// fewer text columns, down to the 1 a layout keeps, and a window narrower than 10 then
+    /// does not wrap (ADR 0104).
     pub(crate) fn split(
         &mut self,
         at: WindowId,
@@ -108,7 +128,7 @@ impl Splits {
         // Each half keeps the rows and the columns a window needs, along the split and
         // across it.
         let rows = SPLIT_ROWS + 1;
-        let columns = regions.gutter.columns + SPLIT_COLUMNS;
+        let columns = self.gutter + SPLIT_COLUMNS;
         let divider = usize::from(regions.divider.is_some());
         let (total, first_least, second_least, across_ok) = match way {
             Way::Down => (outer.rows, rows, rows, outer.columns >= columns + divider),
@@ -160,7 +180,9 @@ impl Splits {
         cells: isize,
         layout: &FrameLayout,
     ) -> isize {
-        self.root.resize(window, way, cells, layout).unwrap_or(0)
+        self.root
+            .resize(window, way, cells, (layout, self.gutter))
+            .unwrap_or(0)
     }
 
     /// Divides `area` among the windows, the regions going into `out` in the tree's order.
@@ -255,16 +277,17 @@ impl Node {
         window: WindowId,
         way: Way,
         cells: isize,
-        layout: &FrameLayout,
+        (layout, gutter): (&FrameLayout, usize),
     ) -> Option<isize> {
         let Self::Run(run) = self else {
             return None;
         };
         let index = run.children.iter().position(|c| c.node.contains(window))?;
-        if let Some(moved) = run.children[index].node.resize(window, way, cells, layout) {
+        let inner = (layout, gutter);
+        if let Some(moved) = run.children[index].node.resize(window, way, cells, inner) {
             return Some(moved);
         }
-        (run.way == way).then(|| run.resize(index, cells, layout))
+        (run.way == way).then(|| run.resize(index, cells, inner))
     }
 
     /// The cells it takes along `way` in `layout`: from the first of its windows' cells to
@@ -290,8 +313,9 @@ impl Node {
         span.map_or(0, |(start, end)| end - start)
     }
 
-    /// The fewest cells it can take along `way` while each window keeps what a split leaves.
-    fn least(&self, way: Way, layout: &FrameLayout) -> usize {
+    /// The fewest cells it can take along `way` while each window keeps what a split leaves,
+    /// beside a gutter of `gutter` columns.
+    fn least(&self, way: Way, layout: &FrameLayout, gutter: usize) -> usize {
         match self {
             Self::Window(id) => {
                 let Some(regions) = layout.regions(*id) else {
@@ -299,15 +323,14 @@ impl Node {
                 };
                 match way {
                     Way::Down => SPLIT_ROWS + 1,
-                    Way::Across => {
-                        regions.gutter.columns
-                            + SPLIT_COLUMNS
-                            + usize::from(regions.divider.is_some())
-                    }
+                    Way::Across => gutter + SPLIT_COLUMNS + usize::from(regions.divider.is_some()),
                 }
             }
             Self::Run(run) => {
-                let each = run.children.iter().map(|c| c.node.least(way, layout));
+                let each = run
+                    .children
+                    .iter()
+                    .map(|c| c.node.least(way, layout, gutter));
                 if run.way == way {
                     each.sum()
                 } else {
@@ -438,12 +461,17 @@ impl Run {
         removed
     }
 
-    fn resize(&mut self, index: usize, cells: isize, layout: &FrameLayout) -> isize {
+    fn resize(
+        &mut self,
+        index: usize,
+        cells: isize,
+        (layout, gutter): (&FrameLayout, usize),
+    ) -> isize {
         self.reset(layout);
         let least: Vec<usize> = self
             .children
             .iter()
-            .map(|c| c.node.least(self.way, layout))
+            .map(|c| c.node.least(self.way, layout, gutter))
             .collect();
         let spare = |child: &Child, least: usize| child.weight.saturating_sub(least);
         if cells >= 0 {
@@ -474,120 +502,6 @@ impl Run {
     }
 }
 
-/// A window's regions in `area`: a divider at its right while a window is to its right, its
-/// modeline at its bottom, and its gutter at the left of the text while the text keeps a
-/// column. A window that has all the tiled area lays out as the one window always has
-/// (ADR 0057).
-fn window_regions(area: CellRect, right: bool, gutter: usize) -> WindowRegions {
-    let divider = (right && area.columns >= 2).then(|| CellRect {
-        column: area.column + area.columns - 1,
-        columns: 1,
-        ..area
-    });
-    let columns = area.columns - usize::from(divider.is_some());
-    let modeline_rows = area.rows.saturating_sub(1).min(1);
-    let text_rows = area.rows - modeline_rows;
-    let gutter = fitting_gutter(
-        FrameSize {
-            rows: area.rows,
-            columns,
-        },
-        gutter,
-    );
-    let text = CellRect {
-        rows: text_rows,
-        ..area
-    };
-    WindowRegions {
-        gutter: CellRect {
-            columns: gutter,
-            ..text
-        },
-        text: CellRect {
-            column: area.column + gutter,
-            columns: columns - gutter,
-            ..text
-        },
-        modeline: CellRect {
-            row: area.row + text_rows,
-            rows: modeline_rows,
-            columns,
-            ..area
-        },
-        divider,
-    }
-}
-
-/// Divides `total` cells among children of `weights` by the largest remainder, each getting
-/// at least what it `needs`. When their needs do not fit, the last children get none, but
-/// `kept`, which takes all there is when even its own needs do not fit.
-fn distribute(total: usize, weights: &[usize], needs: &[usize], kept: usize) -> Vec<usize> {
-    let mut shown = vec![true; weights.len()];
-    let mut needed: usize = needs.iter().sum();
-    for i in (0..weights.len()).rev() {
-        if needed <= total {
-            break;
-        }
-        if i != kept {
-            shown[i] = false;
-            needed -= needs[i];
-        }
-    }
-    let mut cells = vec![0; weights.len()];
-    // Children held at their needs, which their share would not give them.
-    let mut held = vec![false; weights.len()];
-    loop {
-        let free: Vec<usize> = (0..weights.len())
-            .filter(|&i| shown[i] && !held[i])
-            .collect();
-        let fixed: usize = (0..weights.len())
-            .filter(|&i| shown[i] && held[i])
-            .map(|i| needs[i])
-            .sum();
-        let left = total.saturating_sub(fixed);
-        let shares = largest_remainder(left, free.iter().map(|&i| weights[i]));
-        let mut changed = false;
-        for (&i, share) in free.iter().zip(shares) {
-            cells[i] = share;
-            if share < needs[i] && needed <= total {
-                held[i] = true;
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-    for i in 0..weights.len() {
-        if shown[i] && held[i] {
-            cells[i] = needs[i];
-        }
-    }
-    cells
-}
-
-/// `total` divided in proportion to `weights`, the cells left over by rounding down going
-/// one each to the largest remainders, the earlier first on a tie.
-fn largest_remainder(total: usize, weights: impl Iterator<Item = usize> + Clone) -> Vec<usize> {
-    let sum: u128 = weights.clone().map(|w| w as u128).sum();
-    if sum == 0 {
-        return weights.map(|_| 0).collect();
-    }
-    let total_wide = total as u128;
-    let mut shares: Vec<(usize, u128)> = weights
-        .map(|w| {
-            let exact = total_wide * w as u128;
-            ((exact / sum) as usize, exact % sum)
-        })
-        .collect();
-    let given: usize = shares.iter().map(|(cells, _)| cells).sum();
-    let mut order: Vec<usize> = (0..shares.len()).collect();
-    order.sort_by(|&a, &b| shares[b].1.cmp(&shares[a].1).then(a.cmp(&b)));
-    for &i in order.iter().take(total - given) {
-        shares[i].0 += 1;
-    }
-    shares.into_iter().map(|(cells, _)| cells).collect()
-}
-
+mod cells;
 #[cfg(test)]
 mod tests;

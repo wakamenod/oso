@@ -29,6 +29,7 @@ mod search;
 mod secret;
 pub mod selection;
 pub mod sum_tree;
+pub mod syntax;
 mod undo;
 pub mod window;
 pub mod word;

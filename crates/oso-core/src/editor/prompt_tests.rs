@@ -87,7 +87,7 @@ fn the_modeline_speaks_of_the_window_beneath() {
     let mut editor = editor(3);
     editor.open_prompt("Go to line: ", NUMBER).unwrap();
     let mut status = super::Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     assert!(status.name.contains("notes.txt"));
 }
 
@@ -201,7 +201,7 @@ fn a_region_in_the_answer_takes_its_cells_and_not_the_window_beneath() {
             columns: 3,
         }]
     );
-    editor.region_cells(&editor.screen_now(), &mut cells);
+    editor.region_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
     assert!(cells.is_empty(), "the window beneath has none");
 }
 

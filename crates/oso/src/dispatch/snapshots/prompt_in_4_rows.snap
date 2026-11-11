@@ -6,7 +6,7 @@ keys: M-g g 1
 │notes                                                           │
 :o                                                               :
 │                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                             =
+--- test  1:0  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 2 x 40
 │  Go to line:                           │

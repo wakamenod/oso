@@ -14,10 +14,12 @@
 //! changed on disk asks the same way before a save goes over it.
 
 use std::fmt;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use super::Editor;
 use super::follow::clip_selections;
+use super::trim::{Then, Trimmed};
 use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp, ReadOnly, Replacement};
 use crate::rope::Rope;
 
@@ -203,13 +205,61 @@ impl Editor {
         // An unmodified buffer stays as it is unless the file has gone, which only the
         // host can tell, and then it holds what the file held.
         let only_if_gone = !buffer.is_modified();
-        let line_break = missing_final_newline(buffer).filter(|_| !only_if_gone);
         // `y` saves over the file of the buffer the question was asked of, and no other.
         let asked = self.save_over_asked.take();
         if found.is_some() && (!over || asked != Some(id)) {
             self.save_over_asked = Some(id);
             return Err(SaveRefused::ChangedOnDisk);
         }
+        let (trimmed, kept) = if only_if_gone {
+            // Its text goes back as it was: nothing to clean.
+            (false, Vec::new())
+        } else {
+            match self.trim_for_save(id, Then::Save { over }) {
+                Trimmed::Done { changed, kept } => (changed, kept),
+                Trimmed::Waiting => return Ok(false),
+            }
+        };
+        let newline = self.finish_save(id, found, only_if_gone, kept);
+        Ok(trimmed || newline)
+    }
+
+    /// Goes on with a save of `id` that waited for whitespace cleanup, as
+    /// [`Editor::queue_save`] would have, with the person's agreement to go over a file
+    /// changed on disk if `over`, keeping `kept` edited. Returns whether a final newline went
+    /// in.
+    pub(super) fn save_after_trim(
+        &mut self,
+        id: BufferId,
+        over: bool,
+        kept: Vec<Range<usize>>,
+    ) -> Result<bool, SaveRefused> {
+        let buffer = self.buffer(id).ok_or(SaveRefused::NoFile)?;
+        if let Some(refused) = refusal(buffer) {
+            return Err(refused);
+        }
+        let found = buffer.save_over().filter(|_| buffer.is_modified());
+        if found.is_some() && !over {
+            return Err(SaveRefused::ChangedOnDisk);
+        }
+        let only_if_gone = !buffer.is_modified();
+        Ok(self.finish_save(id, found, only_if_gone, kept))
+    }
+
+    /// Ensures the final newline of `id`, and queues its job, over `found` if the person
+    /// agreed to save over it. The job takes what was edited, but for `kept`, the whitespace
+    /// a cursor kept, which stays edited. Returns whether the newline went in.
+    fn finish_save(
+        &mut self,
+        id: BufferId,
+        found: Option<FileStamp>,
+        only_if_gone: bool,
+        kept: Vec<Range<usize>>,
+    ) -> bool {
+        let line_break = self
+            .buffer(id)
+            .and_then(missing_final_newline)
+            .filter(|_| !only_if_gone);
         if let Some(line_break) = line_break {
             self.insert_final_newline(id, line_break);
         }
@@ -235,15 +285,20 @@ impl Editor {
                 elsewhere: None,
             };
             buffer.set_saving(true);
+            // After the final newline, which marks no line as edited.
+            buffer.save_took_edits(kept);
             self.save_jobs.push(job);
         }
-        Ok(line_break.is_some())
+        line_break.is_some()
     }
 
-    /// Adds `line_break` at the end of `id`, the selected window's buffer, and
-    /// keeps the cursors that were at the end where they were.
+    /// Adds `line_break` at the end of `id`, and keeps the cursors that were at the end, in
+    /// every window showing it, where they were.
     pub(super) fn insert_final_newline(&mut self, id: BufferId, line_break: &str) {
-        let old_end = self.current().1.text().len();
+        let Some(buffer) = self.buffer(id) else {
+            return;
+        };
+        let old_end = buffer.text().len();
         let edit = Replacement {
             range: old_end..old_end,
             text: line_break,
@@ -253,16 +308,24 @@ impl Editor {
             return;
         }
         let new_end = old_end + line_break.len();
-        let display = self.current().1.display();
-        let selections = &mut self.windows[self.selected].selections;
-        selections.update(|selection| {
-            if selection.cursor == new_end {
-                selection.cursor = old_end;
-            }
-            Ok::<(), ()>(())
-        });
-        // A `\n` after a lone `\r` makes one cluster of the two.
-        clip_selections(selections, &display, &[], true, None);
+        let Some(display) = self.buffer(id).map(Buffer::display) else {
+            return;
+        };
+        for window in self
+            .windows
+            .iter_mut()
+            .filter(|window| window.buffer() == id)
+        {
+            let selections = &mut window.selections;
+            selections.update(|selection| {
+                if selection.cursor == new_end {
+                    selection.cursor = old_end;
+                }
+                Ok::<(), ()>(())
+            });
+            // A `\n` after a lone `\r` makes one cluster of the two.
+            clip_selections(selections, &display, &[], true, None);
+        }
     }
 
     /// The saves queued and not yet taken, each with the text it is to write.
@@ -284,6 +347,7 @@ impl Editor {
             return;
         };
         buffer.set_saving(false);
+        buffer.save_ended_edits(true);
         buffer.mark_saved(content);
         buffer.set_written(stamp);
         buffer.set_changed_on_disk(false);
@@ -297,6 +361,7 @@ impl Editor {
     pub fn save_unneeded(&mut self, id: BufferId) {
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_saving(false);
+            buffer.save_ended_edits(true);
         }
     }
 
@@ -305,6 +370,8 @@ impl Editor {
     pub fn save_failed(&mut self, id: BufferId) {
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_saving(false);
+            // What it took is edited again, for the next save to clean.
+            buffer.save_ended_edits(false);
             // A save over a file needs the one this failure found, if it found one, and
             // [`Editor::may_save_over`] says so after this.
             buffer.forget_save_over();

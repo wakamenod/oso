@@ -50,7 +50,7 @@ fn m_x(d: &mut Dispatcher, editor: &mut Editor, command: &str, then: &str) {
 
 fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     status.echo
 }
 

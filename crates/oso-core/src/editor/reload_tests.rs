@@ -78,7 +78,7 @@ fn cursors(editor: &Editor) -> Vec<usize> {
 
 fn warnings(editor: &Editor) -> String {
     let mut status = Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     status.warnings
 }
 
@@ -533,4 +533,36 @@ fn a_change_around_the_view_keeps_its_top_row() {
     let (reloaded, from) = read_again(&editor, id, &invalid);
     editor.reload(id, reloaded, from);
     assert_eq!(editor.top_row(), 20);
+}
+
+#[test]
+fn a_reload_moves_the_cursors_of_both_windows_on_the_buffer_and_the_other_follows() {
+    let lines: String = (0..40).map(|i| format!("line {i:02}\n")).collect();
+    let (mut editor, id) = visiting(&lines);
+    editor.set_frame_size(crate::frame::FrameSize {
+        rows: 24,
+        columns: 40,
+    });
+    let row = "line 00\n".len();
+    let other = editor.split_window(crate::frame::Way::Down, false).unwrap();
+    editor.select_window(other);
+    editor.current_mut().0.selections = SelectionSet::new(row * 30);
+    editor.follow_cursor();
+    editor.other_window(1);
+    // 20 lines come in at the top, above both windows' cursors.
+    let added: String = (0..20).map(|i| format!("new {i:02}\n")).collect();
+    reload(&mut editor, id, &format!("{added}{lines}"));
+    editor.follow_cursor();
+    let window = editor.window_by_id(other).unwrap();
+    assert_eq!(
+        window.selections.primary().cursor,
+        row * 30 + added.len(),
+        "as a marker"
+    );
+    let display = editor.shown(window).display();
+    let (top, cursor) = (window.top_row(&display), window.cursor_row(&display));
+    assert!(
+        top <= cursor && cursor < top + window.size().rows,
+        "in view"
+    );
 }

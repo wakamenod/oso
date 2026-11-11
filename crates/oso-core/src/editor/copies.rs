@@ -88,8 +88,8 @@ impl Editor {
                 }
             }
         }
-        self.way_back.retain(|other| *other != id);
         for window in &mut self.windows {
+            window.way_back_mut().retain(|other| *other != id);
             window.places_mut().forget(id);
         }
         let position = self.buffers.iter().position(|(other, _)| *other == id)?;
@@ -115,7 +115,7 @@ impl Editor {
     /// window was.
     pub fn copies_back(&mut self) {
         match self.current().1.mode() {
-            Mode::Fundamental => {}
+            Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => {}
             Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {
                 let list = self.copies_buffer();
@@ -128,7 +128,8 @@ impl Editor {
     pub fn leave_all_internal(&mut self) {
         // The first place is the user's, as showing one of theirs empties the way. If that buffer
         // has gone, this goes to `*scratch*`.
-        let first = self.way_back.drain(..).next();
+        let index = self.tiled_index();
+        let first = self.windows[index].way_back_mut().drain(..).next();
         self.go_back(first);
     }
 

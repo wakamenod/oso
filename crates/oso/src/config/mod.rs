@@ -143,6 +143,7 @@ fn apply(
             "theme" => settings.theme = settings::theme(value, themes, found),
             "aids" => settings.aids = settings::aids(value, found),
             "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
+            "save" => settings.save = settings::save(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),

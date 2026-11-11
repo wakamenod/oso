@@ -8,7 +8,7 @@
 use super::Editor;
 use super::follow::clip_selections;
 use crate::buffer::{self, Buffer, BufferId};
-use crate::selection::MarkActive;
+use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Place, Walk};
 
 use super::SCRATCH;
@@ -60,11 +60,20 @@ impl Editor {
         let users = self
             .buffer(buffer)
             .is_some_and(|shown| !shown.is_internal());
-        if users && index == self.tiled_index() {
-            self.way_back.clear();
+        if users {
+            self.windows[index].way_back_mut().clear();
         }
         self.note_secret_shown();
-        if let Some(place) = self.windows[index].show(buffer) {
+        // A buffer it never showed starts where another window left it (ADR 0112).
+        let elsewhere = if self.windows[index].has_shown(buffer) {
+            None
+        } else {
+            self.place_elsewhere(index, buffer)
+        };
+        // The wrap it drops gives back what is left of the command's budget.
+        let budget = self.gather_wrap_budget();
+        self.wrap_pool = budget;
+        if let Some(place) = self.windows[index].show(buffer).or(elsewhere) {
             // Its wrap first, for the top to stay where the place says (ADR 0103).
             self.sync_wrap(index);
             self.restore_place(index, place);
@@ -73,6 +82,30 @@ impl Editor {
         // says how many lines that one has (ADR 0097).
         self.fit_gutter();
         self.note_secret_shown();
+    }
+
+    /// Where the tiled window selected most recently that showed `buffer`, other than the one at
+    /// `index`, is in it, or left it: its primary cursor with its mark and the ring, and its
+    /// view, as a split copies them (ADR 0088, ADR 0112). `None` if no other window showed it.
+    fn place_elsewhere(&self, index: usize, buffer: BufferId) -> Option<Place> {
+        let me = self.windows[index].id();
+        let window = self
+            .recent
+            .iter()
+            .filter(|id| **id != me)
+            .filter_map(|id| self.window_by_id(*id))
+            .find(|window| window.has_shown(buffer))?;
+        let (selections, scroll) = if window.buffer() == buffer {
+            (&window.selections, window.scroll())
+        } else {
+            let (_, place) = window.places().find(|(id, _)| *id == buffer)?;
+            (&place.selections, place.scroll)
+        };
+        let primary = SelectionSet::from_parts(vec![*selections.primary()], 0)?;
+        Some(Place {
+            selections: primary.with_ring(*selections.mark_ring()),
+            scroll,
+        })
     }
 
     /// Puts the window at `index` back where `place` says, in the buffer it shows.

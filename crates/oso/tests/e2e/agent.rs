@@ -842,3 +842,41 @@ fn save_is_refused(
         "{after}"
     );
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agents_save_that_waits_for_a_whitespace_scan_replies_once_written() {
+    use super::config::set_mode;
+    let scratch = Scratch::new("agent-trim");
+    set_mode(scratch.path(), 0o700);
+    std::fs::create_dir(scratch.path().join("oso")).unwrap();
+    set_mode(&scratch.path().join("oso"), 0o700);
+    // An unknown table, so that the look says something once it has applied.
+    let config = scratch.write(
+        "oso/config.toml",
+        b"[later]\n[save]\ntrim-whitespace = true\n",
+    );
+    let notes = scratch.write("notes.txt", b"end\n");
+    for file in [&config, &notes] {
+        set_mode(file, 0o644);
+    }
+    let mut app = App::start_with_config(Some(&notes), scratch.path(), &config);
+    app.wait_until_ready();
+    app.wait_for("the look", |state| {
+        state["echo"] == "Configuration: 1 problem, see *Messages*"
+    });
+    let mut agent = let_in(&mut app);
+    // Past the 256 KiB a save cleans on the UI thread, so the scan runs on a thread of its
+    // own, and the reply waits for it and then for the write.
+    // In pieces, as a `run`'s text is at most 64 KiB.
+    for _ in 0..5 {
+        insert(&mut agent, &"x \n".repeat(20_000));
+    }
+    let saved = agent.run("save-buffer", None, "change").unwrap();
+    assert_eq!(saved["saved"], true, "{saved}");
+    assert_eq!(
+        std::fs::read(&notes).unwrap(),
+        format!("{}end\n", "x\n".repeat(100_000)).into_bytes(),
+        "written as cleaned"
+    );
+}

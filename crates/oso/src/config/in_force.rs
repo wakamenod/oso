@@ -46,11 +46,14 @@ pub struct InForce {
     pub aids: VisualAids,
     /// Whether the agent channel starts at launch.
     pub agent_channel_start: bool,
+    /// Whether a save cleans the whitespace of the lines edited since (ADR 0113). It has no
+    /// run-time switch, so the value in force is the one that applies.
+    pub trim_whitespace: bool,
 }
 
 impl InForce {
     /// The compiled-in values, for `themes`, the built-in themes' names, the default first:
-    /// the default theme, the first two themes, ADR 0026's aids and no channel.
+    /// the default theme, the first two themes, ADR 0026's aids, no channel and no cleanup.
     pub fn compiled(themes: &[&str]) -> Self {
         let first = themes.first().copied().unwrap_or_default();
         // With one theme, the toggle stays on it, as the editor's own pair does.
@@ -60,6 +63,7 @@ impl InForce {
             pair: [first.to_owned(), second.to_owned()],
             aids: VisualAids::default(),
             agent_channel_start: false,
+            trim_whitespace: false,
         }
     }
 
@@ -80,6 +84,10 @@ impl InForce {
             agent_channel_start: settings
                 .agent_channel_start
                 .unwrap_or(compiled.agent_channel_start),
+            trim_whitespace: settings
+                .save
+                .trim_whitespace
+                .unwrap_or(compiled.trim_whitespace),
         }
     }
 
@@ -137,7 +145,7 @@ mod tests {
 
     use super::{Changes, InForce, Look};
     use crate::config::Settings;
-    use crate::config::settings::{Aids, ThemeSetting};
+    use crate::config::settings::{Aids, Save, ThemeSetting};
 
     const THEMES: &[&str] = &["dusk", "light", "dark"];
 
@@ -151,6 +159,7 @@ mod tests {
                 pair: ["dusk".to_owned(), "light".to_owned()],
                 aids: VisualAids::default(),
                 agent_channel_start: false,
+                trim_whitespace: false,
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -169,6 +178,9 @@ mod tests {
                 ..Aids::default()
             },
             agent_channel_start: Some(true),
+            save: Save {
+                trim_whitespace: Some(true),
+            },
         };
         assert_eq!(
             InForce::of(&settings, THEMES),
@@ -182,6 +194,7 @@ mod tests {
                     line_numbers: true,
                 },
                 agent_channel_start: true,
+                trim_whitespace: true,
             }
         );
     }
