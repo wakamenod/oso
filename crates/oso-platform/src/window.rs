@@ -8,16 +8,16 @@
 //!
 //! None of the types that can hold what the person types has `Debug` (ADR 0028).
 //!
-//! With `native-window`, macOS gets oso's own layer in place of winit: `run` drives a
-//! `Handler` (ADR 0070, stage 2).
+//! On macOS, oso's own layer is the window system: `run` drives a `Handler` (ADR 0070,
+//! stage 3). Windows and Linux are on winit, in the tip crate, until stage 4.
 
 use std::ops::{BitOr, Range};
 
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 mod appkit;
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 mod utf16;
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 pub use appkit::{Control, RenderTarget, Waker, Window, run};
 
 /// What the window reports, as the app sees it.
@@ -39,7 +39,20 @@ pub enum Event<'a> {
     ModifiersChanged(Held),
     Key(KeyInput<'a>),
     Ime(ImeEvent),
+    /// The person chose another kind of keyboard input source while oso was in front, from
+    /// a key such as `かな`, the menu bar or a shortcut (ADR 0106). Only oso's own macOS layer
+    /// says so.
+    InputSource(InputSource),
     /// Anything the app does not handle.
+    Other,
+}
+
+/// What kind of keyboard input source the person has chosen (ADR 0106).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputSource {
+    /// A Japanese input mode of an input method, which composes kana and kanji.
+    Japanese,
+    /// Anything else: a keyboard layout, or an input method's mode for Latin letters.
     Other,
 }
 
@@ -174,7 +187,7 @@ pub enum QuitAnswer {
 /// What the app does with the native layer's events, one method per callback of the loop
 /// (ADR 0070). It is called on the main thread, never twice at once: what it asks of the window
 /// is done once it returns.
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 pub trait Handler<T> {
     /// The window may be opened now.
     fn resume(&mut self, control: &Control);

@@ -24,7 +24,7 @@ mod png;
 mod prompts;
 mod recovery;
 mod reload;
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 mod secure;
 mod wrap;
 mod yank_pop;
@@ -1068,8 +1068,9 @@ fn a_refused_directory_is_said_at_startup_and_a_panic_then_writes_nothing() {
     assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
 }
 
-/// What the end of the session sends, and on winit any request to end: a real
-/// `applicationWillTerminate`, after which copies of what is at risk are written.
+/// What the end of the session sends: a quit Apple event with a logout reason, which oso
+/// never refuses (ADR 0084), then a real `applicationWillTerminate`, after which copies of
+/// what is at risk are written.
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
@@ -1078,14 +1079,10 @@ fn the_system_asking_the_app_to_quit_writes_the_copies() {
     let mut app = App::start(None, scratch.path());
     app.wait_until_ready();
     app.send_keys(&typing(FAKE_TEXT));
-    // On oso's own layer only the end of the session goes past a modified buffer unasked; a
-    // quit with no reason is a person's, and asks first (ADR 0084).
-    let asked = if cfg!(feature = "native-window") {
-        app.ask_to_quit_for_logout()
-    } else {
-        app.ask_to_quit()
-    };
-    asked.unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
+    // Only the end of the session goes past a modified buffer unasked; a quit with no reason
+    // is a person's, and asks first (ADR 0084).
+    app.ask_to_quit_for_logout()
+        .unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
     assert!(app.wait_for_exit().success());
     let copies = read_copies(&emergency_dir(scratch.path()));
     assert_eq!(copies.len(), 1);
@@ -1095,7 +1092,7 @@ fn the_system_asking_the_app_to_quit_writes_the_copies() {
 /// A Dock quit, or another app's with no reason, is guarded as `C-x C-c` is on oso's own layer
 /// (ADR 0084): the exit question opens, `n` stays, and `y` goes with nothing written, as the
 /// person agreed.
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_persons_quit_asks_the_exit_question() {

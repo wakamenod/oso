@@ -1,15 +1,16 @@
 //! What the input method may learn of the cursor: the cell the app last gave, where the
 //! composition is laid out and the excerpt of the cursor's line, answered only while oso has
 //! the IME on (ADR 0069, ADR 0070, ADR 0077); when secure input is held (ADR 0073); a frame
-//! owed to a window that was hidden; and a live resize, whose frames are drawn at each step
-//! (ADR 0086). Plain values, tested without a window or a clock.
+//! owed to a window that was hidden; a live resize, whose frames are drawn at each step
+//! (ADR 0086); and which kind of input source the handler was last told of, and whether oso
+//! switched the source to ASCII (ADR 0106). Plain values, tested without a window or a clock.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use crate::window::{CursorArea, utf16};
+use crate::window::{CursorArea, InputSource, utf16};
 
 /// Whether oso has the IME on, the cursor's cell the app last gave, and where it lays out the
 /// composition, and the excerpt of the cursor's line. No `Debug`: it holds text being typed
@@ -218,6 +219,7 @@ pub(super) enum SecureStep {
 }
 
 impl SecureInput {
+    #[cfg(any(test, feature = "dev"))]
     pub(super) fn held(self) -> bool {
         self.enables > 0
     }
@@ -286,6 +288,61 @@ impl SecureInput {
 /// How long a frame owed to a hidden window waits before the window is looked at again.
 pub(super) const HIDDEN_RETRY: Duration = Duration::from_millis(150);
 
+/// The kind of input source the handler was last told of (ADR 0106): it hears of the
+/// person's choice only while oso is in front, and only when the kind changes.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct SourceGate {
+    told: Option<InputSource>,
+}
+
+/// Whether the input source should type ASCII, as while a prompt for a file's name is open,
+/// and whether oso has switched it so (ADR 0106). It is switched only while oso is in front:
+/// another app gets the person's own source back.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct AsciiInput {
+    wanted: bool,
+    switched: bool,
+}
+
+/// What `AsciiInput` asks of the input source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AsciiStep {
+    /// Choose an ASCII-capable source, remembering the person's.
+    Switch,
+    /// Give the person's source back, if they have not chosen another since.
+    Restore,
+    Nothing,
+}
+
+impl AsciiInput {
+    /// What to do now that the app wants ASCII or not (`wanted`, kept from before if `None`)
+    /// and oso is in front or not.
+    pub(super) fn step(&mut self, wanted: Option<bool>, active: bool) -> AsciiStep {
+        self.wanted = wanted.unwrap_or(self.wanted);
+        let switched = self.wanted && active;
+        if switched == self.switched {
+            return AsciiStep::Nothing;
+        }
+        self.switched = switched;
+        if switched {
+            AsciiStep::Switch
+        } else {
+            AsciiStep::Restore
+        }
+    }
+}
+
+impl SourceGate {
+    /// What to tell the handler, now that the input source is of the kind `now`.
+    pub(super) fn report(&mut self, active: bool, now: InputSource) -> Option<InputSource> {
+        if !active || self.told == Some(now) {
+            return None;
+        }
+        self.told = Some(now);
+        Some(now)
+    }
+}
+
 /// A live resize, as the person drags the window's edge: while one runs, each step of it is
 /// drawn at once, with its new size in the same Core Animation transaction, so that no frame
 /// is stretched to a size it was not drawn at. It counts the steps and the frames drawn for
@@ -334,6 +391,7 @@ impl LiveResize {
     }
 
     /// The steps and the frames drawn for them, of this live resize or the last.
+    #[cfg(any(test, feature = "dev"))]
     pub(super) fn counts(self) -> (u32, u32) {
         (self.steps, self.frames)
     }
@@ -391,10 +449,11 @@ impl HiddenFrame {
 #[cfg(test)]
 mod tests {
     use super::{
-        HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, LiveResize, SecureInput, SecureStep,
-        reads_context_now,
+        AsciiInput, AsciiStep, HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, LiveResize,
+        SecureInput, SecureStep, SourceGate, reads_context_now,
     };
     use crate::window::CursorArea;
+    use crate::window::InputSource;
     use std::time::Instant;
 
     const CELL: CursorArea = CursorArea {
@@ -403,6 +462,71 @@ mod tests {
         width: 8.0,
         height: 16.0,
     };
+
+    #[test]
+    fn ascii_is_chosen_while_wanted_and_in_front_and_given_back_otherwise() {
+        let mut ascii = AsciiInput::default();
+        assert_eq!(
+            ascii.step(Some(true), true),
+            AsciiStep::Switch,
+            "the prompt opens"
+        );
+        assert_eq!(
+            ascii.step(Some(true), true),
+            AsciiStep::Nothing,
+            "still open"
+        );
+        assert_eq!(
+            ascii.step(None, false),
+            AsciiStep::Restore,
+            "oso goes behind"
+        );
+        assert_eq!(ascii.step(None, false), AsciiStep::Nothing);
+        assert_eq!(
+            ascii.step(None, true),
+            AsciiStep::Switch,
+            "back in front, still open"
+        );
+        assert_eq!(
+            ascii.step(Some(false), true),
+            AsciiStep::Restore,
+            "the prompt closes"
+        );
+        assert_eq!(
+            ascii.step(None, true),
+            AsciiStep::Nothing,
+            "in front, none open"
+        );
+        // Opened while another app is in front: switched only once oso is.
+        let mut ascii = AsciiInput::default();
+        assert_eq!(ascii.step(Some(true), false), AsciiStep::Nothing);
+        assert_eq!(ascii.step(None, true), AsciiStep::Switch);
+    }
+
+    #[test]
+    fn the_handler_hears_of_another_kind_of_source_only_while_oso_is_in_front() {
+        let mut gate = SourceGate::default();
+        assert_eq!(
+            gate.report(false, InputSource::Japanese),
+            None,
+            "not in front"
+        );
+        assert_eq!(
+            gate.report(true, InputSource::Japanese),
+            Some(InputSource::Japanese)
+        );
+        assert_eq!(
+            gate.report(true, InputSource::Japanese),
+            None,
+            "the same kind"
+        );
+        assert_eq!(gate.report(false, InputSource::Other), None, "not in front");
+        assert_eq!(
+            gate.report(true, InputSource::Other),
+            Some(InputSource::Other)
+        );
+        assert_eq!(gate.report(true, InputSource::Other), None);
+    }
 
     #[test]
     fn the_cell_is_answered_only_while_the_ime_is_on() {

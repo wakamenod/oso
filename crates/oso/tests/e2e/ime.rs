@@ -121,7 +121,7 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_turning_off_keeps_the_text() {
     app.send_keys("M-g g");
     let state = app.state();
     assert_eq!(state["ime"]["wanted"], false);
-    if cfg!(all(target_os = "macos", feature = "native-window")) {
+    if cfg!(target_os = "macos") {
         assert_eq!(state["ime"]["allowed"], false, "committed, then off");
         assert_eq!(state["ime"]["composing"], false);
         assert_eq!(state["prompts"][0]["text"], "か");
@@ -179,7 +179,7 @@ fn no_input_context_is_given_while_the_ime_is_off() {
     // then (ADR 0070); winit keeps its own, and the socket reports none.
     // The window applies what the app asks once the app's handler returns, and a request of
     // the socket may come in the same turn, so each is waited for.
-    let native = cfg!(all(target_os = "macos", feature = "native-window"));
+    let native = cfg!(target_os = "macos");
     let given = |app: &mut App, on: bool, what: &str| {
         let context = if native { json!(on) } else { Value::Null };
         app.wait_for(what, |state| state["ime"]["input_context"] == context);
@@ -246,7 +246,7 @@ fn the_input_method_gets_a_bounded_excerpt_of_an_ordinary_line_only() {
     let long_id = app.wait_until_ready()["buffer"]["id"].clone();
     // oso's own layer gives at most 2000 bytes each side of the cursor of an ordinary buffer
     // while the IME is on, and the socket says how much, never what (ADR 0077); winit none.
-    let native = cfg!(all(target_os = "macos", feature = "native-window"));
+    let native = cfg!(target_os = "macos");
     // Far enough in that the reach cuts the line on both sides; the socket counts to 10 000.
     app.run_command("forward-char", Some(10_000)).unwrap();
     let given = app.wait_for("the excerpt", |state| {

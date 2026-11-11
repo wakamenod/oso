@@ -35,13 +35,14 @@ mod saves;
 mod searches;
 mod theme_file;
 mod wraps;
-// The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
+// The window system: oso's own layer on macOS, and winit on Windows and Linux (ADR 0070,
+// stage 3).
 // Both give the same loop, window and waker, under the one name.
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 mod native;
-#[cfg(not(all(target_os = "macos", feature = "native-window")))]
+#[cfg(not(target_os = "macos"))]
 mod shell;
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 use native as shell;
 
 #[cfg(feature = "dev")]

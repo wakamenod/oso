@@ -11,7 +11,6 @@ rust-version.workspace = true
 oso-core.workspace = true
 oso-render.workspace = true
 oso-platform.workspace = true
-winit.workspace = true
 pollster.workspace = true
 log.workspace = true
 env_logger.workspace = true
@@ -21,6 +20,10 @@ similar.workspace = true
 serde_json.workspace = true
 miniz_oxide = { workspace = true, optional = true }
 
+# The window system on Windows and Linux; macOS has oso's own (ADR 0070, stage 3).
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+winit.workspace = true
+
 [dev-dependencies]
 insta.workspace = true
 
@@ -29,10 +32,6 @@ insta.workspace = true
 # read (ADR 0016, ADR 0023, ADR 0046).
 # Never a default feature. CI checks that release builds contain none of it.
 dev = ["dep:miniz_oxide", "oso-platform/dev", "oso-render/dev"]
-
-# oso's own window layer in place of winit, on macOS (ADR 0070, stage 2). Off by default
-# until it is at parity; elsewhere it changes nothing yet.
-native-window = ["oso-platform/native-window"]
 
 # The benchmark harness, which drives the app over the control socket
 # (ADR 0025, ADR 0046).

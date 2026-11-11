@@ -6,7 +6,7 @@
 
 use objc2_app_kit::NSEventModifierFlags;
 
-use crate::window::{Held, SystemNamed};
+use crate::window::{Held, InputSource, SystemNamed};
 
 /// The named key for a virtual key code (Carbon's `kVK_` codes, which do not depend on the
 /// layout), or `None` for a key that types a character.
@@ -108,11 +108,125 @@ pub(super) fn held(flags: NSEventModifierFlags) -> Held {
     .fold(Held::NONE, |all, (_, held)| all | held)
 }
 
+/// Whether the key oso takes is the one Shift alone would type, and not AppKit's
+/// `characters`. With Control or Command held, `characters` leaves Shift out of a punctuation
+/// key on some layouts and input sources (`,` for Command-Shift-`,`), or gives a control
+/// character, where Shift belongs in the character (ADR 0033): `M-<`, `C->`.
+pub(super) fn shift_only(held: Held) -> bool {
+    held.contains(Held::CONTROL) || held.contains(Held::LOGO)
+}
+
+/// The key oso takes with Control or Command held ([`shift_only`]): what Shift alone types
+/// (`shifted`), if that is a printable ASCII character. Otherwise, the layout's `other`
+/// reading if that one is: the Command layer with Command held, which is Latin on Russian,
+/// Greek or Hebrew layouts (`x`, where Shift alone types `ч`), and AppKit's `characters`
+/// with Control, which gives `2` on AZERTY's digit row (where Shift alone types `é`).
+/// Otherwise what Shift alone types. `other` is read only when it is needed.
+pub(super) fn chosen_key<'a>(
+    shifted: Option<&'a str>,
+    other: impl FnOnce() -> Option<&'a str>,
+) -> Option<&'a str> {
+    let ascii = |text: &str| {
+        let mut chars = text.chars();
+        matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic())
+    };
+    if shifted.is_some_and(ascii) {
+        return shifted;
+    }
+    other().filter(|text| ascii(text)).or(shifted)
+}
+
+/// The kind of input source the Text Input Sources describe (ADR 0106): a Japanese input
+/// mode is one that cannot type ASCII and whose ID names Japanese, as Kotoeri's
+/// `…Kotoeri.RomajiTyping.Japanese`, Google's `…inputmethod.Japanese.base` and other input
+/// methods' Japanese modes do. Their modes for Latin letters (`….Roman`), keyboard layouts and
+/// other languages' input methods are `Other`.
+pub(super) fn input_source(id: &str, ascii_capable: bool) -> InputSource {
+    if !ascii_capable && id.contains("Japanese") {
+        InputSource::Japanese
+    } else {
+        InputSource::Other
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Route, held, is_keys_own, named, route, takes_text};
+    use super::{
+        Route, chosen_key, held, input_source, is_keys_own, named, route, shift_only, takes_text,
+    };
+    use crate::window::InputSource;
     use crate::window::{Held, SystemNamed};
     use objc2_app_kit::NSEventModifierFlags as F;
+
+    #[test]
+    fn with_control_or_command_the_key_is_what_shift_alone_types() {
+        for held_keys in [
+            Held::CONTROL,
+            Held::LOGO,
+            Held::CONTROL | Held::LOGO,
+            Held::CONTROL | Held::SHIFT,
+            Held::LOGO | Held::SHIFT,
+            Held::CONTROL | Held::LOGO | Held::SHIFT,
+            Held::CONTROL | Held::ALT,
+        ] {
+            assert!(shift_only(held_keys), "{held_keys:?}");
+        }
+        for held_keys in [Held::NONE, Held::SHIFT, Held::ALT, Held::ALT | Held::SHIFT] {
+            assert!(!shift_only(held_keys), "{held_keys:?}");
+        }
+    }
+
+    #[test]
+    fn the_key_is_ascii_from_shift_alone_or_from_the_layouts_other_reading() {
+        let never = || -> Option<&str> { panic!("read only when needed") };
+        // US: Command-Shift-`,` and Control-Shift-`.`, where `characters` left Shift out.
+        assert_eq!(chosen_key(Some("<"), never), Some("<"));
+        assert_eq!(chosen_key(Some(">"), never), Some(">"));
+        // Russian: Command's layer is Latin, with Shift too.
+        assert_eq!(chosen_key(Some("ч"), || Some("x")), Some("x"), "M-x");
+        assert_eq!(chosen_key(Some("Б"), || Some("<")), Some("<"), "M-<");
+        // AZERTY's digit row with Control: `characters` gives the digit.
+        assert_eq!(chosen_key(Some("é"), || Some("2")), Some("2"), "C-2");
+        // Russian with Control: `characters` is a control character, so the letter stays.
+        assert_eq!(chosen_key(Some("ч"), || Some("\u{18}")), Some("ч"));
+        assert_eq!(chosen_key(Some("ч"), || None), Some("ч"));
+        assert_eq!(
+            chosen_key(Some("ч"), || Some("xy")),
+            Some("ч"),
+            "one character"
+        );
+        assert_eq!(chosen_key(None, || Some("x")), Some("x"));
+        assert_eq!(chosen_key(None, || None), None);
+    }
+
+    #[test]
+    fn only_a_japanese_input_mode_counts_as_japanese() {
+        for id in [
+            "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese",
+            "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese.Katakana",
+            "com.apple.inputmethod.Kotoeri.KanaTyping.Japanese",
+            "com.google.inputmethod.Japanese.base",
+            "com.justsystems.inputmethod.atok34.Japanese",
+        ] {
+            assert_eq!(input_source(id, false), InputSource::Japanese, "{id}");
+            assert_eq!(
+                input_source(id, true),
+                InputSource::Other,
+                "{id} typing ASCII"
+            );
+        }
+        // Latin modes and layouts type ASCII; other languages' input methods are not Japanese.
+        for (id, ascii) in [
+            ("com.apple.keylayout.ABC", true),
+            ("com.apple.inputmethod.Kotoeri.RomajiTyping.Roman", true),
+            ("com.google.inputmethod.Japanese.Roman", true),
+            ("com.apple.inputmethod.SCIM.ITABC", false),
+            ("com.apple.inputmethod.Korean.2SetKorean", false),
+            ("", false),
+        ] {
+            assert_eq!(input_source(id, ascii), InputSource::Other, "{id}");
+        }
+    }
 
     #[test]
     fn named_keys_go_by_their_code_and_letters_by_their_text() {

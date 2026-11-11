@@ -129,6 +129,7 @@ impl App {
 
             // A flash ends with the window out of sight (ADR 0097).
             Event::Occluded(true) => self.end_flash(),
+            Event::InputSource(source) => self.input_source_chosen(source),
             Event::Other => {}
         }
         self.after_event(event_loop);

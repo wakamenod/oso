@@ -1,6 +1,6 @@
 # 0042. Statics, API snapshot upkeep and render errors
 
-- Status: Accepted
+- Status: Accepted, amended by 0107
 - Date: 2026-11-04
 
 ## Context
