@@ -16,7 +16,7 @@
 
 [workspace]
 oso
-oso-render
+oso-render oso-syntax
 oso-core oso-platform
 
 [oso-core]
@@ -58,3 +58,6 @@ saver
 lister
 commands dev keys loader text
 channel
+
+[oso-syntax]
+crate

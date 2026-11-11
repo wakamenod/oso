@@ -81,4 +81,8 @@ deny = [
     # to oso-platform instead (ADR 0039).
     { crate = "wgpu", wrappers = ["oso-render"], reason = "GPU code stays in oso-render (ADR 0038)" },
     { crate = "winit", wrappers = ["oso"], reason = "window code stays in the oso tip crate (ADR 0038)" },
+    { crate = "tree-sitter", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111)" },
+    { crate = "tree-sitter-rust", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111)" },
+    { crate = "tree-sitter-md", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111)" },
+    { crate = "tree-sitter-toml-ng", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111)" },
 ]

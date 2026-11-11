@@ -13,6 +13,7 @@ rust-version = "1.96"
 oso-core = { path = "crates/oso-core" }
 oso-render = { path = "crates/oso-render" }
 oso-platform = { path = "crates/oso-platform" }
+oso-syntax = { path = "crates/oso-syntax" }
 
 winit = "0.30"
 # Backends are enabled per OS in crates/oso-render (ADR 0003): no GL and no
@@ -54,6 +55,15 @@ serde_json = "1"
 # TOML for the user configuration file (ADR 0108), parsed into spanned tables only:
 # no serde, no derive macros. The default recursion limit stays on.
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse"] }
+
+# Tree-sitter and its grammars for highlighting (ADR 0012, ADR 0111), used only by oso-syntax.
+# The grammars are C that parses untrusted files, so every version is exact, and each build.rs
+# and external scanner is read before a bump. No `wasm` (wasmtime) and no `bindgen`; `std`
+# brings `regex` for `#match?`, already in the tree. tree-sitter-md's `parser` stays off.
+tree-sitter = { version = "=0.27.1", default-features = false, features = ["std"] }
+tree-sitter-rust = "=0.24.2"
+tree-sitter-md = { version = "=0.5.4", default-features = false }
+tree-sitter-toml-ng = "=0.7.0"
 
 # Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
