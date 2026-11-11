@@ -588,6 +588,8 @@ mod motion_tests;
 #[cfg(test)]
 mod prefix_tests;
 #[cfg(test)]
+mod project_tests;
+#[cfg(test)]
 mod prompt_tests;
 #[cfg(test)]
 mod recovery_tests;

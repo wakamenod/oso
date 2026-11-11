@@ -57,6 +57,7 @@ impl App {
             UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),
             UserEvent::Projects => self.projects_found(),
+            UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
             UserEvent::Agent(request) => self.handle_agent(event_loop, request),
@@ -73,6 +74,8 @@ impl App {
         self.begin_logging();
         self.check_leaving(event_loop);
         self.scan_if_a_file_has_loaded();
+        // Before the projects, whose worktrees are checked against the record as it is now.
+        self.write_trust();
         self.find_projects();
         self.check_disk();
         self.free_replaced_keymap();

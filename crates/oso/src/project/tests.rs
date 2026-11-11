@@ -38,7 +38,7 @@ impl Scratch {
     /// Whether `detect` found no project inside the scratch directory, which may itself sit
     /// under some project.
     fn none_inside(&self, location: &Path) -> bool {
-        detect(location, None).is_none_or(|found| !found.root.path.starts_with(&self.0))
+        detect(location, None, &[]).is_none_or(|found| !found.root.path.starts_with(&self.0))
     }
 }
 
@@ -49,7 +49,7 @@ impl Drop for Scratch {
 }
 
 fn root_of(location: &Path) -> Option<PathBuf> {
-    detect(location, None).map(|found| found.root.path)
+    detect(location, None, &[]).map(|found| found.root.path)
 }
 
 #[test]
@@ -114,10 +114,10 @@ fn the_home_directory_is_never_a_project_nor_what_is_above_it() {
     scratch.dir("home/.git");
     let project = scratch.dir("home/src/p");
     scratch.dir("home/src/p/.git");
-    assert_eq!(detect(&home.join("notes.md"), Some(&home)), None);
-    assert_eq!(detect(&home.join("src/loose/a.rs"), Some(&home)), None);
+    assert_eq!(detect(&home.join("notes.md"), Some(&home), &[]), None);
+    assert_eq!(detect(&home.join("src/loose/a.rs"), Some(&home), &[]), None);
     assert_eq!(
-        detect(&project.join("a.rs"), Some(&home)).map(|found| found.root.path),
+        detect(&project.join("a.rs"), Some(&home), &[]).map(|found| found.root.path),
         Some(project)
     );
 }
@@ -130,7 +130,7 @@ fn the_root_carries_its_device_and_inode() {
     let root = scratch.dir("p");
     scratch.dir("p/.git");
     let metadata = fs::metadata(&root).unwrap();
-    let found = detect(&root.join("a"), None).unwrap();
+    let found = detect(&root.join("a"), None, &[]).unwrap();
     assert_eq!(found.root.identity, Some((metadata.dev(), metadata.ino())));
 }
 
@@ -144,7 +144,7 @@ fn a_worktrees_git_file_is_kept_by_its_words() {
         format!("gitdir: {}\n", named.display()),
     )
     .unwrap();
-    let found = detect(&worktree.join("src/a.rs"), None).unwrap();
+    let found = detect(&worktree.join("src/a.rs"), None, &[]).unwrap();
     assert_eq!(found.root.path, worktree);
     assert_eq!(found.worktree_of, Some(scratch.0.join("main")));
 }
@@ -154,7 +154,7 @@ fn what_a_git_file_names_is_never_looked_up() {
     let scratch = Scratch::new("never-followed");
     let remote = scratch.dir("remote");
     scratch.file("remote/.git", "gitdir: /net/host/share/.git/worktrees/a\n");
-    let found = detect(&remote.join("a"), None).unwrap();
+    let found = detect(&remote.join("a"), None, &[]).unwrap();
     let claim = found.worktree_of.expect("a claim");
     // A rooted path keeps the root's drive on Windows, as joining it does.
     #[cfg(unix)]
@@ -177,7 +177,7 @@ fn what_a_git_file_names_is_never_looked_up() {
             format!("gitdir: {}\n", named.display()),
         )
         .unwrap();
-        let found = detect(&worktree.join("a"), None).unwrap();
+        let found = detect(&worktree.join("a"), None, &[]).unwrap();
         assert_eq!(found.worktree_of, Some(scratch.0.join("alias")));
     }
 }
@@ -188,13 +188,100 @@ fn a_submodule_or_an_oversized_git_file_names_no_main_repository() {
     let sub = scratch.dir("main/sub");
     scratch.dir("main/.git");
     scratch.file("main/sub/.git", "gitdir: ../.git/modules/sub\n");
-    let found = detect(&sub.join("a.rs"), None).unwrap();
+    let found = detect(&sub.join("a.rs"), None, &[]).unwrap();
     assert_eq!(found.root.path, sub);
     assert_eq!(found.worktree_of, None);
     let big = scratch.dir("big");
     let text = format!("gitdir: /w/m/.git/worktrees/a\n{}", "#".repeat(2000));
     fs::write(big.join(".git"), text).unwrap();
-    assert_eq!(detect(&big.join("a"), None).unwrap().worktree_of, None);
+    assert_eq!(detect(&big.join("a"), None, &[]).unwrap().worktree_of, None);
+}
+
+/// A main repository at `main` with a worktree at `worktree`, both under `scratch`, as
+/// `git worktree add` leaves them: the worktree's `.git` names its entry, whose `gitdir`
+/// names the worktree's `.git` back.
+fn worktree_pair(scratch: &Scratch, main: &str, worktree: &str) -> (PathBuf, PathBuf) {
+    let main = scratch.dir(main);
+    let worktree = scratch.dir(worktree);
+    let entry = main.join(".git/worktrees/wt");
+    fs::create_dir_all(&entry).unwrap();
+    fs::write(
+        entry.join("gitdir"),
+        format!("{}\n", worktree.join(".git").display()),
+    )
+    .unwrap();
+    fs::write(
+        worktree.join(".git"),
+        format!("gitdir: {}\n", entry.display()),
+    )
+    .unwrap();
+    (main, worktree)
+}
+
+#[test]
+fn a_worktree_belongs_with_a_trusted_main_repository_that_records_it() {
+    let scratch = Scratch::new("checked");
+    let (main, worktree) = worktree_pair(&scratch, "main", "wt");
+    let found = detect(&worktree.join("a.rs"), None, &[]).unwrap();
+    assert_eq!(found.checked_main, None, "not trusted, so not looked at");
+    let found = detect(&worktree.join("a.rs"), None, std::slice::from_ref(&main)).unwrap();
+    let checked = found.checked_main.expect("checked");
+    assert_eq!(checked.path, main);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::metadata(&main).unwrap();
+        assert_eq!(checked.identity, Some((metadata.dev(), metadata.ino())));
+    }
+    let other = scratch.dir("other");
+    let found = detect(&worktree.join("a.rs"), None, &[other]).unwrap();
+    assert_eq!(found.checked_main, None, "another root trusted");
+}
+
+#[test]
+fn a_root_the_main_repository_does_not_record_back_is_its_own() {
+    let scratch = Scratch::new("unrecorded");
+    let (main, worktree) = worktree_pair(&scratch, "main", "wt");
+    // Another directory whose `.git` names the same entry, word for word.
+    let copy = scratch.dir("copy");
+    fs::copy(worktree.join(".git"), copy.join(".git")).unwrap();
+    let found = detect(&copy.join("a.rs"), None, std::slice::from_ref(&main)).unwrap();
+    assert_eq!(found.root.path, copy);
+    assert_eq!(found.worktree_of, Some(main.clone()), "it claims it");
+    assert_eq!(found.checked_main, None, "but is not recorded");
+    // A record that names nothing, or a file too long.
+    let entry = main.join(".git/worktrees/wt/gitdir");
+    for text in [String::new(), "#".repeat(2000)] {
+        fs::write(&entry, text).unwrap();
+        let found = detect(&worktree.join("a.rs"), None, std::slice::from_ref(&main)).unwrap();
+        assert_eq!(found.checked_main, None);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_at_a_worktrees_place_or_its_git_belongs_with_nothing() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("linked");
+    let (main, worktree) = worktree_pair(&scratch, "main", "wt");
+    // A `.git` that is a link is no marker, so the root is not the worktree's.
+    let beside = scratch.dir("beside");
+    scratch.dir("beside/.hg");
+    let linked = scratch.dir("beside/linked");
+    symlink(worktree.join(".git"), linked.join(".git")).unwrap();
+    let found = detect(&linked.join("a.rs"), None, std::slice::from_ref(&main)).unwrap();
+    assert_eq!(found.root.path, beside);
+    assert_eq!(found.checked_main, None);
+    // The record, linked to one that names this root, is not read through the link.
+    let elsewhere = scratch.file(
+        "elsewhere",
+        &format!("{}\n", worktree.join(".git").display()),
+    );
+    let entry = main.join(".git/worktrees/wt/gitdir");
+    fs::remove_file(&entry).unwrap();
+    symlink(&elsewhere, &entry).unwrap();
+    let found = detect(&worktree.join("a.rs"), None, &[main]).unwrap();
+    assert_eq!(found.checked_main, None);
 }
 
 #[test]
@@ -210,7 +297,7 @@ fn the_thread_answers_each_request_and_wakes_once_answers_wait() {
         buffer: id,
         location: root.join("a.rs"),
     };
-    detector.find(request.clone());
+    detector.find(request.clone(), Arc::from([]));
     wakes.recv_timeout(Duration::from_secs(10)).unwrap();
     let answers = detector.take();
     assert_eq!(answers.len(), 1);

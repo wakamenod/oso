@@ -43,12 +43,42 @@ network features.
 - Projects open in **restricted mode**. A modeline indicator shows the
   mode, and no popup asks about it.
 - A project is the nearest directory above a file holding `.git`, `.jj` or
-  `.hg`, found from metadata alone. A git worktree takes its main
-  repository's trust ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
-- `M-x trust-project` marks a project as trusted. Trust is stored in
-  `trusted-projects` in oso's configuration directory, by the root's path,
-  device and inode, never inside the repository. That file is refused when
-  anyone else, a group included, can change it or the way to it.
+  `.hg`, found from metadata alone, following no link, on a thread of its own.
+  The walk stops at the home directory, at a directory or marker another user
+  owns (root aside) and where the device changes. Windows has no owner or
+  device to go by, so there only the home directory (`USERPROFILE`) and a link
+  stop it ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- A git worktree takes its main repository's trust. Its `.git` file's claim is
+  matched by its words against the trusted roots before anything it names is
+  looked up, so a path a repository wrote, a UNC one on Windows among them, is
+  looked up only under a root the person trusted. Then the main repository's
+  `.git/worktrees/<name>/gitdir` must name the worktree's own `.git` back. Both
+  files are read at most 1 KiB, and neither the worktree's place nor its `.git`
+  may be a link, looked at again after the reads.
+- `M-x trust-project` marks a project as trusted. It asks first, naming the
+  root. Only the person's `y` to that question confirms, and it checks that the
+  root, by path and identity, is still the one asked about; run any other way,
+  the command asks. `M-x untrust-project` takes the line out without asking.
+  Both are `Person`, so the agent channel never runs them.
+- Trust is stored in `trusted-projects` in oso's configuration directory, by
+  the root's path, device and inode (the path alone on Windows), never inside
+  the repository. A dev build given `--config FILE` uses the one beside that
+  file, and `--no-config` reads none, so nothing is trusted.
+- The file is read on a thread of its own, `oso-trust`, with
+  `config.toml`'s checks, at start, once a second when it changed, and when oso
+  gains the focus or saves. It is refused when anyone else, a group included,
+  can change it or the way to it. A refused or broken file trusts nothing,
+  `*Messages*` says why, and the commands refuse rather than write over it.
+- oso changes the file on that thread: what a person changed is made in the
+  file as it is then, read with the same checks, so a line written by hand
+  since stays and a file refused since is not written over. It goes through a
+  part file of mode `0600`, renamed over the file, only in a directory no one
+  else can change, and never over a link, which a dotfiles setup may make.
+  Each write is read back, so what the modeline says is what the file says.
+  Changes not yet made when oso goes are waited for, a second at most.
+- A path in the file holds no control or invisible character, so a line reads
+  in another editor as it does in oso.
+- The modeline says `restricted` from the record alone, never from a name.
 - Trust means "I accept running this project's code on my machine".
 
 | Capability | Restricted | Trusted |

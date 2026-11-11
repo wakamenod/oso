@@ -6,7 +6,8 @@
 //!
 //! [`parse`] and the files under it do no I/O: text in, a finished value out, so they run on any
 //! thread and their tests need no files. `watch` is the thread that reads the file, at start and
-//! when it changes, and parses it. `outcome` and `in_force` say what that comes to.
+//! when it changes, and parses it. `outcome` and `in_force` say what that comes to. `trust` reads
+//! and writes the record of trusted projects beside it, as `watch` reads the file (ADR 0114).
 //!
 //! - A syntax error rejects the whole file: no keys and no settings, and every syntax error is
 //!   a problem.
@@ -20,6 +21,7 @@ mod outcome;
 mod problems;
 mod settings;
 mod source;
+mod trust;
 mod watch;
 
 use std::fmt;
@@ -36,6 +38,7 @@ pub use settings::Settings;
 #[cfg(test)]
 pub use source::FILE_NAME;
 pub use source::Source;
+pub use trust::{Record, TRUST_FILE_NAME, TrustFile};
 pub use watch::{Reader, Report};
 
 use problems::{Found, MAX_QUOTED, quoted};

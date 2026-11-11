@@ -248,8 +248,12 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   count, and a file not yet judged shows none of them.
 - A frame of two rows has no modeline, and its warnings go first on the echo row. A frame of
   one row has no place for them ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-- M3 adds the project: its name, then `restricted` in the dim face until it
-  is trusted ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- The project, after the name: its root's last component, cut to 24 cells, then
+  `restricted` in the dim face, as `Agent` is, while the record of trusted projects
+  does not trust it, also while that record is unread or refused. A buffer in no project
+  shows neither ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+  `M-x trust-project` asks "Trust ~/src/oso? Its code may run through language servers,
+  formatters and git hooks (y or n)", with the verbs `trust` and `keep restricted`.
 
 ## Cursor
 

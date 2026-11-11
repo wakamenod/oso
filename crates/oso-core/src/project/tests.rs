@@ -70,9 +70,63 @@ fn a_project_is_named_after_its_root() {
             identity: None,
         },
         worktree_of: None,
+        checked_main: None,
     };
     let project = Project::new(found("/w/oso"));
     assert_eq!(project.name(), "oso");
     assert_eq!(project.root(), Path::new("/w/oso"));
     assert_eq!(Project::new(found("/")).name(), "/");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_worktree_names_its_entry_in_the_main_repository() {
+    assert_eq!(
+        worktree_entry(Path::new("/w/wt"), b"gitdir: ../oso/.git/worktrees/wt\n"),
+        Some(PathBuf::from("/w/oso/.git/worktrees/wt"))
+    );
+    assert_eq!(
+        worktree_entry(Path::new("/w/sub"), b"gitdir: /w/oso/.git/modules/sub\n"),
+        None
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_backlink_is_its_first_line_by_its_words() {
+    let entry = Path::new("/w/oso/.git/worktrees/wt");
+    let back = |bytes: &[u8]| worktree_backlink(entry, bytes);
+    assert_eq!(back(b"/w/wt/.git\n"), Some(PathBuf::from("/w/wt/.git")));
+    assert_eq!(back(b"/w/wt/.git"), Some(PathBuf::from("/w/wt/.git")));
+    assert_eq!(
+        back(b"../../../../wt/./.git\r\nmore"),
+        Some(PathBuf::from("/w/wt/.git")),
+        "relative to the entry, as git's relative worktree paths are"
+    );
+    for bad in [&b""[..], b"\n/w/wt/.git", b"/w/wt/.git\0", b"/w/\xff/.git"] {
+        assert_eq!(back(bad), None, "{bad:?}");
+    }
+    let long = [b"/w/wt/.git\n".as_slice(), &[b'#'; 1100]].concat();
+    assert_eq!(back(&long), None);
+}
+
+#[test]
+fn the_same_place_is_the_same_words() {
+    let same = |a: &str, b: &str| same_place(Path::new(a), Path::new(b));
+    assert!(same("/w/oso", "/w/oso"));
+    assert!(same("/w/oso/", "/w//oso"), "as components");
+    assert!(!same("/w/oso", "/w/oso/sub"));
+    assert!(!same("/w/oso", "/w/Oso"));
+}
+
+/// Git for Windows writes plain paths with `/`; the roots oso records are verbatim.
+#[cfg(windows)]
+#[test]
+fn a_verbatim_root_is_the_plain_path_git_writes() {
+    let same = |a: &str, b: &str| same_place(Path::new(a), Path::new(b));
+    assert!(same(r"\\?\C:\w\oso", "C:/w/oso"));
+    assert!(same(r"\\?\C:\w\oso", r"c:\w\oso"));
+    assert!(same(r"\\?\UNC\host\share\oso", r"\\host\share\oso"));
+    assert!(!same(r"\\?\C:\w\oso", "D:/w/oso"));
+    assert!(!same(r"\\?\C:\w\oso", r"\\host\C$\w\oso"));
 }

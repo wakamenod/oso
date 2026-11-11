@@ -72,6 +72,7 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
         &status.warnings[..],
         &status.name[..],
         &status.project[..],
+        status.restricted,
         &status.state[..],
     ];
     draw_spans(&modeline, window.modeline, '=', &mut lines);
@@ -1091,6 +1092,7 @@ mod scenarios {
                 identity: None,
             },
             worktree_of: None,
+            checked_main: None,
         };
         editor.project_found(&request, Some(found));
         editor.set_frame_size(FrameSize {

@@ -174,6 +174,7 @@ impl App {
             event_loop.answer_quit(true);
         }
         self.leaving.go();
+        self.finish_trust();
         event_loop.exit();
     }
 
