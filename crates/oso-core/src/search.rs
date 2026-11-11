@@ -19,9 +19,11 @@ use crate::decode::InvalidBytes;
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
 
+mod case;
 mod job;
 
-pub(crate) use job::{Find, MatchWork, Matched, Report};
+pub(crate) use case::casified;
+pub(crate) use job::{Find, MatchWork, Matched, Report, Scope};
 pub use job::{SearchJob, SearchReport};
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
@@ -348,9 +350,22 @@ pub fn find_forward(
     limit: usize,
     stop: &dyn Fn() -> bool,
 ) -> Found {
+    find_in(text, invalid, query, from..text.len(), limit, stop)
+}
+
+/// The first match of `query` within `range`, reading at most about `limit` bytes, and none
+/// past `stop`. A match that would end past the range is not one.
+pub(crate) fn find_in(
+    text: &Rope,
+    invalid: &InvalidBytes,
+    query: &Query,
+    range: Range<usize>,
+    limit: usize,
+    stop: &dyn Fn() -> bool,
+) -> Found {
+    let from = range.start;
     let mut matcher = Matcher::new(&query.forward);
     let mut found = None;
-    let range = from..text.len();
     let stopped = walk_forward(
         (text, invalid),
         range,

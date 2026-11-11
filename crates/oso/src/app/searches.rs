@@ -73,6 +73,17 @@ impl App {
         }
     }
 
+    /// Replaces `!`'s next slice, if one is under way, and asks for another turn.
+    pub(super) fn replace_slice(&mut self) {
+        if !self.editor.replace_works() {
+            return;
+        }
+        self.editor.replace_continue();
+        self.dispatcher.publish_for_emergency(&self.editor);
+        self.start_searches();
+        self.request_redraw();
+    }
+
     /// The worker found or counted something.
     pub(super) fn isearch_reported(&mut self, report: SearchReport) {
         if self.editor.isearch_reported(report) {

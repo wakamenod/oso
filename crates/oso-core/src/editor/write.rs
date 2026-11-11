@@ -184,6 +184,8 @@ impl Editor {
             .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
         let new = crate::buffer::file_base(&path);
         buffer.set_saving(false);
+        // What the write took is on disk: those lines are not edited any more.
+        buffer.save_ended_edits(true);
         buffer.set_path(path);
         buffer.set_baseline(Baseline {
             location,

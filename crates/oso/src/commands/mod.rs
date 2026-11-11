@@ -24,6 +24,7 @@ mod minibuffer;
 mod motion;
 mod prefix;
 mod recovery;
+mod replace;
 mod save;
 mod scroll;
 mod session;
@@ -59,6 +60,7 @@ const TABLES: &[&[Command]] = &[
     motion::COMMANDS,
     prefix::COMMANDS,
     recovery::COMMANDS,
+    replace::COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
@@ -144,6 +146,20 @@ mod tests {
         let commands: usize = TABLES.iter().map(|table| table.len()).sum();
         assert_eq!(registry().iter().len(), commands);
     }
+
+    /// query-replace's commands, which read keys at each match (ADR 0113).
+    const QUERY_REPLACE: [&str; 10] = [
+        "query-replace",
+        "replace-all",
+        "replace-back",
+        "replace-end",
+        "replace-help",
+        "replace-skip",
+        "replace-this",
+        "replace-this-and-end",
+        "replace-this-and-stay",
+        "replace-undo",
+    ];
 
     /// The commands the agent channel refuses (ADR 0085). A change here is a change to what an
     /// agent may do in a person's editor, so it shows in review.
@@ -234,6 +250,7 @@ mod tests {
             "isearch-yank-kill",
             "isearch-yank-word-or-char",
         ];
+        expected.extend(QUERY_REPLACE);
         #[cfg(feature = "dev")]
         expected.extend(["dev-panic", "dev-read-passphrase"]);
         expected.sort_unstable();

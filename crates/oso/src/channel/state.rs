@@ -220,6 +220,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::Mark { .. }
                     | ArgSpec::File { .. }
                     | ArgSpec::KillEntry { .. }
+                    | ArgSpec::Replace { .. }
                     | ArgSpec::Key => "person",
                 },
                 "reach": if command.reach == Reach::Change { "change" } else { "look" },

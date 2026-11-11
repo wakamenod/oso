@@ -95,6 +95,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
         "isearch": isearch_state(editor),
+        "replace": replace_state(editor),
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
     if !buffer.is_secret() {
@@ -146,6 +147,28 @@ fn isearch_state(editor: &Editor) -> Value {
         "case_sensitive": search.case_sensitive(),
         "searching": search.searching(),
         "count": count,
+    })
+}
+
+/// The `replace` field of `get-state`: null, or the query-replace under way, whether it is a
+/// regexp's, whether a worker searches, its count, and how many it replaced (ADR 0113). Around
+/// a buffer that may hold secrets, only that one is under way.
+fn replace_state(editor: &Editor) -> Value {
+    let Some(replace) = editor.replace() else {
+        return Value::Null;
+    };
+    if editor.shows_secret() || replace.around_secret() {
+        return json!({ "active": true });
+    }
+    let count = replace
+        .count()
+        .map(|(index, total)| json!({ "index": index, "total": total }));
+    json!({
+        "active": true,
+        "regexp": replace.regexp(),
+        "searching": replace.searching(),
+        "count": count,
+        "replaced": replace.replaced(),
     })
 }
 
@@ -620,6 +643,7 @@ mod tests {
                 "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
                 "isearch": null,
+                "replace": null,
                 "surface": { "width": 800, "height": 600 },
             })
         );

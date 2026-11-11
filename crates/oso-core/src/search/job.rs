@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{Count, Found, Query, count, find_backward, find_forward};
+use super::{Count, Found, Query, count, find_backward, find_forward, find_in};
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
 
@@ -81,6 +81,118 @@ enum Work {
     },
     /// The keys that add cursors': matches by rules of their own.
     Matches(MatchWork),
+    /// query-replace's (ADR 0113): within its ranges, the next match from `find`, then a
+    /// count if `count`, or with `most`, the matches from `find` on, at most that many.
+    Scoped {
+        text: Rope,
+        invalid: InvalidBytes,
+        query: Query,
+        ranges: Vec<Range<usize>>,
+        find: Option<usize>,
+        count: bool,
+        most: Option<usize>,
+    },
+}
+
+/// What a scoped job is to do, for [`SearchJob::scoped`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Scope {
+    /// Find the next match from here.
+    pub(crate) find: Option<usize>,
+    /// Then count the matches.
+    pub(crate) count: bool,
+    /// Instead, take at most this many matches from `find` on, and say if there are more.
+    pub(crate) most: Option<usize>,
+}
+
+/// Does a scoped job's work, and reports each part as it ends, unless `stop` says so first.
+fn run_scoped(
+    snapshot: (&Rope, &InvalidBytes),
+    query: &Query,
+    ranges: &[Range<usize>],
+    scope: Scope,
+    stop: &dyn Fn() -> bool,
+    generation: u64,
+    report: &mut dyn FnMut(Report),
+) {
+    if let Some(most) = scope.most {
+        let mut found = Vec::new();
+        let mut from = scope.find.unwrap_or(0);
+        loop {
+            let Ok(next) = find_scoped(snapshot, query, ranges, from, stop) else {
+                return;
+            };
+            let Some(next) = next else { break };
+            if found.len() == most {
+                // One more is there: the total says so.
+                let total = most + 1;
+                report(Report::Matches {
+                    generation,
+                    matched: Matched {
+                        ranges: found,
+                        total,
+                    },
+                });
+                return;
+            }
+            from = next.end.max(next.start + 1);
+            found.push(next);
+        }
+        let total = found.len();
+        report(Report::Matches {
+            generation,
+            matched: Matched {
+                ranges: found,
+                total,
+            },
+        });
+        return;
+    }
+    if let Some(from) = scope.find {
+        let Ok(at) = find_scoped(snapshot, query, ranges, from, stop) else {
+            return;
+        };
+        report(Report::Found { generation, at });
+    }
+    if scope.count {
+        let mut total = 0;
+        let mut from = 0;
+        loop {
+            match find_scoped(snapshot, query, ranges, from, stop) {
+                Ok(Some(next)) => {
+                    total += 1;
+                    from = next.end.max(next.start + 1);
+                }
+                Ok(None) => break,
+                Err(()) => return,
+            }
+        }
+        report(Report::Counted {
+            generation,
+            count: Count { total, before: 0 },
+            at: None,
+        });
+    }
+}
+
+/// The first match within `ranges`, ascending and apart, that starts at `from` or after, or
+/// `Err(())` if `stop` said so first.
+fn find_scoped(
+    (text, invalid): (&Rope, &InvalidBytes),
+    query: &Query,
+    ranges: &[Range<usize>],
+    from: usize,
+    stop: &dyn Fn() -> bool,
+) -> Result<Option<Range<usize>>, ()> {
+    for range in ranges.iter().filter(|range| range.end > from) {
+        let start = range.start.max(from);
+        match find_in(text, invalid, query, start..range.end, usize::MAX, stop) {
+            Found::Match(found) => return Ok(Some(found)),
+            Found::None => {}
+            Found::Stopped { .. } => return Err(()),
+        }
+    }
+    Ok(None)
 }
 
 /// Work for a thread, over an O(1) snapshot of a buffer's text: a search to go on with, if
@@ -132,6 +244,30 @@ impl SearchJob {
         }
     }
 
+    /// A job of `generation` for query-replace, over `ranges` of the snapshot, while `live`
+    /// holds it.
+    pub(crate) fn scoped(
+        (text, invalid): (Rope, InvalidBytes),
+        query: Query,
+        ranges: Vec<Range<usize>>,
+        scope: Scope,
+        (generation, live): (u64, Arc<AtomicU64>),
+    ) -> Self {
+        Self {
+            work: Work::Scoped {
+                text,
+                invalid,
+                query,
+                ranges,
+                find: scope.find,
+                count: scope.count,
+                most: scope.most,
+            },
+            generation,
+            live,
+        }
+    }
+
     /// The job's generation, which its reports carry.
     #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 {
@@ -160,6 +296,28 @@ impl SearchJob {
                         matched,
                     }));
                 }
+                return;
+            }
+            Work::Scoped {
+                text,
+                invalid,
+                query,
+                ranges,
+                find,
+                count,
+                most,
+            } => {
+                let scope = Scope { find, count, most };
+                let done = &mut |done| report(SearchReport(done));
+                run_scoped(
+                    (&text, &invalid),
+                    &query,
+                    &ranges,
+                    scope,
+                    &stop,
+                    generation,
+                    done,
+                );
                 return;
             }
             Work::Isearch {

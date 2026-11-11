@@ -207,6 +207,12 @@ impl Buffer {
         self.history.can_join(self.content, selections)
     }
 
+    /// Joins the undo groups made since the state `before` into one (ADR 0113). Returns
+    /// whether it joined any.
+    pub(crate) fn join_undo_since(&mut self, before: ContentId) -> bool {
+        self.history.join_since(before)
+    }
+
     /// Sets the cursors the newest undo group ends with.
     pub(crate) fn set_undo_after(&mut self, selections: SelectionSet) {
         self.history.set_after(selections);

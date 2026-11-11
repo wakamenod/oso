@@ -85,7 +85,7 @@ pub fn export(
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
-    if editor.isearch().is_some() {
+    if editor.isearch().is_some() || editor.replace().is_some() {
         return Err(SEARCHING.into());
     }
     carried_bytes(editor)?;
@@ -382,7 +382,7 @@ pub fn check(editor: &Editor) -> Reply {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
-    if editor.isearch().is_some() {
+    if editor.isearch().is_some() || editor.replace().is_some() {
         return Err(SEARCHING.into());
     }
     Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
@@ -454,7 +454,7 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
             Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
         Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
-        Some(_) if editor.isearch().is_some() => {
+        Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
             Err(format!("{EXIT_REFUSED}: a search is under way"))
         }
         Some(expected) if expected != generation(editor) => Err(format!(

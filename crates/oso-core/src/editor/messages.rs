@@ -257,6 +257,7 @@ impl Editor {
             if let Some(isearch) = &mut self.isearch {
                 isearch.note_secret();
             }
+            self.replace_note_secret();
         }
     }
 
@@ -269,6 +270,7 @@ impl Editor {
             || self.preedit_withheld
             || self.prompts.iter().any(|prompt| prompt.around_secret)
             || self.isearch.as_ref().is_some_and(Isearch::around_secret)
+            || self.replace().is_some_and(super::Replace::around_secret)
     }
 
     /// What the echo area shows.

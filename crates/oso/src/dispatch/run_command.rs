@@ -98,6 +98,9 @@ impl Dispatcher {
         // A command isearch's keys do not run ends a search first, as a key would
         // (ADR 0082).
         let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();
+        // And one its answers do not run ends a query-replace (ADR 0113).
+        let ended_search =
+            ended_search | (!self.replace_commands.contains(&id) && editor.replace_exit());
         // A yank waits for the clipboard as it does from a key, and replies at once.
         let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
             self.run_or_read(editor, id, args, invocation)

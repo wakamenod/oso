@@ -56,6 +56,10 @@ pub struct Dispatcher {
     /// The commands that run in a search rather than end it, for `run-command` (ADR 0082).
     #[cfg(any(test, feature = "dev"))]
     isearch_commands: Vec<CommandId>,
+    /// The commands that run in a query-replace rather than end it, for `run-command`
+    /// (ADR 0113).
+    #[cfg(any(test, feature = "dev"))]
+    replace_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -101,8 +105,11 @@ impl Dispatcher {
         let (list, copy) = bindings::recovery_keymaps(&registry);
         let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
         let isearch = bindings::isearch_keymap(&registry);
+        let replace = bindings::replace_keymap(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let replace_commands = bindings::replace_commands(&registry);
         Self {
             keymaps: Keymaps {
                 global,
@@ -113,9 +120,12 @@ impl Dispatcher {
                 question,
                 completing,
                 isearch,
+                replace,
             },
             #[cfg(any(test, feature = "dev"))]
             isearch_commands,
+            #[cfg(any(test, feature = "dev"))]
+            replace_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -498,11 +508,15 @@ impl Dispatcher {
                 log::debug!("{}-", masked(self.resolver.pending(), true));
                 return Effects::default();
             }
-            Resolution::Unbound(keys) if editor.isearch().is_some() => {
+            Resolution::Unbound(keys)
+                if editor.isearch().is_some() || editor.replace().is_some() =>
+            {
                 // It ends the search, and the key, or a sequence under isearch's `C-c`, does
-                // what it would have (ADR 0082, ADR 0091).
+                // what it would have (ADR 0082, ADR 0091). So it ends query-replace
+                // (ADR 0113).
                 let keys = keys.to_vec();
                 editor.isearch_exit();
+                editor.replace_exit();
                 let mut ran = Effects {
                     redraw: true,
                     ..Effects::default()
@@ -591,6 +605,8 @@ mod prefix_tests;
 mod prompt_tests;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod replace_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

@@ -215,6 +215,7 @@ impl Editor {
         // isearch's line, until a message takes its place for a key (ADR 0082).
         if status.echo.is_empty() {
             self.write_isearch_line(&mut status.echo);
+            self.write_replace_line(&mut status.echo);
         }
         status.warnings_on_echo_row = self.tiled_regions().modeline.rows == 0;
         status.messages_in_view =

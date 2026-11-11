@@ -213,6 +213,34 @@ impl History {
         self.evict(Direction::Undo);
     }
 
+    /// Joins the groups made since the state `before` into one, newest last, so that one
+    /// undo goes back to it, as Emacs's `undo-amalgamate-change-group` does (ADR 0113).
+    /// Does nothing if no group starts from `before`, as when an undo went past it or the
+    /// limit dropped it. Returns whether it joined any.
+    pub(crate) fn join_since(&mut self, before: ContentId) -> bool {
+        let Some(first) = self
+            .undo
+            .iter()
+            .rposition(|group| group.target.content == before)
+        else {
+            return false;
+        };
+        if first + 1 >= self.undo.len() {
+            return false;
+        }
+        let joined: Vec<Group> = self.undo.drain(first..).collect();
+        let old: usize = joined.iter().map(|group| group.bytes).sum();
+        let commands = joined.iter().map(|group| group.joined + 1).sum::<usize>() - 1;
+        let target = joined[0].target.clone();
+        let source = joined[joined.len() - 1].source.clone();
+        let batches = joined.into_iter().flat_map(|group| group.batches).collect();
+        let mut group = Group::new(batches, target, source);
+        group.joined = commands;
+        self.bytes = self.bytes - old + group.bytes;
+        self.undo.push_back(group);
+        true
+    }
+
     /// Sets the cursors the newest group ends with, once its command is done.
     pub(crate) fn set_after(&mut self, selections: SelectionSet) {
         if let Some(group) = self.undo.back_mut() {

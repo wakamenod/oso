@@ -193,6 +193,12 @@ fn after_deletions(mut ranges: Vec<Range<usize>>, deletions: &[Range<usize>]) ->
 }
 
 impl Editor {
+    /// A new id for ranges tracked in a buffer, shared by cleanup commands and query-replace.
+    pub(super) fn next_tracking(&mut self) -> Tracking {
+        self.trims.next_id += 1;
+        self.trims.next_id
+    }
+
     /// Turns whitespace cleanup on save on or off. It applies from the next save.
     pub fn set_trim_whitespace(&mut self, on: bool) {
         self.trims.on_save = on;
@@ -266,11 +272,12 @@ impl Editor {
         markdown: bool,
         then: Then,
     ) -> Trimmed {
+        let scan = TrimId(self.next_tracking());
         let Some(buffer) = self.buffer(id) else {
             return Trimmed::NOTHING;
         };
         let job = TrimJob {
-            id: TrimId(self.trims.next_id),
+            id: scan,
             buffer: id,
             revision: buffer.revision(),
             text: buffer.text().clone(),
@@ -305,7 +312,6 @@ impl Editor {
 
     /// Leaves `job` for the host, with `then` waiting for it.
     fn wait_for(&mut self, job: TrimJob, then: Then) {
-        self.trims.next_id += 1;
         let (id, buffer) = (job.id, job.buffer);
         let for_agent = self.runs_for_agent();
         if for_agent && !matches!(then, Then::Command) {

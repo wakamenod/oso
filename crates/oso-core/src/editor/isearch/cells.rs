@@ -38,26 +38,42 @@ impl Editor {
     /// The cells the matches in view take in the tiled window's text area, as `screen` shows
     /// it ([`Editor::screen`]), into `cells`, emptied first.
     pub fn isearch_cells(&self, screen: &Screen, cells: &mut MatchCells) {
-        let MatchCells {
-            current,
-            others,
-            spans,
-            found,
-        } = cells;
-        current.clear();
-        others.clear();
-        spans.clear();
-        found.clear();
+        cells.current.clear();
+        cells.others.clear();
         let Some(state) = &self.isearch else {
             return;
         };
         let Some(query) = &state.query else {
             return;
         };
-        let (window, buffer) = self.tiled();
-        if window.buffer() != state.buffer {
+        if self.tiled().0.buffer() != state.buffer {
             return;
         }
+        let current = state.current.as_ref().filter(|_| !state.failing);
+        self.match_cells(screen, query, current, None, cells);
+    }
+
+    /// The cells of `query`'s matches in view, within `scope` if given, `current` apart,
+    /// into `cells`, emptied first: isearch's and query-replace's (ADR 0113).
+    pub(in crate::editor) fn match_cells(
+        &self,
+        screen: &Screen,
+        query: &search::Query,
+        current: Option<&Range<usize>>,
+        scope: Option<&[Range<usize>]>,
+        cells: &mut MatchCells,
+    ) {
+        let MatchCells {
+            current: current_cells,
+            others,
+            spans,
+            found,
+        } = cells;
+        current_cells.clear();
+        others.clear();
+        spans.clear();
+        found.clear();
+        let (_, buffer) = self.tiled();
         let display = buffer.display();
         let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
         let area = self.tiled_regions().text;
@@ -75,13 +91,25 @@ impl Editor {
                 _ => spans.push(start..end),
             }
         }
+        if let Some(scope) = scope {
+            // Only what is in both, so a match outside the scope shows nothing.
+            let view = std::mem::take(spans);
+            for span in &view {
+                for range in scope {
+                    let (start, end) = (span.start.max(range.start), span.end.min(range.end));
+                    if start < end {
+                        spans.push(start..end);
+                    }
+                }
+            }
+        }
         let limits = (MAX_MATCHES_SHOWN, FRAME_BUDGET);
         search::matches_in((text, invalid), query, spans, limits, found);
         // The current one alone, and the rest without what overlaps it.
-        if let Some(range) = state.current.as_ref().filter(|_| !state.failing) {
+        if let Some(range) = current {
             found.retain(|other| other.end <= range.start || other.start >= range.end);
             let one = std::slice::from_ref(range);
-            frame::match_cells(area, screen, &display, one, current);
+            frame::match_cells(area, screen, &display, one, current_cells);
         }
         frame::match_cells(area, screen, &display, found, others);
     }

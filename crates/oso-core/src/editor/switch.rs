@@ -55,6 +55,7 @@ impl Editor {
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
         // A search keeps to the buffer it began in (ADR 0082).
         self.isearch_abandon();
+        self.replace_abandon();
         // Onto one of the user's buffers, so that the way back through internal ones no longer
         // says anything (ADR 0063).
         let users = self
@@ -329,6 +330,7 @@ impl Editor {
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
             self.isearch_abandon();
+            self.replace_abandon();
             self.window_moves_on();
             // Before it goes, as what it was cannot be asked after.
             self.note_secret_shown();

@@ -95,6 +95,9 @@ pub(super) fn with_panes<R>(
     editor.region_cells(screen, &mut cells.region);
     editor.other_cursor_cells(screen, &mut cells.others);
     editor.isearch_cells(screen, &mut cells.matches);
+    if editor.replace().is_some() {
+        editor.replace_cells(screen, &mut cells.matches);
+    }
     editor.trailing_cells(screen, &mut cells.trailing);
     editor.gutter_into(screen, &mut cells.gutter);
     let flash = (cells.flash).and_then(|strength| {
