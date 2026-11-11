@@ -1,5 +1,6 @@
-//! Scenario tests of `trust-project` and `untrust-project` run by keys (ADR 0114): the
-//! question, the `y` that re-checks it, and the refusals.
+//! Scenario tests of the project commands run by keys (ADR 0114): `trust-project` and
+//! `untrust-project`, with the question, the `y` that re-checks it and the refusals, and
+//! `project-find-file` over a walk handed in.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU.
 
@@ -173,4 +174,73 @@ fn both_refuse_in_a_buffer_with_no_project_or_with_no_record_read() {
         );
     }
     assert_eq!(editor.take_trust_changes(), []);
+}
+
+/// Opens `C-x p f` and hands it a walk of `paths`, ended.
+fn listed(d: &mut Dispatcher, editor: &mut Editor, paths: &[&str]) {
+    send(d, editor, "C-x p f");
+    let request = editor.take_walk_request().expect("a walk is asked for");
+    assert_eq!(request.root, PathBuf::from("/home/me/src/oso"));
+    let paths = paths.iter().map(|&path| path.into()).collect();
+    editor.files_walked(
+        request.generation,
+        paths,
+        Some(oso_core::editor::WalkEnd { cut: false }),
+    );
+}
+
+#[test]
+fn c_x_p_f_lists_the_projects_files_and_ret_visits_the_one_selected() {
+    let (mut d, mut editor) = in_oso(None);
+    listed(
+        &mut d,
+        &mut editor,
+        &["src/main.rs", "Cargo.toml", "README.md"],
+    );
+    assert_eq!(editor.prompt().unwrap().label(), "Find file in oso:");
+    send(&mut d, &mut editor, "m a i n RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(
+        editor.take_visits(),
+        [(
+            PathBuf::from("/home/me/src/oso").join("src/main.rs"),
+            oso_core::load::UNASKED
+        )]
+    );
+}
+
+#[test]
+fn c_x_p_f_outside_a_project_lists_the_buffers_directory_but_never_home() {
+    let mut buffer = Buffer::visiting(PathBuf::from("/home/me/todo.md"));
+    buffer.set_baseline(Baseline {
+        location: PathBuf::from("/home/me/todo.md"),
+        file: None,
+    });
+    let mut editor = Editor::with_buffer(buffer);
+    editor.set_view_size(ViewSize::new(24, 120));
+    editor.set_home(Some(PathBuf::from("/home/me")));
+    let mut d = Dispatcher::new();
+    send(&mut d, &mut editor, "C-x p f");
+    assert!(editor.prompt().is_none());
+    assert!(editor.take_walk_request().is_none());
+    assert_eq!(echo(&editor), "Not in a project");
+}
+
+#[test]
+fn c_x_p_f_is_refused_in_the_minibuffer_and_c_g_stops_its_walk() {
+    let (mut d, mut editor) = in_oso(None);
+    send(&mut d, &mut editor, "C-x p f");
+    let request = editor.take_walk_request().unwrap();
+    send(&mut d, &mut editor, "C-x p f");
+    assert!(
+        editor.take_walk_request().is_none(),
+        "not from inside a prompt"
+    );
+    send(&mut d, &mut editor, "C-g");
+    assert!(editor.prompt().is_none());
+    assert_ne!(
+        request.live.load(std::sync::atomic::Ordering::Relaxed),
+        request.generation,
+        "the walker stops at its next directory"
+    );
 }

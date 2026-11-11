@@ -61,6 +61,7 @@ mod tab;
 mod themes;
 mod undo_group;
 mod view;
+mod walks;
 mod wraps;
 mod write;
 mod yank_pop;
@@ -83,6 +84,7 @@ pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
+pub use walks::{NotInProject, WalkEnd, WalkRequest};
 pub use yank_pop::YankPopError;
 
 /// The name of the window an editor starts with; the next takes 1.
@@ -138,6 +140,8 @@ pub struct Editor {
     write_over_asked: Option<write::WriteOver>,
     /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
     file_list: files::FileList,
+    /// What the prompt that lists a project's files keeps beside its candidates (ADR 0114).
+    project_files: walks::ProjectFiles,
     /// What a prompt that completes waits for from the worker (ADR 0096).
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
@@ -256,6 +260,7 @@ impl Editor {
             mark_list: None,
             kill_list: None,
             file_list: files::FileList::default(),
+            project_files: walks::ProjectFiles::default(),
             completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,

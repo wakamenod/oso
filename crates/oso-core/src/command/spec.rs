@@ -61,6 +61,12 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// A file of the current buffer's project, read in a prompt that completes over the
+    /// project's files as paths from its root, listed as they are walked, and kept in the
+    /// history named `history`, one for each project (ADR 0114). Its label names the project,
+    /// so it has no prompt of its own. The command reads the whole path with
+    /// [`Ctx::answer`](super::Ctx::answer).
+    ProjectFile { history: &'static str },
     /// A mark of the selected window's, read in a prompt that says `prompt` and completes over
     /// the primary cursor's mark and its ring, with the buffer around the selected one beside
     /// it, and no history (ADR 0088). The command reads the row with

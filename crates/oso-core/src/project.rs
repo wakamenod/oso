@@ -19,6 +19,15 @@ pub use trust::{NotRecordable, TrustChange, TrustList};
 /// The most bytes of a `.git` file that are read. Git writes one short line in it.
 pub const MAX_GIT_FILE: u64 = 1024;
 
+/// The names whose presence makes a directory a project's root: a version-control marker,
+/// `.git` a directory or a file, `.jj` and `.hg` directories (ADR 0114). A walk of a project
+/// never enters them, nor a directory holding one, which is another project.
+pub const MARKERS: [&str; 3] = [".git", ".jj", ".hg"];
+
+/// The most files a walk of a project lists or searches; past them it stops, and the count
+/// says `+` (ADR 0114).
+pub const MAX_WALKED: usize = 100_000;
+
 /// The main repository a worktree's `.git` file names, if it names one: its first line is
 /// `gitdir: <path>`, and the path, taken relative to `root` when it is relative and with `.`
 /// and `..` worked out by its words, has the shape `<main>/.git/worktrees/<name>`. Nothing

@@ -99,11 +99,10 @@ impl Dispatcher {
                 };
                 return self.read_buffer(editor, id, args.raw(), read);
             }
-            Some(ArgSpec::Mark { prompt }) => {
-                return self.read_mark(editor, id, args.raw(), prompt);
-            }
-            Some(ArgSpec::File { prompt, history }) => {
-                return self.read_file(editor, id, args.raw(), prompt, history);
+            Some(
+                spec @ (ArgSpec::Mark { .. } | ArgSpec::File { .. } | ArgSpec::ProjectFile { .. }),
+            ) => {
+                return self.read_listed(editor, id, args.raw(), spec);
             }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
@@ -137,6 +136,31 @@ impl Dispatcher {
             ..Effects::default()
         };
         (effects, Ok(()))
+    }
+
+    /// Opens the prompt for the command `id` that lists what `spec` reads: a mark, a path by its
+    /// segments, or a project's file.
+    fn read_listed(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        spec: ArgSpec,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        match spec {
+            ArgSpec::Mark { prompt } => self.read_mark(editor, id, prefix, prompt),
+            ArgSpec::File { prompt, history } => {
+                self.read_file(editor, id, prefix, prompt, history)
+            }
+            ArgSpec::ProjectFile { .. } => self.read_project_file(editor, id, prefix),
+            _ => self.execute(
+                editor,
+                id,
+                Args::with_prefix(prefix),
+                Invocation::default(),
+                Step::MayJoin,
+            ),
+        }
     }
 
     /// Opens the prompt that reads a path for the command `id`, starting at the shown buffer's
@@ -174,6 +198,47 @@ impl Dispatcher {
                 passphrase: false,
                 runs_answer: false,
             }),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
+        (effects, Ok(()))
+    }
+
+    /// Opens the prompt that lists the files of the current buffer's project for the command
+    /// `id`, or of its directory outside one, unless a prompt is selected (ADR 0114). The host
+    /// walks the project, and the list grows as it does. The editor keeps the history, one for
+    /// each project.
+    fn read_project_file(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let effects = Effects {
+            redraw: true,
+            ..Effects::default()
+        };
+        if editor.prompt().is_some() {
+            editor.prompt_says("Not in the minibuffer");
+            return (effects, Ok(()));
+        }
+        let (root, name) = match editor.project_files_root() {
+            Ok(found) => found,
+            Err(not) => {
+                editor.message(not.to_string());
+                return (effects, Ok(()));
+            }
+        };
+        match editor.open_project_files(root, &name) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+            }),
+            Err(PromptError::Invalid) => {
+                editor.message("Cannot list a project whose path is not UTF-8");
+            }
             Err(error) => editor.prompt_says(error.to_string()),
         }
         (effects, Ok(()))

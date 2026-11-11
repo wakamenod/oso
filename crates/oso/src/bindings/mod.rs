@@ -16,6 +16,7 @@ mod messages;
 mod minibuffer;
 mod motion;
 mod prefix;
+mod projects;
 mod recovery;
 mod save;
 mod scroll;
@@ -45,6 +46,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     minibuffer::DEV,
     motion::BINDINGS,
     prefix::BINDINGS,
+    projects::BINDINGS,
     recovery::BINDINGS,
     save::BINDINGS,
     scroll::BINDINGS,

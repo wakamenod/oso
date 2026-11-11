@@ -36,6 +36,7 @@ mod reloads;
 mod saves;
 mod searches;
 mod theme_file;
+mod walks;
 mod wraps;
 // The window system: oso's own layer on macOS, and winit on Windows and Linux (ADR 0070,
 // stage 3).
@@ -91,6 +92,8 @@ pub enum UserEvent {
     Listed,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
+    /// The walker found a project's files, or ended (ADR 0114).
+    Walked(crate::walk::Walked),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
     Trust,
     /// A control socket request, in dev builds.
@@ -171,6 +174,8 @@ pub struct App {
     lister: crate::lister::Lister,
     /// The thread that finds each file's project (ADR 0114).
     projects: crate::project::Detector,
+    /// The thread that walks a project's files for `project-find-file` (ADR 0114).
+    walker: crate::walk::Walker,
     /// The thread that reads and writes the record of trusted projects, if there is one.
     trust_file: Option<crate::config::TrustFile>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
@@ -256,6 +261,7 @@ impl App {
         let disk = reloads::Disk::start(waker.clone());
         let lister = files::lister(&waker);
         let projects = projects::detector(&waker);
+        let walker = walks::walker(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
         editor.set_home(home());
@@ -299,6 +305,7 @@ impl App {
             remembered_theme,
             lister,
             projects,
+            walker,
             trust_file: None,
             log_gate,
             agent: agent::Agent::default(),
@@ -374,6 +381,7 @@ impl App {
         self.forget_killed();
         self.serve_files();
         self.forget_listings();
+        self.start_walks();
         self.start_saves();
         self.start_searches();
         self.start_reverts();

@@ -60,6 +60,14 @@ network features.
   root, by path and identity, is still the one asked about; run any other way,
   the command asks. `M-x untrust-project` takes the line out without asking.
   Both are `Person`, so the agent channel never runs them.
+- `C-x p f` walks a project's files in-process on its own thread, `oso-walk`,
+  and runs nothing. Links are never followed, so a link in a repository lists
+  only itself, and only when it leads to a file; opening it goes through the
+  loader's verdict, so a file that may hold secrets opens as such a buffer. The
+  project's ignore files are read as patterns and can only hide files. The
+  markers' directories and nested projects are never entered. At most 100,000
+  files are listed, and nothing of the list reaches a log
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Trust is stored in `trusted-projects` in oso's configuration directory, by
   the root's path, device and inode (the path alone on Windows), never inside
   the repository. A dev build given `--config FILE` uses the one beside that
@@ -310,7 +318,7 @@ and below the row, and a label's glyphs keep their own cells
   - Screenshots, the restart handoff, timings and hot reload stay dev-only.
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits the files oso has open. Any save of a buffer the person did not visit asks the person.
-    `C-x C-f`, `C-x C-w` and `kill-buffer` are the person's only. The channel switches buffers by
+    `C-x C-f`, `C-x C-w`, `C-x p f` and `kill-buffer` are the person's only. The channel switches buffers by
     name, but never to one that may hold secrets
     ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
     [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
