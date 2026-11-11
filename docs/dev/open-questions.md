@@ -8,7 +8,7 @@ item notes when it must be settled.
 
 - **UI of each later feature** (before building it). The M2 UI is decided
   ([`ui.md`](ui.md), [ADR 0026](adr/0026-m2-ui-layout.md)); M3 and later
-  features (avy, ripgrep results, the menu contents, the git status buffer,
+  features (avy, the menu contents, the git status buffer,
   the terminal) are designed when they come up.
 
 ## M1
