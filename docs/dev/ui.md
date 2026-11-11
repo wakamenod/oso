@@ -253,8 +253,10 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 
 - Three themes: `dark` (near-black, the default), `light`, and `dusk` (dark grey).
 - `M-x load-theme` picks one through a completion. `<f5>` (`toggle-theme`) switches between
-  `dark` and `light`, a pair that configuration will be able to name (M3).
-- The choice is remembered across starts. oso does not follow the OS's dark or light appearance.
+  `dark` and `light`, or the pair `[theme] pair` names in `config.toml`.
+- The choice is remembered across starts, and wins over `[theme] default` until that name
+  changes ([ADR 0108](adr/0108-the-user-configuration-file.md)). oso does not follow the OS's
+  dark or light appearance.
 - A switch redraws once. In every theme, text that is read keeps 7:1 contrast and secondary
   labels 4.5:1, and a question's label has a colour no buffer text has.
 
@@ -374,7 +376,9 @@ Off by default: **line numbers** (`global-display-line-numbers-mode`). They are 
 current one brighter, in a gutter as wide as the line count's digits plus one, at least
 3 digits. Floats keep their place when it appears.
 
-None of these is remembered across starts until configuration exists (M3).
+None of these is remembered across starts. Each starts as `[aids]` in `config.toml` says, and
+a switch made with its command stands until that setting changes in the file
+([ADR 0108](adr/0108-the-user-configuration-file.md)).
 
 ## Bidirectional and invisible characters
 

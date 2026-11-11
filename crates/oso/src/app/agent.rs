@@ -58,6 +58,8 @@ pub(super) struct Agent {
     starting: bool,
     /// The person turned it off while it was starting.
     stop_when_started: bool,
+    /// The configuration file, by this name, started it at launch (ADR 0108).
+    started_by: Option<String>,
     started: Option<Instant>,
     /// The connections the person let in.
     connected: Vec<Connection>,

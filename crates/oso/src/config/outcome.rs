@@ -1,24 +1,39 @@
-//! What a look at the configuration file comes to: the user's keys to put in, the lines for
-//! `*Messages*`, the one for the echo area, and whether something is still wrong (ADR 0108,
-//! ADR 0110). A pure function, so the app only carries it out.
+//! What a look at the configuration file comes to: the user's keys and settings to put in, the
+//! lines for `*Messages*`, the one for the echo area, and whether something is still wrong
+//! (ADR 0108, ADR 0110). A pure function, so the app only carries it out.
 //!
 //! Must not depend on: `app` or `dispatch`; this only words what the thread found.
 
 use oso_core::keymap::Keymap;
 
-use super::Report;
+use super::{Report, Settings};
 
 /// What the app does with a [`Report`].
 #[derive(Debug, PartialEq, Eq)]
 pub struct Outcome {
     /// The user's keys to put in, in place of those in force; `None` keeps them.
     pub keys: Option<Keymap>,
+    /// The settings to put in, all unset for no file; `None` keeps those in force.
+    pub settings: Option<Settings>,
+    /// Whether other users in a group can change the file, or the way to it.
+    pub group_writes: bool,
     /// Lines for `*Messages*` alone (`Editor::note`).
     pub notes: Vec<String>,
     /// The line for the echo area and `*Messages*`, or `None` to say it only in the log.
     pub said: Option<String>,
     /// Whether something is wrong, so that the next good look says so.
     pub troubled: bool,
+}
+
+impl Outcome {
+    /// Says `line`, of a setting that applies only at the next start: in the echo area if
+    /// nothing else is said there, and otherwise in `*Messages*` alone.
+    pub fn say_later(&mut self, line: String) {
+        match self.said {
+            None => self.said = Some(line),
+            Some(_) => self.notes.push(line),
+        }
+    }
 }
 
 /// What `report` comes to, for the file called `name`, after a look that found something wrong
@@ -29,6 +44,8 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
             log::info!("no configuration file: the defaults apply");
             Outcome {
                 keys: Some(Keymap::new()),
+                settings: Some(Settings::default()),
+                group_writes: false,
                 notes: Vec::new(),
                 said: None,
                 troubled: false,
@@ -36,6 +53,8 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
         }
         Report::Refused(why) => Outcome {
             keys: None,
+            settings: None,
+            group_writes: false,
             notes: Vec::new(),
             said: Some(format!("Configuration not read: {why}")),
             troubled: true,
@@ -76,6 +95,8 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
                 None
             };
             Outcome {
+                settings: applied.then_some(loaded.settings),
+                group_writes,
                 keys: loaded.keys,
                 notes,
                 said,
@@ -116,6 +137,8 @@ mod tests {
             quiet,
             Outcome {
                 keys: Some(Keymap::new()),
+                settings: Some(Settings::default()),
+                group_writes: false,
                 notes: Vec::new(),
                 said: None,
                 troubled: false,
@@ -124,6 +147,21 @@ mod tests {
         let after = outcome(read(Some(Keymap::new()), 0, 0, false), "config.toml", true);
         assert_eq!(after.said.as_deref(), Some("Configuration loaded"));
         assert!(!after.troubled);
+    }
+
+    #[test]
+    fn a_line_for_the_next_start_is_echoed_unless_something_else_is() {
+        let mut quiet = outcome(read(Some(Keymap::new()), 0, 0, false), "config.toml", false);
+        quiet.say_later("later".to_owned());
+        assert_eq!(quiet.said.as_deref(), Some("later"));
+        assert!(quiet.notes.is_empty());
+        let mut said = outcome(read(Some(Keymap::new()), 1, 0, false), "config.toml", false);
+        said.say_later("later".to_owned());
+        assert_eq!(
+            said.said.as_deref(),
+            Some("Configuration: 1 problem, see *Messages*")
+        );
+        assert_eq!(said.notes.last().map(String::as_str), Some("later"));
     }
 
     #[test]
@@ -152,20 +190,29 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_or_refused_file_keeps_the_keys_in_force_and_a_missing_one_drops_them() {
+    fn a_rejected_or_refused_file_keeps_what_is_in_force_and_a_missing_one_drops_it() {
         let rejected = outcome(read(None, 1, 0, false), "config.toml", false);
         assert_eq!(rejected.keys, None);
+        assert_eq!(
+            rejected.settings, None,
+            "nothing in a rejected file applies"
+        );
         assert_eq!(
             rejected.said.as_deref(),
             Some("Configuration not loaded: 1 problem, see *Messages*")
         );
         assert!(rejected.troubled);
         let refused = outcome(Report::Refused("why".to_owned()), "config.toml", false);
-        assert_eq!(refused.keys, None);
+        assert_eq!((refused.keys, refused.settings), (None, None));
         assert_eq!(refused.said.as_deref(), Some("Configuration not read: why"));
         assert!(refused.troubled);
         let missing = outcome(Report::Missing, "config.toml", true);
         assert_eq!(missing.keys, Some(Keymap::new()));
+        assert_eq!(
+            missing.settings,
+            Some(Settings::default()),
+            "the compiled-in ones"
+        );
         assert_eq!(missing.said, None);
         assert!(!missing.troubled);
     }

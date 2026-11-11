@@ -154,10 +154,14 @@ pub struct App {
     /// The completion worker, for a list past 5000 candidates (ADR 0096).
     completer: completions::Completer,
     /// The theme remembered from before, being read until the window opens, what writes the
-    /// theme chosen last, and which one it was given (ADR 0089).
+    /// theme shown last, and which one it was given, with the configuration's default theme
+    /// then (ADR 0089, ADR 0108).
     theme_read: Option<ThemeRead>,
     theme_writer: theme_file::Writer,
-    remembered_theme: usize,
+    /// The renderer's themes, each a name and what it is, the default first: made once, as
+    /// making them resolves every theme's colours.
+    themes: Vec<(&'static str, &'static str)>,
+    remembered_theme: ShownTheme,
     /// The threads that list directories for a prompt that reads a path (ADR 0087).
     lister: crate::lister::Lister,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
@@ -179,6 +183,13 @@ pub struct App {
     /// and what an import has brought so far.
     #[cfg(feature = "dev")]
     handover: handover::Handover,
+}
+
+/// A theme shown, by its index among the renderer's, and the configuration's default theme
+/// then (ADR 0108).
+struct ShownTheme {
+    index: usize,
+    default: String,
 }
 
 /// The thread that drops what the UI thread is done with, or none if it could not start.
@@ -231,7 +242,13 @@ impl App {
         if let Ok(directory) = std::env::current_dir() {
             editor.set_start_directory(directory);
         }
-        editor.set_themes(theme_names(), 0);
+        let themes = theme_names();
+        let configuration = configuration::Configuration::new(&themes);
+        let remembered_theme = ShownTheme {
+            index: 0,
+            default: configuration.default_theme().to_owned(),
+        };
+        editor.set_themes(themes.clone(), 0);
         Self {
             view: None,
             editor,
@@ -240,7 +257,7 @@ impl App {
             waker,
             loads: Vec::new(),
             disk,
-            configuration: configuration::Configuration::default(),
+            configuration,
             freer: Freer::start(),
             leaving,
             emergency,
@@ -258,7 +275,8 @@ impl App {
             completer: completions::Completer::default(),
             theme_read: Some(theme_read),
             theme_writer: theme_file::Writer::start(theme_directory),
-            remembered_theme: 0,
+            themes,
+            remembered_theme,
             lister,
             log_gate,
             agent: agent::Agent::default(),
@@ -275,32 +293,49 @@ impl App {
     }
 
     /// Draws in the theme remembered from before, if its read is done and nothing has been
-    /// chosen since. A name this build has no theme of leaves the default.
+    /// chosen since, and takes the configuration's default theme then as the one in force, for
+    /// the file's to be compared with (ADR 0108). A name this build has no theme of leaves the
+    /// default.
     fn take_remembered_theme(&mut self) {
-        let Some(name) = self.theme_read.take().and_then(ThemeRead::take) else {
+        let Some(remembered) = self.theme_read.take().and_then(ThemeRead::take) else {
             return;
         };
-        if self.editor.theme() != self.remembered_theme {
+        if self.editor.theme() != self.remembered_theme.index {
             return;
         }
-        let themes = theme_names();
-        match themes.iter().position(|&(theme, _)| theme == name) {
+        let name = &remembered.name;
+        match self.themes.iter().position(|&(theme, _)| theme == name) {
             Some(index) => {
-                self.editor.set_themes(themes, index);
-                self.remembered_theme = index;
+                self.editor.set_themes(self.themes.clone(), index);
+                // A file of one line was written before the configuration set the theme.
+                if let Some(default) = remembered.default {
+                    self.configuration.set_default_theme(default);
+                }
+                let default = self.configuration.default_theme().to_owned();
+                self.remembered_theme = ShownTheme { index, default };
             }
             None => log::warn!("no theme named {name}, as remembered; drawing the default"),
         }
     }
 
-    /// Hands the theme chosen now to the writer, if it is not the one last remembered.
+    /// Hands the theme shown now, with the configuration's default theme, to the writer, if
+    /// they are not those last remembered: a choice, or a theme the configuration set.
     fn remember_theme(&mut self) {
-        let theme = self.editor.theme();
-        if theme != self.remembered_theme {
-            self.remembered_theme = theme;
-            if let Some(name) = self.editor.theme_name() {
-                self.theme_writer.remember(name);
-            }
+        let index = self.editor.theme();
+        let default = self.configuration.default_theme();
+        let remembered = &self.remembered_theme;
+        if (index, default) == (remembered.index, remembered.default.as_str()) {
+            return;
+        }
+        self.remembered_theme = ShownTheme {
+            index,
+            default: default.to_owned(),
+        };
+        if let Some(name) = self.editor.theme_name() {
+            self.theme_writer.remember(theme_file::Remembered {
+                name: name.to_owned(),
+                default: Some(default.to_owned()),
+            });
         }
     }
 

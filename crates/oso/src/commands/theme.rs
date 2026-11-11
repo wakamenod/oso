@@ -10,7 +10,7 @@ use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "load-theme",
-        doc: "Draw with the theme named in a prompt, which completes over the themes.\n\nThe choice is remembered for the next start.",
+        doc: "Draw with the theme named in a prompt, which completes over the themes.\n\nThe choice is remembered for the next start, until `[theme] default` in config.toml changes.",
         args: ArgSpec::Theme {
             prompt: "Load theme: ",
             history: "theme",
@@ -20,7 +20,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "toggle-theme",
-        doc: "Switch between the two themes of the pair: the dark and the light one, until configuration names them.\n\nFrom another theme, switch to the pair's first. The choice is remembered for the next start.",
+        doc: "Switch between the two themes of the pair: the dark and the light one, or those `[theme] pair` in config.toml names.\n\nFrom another theme, switch to the pair's first. The choice is remembered for the next start, until `[theme] default` in config.toml changes.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: toggle_theme,

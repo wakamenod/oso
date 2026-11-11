@@ -262,6 +262,9 @@ impl App {
                 .unwrap_or((frame.width, frame.height));
             self.resize(width, height);
         }
+        // They win over the configuration file's, which a look not yet applied takes as the
+        // baseline without applying them (ADR 0108).
+        self.configuration.hand_over();
         // Before positions, so that what the aids lay out is there first (ADR 0097).
         if let Some(aids) = state.visual_aids {
             self.editor.set_visual_aids(aids);

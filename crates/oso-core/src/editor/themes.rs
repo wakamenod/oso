@@ -15,7 +15,7 @@ pub(super) struct Themes {
     /// Each theme's name and what it is, such as `dark`, in the order the host gave them.
     names: Vec<(&'static str, &'static str)>,
     current: usize,
-    /// What `toggle-theme` switches between: the first two, until configuration names them.
+    /// What `toggle-theme` switches between: the first two, or the pair the host sets.
     pair: [usize; 2],
 }
 
@@ -39,6 +39,18 @@ impl Editor {
             names,
             current,
             pair,
+        };
+    }
+
+    /// Makes `toggle-theme` switch between the themes at `pair`, indices in the host's list.
+    /// Two that are the same, or one past the list, leave the first two (ADR 0108).
+    pub fn set_theme_pair(&mut self, pair: [usize; 2]) {
+        let [first, second] = pair;
+        let names = self.themes.names.len();
+        self.themes.pair = if first != second && first < names && second < names {
+            pair
+        } else {
+            [0, usize::from(names > 1)]
         };
     }
 
@@ -151,6 +163,22 @@ mod tests {
             Some("dark"),
             "from outside the pair, its first"
         );
+    }
+
+    #[test]
+    fn the_pair_can_be_set_and_a_wrong_one_gives_the_first_two() {
+        let mut editor = editor();
+        editor.set_theme_pair([2, 1]);
+        assert!(editor.toggle_theme());
+        assert_eq!(editor.theme_name(), Some("dusk"), "from outside, the first");
+        assert!(editor.toggle_theme());
+        assert_eq!(editor.theme_name(), Some("light"));
+        for wrong in [[1, 1], [0, 3], [7, 1]] {
+            editor.set_theme_pair(wrong);
+            editor.load_theme("dark").unwrap();
+            assert!(editor.toggle_theme());
+            assert_eq!(editor.theme_name(), Some("light"), "{wrong:?}");
+        }
     }
 
     #[test]
