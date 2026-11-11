@@ -326,11 +326,33 @@ fn with_trim_whitespace_a_save_cleans_only_the_lines_edited() {
     app.wait_until_ready();
     app.wait_for("the look", |state| state["echo"] == SAID_ECHO);
     app.send_keys("C-n C-e SPC SPC M-< C-x C-s");
+    wait_for_file(&notes, b"keep  \nedit\n");
+
+    // Markdown keeps two spaces after text, as a line break.
+    let markdown = scratch.write("notes.md", b"a\n");
+    app.open_file(&markdown);
+    app.wait_until_ready();
+    app.send_keys("C-e SPC SPC RET b SPC M-< C-x C-s");
+    wait_for_file(&markdown, b"a  \nb\n");
+
+    // Past what is cleaned on the UI thread: a whole file killed and yanked back is all
+    // edited, so the save waits for a scan on a thread of its own.
+    let large = "line \n".repeat(50_000);
+    let big = scratch.write("big.txt", large.as_bytes());
+    app.open_file(&big);
+    app.wait_until_ready();
+    app.send_keys("C-x h C-w C-y C-x C-s");
+    wait_for_file(&big, "line\n".repeat(50_000).as_bytes());
+}
+
+/// Waits until `path` holds `expected`.
+fn wait_for_file(path: &Path, expected: &[u8]) {
     let started = Instant::now();
-    while fs::read(&notes).ok().as_deref() != Some(b"keep  \nedit\n".as_slice()) {
+    while fs::read(path).ok().as_deref() != Some(expected) {
         assert!(
             started.elapsed() < Duration::from_secs(10),
-            "never saved as cleaned"
+            "{} never saved as cleaned",
+            path.display()
         );
         thread::sleep(Duration::from_millis(20));
     }

@@ -83,7 +83,7 @@ pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
-pub use trim::{TrimJob, TrimOutcome, TrimReport};
+pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
 pub use yank_pop::YankPopError;
 
 /// The name of the buffer shown when no file is open.

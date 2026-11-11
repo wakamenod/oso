@@ -219,6 +219,6 @@ impl Buffer {
         self.disk_acted = None;
         self.reload_failed = false;
         self.recovery = None;
-        self.edited.clear();
+        self.clear_edited();
     }
 }

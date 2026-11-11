@@ -15,7 +15,7 @@ impl App {
     /// [`UserEvent::Trim`].
     pub(super) fn start_trims(&mut self) {
         for job in self.editor.take_trim_jobs() {
-            let buffer = job.buffer();
+            let (scan, buffer) = (job.id(), job.buffer());
             let waker = self.waker.clone();
             let spawned = thread::Builder::new()
                 .name("oso-trim".into())
@@ -25,7 +25,7 @@ impl App {
                 });
             if spawned.is_err() {
                 log::warn!("a whitespace scan's thread could not start");
-                self.editor.trim_failed(buffer);
+                self.editor.trim_failed(scan);
                 self.agent_save_not_started(
                     buffer,
                     "not saved: the whitespace scan could not start",

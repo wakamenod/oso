@@ -88,21 +88,23 @@ impl Editor {
             path: path.clone(),
             elsewhere: elsewhere.clone(),
         };
-        let trimmed = match self.trim_for_save(id, then) {
-            Trimmed::Done(changed) => changed,
+        let (trimmed, kept) = match self.trim_for_save(id, then) {
+            Trimmed::Done { changed, kept } => (changed, kept),
             Trimmed::Waiting => return Ok(false),
         };
-        let newline = self.write_after_trim(id, path, elsewhere)?;
+        let newline = self.write_after_trim(id, path, elsewhere, kept)?;
         Ok(trimmed || newline)
     }
 
     /// Goes on with a write of `id` to `path` that may have waited for whitespace cleanup:
-    /// its final newline, then its job. Returns whether the newline went in.
+    /// its final newline, then its job, which takes what was edited but for `kept`. Returns
+    /// whether the newline went in.
     pub(super) fn write_after_trim(
         &mut self,
         id: BufferId,
         path: PathBuf,
         elsewhere: Elsewhere,
+        kept: Vec<std::ops::Range<usize>>,
     ) -> Result<bool, SaveRefused> {
         let buffer = self.buffer(id).ok_or(SaveRefused::NoFile)?;
         if buffer.is_internal() {
@@ -130,6 +132,7 @@ impl Editor {
                 elsewhere: Some(elsewhere),
             };
             buffer.set_saving(true);
+            buffer.save_took_edits(kept);
             self.save_jobs.push(job);
         }
         Ok(line_break.is_some())

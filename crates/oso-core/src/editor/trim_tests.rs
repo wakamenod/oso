@@ -260,3 +260,166 @@ fn a_save_that_can_no_longer_go_after_the_scan_says_why() {
     assert!(editor.take_save_jobs().is_empty());
     assert!(!editor.current().1.is_saving());
 }
+
+#[test]
+fn whitespace_a_cursor_kept_is_cleaned_by_a_later_save() {
+    let mut editor = visiting("notes.txt", "x\ny\n");
+    edit(&mut editor, 1..1, " foo  ");
+    put_cursor(&mut editor, 7);
+    save(&mut editor).unwrap();
+    assert_eq!(text(&editor), "x foo  \ny\n");
+    let id = editor.window().buffer();
+    editor.save_finished(id, editor.current().1.content_id(), stamp());
+    put_cursor(&mut editor, 9);
+    edit(&mut editor, 9..9, "z");
+    save(&mut editor).unwrap();
+    assert_eq!(text(&editor), "x foo\nyz\n");
+}
+
+#[test]
+fn the_final_newline_marks_no_line_as_edited() {
+    let mut editor = visiting("notes.txt", "a\nlast   ");
+    put_cursor(&mut editor, 0);
+    let id = editor.window().buffer();
+    for _ in 0..2 {
+        edit(&mut editor, 0..0, "b");
+        save(&mut editor).unwrap();
+        editor.save_finished(id, editor.current().1.content_id(), stamp());
+    }
+    assert_eq!(text(&editor), "bba\nlast   \n");
+}
+
+#[test]
+fn a_write_follows_the_markdown_rule_of_its_new_name() {
+    for (from, to, expected) in [
+        ("notes.txt", "notes.md", "a  \nb\n"),
+        ("notes.md", "notes.txt", "a\nb\n"),
+    ] {
+        let mut editor = visiting(from, "x\n");
+        edit(&mut editor, 0..2, "a  \nb ");
+        put_cursor(&mut editor, 0);
+        editor.begin_undo_group();
+        editor
+            .start_write(PathBuf::from("/nowhere").join(to), false)
+            .unwrap();
+        editor.end_undo_group();
+        assert_eq!(text(&editor), expected, "{from} as {to}");
+    }
+}
+
+#[test]
+fn a_failed_write_leaves_the_lines_edited_for_the_next_save() {
+    let mut editor = visiting("notes.txt", "a\n");
+    editor.set_trim_whitespace(false);
+    put_cursor(&mut editor, 0);
+    edit(&mut editor, 1..1, "  ");
+    save(&mut editor).unwrap();
+    let id = editor.window().buffer();
+    editor.take_save_jobs();
+    editor.save_failed(id);
+    editor.set_trim_whitespace(true);
+    save(&mut editor).unwrap();
+    assert_eq!(text(&editor), "a\n");
+}
+
+#[test]
+fn many_ranges_with_no_text_are_scanned_on_a_thread() {
+    let mut editor = visiting("notes.txt", &"x\n".repeat(5000));
+    put_cursor(&mut editor, 0);
+    let id = editor.window().buffer();
+    // 5000 deletions leave 5000 empty ranges.
+    let deletions: Vec<Replacement<'_>> = (0..5000)
+        .map(|line| Replacement {
+            range: line * 2..line * 2 + 1,
+            text: "",
+        })
+        .collect();
+    editor.begin_undo_group();
+    editor.apply_edits(id, &deletions).unwrap();
+    editor.end_undo_group();
+    assert_eq!(save(&mut editor), Ok(false));
+    assert!(editor.trim_waits(id));
+}
+
+#[test]
+fn a_long_run_of_blank_lines_at_the_end_is_read_on_a_thread() {
+    let mut editor = visiting(
+        "notes.txt",
+        &format!("a{}", "\n".repeat(TRIM_ON_THE_UI_THREAD)),
+    );
+    put_cursor(&mut editor, 0);
+    let end = editor.current().1.text().len();
+    edit(&mut editor, end..end, " ");
+    assert_eq!(save(&mut editor), Ok(false), "it waits");
+    let report = editor.take_trim_jobs().pop().unwrap().run();
+    assert!(editor.trim_reported(report).is_some());
+    assert_eq!(text(&editor), "a\n");
+}
+
+#[test]
+fn a_cursor_in_the_blank_lines_at_the_end_keeps_what_is_before_it() {
+    let mut editor = visiting("notes.txt", "a\n");
+    edit(&mut editor, 2..2, "\n    ");
+    put_cursor(&mut editor, 7);
+    save(&mut editor).unwrap();
+    assert_eq!(text(&editor), "a\n    \n");
+}
+
+#[test]
+fn a_command_and_a_save_waiting_on_one_buffer_each_get_their_own_report() {
+    let pasted = large();
+    let mut editor = visiting("notes.txt", "");
+    put_cursor(&mut editor, 0);
+    edit(&mut editor, 0..0, &pasted);
+    save(&mut editor).unwrap();
+    let mut jobs = editor.take_trim_jobs();
+    // The command over the whole buffer waits too.
+    assert_eq!(editor.delete_trailing_whitespace(), Ok(false));
+    jobs.extend(editor.take_trim_jobs());
+    assert_eq!(jobs.len(), 2);
+    let command = jobs.pop().unwrap().run();
+    let save_scan = jobs.pop().unwrap().run();
+    // The command's report goes to the command, which saves nothing.
+    editor.trim_reported(command).unwrap();
+    assert!(editor.take_save_jobs().is_empty());
+    // The save's own scan is stale now, so it scans again, and then saves.
+    assert_eq!(editor.trim_reported(save_scan), None);
+    let rescan = editor.take_trim_jobs().pop().unwrap().run();
+    editor.trim_reported(rescan).unwrap();
+    assert_eq!(editor.take_save_jobs().len(), 1);
+    assert_eq!(text(&editor), pasted.replace(" \n", "\n"));
+}
+
+#[test]
+fn a_command_waiting_for_its_scan_follows_the_edits_made_meanwhile() {
+    let mut editor = visiting("notes.txt", &large());
+    put_cursor(&mut editor, 0);
+    assert_eq!(editor.delete_trailing_whitespace(), Ok(false));
+    let stale = editor.take_trim_jobs().pop().unwrap().run();
+    edit(&mut editor, 0..0, "new  \n");
+    assert_eq!(editor.trim_reported(stale), None);
+    let report = editor.take_trim_jobs().pop().unwrap().run();
+    editor.trim_reported(report).unwrap();
+    let cleaned = text(&editor);
+    assert!(
+        cleaned.starts_with("new\nline\nline\n"),
+        "{}",
+        &cleaned[..20]
+    );
+    assert!(!cleaned.contains(" \n"));
+}
+
+#[test]
+fn a_buffer_with_no_file_written_as_markdown_follows_its_rule() {
+    let mut editor = Editor::with_buffer(Buffer::new("*scratch*"));
+    editor.set_view_size(ViewSize::new(5, 20));
+    editor.set_trim_whitespace(true);
+    edit(&mut editor, 0..0, "a  \nb ");
+    put_cursor(&mut editor, 0);
+    editor.begin_undo_group();
+    editor
+        .start_write(PathBuf::from("/nowhere/x.md"), false)
+        .unwrap();
+    editor.end_undo_group();
+    assert_eq!(text(&editor), "a  \nb\n");
+}
