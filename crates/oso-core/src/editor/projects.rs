@@ -5,6 +5,7 @@
 //! own, after the file's text has come, and hands over what it found. It reads the record of
 //! trusted projects on another, and writes what a person changed of it.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::Editor;
@@ -135,17 +136,11 @@ impl Editor {
         if self.trust.list == list {
             return;
         }
-        let roots = |list: &Option<TrustList>| -> Vec<RootIdentity> {
-            list.as_ref()
-                .map(|list| list.roots().to_vec())
-                .unwrap_or_default()
+        let roots = |list: &Option<TrustList>| -> HashSet<RootIdentity> {
+            list.iter().flat_map(|list| list.roots()).cloned().collect()
         };
         let (before, after) = (roots(&self.trust.list), roots(&list));
-        let changed: Vec<&RootIdentity> = before
-            .iter()
-            .filter(|root| !after.contains(root))
-            .chain(after.iter().filter(|root| !before.contains(root)))
-            .collect();
+        let changed: Vec<&RootIdentity> = before.symmetric_difference(&after).collect();
         self.trust.list = list;
         let claims_changed = |project: &Project| {
             project.found().worktree_of.as_deref().is_some_and(|claim| {

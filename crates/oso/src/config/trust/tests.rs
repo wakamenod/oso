@@ -61,7 +61,7 @@ fn trust(roots: &[RootIdentity]) -> Vec<TrustChange> {
 
 fn trusting(roots: &[RootIdentity]) -> TrustList {
     roots.iter().fold(TrustList::default(), |list, root| {
-        list.with(root.clone()).unwrap()
+        list.apply(&TrustChange::Trust(root.clone())).unwrap()
     })
 }
 
@@ -276,4 +276,47 @@ fn changes_handed_over_as_oso_goes_are_made_before_it_does() {
     drop(watch);
     let list = trusting(&[root(&scratch, "a")]);
     assert_eq!(fs::read_to_string(&file).unwrap(), list.format());
+}
+
+#[test]
+fn a_file_replaced_since_it_was_read_is_not_written_over() {
+    let scratch = scratch("trust-moved");
+    let file = scratch.file(TRUST_FILE_NAME, b"");
+    let seen = super::look(&file);
+    // Another writer replaces it after the read.
+    let theirs = trusting(&[root(&scratch, "theirs")]);
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(&file, theirs.format()).unwrap();
+    let ours = trusting(&[root(&scratch, "ours")]);
+    let written = super::write_file(&file, &ours, &seen).unwrap();
+    assert!(matches!(written, super::Written::Moved));
+    assert_eq!(fs::read_to_string(&file).unwrap(), theirs.format());
+    let parts = fs::read_dir(scratch.path())
+        .unwrap()
+        .filter(|entry| {
+            let name = entry.as_ref().unwrap().file_name();
+            name.to_string_lossy().contains(".part")
+        })
+        .count();
+    assert_eq!(parts, 0, "its part file goes");
+}
+
+#[test]
+fn a_part_file_a_crash_left_goes_and_one_being_written_stays() {
+    let scratch = scratch("trust-stale-part");
+    let stale = scratch.file("trusted-projects.part.1", b"old");
+    let fresh = scratch.file("trusted-projects.part.2", b"new");
+    let an_hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
+    fs::File::options()
+        .write(true)
+        .open(&stale)
+        .unwrap()
+        .set_modified(an_hour_ago)
+        .unwrap();
+    let file = scratch.path().join(TRUST_FILE_NAME);
+    let list = trusting(&[root(&scratch, "a")]);
+    let written = super::write_file(&file, &list, &super::look(&file)).unwrap();
+    assert!(matches!(written, super::Written::Replaced));
+    assert!(!stale.exists());
+    assert!(fresh.exists());
 }

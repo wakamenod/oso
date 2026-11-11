@@ -317,23 +317,47 @@ fn deliver_notes(shared: &Shared, notes: Vec<String>) {
 /// Makes `changes` in `file` as it is now: read with the checks a look makes, changed, and
 /// written whole. Why not, if it is not.
 fn make(file: &Path, changes: &[TrustChange]) -> Result<(), String> {
-    let (list, said, _) = read_list(file, &look(file));
-    let Some(mut list) = list else {
-        return Err(match said {
-            Said::Refused(why, _) => why,
-            _ => "it is not read".to_owned(),
-        });
-    };
-    for change in changes {
-        list = list.apply(change).map_err(|why| why.to_string())?;
+    for _ in 0..ATTEMPTS {
+        let seen = look(file);
+        let (list, said, _) = read_list(file, &seen);
+        let Some(mut list) = list else {
+            return Err(match said {
+                Said::Refused(why, _) => why,
+                _ => "it is not read".to_owned(),
+            });
+        };
+        for change in changes {
+            list = list.apply(change).map_err(|why| why.to_string())?;
+        }
+        match write_file(file, &list, &seen) {
+            Ok(Written::Replaced) => return Ok(()),
+            // Another writer replaced it since it was read: made again on what it holds now.
+            Ok(Written::Moved) => {}
+            Err(e) => return Err(e.to_string()),
+        }
     }
-    write_file(file, &list).map_err(|e| e.to_string())
+    Err("it kept changing as it was written".to_owned())
 }
 
-/// Writes `list` in place of `file`: whole, through a part file renamed over it, mode `0600`,
-/// in a directory only this user can change, which is made so if missing once what it would be
-/// made in passes. Never over a link, which the rename would replace.
-fn write_file(file: &Path, list: &TrustList) -> io::Result<()> {
+/// How many times a change is made again on a file that another writer replaced meanwhile.
+const ATTEMPTS: usize = 3;
+
+/// How old another process's part file must be to be taken for one a crash left.
+const STALE_PART: Duration = Duration::from_secs(60);
+
+/// What a write did.
+enum Written {
+    /// The file holds the list now.
+    Replaced,
+    /// The file changed since it was read as `seen`, so nothing was written.
+    Moved,
+}
+
+/// Writes `list` in place of `file`, read as `seen`: whole, through a part file renamed over
+/// it, mode `0600`, in a directory only this user can change, which is made so if missing once
+/// what it would be made in passes, and synced after the rename. Never over a link, which the
+/// rename would replace, and not if `file` is no longer what `seen` says just before the rename.
+fn write_file(file: &Path, list: &TrustList, seen: &Seen) -> io::Result<Written> {
     let refused = |why: &str| {
         Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -373,6 +397,7 @@ fn write_file(file: &Path, list: &TrustList) -> io::Result<()> {
     if others(directory)? {
         return refused(changeable);
     }
+    remove_stale_parts(directory);
     let part = directory.join(format!("{PART}.{}", std::process::id()));
     match fs::remove_file(&part) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
@@ -382,12 +407,47 @@ fn write_file(file: &Path, list: &TrustList) -> io::Result<()> {
         let mut opened = create_private(&part)?;
         opened.write_all(list.format().as_bytes())?;
         opened.sync_all()?;
-        fs::rename(&part, file)
+        if look(file) != *seen {
+            return Ok(Written::Moved);
+        }
+        fs::rename(&part, file)?;
+        crate::saver::sync_directory(directory)?;
+        Ok(Written::Replaced)
     })();
-    if written.is_err() {
+    if !matches!(written, Ok(Written::Replaced)) {
         let _ = fs::remove_file(&part);
     }
     written
+}
+
+/// Removes the part files a crashed instance left in `directory`: this user's, not this
+/// process's, and older than [`STALE_PART`], so that one another instance is writing stays.
+fn remove_stale_parts(directory: &Path) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    let own = format!("{PART}.{}", std::process::id());
+    let prefix = format!("{PART}.");
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with(&prefix) || name == own {
+            continue;
+        }
+        let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        let old = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > STALE_PART);
+        if metadata.is_file() && privacy::is_this_users(&metadata) && old {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 #[cfg(test)]
