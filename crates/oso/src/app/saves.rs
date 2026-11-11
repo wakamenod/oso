@@ -17,15 +17,24 @@ use oso_platform::window::{Event, QuitAnswer, QuitReason};
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
+    /// What a command run for the agent channel queued is checked there before it writes,
+    /// and never goes into oso's configuration directory (ADR 0108).
     pub(super) fn start_saves(&mut self) {
+        let for_agent = self.dispatcher.take_ran_for_agent();
         for job in self.editor.take_save_jobs() {
             let started = Instant::now();
             let (buffer, path) = (job.buffer, job.path.clone());
             let waker = self.waker.clone();
-            let spawned = saver::spawn(job, move |report| {
-                // It fails only once the event loop is gone, past the time limit.
+            // It fails only once the event loop is gone, past the time limit.
+            let report = move |report| {
                 let _ = waker.send(UserEvent::Save(report));
-            });
+            };
+            let spawned = if for_agent {
+                self.note_agent_save(buffer);
+                saver::spawn_for_agent(job, report)
+            } else {
+                saver::spawn(job, report)
+            };
             log::trace!("save started in {:?}", started.elapsed());
             if let Err(e) = spawned {
                 saver::apply(&mut self.editor, SaveReport::not_started(buffer, path, e));
@@ -39,6 +48,7 @@ impl App {
     pub(super) fn save_ended(&mut self, event_loop: &Loop<'_>, report: SaveReport) {
         let failed = report.failed();
         let (buffer, confirmed) = (report.buffer(), report.reached_the_disk());
+        self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
         self.look_again_after_save(buffer);
         self.dispatcher.publish_for_emergency(&self.editor);

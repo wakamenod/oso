@@ -145,7 +145,9 @@ impl Dispatcher {
         // Its kill joins no kill of the person's, before or after it, so that what reaches the
         // OS clipboard from a person's kill never holds the agent's text (ADR 0085).
         editor.forget_kills();
-        // The prompts it opens are the agent's, and say so (ADR 0085).
+        // The prompts it opens are the agent's, and say so (ADR 0085), and so are the saves it
+        // queues (ADR 0108).
+        self.ran_for_agent = true;
         let ran = self.as_input(editor, |this, editor| {
             editor.for_agent(|editor| {
                 let (effects, result) = this.execute(editor, id, args, invocation, Step::Apart);

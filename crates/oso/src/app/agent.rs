@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use oso_core::buffer::BufferId;
 use oso_core::command::Reach;
 use oso_core::editor::AgentChannel;
 use oso_core::minibuffer::PromptId;
@@ -87,6 +88,21 @@ pub(super) struct Agent {
     opened: HashMap<Connection, usize>,
     /// The text each connection has given this minute: since when, and how many bytes.
     inserted: HashMap<Connection, (Instant, usize)>,
+    /// The saves the last command run for the channel started, until its request takes them.
+    saves_started: Vec<BufferId>,
+    /// Requests whose reply waits for the save their command started (ADR 0108).
+    saving: Vec<Saving>,
+}
+
+/// A request whose reply waits until the save its command started has ended: whether it
+/// wrote, or was refused before it could.
+#[derive(Debug)]
+struct Saving {
+    connection: Connection,
+    buffer: BufferId,
+    reply: std::sync::mpsc::Sender<Reply>,
+    /// What the reply says once the save has written.
+    done: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -191,17 +207,67 @@ impl App {
                         }
                     }
                     Op::Open { path, line } => self.agent_open(connection, path, line, reply),
+                    // This replies once the save its command started has ended, if it started one.
+                    Op::Run { name, arg, reach } => {
+                        let (ran, saves) =
+                            self.agent_run(event_loop, connection, &name, arg, reach);
+                        match (ran, saves.as_slice()) {
+                            (Ok(done), [buffer, ..]) => self.agent.saving.push(Saving {
+                                connection,
+                                buffer: *buffer,
+                                reply,
+                                done,
+                            }),
+                            (ran, _) => {
+                                let _ = reply.send(ran);
+                            }
+                        }
+                    }
                     op => {
-                        let _ = reply.send(self.agent_op(event_loop, connection, op));
+                        let _ = reply.send(self.agent_op(connection, op));
                     }
                 }
             }
         }
     }
 
+    /// A save started for a command run for the channel: the request's reply waits for it.
+    pub(super) fn note_agent_save(&mut self, buffer: BufferId) {
+        self.agent.saves_started.push(buffer);
+    }
+
+    /// A save has ended: the request that started it, if one waits, hears how it went.
+    pub(super) fn agent_save_ended(&mut self, report: &crate::saver::SaveReport) {
+        let Some(index) = self
+            .agent
+            .saving
+            .iter()
+            .position(|saving| saving.buffer == report.buffer())
+        else {
+            return;
+        };
+        let saving = self.agent.saving.swap_remove(index);
+        let reply = match report.agent_failure() {
+            Some(why) => {
+                self.agent_log(&format!("save: {why}"));
+                Err(why.to_owned())
+            }
+            None => {
+                let mut done = saving.done;
+                done["saved"] = json!(true);
+                Ok(done)
+            }
+        };
+        let _ = saving.reply.send(reply);
+    }
+
     /// A connection closed, or the channel stopped under it.
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
+        // A reply that waits for a save goes nowhere now; the save still ends as it would.
+        self.agent
+            .saving
+            .retain(|saving| saving.connection != connection);
         self.orphan_questions(Some(connection));
         self.drop_agent_opens(Some(connection));
         if self
@@ -227,7 +293,7 @@ impl App {
     }
 
     /// Answers a request of a connection the person let in.
-    fn agent_op(&mut self, event_loop: &Loop<'_>, connection: Connection, op: Op) -> Reply {
+    fn agent_op(&mut self, connection: Connection, op: Op) -> Reply {
         match op {
             Op::State { buffer_offset } => {
                 self.agent_log_often("state");
@@ -250,15 +316,13 @@ impl App {
                     None => Err("no question this agent caused is open".into()),
                 }
             }
-            Op::Run { name, arg, reach } => {
-                self.agent_run(event_loop, connection, &name, arg, reach)
-            }
             // Answered where they come in, as they reply later.
-            Op::Text(_) | Op::Open { .. } => Err("not here".into()),
+            Op::Text(_) | Op::Open { .. } | Op::Run { .. } => Err("not here".into()),
         }
     }
 
     /// Runs a command for the channel, unless the person is in the middle of something.
+    /// Returns the reply, and the buffers whose saves it started, which the reply waits for.
     fn agent_run(
         &mut self,
         event_loop: &Loop<'_>,
@@ -266,17 +330,31 @@ impl App {
         name: &str,
         arg: Option<Arg>,
         reach: Reach,
-    ) -> Reply {
+    ) -> (Reply, Vec<BufferId>) {
         // What the channel may never run is said at once, before anything waits.
         if let Err(refused) = self.dispatcher.by_reach(name, reach) {
             self.agent_log(&format!("run: refused: {}", refused.0));
-            return Err(refused.0);
+            return (Err(refused.0), Vec::new());
         }
         if let Some(why) = self.agent_waits() {
             self.agent_log_often(why);
-            return Err(why.into());
+            return (Err(why.into()), Vec::new());
         }
-        let given = match &arg {
+        let reply = self.agent_run_now(event_loop, connection, name, arg.as_ref(), reach);
+        (reply, std::mem::take(&mut self.agent.saves_started))
+    }
+
+    /// [`Self::agent_run`], once nothing makes the channel wait.
+    fn agent_run_now(
+        &mut self,
+        event_loop: &Loop<'_>,
+        connection: Connection,
+        name: &str,
+        arg: Option<&Arg>,
+        reach: Reach,
+    ) -> Reply {
+        self.agent.saves_started.clear();
+        let given = match arg {
             None => Given::Nothing,
             Some(Arg::Count(n)) => Given::Count(*n),
             Some(Arg::Text(text)) => Given::Text(text),
@@ -310,7 +388,7 @@ impl App {
         let asked = self.note_caused(newest, connection);
         self.apply(event_loop, effects);
         // A text argument is never logged, only its length.
-        let shown_arg = match &arg {
+        let shown_arg = match arg {
             None => String::new(),
             Some(Arg::Count(n)) => format!(" {n}"),
             Some(Arg::Text(text)) => format!(" ({} bytes of text)", text.len()),
