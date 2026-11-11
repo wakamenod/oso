@@ -187,7 +187,7 @@ fn panes<'a>(
     let beneath = editor.prompt().is_some();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
-    let frame = editor.frame();
+    let regions = editor.tiled_regions();
     let text = PaneContent::Text(TextView {
         display,
         buffer: window.buffer(),
@@ -216,23 +216,18 @@ fn panes<'a>(
         content,
     };
     [
-        pane(0, frame.window.text, None, text),
+        pane(0, regions.text, None, text),
         // No band and no fill: the current line's number marks the line there.
-        pane(
-            GUTTER.0,
-            frame.window.gutter,
-            None,
-            PaneContent::Lines(gutter),
-        ),
+        pane(GUTTER.0, regions.gutter, None, PaneContent::Lines(gutter)),
         pane(
             1,
-            frame.window.modeline,
+            regions.modeline,
             Some(Face::Modeline),
             PaneContent::Lines(modeline),
         ),
         // The echo area has no background of its own, so that nothing marks the
         // pixels left over below it (ADR 0057).
-        pane(2, frame.echo, None, PaneContent::Lines(echo)),
+        pane(2, editor.frame().echo, None, PaneContent::Lines(echo)),
     ]
 }
 
@@ -464,11 +459,12 @@ mod tests {
             columns: 80,
         };
         editor.set_frame_size(size);
-        let layout = frame::layout(size, 0);
+        let layout = editor.frame().clone();
         let status = Status::default();
         with_panes(&editor, &status, &mut Cells::default(), |panes| {
             let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
-            let window = layout.window;
+            let window = editor.tiled_regions();
+            assert_eq!(layout.windows(), [(editor.window().id(), window)]);
             assert_eq!(
                 regions,
                 [window.text, window.gutter, window.modeline, layout.echo]
@@ -633,7 +629,7 @@ mod tests {
                 }
                 let status = Status::default();
                 with_panes(&editor, &status, &mut Cells::default(), |panes| {
-                    let text = editor.frame().window.text;
+                    let text = editor.tiled_regions().text;
                     for pane in panes
                         .iter()
                         .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)

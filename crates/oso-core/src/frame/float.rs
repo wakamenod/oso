@@ -61,14 +61,14 @@ const FLOAT_EDGE: usize = 2;
 /// The columns of padding on each side of what a float shows, while it is wide enough.
 const FLOAT_SIDE: usize = 2;
 
-/// Where a float with `rows` rows of label goes, attached to the top edge of the window's
-/// text area in `frame` and centered on its gutter and text, as the minibuffer does
-/// (ADR 0026, ADR 0075, ADR 0097). It takes 60% of those columns, at least 40, and never
+/// Where a float with `rows` rows of label goes, attached to the top edge of the tiled area in
+/// `frame` and centered on it, as the minibuffer does, whatever the windows' layout
+/// (ADR 0026, ADR 0075, ADR 0097, ADR 0112). It takes 60% of those columns, at least 40, and never
 /// comes closer than 2 to an edge. Below the
 /// label come a row of padding, the answer's row and a row of padding, with 2 columns of
 /// padding on each side. A small frame gives up the padding below first, then the gap, then
 /// the label's rows; with one row of text left, the label and the answer share it. It is
-/// never taller than the text area, so the modeline and the echo area stay in view.
+/// never taller than the tiled area, so the bottom modelines and the echo area stay in view.
 pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
     answer_regions(frame, rows)
 }
@@ -76,17 +76,17 @@ pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
 /// The share of the frame's columns a completion's float takes, in hundredths.
 const COMPLETION_HUNDREDTHS: usize = 62;
 
-/// Where a completion's float goes, centered in the window's gutter and text in `frame`
-/// (ADR 0076, ADR 0097): the answer's row and `candidates` rows right below it, with no padding rows, as tall
+/// Where a completion's float goes, centered in the tiled area in `frame`
+/// (ADR 0076, ADR 0097, ADR 0112): the answer's row and `candidates` rows right below it, with no padding rows, as tall
 /// whatever matches. It takes 62% of the columns, at least 40, and never comes closer than 2 to
 /// an edge, with a column of padding at each side. A small frame gives up candidate rows. It is
-/// never taller than the text area.
+/// never taller than the tiled area.
 pub(crate) fn completion_regions(
     frame: &FrameLayout,
     candidates: usize,
     previews: bool,
 ) -> FloatRegions {
-    let text = frame.window.area();
+    let text = frame.tiled();
     let columns = float_columns(text.columns, COMPLETION_HUNDREDTHS, 100);
     let side = usize::from(columns >= 5);
     let shown = candidates.min(text.rows.saturating_sub(1));
@@ -154,7 +154,7 @@ fn float_side(columns: usize) -> usize {
 
 /// [`float_regions`]: the label's rows, the gap, the answer and its padding.
 fn answer_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
-    let text = frame.window.area();
+    let text = frame.tiled();
     let columns = float_columns(text.columns, FLOAT_TENTHS, 10);
     let side = float_side(columns);
     let rows = rows.max(1);

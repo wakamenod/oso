@@ -17,7 +17,7 @@ use super::rows::{Style, blank_row, draw_row, screen_row};
 /// The gutter's text before each row in view, then `┆`, and the blank that stands for it
 /// before a line of marks: nothing with line numbers off (ADR 0097).
 fn gutter_rows(editor: &Editor, screen: &Screen, rows: usize) -> (Vec<String>, String) {
-    let columns = editor.frame().window.gutter.columns;
+    let columns = editor.tiled_regions().gutter.columns;
     if columns == 0 {
         return (vec![String::new(); rows], String::new());
     }

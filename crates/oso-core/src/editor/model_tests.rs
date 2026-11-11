@@ -392,7 +392,8 @@ proptest! {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &start));
         let id = editor.window().buffer();
         for _ in 1..WINDOWS {
-            editor.windows.push(Window::new(id));
+            let window = editor.new_window(id);
+            editor.windows.push(window);
         }
         let mut model = Model::new(&start, WINDOWS);
         check_against_model(&editor, id, &model);

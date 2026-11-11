@@ -67,7 +67,8 @@ impl Editor {
         let passphrase = kind == Kind::Passphrase;
         let buffer = self.add_buffer(Buffer::prompt(format!(" *Minibuf-{depth}*"), passphrase));
         let beneath = self.selected;
-        self.windows.push(Window::new(buffer));
+        let window = self.new_window(buffer);
+        self.windows.push(window);
         self.selected = self.windows.len() - 1;
         let id = PromptId(self.next_prompt);
         self.next_prompt += 1;

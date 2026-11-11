@@ -451,7 +451,7 @@ pub(super) fn panes<'a>(
     // floats centre on both (ADR 0075, ADR 0097).
     list.push(Pane {
         id: PaneId(3),
-        region: editor.frame().window.area(),
+        region: editor.frame().tiled(),
         layer: Layer::FLOAT,
         background: None,
         panel: Some(Panel {

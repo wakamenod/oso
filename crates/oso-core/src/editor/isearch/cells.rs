@@ -60,7 +60,7 @@ impl Editor {
         }
         let display = buffer.display();
         let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
-        let area = self.frame.window.text;
+        let area = self.tiled_regions().text;
         let reach = query.max_bytes();
         // Each view row's columns in view, widened, and joined where they meet.
         for row in screen.rows().iter().take(area.rows) {

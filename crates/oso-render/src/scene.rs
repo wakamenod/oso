@@ -733,7 +733,9 @@ mod tests {
                 rows: frame_rows,
                 columns: 80,
             };
-            let area = oso_core::frame::layout(size, 0).window.text;
+            let mut editor = oso_core::editor::Editor::default();
+            editor.set_frame_size(size);
+            let area = editor.tiled_regions().text;
             let mut scene = Scene::new(LIMITS, theme());
             let panes = [pane(0, area, 0, view(&buffer))];
             let system = build(&mut scene, &panes, &mut FakeAtlas::default());

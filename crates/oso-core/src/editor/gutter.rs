@@ -65,13 +65,18 @@ impl Editor {
     /// a digit by an edit, a load or another buffer shown, or line numbers were turned on.
     /// Returns whether it did, so a frame is drawn.
     pub fn fit_gutter(&mut self) -> bool {
-        // As the layout gives it: none in a frame too narrow for it and a column of text.
+        // As the layout gives it: none in a window too narrow for it and a column of text.
         let size = self.frame.size();
-        let wanted = frame::fitting_gutter(size, self.gutter_columns());
-        if wanted == self.frame.window.gutter.columns {
+        let regions = self.tiled_regions();
+        let room = frame::FrameSize {
+            rows: size.rows,
+            columns: regions.area().columns,
+        };
+        let wanted = frame::fitting_gutter(room, self.gutter_columns());
+        if wanted == regions.gutter.columns {
             return false;
         }
-        let before = self.frame;
+        let before = self.frame.clone();
         // Within the command's budget: a narrower text area wraps the rows in view again,
         // and the rest waits for the job (ADR 0103).
         self.lay_out(size);
@@ -84,13 +89,13 @@ impl Editor {
     pub fn gutter_into(&self, screen: &Screen, gutter: &mut Gutter) {
         gutter.text.clear();
         gutter.rows.clear();
-        let columns = self.frame.window.gutter.columns;
+        let columns = self.tiled_regions().gutter.columns;
         if columns == 0 {
             return;
         }
         let (window, buffer) = self.tiled();
         let current = window.cursor_point(&buffer.display()).row;
-        for row in screen.rows().iter().take(self.frame.window.text.rows) {
+        for row in screen.rows().iter().take(self.tiled_regions().text.rows) {
             let start = gutter.text.len();
             if row.starts_line() {
                 let _ = write!(gutter.text, "{:>1$} ", row.line + 1, columns - 1);
@@ -160,18 +165,15 @@ mod tests {
             rows: 10,
             columns: 80,
         });
-        let area = editor.frame().window.area();
+        let area = editor.tiled_regions().area();
         editor.set_visual_aids(VisualAids {
             line_numbers: true,
             ..VisualAids::default()
         });
-        let frame = editor.frame();
-        assert_eq!(
-            (frame.window.gutter.columns, frame.window.text.column),
-            (4, 4)
-        );
-        assert_eq!(frame.window.text.columns, 76);
-        assert_eq!(frame.window.area(), area);
+        let window = editor.tiled_regions();
+        assert_eq!((window.gutter.columns, window.text.column), (4, 4));
+        assert_eq!(window.text.columns, 76);
+        assert_eq!(window.area(), area);
         assert_eq!(editor.window().size().columns, 76);
     }
 
@@ -186,7 +188,7 @@ mod tests {
         };
         editor.apply_edits(id, &[edit]).unwrap();
         assert!(!editor.fit_gutter(), "the edit laid it out at 1000 lines");
-        assert_eq!(editor.frame().window.gutter.columns, 5);
+        assert_eq!(editor.tiled_regions().gutter.columns, 5);
         assert_eq!(rows(&editor)[0].0, "   1 ");
     }
 
@@ -226,7 +228,7 @@ mod tests {
     #[test]
     fn a_gutter_does_not_narrow_while_its_buffer_is_edited() {
         let mut editor = numbered(&"x\n".repeat(999), 5);
-        assert_eq!(editor.frame().window.gutter.columns, 5, "1000 lines");
+        assert_eq!(editor.tiled_regions().gutter.columns, 5, "1000 lines");
         let id = editor.window().buffer();
         let delete = crate::buffer::Replacement {
             range: 0..2,
@@ -234,12 +236,12 @@ mod tests {
         };
         editor.apply_edits(id, &[delete]).unwrap();
         editor.fit_gutter();
-        assert_eq!(editor.frame().window.gutter.columns, 5, "999 lines, still");
+        assert_eq!(editor.tiled_regions().gutter.columns, 5, "999 lines, still");
         let other = editor.add_buffer(Buffer::from_text("other", "a"));
         editor.show(other);
         editor.show(id);
         assert_eq!(
-            editor.frame().window.gutter.columns,
+            editor.tiled_regions().gutter.columns,
             4,
             "shown again, it fits"
         );
@@ -248,10 +250,10 @@ mod tests {
     #[test]
     fn another_buffer_shown_takes_its_own_gutter_at_once() {
         let mut editor = numbered(&"x\n".repeat(1000), 5);
-        assert_eq!(editor.frame().window.gutter.columns, 5);
+        assert_eq!(editor.tiled_regions().gutter.columns, 5);
         let small = editor.add_buffer(Buffer::from_text("small", "a"));
         editor.show(small);
-        assert_eq!(editor.frame().window.gutter.columns, 4);
+        assert_eq!(editor.tiled_regions().gutter.columns, 4);
         assert_eq!(editor.window().size().columns, 16);
     }
 
@@ -262,14 +264,14 @@ mod tests {
             rows: 5,
             columns: 3,
         });
-        assert_eq!(editor.frame().window.gutter.columns, 0, "no cut numbers");
+        assert_eq!(editor.tiled_regions().gutter.columns, 0, "no cut numbers");
         assert!(!editor.fit_gutter());
     }
 
     #[test]
     fn line_numbers_off_take_no_columns() {
         let editor = Editor::with_buffer(Buffer::from_text("t", "a"));
-        assert_eq!(editor.frame().window.gutter.columns, 0);
+        assert_eq!(editor.tiled_regions().gutter.columns, 0);
         assert!(rows(&editor).is_empty());
     }
 }
