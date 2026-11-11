@@ -490,7 +490,7 @@ pub const QUESTION_END: &str = " (y or n)";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::{FrameSize, layout as frame_layout};
+    use crate::frame::{FrameSize, single as frame_layout};
 
     /// A frame whose floats are `columns` wide, as 60% of it gives.
     fn frame(columns: usize) -> FrameLayout {
