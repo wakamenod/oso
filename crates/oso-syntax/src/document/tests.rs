@@ -167,3 +167,39 @@ fn a_parse_past_its_time_limit_stops_for_good() {
     assert_eq!(result, Parsed::Failed(Failure::TooSlow));
     assert!(document.tree().is_none());
 }
+
+#[test]
+fn edits_past_what_may_wait_parse_again_from_nothing() {
+    let text = Rope::from("ab\n".repeat(20_000).as_str());
+    let mut document = Document::new(Language::Rust, text.clone());
+    assert_eq!(document.parse(Duration::from_micros(5)), Parsed::Paused);
+    // One batch of more splices than may wait, one each line.
+    let batch: Vec<(Splice, String)> = (0..super::MAX_WAITING + 1)
+        .map(|line| {
+            (
+                Splice {
+                    start: line * 3,
+                    old_len: 1,
+                    new_len: 1,
+                },
+                "c".to_owned(),
+            )
+        })
+        .collect();
+    let after = apply(&text, &batch);
+    let splices: Vec<Splice> = batch.iter().map(|(splice, _)| *splice).collect();
+    document.edit(&splices, &after);
+    assert!(
+        document
+            .waiting
+            .as_ref()
+            .is_some_and(|(batch, _)| batch.is_none()),
+        "too many to wait"
+    );
+    assert_eq!(document.parse(LONG), Parsed::Done);
+    let fresh = parsed(Language::Rust, &after.to_string());
+    assert_eq!(
+        nodes(document.tree().unwrap()),
+        nodes(fresh.tree().unwrap())
+    );
+}

@@ -159,9 +159,15 @@ pub fn oso_core::buffer::Buffer::set_copy_waits(&mut self, bool)
 pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::drop_highlights(&mut self)
+pub fn oso_core::buffer::Buffer::highlights(&self) -> core::option::Option<&oso_core::syntax::Highlights>
+pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
+pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
+impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
+pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId
 pub const fn oso_core::buffer::BufferId::get(self) -> u64
@@ -1567,6 +1573,11 @@ pub fn oso_core::editor::Editor::screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::screen_of(&self, oso_core::window::WindowId, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::text_screen(&self, &mut oso_core::window::Screen)
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>
+pub fn oso_core::editor::Editor::project_found(&mut self, &oso_core::editor::ProjectRequest, core::option::Option<oso_core::project::Found>)
+pub fn oso_core::editor::Editor::request_project(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::take_project_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::ReplaceAnswer)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
@@ -1675,6 +1686,17 @@ pub fn oso_core::editor::Over::eq(&self, &oso_core::editor::Over) -> bool
 impl core::fmt::Debug for oso_core::editor::Over
 pub fn oso_core::editor::Over::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Over
+pub struct oso_core::editor::ProjectRequest
+pub oso_core::editor::ProjectRequest::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ProjectRequest::location: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::ProjectRequest
+pub fn oso_core::editor::ProjectRequest::clone(&self) -> oso_core::editor::ProjectRequest
+impl core::cmp::Eq for oso_core::editor::ProjectRequest
+impl core::cmp::PartialEq for oso_core::editor::ProjectRequest
+pub fn oso_core::editor::ProjectRequest::eq(&self, &oso_core::editor::ProjectRequest) -> bool
+impl core::fmt::Debug for oso_core::editor::ProjectRequest
+pub fn oso_core::editor::ProjectRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::ProjectRequest
 pub struct oso_core::editor::Replace
 impl oso_core::editor::Replace
 pub fn oso_core::editor::Replace::around_secret(&self) -> bool
@@ -1725,6 +1747,7 @@ pub oso_core::editor::Status::agent: &'static str
 pub oso_core::editor::Status::agent_connected: bool
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::name: alloc::string::String
+pub oso_core::editor::Status::project: alloc::string::String
 pub oso_core::editor::Status::selected: bool
 pub oso_core::editor::Status::state: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String
@@ -2538,6 +2561,55 @@ pub fn oso_core::motion::next_cluster(&oso_core::display_map::DisplaySnapshot, u
 pub fn oso_core::motion::prev_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
 pub fn oso_core::motion::toggle_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
 pub fn oso_core::motion::toggle_line_start(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
+pub mod oso_core::project
+pub struct oso_core::project::Found
+pub oso_core::project::Found::root: oso_core::project::RootIdentity
+pub oso_core::project::Found::worktree_of: core::option::Option<std::path::PathBuf>
+impl core::clone::Clone for oso_core::project::Found
+pub fn oso_core::project::Found::clone(&self) -> oso_core::project::Found
+impl core::cmp::Eq for oso_core::project::Found
+impl core::cmp::PartialEq for oso_core::project::Found
+pub fn oso_core::project::Found::eq(&self, &oso_core::project::Found) -> bool
+impl core::fmt::Debug for oso_core::project::Found
+pub fn oso_core::project::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::project::Found
+pub struct oso_core::project::Project
+impl oso_core::project::Project
+pub fn oso_core::project::Project::name(&self) -> &str
+pub fn oso_core::project::Project::root(&self) -> &std::path::Path
+impl core::clone::Clone for oso_core::project::Project
+pub fn oso_core::project::Project::clone(&self) -> oso_core::project::Project
+impl core::cmp::Eq for oso_core::project::Project
+impl core::cmp::PartialEq for oso_core::project::Project
+pub fn oso_core::project::Project::eq(&self, &oso_core::project::Project) -> bool
+impl core::fmt::Debug for oso_core::project::Project
+pub fn oso_core::project::Project::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::project::Project
+pub struct oso_core::project::ProjectId(_)
+impl core::clone::Clone for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::clone(&self) -> oso_core::project::ProjectId
+impl core::cmp::Eq for oso_core::project::ProjectId
+impl core::cmp::PartialEq for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::eq(&self, &oso_core::project::ProjectId) -> bool
+impl core::fmt::Debug for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::project::ProjectId
+impl core::marker::StructuralPartialEq for oso_core::project::ProjectId
+pub struct oso_core::project::RootIdentity
+pub oso_core::project::RootIdentity::identity: core::option::Option<(u64, u64)>
+pub oso_core::project::RootIdentity::path: std::path::PathBuf
+impl core::clone::Clone for oso_core::project::RootIdentity
+pub fn oso_core::project::RootIdentity::clone(&self) -> oso_core::project::RootIdentity
+impl core::cmp::Eq for oso_core::project::RootIdentity
+impl core::cmp::PartialEq for oso_core::project::RootIdentity
+pub fn oso_core::project::RootIdentity::eq(&self, &oso_core::project::RootIdentity) -> bool
+impl core::fmt::Debug for oso_core::project::RootIdentity
+pub fn oso_core::project::RootIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::project::RootIdentity
+pub const oso_core::project::MAX_GIT_FILE: u64
+pub fn oso_core::project::worktree_claim(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
 pub mod oso_core::rope
 pub struct oso_core::rope::Chunks<'a>
 impl<'a> core::iter::traits::iterator::Iterator for oso_core::rope::Chunks<'a>
@@ -2846,6 +2918,48 @@ pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub mod oso_core::syntax
+pub enum oso_core::syntax::Highlight
+pub oso_core::syntax::Highlight::Comment
+pub oso_core::syntax::Highlight::Constant
+pub oso_core::syntax::Highlight::Function
+pub oso_core::syntax::Highlight::Heading
+pub oso_core::syntax::Highlight::Keyword
+pub oso_core::syntax::Highlight::Link
+pub oso_core::syntax::Highlight::Macro
+pub oso_core::syntax::Highlight::Markup
+pub oso_core::syntax::Highlight::Property
+pub oso_core::syntax::Highlight::String
+pub oso_core::syntax::Highlight::Type
+impl core::clone::Clone for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::clone(&self) -> oso_core::syntax::Highlight
+impl core::cmp::Eq for oso_core::syntax::Highlight
+impl core::cmp::PartialEq for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::eq(&self, &oso_core::syntax::Highlight) -> bool
+impl core::fmt::Debug for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::syntax::Highlight
+impl core::marker::StructuralPartialEq for oso_core::syntax::Highlight
+pub struct oso_core::syntax::Highlights
+impl oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::at(&self, usize) -> core::option::Option<oso_core::syntax::Highlight>
+pub fn oso_core::syntax::Highlights::is_empty(&self) -> bool
+pub fn oso_core::syntax::Highlights::len(&self) -> usize
+pub fn oso_core::syntax::Highlights::new(usize) -> Self
+pub fn oso_core::syntax::Highlights::replace(&mut self, core::ops::range::Range<usize>, impl core::iter::traits::collect::IntoIterator<Item = (usize, core::option::Option<oso_core::syntax::Highlight>)>)
+pub fn oso_core::syntax::Highlights::runs(&self, core::ops::range::Range<usize>) -> oso_core::syntax::Runs<'_>
+pub fn oso_core::syntax::Highlights::splice(&mut self, &[oso_core::syntax::Splice])
+impl core::clone::Clone for oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::clone(&self) -> oso_core::syntax::Highlights
+impl core::default::Default for oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::default() -> oso_core::syntax::Highlights
+impl core::fmt::Debug for oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::syntax::Runs<'a>
+impl core::iter::traits::iterator::Iterator for oso_core::syntax::Runs<'_>
+pub type oso_core::syntax::Runs<'_>::Item = (core::ops::range::Range<usize>, core::option::Option<oso_core::syntax::Highlight>)
+pub fn oso_core::syntax::Runs<'_>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct oso_core::syntax::Splice
 pub oso_core::syntax::Splice::new_len: usize
 pub oso_core::syntax::Splice::old_len: usize
@@ -2859,6 +2973,8 @@ impl core::fmt::Debug for oso_core::syntax::Splice
 pub fn oso_core::syntax::Splice::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::syntax::Splice
 impl core::marker::StructuralPartialEq for oso_core::syntax::Splice
+pub const oso_core::syntax::MAX_BYTES: usize
+pub fn oso_core::syntax::compose(&[oso_core::syntax::Splice], &[oso_core::syntax::Splice]) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub mod oso_core::window
 pub enum oso_core::window::Recenter
 pub oso_core::window::Recenter::Line(isize)
