@@ -468,6 +468,8 @@ mod tests {
         editor.ask("Exit?", "keyboard-quit").unwrap();
         let panes = split_panes(&editor);
         let tiled: Vec<_> = panes.iter().filter(|pane| pane.0.0 >= 16).collect();
+        // The window the prompt came from, the first, has its text last.
+        assert_eq!((tiled[0].0.0, tiled[1].0.0), (20, 16));
         assert_eq!(tiled[0].3, "Hollow");
         assert_eq!(tiled[1].3, "Hollow");
         assert_eq!(tiled[4].2, Some(Face::ModelineInactive));

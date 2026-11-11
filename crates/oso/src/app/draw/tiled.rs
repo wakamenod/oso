@@ -32,7 +32,8 @@ pub(super) enum Part {
 
 /// The id of a window's pane, from the window's id, so that a window keeps its shaped rows
 /// when another is split or deleted (ADR 0112). Ids come round again only after a billion
-/// windows, far apart from any two shown together.
+/// windows have been made, as `WindowId`s are never reused; two shown together would have to
+/// be that far apart to share one, which no session reaches.
 pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
     let slots = (u32::MAX - FIRST) / PER_WINDOW;
     let slot = u32::try_from(window.get() % u64::from(slots)).unwrap_or(0);
@@ -267,10 +268,12 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         content,
     };
     let shown = || windows.iter().zip(drawn.cells).enumerate();
+    // The selected window's text last, or the text of the one beneath the prompts.
+    let tiled = editor.tiled().0.id();
     for last in [false, true] {
         for (index, ((id, regions), cells)) in shown() {
             let selected = selected(index, *id);
-            if selected == last {
+            if (*id == tiled) == last {
                 let content = text(editor, (*id, selected), cells, drawn, index);
                 list.push(pane(pane_id(*id, Part::Text), regions.text, None, content));
             }
