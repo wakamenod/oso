@@ -85,7 +85,13 @@ weston_pid=$(cat "$dir/weston.pid")
 status=0
 env -u DISPLAY WAYLAND_DISPLAY=wayland-oso "$@" || status=$?
 
-if kill -0 "$weston_pid" 2> /dev/null; then
+# Weston runs, and is not a crash whose core the kernel is still writing: that takes a
+# while, and the process is there until it ends.
+running() {
+  kill -0 "$weston_pid" 2> /dev/null \
+    && ! grep -qs '^CoreDumping:[[:space:]]*1' "/proc/$weston_pid/status"
+}
+if running; then
   echo "weston is still running"
   kill -TERM "$weston_pid"
   for _ in $(seq 1 50); do
@@ -95,8 +101,13 @@ if kill -0 "$weston_pid" 2> /dev/null; then
   exit "$status"
 fi
 
-# Weston was gone before the flows ended, and every flow after it failed to connect.
+# Weston was gone before the flows ended, and every flow after it failed to connect. Its
+# core is complete once it has gone.
 touch "$dir/crashed"
+for _ in $(seq 1 300); do
+  kill -0 "$weston_pid" 2> /dev/null || break
+  sleep 0.2
+done
 echo "::warning::weston was gone before the flows ended; see the report below"
 {
   echo "=== How weston ended"
