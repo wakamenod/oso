@@ -19,6 +19,7 @@ use oso_core::key::KeyPress;
 #[cfg(any(test, feature = "dev"))]
 use oso_core::keymap::Layers;
 use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
+use oso_core::minibuffer::Kind;
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
@@ -63,6 +64,9 @@ pub struct Dispatcher {
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
+    /// The user's keymap given while a prefix key was pending, which goes in once none is
+    /// (ADR 0108).
+    user_waiting: Option<Keymap>,
     /// The command that ran last, with no undefined or cancelled key since, and
     /// how many times in a row it had run before that.
     last: Option<(CommandId, usize)>,
@@ -98,6 +102,7 @@ impl Dispatcher {
         Self {
             keymaps: Keymaps {
                 global,
+                user: Keymap::new(),
                 prefix: [digits, minus],
                 copy: [list, copy],
                 minibuffer,
@@ -112,6 +117,7 @@ impl Dispatcher {
             registry,
             resolver: KeyResolver::new(),
             prefix: None,
+            user_waiting: None,
             last: None,
             publisher: None,
             waiting: None,
@@ -183,13 +189,42 @@ impl Dispatcher {
         work: impl FnOnce(&mut Self, &mut Editor) -> R,
     ) -> R {
         editor.clear_echo();
+        // A prefix may have been dropped outside an input, as a window's close does.
+        self.take_waiting_user();
         let before = editor.view_sample();
         let out = work(self, editor);
         // Before the view is sampled: another digit of line numbers narrows the text area.
         editor.fit_gutter();
         self.jump = Some(editor.flashes(&before, &editor.view_sample()));
+        self.take_waiting_user();
         self.show_keys_in_progress(editor);
         out
+    }
+
+    /// Puts in the user's keymap that waited for a prefix key, once none is pending.
+    fn take_waiting_user(&mut self) {
+        if self.resolver.pending().is_empty()
+            && let Some(user) = self.user_waiting.take()
+        {
+            self.keymaps.user = user;
+        }
+    }
+
+    /// Puts the user's keys from the configuration just above the global keymap, in place of
+    /// those before; an empty keymap takes them away (ADR 0108). While a prefix key is
+    /// pending, they wait for it to resolve, so that its next key reads the keymaps it
+    /// started in.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the configuration's reader comes next (ADR 0108)")
+    )]
+    pub fn set_user_keymap(&mut self, user: Keymap) {
+        if self.resolver.pending().is_empty() {
+            self.keymaps.user = user;
+            self.user_waiting = None;
+        } else {
+            self.user_waiting = Some(user);
+        }
     }
 
     /// Whether the last input since this was last asked made the view jump, so the cursor
@@ -204,7 +239,10 @@ impl Dispatcher {
     /// dropped.
     #[cfg(any(test, feature = "dev"))]
     pub fn restore_pending(&mut self, editor: &mut Editor, keys: &[KeyPress]) {
-        let layers = Layers::global(&self.keymaps.global);
+        let layers = Layers {
+            user: self.keymaps.user(),
+            ..Layers::global(&self.keymaps.global)
+        };
         for key in keys {
             if !matches!(self.resolver.feed(&layers, *key), Resolution::Pending) {
                 self.resolver.reset();
@@ -468,17 +506,33 @@ impl Dispatcher {
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
                 // which stays out of the log (ADR 0028).
-                match keys.split_last() {
+                let typed = match keys.split_last() {
                     Some((last, prefix)) if last.text().is_some() => {
                         log::debug!("{} <char> is undefined", display_keys(prefix));
+                        Some(prefix)
                     }
-                    _ => log::debug!("{} is undefined", display_keys(keys)),
-                }
+                    _ => {
+                        log::debug!("{} is undefined", display_keys(keys));
+                        None
+                    }
+                };
+                // Only the user's keys can leave a typing key undefined (ADR 0108). In a
+                // passphrase prompt, its character is part of what is typed, and stays off
+                // the screen.
+                let hidden = editor
+                    .prompt()
+                    .is_some_and(|prompt| prompt.kind() == Kind::Passphrase);
                 if editor
                     .prompt()
                     .is_some_and(|prompt| prompt.kind().is_question())
                 {
                     editor.prompt_says("Answer y or n");
+                } else if let Some(prefix) = typed.filter(|_| hidden) {
+                    let prefix = display_keys(prefix).to_string();
+                    editor.echo(format!(
+                        "{prefix}{}<char> is undefined",
+                        if prefix.is_empty() { "" } else { " " }
+                    ));
                 } else {
                     editor.echo(format!("{} is undefined", display_keys(keys)));
                 }
@@ -552,6 +606,8 @@ mod recovery_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod user_tests;
 #[cfg(test)]
 mod wrap_tests;
 #[cfg(test)]
