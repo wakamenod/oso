@@ -765,3 +765,59 @@ fn insert(agent: &mut Agent, text: &str) {
     let inserted = agent.call("run", Some(params));
     assert!(inserted.is_ok(), "{inserted:?}");
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_agent_never_saves_into_the_configuration_directory() {
+    use super::config::set_mode;
+    let scratch = Scratch::new("agent-config");
+    set_mode(scratch.path(), 0o700);
+    for dir in ["oso", "dotfiles"] {
+        std::fs::create_dir(scratch.path().join(dir)).unwrap();
+        set_mode(&scratch.path().join(dir), 0o700);
+    }
+    let config = scratch.write("oso/config.toml", b"# mine\n");
+    let notes = scratch.write("notes.md", b"one\n");
+    for file in [&config, &notes] {
+        set_mode(file, 0o644);
+    }
+    // A link of the same name elsewhere, into the configuration directory.
+    let link = scratch.symlink("dotfiles/config.toml", &config);
+    let mut app = App::start_with_config(Some(&config), scratch.path(), &config);
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+
+    // The person's own buffer of it, by its path and through the link: refused, whatever
+    // else would let the save go without a question.
+    for path in [&config, &link] {
+        let opened = agent.call("open", Some(json!({ "path": path })));
+        assert!(opened.is_ok(), "{}: {opened:?}", path.display());
+        insert(&mut agent, "agent = 1\n");
+        let refused = agent.run("save-buffer", None, "change").unwrap_err();
+        assert!(
+            refused.starts_with("refused:"),
+            "{}: {refused}",
+            path.display()
+        );
+        assert_eq!(
+            std::fs::read(&config).unwrap(),
+            b"# mine\n",
+            "nothing written"
+        );
+        let echo = app.state()["echo"].as_str().unwrap_or_default().to_owned();
+        assert!(
+            echo.contains("never saves into oso's configuration directory"),
+            "{echo}"
+        );
+    }
+
+    // A file outside it, which the person opened, saves, and the reply says so once written.
+    app.open_file(&notes);
+    app.wait_until_ready();
+    let opened = agent.call("open", Some(json!({ "path": notes })));
+    assert!(opened.is_ok(), "{opened:?}");
+    insert(&mut agent, "x ");
+    let saved = agent.run("save-buffer", None, "change").unwrap();
+    assert_eq!(saved["saved"], true, "{saved}");
+    assert_eq!(std::fs::read(&notes).unwrap(), b"x one\n");
+}

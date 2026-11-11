@@ -179,3 +179,37 @@ fn a_write_to_a_new_place_is_judged_where_it_would_go() {
     assert!(matches!(report.outcome, Err(SaveError::IntoConfiguration)));
     assert!(!config.join("config.toml").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_directory_in_it_that_cannot_be_listed_refuses_what_it_might_lead_to() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("config-unlisted");
+    let config = scratch.path().join("oso");
+    let themes = config.join("themes");
+    fs::create_dir_all(&themes).unwrap();
+    let kept = scratch.file("dark.toml", b"");
+    std::os::unix::fs::symlink(&kept, themes.join("dark.toml")).unwrap();
+    let other = scratch.file("notes.md", b"");
+    let mode = |path: &std::path::Path, mode| {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    };
+    // Searched but not listed: what is in it can be read by name, and leads anywhere.
+    mode(&themes, 0o111);
+    let refused = (
+        is_inside(&kept, &config),
+        is_inside(&themes.join("new.toml"), &config),
+        is_inside(&other, &config),
+    );
+    mode(&themes, 0o755);
+    assert!(refused.0.unwrap(), "what an entry in it leads to");
+    assert!(refused.1.unwrap(), "a file under it");
+    assert!(
+        refused.2.unwrap(),
+        "what it might lead to cannot be ruled out"
+    );
+    assert!(
+        !is_inside(&other, &config).unwrap(),
+        "once it can be listed again"
+    );
+}

@@ -121,8 +121,8 @@ pub fn refuse(job: &SaveJob, directory: Option<&Path>) -> io::Result<bool> {
 /// directory that does not exist holds nothing.
 ///
 /// Past [`MAX_ENTRIES`] entries the directory cannot be told apart from what it might lead to,
-/// so the answer is yes. A subdirectory that cannot be read is passed over, as nothing in it
-/// could be read as configuration either.
+/// so the answer is yes. So it is for a directory in it that cannot be listed: what is in it can
+/// still be read by name, and may lead anywhere (ADR 0110).
 ///
 /// # Errors
 ///
@@ -178,12 +178,11 @@ fn leads_there(directory: &Path, target: &Path) -> io::Result<bool> {
     let mut pending = vec![(directory.to_path_buf(), 0)];
     let mut seen = 0;
     while let Some((dir, depth)) = pending.pop() {
+        // A directory that can be searched but not listed, at any depth, still holds what
+        // its entries lead to, which can be read by name: what it might lead to cannot be
+        // ruled out (ADR 0110).
         let Ok(entries) = fs::read_dir(&dir) else {
-            if depth == 0 {
-                // The directory itself: what it holds cannot be ruled out.
-                return Ok(true);
-            }
-            continue;
+            return Ok(true);
         };
         for entry in entries {
             seen += 1;

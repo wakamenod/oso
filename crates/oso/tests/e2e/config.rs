@@ -13,7 +13,7 @@ use super::cursor;
 use super::harness::{App, Scratch};
 
 /// Gives `path` `mode`, whatever the umask, so that the file is read as the person's own.
-fn set_mode(path: &Path, mode: u32) {
+pub(super) fn set_mode(path: &Path, mode: u32) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
