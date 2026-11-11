@@ -239,13 +239,15 @@ alongside the steps above, after M2-16:
 - Whatever opening or saving starts, such as a format on save, waits in a buffer the agent
   channel opened or saved until the person acts there
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
-- Tree-sitter highlighting, starting with Rust, Markdown and TOML.
+- Tree-sitter highlighting, starting with Rust, Markdown and TOML
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Later, Markdown's fenced code tagged
+  `rust` or `toml` is highlighted with those grammars.
 - Window splits, indentation, project trust model.
 - Project file finding and asynchronous ripgrep search.
 - Migemo-style romaji search for Japanese text, and avy-style jumps.
 - The menu component, porting the author's hydra menus.
 - query-replace (`M-%`), keyboard macros, whitespace cleanup on save.
-- Comment-aware `C-e` using tree-sitter
+- Comment-aware `C-e` using tree-sitter's highlights
   ([ADR 0030](adr/0030-m2-editing-commands.md)).
 
 ### M4 — Self-hosting (develop oso in oso)

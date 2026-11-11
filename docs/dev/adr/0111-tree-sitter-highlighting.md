@@ -1,6 +1,6 @@
 # 0111. Tree-sitter highlighting
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -9,8 +9,7 @@
 TOML first, parsing on a background thread with cancellation and timeouts, results replacing a
 syntax layer atomically, and fuzzing. [ADR 0006](0006-display-model.md) made decorations layers
 of positions that producers own and swap from background threads. M3 builds the first of them.
-This ADR designs it before any code, and asks the author what is theirs to decide (the
-questions at the end).
+This ADR designs it before any code.
 
 What changed since those ADRs were written:
 
@@ -88,8 +87,8 @@ Researched on 2026-11-12 with the `add-dependency` steps, in a scratch copy of t
 
 ## Decision
 
-The parts that need the author's choice are marked with their question (Q1–Q13), with the
-recommended option written in; the alternatives are at the end.
+The author chose the open parts on 2026-11-12, through the coordinator. Each is marked with its
+question (Q1–Q13), listed under the author's choices with the options not taken.
 
 ### Where the code lives (Q1)
 
@@ -190,7 +189,7 @@ recommended option written in; the alternatives are at the end.
 - **Markdown** has two grammars: the block grammar parses the whole buffer, and the inline
   grammar parses each `inline` node on its own, as its injection query says, only in the ranges
   the worker highlights. Inline trees are not kept: they are small, and parsing one again costs
-  less than tracking it through edits. Fenced code is not highlighted yet (Q9).
+  less than tracking it through edits. Fenced code is not highlighted yet; a later step injects `rust` and `toml` fences (Q9).
 - **Injections** other than Markdown's inline grammar wait.
 
 ### What a frame costs
@@ -329,8 +328,7 @@ recommended option written in; the alternatives are at the end.
 - **ADR 0012:** "Parse on a background thread with cancellation and timeouts" now reads: a
   parse is stopped by the progress callback, in slices, for a killed buffer, a change of mode,
   a secret verdict or a time limit, and not by a newer edit. "Fuzz the highlighting path"
-  holds as property tests now and `cargo-fuzz` later (Q12). If Q3 chooses `toml_parser`,
-  TOML is not a tree-sitter grammar.
+  holds as property tests now and `cargo-fuzz` later (Q12).
 - **ADR 0004 and ADR 0038:** a fourth library crate, `oso-syntax`, between the tip crate and
   `oso-core`. `guardrails/layers.txt` gains it in `[workspace]`, and `syntax` joins
   `[oso-core]` on the line of `display_map`.
@@ -354,95 +352,57 @@ recommended option written in; the alternatives are at the end.
   `oso-syntax` crate. The public API snapshots change.
 - The pre-push Windows check needs the stub compiler, through a recipe (a `Justfile` change).
 
-## Questions for the author
+## The author's choices
 
-Each has the recommendation first.
+The author chose these on 2026-11-12, through the coordinator, each the option written into the
+decision above. The options not taken are listed with their trade-offs.
 
-**Q1. Where does the tree-sitter code live?**
-1. **A new crate, `oso-syntax`** (recommended): the C parsers stay out of `oso-core`, which keeps
-   `#![forbid(unsafe_code)]` and no C. One more crate and a layer change.
-2. In the tip crate: no new crate, but library logic with tests in the crate that changes most,
-   and the tip crate links the C.
-3. In `oso-core`: simplest wiring, but the core links 11 MB of C, which its rule against
-   `unsafe` was meant to keep out.
-
-**Q2. Secret buffers?**
-1. **Not parsed at all** (recommended): nothing exists to withhold, and nothing new to audit.
-   `credentials.toml` shows plain.
-2. Parsed, with highlights shown on screen only and kept out of every report: colour in the
-   few secret files with a grammar, more places to check.
-
-**Q3. TOML: tree-sitter or `toml_parser`?**
-1. **`tree-sitter-toml-ng`** (recommended): one engine, one query format, one tree for `C-e` and
-   indentation. 134 KB of table C and a 2.6 KB scanner; ABI 14; quiet upstream.
-2. `toml_parser`'s lexer, already in the tree: no new C, no new crate. A second highlighting
-   path, tokens and no tree, and TOML re-lexed whole on each edit on the worker.
-
-**Q4. Syntax faces: colour only, or bold and italic too?**
-1. **Colour only, applied after shaping** (recommended): nothing is shaped again, a row is still
-   one shaper call, and highlights cost nothing per key on the UI thread beyond the map.
-2. Bold and italic allowed: needs bold and italic fonts loaded, and a face change would split
-   shaping and reshape rows when highlights arrive.
-
-**Q5. How many highlight classes?**
-1. **The eleven in the table** (recommended): enough for a subdued look, and several may share
-   a colour.
-2. Five (comment, string, keyword, type, constant): fewer colours to pick, but Markdown has
-   only headings to show.
-3. About 25, as Helix's and Neovim's capture names: finer control, many more colours to check
-   at 7:1 in three themes.
-
-**Q6. Limits for large files?**
-1. **8 MiB, 5 s for a first parse, 1 s for a later one** (recommended).
-2. 32 MiB with the same times: more files in colour, more memory per tree.
-3. No size limit, only the times: memory unbounded by size.
-
-**Q7. Languages as major modes, and setting them by hand?**
-1. **`Mode` gains the languages; the file's name decides; `rust-mode`, `markdown-mode`,
-   `toml-mode` and `fundamental-mode` set it by hand** (recommended).
-2. A language field apart from `Mode`, decided by the file's name, with no commands until
-   configuration.
-3. As 1, and also a shebang or first-line check: reads the file to decide; no grammar here
-   needs it.
-
-**Q8. Where queries come from?**
-1. **oso's own `.scm` files, compiled in; nothing loaded at run time** (recommended).
-2. The grammar crates' bundled queries as they are: less to keep, but their capture names
-   differ by crate (Markdown's use old `text.*` names), and a version bump changes the look
-   unreviewed.
-3. As 1, plus queries from the configuration directory: extensible, but a query decides how much
-   work a file costs, and it is a second file format to keep.
-
-**Q9. Markdown's fenced code?**
-1. **Plain for now** (recommended); the inline grammar (emphasis, links, code spans) is in.
-2. Highlight fences tagged `rust` and `toml` with those grammars now: nicer notes, more work in
-   the first steps.
-3. Block grammar only (headings, lists, quotes, code blocks), no inline grammar: less C on
-   inline text, but no links or emphasis.
-
-**Q10. Contrast for syntax faces?**
-1. **7:1 on every fill a line sits on, as `Text`** (recommended).
-2. 4.5:1 for comments only, so they can be fainter: the modus themes' faint comments meet 7:1,
-   so it is not needed for that look.
-
-**Q11. The C parsers' process?**
-1. **In the oso process, as ADR 0012 accepted,** with the limits above (recommended).
-2. A helper process (`oso parse`, through `oso-platform::process`): a crash costs only colour,
-   but each edit crosses a pipe and the helper keeps its own copy of the text; a much larger
-   design.
-3. In process now, with a helper process as the plan if fuzzing finds a crash.
-
-**Q12. Fuzzing?**
-1. **Property tests in `just ci`, longer runs weekly; `cargo-fuzz` later** (recommended).
-2. `cargo-fuzz` now: a nightly toolchain and `libfuzzer-sys` join, through a dependency
-   approval, before the first highlight.
-
-**Q13. The pre-push Windows check once C is compiled?**
-1. **A stub C compiler and archiver for the MSVC target, in a `just clippy-windows` recipe**
-   (recommended): checks all the Rust, compiles no C, needs nothing installed.
-2. Check with `x86_64-pc-windows-gnu` and Homebrew's `mingw-w64`: compiles the C too, but
-   another target than CI's and a large install.
-3. MSVC's headers through `xwin`: the real target, but a download under Microsoft's licence.
+- **Q1. Where the tree-sitter code lives:** a new crate, `oso-syntax`. Not taken: the tip crate
+  (library logic in the crate that changes most, and it links the C), and `oso-core` (the core
+  would link 11 MB of C, which its rule against `unsafe` was meant to keep out).
+- **Q2. Secret buffers:** never parsed. Not taken: parsed, with highlights shown on screen only
+  and kept out of every report (colour in the few secret files with a grammar, more places to
+  check).
+- **Q3. TOML:** `tree-sitter-toml-ng`, so one engine, one query format and one tree for `C-e` and
+  indentation. Not taken: `toml_parser`'s lexer, already in the tree, with no new C but a second
+  highlighting path, tokens and no tree.
+- **Q4. Syntax faces:** colour only, applied after shaping. Not taken: bold and italic (needs
+  those fonts loaded, and a face change would split shaping and reshape rows as highlights
+  arrive).
+- **Q5. Highlight classes:** the eleven in the table. Not taken: five (Markdown would show only
+  headings), and about 25 as Helix's and Neovim's capture names (many more colours to check at
+  7:1 in three themes).
+- **Q6. Limits:** 8 MiB; 5 s for a first parse, 1 s for a later one. Not taken: 32 MiB (more
+  memory per tree), and no size limit (memory unbounded by size).
+- **Q7. Modes:** `Mode` gains the languages, the file's name decides, and `rust-mode`,
+  `markdown-mode`, `toml-mode` and `fundamental-mode` set it by hand. Not taken: a language field
+  apart from `Mode` with no commands, and a shebang or first-line check (it reads the file to
+  decide, and no grammar here needs it).
+- **Q8. Queries:** oso's own `.scm` files, compiled in, nothing loaded at run time. Not taken: the
+  grammar crates' bundled queries as they are (capture names differ by crate, and a bump changes
+  the look unreviewed), and queries from the configuration directory (a query decides how much
+  work a file costs, and it is a second file format to keep).
+- **Q9. Markdown's fenced code:** plain for now, with the inline grammar in. Highlighting fences
+  tagged `rust` and `toml` with those grammars is a later step, once the base is settled: the
+  fence's info string names a mode, and its content is parsed with that grammar over its range
+  (`set_included_ranges`), as the inline grammar is, its runs going into the same `Highlights`.
+  Not taken: the block grammar only (no links, emphasis or code spans).
+- **Q10. Contrast:** 7:1 on every fill a line sits on, as `Text`. Not taken: 4.5:1 for comments
+  (the modus themes' faint comments meet 7:1, so the look does not need it).
+- **Q11. The C parsers' process:** in the oso process, as ADR 0012 accepted, with the limits
+  above. Not taken: a helper process (`oso parse`) now, where a crash costs only colour but each
+  edit crosses a pipe and the helper keeps its own copy of the text, and a helper process only if
+  fuzzing finds a crash.
+- **Q12. Fuzzing:** property tests in `just ci`, longer runs weekly, `cargo-fuzz` later. Not
+  taken: `cargo-fuzz` now, with a nightly toolchain and `libfuzzer-sys` before the first
+  highlight.
+- **Q13. The pre-push Windows check:** a stub C compiler and archiver for the MSVC target, in a
+  `just clippy-windows` recipe. Not taken: `x86_64-pc-windows-gnu` with Homebrew's `mingw-w64`
+  (compiles the C, but another target than CI's and a large install), and MSVC's headers through
+  `xwin` (a download under Microsoft's licence).
+- **The dependencies** are approved as researched: `tree-sitter =0.27.1`, `tree-sitter-rust
+  =0.24.2`, `tree-sitter-md =0.5.4` and `tree-sitter-toml-ng =0.7.0`, added in a commit of their
+  own with `just deny` and `just audit`.
 
 ## Alternatives considered
 

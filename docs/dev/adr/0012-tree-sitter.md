@@ -1,6 +1,6 @@
 # 0012. Native tree-sitter for syntax
 
-- Status: Accepted
+- Status: Accepted, amended by 0111
 - Date: 2026-11-03
 
 ## Context
