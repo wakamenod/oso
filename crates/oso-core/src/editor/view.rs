@@ -6,12 +6,13 @@
 //! scrolling are pure functions elsewhere, and this applies them to the state.
 
 use super::Editor;
+use crate::buffer::Buffer;
 use crate::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect};
+use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect, WindowRegions};
 use crate::motion;
 use crate::motion::Edge;
 use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{self, Recenter, Screen, Scroll, ViewSize, ViewTop, Window};
+use crate::window::{self, Recenter, Screen, Scroll, ViewSize, ViewTop, Window, WindowId};
 
 impl Editor {
     /// Lays out a frame of `size` (ADR 0057), with the gutter line numbers need (ADR 0097).
@@ -26,29 +27,58 @@ impl Editor {
     }
 
     /// [`Editor::set_frame_size`] within what is left of the wraps' budget, for a gutter that
-    /// gained a digit in a command, which a frame laid out again does not start anew.
+    /// gained a digit in a command, or a window tree that changed, which a frame laid out again
+    /// does not start anew. Each tiled window takes its own text area, with its own gutter
+    /// (ADR 0112), and the selected one never loses its cells.
     pub(super) fn lay_out(&mut self, size: FrameSize) -> bool {
-        let gutter = self.gutter_columns();
-        let shown = self.tiled().0.buffer();
-        self.gutter_floor = self.aids.line_numbers.then_some((shown, gutter));
-        self.frame = frame::layout(size, gutter);
-        let view = self.frame.window.text.view_size();
-        let tiled = self.tiled_index();
-        let added = view.rows.saturating_sub(self.windows[tiled].size().rows);
         let count = self.tiled_count();
+        let gutters: Vec<(WindowId, usize)> = self.windows[..count]
+            .iter()
+            .map(|window| (window.id(), self.gutter_columns(window)))
+            .collect();
+        let numbers = self.aids.line_numbers;
+        for (window, &(_, gutter)) in self.windows[..count].iter_mut().zip(&gutters) {
+            window.set_gutter_floor(numbers.then_some((window.buffer(), gutter)));
+        }
+        let tiled = self.tiled_index();
+        let keep = self.windows[tiled].id();
+        frame::layout_into(&mut self.frame, size, &self.splits, keep, |id| {
+            gutters
+                .iter()
+                .find_map(|&(other, gutter)| (other == id).then_some(gutter))
+                .unwrap_or(0)
+        });
+        let mut added = Vec::with_capacity(count);
         for window in &mut self.windows[..count] {
+            let view = self
+                .frame
+                .regions(window.id())
+                .map_or(ViewSize::new(1, 1), |regions| regions.text.view_size());
+            added.push(view.rows.saturating_sub(window.size().rows));
             window.set_size(view);
         }
         // A prompt's window takes where its answer goes, and the window beneath it
         // follows its own cursor too, as the frame changed under both.
         self.relayout_prompt();
         let beneath = tiled != self.selected && self.follow_window(tiled);
-        let followed = self.follow_cursor();
-        let filled = self.fill_below_last_row(tiled, added);
+        let mut followed = self.follow_cursor();
+        // The frame changed under every window, so each follows its own cursor.
+        for index in 0..count {
+            if index != tiled {
+                followed |= self.follow_window(index);
+            }
+        }
+        if tiled == self.selected {
+            self.pass_wrap_budget(tiled);
+        }
+        let mut filled = false;
+        for (index, added) in added.into_iter().enumerate() {
+            filled |= self.fill_below_last_row(index, added);
+        }
         followed || filled || beneath
     }
 
-    /// Pulls the selected window's top row back by at most `added` rows, and no
+    /// Pulls the top row of the window at `index` back by at most `added` rows, and no
     /// further than puts the last row at the bottom, the wheel's limit
     /// ([`window::wheel`]). A short window moved the top row to the cursor, and
     /// only this moves it back. A view past the end otherwise stays, as the wheel
@@ -85,8 +115,21 @@ impl Editor {
     }
 
     /// The frame's regions.
-    pub fn frame(&self) -> FrameLayout {
-        self.frame
+    pub fn frame(&self) -> &FrameLayout {
+        &self.frame
+    }
+
+    /// `window`'s regions, if it is a tiled window (ADR 0112).
+    pub fn regions(&self, window: WindowId) -> Option<&WindowRegions> {
+        self.frame.regions(window)
+    }
+
+    /// The regions of the selected tiled window, or of the one beneath the prompts: none
+    /// while it has no room in the frame.
+    pub fn tiled_regions(&self) -> WindowRegions {
+        let regions = self.regions(self.tiled().0.id());
+        debug_assert!(regions.is_some(), "the tiled window is in the layout");
+        regions.copied().unwrap_or(WindowRegions::EMPTY)
     }
 
     /// Where the selected window's primary cursor is on the surface, in physical
@@ -159,26 +202,60 @@ impl Editor {
         selections.set_mark_active(MarkActive::Inactive).is_active()
     }
 
-    /// The cells of the tiled window's text area that its regions take, also beneath a prompt,
-    /// as `screen` shows it ([`Editor::screen`]), into `out`, which is emptied first, and none
-    /// while they are hidden (ADR 0071). A preedit pushes them as it pushes the text.
-    pub fn region_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
+    /// The window `id` in the tree, the buffer it shows and its regions, if it has them.
+    pub(super) fn window_in_tree(&self, id: WindowId) -> Option<(&Window, &Buffer, WindowRegions)> {
+        let regions = *self.regions(id)?;
+        let window = self.window_by_id(id)?;
+        Some((window, self.shown(window), regions))
+    }
+
+    /// As [`Editor::window_in_tree`], for what only the selected window draws: the region, the
+    /// current line's band, the flash and isearch's matches (ADR 0112). `None` for any other
+    /// window, and for every tiled window beneath a prompt, which is drawn as not selected.
+    pub(super) fn selected_in_tree(
+        &self,
+        id: WindowId,
+    ) -> Option<(&Window, &Buffer, WindowRegions)> {
+        let selected = self.prompts.is_empty() && id == self.tiled_id();
+        self.window_in_tree(id).filter(|_| selected)
+    }
+
+    /// The cells of the text area of the window `id` that its regions take, as `screen` shows
+    /// it ([`Editor::screen_of`]), into `out`, which is emptied first, and none while they are
+    /// hidden (ADR 0071). Only the selected window has them, and none beneath a prompt
+    /// (ADR 0112). A preedit pushes them as it pushes the text.
+    pub fn region_cells(&self, id: WindowId, screen: &Screen, out: &mut Vec<CellRect>) {
         out.clear();
-        let (window, buffer) = self.tiled();
+        let Some((window, buffer, regions)) = self.selected_in_tree(id) else {
+            return;
+        };
         if !window.selections.mark_active().is_active() {
             return;
         }
-        let text = self.frame.window.text;
-        frame::region_cells(text, screen, &buffer.display(), &window.selections, out);
+        frame::region_cells(
+            regions.text,
+            screen,
+            &buffer.display(),
+            &window.selections,
+            out,
+        );
     }
 
-    /// The cells of the tiled window's text area that the boxes of its cursors other than the
-    /// primary take, as `screen` shows it ([`Editor::screen`]), into `out`, which is emptied
-    /// first (ADR 0091). A preedit pushes them as it pushes the text.
-    pub fn other_cursor_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
-        let (window, buffer) = self.tiled();
-        let text = self.frame.window.text;
-        frame::other_cursor_cells(text, screen, &buffer.display(), &window.selections, out);
+    /// The cells of the text area of the window `id` that the boxes of its cursors other than
+    /// the primary take, as `screen` shows it ([`Editor::screen_of`]), into `out`, which is
+    /// emptied first (ADR 0091). A preedit pushes them as it pushes the text.
+    pub fn other_cursor_cells(&self, id: WindowId, screen: &Screen, out: &mut Vec<CellRect>) {
+        let Some((window, buffer, regions)) = self.window_in_tree(id) else {
+            out.clear();
+            return;
+        };
+        frame::other_cursor_cells(
+            regions.text,
+            screen,
+            &buffer.display(),
+            &window.selections,
+            out,
+        );
     }
 
     /// The cells of the innermost prompt's answer that its regions take, as `screen` shows it
@@ -224,16 +301,33 @@ impl Editor {
     /// its primary cursor (`scroll-conservatively` 101). The host calls it
     /// after every command. With a preedit, it shows the preedit's start up to the
     /// cursor box, or the box alone if both do not fit (ADR 0069). Returns whether
-    /// the view moved.
+    /// a view moved.
+    ///
+    /// Each other tiled window that an edit moved, its cursor out of view or its top past the
+    /// end of the text, then follows its own primary cursor too (ADR 0112), sharing what the
+    /// selected window left of the command's wrap budget. Not while a prompt is open: the
+    /// wheel scrolls the window beneath it and leaves its cursors (ADR 0072); they follow once
+    /// it closes.
     pub fn follow_cursor(&mut self) -> bool {
         // So does the preview's wrap, which a command may have moved (ADR 0100).
         self.fit_preview();
-        self.follow_window(self.selected)
+        let mut moved = self.follow_window(self.selected);
+        if self.prompts.is_empty() && !self.moved_windows.is_empty() {
+            for id in std::mem::take(&mut self.moved_windows) {
+                if let Some(index) = self.window_index(id).filter(|&i| i != self.selected) {
+                    moved |= self.follow_window(index);
+                }
+            }
+            // What is left goes back to the selected window, for what the command does next.
+            self.pass_wrap_budget(self.selected);
+        }
+        moved
     }
 
     /// Scrolls the window at `index` as [`Editor::follow_cursor`] does the selected one.
     /// A preedit counts only in the selected window, where it shows.
     /// Its wrap is brought in step first: on or off as its buffer is, at its width.
+    /// It takes what is left of the command's wrap budget (ADR 0112).
     pub(super) fn follow_window(&mut self, index: usize) -> bool {
         self.sync_wrap(index);
         // The window is borrowed from the whole editor, so the preedit steps out.

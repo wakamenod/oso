@@ -1,5 +1,5 @@
-//! The tiled window's rows in a text-grid snapshot (ADR 0045): each row, then the lines
-//! that mark its cells, the fills behind it and a preedit's underline.
+//! A tiled window's rows in a text-grid snapshot (ADR 0045, ADR 0112): each row, then the
+//! lines that mark its cells, the fills behind it and a preedit's underline.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every OS with no
 //! window.
@@ -8,21 +8,25 @@ use std::ops::Range;
 
 use oso_core::display_map::Preedit;
 use oso_core::editor::{Editor, Gutter};
-use oso_core::frame::{self, CellRect};
+use oso_core::frame::{self, CellRect, WindowRegions};
 use oso_core::motion;
-use oso_core::window::Screen;
+use oso_core::window::{Screen, WindowId};
 
 use super::rows::{Style, blank_row, draw_row, screen_row};
 
 /// The gutter's text before each row in view, then `┆`, and the blank that stands for it
 /// before a line of marks: nothing with line numbers off (ADR 0097).
-fn gutter_rows(editor: &Editor, screen: &Screen, rows: usize) -> (Vec<String>, String) {
-    let columns = editor.frame().window.gutter.columns;
+fn gutter_rows(
+    editor: &Editor,
+    (id, columns): (WindowId, usize),
+    screen: &Screen,
+    rows: usize,
+) -> (Vec<String>, String) {
     if columns == 0 {
         return (vec![String::new(); rows], String::new());
     }
     let mut gutter = Gutter::default();
-    editor.gutter_into(screen, &mut gutter);
+    editor.gutter_into(id, screen, &mut gutter);
     let mut shown: Vec<String> = gutter
         .rows()
         .map(|(text, _)| format!("{text:<columns$}┆"))
@@ -31,18 +35,24 @@ fn gutter_rows(editor: &Editor, screen: &Screen, rows: usize) -> (Vec<String>, S
     (shown, " ".repeat(columns + 1))
 }
 
-/// The tiled window's rows, as `screen` holds them ([`Editor::screen`]). Beneath a prompt,
-/// its cursor is hollow and it shows no preedit.
+/// The rows of the tiled window `id`, as `screen` holds them ([`Editor::screen_of`]), each
+/// ended by `┃` while it has a divider at its right. In a window that is not selected, or
+/// beneath a prompt, the cursor is hollow and no preedit shows.
 pub(super) fn draw_text_area(
     editor: &Editor,
-    (area, screen): (CellRect, &Screen),
+    (id, regions): (WindowId, &WindowRegions),
+    screen: &Screen,
     flash: Option<CellRect>,
     lines: &mut Vec<String>,
 ) {
-    let (gutter, pad) = gutter_rows(editor, screen, area.rows);
-    let (window, buffer) = editor.tiled();
-    let beneath = editor.prompt().is_some();
-    let mark = if beneath { 'o' } else { '^' };
+    let area = regions.text;
+    let (gutter, pad) = gutter_rows(editor, (id, regions.gutter.columns), screen, area.rows);
+    let divider = if regions.divider.is_some() { "┃" } else { "" };
+    let Some(window) = editor.window_by_id(id) else {
+        return;
+    };
+    let buffer = editor.shown(window);
+    let mark = if id == editor.window().id() { '^' } else { 'o' };
     let display = buffer.display();
     let point = window.cursor_point(&display);
     let preedit = editor.preedit().filter(|_| screen.preedit().is_some());
@@ -50,14 +60,14 @@ pub(super) fn draw_text_area(
     let (place, cells) = motion::cursor_box(&display, point, preedit);
     let cursor = frame::cursor_rect(area, screen, place, cells);
     let mut region = Vec::new();
-    editor.region_cells(screen, &mut region);
+    editor.region_cells(id, screen, &mut region);
     let mut others = Vec::new();
-    editor.other_cursor_cells(screen, &mut others);
+    editor.other_cursor_cells(id, screen, &mut others);
     let mut found = oso_core::editor::MatchCells::default();
-    editor.isearch_cells(screen, &mut found);
+    editor.isearch_cells(id, screen, &mut found);
     let (current, matches) = (found.current, found.others);
-    let (mut trailing, band) = (Vec::new(), editor.current_line_cells(screen));
-    editor.trailing_cells(screen, &mut trailing);
+    let (mut trailing, band) = (Vec::new(), editor.current_line_cells(id, screen));
+    editor.trailing_cells(id, screen, &mut trailing);
     let whitespace = editor.visual_aids().whitespace;
     for (index, gutter) in gutter.iter().enumerate() {
         let row = screen_row(screen, index, area.columns);
@@ -82,7 +92,7 @@ pub(super) fn draw_text_area(
             let start = cells.column - area.column;
             marks[start..start + cells.columns].fill('.');
         }
-        lines.push(format!("│{gutter}{text}│"));
+        lines.push(format!("│{gutter}{text}│{divider}"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
             lines.push(format!(":{pad}{marks}:"));

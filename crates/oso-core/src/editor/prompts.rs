@@ -66,8 +66,9 @@ impl Editor {
         let around_secret = self.shows_secret();
         let passphrase = kind == Kind::Passphrase;
         let buffer = self.add_buffer(Buffer::prompt(format!(" *Minibuf-{depth}*"), passphrase));
-        let beneath = self.selected;
-        self.windows.push(Window::new(buffer));
+        let beneath = self.windows[self.selected].id();
+        let window = self.new_window(buffer);
+        self.windows.push(window);
         self.selected = self.windows.len() - 1;
         let id = PromptId(self.next_prompt);
         self.next_prompt += 1;
@@ -142,9 +143,10 @@ impl Editor {
     }
 
     pub(super) fn tiled_index(&self) -> usize {
-        self.prompts
-            .first()
-            .map_or(self.selected, |prompt| prompt.beneath)
+        match self.prompts.first() {
+            Some(prompt) => self.window_index(prompt.beneath).unwrap_or(0),
+            None => self.selected,
+        }
     }
 
     /// How many windows are tiled: those before the prompts'.
@@ -425,7 +427,7 @@ impl Editor {
         // A list of 100,000 is dropped on the worker (ADR 0096).
         self.free_prompts_list(&mut prompt);
         self.windows.pop();
-        self.selected = prompt.beneath;
+        self.selected = self.window_index(prompt.beneath).unwrap_or(0);
         let id = prompt.buffer;
         self.buffers.retain(|(other, _)| *other != id);
         self.relayout_prompt();

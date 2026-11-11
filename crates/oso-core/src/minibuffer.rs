@@ -25,6 +25,7 @@ use crate::buffer::BufferId;
 use crate::complete::Candidates;
 use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions};
 use crate::rope::Rope;
+use crate::window::WindowId;
 
 mod candidates;
 mod completion;
@@ -159,7 +160,7 @@ pub struct Prompt {
     /// The buffer that holds the answer, dropped with the prompt.
     pub(crate) buffer: BufferId,
     /// The window it came from, which commands act on once it closes.
-    pub(crate) beneath: usize,
+    pub(crate) beneath: WindowId,
     /// What a key typed in it said, until the next key.
     pub(crate) message: Option<String>,
     /// That message was said by a command that got a passphrase, so the control socket
@@ -490,7 +491,7 @@ pub const QUESTION_END: &str = " (y or n)";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::{FrameSize, layout as frame_layout};
+    use crate::frame::{FrameSize, single as frame_layout};
 
     /// A frame whose floats are `columns` wide, as 60% of it gives.
     fn frame(columns: usize) -> FrameLayout {

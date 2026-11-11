@@ -10,7 +10,7 @@ keys: x C-x C-c
 │                              │
 │                              │
 │                              │
-=** test  1:1  Fundamental  UTF=
+-** test  1:1  Fundamental  UTF-
 "                              "
 float at row 0, column 2: 5 x 26
 │  1 modified buffer;      │

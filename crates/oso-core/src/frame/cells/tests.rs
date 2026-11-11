@@ -9,7 +9,7 @@ use crate::display_map::wrap_map::WrapMap;
 use crate::display_map::{DisplayMap, Preedit, TabWidth};
 use crate::rope::Rope;
 use crate::selection::MarkActive;
-use crate::window::{Scroll, ViewSize, Window};
+use crate::window::{Scroll, ViewSize, Window, WindowId};
 use proptest::prelude::*;
 
 fn rect(row: usize, column: usize, rows: usize, columns: usize) -> CellRect {
@@ -46,7 +46,7 @@ const VIEW: View = View {
 
 /// The screen of a window `view` shows of `display`, with `preedit` at `cursor`.
 fn screen(display: &DisplaySnapshot, view: View, preedit: Option<(usize, &Preedit)>) -> Screen {
-    let mut window = Window::new(BufferId(0));
+    let mut window = Window::new(WindowId::new(0), BufferId(0));
     window.set_size(ViewSize::new(view.rows, view.columns));
     if view.wraps {
         window.set_wrap(Some(WrapMap::new(display, view.columns)), display, 0);

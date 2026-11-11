@@ -76,7 +76,7 @@ pub(crate) fn completion_layout(
 #[cfg(test)]
 mod tests {
     use super::completion_layout;
-    use crate::frame::{CellRect, FrameSize, layout as frame_layout};
+    use crate::frame::{CellRect, FrameSize, single as frame_layout};
 
     fn end(rect: CellRect) -> usize {
         rect.column + rect.columns

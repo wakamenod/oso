@@ -5,9 +5,9 @@
 //!
 //! The host owns one [`Editor`] and lends it to each command through
 //! [`Ctx`](crate::command::Ctx). It holds the buffers and the windows that
-//! show them, each window with its own selection set (ADR 0007). There is
-//! one window until splits arrive (M3). New state is added here, so
-//! commands keep their signature as it grows.
+//! show them, each window with its own selection set (ADR 0007), and the tree
+//! the tiled ones are laid out by (ADR 0112, `windows`). New state is added
+//! here, so commands keep their signature as it grows.
 //!
 //! Text changes here ([`Editor::apply_edits`], ADR 0053), because a buffer does
 //! not know its windows. An edit is made on clones, every window's cursors are
@@ -27,11 +27,11 @@
 
 use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
-use crate::frame::{self, FrameLayout, FrameSize};
+use crate::frame::{self, FrameLayout, FrameSize, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
 use crate::selection::SelectionSet;
 use crate::undo::Opening;
-use crate::window::{ViewSize, Window};
+use crate::window::{ViewSize, Window, WindowId};
 use follow::Selected;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -59,6 +59,7 @@ mod tab;
 mod themes;
 mod undo_group;
 mod view;
+mod windows;
 mod wraps;
 mod write;
 mod yank_pop;
@@ -80,7 +81,11 @@ pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
+pub use windows::{CannotResize, NoWindow, SoleWindow};
 pub use yank_pop::YankPopError;
+
+/// The name of the window an editor starts with; the next takes 1.
+const FIRST_WINDOW: WindowId = WindowId::new(0);
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -109,9 +114,20 @@ pub struct Editor {
     buffers: Vec<(BufferId, Buffer)>,
     windows: Vec<Window>,
     selected: usize,
+    /// The tiled windows, as a tree (ADR 0112).
+    splits: Splits,
     /// The frame's regions. Every window's size is its text area.
     frame: FrameLayout,
     next_id: u64,
+    /// The number the next window takes.
+    next_window: u64,
+    /// The tiled windows in the order they were selected, the most recent first (ADR 0112).
+    recent: Vec<WindowId>,
+    /// What is left of the command's wrap budget while no window's wrap holds it (ADR 0112).
+    wrap_pool: usize,
+    /// The tiled windows other than the selected one whose cursors or tops an edit moved in
+    /// the command, which follow their cursors when it ends (ADR 0112).
+    moved_windows: Vec<WindowId>,
     undo_scope: Option<UndoScope>,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
@@ -120,9 +136,6 @@ pub struct Editor {
     /// While a command runs, whether it has taken a buffer that may hold secrets off the
     /// screen. This holds whatever then becomes of that buffer.
     command_left_secret: Option<bool>,
-    /// The buffers the selected window was on before each internal buffer it has gone to, the
-    /// first first. Where it was in each is in the window's places (ADR 0088).
-    way_back: Vec<BufferId>,
     /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
     /// (ADR 0087).
     write_over_asked: Option<write::WriteOver>,
@@ -181,8 +194,6 @@ pub struct Editor {
     prompt_layout: Option<PromptLayout>,
     /// The preview's rows of the buffer it shows, while that buffer wraps (ADR 0100).
     preview_wrap: Option<wraps::PreviewWrap>,
-    /// The widest the gutter has been for the buffer the tiled window shows (ADR 0104).
-    gutter_floor: Option<(BufferId, usize)>,
     /// The number of the next prompt's id.
     next_prompt: u64,
     /// The command running got a passphrase, so what it says stays out of the log.
@@ -222,13 +233,22 @@ impl Editor {
             buffers: Vec::new(),
             windows: Vec::new(),
             selected: 0,
-            frame: frame::layout(FrameSize::holding(ViewSize::default()), 0),
+            splits: Splits::new(FIRST_WINDOW),
+            frame: frame::layout(
+                FrameSize::holding(ViewSize::default()),
+                &Splits::new(FIRST_WINDOW),
+                FIRST_WINDOW,
+                |_| 0,
+            ),
             next_id: 0,
+            next_window: 1,
+            recent: vec![FIRST_WINDOW],
+            wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
+            moved_windows: Vec::new(),
             undo_scope: None,
             join_ready: false,
             messages_buffer: BufferId(0),
             command_left_secret: None,
-            way_back: Vec::new(),
             home: None,
             mark_list: None,
             kill_list: None,
@@ -254,7 +274,6 @@ impl Editor {
             outcome: None,
             prompt_layout: None,
             preview_wrap: None,
-            gutter_floor: None,
             next_prompt: 0,
             passphrase_command: false,
             save_over_asked: None,
@@ -269,7 +288,7 @@ impl Editor {
             aids: VisualAids::default(),
         };
         let id = editor.add_buffer(buffer);
-        editor.windows.push(Window::new(id));
+        editor.windows.push(Window::new(FIRST_WINDOW, id));
         editor.messages_buffer = editor.add_buffer(Buffer::internal(MESSAGES));
         editor
     }
@@ -323,6 +342,18 @@ impl Editor {
     /// Every window.
     pub fn windows(&self) -> impl ExactSizeIterator<Item = &Window> {
         self.windows.iter()
+    }
+
+    /// The window named `id`, if there is one.
+    pub fn window_by_id(&self, id: WindowId) -> Option<&Window> {
+        self.windows.iter().find(|window| window.id() == id)
+    }
+
+    /// A new window showing `buffer`, with a name no window had before.
+    pub(super) fn new_window(&mut self, buffer: BufferId) -> Window {
+        let id = WindowId::new(self.next_window);
+        self.next_window += 1;
+        Window::new(id, buffer)
     }
 
     /// The position of the selected window in [`Editor::windows`].
@@ -687,14 +718,14 @@ mod tests {
     fn a_frame_gives_the_windows_its_text_area() {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
         assert_eq!(editor.window().size(), ViewSize::default());
-        assert_eq!(editor.frame().window.text.view_size(), ViewSize::default());
+        assert_eq!(editor.tiled_regions().text.view_size(), ViewSize::default());
 
         let frame = FrameSize {
             rows: 12,
             columns: 40,
         };
         editor.set_frame_size(frame);
-        assert_eq!(editor.frame(), frame::layout(frame, 0));
+        assert_eq!(*editor.frame(), frame::single(frame, 0));
         assert_eq!(editor.window().size(), ViewSize::new(10, 40));
     }
 
@@ -789,7 +820,7 @@ mod tests {
             "moved with the text"
         );
         assert_eq!((first.y, first.height), (before.y, before.height));
-        let text = grid.rect(editor.frame.window.text);
+        let text = grid.rect(editor.tiled_regions().text);
         assert_eq!(positions.len(), 6, "each character and the end");
         for position in &positions {
             let x = first.x + position;

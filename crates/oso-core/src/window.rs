@@ -58,6 +58,19 @@ pub struct ViewTop {
     pub left: usize,
 }
 
+/// A window's name for as long as the editor runs. The editor gives each window a new one and
+/// never gives one again, so state that names a window cannot name another once it is
+/// deleted (ADR 0112).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WindowId(u64);
+
+impl WindowId {
+    /// The id numbered `n`.
+    pub(crate) const fn new(n: u64) -> Self {
+        Self(n)
+    }
+}
+
 /// How many rows and columns a window shows in full. Both at least 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ViewSize {
@@ -84,6 +97,7 @@ impl Default for ViewSize {
 
 /// A window: a view of one buffer.
 pub struct Window {
+    id: WindowId,
     buffer: BufferId,
     /// The cursors.
     pub selections: SelectionSet,
@@ -96,20 +110,23 @@ pub struct Window {
     wrap: Option<WrapMap>,
     /// The buffer's revision the wrap follows.
     wrap_revision: u64,
+    /// The widest its gutter has been for the buffer it shows (ADR 0104).
+    gutter_floor: Option<(BufferId, usize)>,
+    /// The buffers it was on before each internal buffer it has gone to, the first first.
+    /// Where it was in each is in its places (ADR 0088).
+    way_back: Vec<BufferId>,
 }
 
+#[cfg(test)]
 impl Clone for Window {
     /// A window like this one, whose wrap has a generation of its own, so that no job of this
-    /// window reports to it, as a split will need (M3).
+    /// window reports to it. It keeps the id, so it stands for the same window, as tests
+    /// compare it; a split makes its new window with [`Window::split_off`] (ADR 0112).
     fn clone(&self) -> Self {
         Self {
-            buffer: self.buffer,
+            id: self.id,
             selections: self.selections.clone(),
-            scroll: self.scroll,
-            size: self.size,
-            places: self.places.clone(),
-            wrap: self.wrap.as_ref().map(WrapMap::detached),
-            wrap_revision: self.wrap_revision,
+            ..self.split_off(self.id)
         }
     }
 }
@@ -119,6 +136,7 @@ impl fmt::Debug for Window {
     /// may hold secrets (ADR 0100).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Window")
+            .field("id", &self.id)
             .field("buffer", &self.buffer)
             .field("size", &self.size)
             .field("wrapped", &self.wrap.is_some())
@@ -127,9 +145,10 @@ impl fmt::Debug for Window {
 }
 
 impl Window {
-    /// A window showing `buffer` from its start.
-    pub fn new(buffer: BufferId) -> Self {
+    /// A window named `id` showing `buffer` from its start.
+    pub(crate) fn new(id: WindowId, buffer: BufferId) -> Self {
         Self {
+            id,
             buffer,
             selections: SelectionSet::default(),
             scroll: Scroll::default(),
@@ -137,7 +156,36 @@ impl Window {
             places: Places::default(),
             wrap: None,
             wrap_revision: 0,
+            gutter_floor: None,
+            way_back: Vec::new(),
         }
+    }
+
+    /// A new window named `id` that shows what this one does, as a split makes it (ADR 0112):
+    /// the same buffer, the primary cursor with its goal and mark, the mark ring and whether
+    /// the region shows, but none of the other cursors; the same view, places, gutter and way
+    /// back. Its wrap has a generation of its own, so no job of this window reports to it, and
+    /// is wrapped again at its own width (ADR 0103).
+    pub(crate) fn split_off(&self, id: WindowId) -> Self {
+        let mut selections = self.selections.clone();
+        selections.keep_primary();
+        Self {
+            id,
+            buffer: self.buffer,
+            selections,
+            scroll: self.scroll,
+            size: self.size,
+            places: self.places.clone(),
+            wrap: self.wrap.as_ref().map(WrapMap::detached),
+            wrap_revision: self.wrap_revision,
+            gutter_floor: self.gutter_floor,
+            way_back: self.way_back.clone(),
+        }
+    }
+
+    /// Its name.
+    pub fn id(&self) -> WindowId {
+        self.id
     }
 
     /// The buffer shown.
@@ -145,43 +193,13 @@ impl Window {
         self.buffer
     }
 
-    /// Shows `buffer`, keeping where the window was in the one it leaves, and dropping its
-    /// wrap of it (ADR 0103). Gives where it was in `buffer` the last time, for the editor to
-    /// clip to the text as it is now; until then it shows `buffer` from its start, with one
-    /// cursor. Showing the buffer it shows changes nothing there. Ends a walk of `M-,` and
-    /// `M-/`.
-    pub(crate) fn show(&mut self, buffer: BufferId) -> Option<Place> {
-        self.places.end_walk();
-        if buffer == self.buffer {
-            return None;
-        }
-        let mut places = std::mem::take(&mut self.places);
-        let place = Place {
-            selections: std::mem::take(&mut self.selections),
-            scroll: self.scroll,
-        };
-        places.leave(self.buffer, place);
-        let place = places.take(buffer);
-        *self = Self {
-            size: self.size,
-            places,
-            ..Self::new(buffer)
-        };
-        place
+    /// The widest its gutter has been for the buffer it shows, as the layout last gave it.
+    pub(crate) fn gutter_floor(&self) -> Option<(BufferId, usize)> {
+        self.gutter_floor
     }
 
-    /// The buffers the window showed before the one it shows, most recent first, with where it
-    /// was in each.
-    pub fn places(&self) -> impl Iterator<Item = (BufferId, &Place)> {
-        self.places.iter()
-    }
-
-    pub(crate) fn places_mut(&mut self) -> &mut Places {
-        &mut self.places
-    }
-
-    pub(crate) fn walk(&self) -> Option<&Walk> {
-        self.places.walk(self.buffer)
+    pub(crate) fn set_gutter_floor(&mut self, floor: Option<(BufferId, usize)>) {
+        self.gutter_floor = floor;
     }
 
     /// The rows and columns shown in full.
@@ -547,7 +565,7 @@ mod tests {
 
     #[test]
     fn showing_a_buffer_keeps_the_window_size() {
-        let mut window = Window::new(BufferId(1));
+        let mut window = Window::new(WindowId(0), BufferId(1));
         window.set_size(SIZE);
         window.scroll.start = 9;
         window.show(BufferId(2));
@@ -558,7 +576,7 @@ mod tests {
 
     #[test]
     fn debug_shows_no_offset() {
-        let mut window = Window::new(BufferId(1));
+        let mut window = Window::new(WindowId(0), BufferId(1));
         window.selections = SelectionSet::new(1234);
         window.scroll.start = 5678;
         let shown = format!("{window:?}");
@@ -646,7 +664,7 @@ mod tests {
         let text: String = (0..30).map(|i| format!("{i:02}\n")).collect();
         let display = DisplayMap::new(&crate::rope::Rope::from(text.as_str()), TabWidth::default())
             .snapshot();
-        let mut window = Window::new(BufferId(0));
+        let mut window = Window::new(WindowId(0), BufferId(0));
         window.set_size(SIZE);
         window.selections = SelectionSet::new(5 * 3 + 1);
         assert!(window.set_top(3, &display));
@@ -675,7 +693,7 @@ mod tests {
     #[test]
     fn set_top_stops_at_the_last_row() {
         let display = numbered_rows(30);
-        let mut window = Window::new(BufferId(0));
+        let mut window = Window::new(WindowId(0), BufferId(0));
         window.set_size(SIZE);
         assert!(window.set_top(usize::MAX, &display));
         assert_eq!(
@@ -690,7 +708,7 @@ mod tests {
     #[test]
     fn set_top_follows_a_primary_cursor_it_moves_with_the_view_sideways() {
         let display = numbered_rows(30);
-        let mut window = Window::new(BufferId(0));
+        let mut window = Window::new(WindowId(0), BufferId(0));
         window.set_size(SIZE);
         window.selections = SelectionSet::new(1);
         window.scroll.left = 1;
@@ -709,7 +727,7 @@ mod tests {
     #[test]
     fn set_top_leaves_the_view_sideways_if_the_cursor_stays() {
         let display = numbered_rows(30);
-        let mut window = Window::new(BufferId(0));
+        let mut window = Window::new(WindowId(0), BufferId(0));
         window.set_size(SIZE);
         window.selections = SelectionSet::new(5 * 3);
         window.scroll.left = 7;
@@ -814,7 +832,7 @@ mod tests {
         let text: String = (0..30).map(|i| format!("{i:02}\n")).collect();
         let display = DisplayMap::new(&crate::rope::Rope::from(text.as_str()), TabWidth::default())
             .snapshot();
-        let mut window = Window::new(BufferId(0));
+        let mut window = Window::new(WindowId(0), BufferId(0));
         window.set_size(SIZE);
         let scroll = Scroll {
             start: 20 * 3,

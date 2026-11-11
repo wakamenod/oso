@@ -92,13 +92,13 @@ pub(super) fn with_panes<R>(
     editor.prompt_screen(&mut cells.answer);
     editor.preview_screen(&mut cells.preview);
     let screen = &cells.screen;
-    editor.region_cells(screen, &mut cells.region);
-    editor.other_cursor_cells(screen, &mut cells.others);
-    editor.isearch_cells(screen, &mut cells.matches);
-    editor.trailing_cells(screen, &mut cells.trailing);
-    editor.gutter_into(screen, &mut cells.gutter);
+    editor.region_cells(editor.tiled().0.id(), screen, &mut cells.region);
+    editor.other_cursor_cells(editor.tiled().0.id(), screen, &mut cells.others);
+    editor.isearch_cells(editor.tiled().0.id(), screen, &mut cells.matches);
+    editor.trailing_cells(editor.tiled().0.id(), screen, &mut cells.trailing);
+    editor.gutter_into(editor.tiled().0.id(), screen, &mut cells.gutter);
     let flash = (cells.flash).and_then(|strength| {
-        let cells = editor.flash_cells(screen)?;
+        let cells = editor.flash_cells(editor.tiled().0.id(), screen)?;
         Some(FlashFill { cells, strength })
     });
     // Built each frame, only with line numbers on, in room kept from the last (ADR 0097).
@@ -114,7 +114,9 @@ pub(super) fn with_panes<R>(
     let mut gutter: Vec<&[Span<'_>]> = reuse(std::mem::take(&mut cells.rows));
     gutter.extend(numbers.iter().map(|row| &row[..]));
     cells.band.clear();
-    cells.band.extend(editor.current_line_cells(screen));
+    cells
+        .band
+        .extend(editor.current_line_cells(editor.tiled().0.id(), screen));
     // From the back: the current line's band, trailing whitespace, then the current match
     // first, so that it always has room, and the regions over the matches.
     let fills = [
@@ -187,7 +189,7 @@ fn panes<'a>(
     let beneath = editor.prompt().is_some();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
-    let frame = editor.frame();
+    let regions = editor.tiled_regions();
     let text = PaneContent::Text(TextView {
         display,
         buffer: window.buffer(),
@@ -216,23 +218,18 @@ fn panes<'a>(
         content,
     };
     [
-        pane(0, frame.window.text, None, text),
+        pane(0, regions.text, None, text),
         // No band and no fill: the current line's number marks the line there.
-        pane(
-            GUTTER.0,
-            frame.window.gutter,
-            None,
-            PaneContent::Lines(gutter),
-        ),
+        pane(GUTTER.0, regions.gutter, None, PaneContent::Lines(gutter)),
         pane(
             1,
-            frame.window.modeline,
+            regions.modeline,
             Some(Face::Modeline),
             PaneContent::Lines(modeline),
         ),
         // The echo area has no background of its own, so that nothing marks the
         // pixels left over below it (ADR 0057).
-        pane(2, frame.echo, None, PaneContent::Lines(echo)),
+        pane(2, editor.frame().echo, None, PaneContent::Lines(echo)),
     ]
 }
 
@@ -336,7 +333,8 @@ impl App {
         if self.view.is_none() {
             return;
         }
-        self.editor.status_into(&mut self.next_status);
+        self.editor
+            .status_into(self.editor.tiled().0.id(), &mut self.next_status);
         if self.next_status != self.status {
             std::mem::swap(&mut self.status, &mut self.next_status);
             self.request_redraw();
@@ -363,7 +361,8 @@ impl App {
         }
         let window = &view.window;
         let window_size = || window.inner_size();
-        self.editor.status_into(&mut self.status);
+        self.editor
+            .status_into(self.editor.tiled().0.id(), &mut self.status);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
         #[cfg(feature = "dev")]
@@ -437,7 +436,7 @@ mod tests {
         editor.set_frame_size(FrameSize { rows, columns: 80 });
         editor.message("Saved");
         let mut status = Status::default();
-        editor.status_into(&mut status);
+        editor.status_into(editor.tiled().0.id(), &mut status);
         with_panes(&editor, &status, &mut Cells::default(), |panes| {
             panes
                 .iter()
@@ -464,11 +463,12 @@ mod tests {
             columns: 80,
         };
         editor.set_frame_size(size);
-        let layout = frame::layout(size, 0);
+        let layout = editor.frame().clone();
         let status = Status::default();
         with_panes(&editor, &status, &mut Cells::default(), |panes| {
             let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
-            let window = layout.window;
+            let window = editor.tiled_regions();
+            assert_eq!(layout.windows(), [(editor.window().id(), window)]);
             assert_eq!(
                 regions,
                 [window.text, window.gutter, window.modeline, layout.echo]
@@ -543,7 +543,7 @@ mod tests {
         });
         let first = |editor: &Editor| {
             let mut status = Status::default();
-            editor.status_into(&mut status);
+            editor.status_into(editor.tiled().0.id(), &mut status);
             with_panes(
                 editor,
                 &status,
@@ -633,7 +633,7 @@ mod tests {
                 }
                 let status = Status::default();
                 with_panes(&editor, &status, &mut Cells::default(), |panes| {
-                    let text = editor.frame().window.text;
+                    let text = editor.tiled_regions().text;
                     for pane in panes
                         .iter()
                         .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)

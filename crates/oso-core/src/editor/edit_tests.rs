@@ -33,7 +33,7 @@ pub(super) fn cursors(window: &Window) -> Vec<usize> {
 
 /// Adds a window showing `id`, not selected.
 pub(super) fn second_window(editor: &mut Editor, id: BufferId, at: &[usize]) -> usize {
-    let mut window = Window::new(id);
+    let mut window = editor.new_window(id);
     window.selections = set_at(at);
     editor.windows.push(window);
     editor.windows.len() - 1

@@ -10,7 +10,7 @@ keys: <f34> s e c r e t
 │                                                                │
 │                                                                │
 │                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                             =
+--- test  1:0  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 4 x 40
 │  Passphrase (dev):                     │
