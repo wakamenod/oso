@@ -30,9 +30,10 @@ sits behind traits in `oso-platform`. See [ADR 0003](adr/0003-platform-tiers.md)
 
 ```
 crates/
-├── oso/            bin, "tip" crate: commands, default keymaps, app glue
+├── oso/            bin, "tip" crate: commands, default keymaps, config,
+│                   app glue
 ├── oso-core/       buffers, selections, display model, command registry,
-│                   keymaps, config; no GPU, #![forbid(unsafe_code)]
+│                   keymaps; no GPU, #![forbid(unsafe_code)]
 ├── oso-render/     wgpu pipeline, glyph atlas
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
@@ -505,6 +506,9 @@ read. See [ADR 0019](adr/0019-configuration.md).
 - A thread in the tip crate's `config` reads, parses and builds it at start and
   when a `stat` once a second sees it change, and the UI thread swaps the result
   in between keys. A bad file leaves the last good one, with messages.
+- `config::parse` is a pure function from the file's text to the user keymap, the settings
+  and the problems, with their lines. A syntax error rejects the file; a bad entry is skipped
+  and the rest applies. See [ADR 0110](adr/0110-adr-0108-as-built.md).
 - User keys are a keymap directly above the global one, which can also leave a
   key undefined. A setting applies at start and when its value in the file
   changes. See [ADR 0108](adr/0108-the-user-configuration-file.md).

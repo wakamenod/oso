@@ -18,6 +18,8 @@ similar.workspace = true
 # JSON Lines for the control sockets: the dev one, and the agent channel in every build
 # (ADR 0085).
 serde_json.workspace = true
+# The user configuration file, read in `config` only (ADR 0108).
+toml.workspace = true
 miniz_oxide = { workspace = true, optional = true }
 
 # The window system on Windows and Linux; macOS has oso's own (ADR 0070, stage 3).
@@ -26,6 +28,7 @@ winit.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+proptest.workspace = true
 
 [features]
 # Dev-only tooling: the control socket, `oso ctl` and the timings benchmarks

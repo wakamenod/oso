@@ -12,7 +12,8 @@ land, and is accepted with the last one.
 
 ## Decision
 
-The author chose D1 and D2 on 2026-11-11, through the coordinator.
+The author chose D1 and D2 on 2026-11-11, through the coordinator, and the 256 KiB file limit
+the same day.
 
 ### Step 1: the user's key layer
 
@@ -50,9 +51,62 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
 - **Text an input method commits does not consult the user's keys.** With `"a" = false`, the key
   `a` is undefined, but a commit of "a" still goes in, as in Emacs. A commit is not a key.
 
+### Step 2: parsing the file
+
+- **The dependency:** `toml` 1.1.8, as ADR 0108 says, at the newest release at least two weeks
+  old; `serde_spanned` and `toml_datetime` are held at 1.1.2 for the same reason. `toml_parser`
+  goes from 1.1.2 to 1.1.5 and `toml_datetime` from 1.1.1 to 1.1.2 for the Android-only proc
+  macro too, which shares them. `toml_writer` joins the lock as `toml`'s optional `display`
+  dependency and is never built.
+- **`config::parse(text, registry, defaults, themes)` is a pure function:** the file's text, the
+  registry and default keymap the keys are checked against, and the built-in themes' names, in;
+  the user's keymap, the settings and the problems out. It does no I/O and never panics. The
+  themes' names come in so that an unknown one is reported with its line, as every problem is.
+- **The file is at most 256 KiB,** not 1 MiB. The parser's tokens cost a few dozen bytes for
+  each byte of a crafted file: 100 MB at the peak for 1 MiB of syntax errors, about 30 MB for
+  256 KiB. A configuration file of 256 KiB is far larger than any written by hand. Step 3's reader
+  checks it, before `parse`.
+- **A syntax error rejects the whole file,** and every syntax error is reported, for a file of
+  up to 64 KiB. A larger one reports its first, and says so: the parser keeps every error it
+  finds, a few hundred bytes each, and a crafted file can hold one every other byte; 1 MiB of
+  them took 337 MB to report. A key given twice in one table is a syntax error, as TOML says. Nothing in
+  a rejected file applies: no keys and no settings.
+- **Deep tables need a known stack, not an unbounded one.** `toml`'s default limits refuse a key
+  of more than 80 parts, dotted keys and table headers too, and inline tables and arrays nested
+  past 80. But a dotted key in each nested inline table multiplies the two: a file of a few KiB
+  nests some 6,500 tables, and dropping nested tables recurses. Such a file overflowed the 1 MiB
+  stack of a test thread on Windows, and needed 8 MiB in a debug build. So `parse` drops what it
+  holds a level at a time. What the parser drops itself, when it rejects a file of any size
+  (its first pass runs whatever the size), needs up to 2 MiB in debug and release builds. `config::STACK`, 8 MiB, is four times that:
+  step 3's thread is spawned with it, and the test of the deepest file runs on it.
+- **A theme pair is two different built-in themes,** and a name that is not one is reported, and
+  that setting left unset.
+- **At most 10,000 entries in `[keys.global]`, and 16 keys in a sequence.** A table with more
+  entries binds none of them, with one message, rather than an arbitrary part of them. A longer
+  sequence is skipped. With the 256 KiB file limit, this bounds the time and memory of a build
+  and how deep prefix keymaps nest.
+- **A load keeps the first 20 problems in the order of the file,** as many as `*Messages*`
+  shows, and counts the rest. A message is written only if it is kept.
+- **A problem is `line:column: message`,** the column counted in characters. Messages are
+  oso's words: a `BindError` or a key-notation error is never shown as such. The file's text in
+  one is quoted, cut at 80 characters and escaped as the display escapes control and invisible
+  characters, bidi controls among them, and `"` and `\` in it are escaped with a backslash, so it
+  cannot close its own quotes. The parser's wording of a syntax error is escaped too,
+  and cut at 200. One pass over the text places every problem, so many problems on one long
+  line cost no more than the line.
+- **Budget:** a 64 KiB file of 3121 bindings parses and builds in 1.2 ms in a release build,
+  within ADR 0108's 2 ms; toml's own parse is about 0.45 ms of it. A test that is run by hand
+  in release checks it. Measured beside it: a mixed 64 KiB file of short and long sequences,
+  unbindings and problems in 0.33 ms. At 256 KiB: unknown names in 4.4 ms; syntax errors in
+  5.3 ms and about 30 MB at the peak, nearly all of it the parser's tokens. The largest keymap
+  that fits, 5,824 sequences of 16 keys that part early, builds in 4.5 ms and takes 2.1 ms to
+  drop, so step 3 must drop a replaced keymap off the UI thread.
+
 ## Changes to accepted ADRs
 
 **[ADR 0108](0108-the-user-configuration-file.md)** (The user configuration file):
+
+- "at most 1 MiB of UTF-8" becomes: at most 256 KiB of UTF-8.
 
 - "Shadowing a default prefix with a command, or a default command with a prefix (binding `C-a x`
   while `C-a` runs a command) needs that key unbound in the same table too" becomes: shadowing a
@@ -64,12 +118,29 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
 - "`where-is`, `M-x`'s binding annotations and the keymaps `M-x` judges commands by read the user
   layer over the global one, so a hidden default is never shown" holds, and also: a default key
   that a shorter user command cuts short counts as hidden.
+- "A sequence a person cannot type, an unknown command, or a command only a dev build has, is
+  refused with its line" holds, and also: a sequence that starts with a key that types a character,
+  an entry with `C-g` in its keys, a sequence of more than 16 keys and `true` are refused, and a
+  `[keys.global]` of more than 10,000 entries binds none of them.
+- "A syntax error rejects the whole file; … `toml`'s recoverable parse gives every syntax error
+  with its span" holds for a file of up to 64 KiB; a larger one reports its first syntax error.
+- "`C-g` is not configurable in any keymap" holds, and also: an entry with it is refused with a
+  message, rather than ignored.
+- "A command only a dev build has, is refused" holds in a release build, where it is unknown; a
+  dev build binds it.
+- "`minibuffer`, `completion`, `isearch` and the major modes' names are reserved, and an entry
+  under one says it is not configurable yet" holds, and also: so does every other name under
+  `[keys]` but `global`, since modes' names are not known yet. Unknown names elsewhere still warn
+  and are skipped.
 
 ## Consequences
 
 - A user can make `C-x` a command with one line. The warning says what it hides.
 - A shifted key under a rebuilt prefix behaves as in Emacs, so the user writes no Shift entries.
 - Unbinding a letter does not stop an input method typing it.
+- A user cannot make a letter a prefix of their own, as some Emacs setups do with modal keys.
+  `C-c` and the function keys stay free for that.
+- A file written for a newer oso loads, with a message for each table this one does not know.
 - Later steps add their points here.
 
 ## Alternatives considered
@@ -81,3 +152,8 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
   for something few would do.
 - **An undefined key that blocks Shift:** `"C-F" = false` would also stop `C-S-f` running `C-f`,
   which Emacs's nil does not.
+- **Super keys counted as typing keys:** they would be refused too, but they type nothing in oso,
+  and Emacs users bind them.
+- **Ignoring `C-g` entries without a word:** the person would wonder why a binding does nothing.
+- **Over the entry limit, binding the first 10,000:** TOML keeps no order, so which ones apply
+  would depend on how their keys sort.

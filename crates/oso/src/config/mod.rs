@@ -1,0 +1,210 @@
+//! The user configuration file, `config.toml`, from its text to the user's keymap and settings
+//! (ADR 0108, ADR 0110). Only what the file says: nothing in it can run anything, and it names
+//! only registered commands, built-in themes and values of the types below.
+//!
+//! Must not depend on: `app`, `dispatch` or winit; the dispatcher takes the keymap it builds.
+//!
+//! [`parse`] and the files under it do no I/O: text in, a finished value out, so they run on any
+//! thread and their tests need no files. The thread that reads and watches the file joins them
+//! here in ADR 0108's next step.
+//!
+//! - A syntax error rejects the whole file: no keys and no settings, and every syntax error is
+//!   a problem.
+//! - Otherwise each entry that is wrong is skipped with a problem, and the rest applies.
+//!   Unknown tables and names are skipped too, so a file written for a newer oso still loads.
+
+mod defaults;
+mod keys;
+mod problems;
+mod settings;
+
+use std::fmt;
+
+use oso_core::command::Registry;
+use oso_core::keymap::Keymap;
+use toml::Spanned;
+use toml::de::{DeTable, DeValue};
+
+pub use problems::Problem;
+pub use settings::Settings;
+
+use problems::{Found, MAX_QUOTED, quoted};
+
+/// What a configuration file holds, and what is wrong in it.
+#[derive(Debug)]
+pub struct Loaded {
+    /// The user's keymap, empty if the file binds no keys. `None` if the file was rejected, and
+    /// then nothing in it applies: what was in force stays (ADR 0108).
+    pub keys: Option<Keymap>,
+    /// The settings the file gives. All unset if it was rejected.
+    pub settings: Settings,
+    /// What is wrong, in the order of the file: the first [`MAX_PROBLEMS`](problems::MAX_PROBLEMS)
+    /// problems.
+    pub problems: Vec<Problem>,
+    /// How many problems there were after those.
+    pub more: usize,
+}
+
+impl Loaded {
+    /// Whether a syntax error rejected the whole file.
+    pub fn rejected(&self) -> bool {
+        self.keys.is_none()
+    }
+}
+
+/// Parses `text`, the file's contents, and builds the user's keymap over the commands in
+/// `registry`, checked against the default keys in `defaults`. `themes` are the built-in themes'
+/// names. Never panics, whatever the text.
+pub fn parse(text: &str, registry: &Registry, defaults: &Keymap, themes: &[&str]) -> Loaded {
+    let mut found = Found::default();
+    let (keys, settings) = match DeTable::parse(text) {
+        Ok(root) => {
+            let (keys, settings) = apply(root.get_ref(), registry, defaults, themes, &mut found);
+            tear_down(root.into_inner());
+            (Some(keys), settings)
+        }
+        Err(first) => {
+            syntax_errors(text, &first, &mut found);
+            (None, Settings::default())
+        }
+    };
+    let (problems, more) = found.placed(text);
+    Loaded {
+        keys,
+        settings,
+        problems,
+        more,
+    }
+}
+
+/// The stack a thread that calls [`parse`] needs. The parser bounds a key at 80 parts and the
+/// nesting of inline tables and arrays at 80, but a dotted key in each nested inline table
+/// multiplies the two: a file of a few KiB nests some 6,500 tables, and dropping nested tables
+/// recurses. [`parse`] drops what it holds a level at a time; what the parser drops itself, when
+/// it rejects a file of any size, took up to 2 MiB in debug and release builds. This is four
+/// times that.
+pub const STACK: usize = 8 * 1024 * 1024;
+
+/// The largest file whose every syntax error is reported. The parser keeps each one it finds,
+/// a few hundred bytes apiece, and a crafted file can hold one every other byte: a larger file
+/// reports its first only (ADR 0110).
+const RECOVER_UP_TO: usize = 64 * 1024;
+
+/// The syntax errors of `text`, which does not parse: every one, or for a file over
+/// [`RECOVER_UP_TO`], the `first`.
+fn syntax_errors(text: &str, first: &toml::de::Error, found: &mut Found) {
+    // `message`, not `Display`, which finds the error's line by reading the file from the start.
+    let at = |error: &toml::de::Error| error.span().map_or(0, |span| span.start);
+    if text.len() > RECOVER_UP_TO {
+        found.syntax(at(first), first.message());
+        found.at(
+            at(first),
+            format_args!(
+                "a file over {} KiB reports only its first syntax error",
+                RECOVER_UP_TO / 1024
+            ),
+        );
+        return;
+    }
+    let (root, errors) = DeTable::parse_recoverable(text);
+    for error in &errors {
+        found.syntax(at(error), error.message());
+    }
+    tear_down(root.into_inner());
+}
+
+/// The user's keymap and the settings from the tables of a file that parsed.
+fn apply(
+    root: &DeTable<'_>,
+    registry: &Registry,
+    defaults: &Keymap,
+    themes: &[&str],
+    found: &mut Found,
+) -> (Keymap, Settings) {
+    let mut user = Keymap::new();
+    let mut settings = Settings::default();
+    for (name, value) in root {
+        match name.get_ref().as_ref() {
+            "keys" => user = keys::keys(value, registry, defaults, found),
+            "theme" => settings.theme = settings::theme(value, themes, found),
+            "aids" => settings.aids = settings::aids(value, found),
+            "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
+            other => found.at(
+                name.span().start,
+                format_args!("unknown table [{}], skipped", TableName(other)),
+            ),
+        }
+    }
+    (user, settings)
+}
+
+/// Drops parsed tables a level at a time, so that deep nesting needs no deep stack.
+fn tear_down(root: DeTable<'_>) {
+    let mut values = vec![DeValue::Table(root)];
+    while let Some(mut value) = values.pop() {
+        let inner: Box<dyn Iterator<Item = &mut Spanned<DeValue<'_>>>> = match &mut value {
+            DeValue::Table(table) => Box::new(table.iter_mut().map(|(_, inner)| inner)),
+            DeValue::Array(array) => Box::new(array.iter_mut()),
+            _ => continue,
+        };
+        values
+            .extend(inner.map(|inner| std::mem::replace(inner.get_mut(), DeValue::Boolean(false))));
+    }
+}
+
+/// The table `value`, called `name` in a message if it is something else.
+fn table<'v, 'i>(
+    value: &'v Spanned<DeValue<'i>>,
+    name: &str,
+    found: &mut Found,
+) -> Option<&'v DeTable<'i>> {
+    if let DeValue::Table(table) = value.get_ref() {
+        return Some(table);
+    }
+    found.at(value.span().start, format_args!("{name} must be a table"));
+    None
+}
+
+/// A name unknown in `table`, which is skipped.
+fn unknown(found: &mut Found, at: usize, name: &str, table: &str) {
+    found.at(
+        at,
+        format_args!("unknown name {} in {table}, skipped", quoted(name)),
+    );
+}
+
+/// What a TOML value is, for a message.
+fn type_name(value: &DeValue<'_>) -> &'static str {
+    match value {
+        DeValue::String(_) => "a string",
+        DeValue::Integer(_) | DeValue::Float(_) => "a number",
+        DeValue::Boolean(_) => "true or false",
+        DeValue::Datetime(_) => "a date",
+        DeValue::Array(_) => "a list",
+        DeValue::Table(_) => "a table",
+    }
+}
+
+/// A table's name as TOML would write it: bare if it can be, quoted otherwise.
+struct TableName<'n>(&'n str);
+
+impl fmt::Display for TableName<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = self.0;
+        let bare = !name.is_empty()
+            && name.len() <= MAX_QUOTED
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        if bare {
+            f.write_str(name)
+        } else {
+            quoted(name).fmt(f)
+        }
+    }
+}
+
+#[cfg(test)]
+mod keys_tests;
+#[cfg(test)]
+mod tests;

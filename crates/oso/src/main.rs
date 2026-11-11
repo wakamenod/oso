@@ -9,6 +9,11 @@ mod app;
 mod bindings;
 mod channel;
 mod commands;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the watcher that reads the file comes next")
+)]
+mod config;
 #[cfg(feature = "dev")]
 mod dev;
 mod dispatch;
