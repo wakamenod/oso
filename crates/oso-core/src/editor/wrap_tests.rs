@@ -325,3 +325,33 @@ fn a_whole_text_put_back_into_a_wrapped_buffer_starts_its_wrap_over() {
     settle(&mut editor);
     assert_eq!(rows(&editor), fresh(&editor));
 }
+
+#[test]
+fn a_window_too_narrow_to_wrap_scrolls_sideways_to_its_cursor_and_wraps_again_when_wider() {
+    let text = "word ".repeat(10);
+    let mut editor = Editor::with_buffer(Buffer::from_text("t", &text));
+    // 7 columns, below the narrowest wrap (ADR 0104), as beside a gutter of 1000 lines or
+    // more at the smallest window (ADR 0112).
+    editor.set_view_size(ViewSize::new(4, 7));
+    let id = editor.window().buffer();
+    assert!(editor.set_wraps(id, true));
+    assert!(
+        !editor.window().wrap().unwrap().wraps(),
+        "too narrow to wrap"
+    );
+    editor.current_mut().0.selections = SelectionSet::new(text.len());
+    editor.follow_cursor();
+    let left = editor.window().scroll().left;
+    assert!(left > 0, "it scrolls sideways to the cursor");
+    let grid = crate::frame::PixelGrid::new(10.0, 20.0);
+    assert!(
+        editor.cursor_area(grid).is_some(),
+        "the input method has a place"
+    );
+    assert!(editor.scroll_view_sideways(-3), "the sideways wheel too");
+    // Wide enough to wrap, it shows from the left edge, the cursor on its row.
+    editor.set_view_size(ViewSize::new(4, 20));
+    assert!(editor.window().wrap().unwrap().wraps());
+    assert_eq!(editor.window().scroll().left, 0);
+    assert!(editor.cursor_area(grid).is_some());
+}
