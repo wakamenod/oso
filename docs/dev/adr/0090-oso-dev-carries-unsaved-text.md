@@ -1,6 +1,6 @@
 # 0090. `oso dev` carries unsaved text
 
-- Status: Accepted
+- Status: Accepted, amended by 0112
 - Date: 2026-11-08
 
 ## Context

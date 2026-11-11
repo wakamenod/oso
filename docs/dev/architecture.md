@@ -123,11 +123,13 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   scroll position. While its buffer wraps (M2-25) it also holds its wrap of
   the buffer, which it drops when it shows another, and its top is an offset
   ([ADR 0100](adr/0100-soft-wrap.md), [ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
-  The app runs the wraps' jobs on one thread, as it runs isearch's. There is one window until splits (M3). See
+  The app runs the wraps' jobs on one thread, as it runs isearch's. A frame holds a tree of
+  windows, split side by side or stacked, each with its own selection set, scroll, wrap and places
+  over a shared buffer ([ADR 0112](adr/0112-window-splits.md)). See
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md). A pure function,
-  `oso_core::frame::layout`, divides the frame into whole cells: the
-  window's text area, with a gutter for line numbers at its left, above a modeline row and
-  the echo area ([ADR 0057](adr/0057-frame-layout.md), [ADR 0097](adr/0097-visual-aids.md)).
+  `oso_core::frame::layout`, divides the frame into whole cells: each
+  window's text area, with a gutter for line numbers at its left, above its modeline row, a
+  divider column between side by side windows, and the echo area ([ADR 0057](adr/0057-frame-layout.md), [ADR 0097](adr/0097-visual-aids.md), [ADR 0112](adr/0112-window-splits.md)).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
   goal column for vertical motion and its own mark. The set says whether the

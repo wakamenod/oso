@@ -1,6 +1,6 @@
 # 0088. Switching and killing buffers
 
-- Status: Accepted, amended by 0100
+- Status: Accepted, amended by 0100 and 0112
 - Date: 2026-11-08
 
 ## Context
