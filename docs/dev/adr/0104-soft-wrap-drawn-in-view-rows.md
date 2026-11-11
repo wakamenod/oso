@@ -90,7 +90,10 @@ recommended option each time, and approved the public API in direction.
     the rows after a character typed in a wrapped line, which move a cell along it with the
     same text, shape nothing again; only rows whose text changed do. A page scrolled away
     keeps its rows for coming back.
-  - The rows a frame did not draw go once there are many more than a screen of them.
+  - Past six screens of rows and 64 more, the rows of lines more than a screen from the view
+    go, and then, if that is not enough, as for a long wrapped line, all the frame did not
+    draw: as many as rows were kept before, so a jump to a buffer's end and back finds its
+    first page still shaped.
 - **The mark is part of the shaped row,** a piece of its own in `Face::WrapMark`, so whether a
   row continues is compared as its content is. A hanging space is left out of what is shaped,
   and the mark draws in its cell.

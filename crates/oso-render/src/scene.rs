@@ -497,7 +497,7 @@ fn draw_lines<G: GlyphSource>(
         }
     }
     let shown = lines.len().min(shown);
-    rows.evict(shown);
+    rows.evict(shown, 0..=shown.saturating_mul(2));
 }
 
 #[cfg(test)]
@@ -1556,6 +1556,45 @@ mod tests {
     }
 
     #[test]
+    fn pages_down_and_a_jump_to_the_end_and_back_keep_the_first_page() {
+        // As the big file's keys: C-v twice, M->, then M-< back to the top.
+        let text: String = (0..1000).map(|line| format!("line {line}\n")).collect();
+        let buffer = Buffer::from_text("t", &text);
+        let display = buffer.display();
+        let mut scene = Scene::new(LIMITS, theme());
+        let frame = |top: usize, scene: &mut Scene| {
+            let mut screen = Screen::default();
+            screen.show_lines(
+                &display,
+                ViewTop { row: top, left: 0 },
+                ViewSize::new(40, 20),
+            );
+            let content = PaneContent::Text(TextView {
+                display: buffer.display(),
+                buffer: id(),
+                revision: 1,
+                screen: &screen,
+                cursor: DisplayPoint::new(10_000, 0),
+                cursor_style: CursorStyle::Box,
+                others: &[],
+                preedit: None,
+                fills: &[],
+                whitespace: false,
+                flash: None,
+            });
+            let panes = [pane(0, rect(0, 0, 40, 20), 0, content)];
+            let before = scene.shaped_count();
+            build(scene, &panes, &mut FakeAtlas::default());
+            scene.shaped_count() - before
+        };
+        assert_eq!(frame(0, &mut scene), 40);
+        assert_eq!(frame(38, &mut scene), 38);
+        assert_eq!(frame(76, &mut scene), 38);
+        assert_eq!(frame(961, &mut scene), 39, "the end, its last row empty");
+        assert_eq!(frame(0, &mut scene), 0, "the first page is still shaped");
+    }
+
+    #[test]
     fn scrolling_sideways_keeps_a_screen_of_rows_and_redraws_shape_nothing() {
         let text = format!("{}\n", "x".repeat(4096)).repeat(20);
         let buffer = Buffer::from_text("t", &text);
@@ -1584,7 +1623,7 @@ mod tests {
         };
         for step in 0..60 {
             frame(step * 64, &mut scene);
-            assert!(scene.rows[0].1.len() <= 2 * 20 + 64);
+            assert!(scene.rows[0].1.len() <= 6 * 20 + 64);
         }
         assert_eq!(
             frame(59 * 64, &mut scene),

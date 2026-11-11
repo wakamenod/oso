@@ -34,7 +34,7 @@
 //!   compared each frame while it has one, and the frame after (ADR 0069).
 
 use std::collections::HashMap;
-use std::ops::{ControlFlow, Range};
+use std::ops::{ControlFlow, Range, RangeInclusive};
 
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{
@@ -260,12 +260,20 @@ impl Rows {
         }
     }
 
-    /// Drops the cached rows this frame did not draw once there are many more of them than
-    /// the `shown` rows, and the kept pieces with them.
-    pub(crate) fn evict(&mut self, shown: usize) {
-        if self.rows.len() > 2 * shown + 64 {
+    /// Drops cached rows once there are many more of them than the `shown` rows: those whose
+    /// line is outside `near`, a screen either side of the view, as rows were kept before they
+    /// were keyed by line, and if that is not enough, all this frame did not draw, as a long
+    /// wrapped line's rows are all of one line. The kept pieces go with them.
+    pub(crate) fn evict(&mut self, shown: usize, near: RangeInclusive<usize>) {
+        // Three screens, twice over: so a page or two each way and a jump back stay shaped.
+        let limit = 6 * shown + 64;
+        if self.rows.len() > limit {
             let frame = self.frame;
-            self.rows.retain(|_, row| row.used == frame);
+            self.rows
+                .retain(|key, row| row.used == frame || near.contains(&key.0));
+            if self.rows.len() > limit {
+                self.rows.retain(|_, row| row.used == frame);
+            }
             self.pieces.clear();
         }
     }
@@ -967,7 +975,7 @@ pub(crate) mod tests {
         rows.begin(buffer_id(), 2);
         rows.row(&display, 70, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 6, "a new revision shapes them again");
-        rows.evict(1);
+        rows.evict(1, 70..=70);
         rows.row(&display, 71, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 9, "evicted rows take their pieces");
     }

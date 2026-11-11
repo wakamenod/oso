@@ -121,5 +121,8 @@ pub(super) fn draw_text<G: GlyphSource>(
             break;
         }
     }
-    rows.evict(shown.len());
+    if let (Some(first), Some(last)) = (shown.first(), shown.last()) {
+        let near = first.line.saturating_sub(shown.len())..=last.line.saturating_add(shown.len());
+        rows.evict(shown.len(), near);
+    }
 }
