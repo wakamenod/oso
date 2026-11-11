@@ -33,8 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # The base and the head of a pull request, for the merge base between them.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # The base and the head of a pull request, for the merge base between them. The
+          # depth is a string, as a number 0 would be false and give 1.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           persist-credentials: false
       - id: diff
         env:
