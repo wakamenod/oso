@@ -19,6 +19,17 @@ fn holds(since: Option<Duration>, key: KeyPress) -> bool {
     key != oso_core::keymap::CANCEL && since.is_some_and(|since| since < QUIET)
 }
 
+/// Logs in a dev build that `by` restarted the wait of a question the agent caused, `since`
+/// it last started, so that an e2e flow's refused answer can be traced to it. Only the kind.
+#[cfg(feature = "dev")]
+fn log_restart(by: &str, since: Option<Duration>) {
+    let since = since.map_or_else(
+        || "none".to_owned(),
+        |since| format!("{} ms", since.as_millis()),
+    );
+    log::debug!("agent question: the quiet wait restarted by {by}, {since} after the last start");
+}
+
 impl App {
     /// Notes the prompts a channel command opened, those newer than `newest`, which are the
     /// agent's, and returns the innermost one's label if it opened any.
@@ -55,6 +66,8 @@ impl App {
             return false;
         }
         let since = self.agent.quiet_since.map(|at| at.elapsed());
+        #[cfg(feature = "dev")]
+        log_restart("a key", since);
         self.agent.quiet_since = Some(Instant::now());
         if !holds(since, key) {
             return false;
@@ -83,14 +96,19 @@ impl App {
     }
 
     /// Text or a composition came from the window: the person is typing, and a question
-    /// the channel caused waits longer.
-    pub(in crate::app) fn person_typed(&mut self) {
+    /// the channel caused waits longer. `by` names what came, never its text: `"text"`, or
+    /// the input method's report by its kind, which a dev build logs.
+    pub(in crate::app) fn person_typed(&mut self, by: &'static str) {
         self.agent.person_typed = Some(Instant::now());
         if self
             .editor
             .prompt()
             .is_some_and(|prompt| prompt.from_agent())
         {
+            #[cfg(feature = "dev")]
+            log_restart(by, self.agent.quiet_since.map(|at| at.elapsed()));
+            #[cfg(not(feature = "dev"))]
+            let _ = by;
             self.agent.quiet_since = Some(Instant::now());
         }
     }
