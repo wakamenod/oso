@@ -55,6 +55,11 @@ serde_json = "1"
 # no serde, no derive macros. The default recursion limit stays on.
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse"] }
 
+# The project walker for project-find-file and project-search (ADR 0114): ripgrep's own
+# walker, with gitignore, `.ignore` and global excludes read as patterns only. Its globs use
+# regex-automata, the `regex` crate's engine.
+ignore = "0.4.34"
+
 # Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
 miniz_oxide = "0.9"
