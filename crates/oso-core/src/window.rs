@@ -208,10 +208,8 @@ impl Window {
     /// they are of another text, as until the editor brings them along, when a frame shows
     /// one row a logical line.
     pub fn wrap_of(&self, display: &DisplaySnapshot) -> Option<&WrapSnapshot> {
-        self.wrap
-            .as_ref()
-            .map(WrapMap::snapshot)
-            .filter(|wrap| wrap.len() == display.len())
+        let wrap = self.wrap.as_ref()?;
+        rows::follows(wrap, self.wrap_revision, display)
     }
 
     pub(crate) fn wrap_map(&self) -> Option<&WrapMap> {
@@ -258,7 +256,10 @@ impl Window {
 
     /// Its view rows over `display`, its buffer as it shows now.
     pub(crate) fn rows<'a>(&'a self, display: &'a DisplaySnapshot) -> Rows<'a> {
-        Rows::new(display, self.wrap.as_ref())
+        Rows::new(
+            display,
+            self.wrap.as_ref().map(|wrap| (wrap, self.wrap_revision)),
+        )
     }
 
     /// How many view rows its buffer has.
@@ -356,7 +357,10 @@ impl Window {
     /// `left` above 0. A cursor that did not move stays as it is, since the sideways
     /// wheel may have left it out of view on purpose. Returns whether the view moved.
     pub fn set_top(&mut self, top: usize, display: &DisplaySnapshot) -> bool {
-        let rows = Rows::new(display, self.wrap.as_ref());
+        let rows = Rows::new(
+            display,
+            self.wrap.as_ref().map(|wrap| (wrap, self.wrap_revision)),
+        );
         let row_count = rows.count();
         let top = top.min(row_count.saturating_sub(1));
         if top == rows.row_of(self.scroll.start) {

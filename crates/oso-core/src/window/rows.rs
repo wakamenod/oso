@@ -7,6 +7,17 @@ use crate::display_map::DisplaySnapshot;
 use crate::display_map::wrap_map::{WrapMap, WrapSnapshot};
 use crate::motion;
 
+/// The rows of `wrap`, which follows its buffer at `revision`, if they are of `display`'s text:
+/// of the same revision, whose length a stale wrap of a text as long would also have.
+pub(crate) fn follows<'a>(
+    wrap: &'a WrapMap,
+    revision: u64,
+    display: &DisplaySnapshot,
+) -> Option<&'a WrapSnapshot> {
+    let wrap = wrap.snapshot();
+    (revision == display.revision() && wrap.len() == display.len()).then_some(wrap)
+}
+
 /// A window's view rows over its buffer as it shows now: its wrap's, or one a logical line.
 #[derive(Clone, Copy)]
 pub(crate) struct Rows<'a> {
@@ -15,14 +26,13 @@ pub(crate) struct Rows<'a> {
 }
 
 impl<'a> Rows<'a> {
-    /// The rows of `wrap` over `display`, or one a logical line without it, or with one
-    /// whose text is not `display`'s, as the editor brings it along at the next command.
-    pub(crate) fn new(display: &'a DisplaySnapshot, wrap: Option<&'a WrapMap>) -> Self {
+    /// The rows of `wrap`, which follows its buffer at the revision it comes with, over
+    /// `display`; or one a logical line without it, or with one whose text is not
+    /// `display`'s, as the editor brings it along at the next command.
+    pub(crate) fn new(display: &'a DisplaySnapshot, wrap: Option<(&'a WrapMap, u64)>) -> Self {
         Self {
             display,
-            wrap: wrap
-                .map(WrapMap::snapshot)
-                .filter(|wrap| wrap.len() == display.len()),
+            wrap: wrap.and_then(|(wrap, revision)| follows(wrap, revision, display)),
         }
     }
 

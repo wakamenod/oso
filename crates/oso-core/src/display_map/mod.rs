@@ -285,6 +285,7 @@ impl DisplayMap {
     pub fn snapshot(&self) -> DisplaySnapshot {
         DisplaySnapshot {
             tab_map: self.tab_map.clone(),
+            revision: 0,
         }
     }
 }
@@ -294,9 +295,23 @@ impl DisplayMap {
 #[derive(Clone)]
 pub struct DisplaySnapshot {
     tab_map: TabMap,
+    /// The revision of the buffer it was taken from, which a window's wrap is checked
+    /// against; 0 for one taken from a map alone.
+    revision: u64,
 }
 
 impl DisplaySnapshot {
+    /// The snapshot as the buffer's text at `revision` shows.
+    pub(crate) fn at_revision(mut self, revision: u64) -> Self {
+        self.revision = revision;
+        self
+    }
+
+    /// The revision of the buffer it was taken from ([`DisplaySnapshot::at_revision`]).
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// The buffer's invalid bytes.
     pub fn invalid_bytes(&self) -> &InvalidBytes {
         self.tab_map.invalid()
