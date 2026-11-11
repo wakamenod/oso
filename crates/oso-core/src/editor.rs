@@ -55,6 +55,7 @@ mod save;
 mod screen;
 mod status;
 mod switch;
+mod tab;
 mod themes;
 mod undo_group;
 mod view;

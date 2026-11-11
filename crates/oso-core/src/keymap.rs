@@ -14,6 +14,8 @@
 //! - A keymap may have a text command, which runs for a key that types a
 //!   character ([`KeyPress::text`]) and that it does not bind otherwise. It counts
 //!   as a binding of that key in the layers (ADR 0056).
+//! - A keymap may leave a sequence undefined ([`Keymap::unbind`]), which hides what
+//!   a lower layer binds it to, as the user's layer does (ADR 0108).
 //!
 //! Bindings refer to commands by [`CommandId`], resolved from names once,
 //! when the keymap is built, so a key press costs a few hash lookups and no
@@ -32,6 +34,8 @@ pub enum Binding<'a> {
     Command(CommandId),
     /// Wait for another key, and look it up in this keymap.
     Prefix(&'a Keymap),
+    /// Nothing: the sequence is undefined here, and lower layers are not asked.
+    Undefined,
 }
 
 /// What a keymap holds for a key.
@@ -39,6 +43,7 @@ pub enum Binding<'a> {
 enum Entry {
     Command(CommandId),
     Prefix(Keymap),
+    Undefined,
 }
 
 /// Key bindings, possibly nested under prefix keys.
@@ -47,6 +52,9 @@ pub struct Keymap {
     bindings: HashMap<KeyPress, Entry>,
     /// What a key that types a character runs, if `bindings` does not have it.
     text: Option<CommandId>,
+    /// Whether a key neither `bindings` nor `text` has is undefined, rather than left to
+    /// lower layers: a prefix made where [`Keymap::unbind`] had left a key undefined.
+    hides: bool,
 }
 
 impl Keymap {
@@ -81,31 +89,85 @@ impl Keymap {
     /// Binds `keys` to `command`, creating prefix keymaps as needed.
     ///
     /// Fails, and leaves the keymap unchanged, if `keys` is empty, already
-    /// bound, a prefix of other bindings, or starts with a key bound to a
-    /// command.
+    /// bound or undefined, a prefix of other bindings, or starts with a key bound to a
+    /// command. A key on the way that [`Keymap::unbind`] left undefined becomes a prefix
+    /// that hides what lower layers bind under it, as Emacs makes a fresh prefix map.
     pub fn bind(&mut self, keys: &[KeyPress], command: CommandId) -> Result<(), BindError> {
-        let (last, prefix) = keys.split_last().ok_or(BindError::Empty)?;
-        // Prefix keymaps are created only where none existed, so nothing
-        // deeper can conflict, and an error never leaves one behind.
-        let mut map = self;
-        for (i, key) in prefix.iter().enumerate() {
-            let entry = map
-                .bindings
-                .entry(*key)
-                .or_insert_with(|| Entry::Prefix(Keymap::new()));
-            match entry {
-                Entry::Prefix(sub) => map = sub,
-                Entry::Command(_) => return Err(BindError::NonPrefix { len: i + 1 }),
-            }
-        }
+        let (last, map) = self.prefix_for(keys)?;
         match map.bindings.get(last) {
             None => {
                 map.bindings.insert(*last, Entry::Command(command));
                 Ok(())
             }
-            Some(Entry::Command(_)) => Err(BindError::AlreadyBound),
+            Some(Entry::Command(_) | Entry::Undefined) => Err(BindError::AlreadyBound),
             Some(Entry::Prefix(_)) => Err(BindError::IsPrefix),
         }
+    }
+
+    /// Leaves `keys` undefined, so that a lower layer's binding of it, and of every longer
+    /// sequence it starts, is hidden (ADR 0108, ADR 0110). On a prefix, the prefix stays, and hides
+    /// what lower layers bind under it that it does not. Unbinding twice changes nothing.
+    ///
+    /// Fails, and leaves the keymap unchanged, if `keys` is empty, bound to a command, or
+    /// starts with a key bound to a command.
+    pub fn unbind(&mut self, keys: &[KeyPress]) -> Result<(), BindError> {
+        let (last, map) = self.prefix_for(keys)?;
+        match map.bindings.get_mut(last) {
+            None => {
+                map.bindings.insert(*last, Entry::Undefined);
+                Ok(())
+            }
+            Some(Entry::Undefined) => Ok(()),
+            Some(Entry::Prefix(sub)) => {
+                sub.hide();
+                Ok(())
+            }
+            Some(Entry::Command(_)) => Err(BindError::AlreadyBound),
+        }
+    }
+
+    /// Makes this keymap, and every prefix keymap under it, hide what lower layers bind.
+    fn hide(&mut self) {
+        self.hides = true;
+        for entry in self.bindings.values_mut() {
+            if let Entry::Prefix(sub) = entry {
+                sub.hide();
+            }
+        }
+    }
+
+    /// The last key of `keys`, and the keymap it goes in, creating prefix keymaps as needed.
+    /// One made under a keymap that hides, or where a key was undefined, hides too.
+    fn prefix_for<'k>(
+        &mut self,
+        keys: &'k [KeyPress],
+    ) -> Result<(&'k KeyPress, &mut Keymap), BindError> {
+        let (last, prefix) = keys.split_last().ok_or(BindError::Empty)?;
+        // Prefix keymaps are created only where none existed, so nothing
+        // deeper can conflict, and an error never leaves one behind.
+        let mut map = self;
+        for (i, key) in prefix.iter().enumerate() {
+            let hides = map.hides;
+            let entry = map.bindings.entry(*key).or_insert_with(|| {
+                Entry::Prefix(Keymap {
+                    hides,
+                    ..Keymap::new()
+                })
+            });
+            if matches!(entry, Entry::Undefined) {
+                *entry = Entry::Prefix(Keymap {
+                    hides: true,
+                    ..Keymap::new()
+                });
+            }
+            match entry {
+                Entry::Prefix(sub) => map = sub,
+                Entry::Command(_) | Entry::Undefined => {
+                    return Err(BindError::NonPrefix { len: i + 1 });
+                }
+            }
+        }
+        Ok((last, map))
     }
 
     /// Makes `command` run for every key that types a character and is not
@@ -124,16 +186,19 @@ impl Keymap {
         match self.bindings.get(&key) {
             Some(Entry::Command(command)) => Some(Binding::Command(*command)),
             Some(Entry::Prefix(sub)) => Some(Binding::Prefix(sub)),
+            Some(Entry::Undefined) => Some(Binding::Undefined),
             None => self
                 .text
                 .filter(|_| key.text().is_some())
-                .map(Binding::Command),
+                .map(Binding::Command)
+                .or(self.hides.then_some(Binding::Undefined)),
         }
     }
 
     /// What the whole sequence `keys` is bound to, descending through
     /// prefix keymaps. `None` if it is unbound here, including when a
-    /// shorter part of it is bound to a command.
+    /// shorter part of it is bound to a command. [`Binding::Undefined`] if it, or a
+    /// shorter part of it, is undefined here.
     pub fn lookup(&self, keys: &[KeyPress]) -> Option<Binding<'_>> {
         let (first, rest) = keys.split_first()?;
         let mut binding = self.get(*first)?;
@@ -141,6 +206,7 @@ impl Keymap {
             match binding {
                 Binding::Prefix(sub) => binding = sub.get(*key)?,
                 Binding::Command(_) => return None,
+                Binding::Undefined => break,
             }
         }
         Some(binding)
@@ -160,20 +226,21 @@ impl Keymap {
             match entry {
                 Entry::Command(command) => f(keys, *command),
                 Entry::Prefix(sub) => sub.visit(keys, f),
+                Entry::Undefined => {}
             }
             keys.pop();
         }
     }
 
-    /// The number of keys bound at this level, prefixes included.
+    /// The number of keys bound at this level, prefixes and undefined keys included.
     pub fn len(&self) -> usize {
         self.bindings.len()
     }
 
-    /// Whether no key does anything here: nothing is bound, and it has no text
-    /// command.
+    /// Whether no key does anything here: nothing is bound or undefined, it has no text
+    /// command, and it hides nothing.
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty() && self.text.is_none()
+        self.bindings.is_empty() && self.text.is_none() && !self.hides
     }
 }
 
@@ -249,9 +316,9 @@ impl std::error::Error for TableError {}
 /// The keymaps active at one moment.
 ///
 /// Lookup tries them from the highest priority down: keymap at point, minor
-/// modes, major mode, global (architecture.md). The first keymap that binds
-/// the whole sequence, to a command or a prefix, decides; keymaps that do
-/// not bind it are skipped. Only the global layer exists so far.
+/// modes, major mode, the user's, global (architecture.md, ADR 0108). The first
+/// keymap that binds the whole sequence, to a command or a prefix, or leaves it
+/// undefined, decides; keymaps that do not bind it are skipped.
 #[derive(Debug, Clone, Copy)]
 pub struct Layers<'a> {
     /// The keymap of the text or overlay at point.
@@ -260,6 +327,9 @@ pub struct Layers<'a> {
     pub minor: &'a [&'a Keymap],
     /// The keymap of the buffer's major mode.
     pub major: Option<&'a Keymap>,
+    /// The user's keys from the configuration, just above the global keymap, as Emacs's
+    /// `global-set-key` writes into `global-map` (ADR 0108).
+    pub user: Option<&'a Keymap>,
     /// The global keymap.
     pub global: &'a Keymap,
 }
@@ -271,6 +341,7 @@ impl<'a> Layers<'a> {
             at_point: None,
             minor: &[],
             major: None,
+            user: None,
             global,
         }
     }
@@ -281,6 +352,7 @@ impl<'a> Layers<'a> {
             .into_iter()
             .chain(self.minor.iter().copied())
             .chain(self.major)
+            .chain(self.user)
             .chain(std::iter::once(self.global))
     }
 
@@ -310,8 +382,8 @@ pub enum Resolution<'a> {
     Shifted(CommandId),
     /// The keys so far are a prefix: wait for the next key.
     Pending,
-    /// The keys so far are bound to nothing. The prefix is cleared; the
-    /// keys are given for the report ("C-x C-z is undefined").
+    /// The keys so far are bound to nothing, or a layer leaves them undefined. The prefix
+    /// is cleared; the keys are given for the report ("C-x C-z is undefined").
     Unbound(&'a [KeyPress]),
     /// The cancel key (`C-g`) was pressed while a prefix was pending. The
     /// prefix is cleared.
@@ -377,13 +449,15 @@ impl KeyResolver {
                 Resolution::Command(id)
             }
             Some(Binding::Prefix(_)) => Resolution::Pending,
-            None => match self.unshift_last(layers, key) {
+            // An undefined sequence is taken without Shift as an unbound one is, as Emacs
+            // translates a key bound to nil (ADR 0110).
+            Some(Binding::Undefined) | None => match self.unshift_last(layers, key) {
                 Some(Binding::Command(id)) => {
                     self.keys.clear();
                     Resolution::Shifted(id)
                 }
                 Some(Binding::Prefix(_)) => Resolution::Pending,
-                None => {
+                Some(Binding::Undefined) | None => {
                     self.reported = true;
                     Resolution::Unbound(&self.keys)
                 }
@@ -393,12 +467,15 @@ impl KeyResolver {
 
     /// What the pending keys form with `key`, their last, taken without Shift, as
     /// Emacs's shift translation reads it. If they form something, `key` stays
-    /// unshifted among the pending keys, so a prefix goes on as the one bound.
+    /// unshifted among the pending keys, so a prefix goes on as the one bound. A sequence
+    /// left undefined forms nothing.
     fn unshift_last<'a>(&mut self, layers: &Layers<'a>, key: KeyPress) -> Option<Binding<'a>> {
         let unshifted = key.unshifted()?;
         let last = self.keys.len() - 1;
         self.keys[last] = unshifted;
-        let found = layers.lookup(&self.keys);
+        let found = layers
+            .lookup(&self.keys)
+            .filter(|binding| *binding != Binding::Undefined);
         if found.is_none() {
             self.keys[last] = key;
         }
@@ -707,20 +784,26 @@ mod tests {
     fn keys_reuse_one_buffer_once_warm() {
         let registry = registry(NAMES);
         let map = global(&registry);
-        let layers = Layers::global(&map);
-        let mut resolver = KeyResolver::new();
-        // Warm up with the longest sequence in the keymap.
-        feed_all(&mut resolver, &layers, &registry, "C-x 4 f");
-        let buffer = (resolver.keys.as_ptr(), resolver.keys.capacity());
-        for _ in 0..1000 {
-            feed_all(
-                &mut resolver,
-                &layers,
-                &registry,
-                "C-f C-b <right> C-x C-g C-x C-z a C-g C-x 4 z C-x C-c",
-            );
+        // With the user's layer too, undefined keys and a hiding prefix among them (ADR 0108).
+        let mut user = Keymap::from_table(&registry, &[("C-c o", "other")]).unwrap();
+        user.unbind(&keys("C-b")).unwrap();
+        user.unbind(&keys("C-x 4")).unwrap();
+        user.bind(&keys("C-x 4 o"), id(&registry, "other")).unwrap();
+        for layers in [Layers::global(&map), with_user(&user, &map)] {
+            let mut resolver = KeyResolver::new();
+            // Warm up with the longest sequence in the keymap.
+            feed_all(&mut resolver, &layers, &registry, "C-x 4 f");
+            let buffer = (resolver.keys.as_ptr(), resolver.keys.capacity());
+            for _ in 0..1000 {
+                feed_all(
+                    &mut resolver,
+                    &layers,
+                    &registry,
+                    "C-f C-b <right> C-x C-g C-x C-z a C-g C-x 4 z C-x C-c C-c o S-<right>",
+                );
+            }
+            assert_eq!((resolver.keys.as_ptr(), resolver.keys.capacity()), buffer);
         }
-        assert_eq!((resolver.keys.as_ptr(), resolver.keys.capacity()), buffer);
     }
 
     #[test]
@@ -795,6 +878,7 @@ mod tests {
             at_point: None,
             minor: &[],
             major: Some(&major),
+            user: None,
             global: &global,
         };
         let mut resolver = KeyResolver::new();
@@ -829,6 +913,249 @@ mod tests {
             ["find-file", "keyboard-quit", "other"]
         );
         assert_eq!(layers.iter().count(), 4);
+    }
+
+    // --- The user's layer (ADR 0108) ---
+
+    /// The global keymap with `user` above it.
+    fn with_user<'a>(user: &'a Keymap, global: &'a Keymap) -> Layers<'a> {
+        Layers {
+            user: Some(user),
+            ..Layers::global(global)
+        }
+    }
+
+    #[test]
+    fn the_users_layer_sits_below_the_modes_and_above_the_global_keymap() {
+        let registry = registry(NAMES);
+        let global = global(&registry);
+        let major = Keymap::from_table(&registry, &[("C-f", "other")]).unwrap();
+        let user = Keymap::from_table(
+            &registry,
+            &[("C-f", "backward-char"), ("C-b", "forward-char")],
+        )
+        .unwrap();
+        let layers = Layers {
+            major: Some(&major),
+            ..with_user(&user, &global)
+        };
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "C-f C-b <right>"),
+            ["other", "forward-char", "forward-char"]
+        );
+        assert_eq!(layers.iter().count(), 3);
+    }
+
+    #[test]
+    fn a_binding_under_a_default_prefix_leaves_the_prefix_s_other_keys() {
+        let registry = registry(NAMES);
+        let global = global(&registry);
+        let user = Keymap::from_table(&registry, &[("C-x k", "other")]).unwrap();
+        let layers = with_user(&user, &global);
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "C-x k C-x C-f C-x z"),
+            [
+                "pending",
+                "other",
+                "pending",
+                "find-file",
+                "pending",
+                "unbound C-x z"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_undefined_key_hides_the_default_and_is_reported() {
+        let registry = registry(NAMES);
+        let global = global(&registry);
+        let mut user = Keymap::new();
+        user.unbind(&keys("C-f")).unwrap();
+        user.unbind(&keys("C-x 4")).unwrap();
+        assert!(!user.is_empty());
+        assert_eq!(user.len(), 2);
+        let layers = with_user(&user, &global);
+        assert_eq!(layers.lookup(&keys("C-f")), Some(Binding::Undefined));
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(
+                &mut resolver,
+                &layers,
+                &registry,
+                "C-f <right> C-x 4 C-x C-c"
+            ),
+            [
+                "unbound C-f",
+                "forward-char",
+                "pending",
+                "unbound C-x 4",
+                "pending",
+                "quit"
+            ]
+        );
+        // Below an undefined prefix, every sequence is hidden, as `where-is` asks.
+        assert_eq!(layers.lookup(&keys("C-x 4 f")), Some(Binding::Undefined));
+        let mut found = 0;
+        user.bindings(|_, _| found += 1);
+        assert_eq!(found, 0);
+    }
+
+    #[test]
+    fn an_undefined_key_is_taken_without_shift_as_emacs_takes_nil() {
+        let registry = registry(NAMES);
+        let global = global(&registry);
+        let mut user = Keymap::new();
+        user.unbind(&keys("C-F")).unwrap();
+        user.unbind(&keys("C-b")).unwrap();
+        // A prefix made fresh: a shifted key under it reads as its unshifted one.
+        user.unbind(&keys("C-x")).unwrap();
+        user.bind(&keys("C-x C-k"), id(&registry, "other")).unwrap();
+        let layers = with_user(&user, &global);
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(
+                &mut resolver,
+                &layers,
+                &registry,
+                "C-F C-B S-<right> C-x C-K C-x C-F"
+            ),
+            [
+                "shifted forward-char",
+                "unbound C-B",
+                "shifted forward-char",
+                "pending",
+                "shifted other",
+                "pending",
+                "unbound C-x C-F"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_undefined_key_that_types_stops_a_lower_text_command() {
+        let registry = registry(NAMES);
+        let mut global = global(&registry);
+        global.set_text_command(id(&registry, "other"));
+        let mut user = Keymap::new();
+        user.unbind(&keys("a")).unwrap();
+        let layers = with_user(&user, &global);
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "a b"),
+            ["unbound a", "other"]
+        );
+    }
+
+    #[test]
+    fn an_undefined_prefix_bound_under_hides_the_default_s_other_keys() {
+        let registry = registry(NAMES);
+        let global = global(&registry);
+        // As Emacs makes a fresh prefix map, in either order, and over a default command.
+        for unbind_first in [true, false] {
+            let mut user = Keymap::new();
+            let bind = |user: &mut Keymap| {
+                user.bind(&keys("C-x k"), id(&registry, "other")).unwrap();
+            };
+            if !unbind_first {
+                bind(&mut user);
+            }
+            user.unbind(&keys("C-x")).unwrap();
+            user.unbind(&keys("C-f")).unwrap();
+            if unbind_first {
+                bind(&mut user);
+            }
+            user.bind(&keys("C-f x"), id(&registry, "other")).unwrap();
+            let layers = with_user(&user, &global);
+            let mut resolver = KeyResolver::new();
+            assert_eq!(
+                feed_all(
+                    &mut resolver,
+                    &layers,
+                    &registry,
+                    "C-x k C-x C-f C-f x C-f y"
+                ),
+                [
+                    "pending",
+                    "other",
+                    "pending",
+                    "unbound C-x C-f",
+                    "pending",
+                    "other",
+                    "pending",
+                    "unbound C-f y"
+                ],
+                "unbind first: {unbind_first}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prefix_unbound_hides_the_defaults_at_every_level_under_it() {
+        let registry = registry(NAMES);
+        let global = global(&registry);
+        for unbind_first in [true, false] {
+            let mut user = Keymap::new();
+            let other = id(&registry, "other");
+            if unbind_first {
+                user.unbind(&keys("C-x")).unwrap();
+            }
+            user.bind(&keys("C-x 4 o"), other).unwrap();
+            user.bind(&keys("C-x 4 5 o"), other).unwrap();
+            if !unbind_first {
+                user.unbind(&keys("C-x")).unwrap();
+            }
+            let layers = with_user(&user, &global);
+            for (probe, found) in [
+                ("C-x 4 o", Some(Binding::Command(other))),
+                ("C-x 4 5 o", Some(Binding::Command(other))),
+                ("C-x 4 f", Some(Binding::Undefined)),
+                ("C-x 4 5 f", Some(Binding::Undefined)),
+                ("C-x C-c", Some(Binding::Undefined)),
+            ] {
+                assert_eq!(
+                    layers.lookup(&keys(probe)),
+                    found,
+                    "{probe}, unbind first: {unbind_first}"
+                );
+            }
+            let mut resolver = KeyResolver::new();
+            assert_eq!(
+                feed_all(&mut resolver, &layers, &registry, "C-x 4 f"),
+                ["pending", "pending", "unbound C-x 4 f"]
+            );
+        }
+        // Without the unbinding, the prefixes made are the defaults' too.
+        let user = Keymap::from_table(&registry, &[("C-x 4 o", "other")]).unwrap();
+        let layers = with_user(&user, &global);
+        assert_eq!(
+            layers.lookup(&keys("C-x 4 f")),
+            Some(Binding::Command(id(&registry, "find-file")))
+        );
+    }
+
+    #[test]
+    fn unbind_refuses_what_bind_would_and_changes_nothing_then() {
+        let registry = registry(NAMES);
+        let mut map = global(&registry);
+        let before = map.clone();
+        assert_eq!(map.unbind(&[]), Err(BindError::Empty));
+        assert_eq!(map.unbind(&keys("C-f")), Err(BindError::AlreadyBound));
+        assert_eq!(
+            map.unbind(&keys("C-f x y")),
+            Err(BindError::NonPrefix { len: 1 })
+        );
+        assert_eq!(map, before);
+        map.unbind(&keys("C-z")).unwrap();
+        let once = map.clone();
+        map.unbind(&keys("C-z")).unwrap();
+        assert_eq!(map, once);
+        assert_eq!(
+            map.bind(&keys("C-z"), id(&registry, "other")),
+            Err(BindError::AlreadyBound)
+        );
+        assert_eq!(map, once);
     }
 
     #[test]
@@ -899,6 +1226,7 @@ mod tests {
             at_point: None,
             minor: &minors,
             major: Some(&major),
+            user: None,
             global: &global,
         };
         assert_eq!(layers.text_command(), Some(id(&registry, "find-file")));
@@ -1038,7 +1366,7 @@ mod tests {
             for probe in &probes {
                 let actual = keymap.lookup(probe).map(|b| match b {
                     Binding::Command(id) => Ok(id),
-                    Binding::Prefix(_) => Err(()),
+                    Binding::Prefix(_) | Binding::Undefined => Err(()),
                 });
                 prop_assert_eq!(actual, model_lookup(&model, probe), "probe {:?}", probe);
             }
@@ -1062,7 +1390,7 @@ mod tests {
             }
             let (global, higher) = keymaps.split_last().unwrap();
             let minor: Vec<&Keymap> = higher.iter().collect();
-            let layers = Layers { at_point: None, minor: &minor, major: None, global };
+            let layers = Layers { at_point: None, minor: &minor, major: None, user: None, global };
 
             let longest = models.iter().flat_map(|m| m.keys()).map(Vec::len).max().unwrap_or(0);
             let mut resolver = KeyResolver::new();

@@ -267,11 +267,12 @@ A panicking command is caught at the command boundary
   method's questions about text and ranges in that excerpt's coordinates, with the
   composition at the cursor, and drops the excerpt when the IME goes off.
 - `Layers` holds the active keymaps, highest priority first: keymap at
-  point, minor modes, major mode, global. The first keymap that binds the
-  whole key sequence decides. So far the global layer exists, a minor mode layer of
-  digits while a prefix argument is typed, and a major mode layer in the buffers that show
-  emergency copies and in a prompt. A question's keys take the global layer's place, so
-  that no other key reaches a command.
+  point, minor modes, major mode, the user's, global. The first keymap that binds the
+  whole key sequence, or leaves it undefined, decides. So far the global layer exists, a
+  minor mode layer of digits while a prefix argument is typed, a major mode layer in the
+  buffers that show emergency copies and in a prompt, and a layer for the user's keys, which
+  the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
+  take the global layer's place, so that no other key reaches a command.
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.
@@ -498,6 +499,16 @@ User configuration is TOML: key bindings, menus, theme, fonts and per-mode
 settings. It reloads on file change. Inside repositories, only EditorConfig is
 read. See [ADR 0019](adr/0019-configuration.md).
 
+- One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
+  (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
+  without it.
+- A thread in the tip crate's `config` reads, parses and builds it at start and
+  when a `stat` once a second sees it change, and the UI thread swaps the result
+  in between keys. A bad file leaves the last good one, with messages.
+- User keys are a keymap directly above the global one, which can also leave a
+  key undefined. A setting applies at start and when its value in the file
+  changes. See [ADR 0108](adr/0108-the-user-configuration-file.md).
+
 ### Persistence
 
 There is no periodic auto-save and there are no backup files. If oso panics
@@ -632,7 +643,12 @@ Full details are in [`security.md`](security.md).
     mark (ADR 0094). Until its open is done, a buffer the channel is opening is left out of
     `state`, `text`, `switch-to-buffer` and the dev restart's handoff. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
-    saving it. `ArgSpec::Text` and `insert` take text, and `switch-to-buffer` a buffer's name that
+    saving it. A save a command run for the agent queued, or the person's `y` to its question,
+    goes through `saver::spawn_for_agent`, which refuses it on the saving thread, right before
+    it writes, when a name it writes through or where that leads is in oso's configuration
+    directory or is what an entry of it leads to, by canonical path or by device and inode
+    (ADR 0108). The `run` reply waits for that save's end, up to 8 s, then says it still
+    saves. `ArgSpec::Text` and `insert` take text, and `switch-to-buffer` a buffer's name that
     `C-x b` lists: `Dispatcher::run_for_agent` resolves it once and shows that buffer, unless it
     may hold secrets, is still loading or has keys of its own, such as `*Emergency Copies*`
     (ADR 0094, ADR 0095); `dispatch::args` maps a given argument

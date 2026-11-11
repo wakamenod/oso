@@ -265,33 +265,7 @@ fn delete_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 }
 
 fn tab_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let (window, buffer) = ctx.editor.current();
-    let display = buffer.display();
-    let tab_width = buffer.tab_width();
-    let spaces = " ".repeat(tab_width.get() as usize);
-    let mut edits = Vec::with_capacity(window.selections.len());
-    // The cursor before this one, its line, and the column it ends at.
-    let mut earlier: Option<(usize, usize, usize)> = None;
-    for selection in window.selections.iter() {
-        let line = buffer.text().offset_to_point(selection.cursor).row;
-        // What lies between keeps its cells, but a tab reaches the next stop from where it
-        // now starts, which TabMap tells without reading what lies between, counting from
-        // the line's start (ADR 0101).
-        let column = match earlier {
-            Some((from, row, column)) if row == line => {
-                display.column_after(from, column, selection.cursor)
-            }
-            _ => display.offset_to_display_point(selection.cursor).column,
-        };
-        let stop = tab_width.next_stop(column);
-        edits.push(Replacement {
-            range: selection.cursor..selection.cursor,
-            text: &spaces[..stop - column],
-        });
-        earlier = Some((selection.cursor, line, stop));
-    }
-    let buffer = window.buffer();
-    ctx.editor.apply_edits(buffer, &edits)?;
+    ctx.editor.tab_to_tab_stop()?;
     ctx.request_redraw();
     Ok(())
 }

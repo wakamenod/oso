@@ -100,7 +100,12 @@ impl App {
     /// Handles a report of the input method, from the window system or the dev socket.
     /// Returns whether it asked for a frame.
     pub(super) fn ime_event(&mut self, event_loop: &Loop<'_>, event: ImeEvent) -> bool {
-        self.person_typed();
+        self.person_typed(match &event {
+            ImeEvent::Preedit(text, _) if text.is_empty() => "an empty preedit",
+            ImeEvent::Preedit(..) => "a preedit",
+            ImeEvent::Commit(_) => "a commit",
+            ImeEvent::Disabled => "the IME's end",
+        });
         match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
