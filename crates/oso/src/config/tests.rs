@@ -376,10 +376,12 @@ fn keys_and_nesting_have_limits() {
 }
 
 /// The deepest tables a file can make, an 80-part dotted key in each of 79 nested inline tables,
-/// parse and go within [`STACK`]: when the file parses, when it does not, and when it is too large
-/// for every syntax error to be reported, where the parser drops them itself.
+/// parse and go: on a small stack when the file parses, as `parse` drops them a level at a time,
+/// and within [`STACK`] when it does not, where the parser drops what it built itself.
 #[test]
 fn the_deepest_tables_parse_and_drop_within_the_stack_parse_needs() {
+    // Dropping them recursively takes megabytes; a level at a time, under 128 KiB.
+    const SMALL: usize = 256 * 1024;
     let path = vec!["d"; 80].join(".");
     let deepest = format!(
         "[{path}]\n{path} = {}1{}\n",
@@ -387,16 +389,17 @@ fn the_deepest_tables_parse_and_drop_within_the_stack_parse_needs() {
         " }".repeat(79)
     );
     let cases = [
-        (deepest.clone(), "1:2: unknown table [d], skipped"),
-        (format!("{deepest}= 1\n"), "3:1: syntax error: "),
+        (SMALL, deepest.clone(), "1:2: unknown table [d], skipped"),
+        (STACK, format!("{deepest}= 1\n"), "3:1: syntax error: "),
         (
+            STACK,
             format!("{}{deepest}= 1\n", "# padding\n".repeat(7000)),
             "7003:1: syntax error: ",
         ),
     ];
-    for (text, first) in cases {
+    for (stack, text, first) in cases {
         let messages = std::thread::Builder::new()
-            .stack_size(STACK)
+            .stack_size(stack)
             .spawn(move || messages(&Fixture::new().parse(&text)))
             .unwrap()
             .join()

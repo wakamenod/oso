@@ -80,8 +80,9 @@ pub fn parse(text: &str, registry: &Registry, defaults: &Keymap, themes: &[&str]
 /// The stack a thread that calls [`parse`] needs. The parser bounds a key at 80 parts and the
 /// nesting of inline tables and arrays at 80, but a dotted key in each nested inline table
 /// multiplies the two: a file of a few KiB nests some 6,500 tables, and dropping nested tables
-/// recurses. [`parse`] drops what it holds a level at a time; what the parser drops itself, of a
-/// large file it rejects, took up to 2 MiB in debug and release builds. This is four times that.
+/// recurses. [`parse`] drops what it holds a level at a time; what the parser drops itself, when
+/// it rejects a file of any size, took up to 2 MiB in debug and release builds. This is four
+/// times that.
 pub const STACK: usize = 8 * 1024 * 1024;
 
 /// The largest file whose every syntax error is reported. The parser keeps each one it finds,

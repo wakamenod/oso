@@ -76,8 +76,8 @@ the same day.
   past 80. But a dotted key in each nested inline table multiplies the two: a file of a few KiB
   nests some 6,500 tables, and dropping nested tables recurses. Such a file overflowed the 1 MiB
   stack of a test thread on Windows, and needed 8 MiB in a debug build. So `parse` drops what it
-  holds a level at a time. What the parser drops itself, of a file over 64 KiB that it rejects,
-  needs up to 2 MiB in debug and release builds. `config::STACK`, 8 MiB, is four times that:
+  holds a level at a time. What the parser drops itself, when it rejects a file of any size
+  (its first pass runs whatever the size), needs up to 2 MiB in debug and release builds. `config::STACK`, 8 MiB, is four times that:
   step 3's thread is spawned with it, and the test of the deepest file runs on it.
 - **A theme pair is two different built-in themes,** and a name that is not one is reported, and
   that setting left unset.
