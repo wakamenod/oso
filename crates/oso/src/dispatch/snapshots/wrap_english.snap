@@ -1,0 +1,57 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: The quick brown fox jumps over the lazy dog and keeps on running far away.\\nnext\\n"
+---
+keys: C-x x t
+│The quick brown fox ↩│
+:^                   m:
+│jumps over the lazy ↩│
+:                    m:
+│dog and keeps on    ↩│
+:                    m:
+│running far away.    │
+│next                 │
+│                     │
+=-- test  1:0  Fundame=
+"Truncate long lines d"
+
+keys: M-f M-f M-f M-f M-f
+│The quick brown fox ↩│
+:                    m:
+│jumps over the lazy ↩│
+:     ^              m:
+│dog and keeps on    ↩│
+:                    m:
+│running far away.    │
+│next                 │
+│                     │
+=-- test  1:25  Fundam=
+"                     "
+
+keys: C-e
+│The quick brown fox ↩│
+:                    m:
+│jumps over the lazy ↩│
+:                    m:
+│dog and keeps on    ↩│
+:                    m:
+│running far away.    │
+:                 ^   :
+│next                 │
+│                     │
+=-- test  1:74  Fundam=
+"                     "
+
+keys: C-n
+│The quick brown fox ↩│
+:                    m:
+│jumps over the lazy ↩│
+:                    m:
+│dog and keeps on    ↩│
+:                    m:
+│running far away.    │
+│next                 │
+:    ^                :
+│                     │
+=-- test  2:4  Fundame=
+"                     "

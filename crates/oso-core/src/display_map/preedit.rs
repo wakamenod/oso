@@ -95,7 +95,11 @@ impl Preedit {
 
     /// The preedit's clusters from the one that covers `column` of its own, with
     /// columns from `at`: a search, and no segmenting.
-    fn clusters_from(&self, at: usize, column: usize) -> impl Iterator<Item = DisplayCluster<'_>> {
+    pub(super) fn clusters_from(
+        &self,
+        at: usize,
+        column: usize,
+    ) -> impl Iterator<Item = DisplayCluster<'_>> {
         let first = self
             .clusters
             .partition_point(|cluster| cluster.column + cluster.cells.max(1) <= column);

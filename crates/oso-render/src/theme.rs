@@ -82,6 +82,8 @@ enum Name {
     /// Line numbers, dim, and the current line's, bright.
     FgLineNumber,
     FgLineNumberCurrent,
+    /// The wrap mark: dim, as whitespace's marks, in a hue of its own.
+    FgWrapMark,
 }
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
@@ -223,7 +225,7 @@ impl Theme {
 }
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 28] = [
+const FACES: [Face; 29] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -252,6 +254,7 @@ const FACES: [Face; 28] = [
     Face::Flash,
     Face::LineNumber,
     Face::LineNumberCurrent,
+    Face::WrapMark,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -286,6 +289,7 @@ const fn index(face: Face) -> usize {
         Face::Flash => 25,
         Face::LineNumber => 26,
         Face::LineNumberCurrent => 27,
+        Face::WrapMark => 28,
     }
 }
 
@@ -324,6 +328,7 @@ fn faces(face: Face) -> (Name, Name) {
         Face::Flash => (FgMain, BgFlash),
         Face::LineNumber => (FgLineNumber, BgMain),
         Face::LineNumberCurrent => (FgLineNumberCurrent, BgMain),
+        Face::WrapMark => (FgWrapMark, BgMain),
     }
 }
 
@@ -358,6 +363,7 @@ fn dark(name: Name) -> Color {
         BgFlash => rgb(0x4a2a5a),
         FgLineNumber => rgb(0x767c93),
         FgLineNumberCurrent => rgb(0xd8dbe6),
+        FgWrapMark => rgb(0x6aa6c4),
         Hairline => rgba(0xffffff, 0.05),
         Border => rgb(0x30344a),
         Shadow => rgba(0x000000, 0.6),
@@ -394,6 +400,7 @@ fn light(name: Name) -> Color {
         BgFlash => rgb(0xebc9ef),
         FgLineNumber => rgb(0x6e7385),
         FgLineNumberCurrent => rgb(0x272a33),
+        FgWrapMark => rgb(0x2f6684),
         Hairline => rgba(0x000000, 0.08),
         Border => rgb(0xc2c6d4),
         Shadow => rgba(0x1a1f33, 0.18),
@@ -432,6 +439,7 @@ fn dusk(name: Name) -> Color {
         BgFlash => rgb(0x603c6c),
         FgLineNumber => rgb(0xb0b3c4),
         FgLineNumberCurrent => rgb(0xf3f3f6),
+        FgWrapMark => rgb(0x94cde6),
         Hairline => rgba(0xffffff, 0.035),
         Border => rgb(0x505265),
         Shadow => rgba(0x08090e, 0.55),
@@ -581,7 +589,7 @@ pub(crate) mod tests {
             Face::LineNumber => &[(Face::Text, LABEL)],
             Face::LineNumberCurrent => &[(Face::Text, READ)],
             // A mark sits on everything behind buffer text.
-            Face::Whitespace => &[
+            Face::Whitespace | Face::WrapMark => &[
                 (Face::Text, MARK),
                 (Face::CurrentLine, MARK),
                 (Face::TrailingWhitespace, MARK),
@@ -809,6 +817,25 @@ pub(crate) mod tests {
             let current = theme.foreground(Face::LineNumberCurrent);
             let apart = distance(current, theme.foreground(Face::LineNumber));
             assert!(apart >= 0.05, "{}: {apart:.3}", theme.name());
+        }
+    }
+
+    #[test]
+    fn a_wrap_mark_is_in_no_colour_text_or_a_whitespace_mark_is_drawn_in() {
+        for theme in &themes() {
+            let mark = theme.foreground(Face::WrapMark);
+            let text = [
+                Face::Text,
+                Face::Preedit,
+                Face::Escape,
+                Face::Boxed,
+                Face::Warning,
+                Face::Whitespace,
+            ];
+            for face in text {
+                let apart = distance(mark, theme.foreground(face));
+                assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
+            }
         }
     }
 

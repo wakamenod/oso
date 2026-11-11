@@ -122,3 +122,56 @@ fn typing_in_a_wrapped_line_moves_the_rows_after_it() {
     );
     assert_eq!(wrap.row(&display, 1).start, 18);
 }
+
+#[test]
+fn c_x_x_t_toggles_wrapping_and_a_positive_argument_truncates() {
+    let (mut d, mut editor) = at(&paragraph(), &[0]);
+    let id = editor.window().buffer();
+    send(&mut d, &mut editor, "C-x x t");
+    assert!(editor.buffer(id).unwrap().wraps());
+    send(&mut d, &mut editor, "C-x x t");
+    assert!(!editor.buffer(id).unwrap().wraps());
+    send(&mut d, &mut editor, "C-u 0 C-x x t");
+    assert!(editor.buffer(id).unwrap().wraps(), "zero wraps");
+    send(&mut d, &mut editor, "C-u 1 C-x x t");
+    assert!(
+        !editor.buffer(id).unwrap().wraps(),
+        "a positive argument truncates"
+    );
+}
+
+#[test]
+fn at_the_narrowest_wrap_the_widest_cluster_ends_before_the_marks_column() {
+    use oso_core::display_map::DisplayPoint;
+    use oso_core::display_map::wrap_map::MIN_COLUMNS;
+    use oso_core::window::{Screen, ViewSize};
+    // A character past a cluster's limits shows its code point in a box of 8 cells, the widest
+    // a cluster takes (ADR 0054).
+    let label = "\u{600}".repeat(16) + "\u{10fffd}";
+    let (_, mut editor) = at(&format!("{label}{label}{label}"), &[0]);
+    editor.set_view_size(ViewSize::new(10, MIN_COLUMNS));
+    let id = editor.window().buffer();
+    assert!(editor.set_wraps(id, true));
+    let mut screen = Screen::default();
+    editor.screen(&mut screen);
+    let display = editor.current().1.display();
+    let mut widest = 0;
+    for row in screen
+        .rows()
+        .iter()
+        .filter(|row| screen.mark(row).is_some())
+    {
+        let mark = screen.origin(row) + screen.mark(row).unwrap();
+        for cluster in display.clusters(DisplayPoint::new(row.line, row.column)) {
+            if cluster.column >= screen.text_end(row) {
+                break;
+            }
+            widest = widest.max(cluster.cells);
+            assert!(
+                cluster.column + cluster.cells <= mark,
+                "into the mark's column"
+            );
+        }
+    }
+    assert_eq!(widest, 8);
+}

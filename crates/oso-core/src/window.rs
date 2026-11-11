@@ -27,9 +27,14 @@ use crate::motion::{self, Edge};
 use crate::selection::SelectionSet;
 
 mod places;
+mod rows;
+mod screen;
 
 pub use places::Place;
 pub(crate) use places::{Places, Walk};
+pub(crate) use rows::Rows;
+pub(crate) use screen::ScreenSource;
+pub use screen::{Screen, ScreenRow};
 
 /// Rows that `C-v` and `M-v` keep from the previous screen, as Emacs's
 /// `next-screen-context-lines`.
@@ -45,9 +50,8 @@ pub struct Scroll {
     pub left: usize,
 }
 
-/// The first row a window shows and its left column. The rules of scrolling count it in view
-/// rows. The frame's cells and the renderer count it in logical lines, from
-/// [`Window::drawn_top`], until the renderer draws view rows (ADR 0100's next step).
+/// The first row a window shows and its left column, in view rows, as the rules of scrolling
+/// count it. What a frame draws from it is a [`Screen`] (ADR 0104).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ViewTop {
     pub row: usize,
@@ -75,57 +79,6 @@ impl Default for ViewSize {
     /// 24 by 80, until the window reports its size.
     fn default() -> Self {
         Self::new(24, 80)
-    }
-}
-
-/// A window's view rows over its buffer as it shows now: its wrap's, or one a logical line.
-#[derive(Clone, Copy)]
-pub(crate) struct Rows<'a> {
-    display: &'a DisplaySnapshot,
-    wrap: Option<&'a WrapSnapshot>,
-}
-
-impl<'a> Rows<'a> {
-    /// The rows of `wrap` over `display`, or one a logical line without it, or with one
-    /// whose text is not `display`'s, as the editor brings it along at the next command.
-    pub(crate) fn new(display: &'a DisplaySnapshot, wrap: Option<&'a WrapMap>) -> Self {
-        Self {
-            display,
-            wrap: wrap
-                .map(WrapMap::snapshot)
-                .filter(|wrap| wrap.len() == display.len()),
-        }
-    }
-
-    /// How many there are.
-    pub(crate) fn count(&self) -> usize {
-        match self.wrap {
-            Some(wrap) => wrap.row_count(),
-            None => self.display.row_count(),
-        }
-    }
-
-    /// The row that holds `offset`; the last at or past the end.
-    pub(crate) fn row_of(&self, offset: usize) -> usize {
-        let offset = offset.min(self.display.len());
-        match self.wrap {
-            Some(wrap) => wrap.row_of(self.display, offset),
-            None => self.display.offset_to_display_point(offset).row,
-        }
-    }
-
-    /// Where row `row` starts, clamped to the last.
-    pub(crate) fn start(&self, row: usize) -> usize {
-        let row = row.min(self.count() - 1);
-        match self.wrap {
-            Some(wrap) => wrap.row_span(self.display, row).0,
-            None => motion::line_start(self.display, row),
-        }
-    }
-
-    /// Whether rows wrap.
-    pub(crate) fn wrapped(&self) -> bool {
-        self.wrap.is_some()
     }
 }
 
@@ -251,6 +204,16 @@ impl Window {
         self.wrap.as_ref().map(WrapMap::snapshot)
     }
 
+    /// Its rows of `display`, its buffer as it shows now, while the buffer wraps: none while
+    /// they are of another text, as until the editor brings them along, when a frame shows
+    /// one row a logical line.
+    pub fn wrap_of(&self, display: &DisplaySnapshot) -> Option<&WrapSnapshot> {
+        self.wrap
+            .as_ref()
+            .map(WrapMap::snapshot)
+            .filter(|wrap| wrap.len() == display.len())
+    }
+
     pub(crate) fn wrap_map(&self) -> Option<&WrapMap> {
         self.wrap.as_ref()
     }
@@ -311,16 +274,6 @@ impl Window {
     /// The view row of the primary cursor.
     pub fn cursor_row(&self, display: &DisplaySnapshot) -> usize {
         self.rows(display).row_of(self.selections.primary().cursor)
-    }
-
-    /// The first row a frame draws and its left column. Until the renderer draws view rows
-    /// (ADR 0100's next step), a frame draws logical lines, from the one that holds the top.
-    pub fn drawn_top(&self, display: &DisplaySnapshot) -> ViewTop {
-        let start = self.scroll.start.min(display.len());
-        ViewTop {
-            row: display.offset_to_display_point(start).row,
-            left: self.scroll.left,
-        }
     }
 
     /// The top and the left column as rows count them.

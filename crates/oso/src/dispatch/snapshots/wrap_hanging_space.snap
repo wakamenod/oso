@@ -1,0 +1,42 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: aaaaaaaaaa bbbbbb cccccc\\n"
+---
+keys: C-x x t
+│aaaaaaaaaa↩│
+:^         m:
+│bbbbbb    ↩│
+:          m:
+│cccccc     │
+│           │
+=-- test  1:=
+"Truncate lo"
+
+keys: C-u 1 0 C-f
+│aaaaaaaaaa↩│
+:          ^:
+│bbbbbb    ↩│
+:          m:
+│cccccc     │
+│           │
+=-- test  1:=
+"           "
+
+keys: C-f
+│aaaaaaaaaa↩│
+:          m:
+│bbbbbb    ↩│
+:^         m:
+│cccccc     │
+│           │
+=-- test  1:=
+"           "
+
+keys: C-x x t
+│aaaaaaaaa b│
+:          ^:
+│           │
+│           │
+│           │
+=-- test  1:=
+"Truncate lo"

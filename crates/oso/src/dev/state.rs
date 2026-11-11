@@ -17,12 +17,9 @@
 //! Text is what the rope holds: invalid bytes read as U+FFFD, not as the
 //! `\xNN` escapes on screen, and tabs are tabs.
 
-use std::sync::mpsc;
-use std::thread;
-
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::complete::Candidates;
-use oso_core::display_map::{DisplaySnapshot, Preedit};
+use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::editor::{Editor, Isearch, Preview, Status};
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
@@ -31,12 +28,15 @@ use oso_core::minibuffer::MAX_ENTRY_BYTES;
 use oso_core::motion;
 use oso_core::rope::Rope;
 use oso_core::selection::{Goal, Selection};
-use oso_core::window::Window;
+use oso_core::sum_tree::Bias;
+use oso_core::window::{Screen, Window};
 use serde_json::{Value, json};
 
 use super::Reply;
-use crate::channel::state::visible_rows;
-use crate::channel::text::{row_range, row_texts};
+
+mod text;
+use crate::channel::state::slice;
+pub use text::get_text;
 
 /// The most visible text `get-state` returns, in bytes. A cell usually holds
 /// a few bytes but can hold dozens (combining marks), and a response this
@@ -76,7 +76,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     let keys_shown = !shows_secret && !editor.keys_withheld();
     let display = buffer.display();
     let size = window.size();
-    let text = (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &display));
+    let text = (!buffer.is_secret()).then(|| visible_text(editor, buffer.text(), &display));
     let mut state = json!({
         "buffer": buffer_state(window.buffer(), buffer, shows_secret),
         "window": { "rows": size.rows, "columns": columns(editor, window) },
@@ -435,94 +435,43 @@ pub(super) fn goal_state(goal: Option<Goal>) -> Value {
     }
 }
 
-/// The rows the window shows in full, from its top row and left column, cut
-/// at its right edge. A wide character across either edge is included. Stops
-/// at [`MAX_VISIBLE_TEXT`] and says so.
-fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Value {
-    let (rows, truncated) = visible_rows(window, text, display, MAX_VISIBLE_TEXT);
-    let top = window.drawn_top(display);
+/// The view rows the tiled window shows, as a frame draws them (ADR 0104): from the top's
+/// view row, each from its start to where the next starts, cut at the window's left and right
+/// edges, so that a space that hangs in the mark's column stays on its row. A wide character
+/// across either edge is included. Stops at [`MAX_VISIBLE_TEXT`] and says so. A preedit is no
+/// buffer's text: the rows are laid out without it, so they say nothing of one.
+fn visible_text(editor: &Editor, text: &Rope, display: &DisplaySnapshot) -> Value {
+    let mut screen = Screen::default();
+    editor.text_screen(&mut screen);
+    let mut budget = MAX_VISIBLE_TEXT;
+    let mut rows = Vec::new();
+    let mut truncated = false;
+    for row in screen.rows() {
+        let origin = screen.origin(row);
+        let right = row.end_column.min(origin.saturating_add(screen.columns()));
+        let offset = |column, bias| {
+            let offset = display.display_point_to_offset(DisplayPoint::new(row.line, column), bias);
+            offset
+                .clamp(row.start, row.end.max(row.start))
+                .min(text.len())
+        };
+        let (start, end) = (offset(origin, Bias::Left), offset(right, Bias::Right));
+        // A line's break is no row's text.
+        let end = end.min(motion::line_end(display, row.line)).max(start);
+        if end - start > budget {
+            rows.push(slice(text, start..start + budget));
+            truncated = true;
+            break;
+        }
+        budget -= end - start;
+        rows.push(slice(text, start..end));
+    }
     json!({
-        "start_row": top.row,
-        "start_column": top.left,
+        "start_row": screen.top(),
+        "start_column": screen.left(),
         "rows": rows,
         "truncated": truncated,
     })
-}
-
-/// Starts `get-text`: whole rows of the tiled window's buffer, also beneath a prompt,
-/// without their line breaks. An error if the buffer may hold secrets. Everything
-/// else happens in [`TextJob::run`], off the UI thread.
-pub fn get_text(editor: &Editor, start_row: usize, rows: usize) -> Result<TextJob, String> {
-    let (window, buffer) = editor.tiled();
-    if buffer.is_secret() {
-        return Err(WITHHELD.into());
-    }
-    Ok(TextJob {
-        buffer: window.buffer().get(),
-        text: buffer.text().clone(),
-        display: buffer.display(),
-        start_row,
-        rows,
-    })
-}
-
-/// A `get-text` request, with a snapshot of a buffer that was not secret
-/// when it was asked for.
-pub struct TextJob {
-    buffer: u64,
-    text: Rope,
-    display: DisplaySnapshot,
-    start_row: usize,
-    rows: usize,
-}
-
-impl TextJob {
-    /// Runs on a background thread, which replies. If the thread cannot
-    /// start, the reply sender is dropped, which the client sees as an error.
-    pub fn spawn(self, reply: mpsc::Sender<Reply>) {
-        let spawned = thread::Builder::new()
-            .name("oso-get-text".into())
-            .spawn(move || {
-                let _ = reply.send(self.run());
-            });
-        if let Err(e) = spawned {
-            log::warn!("cannot start the get-text thread: {e}");
-        }
-    }
-
-    /// The result: rows past the end are left out. An error if the rows are
-    /// more than a response takes.
-    fn run(&self) -> Reply {
-        let display = &self.display;
-        if self.rows > MAX_TEXT_ROWS {
-            return Err(format!(
-                "get-text returns at most {MAX_TEXT_ROWS} rows; {} were asked for",
-                self.rows
-            ));
-        }
-        let row_count = display.row_count();
-        let range = row_range(display, self.start_row, self.rows);
-        if !range.is_empty() {
-            let bytes =
-                motion::line_end(display, range.end - 1) - motion::line_start(display, range.start);
-            if bytes > MAX_TEXT {
-                return Err(format!(
-                    "rows {} to {} hold {bytes} bytes, and get-text returns at most {MAX_TEXT}; ask for fewer rows",
-                    range.start,
-                    range.end - 1,
-                ));
-            }
-        }
-        let start_row = range.start;
-        // Refused above when too long, so nothing is cut short here.
-        let (rows, _) = row_texts(&self.text, display, range, usize::MAX);
-        Ok(json!({
-            "buffer": self.buffer,
-            "start_row": start_row,
-            "row_count": row_count,
-            "rows": rows,
-        }))
-    }
 }
 
 /// Refuses a screenshot while any window shows a buffer that may hold
@@ -965,6 +914,9 @@ mod tests {
             json!(null),
             "a person toggles it there"
         );
+        // Nor its view rows, which say how long its words are (ADR 0100).
+        assert_eq!(state["text"], json!(null));
+        assert!(get_text(&editor, 0, 10).is_err());
     }
 
     #[test]

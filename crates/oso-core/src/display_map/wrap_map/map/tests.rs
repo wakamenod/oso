@@ -232,7 +232,7 @@ fn a_detached_copy_takes_no_report_of_the_map_it_came_from() {
 #[test]
 fn a_command_past_its_budget_leaves_the_rest_to_a_job() {
     let text = "日本語の文章です。".repeat(8);
-    let mut window = Window::new(&text, 9);
+    let mut window = Window::new(&text, 11);
     window.command(&[(0, 0, "あ")]);
     assert!(
         window.wrap.is_stale(),
@@ -240,7 +240,7 @@ fn a_command_past_its_budget_leaves_the_rest_to_a_job() {
     );
     window.settle();
     assert!(!window.wrap.is_stale());
-    assert_eq!(window.rows(), window.fresh(9));
+    assert_eq!(window.rows(), window.fresh(11));
 }
 
 #[test]

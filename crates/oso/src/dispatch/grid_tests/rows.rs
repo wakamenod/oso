@@ -1,5 +1,6 @@
 //! One row of a text-grid snapshot (ADR 0045): its text, cell by cell, and the line of
-//! marks below it, for escapes, boxes and their ends, wide clusters and the cursor.
+//! marks below it, for escapes, boxes and their ends, wide clusters, the wrap mark and the
+//! cursor. A row is a screen row, part of a logical line, as the renderer draws it (ADR 0104).
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every OS with no
 //! window.
@@ -9,7 +10,7 @@ use std::ops::{ControlFlow, Range};
 use oso_core::display_map::{
     CellRun, CellStyle, DisplayPoint, DisplaySnapshot, Preedit, row_clusters,
 };
-use oso_core::window::ViewTop;
+use oso_core::window::Screen;
 
 /// The left half of a wide cluster cut off by the right edge of the window.
 const LEFT_HALF: char = '▌';
@@ -24,29 +25,53 @@ pub(super) struct Style {
     pub(super) whitespace: bool,
 }
 
-/// The text of one row of `columns` cells and a mark for each of them. `cursor`
-/// holds the cells under the cursor box, counted from the row's left edge, which get
-/// `style`'s mark. A `preedit` goes in at its column, with no whitespace marked in it.
+/// What a row of a snapshot shows of its logical line.
+pub(super) struct RowView {
+    pub(super) line: usize,
+    /// The columns of the line in view, from the area's left edge.
+    pub(super) view: Range<usize>,
+    /// The column of the line where its clusters stop: the next row's start, or the wrap's
+    /// width on a row that continues (ADR 0100).
+    pub(super) limit: usize,
+    /// The area's column of the wrap mark, on a row that continues.
+    pub(super) mark: Option<usize>,
+}
+
+/// What the row `index` of `screen` shows in an area `columns` wide, as the renderer draws
+/// it; `None` past the rows shown, as past the buffer's end.
+pub(super) fn screen_row(screen: &Screen, index: usize, columns: usize) -> Option<RowView> {
+    let row = screen.rows().get(index)?;
+    let origin = screen.origin(row);
+    Some(RowView {
+        line: row.line,
+        view: origin..origin + columns,
+        limit: screen.text_end(row),
+        mark: screen.mark(row).filter(|&column| column < columns),
+    })
+}
+
+/// The text of one row and a mark for each of its cells. `cursor` holds the cells under the
+/// cursor box, counted from the row's left edge, which get `style`'s mark. A `preedit` goes in
+/// at its column, with no whitespace marked in it. The wrap mark is `↩`, marked `m`.
 pub(super) fn draw_row(
     display: &DisplaySnapshot,
-    row: usize,
-    scroll: ViewTop,
-    columns: usize,
+    row: &RowView,
     cursor: Range<usize>,
     preedit: Option<(usize, &Preedit)>,
     style: Style,
 ) -> (String, Vec<char>) {
-    let view = scroll.left..scroll.left + columns;
+    let view = row.view.clone();
     let mut text = String::new();
-    let mut marks = vec![' '; columns];
+    let mut marks = vec![' '; view.len()];
     let mut drawn = view.start;
+    let end = view.end.min(row.limit);
     row_clusters(
         display,
-        DisplayPoint::new(row, view.start),
+        DisplayPoint::new(row.line, view.start),
         preedit,
         style.whitespace,
         |cluster, _| {
-            if cluster.column >= view.end {
+            if cluster.column >= end {
                 return ControlFlow::Break(());
             }
             let mut boxed_end = None;
@@ -69,9 +94,23 @@ pub(super) fn draw_row(
             ControlFlow::Continue(())
         },
     );
-    text.extend(std::iter::repeat_n(' ', view.end - drawn));
+    if let Some(mark) = row.mark {
+        text.extend(std::iter::repeat_n(
+            ' ',
+            (view.start + mark).saturating_sub(drawn),
+        ));
+        text.push('↩');
+        marks[mark] = 'm';
+        drawn = view.start + mark + 1;
+    }
+    text.extend(std::iter::repeat_n(' ', view.end.saturating_sub(drawn)));
     marks[cursor].fill(style.cursor);
     (text, marks)
+}
+
+/// A blank row of `columns` cells, past the buffer's end.
+pub(super) fn blank_row(columns: usize) -> (String, Vec<char>) {
+    (" ".repeat(columns), vec![' '; columns])
 }
 
 /// Writes the visible part of `run`, which starts on screen at column `start`

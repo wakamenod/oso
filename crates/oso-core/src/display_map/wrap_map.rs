@@ -28,6 +28,7 @@ mod edit;
 mod job;
 mod map;
 mod realize;
+mod spliced;
 
 use std::fmt;
 use std::sync::Arc;
@@ -37,11 +38,14 @@ use self::builder::Builder;
 pub(crate) use self::job::SPLICES_READ;
 pub use self::job::{COMMAND_BUDGET, Splice, WrapJob, WrapReport};
 pub(crate) use self::map::WrapMap;
+pub(crate) use self::spliced::SplicedRow;
 use super::{DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::sum_tree::{Bias, Dimension, Item, SumTree, Summary};
 
-/// Below this many text columns, a window does not wrap and shows no mark.
-pub const MIN_COLUMNS: usize = 8;
+/// Below this many text columns, a window does not wrap and shows no mark. A row then holds
+/// the widest display cluster, a boxed label of 8 cells, with the mark's column after it
+/// (ADR 0104).
+pub const MIN_COLUMNS: usize = 10;
 
 /// The most rows an item of a wrapped line holds, so that an edit copies only a few.
 #[cfg(not(test))]
@@ -441,6 +445,12 @@ impl WrapSnapshot {
     /// How many bytes its rows cover, which is its buffer's length.
     pub(crate) fn len(&self) -> usize {
         self.tree.summary().bytes
+    }
+
+    /// The cells a row's text takes, the mark's column after them; `usize::MAX` when nothing
+    /// wraps.
+    pub(crate) fn width(&self) -> usize {
+        self.width
     }
 
     /// Whether rows wrap at all.

@@ -237,7 +237,7 @@ impl WrapSnapshot {
     /// invisible or an escape is a cluster of its own. A row before `at` can then change only
     /// at its end, where kinsoku and a hanging space read up to [`breaks::KINSOKU_REACH`]
     /// clusters into the next row, which the rows stepped back over cover.
-    fn rewrap_start(&self, display: &DisplaySnapshot, at: usize) -> usize {
+    pub(super) fn rewrap_start(&self, display: &DisplaySnapshot, at: usize) -> usize {
         let mut row = self.row_of(display, at);
         let mut start = self.row_span(display, row).0;
         for _ in 0..=breaks::KINSOKU_REACH {

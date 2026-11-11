@@ -52,6 +52,7 @@ mod messages;
 mod prompts;
 mod reload;
 mod save;
+mod screen;
 mod status;
 mod switch;
 mod tab;
@@ -178,6 +179,10 @@ pub struct Editor {
     outcome: Option<Outcome>,
     /// Where the innermost prompt's parts go, worked out when it changes.
     prompt_layout: Option<PromptLayout>,
+    /// The preview's rows of the buffer it shows, while that buffer wraps (ADR 0100).
+    preview_wrap: Option<wraps::PreviewWrap>,
+    /// The widest the gutter has been for the buffer the tiled window shows (ADR 0104).
+    gutter_floor: Option<(BufferId, usize)>,
     /// The number of the next prompt's id.
     next_prompt: u64,
     /// The command running got a passphrase, so what it says stays out of the log.
@@ -248,6 +253,8 @@ impl Editor {
             histories: Histories::default(),
             outcome: None,
             prompt_layout: None,
+            preview_wrap: None,
+            gutter_floor: None,
             next_prompt: 0,
             passphrase_command: false,
             save_over_asked: None,

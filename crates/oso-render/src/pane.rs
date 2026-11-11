@@ -7,7 +7,7 @@
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::frame::CellRect;
-use oso_core::window::ViewTop;
+use oso_core::window::Screen;
 
 /// What a piece of the screen means. The current theme gives it its colours (ADR 0089).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +76,9 @@ pub enum Face {
     LineNumber,
     /// The primary cursor's line's number, brighter than the others.
     LineNumberCurrent,
+    /// The mark `↩` in the last column of a view row that continues (ADR 0100). Used by
+    /// nothing else, so it is never taken for text that reads the same.
+    WrapMark,
 }
 
 impl Face {
@@ -149,8 +152,9 @@ pub struct TextView<'a> {
     /// The buffer's revision: while it holds, cached rows are reused
     /// without looking at the buffer.
     pub revision: u64,
-    /// The display row and column at the top left.
-    pub scroll: ViewTop,
+    /// The rows it shows from its top, as `Editor::screen` gives them: each part of a
+    /// logical line, wrapped or not, with the mark on those that continue (ADR 0104).
+    pub screen: &'a Screen,
     /// The primary cursor. The box goes here, or where `preedit` puts it.
     pub cursor: DisplayPoint,
     /// How the cursor is drawn.

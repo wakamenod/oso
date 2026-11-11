@@ -1,5 +1,5 @@
 //! The cells isearch's matches in view take (ADR 0082), for the renderer and the text-grid
-//! snapshots, as the region's are in `view`.
+//! snapshots, as the region's are in `view`, over the view rows a frame shows (ADR 0104).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -13,6 +13,7 @@ use crate::editor::Editor;
 use crate::frame::{self, CellRect};
 use crate::search;
 use crate::sum_tree::Bias;
+use crate::window::Screen;
 
 /// The most matches in view a frame highlights, so that their rectangles leave room for
 /// the rest of the frame.
@@ -34,9 +35,9 @@ pub struct MatchCells {
 }
 
 impl Editor {
-    /// The cells the matches in view take in the tiled window's text area, into `cells`,
-    /// emptied first.
-    pub fn isearch_cells(&self, cells: &mut MatchCells) {
+    /// The cells the matches in view take in the tiled window's text area, as `screen` shows
+    /// it ([`Editor::screen`]), into `cells`, emptied first.
+    pub fn isearch_cells(&self, screen: &Screen, cells: &mut MatchCells) {
         let MatchCells {
             current,
             others,
@@ -59,22 +60,16 @@ impl Editor {
         }
         let display = buffer.display();
         let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
-        let (area, scroll) = (self.frame.window.text, window.drawn_top(&display));
-        let rows = scroll.row
-            ..scroll
-                .row
-                .saturating_add(area.rows)
-                .min(display.row_count());
+        let area = self.frame.window.text;
         let reach = query.max_bytes();
-        // Each row's columns in view, widened, and joined where they meet.
-        for row in rows {
+        // Each view row's columns in view, widened, and joined where they meet.
+        for row in screen.rows().iter().take(area.rows) {
             let offset = |column| {
-                display.display_point_to_offset(DisplayPoint::new(row, column), Bias::Left)
+                display.display_point_to_offset(DisplayPoint::new(row.line, column), Bias::Left)
             };
-            let start = offset(scroll.left).saturating_sub(reach);
-            let end = offset(scroll.left.saturating_add(area.columns))
-                .saturating_add(reach)
-                .min(text.len());
+            let drawn = screen.drawn(row);
+            let start = offset(drawn.start).saturating_sub(reach);
+            let end = offset(drawn.end).saturating_add(reach).min(text.len());
             match spans.last_mut() {
                 Some(last) if start <= last.end => last.end = last.end.max(end),
                 _ => spans.push(start..end),
@@ -86,8 +81,8 @@ impl Editor {
         if let Some(range) = state.current.as_ref().filter(|_| !state.failing) {
             found.retain(|other| other.end <= range.start || other.start >= range.end);
             let one = std::slice::from_ref(range);
-            frame::match_cells(area, scroll, &display, one, current);
+            frame::match_cells(area, screen, &display, one, current);
         }
-        frame::match_cells(area, scroll, &display, found, others);
+        frame::match_cells(area, screen, &display, found, others);
     }
 }

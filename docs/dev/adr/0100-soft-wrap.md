@@ -1,6 +1,6 @@
 # 0100. Soft wrap
 
-- Status: Accepted, amended by 0102 and 0103
+- Status: Accepted, amended by 0102, 0103 and 0104
 - Date: 2026-11-09
 
 ## Context

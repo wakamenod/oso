@@ -319,10 +319,15 @@ null text system: the cursor is drawn on the grid, and no text. See
   packed in shelves, doubling when full), so a glyph is rasterized once
   while its font is loaded.
 - **Per frame**, only visible rows are drawn, and of each only the visible
-  columns, widened to 64-column steps, are shaped. Shaping is cached by
-  display row, the row's place on the screen, which soft wrap makes a view
-  row ([ADR 0100](adr/0100-soft-wrap.md)). An entry is reused without looking at the buffer while the
-  revision holds. After a change, the row's shaped columns are read again
+  columns, widened to 64-column steps, are shaped. The rows in view are a
+  `window::Screen`, built once a frame, which the renderer, the frame's cells,
+  the visual aids, isearch's highlights, the input method's rectangle, the dev
+  socket and the text-grid snapshots all read: each a part of a logical line, so
+  that soft wrap's view rows and unwrapped lines are drawn alike
+  ([ADR 0104](adr/0104-soft-wrap-drawn-in-view-rows.md)). Shaping is cached by
+  a row's logical line and the column of it where the row starts. An entry is
+  reused without looking at the buffer while the revision holds, its columns
+  and its wrap mark are as they were. After a change, the row's shaped columns are read again
   and it is reused if the shaper's input is the same: the text and each
   cluster's column, cells and face. That is what "the bytes it covers and
   its start column" in [ADR 0051](adr/0051-m2-plan-decisions.md) comes to,
@@ -331,8 +336,13 @@ null text system: the cursor is drawn on the grid, and no text. See
   check in [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md) too.
   Nothing in an entry is a buffer offset, so an edit leaves the rows below
   it alone wherever they now are in the buffer, and undo, reload and skipped
-  frames need no record of what changed. A row that went to another display
-  row, after a line break or a deleted line, is shaped again.
+  frames need no record of what changed. Rows wrapped above the view change no
+  row's key. A row's clusters count their columns from its first one, and a row
+  with no entry takes the one its place on the screen had for the same line, so
+  the rows after a character typed in a wrapped line, which move along it, shape
+  nothing again. A row that went to another line, after a line break or a deleted
+  line, is shaped again. A row that continues ends with the wrap mark `↩`, a
+  piece of its own in `Face::WrapMark` ([ADR 0100](adr/0100-soft-wrap.md)).
   Scrolling reshapes only rows that come into view, and a 10 MB line costs
   one screen. Only glyphs inside the pane become quads. Each pane has its own
   cache, by a `PaneId` that the caller gives it

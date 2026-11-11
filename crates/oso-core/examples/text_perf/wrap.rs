@@ -1,6 +1,7 @@
 //! Timings of soft wrap (ADR 0100): wrapping large buffers and long lines, the rewrap after
 //! typing in a wrapped 10 MB line, at one cursor and at a thousand, and what a window does on
-//! the UI thread when wrapping turns on, its width changes or a command types (ADR 0103).
+//! the UI thread when wrapping turns on, its width changes or a command types (ADR 0103), and
+//! building the rows a frame shows (ADR 0104).
 //!
 //! Must not depend on: other workspace crates or crate internals; it uses only the public API.
 
@@ -9,12 +10,12 @@ use std::time::Instant;
 
 use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::wrap_map::{COMMAND_BUDGET, Splice, WrapSnapshot};
-use oso_core::display_map::{DisplayMap, TabWidth};
+use oso_core::display_map::{DisplayMap, Preedit, TabWidth};
 use oso_core::editor::Editor;
 use oso_core::rope::Rope;
 use oso_core::selection::{Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
-use oso_core::window::{Scroll, ViewSize};
+use oso_core::window::{Screen, Scroll, ViewSize};
 
 use super::{Lcg, MB, file_text, percentiles, time};
 
@@ -255,6 +256,50 @@ fn window_undo(label: &str, text: &str, cursors: usize, wraps: bool) {
     println!("undo   {label:<22} {how:>9} {cursors:>5} cursors x 20 keys  {undone:>9.2?}");
 }
 
+/// Times building the rows a frame shows of a window on `text`, its cursor at `cursor`:
+/// truncated, wrapped once the jobs have reported, and wrapped with a preedit laid out in the
+/// cursor's line (ADR 0104). Once a frame, so it must stay well under a frame's budget.
+fn screen_rows(label: &str, text: &str, cursor: usize) {
+    let mut editor = window_on(text, cursor);
+    let id = editor.window().buffer();
+    let mut screen = Screen::default();
+    let mut frames = |editor: &Editor| {
+        let mut samples: Vec<_> = (0..200)
+            .map(|_| time(|| editor.screen(black_box(&mut screen))).1)
+            .collect();
+        percentiles(&mut samples)
+    };
+    let (truncated, _) = frames(&editor);
+    editor.set_wraps(id, true);
+    for job in editor.take_wrap_jobs() {
+        if let Some(report) = job.run() {
+            editor.take_wrap_report(report);
+        }
+    }
+    editor.follow_cursor();
+    let (p50, p99) = frames(&editor);
+    editor.set_preedit(Some(Preedit::new("日本語の入力中の文".repeat(4), None)));
+    let (composing, composing_p99) = frames(&editor);
+    println!(
+        "screen {label:<29} truncated {truncated:>9.2?}  wrapped p50 {p50:>9.2?} p99 {p99:>9.2?}  \
+         composing p50 {composing:>9.2?} p99 {composing_p99:>9.2?}"
+    );
+}
+
+/// The timings of the rows a frame shows, alone (`text_perf -- screen`), and after the rest of
+/// soft wrap's.
+pub(super) fn screen_costs() {
+    let lines = [
+        ("10 MB line, words", line_of("word and more ", 10 * MB)),
+        ("10 MB line, CJK", line_of("日本語の文章、", 10 * MB)),
+        ("10 MB line, no spaces", line_of("abcdefghij", 10 * MB)),
+        ("100 MB of source", file_text(100 * MB)),
+    ];
+    for (label, text) in &lines {
+        screen_rows(&format!("{label}, mid"), text, text.len() / 2);
+    }
+}
+
 /// Every timing of soft wrap; with `1g`, wrapping 1 GB of source too.
 pub(super) fn wrap_costs() {
     println!("== Soft wrap");
@@ -311,4 +356,6 @@ pub(super) fn wrap_costs() {
         window_undo(label, text, 1000, false);
         window_undo(label, text, 1000, true);
     }
+    println!();
+    screen_costs();
 }

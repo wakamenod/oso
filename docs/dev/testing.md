@@ -64,6 +64,7 @@ Below a row that needs it, a line between `:` marks its cells:
 | `#` | a cell of a boxed character: invisible (`U+202E`), or past a display cluster's limits (`U+0301`) |
 | `]` | a boxed character's last cell, so that two boxes side by side read as two ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)) |
 | `w` | a whitespace mark's cells, `»`, `□` or `·`, while whitespace is shown ([ADR 0097](adr/0097-visual-aids.md)) |
+| `m` | the wrap mark's cell, `↩` in the last column of a row that continues ([ADR 0100](adr/0100-soft-wrap.md)) |
 
 Below the row with an input method's preedit, a line between `_` marks its
 underline with `-`, and the segment being converted with `=`

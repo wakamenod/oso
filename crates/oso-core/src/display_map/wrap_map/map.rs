@@ -109,6 +109,18 @@ impl WrapMap {
         self.budget = COMMAND_BUDGET;
     }
 
+    /// What is left of the command's budget, for tests.
+    #[cfg(test)]
+    pub(crate) fn budget_left(&self) -> usize {
+        self.budget
+    }
+
+    /// Spends the rest of the command's budget, for tests.
+    #[cfg(test)]
+    pub(crate) fn spend_budget(&mut self) {
+        self.budget = 0;
+    }
+
     /// The rows as they are now, some perhaps provisional.
     pub(crate) fn snapshot(&self) -> &WrapSnapshot {
         &self.wrap
