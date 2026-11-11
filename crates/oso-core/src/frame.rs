@@ -34,7 +34,7 @@ pub(crate) use cells::match_cells_on_row;
 pub use cells::{cursor_rect, match_cells, other_cursor_cells, region_cells};
 pub(crate) use float::completion_regions;
 pub use float::{FloatRegions, MIN_LIST_COLUMNS, float_regions};
-pub use splits::{Side, Splits, TooSmall, Way};
+pub(crate) use splits::{Side, Splits};
 
 /// The rows a frame reserves below the text area: the modeline and the echo
 /// area.
@@ -63,7 +63,7 @@ impl FrameSize {
 }
 
 /// A rectangle of cells on the frame's grid. It may be empty.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CellRect {
     /// The frame row of its top.
     pub row: usize,
@@ -80,15 +80,23 @@ impl CellRect {
         ViewSize::new(self.rows, self.columns)
     }
 
+    /// No cells, at the frame's top left.
+    pub(crate) const EMPTY: Self = Self {
+        row: 0,
+        column: 0,
+        rows: 0,
+        columns: 0,
+    };
+
     /// Whether the cell at `row` and `column` is in it.
-    pub fn contains(self, row: usize, column: usize) -> bool {
+    pub(crate) fn contains(self, row: usize, column: usize) -> bool {
         (self.row..self.row + self.rows).contains(&row)
             && (self.column..self.column + self.columns).contains(&column)
     }
 }
 
 /// The regions of one window.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowRegions {
     /// The columns at the left of the text area, for line numbers (ADR 0097). None wide
     /// while they are off.
@@ -111,8 +119,16 @@ impl WindowRegions {
         }
     }
 
+    /// None, for a window the frame has no room for.
+    pub(crate) const EMPTY: Self = Self {
+        gutter: CellRect::EMPTY,
+        text: CellRect::EMPTY,
+        modeline: CellRect::EMPTY,
+        divider: None,
+    };
+
     /// All its cells: its gutter, text, modeline and divider.
-    pub fn outer(&self) -> CellRect {
+    pub(crate) fn outer(&self) -> CellRect {
         CellRect {
             rows: self.text.rows + self.modeline.rows,
             columns: self.gutter.columns
@@ -125,7 +141,7 @@ impl WindowRegions {
 
 /// Which part of a window a cell is in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Part {
+pub(crate) enum Part {
     Text,
     Gutter,
     Modeline,
@@ -134,9 +150,9 @@ pub enum Part {
 
 /// A cell of the tiled area: the window and the part of it it is in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Hit {
-    pub window: WindowId,
-    pub part: Part,
+pub(crate) struct Hit {
+    pub(crate) window: WindowId,
+    pub(crate) part: Part,
 }
 
 /// A frame divided into regions.
@@ -191,7 +207,8 @@ impl FrameLayout {
 
     /// The window and part of it the cell at `row` and `column` is in, or `None` in the echo
     /// area and past the frame. Clicks and drags will select and resize through it.
-    pub fn hit(&self, row: usize, column: usize) -> Option<Hit> {
+    #[cfg_attr(not(test), expect(dead_code, reason = "clicks come with mouse focus"))]
+    pub(crate) fn hit(&self, row: usize, column: usize) -> Option<Hit> {
         self.windows.iter().find_map(|(window, regions)| {
             let part = [
                 (Part::Text, Some(regions.text)),
@@ -210,7 +227,11 @@ impl FrameLayout {
 
     /// The window next to `window` on `side` at `cell`: a row for the left and right, a
     /// column for up and down, where the window's primary cursor is.
-    pub fn neighbour(&self, window: WindowId, side: Side, cell: usize) -> Option<WindowId> {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "windmove comes in ADR 0112's step 2")
+    )]
+    pub(crate) fn neighbour(&self, window: WindowId, side: Side, cell: usize) -> Option<WindowId> {
         let me = self.regions(window)?.outer();
         self.windows.iter().find_map(|(id, regions)| {
             let other = regions.outer();
@@ -242,7 +263,7 @@ pub fn fitting_gutter(size: FrameSize, gutter: usize) -> usize {
 /// above it among the windows of `splits`, each with a gutter of `gutter(window)` columns at
 /// its left while its text area keeps a column, and none otherwise. A window the frame has
 /// no room for gets no cells, but never `keep`, the selected one.
-pub fn layout(
+pub(crate) fn layout(
     size: FrameSize,
     splits: &Splits,
     keep: WindowId,
@@ -251,14 +272,14 @@ pub fn layout(
     let mut frame = FrameLayout {
         size,
         windows: Vec::new(),
-        echo: CellRect::default(),
+        echo: CellRect::EMPTY,
     };
     layout_into(&mut frame, size, splits, keep, gutter);
     frame
 }
 
 /// [`layout`] into `frame`, reusing its room.
-pub fn layout_into(
+pub(crate) fn layout_into(
     frame: &mut FrameLayout,
     size: FrameSize,
     splits: &Splits,

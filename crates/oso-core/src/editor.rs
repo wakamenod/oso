@@ -82,7 +82,7 @@ pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
 pub use yank_pop::YankPopError;
 
-/// The name of the window an editor starts with.
+/// The name of the window an editor starts with; the next takes 1.
 const FIRST_WINDOW: WindowId = WindowId::new(0);
 
 /// The name of the buffer shown when no file is open.
@@ -237,7 +237,7 @@ impl Editor {
                 |_| 0,
             ),
             next_id: 0,
-            next_window: FIRST_WINDOW.get() + 1,
+            next_window: 1,
             undo_scope: None,
             join_ready: false,
             messages_buffer: BufferId(0),
@@ -337,11 +337,6 @@ impl Editor {
     /// Every window.
     pub fn windows(&self) -> impl ExactSizeIterator<Item = &Window> {
         self.windows.iter()
-    }
-
-    /// The tiled windows, as a tree (ADR 0112).
-    pub fn splits(&self) -> &Splits {
-        &self.splits
     }
 
     /// The window named `id`, if there is one.

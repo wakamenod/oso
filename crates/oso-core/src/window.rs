@@ -66,13 +66,8 @@ pub struct WindowId(u64);
 
 impl WindowId {
     /// The id numbered `n`.
-    pub const fn new(n: u64) -> Self {
+    pub(crate) const fn new(n: u64) -> Self {
         Self(n)
-    }
-
-    /// Its number.
-    pub const fn get(self) -> u64 {
-        self.0
     }
 }
 
@@ -119,7 +114,8 @@ pub struct Window {
 
 impl Clone for Window {
     /// A window like this one, whose wrap has a generation of its own, so that no job of this
-    /// window reports to it, as a split will need (M3).
+    /// window reports to it. It keeps the id, so it stands for the same window, as tests
+    /// compare it; a split makes its new window with a new id (ADR 0112).
     fn clone(&self) -> Self {
         Self {
             id: self.id,
