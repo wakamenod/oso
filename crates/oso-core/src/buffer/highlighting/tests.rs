@@ -8,6 +8,7 @@ use crate::buffer::{Buffer, Mode, Replacement};
 use crate::display_map::TabWidth;
 use crate::load::Builder;
 use crate::rope::Rope;
+use crate::secret::Verdict;
 use crate::syntax::{Highlight, Highlights, MAX_BYTES, Splice};
 use crate::undo::{Direction, Opening};
 
@@ -194,9 +195,16 @@ fn the_log_holds_at_most_4096_splices() {
             text: "c",
         })
         .collect();
+    assert!(buffer.take_highlights(start, string(10_000, 1..3)));
     let staged = buffer.stage_edits(&edits).unwrap().unwrap();
+    assert!(staged.highlighting.batch.is_none(), "composed past the log");
     buffer.commit_edit(staged, Opening::New(None), None);
     assert_eq!(buffer.splices_since(start), None);
+    assert_eq!(
+        runs(&buffer)[1],
+        (1..3, S),
+        "the highlights follow a batch too large to log"
+    );
     let middle = buffer.revision();
     edit(&mut buffer, 0..0, "z");
     assert_eq!(buffer.splices_since(middle).map(|b| b.len()), Some(1));
@@ -244,4 +252,70 @@ fn a_judgement_that_withholds_drops_highlights_and_the_log() {
     ordinary.set_mode(Mode::Toml);
     ordinary.judge_secret(Some(&[PathBuf::from("/p/Cargo.toml")]));
     assert!(!ordinary.is_secret());
+}
+
+/// A visited Rust file judged ordinary, with highlights and a log of one edit since `start`.
+fn judged_with_highlighting() -> (Buffer, u64) {
+    let path = PathBuf::from("/p/main.rs");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.set_mode(Mode::Rust);
+    buffer.finish_empty();
+    buffer.judge_secret(Some(&[path]));
+    assert!(!buffer.is_secret());
+    edit(&mut buffer, 0..0, "abc");
+    let start = buffer.revision();
+    assert!(buffer.take_highlights(start, string(3, 0..3)));
+    edit(&mut buffer, 0..0, "x");
+    assert!(buffer.highlights().is_some());
+    assert!(buffer.splices_since(start).is_some());
+    (buffer, start)
+}
+
+#[track_caller]
+fn assert_dropped(buffer: &Buffer, start: u64) {
+    assert!(buffer.is_secret());
+    assert!(!buffer.keeps_highlighting(), "highlights or a log kept");
+    assert_eq!(buffer.splices_since(start), None);
+}
+
+#[test]
+fn a_path_judged_unresolved_drops_highlights_and_the_log() {
+    let (mut buffer, start) = judged_with_highlighting();
+    buffer.judge_unresolved(&[]);
+    assert_dropped(&buffer, start);
+}
+
+#[test]
+fn a_file_judged_again_drops_highlights_and_the_log() {
+    let (mut buffer, start) = judged_with_highlighting();
+    buffer.judge_again(Ok(&[PathBuf::from("/p/.env")]));
+    assert_dropped(&buffer, start);
+}
+
+#[test]
+fn a_copy_judged_secret_drops_highlights_and_the_log() {
+    let (mut buffer, start) = judged_with_highlighting();
+    buffer.judge_copy(&[PathBuf::from("/p/.env")], Verdict::Ordinary);
+    assert_dropped(&buffer, start);
+}
+
+#[test]
+fn a_recovery_and_its_redo_drop_highlights_and_the_log() {
+    let (mut buffer, start) = judged_with_highlighting();
+    let copy = Buffer::from_text("copy", "recovered");
+    let staged = buffer.stage_replacement(&copy).unwrap();
+    buffer.commit_recovery(staged, Opening::New(None), None, Verdict::SecretName);
+    assert_dropped(&buffer, start);
+    // Back past the recovery and the edit before it, the buffer is ordinary and logs again.
+    undo(&mut buffer);
+    assert!(!buffer.is_secret());
+    undo(&mut buffer);
+    let before = buffer.revision();
+    assert!(buffer.take_highlights(before, string(3, 0..3)));
+    cross(&mut buffer, Direction::Redo);
+    assert!(buffer.highlights().is_some());
+    assert!(buffer.splices_since(before).is_some());
+    // Redoing the recovery crosses back to its verdict.
+    cross(&mut buffer, Direction::Redo);
+    assert_dropped(&buffer, before);
 }

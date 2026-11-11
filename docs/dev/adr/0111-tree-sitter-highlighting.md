@@ -164,7 +164,7 @@ question (Q1–Q13), listed under the author's choices with the options not take
 - **The report** carries the revision it was made for and a snapshot of the new `Highlights`.
   The UI maps it through the splices made since that revision, kept on the buffer in a short
   log, O(log n) each, and swaps it in. A report whose revision has left the log (more than
-  64 splices, or a reload) is dropped, and the next job covers it.
+  64 revisions or 4096 splices, or a reload) is dropped, and the next job covers it.
 - **A frame is asked for** only when a window shows the buffer and the report changed runs in
   its view.
 - The worker catches a panic in a job, as the wraps' worker does: that buffer's highlights stop,
@@ -468,11 +468,12 @@ decision above. The options not taken are listed with their trade-offs.
 - **Line breaks carry no highlight,** by the worker's rule, so the guess for inserted text needs
   no text: it takes the highlight of the byte before it, which after a line break is none.
 - **The buffer keeps each of its last 64 revisions' batches,** at most 4096 splices in all, the
-  oldest going first, and composed for an undo's or a redo's several. `Buffer::splices_since`
-  composes those since a revision into one batch for the worker's parse, and
-  `Buffer::take_highlights` (in the plan, `take_report`) maps a report through it. A load, or a
-  reload whether it edits or replaces, empties the log, so a report or a job from before it is
-  dropped and the worker parses from nothing, as the Decision says.
+  oldest going first, and composed for an undo's or a redo's several. A batch past 4096 splices
+  stops composing, as the log could not hold it: it empties the log, and the highlights still
+  follow it. `Buffer::splices_since` composes those since a revision into one batch for the
+  worker's parse, and `Buffer::take_highlights` (in the plan, `take_report`) maps a report
+  through it. A load, or a reload whether it edits or replaces, empties the log, so a report or
+  a job from before it is dropped and the worker parses from nothing, as the Decision says.
 - **Only a buffer that can be highlighted keeps any of it:** a language mode, not an internal
   buffer, at most 2 MiB (`oso_core::syntax::MAX_BYTES`, which `oso-syntax` uses), and not one that
   may hold secrets. Every path that changes the verdict, a judgement, a reload's, a copy's, a

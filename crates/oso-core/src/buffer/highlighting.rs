@@ -39,7 +39,8 @@ pub(crate) struct StagedHighlighting {
 impl Highlighting {
     /// Maps the highlights through `steps`, batch by batch as they applied, on a clone, if the
     /// buffer can be highlighted afterwards (`keep`). Steps that do not compose leave no batch,
-    /// and no highlights.
+    /// and no highlights. A batch past [`LOG_SPLICES`], which the log could not hold, stops
+    /// composing and leaves no batch, but the highlights follow it.
     fn stage(&self, steps: &[Vec<OffsetEdit>], keep: bool) -> StagedHighlighting {
         if !keep {
             return StagedHighlighting {
@@ -48,16 +49,26 @@ impl Highlighting {
             };
         }
         let mut batch = Some(Vec::new());
+        let mut too_large = false;
         let mut highlights = self.highlights.clone();
         for step in steps {
             let step: Vec<Splice> = step.iter().map(splice_of).collect();
             if let Some(highlights) = &mut highlights {
                 highlights.splice(&step);
             }
+            if too_large {
+                continue;
+            }
             batch = batch.and_then(|batch| compose(&batch, &step));
+            if batch
+                .as_ref()
+                .is_some_and(|batch| batch.len() > LOG_SPLICES)
+            {
+                (batch, too_large) = (None, true);
+            }
         }
         StagedHighlighting {
-            highlights: highlights.filter(|_| batch.is_some()),
+            highlights: highlights.filter(|_| batch.is_some() || too_large),
             batch,
         }
     }
