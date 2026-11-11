@@ -868,7 +868,10 @@ fn an_agents_save_that_waits_for_a_whitespace_scan_replies_once_written() {
     let mut agent = let_in(&mut app);
     // Past the 256 KiB a save cleans on the UI thread, so the scan runs on a thread of its
     // own, and the reply waits for it and then for the write.
-    insert(&mut agent, &"x \n".repeat(100_000));
+    // In pieces, as a `run`'s text is at most 64 KiB.
+    for _ in 0..5 {
+        insert(&mut agent, &"x \n".repeat(20_000));
+    }
     let saved = agent.run("save-buffer", None, "change").unwrap();
     assert_eq!(saved["saved"], true, "{saved}");
     assert_eq!(
