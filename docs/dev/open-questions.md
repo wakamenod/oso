@@ -229,8 +229,8 @@ item notes when it must be settled.
 
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:
   - The limit should be a pure function beside `window::wheel`, used by both.
-  - By M3: "taller" compares the tiled window alone, also beneath a prompt. Splits of
-    different heights need it per window.
+  - By M3: "taller" compares the tiled window alone, also beneath a prompt. With splits
+    ([ADR 0112](adr/0112-window-splits.md)) it compares each window with its own height.
   - Narrowing and widening do not do the same for `left`. With the cursor far to the right,
     a window made very narrow and wide again stays scrolled sideways, with shorter rows blank.
     Decide whether growing sideways follows the same rule.
@@ -349,6 +349,15 @@ item notes when it must be settled.
   the lowest layer that still sees buffer offsets, or to `DisplayMap`.
   Its API (`DisplayMap::invalid_bytes`) does not change.
 - Initial set of tree-sitter grammars, beyond Rust, Markdown and TOML.
+- After window splits ([ADR 0112](adr/0112-window-splits.md)):
+  - `C-x 4`: `switch-to-buffer-other-window`, `find-file-other-window` and
+    `kill-buffer-and-window`, with rules for where a buffer is shown, as Emacs's
+    `display-buffer`;
+  - undoing a change of layout, as Emacs's `winner-mode`;
+  - repeating `C-x o` and the resize keys with their last key alone, as Emacs's `repeat-mode`;
+  - clicks that select a window and drags on dividers and modelines, with mouse focus;
+  - one shaped-row cache per buffer shared by its windows, if measuring a buffer shown twice
+    says it is needed.
 - Fuzzing targets and how long they run. The `SumTree`, the rope, the
   display model under random edits, and the streaming decoder and load
   builder (property-tested since M1-6) are the first candidates.

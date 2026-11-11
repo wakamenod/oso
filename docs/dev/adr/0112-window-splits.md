@@ -1,6 +1,6 @@
 # 0112. Window splits
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -46,9 +46,9 @@ The code is half ready:
 
 ## Decision
 
-Proposed. Each point marked (question N) is a choice for the author, listed under
-[Questions](#questions) with the recommended option first. The text below describes the
-recommended option.
+The author chose the recommended option on each question on 2026-11-12, through the
+coordinator, and asked to revisit none of the points decided without a question. Each point
+marked (question N) was one of those choices, listed under [Questions](#questions).
 
 ### The window tree
 
@@ -299,7 +299,8 @@ file or a 10 MB line.
 
 ## Questions
 
-Put to the author through the coordinator, the recommended option first.
+Put to the author through the coordinator, the recommended option first. The author chose (a) on
+each.
 
 1. **How sizes are kept, and the smallest window.**
    - (a) A weight for each child, turned into cells at each layout; a split refused below 2 text
@@ -367,7 +368,7 @@ Put to the author through the coordinator, the recommended option first.
 
 ## Changes to accepted ADRs
 
-These ADRs stay as they are; this one changes the following, once accepted:
+These ADRs stay as they are; this one changes the following:
 
 - [ADR 0057](0057-frame-layout.md):
   - "`window` is the one tiled window until splits arrive (M3)": `FrameLayout::windows` gives

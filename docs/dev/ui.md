@@ -37,6 +37,18 @@ the echo area next. The pixels left over go below the echo area and at the right
 in the background color, so no partly shown row or column is drawn
 ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
 
+## Windows
+
+- A frame splits into windows stacked (`C-x 2`) or side by side (`C-x 3`); `C-x 0` deletes the
+  selected one, `C-x 1` the others, and `C-x o` selects the next. `C-x +` balances them, and
+  `C-x ^`, `C-x }` and `C-x {` resize ([ADR 0112](adr/0112-window-splits.md)).
+- Each window has its text area, its gutter and its modeline. Side by side windows are parted
+  by a column with a thin line in its middle.
+- A window that is not selected shows its cursors hollow, and no region, current-line band,
+  isearch matches or flash. Its modeline is in the inactive face.
+- The minibuffer and completion float over the whole tiled area, whatever the layout.
+- The wheel scrolls the window under the pointer without selecting it.
+
 ## Minibuffer and completion
 
 - The minibuffer **hangs from the top edge** of the text area, centered, over its first rows
@@ -216,7 +228,8 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 ## Modeline
 
 - Each window has its own modeline. The active window's modeline is visually
-  distinct.
+  distinct, and segments about the frame, such as `Agent`, show only there
+  ([ADR 0112](adr/0112-window-splits.md)).
 - M2 contents:
   - a warning when the file contains bidirectional control characters
   - a warning when the file changed on disk while the buffer has unsaved

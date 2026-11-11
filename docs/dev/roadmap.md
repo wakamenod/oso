@@ -240,7 +240,7 @@ alongside the steps above, after M2-16:
   channel opened or saved until the person acts there
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML.
-- Window splits, indentation, project trust model.
+- Window splits ([ADR 0112](adr/0112-window-splits.md)), indentation, project trust model.
 - Project file finding and asynchronous ripgrep search.
 - Migemo-style romaji search for Japanese text, and avy-style jumps.
 - The menu component, porting the author's hydra menus.
