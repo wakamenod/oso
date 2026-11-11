@@ -358,8 +358,10 @@ impl Rows {
         self.drawn.sort_unstable();
     }
 
-    /// Gives `key` the entry place `slot` had in the last frame, if it has none of its own
-    /// and no row of this frame has that one's key, and notes that `slot` has `key` now.
+    /// Gives `key` the entry place `slot` had in the last frame, if it has none of its own,
+    /// that one is of the same logical line, as a row that moved along its line after an edit
+    /// is, and no row of this frame has its key; and notes that `slot` has `key` now. A row
+    /// of another line takes no entry, so a page scrolled away stays shaped for coming back.
     fn take_slot(&mut self, slot: usize, key: (usize, usize)) {
         if self.slots.len() <= slot {
             self.slots.resize(slot + 1, (usize::MAX, usize::MAX));
@@ -367,6 +369,7 @@ impl Rows {
         let old = std::mem::replace(&mut self.slots[slot], key);
         let frame = self.frame;
         if old != key
+            && old.0 == key.0
             && !self.rows.contains_key(&key)
             && self.drawn.binary_search(&old).is_err()
             && self.rows.get(&old).is_some_and(|row| row.used != frame)

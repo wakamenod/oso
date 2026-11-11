@@ -331,8 +331,9 @@ null text system: the cursor is drawn on the grid, and no text. See
   it alone wherever they now are in the buffer, and undo, reload and skipped
   frames need no record of what changed. Rows wrapped above the view change no
   row's key. A row's clusters count their columns from its first one, and a row
-  with no entry takes the one its place on the screen had, so the rows after a
-  character typed in a wrapped line, which move along it, shape nothing again. A row that went to another line, after a line break or a deleted
+  with no entry takes the one its place on the screen had for the same line, so
+  the rows after a character typed in a wrapped line, which move along it, shape
+  nothing again. A row that went to another line, after a line break or a deleted
   line, is shaped again. A row that continues ends with the wrap mark `↩`, a
   piece of its own in `Face::WrapMark` ([ADR 0100](adr/0100-soft-wrap.md)).
   Scrolling reshapes only rows that come into view, and a 10 MB line costs

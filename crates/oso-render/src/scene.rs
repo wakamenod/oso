@@ -1549,6 +1549,10 @@ mod tests {
         assert_eq!(frame(49, &mut scene), 1, "only line 49 is new");
         assert_eq!(frame(59, &mut scene), 9, "lines 90 to 98");
         assert_eq!(frame(58, &mut scene), 0, "line 58 is kept");
+        // A page each way, as C-v and M-v: both pages stay shaped.
+        assert_eq!(frame(18, &mut scene), 31, "lines 18 to 48");
+        assert_eq!(frame(58, &mut scene), 0, "the page left stays shaped");
+        assert_eq!(frame(18, &mut scene), 0);
     }
 
     #[test]

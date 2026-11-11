@@ -85,9 +85,11 @@ recommended option each time, and approved the public API in direction.
   - So a report or rows wrapped near the view above the top, which change row numbers, shape
     nothing again.
   - A row's clusters count their columns from its first cluster's, and a row with no entry
-    takes the one its place on the screen had in the last frame and is compared with it. So
+    takes the one its place on the screen had in the last frame, if that was of the same
+    logical line and no row of the frame has its key, and is read and compared with it. So
     the rows after a character typed in a wrapped line, which move a cell along it with the
-    same text, shape nothing again; only rows whose text changed do.
+    same text, shape nothing again; only rows whose text changed do. A page scrolled away
+    keeps its rows for coming back.
   - The rows a frame did not draw go once there are many more than a screen of them.
 - **The mark is part of the shaped row,** a piece of its own in `Face::WrapMark`, so whether a
   row continues is compared as its content is. A hanging space is left out of what is shaped,
