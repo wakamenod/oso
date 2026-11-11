@@ -78,7 +78,7 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
         && !editor.shows_keys_in_progress()
     {
         let mut status = Status::default();
-        editor.status_into(&mut status);
+        editor.status_into(editor.tiled().0.id(), &mut status);
         state["echo"] = json!(status.echo);
     }
     state

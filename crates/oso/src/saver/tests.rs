@@ -163,7 +163,7 @@ fn a_file_changed_under_edits_warns_until_a_save_gets_through() {
 /// What the modeline warns of.
 fn warnings(editor: &Editor) -> String {
     let mut status = oso_core::editor::Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     status.warnings
 }
 

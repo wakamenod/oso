@@ -193,7 +193,9 @@ fn a_copy_of_the_file_is_told_once_and_warns_until_it_is_answered() {
     assert!(fixture.last_message().ends_with(": C-h r"));
     let id = fixture.buffer();
     let mut status = oso_core::editor::Status::default();
-    fixture.editor.status_into(&mut status);
+    fixture
+        .editor
+        .status_into(fixture.editor.tiled().0.id(), &mut status);
     assert_eq!(status.warnings, "[emergency copy] ");
     let said = kept_messages(&fixture.editor).len();
     fixture.scan();
@@ -352,7 +354,9 @@ fn the_first_r_looks_and_says_so_and_the_second_recovers_and_nothing_is_written(
     assert!(fixture.copy_is_on_disk(), "until it is saved");
     assert_eq!(fixture.state(), RowState::Recovered);
     let mut status = oso_core::editor::Status::default();
-    fixture.editor.status_into(&mut status);
+    fixture
+        .editor
+        .status_into(fixture.editor.tiled().0.id(), &mut status);
     assert_eq!(status.warnings, "", "it has been answered");
 }
 
@@ -557,7 +561,9 @@ fn deleting_removes_both_files_and_the_row() {
     let mut status = oso_core::editor::Status::default();
     let list = fixture.editor.window().buffer();
     fixture.editor.toggle_copies();
-    fixture.editor.status_into(&mut status);
+    fixture
+        .editor
+        .status_into(fixture.editor.tiled().0.id(), &mut status);
     assert_eq!(status.warnings, "", "nothing waits any more");
     assert!(fixture.editor.buffer(list).is_some());
 }

@@ -31,7 +31,7 @@ fn drain(editor: &mut Editor) {
 
 fn line(editor: &Editor) -> String {
     let mut status = Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     status.echo
 }
 
@@ -353,7 +353,7 @@ fn the_matches_in_view_are_cells_and_the_current_one_apart() {
     search(&mut editor, "ab");
     editor.isearch_repeat(false);
     let mut cells = super::MatchCells::default();
-    editor.isearch_cells(&editor.screen_now(), &mut cells);
+    editor.isearch_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
     let cell = |row, column| CellRect {
         row,
         column,
@@ -363,7 +363,7 @@ fn the_matches_in_view_are_cells_and_the_current_one_apart() {
     assert_eq!(cells.current, [cell(1, 1)]);
     assert_eq!(cells.others, [cell(0, 0), cell(1, 4)]);
     editor.isearch_exit();
-    editor.isearch_cells(&editor.screen_now(), &mut cells);
+    editor.isearch_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
     assert!(cells.current.is_empty() && cells.others.is_empty());
 }
 

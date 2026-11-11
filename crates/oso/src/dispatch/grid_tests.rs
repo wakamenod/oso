@@ -26,6 +26,12 @@
 //! of the boxes of the cursors other than the primary, drawn as dim outlines, from
 //! `Editor::other_cursor_cells` (ADR 0091).
 //!
+//! With several tiled windows, each comes in the tree's order after a line that says where it
+//! is and whether it is selected; a divider at a window's right ends its rows and modeline with
+//! `┃`, and the modeline of a window that is not selected, as every window beneath a prompt,
+//! is between `-`. Only the selected window has a region, a band, a flash and isearch's
+//! matches, and the others' cursors are `o` (ADR 0112).
+//!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
 //! (ADR 0072). Beneath it, the window's hollow cursor is marked `o` in place of `^`. That
@@ -47,6 +53,8 @@ use super::Dispatcher;
 mod rows;
 mod text_area;
 #[cfg(test)]
+mod windows;
+#[cfg(test)]
 mod wrap;
 use rows::{Style, blank_row, draw_row, draw_run, screen_row};
 use text_area::draw_text_area;
@@ -58,23 +66,51 @@ fn text_grid(editor: &Editor) -> String {
 }
 
 /// As [`text_grid`], with the cursor flash at full strength if `flashing` (ADR 0097).
+///
+/// With several tiled windows, each comes in the tree's order after a line that says where it
+/// is, its rows and modeline ended by `┃` while it has a divider at its right, and the modeline
+/// of a window that is not selected between `-` (ADR 0112).
 fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let regions = editor.frame();
+    let tiled = editor.tiled().0.id();
+    let several = regions.windows().len() > 1;
     let mut status = Status::default();
-    editor.status_into(&mut status);
     let mut lines = Vec::new();
     let mut screen = Screen::default();
-    editor.screen(&mut screen);
-    let flash = editor.flash_cells(&screen).filter(|_| flashing);
-    let window = editor.tiled_regions();
-    draw_text_area(editor, (window.text, &screen), flash, &mut lines);
-    let modeline = [
-        &status.warnings[..],
-        &status.name[..],
-        &status.project[..],
-        &status.state[..],
-    ];
-    draw_spans(&modeline, window.modeline, '=', &mut lines);
+    for (id, window) in regions.windows() {
+        let (text, divider) = (window.text, window.divider.map_or(0, |d| d.columns));
+        let rows = text.rows + window.modeline.rows;
+        let columns = window.gutter.columns + text.columns + divider;
+        if several {
+            let selected = if *id == tiled { ", selected" } else { "" };
+            lines.push(format!(
+                "{id:?} at row {}, column {}: {rows} x {columns}{selected}",
+                text.row, window.gutter.column
+            ));
+        }
+        if rows == 0 || columns == 0 {
+            continue;
+        }
+        editor.status_into(*id, &mut status);
+        editor.screen_of(*id, &mut screen);
+        let flash = editor.flash_cells(*id, &screen).filter(|_| flashing);
+        draw_text_area(editor, (*id, window), &screen, flash, &mut lines);
+        let modeline = [
+            &status.warnings[..],
+            &status.name[..],
+            &status.project[..],
+            &status.state[..],
+        ];
+        let edge = if status.selected { '=' } else { '-' };
+        let start = lines.len();
+        draw_spans(&modeline, window.modeline, edge, &mut lines);
+        if window.divider.is_some()
+            && let Some(line) = lines.get_mut(start)
+        {
+            line.push('┃');
+        }
+    }
+    editor.status_into(tiled, &mut status);
     let echo = [status.echo_warnings(), &status.echo[..]];
     draw_spans(&echo, regions.echo, '"', &mut lines);
     draw_float(editor, &mut lines);
@@ -474,7 +510,8 @@ fn assert_frames(name: &str, bytes: &[u8], frames: &[String]) {
 }
 
 /// Opens `text` in a window of `size` (rows, columns) and checks one frame per
-/// entry of `steps`: the keys to press first, on top of the earlier ones.
+/// entry of `steps`: the keys to press first, on top of the earlier ones, or `run:` and a
+/// command's name, with a count after a space, to run it as the control socket does.
 fn check(name: &str, text: impl AsRef<[u8]>, size: (usize, usize), steps: &[&str]) {
     check_bytes(name, text.as_ref(), size, steps);
 }
@@ -496,7 +533,19 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
     let mut dispatcher = Dispatcher::new();
     let mut frames = Vec::new();
     for &keys in steps {
-        if !keys.is_empty() {
+        if let Some(command) = keys.strip_prefix("run:") {
+            // A command by its name and a count, for those with no keys yet. The window
+            // commands are registered only here until ADR 0112's step 3 draws every window.
+            if dispatcher.registry.lookup("split-window-below").is_none() {
+                let windows = crate::commands::windows::COMMANDS;
+                dispatcher.registry.register_all(windows).unwrap();
+            }
+            let mut words = command.split(' ');
+            let name = words.next().unwrap_or_default();
+            let count = words.next().map(|count| count.parse().unwrap());
+            let (_, result) = dispatcher.run_command(&mut editor, name, count);
+            assert_eq!(result, Ok(()), "{keys}");
+        } else if !keys.is_empty() {
             let sequence: KeySequence = keys.parse().unwrap();
             dispatcher.handle_keys(&mut editor, sequence.0);
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
