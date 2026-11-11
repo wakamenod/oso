@@ -12,7 +12,8 @@ land, and is accepted with the last one.
 
 ## Decision
 
-The author chose D1 and D2 on 2026-11-11, through the coordinator.
+The author chose D1 and D2 on 2026-11-11, through the coordinator, and the 256 KiB file limit
+the same day.
 
 ### Step 1: the user's key layer
 
@@ -56,10 +57,14 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
   registry and default keymap the keys are checked against, and the built-in themes' names, in;
   the user's keymap, the settings and the problems out. It does no I/O and never panics. The
   themes' names come in so that an unknown one is reported with its line, as every problem is.
+- **The file is at most 256 KiB,** not 1 MiB. The parser's tokens cost a few dozen bytes for
+  each byte of a crafted file: 100 MB at the peak for 1 MiB of syntax errors, about 30 MB for
+  256 KiB. A configuration file of 256 KiB is far larger than any written by hand. Step 3's reader
+  checks it, before `parse`.
 - **A syntax error rejects the whole file,** and every syntax error is reported, for a file of
   up to 64 KiB. A larger one reports its first, and says so: the parser keeps every error it
-  finds, a few hundred bytes each, and a crafted 1 MiB file can hold one every other byte, which
-  took 337 MB to report. A key given twice in one table is a syntax error, as TOML says. Nothing in
+  finds, a few hundred bytes each, and a crafted file can hold one every other byte; 1 MiB of
+  them took 337 MB to report. A key given twice in one table is a syntax error, as TOML says. Nothing in
   a rejected file applies: no keys and no settings.
 - **Tables nest only so deep:** `toml`'s default limits refuse a key of more than 80 parts, dotted
   keys and table headers too, and inline tables and arrays nested past 80. So a file nests at most
@@ -98,7 +103,7 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
   that setting left unset.
 - **At most 10,000 entries in `[keys.global]`, and 16 keys in a sequence.** A table with more
   entries binds none of them, with one message, rather than an arbitrary part of them. A longer
-  sequence is skipped. With the 1 MiB file limit, this bounds the time and memory of a build
+  sequence is skipped. With the 256 KiB file limit, this bounds the time and memory of a build
   and how deep prefix keymaps nest.
 - **A load keeps the first 20 problems in the order of the file,** as many as `*Messages*`
   shows, and counts the rest. A message is written only if it is kept.
@@ -112,14 +117,16 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
 - **Budget:** a 64 KiB file of 3121 bindings parses and builds in 1.2 ms in a release build,
   within ADR 0108's 2 ms; toml's own parse is about 0.45 ms of it. A test that is run by hand
   in release checks it. Measured beside it: a mixed 64 KiB file of short and long sequences,
-  unbindings and problems in 0.33 ms; 1 MiB of unknown names in 15 ms; 1 MiB of syntax errors in
-  24 ms and 100 MB at its peak, nearly all of it the parser's tokens. The largest keymap the
-  limits allow, 10,000 sequences of 16 keys that part early, builds in 8 ms and takes 3.6 ms to
+  unbindings and problems in 0.33 ms. At 256 KiB: unknown names in 4.4 ms; syntax errors in
+  5.3 ms and about 30 MB at the peak, nearly all of it the parser's tokens. The largest keymap
+  that fits, 5,824 sequences of 16 keys that part early, builds in 4.5 ms and takes 2.1 ms to
   drop, so step 3 must drop a replaced keymap off the UI thread.
 
 ## Changes to accepted ADRs
 
 **[ADR 0108](0108-the-user-configuration-file.md)** (The user configuration file):
+
+- "at most 1 MiB of UTF-8" becomes: at most 256 KiB of UTF-8.
 
 - "Shadowing a default prefix with a command, or a default command with a prefix (binding `C-a x`
   while `C-a` runs a command) needs that key unbound in the same table too" becomes: shadowing a
