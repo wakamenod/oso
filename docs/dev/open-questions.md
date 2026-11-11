@@ -108,7 +108,7 @@ item notes when it must be settled.
   overwritten. Overwriting needs `zeroize` or a small `unsafe` outside `oso-core`
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - By M2-14: kills from a passphrase prompt reach neither the kill ring nor the OS clipboard, and a
-  yank into it works. By M3: keyboard macros do not record what is typed there
+  yank into it works
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - `C-x C-f`'s look at a row follows a symbolic link to say what it leads to, which can reach an
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
@@ -319,6 +319,11 @@ item notes when it must be settled.
   every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start
   from the configuration's `[aids]`
   ([ADR 0097](adr/0097-visual-aids.md), [ADR 0108](adr/0108-the-user-configuration-file.md)).
+
+- After query-replace, keyboard macros and whitespace cleanup: regexp isearch (`C-M-s`) on
+  query-replace's per-line matcher; the kmacro ring, counters, naming and editing; `E`, `C-r`, `Y`
+  and `N` in query-replace; whitespace settings per mode once modes exist; and whether to read
+  `.editorconfig` ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration
