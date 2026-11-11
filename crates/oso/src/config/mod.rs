@@ -60,6 +60,7 @@ pub fn parse(text: &str, registry: &Registry, defaults: &Keymap, themes: &[&str]
     let (keys, settings) = match DeTable::parse(text) {
         Ok(root) => {
             let (keys, settings) = apply(root.get_ref(), registry, defaults, themes, &mut found);
+            tear_down(root.into_inner());
             (Some(keys), settings)
         }
         Err(first) => {
@@ -75,6 +76,13 @@ pub fn parse(text: &str, registry: &Registry, defaults: &Keymap, themes: &[&str]
         more,
     }
 }
+
+/// The stack a thread that calls [`parse`] needs. The parser bounds a key at 80 parts and the
+/// nesting of inline tables and arrays at 80, but a dotted key in each nested inline table
+/// multiplies the two: a file of a few KiB nests some 6,500 tables, and dropping nested tables
+/// recurses. [`parse`] drops what it holds a level at a time; what the parser drops itself, of a
+/// large file it rejects, took up to 2 MiB in debug and release builds. This is four times that.
+pub const STACK: usize = 8 * 1024 * 1024;
 
 /// The largest file whose every syntax error is reported. The parser keeps each one it finds,
 /// a few hundred bytes apiece, and a crafted file can hold one every other byte: a larger file
@@ -97,10 +105,11 @@ fn syntax_errors(text: &str, first: &toml::de::Error, found: &mut Found) {
         );
         return;
     }
-    let (_, errors) = DeTable::parse_recoverable(text);
+    let (root, errors) = DeTable::parse_recoverable(text);
     for error in &errors {
         found.syntax(at(error), error.message());
     }
+    tear_down(root.into_inner());
 }
 
 /// The user's keymap and the settings from the tables of a file that parsed.
@@ -126,6 +135,20 @@ fn apply(
         }
     }
     (user, settings)
+}
+
+/// Drops parsed tables a level at a time, so that deep nesting needs no deep stack.
+fn tear_down(root: DeTable<'_>) {
+    let mut values = vec![DeValue::Table(root)];
+    while let Some(mut value) = values.pop() {
+        let inner: Box<dyn Iterator<Item = &mut Spanned<DeValue<'_>>>> = match &mut value {
+            DeValue::Table(table) => Box::new(table.iter_mut().map(|(_, inner)| inner)),
+            DeValue::Array(array) => Box::new(array.iter_mut()),
+            _ => continue,
+        };
+        values
+            .extend(inner.map(|inner| std::mem::replace(inner.get_mut(), DeValue::Boolean(false))));
+    }
 }
 
 /// The table `value`, called `name` in a message if it is something else.

@@ -71,48 +71,14 @@ the same day.
   finds, a few hundred bytes each, and a crafted file can hold one every other byte; 1 MiB of
   them took 337 MB to report. A key given twice in one table is a syntax error, as TOML says. Nothing in
   a rejected file applies: no keys and no settings.
-- **Tables nest only so deep:** `toml`'s default limits refuse a key of more than 80 parts, dotted
-  keys and table headers too, and inline tables and arrays nested past 80. So a file nests at most
-  about 240 levels, and building and dropping its tables needs little stack.
-- **A sequence cannot start with a key that types a character:** a character or `SPC` with no
-  Control, Meta or Super, Shift or not. `"a" = "cmd"`, `"a b" = "cmd"` and `"a b" = false` are
-  refused, with a reason that suggests `C-c a`: unbinding `a b` would make `a` a prefix too.
-  `"a" = false` alone is allowed. This is what `KeyPress::text` calls a
-  key that types ([ADR 0056](0056-typing.md)): with Super it types nothing (Option-a is `s-a` on
-  macOS, [ADR 0033](0033-key-presses-and-notation.md)), so `"s-a" = "cmd"` binds.
-- **An entry with `C-g` anywhere in its keys is refused,** with Shift or not (`C-G`), whether it
-  binds or unbinds. The dispatcher would ignore it (step 1); the message says why it does
-  nothing. One function, `oso_core::keymap::is_cancel`, says what `C-g` is for the dispatcher,
-  `M-x`'s bindings and the file.
-- **`"C-F" = false` while `C-f` is bound warns** that it changes nothing, since an undefined
-  key is taken without Shift (step 1). The check presses the keys through a resolver over the
-  user's keys and the defaults, so it says what they would do: nothing when the file unbinds
-  `C-f` too, and a warning for `"C-X" = false`, as `C-X` still begins `C-x`'s keys.
-- **D1's warning counts the default keys bound to commands under the prefix,** at every level:
-  `"C-x" = "cmd"` says "a prefix by default; this hides the N default keys under it". It says
-  nothing when the file unbinds that key or a shorter one of it, which hides them anyway.
-- **The default keys are read as the resolver reads keys,** with Shift dropped from a key bound
-  to nothing: an entry is pressed through a resolver over the defaults alone. So `"S-<left> x"`
-  and `"C-A x"` are prefixes over a default command (`S-<left>` runs `<left>`'s), and need
-  `"S-<left>" = false` or `"C-A" = false`. An entry whose keys begin a default prefix only without
-  Shift, such as `"C-X 4"` or `"C-X C-F" = false`, makes `C-X` a prefix of the user's own, which
-  no longer reaches `C-x`'s keys: it applies, and `*Messages*` says how many it hides, once for
-  each such prefix.
-- **An unbinding is checked as a binding is:** `"C-a x" = false` would make `C-a` a prefix, and is
-  refused unless `"C-a" = false` is there too.
-- **Unbinding comes before binding,** and within each, shorter sequences before longer ones,
-  then the spelling in byte order. So an unbinding wins over a binding it conflicts with
-  (`"C-c z a" = false` beside `"C-c z" = "cmd"` skips the second); between bindings, the longer
-  one is skipped (`"C-c x a"` beside `"C-c x"`); and of two spellings of the same keys
-  (`"C-c y"`, `"C-c   y"`), the one later in byte order. The order of the file, which TOML does
-  not keep, changes nothing.
-- **`true` binds nothing:** an entry is a command's name or `false`, and anything else is skipped
-  with its type named.
-- **Every `[keys.<name>]` but `global` says "not configurable yet"**, as no mode's name is known
-  yet. `[keys.question]` says it never is.
-- **A command only a dev build has is refused through the registry:** a release build's has no
-  dev commands, so their names are unknown there, as `"C-c p" = "dev-panic"` says. A dev build
-  binds them, for the author's own file.
+- **Deep tables need a known stack, not an unbounded one.** `toml`'s default limits refuse a key
+  of more than 80 parts, dotted keys and table headers too, and inline tables and arrays nested
+  past 80. But a dotted key in each nested inline table multiplies the two: a file of a few KiB
+  nests some 6,500 tables, and dropping nested tables recurses. Such a file overflowed the 1 MiB
+  stack of a test thread on Windows, and needed 8 MiB in a debug build. So `parse` drops what it
+  holds a level at a time. What the parser drops itself, of a file over 64 KiB that it rejects,
+  needs up to 2 MiB in debug and release builds. `config::STACK`, 8 MiB, is four times that:
+  step 3's thread is spawned with it, and the test of the deepest file runs on it.
 - **A theme pair is two different built-in themes,** and a name that is not one is reported, and
   that setting left unset.
 - **At most 10,000 entries in `[keys.global]`, and 16 keys in a sequence.** A table with more

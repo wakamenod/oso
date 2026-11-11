@@ -14,7 +14,7 @@ use proptest::prelude::*;
 
 use super::problems::{MAX_PROBLEMS, MAX_QUOTED};
 use super::settings::{Aids, ThemeSetting};
-use super::{Loaded, parse};
+use super::{Loaded, STACK, parse};
 use crate::{bindings, commands};
 
 const THEMES: &[&str] = &["dark", "light", "dusk"];
@@ -358,11 +358,10 @@ fn a_64_kib_file_parses_and_builds_in_under_2_ms() {
     );
 }
 
-/// Tables nest only so deep, so building and dropping them stays within a small stack: the
-/// parser refuses a key of more than 80 parts, dotted keys and table headers too, and nesting of
-/// inline tables and arrays past 80. A file at every limit at once goes about 240 deep.
+/// Tables nest only so deep: the parser refuses a key of more than 80 parts, dotted keys and table
+/// headers too, and nesting of inline tables and arrays past 80.
 #[test]
-fn tables_nest_only_so_deep_and_the_deepest_drop_on_a_small_stack() {
+fn keys_and_nesting_have_limits() {
     let f = Fixture::new();
     for text in [
         format!("{} = 1\n", vec!["a"; 81].join(".")),
@@ -374,22 +373,36 @@ fn tables_nest_only_so_deep_and_the_deepest_drop_on_a_small_stack() {
             ["1:1: syntax error: recursion limit"]
         );
     }
+}
+
+/// The deepest tables a file can make, an 80-part dotted key in each of 79 nested inline tables,
+/// parse and go within [`STACK`]: when the file parses, when it does not, and when it is too large
+/// for every syntax error to be reported, where the parser drops them itself.
+#[test]
+fn the_deepest_tables_parse_and_drop_within_the_stack_parse_needs() {
     let path = vec!["d"; 80].join(".");
     let deepest = format!(
         "[{path}]\n{path} = {}1{}\n",
-        "{ e = ".repeat(80),
-        " }".repeat(80)
+        format!("{{ {path} = ").repeat(79),
+        " }".repeat(79)
     );
-    let loaded = std::thread::Builder::new()
-        .stack_size(256 * 1024)
-        .spawn(move || {
-            let f = Fixture::new();
-            messages(&f.parse(&deepest))
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-    assert_eq!(loaded, ["1:2: unknown table [d], skipped"]);
+    let cases = [
+        (deepest.clone(), "1:2: unknown table [d], skipped"),
+        (format!("{deepest}= 1\n"), "3:1: syntax error: "),
+        (
+            format!("{}{deepest}= 1\n", "# padding\n".repeat(7000)),
+            "7003:1: syntax error: ",
+        ),
+    ];
+    for (text, first) in cases {
+        let messages = std::thread::Builder::new()
+            .stack_size(STACK)
+            .spawn(move || messages(&Fixture::new().parse(&text)))
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(messages[0].starts_with(first), "{messages:?}");
+    }
 }
 
 #[test]
