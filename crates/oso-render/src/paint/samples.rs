@@ -331,3 +331,175 @@ fn theme_samples() {
     }
     std::fs::write(dir.join("ratios.md"), table).unwrap();
 }
+
+/// Candidate modelines for each theme, the selected window's `(text, fill)` then the others',
+/// in sRGB, the first being the theme's own, for the author to pick from (ADR 0112).
+/// The selected window's modeline and the others', each `(text, fill)` in sRGB.
+type Modelines = ((u32, u32), (u32, u32));
+
+const MODELINES: [(&str, [Modelines; 4]); 3] = [
+    (
+        "dark",
+        [
+            ((0xeceef4, 0x262938), (0xa6b0d0, 0x1b1d26)),
+            ((0xffffff, 0x3a3f5b), (0x8e95ad, 0x15171e)),
+            ((0xffffff, 0x2c3f6e), (0x8e95ad, 0x15171e)),
+            ((0xffffff, 0x363b55), (0x7c8296, 0x121318)),
+        ],
+    ),
+    (
+        "light",
+        [
+            ((0x15161b, 0xd9dce8), (0x46507a, 0xeceef3)),
+            ((0x0b0c10, 0xc6cbdb), (0x5a6178, 0xf0f1f4)),
+            ((0x0b0c10, 0xb8cdf2), (0x5a6178, 0xeef0f4)),
+            ((0x0b0c10, 0xc6cad9), (0x63687a, 0xf3f3ef)),
+        ],
+    ),
+    (
+        "dusk",
+        [
+            ((0xf3f3f6, 0x51515f), (0xd2d6e4, 0x484855)),
+            ((0xf3f3f6, 0x50505d), (0xb8bccc, 0x33333d)),
+            ((0xf3f3f6, 0x44507a), (0xb8bccc, 0x35353f)),
+            ((0xffffff, 0x51515f), (0xaeb2c2, 0x393944)),
+        ],
+    ),
+];
+
+/// A frame of two windows side by side, the left one selected with `Agent` and a warning on
+/// its modeline, a divider between them, in `theme` (ADR 0112).
+fn split_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
+    let buffer = Buffer::from_text("sample.rs", TEXT);
+    let half = COLUMNS / 2;
+    let size = ViewSize::new(TEXT_ROWS, half - 1);
+    let mut screen = Screen::default();
+    screen.show_lines(&buffer.display(), ViewTop::default(), size);
+    let id = oso_core::editor::Editor::default().window().buffer();
+    let band = [cells(3, 0, 1, half - 1)];
+    let fills = [(Face::CurrentLine, &band[..])];
+    let view = |style: CursorStyle, fills| {
+        PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id,
+            revision: 1,
+            screen: &screen,
+            cursor: DisplayPoint::new(3, 10),
+            cursor_style: style,
+            others: &[],
+            preedit: None,
+            fills,
+            whitespace: true,
+            flash: None,
+        })
+    };
+    let active: [&[Span<'_>]; 1] = [&[
+        span("Agent  ", Face::Prompt),
+        span("[changed on disk] ", Face::Warning),
+        span("-- sample.rs  ", Face::Modeline),
+        span("4:10  Rust  UTF-8 LF", Face::Modeline),
+    ]];
+    let inactive: [&[Span<'_>]; 1] = [&[
+        span("-- sample.rs  ", Face::ModelineInactive),
+        span("4:10  Rust  UTF-8 LF", Face::ModelineInactive),
+    ]];
+    let echo: [&[Span<'_>]; 1] = [&[span("Mark set", Face::Text)]];
+    let pane = tiled_pane;
+    let panes = [
+        pane(
+            0,
+            cells(0, 0, TEXT_ROWS, half - 1),
+            Some(Face::Text),
+            view(CursorStyle::Box, &fills[..]),
+        ),
+        pane(
+            1,
+            cells(0, half, TEXT_ROWS, half),
+            Some(Face::Text),
+            view(CursorStyle::Hollow, &[]),
+        ),
+        pane(
+            2,
+            cells(0, half - 1, TEXT_ROWS + 1, 1),
+            Some(Face::Text),
+            PaneContent::Divider,
+        ),
+        pane(
+            3,
+            cells(TEXT_ROWS, 0, 1, half - 1),
+            Some(Face::Modeline),
+            PaneContent::Lines(&active),
+        ),
+        pane(
+            4,
+            cells(TEXT_ROWS, half, 1, half),
+            Some(Face::ModelineInactive),
+            PaneContent::Lines(&inactive),
+        ),
+        pane(
+            5,
+            cells(TEXT_ROWS + 1, 0, 1, COLUMNS),
+            None,
+            PaneContent::Lines(&echo),
+        ),
+    ];
+    draw(&panes, theme)
+}
+
+/// A tiled pane of `content`, filled in `background`.
+fn tiled_pane<'a>(
+    id: u32,
+    region: CellRect,
+    background: Option<Face>,
+    content: PaneContent<'a>,
+) -> Pane<'a> {
+    Pane {
+        id: PaneId(id),
+        region,
+        layer: Layer::TILED,
+        background,
+        panel: None,
+        bands: Bands::NONE,
+        content,
+    }
+}
+
+#[test]
+#[ignore = "draws with the OS's font on a real GPU, and writes files"]
+fn modeline_samples() {
+    let Some(dir) = std::env::var_os("OSO_THEME_SAMPLES") else {
+        return;
+    };
+    let dir = Path::new(&dir);
+    std::fs::create_dir_all(dir).unwrap();
+    let mut table = String::from(
+        "| theme | candidate | selected on text | inactive on text | selected on inactive | short |\n|---|---|---|---|---|---|\n",
+    );
+    for theme in themes() {
+        let name = theme.name();
+        let (_, candidates) = MODELINES.iter().find(|(n, _)| *n == name).unwrap();
+        for (index, &(active, inactive)) in candidates.iter().enumerate() {
+            let candidate = theme.with_modelines(active, inactive);
+            let short = crate::theme::tests::short_pairs_of(&candidate);
+            let apart = |a, b| {
+                let (ratio, step) = crate::theme::tests::apart(&candidate, a, b);
+                format!("{ratio:.2}:1, L {step:.3}")
+            };
+            writeln!(
+                table,
+                "| {name} | {index} | {} | {} | {} | {} |",
+                apart(Face::Modeline, Face::Text),
+                apart(Face::ModelineInactive, Face::Text),
+                apart(Face::Modeline, Face::ModelineInactive),
+                short.join("; "),
+            )
+            .unwrap();
+            let Some(frame) = split_frame(candidate) else {
+                log::warn!("no text backend on this OS: no samples");
+                return;
+            };
+            write(dir, &format!("modeline-{name}-{index}"), frame);
+        }
+    }
+    std::fs::write(dir.join("modelines.md"), table).unwrap();
+}

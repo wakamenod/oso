@@ -199,6 +199,18 @@ impl Theme {
         Self { text, ..self }
     }
 
+    /// The theme with the selected window's modeline in `active` and the others' in
+    /// `inactive`, each `(text, fill)` in sRGB, for samples that compare candidates
+    /// (ADR 0112).
+    #[cfg(test)]
+    pub(crate) fn with_modelines(mut self, active: (u32, u32), inactive: (u32, u32)) -> Self {
+        for (face, (text, fill)) in [(Face::Modeline, active), (Face::ModelineInactive, inactive)] {
+            self.foreground[index(face)] = rgb(text).linear();
+            self.background[index(face)] = rgb(fill).linear();
+        }
+        self
+    }
+
     /// The theme with every face's colours swapped, foreground for background, for tests.
     #[cfg(test)]
     pub(crate) fn swapped(self) -> Self {
@@ -726,22 +738,32 @@ pub(crate) mod tests {
 
     /// Every pair below its floor in every theme, as `theme: face on behind (ratio < floor)`.
     fn short_pairs() -> Vec<String> {
+        themes().iter().flat_map(short_pairs_of).collect()
+    }
+
+    /// Each pair of `theme` short of its floor.
+    pub(crate) fn short_pairs_of(theme: &Theme) -> Vec<String> {
         let mut short = Vec::new();
-        for theme in &themes() {
-            for face in FACES {
-                for &(behind, floor) in pairs(face) {
-                    let ink = over(theme.foreground(face), theme.background(behind));
-                    let ratio = contrast(ink, theme.background(behind));
-                    if ratio < floor {
-                        short.push(format!(
-                            "{}: {face:?} on {behind:?} ({ratio:.2} < {floor})",
-                            theme.name()
-                        ));
-                    }
+        for face in FACES {
+            for &(behind, floor) in pairs(face) {
+                let ink = over(theme.foreground(face), theme.background(behind));
+                let ratio = contrast(ink, theme.background(behind));
+                if ratio < floor {
+                    short.push(format!(
+                        "{}: {face:?} on {behind:?} ({ratio:.2} < {floor})",
+                        theme.name()
+                    ));
                 }
             }
         }
         short
+    }
+
+    /// WCAG's contrast of `a`'s background on `b`'s in `theme`, and the step in lightness
+    /// between them, for comparing modelines (ADR 0112).
+    pub(crate) fn apart(theme: &Theme, a: Face, b: Face) -> (f32, f32) {
+        let (a, b) = (theme.background(a), theme.background(b));
+        (contrast(a, b), (oklab(a)[0] - oklab(b)[0]).abs())
     }
 
     #[test]
