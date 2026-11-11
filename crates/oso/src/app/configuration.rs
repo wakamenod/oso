@@ -179,6 +179,8 @@ impl App {
         );
         configuration.in_force = now;
         configuration.applied = true;
+        self.editor
+            .set_trim_whitespace(configuration.in_force.trim_whitespace);
         if let Some(aids) = changes.aids {
             self.editor.set_visual_aids(aids);
         }

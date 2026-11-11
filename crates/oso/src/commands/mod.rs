@@ -29,6 +29,7 @@ mod scroll;
 mod session;
 mod theme;
 mod view;
+mod whitespace;
 // Registered with their keys once every window is drawn (ADR 0112's step 3); until then
 // only the tests run them, so the app never shows a frame with windows it does not draw.
 #[cfg(test)]
@@ -67,6 +68,7 @@ const TABLES: &[&[Command]] = &[
     session::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
+    whitespace::COMMANDS,
 ];
 
 /// Refuses a command that would change which buffer a window shows, while a prompt is

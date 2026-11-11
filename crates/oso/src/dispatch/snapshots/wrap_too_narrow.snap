@@ -1,0 +1,27 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: word word word word\\nnext\\n"
+---
+keys: C-x x t
+│word wo│
+:^      :
+│next   │
+│       │
+=-- test=
+"Truncat"
+
+keys: C-e
+│d word │
+:      ^:
+│       │
+│       │
+=-- test=
+"       "
+
+keys: C-a
+│word wo│
+:^      :
+│next   │
+│       │
+=-- test=
+"       "
