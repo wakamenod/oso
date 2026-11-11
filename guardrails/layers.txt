@@ -51,7 +51,7 @@ pane
 [oso]
 crate
 app
-dispatch
+config dispatch
 bindings
 emergency
 saver

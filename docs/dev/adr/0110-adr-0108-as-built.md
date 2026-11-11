@@ -50,6 +50,54 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
 - **Text an input method commits does not consult the user's keys.** With `"a" = false`, the key
   `a` is undefined, but a commit of "a" still goes in, as in Emacs. A commit is not a key.
 
+### Step 2: parsing the file
+
+- **`config::parse(text, registry, defaults, themes)` is a pure function:** the file's text, the
+  registry and default keymap the keys are checked against, and the built-in themes' names, in;
+  the user's keymap, the settings and the problems out. It does no I/O and never panics. The
+  themes' names come in so that an unknown one is reported with its line, as every problem is.
+- **A syntax error rejects the whole file,** and every syntax error is reported. A key given
+  twice in one table is one, as TOML says. Nothing in a rejected file applies: no keys and no
+  settings.
+- **A binding cannot start with a key that types a character:** a character or `SPC` with no
+  Control, Meta or Super, Shift or not. `"a" = "cmd"` and `"a b" = "cmd"` are refused, with a
+  reason that suggests `C-c a`. `"a" = false` is allowed. This is what `KeyPress::text` calls a
+  key that types ([ADR 0056](0056-typing.md)): with Super it types nothing (Option-a is `s-a` on
+  macOS, [ADR 0033](0033-key-presses-and-notation.md)), so `"s-a" = "cmd"` binds.
+- **An entry with `C-g` anywhere in its keys is refused,** with Shift or not (`C-G`), whether it
+  binds or unbinds. The dispatcher would ignore it (step 1); the message says why it does
+  nothing.
+- **`"C-F" = false` while `C-f` is bound warns** that it changes nothing, since an undefined
+  key is taken without Shift (step 1). The check reads the user's keys over the defaults, so it
+  says nothing when the file unbinds `C-f` too.
+- **D1's warning counts the default keys bound to commands under the prefix,** at every level:
+  `"C-x" = "cmd"` says "a prefix by default; this hides the N default keys under it". It says
+  nothing when the file unbinds that key or a shorter one of it, which hides them anyway.
+- **Unbinding comes before binding,** and within each, shorter sequences before longer ones,
+  then the spelling in text order. So of two entries that conflict, the longer one is skipped
+  (`"C-c x" = "cmd"` beside `"C-c x a" = "cmd"`), and of two spellings of the same keys
+  (`"C-c y"`, `"C-c   y"`), the second in text order. The order of the file, which TOML does not
+  keep, changes nothing.
+- **`true` binds nothing:** an entry is a command's name or `false`, and anything else is skipped
+  with its type named.
+- **Every `[keys.<name>]` but `global` says "not configurable yet"**, as no mode's name is known
+  yet. `[keys.question]` says it never is.
+- **A theme pair is two different built-in themes,** and a name that is not one is reported, and
+  that setting left unset.
+- **At most 10,000 entries in `[keys.global]`, and 16 keys in a sequence.** A table with more
+  entries binds none of them, with one message, rather than an arbitrary part of them. A longer
+  sequence is skipped. With the 1 MiB file limit, this bounds the time and memory of a build
+  and how deep prefix keymaps nest.
+- **A problem is `line:column: message`,** the column counted in characters. Messages are
+  oso's words: a `BindError` or a key-notation error is never shown as such. The file's text in
+  one is quoted, cut at 80 characters and escaped as the display escapes control and invisible
+  characters, bidi controls among them. The parser's wording of a syntax error is escaped too,
+  and cut at 200. One pass over the text places every problem, so many problems on one long
+  line cost no more than the line.
+- **Budget:** a 64 KiB file of 3121 bindings parses and builds in 1.2 ms in a release build,
+  within ADR 0108's 2 ms; toml's own parse is about 0.45 ms of it. A test that is run by hand
+  in release checks it.
+
 ## Changes to accepted ADRs
 
 **[ADR 0108](0108-the-user-configuration-file.md)** (The user configuration file):
@@ -65,11 +113,21 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
   layer over the global one, so a hidden default is never shown" holds, and also: a default key
   that a shorter user command cuts short counts as hidden.
 
+- "A sequence a person cannot type, an unknown command, or a command only a dev build has, is
+  refused with its line" holds, and also: a binding that starts with a key that types a character,
+  an entry with `C-g` in its keys, a sequence of more than 16 keys and `true` are refused, and a
+  `[keys.global]` of more than 10,000 entries binds none of them.
+- "`C-g` is not configurable in any keymap" holds, and also: an entry with it is refused with a
+  message, rather than ignored.
+
 ## Consequences
 
 - A user can make `C-x` a command with one line. The warning says what it hides.
 - A shifted key under a rebuilt prefix behaves as in Emacs, so the user writes no Shift entries.
 - Unbinding a letter does not stop an input method typing it.
+- A user cannot make a letter a prefix of their own, as some Emacs setups do with modal keys.
+  `C-c` and the function keys stay free for that.
+- A file written for a newer oso loads, with a message for each table this one does not know.
 - Later steps add their points here.
 
 ## Alternatives considered
@@ -81,3 +139,8 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
   for something few would do.
 - **An undefined key that blocks Shift:** `"C-F" = false` would also stop `C-S-f` running `C-f`,
   which Emacs's nil does not.
+- **Super keys counted as typing keys:** they would be refused too, but they type nothing in oso,
+  and Emacs users bind them.
+- **Ignoring `C-g` entries without a word:** the person would wonder why a binding does nothing.
+- **Over the entry limit, binding the first 10,000:** TOML keeps no order, so which ones apply
+  would depend on how their keys sort.
