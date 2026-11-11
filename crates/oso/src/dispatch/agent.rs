@@ -5,7 +5,7 @@
 //! Must not depend on: the channel's socket or protocol, or `app`; the host decides when the
 //! channel may run anything at all.
 
-use oso_core::buffer::{Buffer, BufferId, Mode};
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::command::{ArgSpec, BufferPurpose, Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
 
@@ -204,7 +204,7 @@ pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
         Some(Unshowable::Opening)
     } else if buffer.loading().is_some() {
         Some(Unshowable::Loading)
-    } else if buffer.mode() != Mode::Fundamental {
+    } else if buffer.mode().shows_copies() {
         Some(Unshowable::OwnKeys)
     } else {
         None

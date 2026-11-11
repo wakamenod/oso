@@ -35,6 +35,8 @@ crates/
 ├── oso-core/       buffers, selections, display model, command registry,
 │                   keymaps; no GPU, #![forbid(unsafe_code)]
 ├── oso-render/     wgpu pipeline, glyph atlas
+├── oso-syntax/     tree-sitter, its grammars and oso's queries; the only C
+│                   parsers, and only the tip crate uses it
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
                     clipboard, filesystem and paths, process spawning, PTY
@@ -57,9 +59,10 @@ holds beyond its mode, and for opening it without waiting,
 [ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
-depends on `oso-core` and `oso-platform`, and neither of those depends on
-another workspace crate. Only `oso-render` uses wgpu, and only
-`oso-platform` uses OS bindings. These rules, and the allowed layers of
+depends on `oso-core` and `oso-platform`, `oso-syntax` on `oso-core`, and neither of
+those two depends on another workspace crate. Only `oso-render` uses wgpu, only
+`oso-platform` uses OS bindings, and only `oso-syntax` uses tree-sitter
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). These rules, and the allowed layers of
 modules inside each crate, are listed in
 [`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
 `crates/oso/tests/architecture`

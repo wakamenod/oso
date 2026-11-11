@@ -8,3 +8,10 @@
 // Parsing runs on untrusted files: failures are values, not panics (ADR 0038).
 // Tests may unwrap (`allow-unwrap-in-tests` in clippy.toml).
 #![deny(clippy::unwrap_used, clippy::expect_used)]
+
+mod document;
+mod edit;
+mod language;
+
+pub use document::{Document, Failure, MAX_BYTES, Parsed};
+pub use language::Language;

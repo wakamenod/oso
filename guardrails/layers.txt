@@ -29,7 +29,7 @@ window word
 buffer motion search
 undo kill
 load selection
-display_map
+display_map syntax
 complete decode key rope secret
 sum_tree
 
@@ -61,3 +61,5 @@ channel
 
 [oso-syntax]
 crate
+document
+edit language

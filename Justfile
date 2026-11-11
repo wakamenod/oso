@@ -8,7 +8,7 @@ nightly := "nightly-2026-05-25"
 cargo_public_api := "0.52.0"
 # Snapshots are taken for one target so that they read the same on every OS.
 api_target := "x86_64-unknown-linux-gnu"
-api_crates := "oso-core oso-platform oso-render"
+api_crates := "oso-core oso-platform oso-render oso-syntax"
 # oso's own macOS window layer exists only there, so oso-platform also has a snapshot
 # taken for macOS, on macOS (ADR 0070).
 api_macos_target := "aarch64-apple-darwin"
