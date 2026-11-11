@@ -89,6 +89,9 @@ line-numbers = false
 
 [agent-channel]
 start = true
+
+[save]
+trim-whitespace = true
 "#,
     );
     assert_eq!(messages(&loaded), Vec::<String>::new());
@@ -114,6 +117,7 @@ start = true
         }
     );
     assert_eq!(settings.agent_channel_start, Some(true));
+    assert_eq!(settings.save.trim_whitespace, Some(true));
 }
 
 #[test]
@@ -161,6 +165,8 @@ flash = true
 colour = "dusk"
 [agent-channel]
 stop = true
+[save]
+trim = true
 "#,
     );
     assert_eq!(
@@ -170,6 +176,7 @@ stop = true
             r#"4:1: unknown name "sparkles" in [aids], skipped"#,
             r#"7:1: unknown name "colour" in [theme], skipped"#,
             r#"9:1: unknown name "stop" in [agent-channel], skipped"#,
+            r#"11:1: unknown name "trim" in [save], skipped"#,
         ]
     );
     assert_eq!(loaded.settings.aids.flash, Some(true));
@@ -178,13 +185,16 @@ stop = true
 #[test]
 fn a_table_that_is_a_value_is_reported() {
     let f = Fixture::new();
-    let loaded = f.parse("keys = 1\naids = \"on\"\n[agent-channel]\nstart = \"yes\"\n");
+    let loaded = f.parse(
+        "keys = 1\naids = \"on\"\n[agent-channel]\nstart = \"yes\"\n[save]\ntrim-whitespace = 1\n",
+    );
     assert_eq!(
         messages(&loaded),
         [
             "1:8: [keys] must be a table",
             "2:8: [aids] must be a table",
             "4:9: [agent-channel] start takes true or false, not a string",
+            "6:19: [save] trim-whitespace takes true or false, not a number",
         ]
     );
 }
