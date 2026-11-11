@@ -1,6 +1,6 @@
 # 0108. The user configuration file
 
-- Status: Accepted
+- Status: Accepted, amended by 0110
 - Date: 2026-11-11
 
 ## Context

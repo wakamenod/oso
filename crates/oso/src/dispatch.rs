@@ -18,7 +18,8 @@ use oso_core::key::Key;
 use oso_core::key::KeyPress;
 #[cfg(any(test, feature = "dev"))]
 use oso_core::keymap::Layers;
-use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
+use oso_core::keymap::{CANCEL, KeyResolver, Keymap, Resolution, display_keys};
+use oso_core::minibuffer::Kind;
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
@@ -38,6 +39,34 @@ mod prompts;
 mod run_command;
 
 use keymaps::Keymaps;
+
+/// Keys in Emacs notation, each key that types a character as `<char>` where `mask` holds:
+/// always in the log, as typed text stays out of it (ADR 0028), and on screen in a passphrase
+/// prompt, where the user's keys can make a typing key part of a prefix (ADR 0110).
+fn masked(keys: &[KeyPress], mask: bool) -> String {
+    if !mask {
+        return display_keys(keys).to_string();
+    }
+    let mut text = String::new();
+    for (i, key) in keys.iter().enumerate() {
+        if i > 0 {
+            text.push(' ');
+        }
+        if key.text().is_some() {
+            text.push_str("<char>");
+        } else {
+            let _ = write!(text, "{key}");
+        }
+    }
+    text
+}
+
+/// Whether the innermost prompt reads a passphrase, so typing keys stay off the screen.
+fn reads_passphrase(editor: &Editor) -> bool {
+    editor
+        .prompt()
+        .is_some_and(|prompt| prompt.kind() == Kind::Passphrase)
+}
 
 /// Whether a command's edits may join the undo step before, if it asks.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -63,6 +92,9 @@ pub struct Dispatcher {
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
+    /// The user's keymap given while a prefix key was pending, which goes in once none is
+    /// (ADR 0108).
+    user_waiting: Option<Keymap>,
     /// The command that ran last, with no undefined or cancelled key since, and
     /// how many times in a row it had run before that.
     last: Option<(CommandId, usize)>,
@@ -101,6 +133,7 @@ impl Dispatcher {
         Self {
             keymaps: Keymaps {
                 global,
+                user: Keymap::new(),
                 prefix: [digits, minus],
                 copy: [list, copy],
                 minibuffer,
@@ -115,6 +148,7 @@ impl Dispatcher {
             registry,
             resolver: KeyResolver::new(),
             prefix: None,
+            user_waiting: None,
             last: None,
             publisher: None,
             waiting: None,
@@ -193,13 +227,42 @@ impl Dispatcher {
         work: impl FnOnce(&mut Self, &mut Editor) -> R,
     ) -> R {
         editor.clear_echo();
+        // A prefix may have been dropped outside an input, as a window's close does.
+        self.take_waiting_user();
         let before = editor.view_sample();
         let out = work(self, editor);
         // Before the view is sampled: another digit of line numbers narrows the text area.
         editor.fit_gutter();
         self.jump = Some(editor.flashes(&before, &editor.view_sample()));
+        self.take_waiting_user();
         self.show_keys_in_progress(editor);
         out
+    }
+
+    /// Puts in the user's keymap that waited for a prefix key, once none is pending.
+    fn take_waiting_user(&mut self) {
+        if self.resolver.pending().is_empty()
+            && let Some(user) = self.user_waiting.take()
+        {
+            self.keymaps.user = user;
+        }
+    }
+
+    /// Puts the user's keys from the configuration just above the global keymap, in place of
+    /// those before; an empty keymap takes them away (ADR 0108). While a prefix key is
+    /// pending, they wait for it to resolve, so that its next key reads the keymaps it
+    /// started in.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the configuration's reader comes next (ADR 0108)")
+    )]
+    pub fn set_user_keymap(&mut self, user: Keymap) {
+        if self.resolver.pending().is_empty() {
+            self.keymaps.user = user;
+            self.user_waiting = None;
+        } else {
+            self.user_waiting = Some(user);
+        }
     }
 
     /// Whether the last input since this was last asked made the view jump, so the cursor
@@ -214,7 +277,10 @@ impl Dispatcher {
     /// dropped.
     #[cfg(any(test, feature = "dev"))]
     pub fn restore_pending(&mut self, editor: &mut Editor, keys: &[KeyPress]) {
-        let layers = Layers::global(&self.keymaps.global);
+        let layers = Layers {
+            user: self.keymaps.user(),
+            ..Layers::global(&self.keymaps.global)
+        };
         for key in keys {
             if !matches!(self.resolver.feed(&layers, *key), Resolution::Pending) {
                 self.resolver.reset();
@@ -241,7 +307,7 @@ impl Dispatcher {
             if !keys.is_empty() {
                 keys.push(' ');
             }
-            let _ = write!(keys, "{}", display_keys(pending));
+            keys.push_str(&masked(pending, reads_passphrase(editor)));
         }
         if !keys.is_empty() {
             keys.push('-');
@@ -328,9 +394,10 @@ impl Dispatcher {
             };
         }
         if !self.resolver.pending().is_empty() {
-            let keys = display_keys(self.resolver.pending()).to_string();
-            log::debug!("{keys} and text are undefined");
+            let pending = self.resolver.pending();
+            log::debug!("{} and text are undefined", masked(pending, true));
             // The text stays out of it, as it does from a log.
+            let keys = masked(pending, reads_passphrase(editor));
             editor.echo(format!("{keys} is undefined"));
             self.resolver.reset();
             self.forget_keys(editor);
@@ -452,13 +519,24 @@ impl Dispatcher {
         // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
         let dropped = self.drop_held_completion();
         let reading = self.keymaps.reading();
-        let layers = self.keymaps.active(&reading, self.prefix, editor);
+        let mut layers = self.keymaps.active(&reading, self.prefix, editor);
+        // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
+        // and on its own it runs what the defaults bind (ADR 0108, ADR 0110).
+        let cancels = key == CANCEL || key.unshifted() == Some(CANCEL);
+        let key = if cancels && !self.resolver.pending().is_empty() {
+            CANCEL
+        } else {
+            key
+        };
+        if cancels {
+            layers.user = None;
+        }
         let (id, shifted) = match self.resolver.feed(&layers, key) {
             Resolution::Command(id) => (id, false),
             // A shifted key that only its unshifted form binds (ADR 0071).
             Resolution::Shifted(id) => (id, true),
             Resolution::Pending => {
-                log::debug!("{}-", display_keys(self.resolver.pending()));
+                log::debug!("{}-", masked(self.resolver.pending(), true));
                 return Effects::default();
             }
             Resolution::Unbound(keys) if editor.isearch().is_some() => {
@@ -478,19 +556,15 @@ impl Dispatcher {
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
                 // which stays out of the log (ADR 0028).
-                match keys.split_last() {
-                    Some((last, prefix)) if last.text().is_some() => {
-                        log::debug!("{} <char> is undefined", display_keys(prefix));
-                    }
-                    _ => log::debug!("{} is undefined", display_keys(keys)),
-                }
+                log::debug!("{} is undefined", masked(keys, true));
                 if editor
                     .prompt()
                     .is_some_and(|prompt| prompt.kind().is_question())
                 {
                     editor.prompt_says("Answer y or n");
                 } else {
-                    editor.echo(format!("{} is undefined", display_keys(keys)));
+                    let keys = masked(keys, reads_passphrase(editor));
+                    editor.echo(format!("{keys} is undefined"));
                 }
                 self.forget_keys(editor);
                 return Effects::default();
@@ -562,6 +636,8 @@ mod recovery_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod user_tests;
 #[cfg(test)]
 mod wrap_tests;
 #[cfg(test)]
