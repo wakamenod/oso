@@ -214,9 +214,16 @@ coordinator.
 - **`^` again goes further back** over the matches replaced, and asks a skipped one again.
 - **Undoing the session takes the cursors back to where it began.** When the undo limit dropped
   the session's earliest steps, what is left of it is still one step.
-- **Undo after a large `!`** applies every slice's batch: about 200 ms over 100 MB with 100,000
-  matches, 590 ms over 4 million short lines, and 1.7 s over 2 million matches on one 6 MB line,
-  for what the undo limit keeps of it. The author decides on this.
+- **Undo after a large `!` is an exception the author accepted on 2026-11-12.** It applies every
+  slice's batch on the UI thread, at once: about 200 ms over 100 MB with 100,000 sparse matches,
+  590 ms over 4 million short lines, and 1.7 s over 2 million matches on one 6 MB line. Undoing a
+  large step in slices comes later, as work of its own for every large undo: `!`, a macro's
+  replay and whitespace cleanup.
+- **A slice of `!` on one long line passes the 4 ms target:** 5.2 ms at p99 over 2 million matches
+  on one 6 MB line, as a batch of 1000 splices on a long line costs, as typing at 1000 cursors
+  there does. The last slice of a large `!` takes a few milliseconds more, joining its undo steps.
+- **The undo limit of 64 MiB bounds what undo brings back.** Past it, the oldest slices of a large
+  `!` are dropped, and the one undo step goes back only to the oldest one kept.
 - **The two prompts** are read by `ArgSpec::Replace`, which `Ctx::replace_pair` gives back, and
   take Japanese as the prompt for a file's name does.
 
