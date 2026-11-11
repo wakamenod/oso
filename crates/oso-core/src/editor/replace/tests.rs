@@ -272,3 +272,12 @@ fn around_a_secret_the_pair_is_not_kept() {
     answer(&mut editor, Exit);
     assert_eq!(editor.last_replace(false), None);
 }
+
+#[test]
+fn the_count_comes_even_if_an_answer_came_first() {
+    let mut editor = editor("a a a");
+    begin(&mut editor, "a", "b");
+    answer(&mut editor, Replace);
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((2, 3)));
+}

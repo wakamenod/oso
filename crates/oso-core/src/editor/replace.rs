@@ -299,9 +299,10 @@ impl Editor {
                 }
                 true
             }
+            // The count is of the scope when it began, so edits since do not make it stale.
             Report::Counted {
                 generation, count, ..
-            } if generation == live && !stale => {
+            } if generation == live => {
                 if let Some(state) = &mut self.replacing.session {
                     state.total = Some(count.total);
                 }
