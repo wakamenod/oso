@@ -20,8 +20,9 @@ use tree_sitter::{ParseOptions, ParseState, Parser, Tree};
 use crate::edit::input_edits;
 use crate::language::Language;
 
-/// The largest text parsed: a larger buffer stays plain (ADR 0111).
-pub const MAX_BYTES: usize = 8 << 20;
+/// The largest text parsed: a larger buffer stays plain. A tree costs 35 to 60 times its text
+/// (ADR 0111, as built).
+pub const MAX_BYTES: usize = 2 << 20;
 
 /// How much of the worker's time a parse from nothing may take.
 const FIRST_LIMIT: Duration = Duration::from_secs(5);

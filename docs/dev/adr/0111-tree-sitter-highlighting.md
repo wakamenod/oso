@@ -217,6 +217,8 @@ question (Q1–Q13), listed under the author's choices with the options not take
 - **A buffer larger than 8 MiB is not parsed,** and stays plain. A tree costs memory in
   proportion to the text, which step 1 measures; 8 MiB is far above any source file and below
   where that memory matters. The limit becomes a setting with the per-mode tables.
+  - Erratum (2026-11-12, as built in step 1, the author's choice): the limit is **2 MiB**. A
+    tree costs 35 to 60 times its text, not the little this assumed; see As built.
 - **Time limits:** a first parse that passes 5 s of the worker's time, or a later one that passes
   1 s, stops highlighting in that buffer, says so in the echo area and `*Messages*` (with no text
   of the buffer), and the buffer stays plain until its mode is set again.
@@ -403,6 +405,39 @@ decision above. The options not taken are listed with their trade-offs.
 - **The dependencies** are approved as researched: `tree-sitter =0.27.1`, `tree-sitter-rust
   =0.24.2`, `tree-sitter-md =0.5.4` and `tree-sitter-toml-ng =0.7.0`, added in a commit of their
   own with `just deny` and `just audit`.
+
+## As built
+
+### Step 1: parsing
+
+- **The size limit is 2 MiB, not 8 MiB** (the author's choice, 2026-11-12, through the
+  coordinator, after comparing other editors' limits). Measured on the author's Mac, a release
+  build, with one character typed in the middle of the file; the peak includes the rope, about
+  19 MB at 8 MB:
+
+  | Input | First parse | After one key | Peak memory |
+  |---|---|---|---|
+  | Rust, 1 MiB | 50 ms | 1.5 ms | 46 MB |
+  | Rust, 2 MiB | 132 ms | 5.5 ms | 88 MB |
+  | Rust, 8 MB | 380 ms | 15 ms | 311 MB |
+  | Markdown, 2 MiB (oso's docs) | 545 ms | 145 ms | 133 MB |
+  | Markdown, 8 MB | 875 ms | 150 ms | 530 MB |
+  | TOML, 2 MiB | 252 ms | 47 ms | 117 MB |
+  | TOML, 8 MB | 470 ms | 125 ms | 424 MB |
+
+  At 8 MiB one buffer could take about 0.5 GB; at 2 MiB, about 130 MB at most. A large Markdown
+  or TOML file reparses slowly after each key, which shows as highlights a few frames late, not
+  as key latency.
+- **Compiling the queries** takes 8 ms for Rust's upstream query, 0.5 ms and 1 ms for
+  Markdown's block and inline ones, and 0.05 ms for TOML's, on the worker at first use.
+- **A clean build compiles the C** in about 6 s of wall time (22 s of CPU) on the author's Mac.
+- **The rope needed no new API:** `Rope::chunks_in_range` feeds the parser its chunks.
+- **Points need not be exact for the tree:** tree-sitter takes the points of reused nodes from
+  where its lexer reads, so an edit's wrong point leaves the tree right. The property test
+  catches a wrong byte; a unit test checks the points, which `Tree::changed_ranges` reports.
+- **The agent channel** counted every mode but `Fundamental` as one with keys of its own, so it
+  would have refused every Rust, Markdown or TOML buffer. It now asks whether the mode shows
+  emergency copies.
 
 ## Alternatives considered
 

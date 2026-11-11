@@ -497,7 +497,7 @@ The UI thread never blocks on I/O or parsing:
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
-  files over 8 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  files over 2 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Search (ripgrep-style), git status and language servers stream results in
   asynchronously.
 
