@@ -29,6 +29,7 @@ mod scroll;
 mod session;
 mod theme;
 mod view;
+mod whitespace;
 mod windows;
 
 #[cfg(test)]
@@ -64,6 +65,7 @@ const TABLES: &[&[Command]] = &[
     session::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
+    whitespace::COMMANDS,
     windows::COMMANDS,
 ];
 

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::Editor;
 use super::save::{Elsewhere, Over, SaveJob, SaveRefused, missing_final_newline};
+use super::trim::{Then, Trimmed};
 use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp, ReadOnly};
 
 /// A file a write to a new place found, which `y` may write over, and only for that buffer
@@ -78,7 +79,44 @@ impl Editor {
             Some(directory) if !directory.is_empty() => PathBuf::from(directory).join(&name),
             _ => path,
         };
-        let line_break = missing_final_newline(self.current().1);
+        let elsewhere = Elsewhere {
+            over: found,
+            open,
+            name,
+        };
+        let then = Then::Write {
+            path: path.clone(),
+            elsewhere: elsewhere.clone(),
+        };
+        let (trimmed, kept) = match self.trim_for_save(id, then) {
+            Trimmed::Done { changed, kept } => (changed, kept),
+            Trimmed::Waiting => return Ok(false),
+        };
+        let newline = self.write_after_trim(id, path, elsewhere, kept)?;
+        Ok(trimmed || newline)
+    }
+
+    /// Goes on with a write of `id` to `path` that may have waited for whitespace cleanup:
+    /// its final newline, then its job, which takes what was edited but for `kept`. Returns
+    /// whether the newline went in.
+    pub(super) fn write_after_trim(
+        &mut self,
+        id: BufferId,
+        path: PathBuf,
+        elsewhere: Elsewhere,
+        kept: Vec<std::ops::Range<usize>>,
+    ) -> Result<bool, SaveRefused> {
+        let buffer = self.buffer(id).ok_or(SaveRefused::NoFile)?;
+        if buffer.is_internal() {
+            return Err(SaveRefused::ReadOnly(ReadOnly::Internal));
+        }
+        if let Some(reason) = buffer.read_only() {
+            return Err(SaveRefused::ReadOnly(reason));
+        }
+        if buffer.is_saving() {
+            return Err(SaveRefused::AlreadySaving);
+        }
+        let line_break = missing_final_newline(buffer);
         if let Some(line_break) = line_break {
             self.insert_final_newline(id, line_break);
         }
@@ -91,13 +129,10 @@ impl Editor {
                 content: buffer.content_id(),
                 baseline: None,
                 only_if_gone: false,
-                elsewhere: Some(Elsewhere {
-                    over: found,
-                    open,
-                    name,
-                }),
+                elsewhere: Some(elsewhere),
             };
             buffer.set_saving(true);
+            buffer.save_took_edits(kept);
             self.save_jobs.push(job);
         }
         Ok(line_break.is_some())

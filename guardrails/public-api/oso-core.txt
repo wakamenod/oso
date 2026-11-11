@@ -41,7 +41,11 @@ pub enum oso_core::buffer::Mode
 pub oso_core::buffer::Mode::CopyList
 pub oso_core::buffer::Mode::CopyView
 pub oso_core::buffer::Mode::Fundamental
+pub oso_core::buffer::Mode::Markdown
+pub oso_core::buffer::Mode::Rust
+pub oso_core::buffer::Mode::Toml
 impl oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
 pub fn oso_core::buffer::Mode::name(self) -> &'static str
 pub fn oso_core::buffer::Mode::shows_copies(self) -> bool
 impl core::clone::Clone for oso_core::buffer::Mode
@@ -1417,6 +1421,13 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::delete_trailing_whitespace(&mut self) -> core::result::Result<bool, oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::set_trim_whitespace(&mut self, bool)
+pub fn oso_core::editor::Editor::take_agent_trim_saves(&mut self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::take_trim_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::TrimJob>
+pub fn oso_core::editor::Editor::trim_failed(&mut self, oso_core::editor::TrimId)
+pub fn oso_core::editor::Editor::trim_reported(&mut self, oso_core::editor::TrimReport) -> core::option::Option<oso_core::editor::TrimOutcome>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
@@ -1671,6 +1682,39 @@ pub fn oso_core::editor::Status::default() -> oso_core::editor::Status
 impl core::fmt::Debug for oso_core::editor::Status
 pub fn oso_core::editor::Status::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Status
+pub struct oso_core::editor::TrimId(_)
+impl core::clone::Clone for oso_core::editor::TrimId
+pub fn oso_core::editor::TrimId::clone(&self) -> oso_core::editor::TrimId
+impl core::cmp::Eq for oso_core::editor::TrimId
+impl core::cmp::PartialEq for oso_core::editor::TrimId
+pub fn oso_core::editor::TrimId::eq(&self, &oso_core::editor::TrimId) -> bool
+impl core::fmt::Debug for oso_core::editor::TrimId
+pub fn oso_core::editor::TrimId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::TrimId
+impl core::marker::StructuralPartialEq for oso_core::editor::TrimId
+pub struct oso_core::editor::TrimJob
+impl oso_core::editor::TrimJob
+pub fn oso_core::editor::TrimJob::buffer(&self) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::TrimJob::id(&self) -> oso_core::editor::TrimId
+pub fn oso_core::editor::TrimJob::run(self) -> oso_core::editor::TrimReport
+impl core::fmt::Debug for oso_core::editor::TrimJob
+pub fn oso_core::editor::TrimJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::TrimOutcome
+pub oso_core::editor::TrimOutcome::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::TrimOutcome::for_agent: bool
+pub oso_core::editor::TrimOutcome::refused: core::option::Option<oso_core::editor::SaveRefused>
+impl core::clone::Clone for oso_core::editor::TrimOutcome
+pub fn oso_core::editor::TrimOutcome::clone(&self) -> oso_core::editor::TrimOutcome
+impl core::cmp::Eq for oso_core::editor::TrimOutcome
+impl core::cmp::PartialEq for oso_core::editor::TrimOutcome
+pub fn oso_core::editor::TrimOutcome::eq(&self, &oso_core::editor::TrimOutcome) -> bool
+impl core::fmt::Debug for oso_core::editor::TrimOutcome
+pub fn oso_core::editor::TrimOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::TrimOutcome
+impl core::marker::StructuralPartialEq for oso_core::editor::TrimOutcome
+pub struct oso_core::editor::TrimReport
+impl core::fmt::Debug for oso_core::editor::TrimReport
+pub fn oso_core::editor::TrimReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ViewSample
 impl core::clone::Clone for oso_core::editor::ViewSample
 pub fn oso_core::editor::ViewSample::clone(&self) -> oso_core::editor::ViewSample
@@ -2742,6 +2786,20 @@ impl oso_core::sum_tree::Summary for oso_core::display_map::tab_map::TabSummary
 pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
+pub mod oso_core::syntax
+pub struct oso_core::syntax::Splice
+pub oso_core::syntax::Splice::new_len: usize
+pub oso_core::syntax::Splice::old_len: usize
+pub oso_core::syntax::Splice::start: usize
+impl core::clone::Clone for oso_core::syntax::Splice
+pub fn oso_core::syntax::Splice::clone(&self) -> oso_core::syntax::Splice
+impl core::cmp::Eq for oso_core::syntax::Splice
+impl core::cmp::PartialEq for oso_core::syntax::Splice
+pub fn oso_core::syntax::Splice::eq(&self, &oso_core::syntax::Splice) -> bool
+impl core::fmt::Debug for oso_core::syntax::Splice
+pub fn oso_core::syntax::Splice::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::syntax::Splice
+impl core::marker::StructuralPartialEq for oso_core::syntax::Splice
 pub mod oso_core::window
 pub enum oso_core::window::Recenter
 pub oso_core::window::Recenter::Line(isize)

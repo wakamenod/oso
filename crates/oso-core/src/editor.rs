@@ -57,6 +57,7 @@ mod status;
 mod switch;
 mod tab;
 mod themes;
+mod trim;
 mod undo_group;
 mod view;
 mod windows;
@@ -81,6 +82,9 @@ pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
+#[cfg(test)]
+use trim::TRIM_ON_THE_UI_THREAD;
+pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
 pub use windows::{CannotResize, NoWindow, SoleWindow};
 pub use yank_pop::YankPopError;
 
@@ -217,6 +221,8 @@ pub struct Editor {
     reverts: Vec<(BufferId, ContentId)>,
     themes: themes::Themes,
     aids: VisualAids,
+    /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
+    trims: trim::Trims,
 }
 
 impl Default for Editor {
@@ -286,6 +292,7 @@ impl Editor {
             reverts: Vec::new(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
+            trims: trim::Trims::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));
@@ -985,6 +992,8 @@ mod reload_tests;
 mod save_tests;
 #[cfg(test)]
 mod test_buffers;
+#[cfg(test)]
+mod trim_tests;
 #[cfg(test)]
 mod undo_tests;
 #[cfg(test)]

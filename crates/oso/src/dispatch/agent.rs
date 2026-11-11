@@ -204,10 +204,19 @@ pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
         Some(Unshowable::Opening)
     } else if buffer.loading().is_some() {
         Some(Unshowable::Loading)
-    } else if buffer.mode() != Mode::Fundamental {
+    } else if has_own_keys(buffer.mode()) {
         Some(Unshowable::OwnKeys)
     } else {
         None
+    }
+}
+
+/// Whether a buffer in `mode` takes keys of its own, which the person's typing would reach. A
+/// match with no wildcard, so that a new mode says.
+fn has_own_keys(mode: Mode) -> bool {
+    match mode {
+        Mode::CopyList | Mode::CopyView => true,
+        Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }
 }
 
@@ -333,6 +342,20 @@ mod tests {
         let why = refused_switch(&mut dispatcher, &mut editor, "*copy of notes.txt*");
         assert!(why.contains("no buffer by that name"), "{why}");
         assert_ne!(editor.window().buffer(), view);
+    }
+
+    #[test]
+    fn only_the_modes_of_emergency_copies_have_keys_of_their_own() {
+        use super::{Unshowable, unshowable};
+        use oso_core::buffer::Mode;
+        let mut editor = editor("abc");
+        let rust = editor.add_internal_buffer("main.rs", Mode::Rust);
+        let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::CopyView);
+        assert!(unshowable(editor.buffer(rust).unwrap()).is_none());
+        assert!(matches!(
+            unshowable(editor.buffer(view).unwrap()),
+            Some(Unshowable::OwnKeys)
+        ));
     }
 
     #[test]
