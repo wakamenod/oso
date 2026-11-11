@@ -4,9 +4,10 @@
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 //!
-//! The selected window draws as the one window always has. Any other, and every window
-//! beneath a prompt, has a hollow cursor, no region, band, flash or match, and an inactive
-//! modeline, as the editor's cells and status already say.
+//! The selected window draws as the one window always has. Any other has a hollow cursor, no
+//! region, band, flash or match, and an inactive modeline. Beneath a prompt every window's
+//! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
+//! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
 use oso_core::editor::{Editor, Gutter, MatchCells, Status};
 use oso_core::frame::{CellRect, WindowRegions};

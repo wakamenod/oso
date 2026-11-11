@@ -29,8 +29,8 @@
 //! With several tiled windows, each comes in the tree's order after a line that says where it
 //! is and whether it is selected; a divider at a window's right ends its rows and modeline with
 //! `┃`, and the modeline of a window that is not selected, as every window beneath a prompt,
-//! is between `-`. Only the selected window has a region, a band, a flash and isearch's
-//! matches, and the others' cursors are `o` (ADR 0112).
+//! is between `-`. Only the selected window, or the one a prompt came from, has a region, a
+//! band, a flash and isearch's matches, and the others' cursors are `o` (ADR 0112).
 //!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message

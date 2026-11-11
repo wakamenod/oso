@@ -3,28 +3,37 @@ source: crates/oso/src/dispatch/grid_tests.rs
 description: "text: line 1\\nline 2\\nline 3\\nline 4\\nline 5\\nline 6\\n"
 ---
 keys: C-x 3
-WindowId(0) at row 0, column 0: 7 x 24, selected
+WindowId(0) at row 0, column 0: 7 x 24
 │line 1                 │┃
-:^                      :
+:o                      :
 │line 2                 │┃
 │line 3                 │┃
 │line 4                 │┃
 │line 5                 │┃
 │line 6                 │┃
-=-- test  1:0  Fundament=┃
-WindowId(1) at row 0, column 24: 7 x 23
+--- test  1:0  Fundament-┃
+WindowId(1) at row 0, column 24: 7 x 23, selected
 │line 1                 │
-:o                      :
+:^                      :
 │line 2                 │
 │line 3                 │
 │line 4                 │
 │line 5                 │
 │line 6                 │
---- test  1:0  Fundament-
+=-- test  1:0  Fundament=
 "                                               "
 
 keys: run:split-window-right-and-select
-WindowId(0) at row 0, column 0: 7 x 12
+WindowId(0) at row 0, column 0: 7 x 24
+│line 1                 │┃
+:o                      :
+│line 2                 │┃
+│line 3                 │┃
+│line 4                 │┃
+│line 5                 │┃
+│line 6                 │┃
+--- test  1:0  Fundament-┃
+WindowId(1) at row 0, column 24: 7 x 12
 │line 1     │┃
 :o          :
 │line 2     │┃
@@ -33,54 +42,45 @@ WindowId(0) at row 0, column 0: 7 x 12
 │line 5     │┃
 │line 6     │┃
 --- test  1:-┃
-WindowId(2) at row 0, column 12: 7 x 12, selected
-│line 1     │┃
+WindowId(2) at row 0, column 36: 7 x 11, selected
+│line 1     │
 :^          :
-│line 2     │┃
-│line 3     │┃
-│line 4     │┃
-│line 5     │┃
-│line 6     │┃
-=-- test  1:=┃
-WindowId(1) at row 0, column 24: 7 x 23
-│line 1                 │
-:o                      :
-│line 2                 │
-│line 3                 │
-│line 4                 │
-│line 5                 │
-│line 6                 │
---- test  1:0  Fundament-
+│line 2     │
+│line 3     │
+│line 4     │
+│line 5     │
+│line 6     │
+=-- test  1:=
 "                                               "
 
 keys: C-u 3 C-x {
-WindowId(0) at row 0, column 0: 7 x 12
-│line 1     │┃
-:o          :
-│line 2     │┃
-│line 3     │┃
-│line 4     │┃
-│line 5     │┃
-│line 6     │┃
---- test  1:-┃
-WindowId(2) at row 0, column 12: 7 x 11, selected
-│line 1    │┃
+WindowId(0) at row 0, column 0: 7 x 24
+│line 1                 │┃
+:o                      :
+│line 2                 │┃
+│line 3                 │┃
+│line 4                 │┃
+│line 5                 │┃
+│line 6                 │┃
+--- test  1:0  Fundament-┃
+WindowId(1) at row 0, column 24: 7 x 13
+│line 1      │┃
+:o           :
+│line 2      │┃
+│line 3      │┃
+│line 4      │┃
+│line 5      │┃
+│line 6      │┃
+--- test  1:0-┃
+WindowId(2) at row 0, column 37: 7 x 10, selected
+│line 1    │
 :^         :
-│line 2    │┃
-│line 3    │┃
-│line 4    │┃
-│line 5    │┃
-│line 6    │┃
-=-- test  1=┃
-WindowId(1) at row 0, column 23: 7 x 24
-│line 1                  │
-:o                       :
-│line 2                  │
-│line 3                  │
-│line 4                  │
-│line 5                  │
-│line 6                  │
---- test  1:0  Fundamenta-
+│line 2    │
+│line 3    │
+│line 4    │
+│line 5    │
+│line 6    │
+=-- test  1=
 "                                               "
 
 keys: C-x +
@@ -93,37 +93,7 @@ WindowId(0) at row 0, column 0: 7 x 16
 │line 5         │┃
 │line 6         │┃
 --- test  1:0  F-┃
-WindowId(2) at row 0, column 16: 7 x 16, selected
-│line 1         │┃
-:^              :
-│line 2         │┃
-│line 3         │┃
-│line 4         │┃
-│line 5         │┃
-│line 6         │┃
-=-- test  1:0  F=┃
-WindowId(1) at row 0, column 32: 7 x 15
-│line 1         │
-:o              :
-│line 2         │
-│line 3         │
-│line 4         │
-│line 5         │
-│line 6         │
---- test  1:0  F-
-"                                               "
-
-keys: run:windmove-left
-WindowId(0) at row 0, column 0: 7 x 16, selected
-│line 1         │┃
-:^              :
-│line 2         │┃
-│line 3         │┃
-│line 4         │┃
-│line 5         │┃
-│line 6         │┃
-=-- test  1:0  F=┃
-WindowId(2) at row 0, column 16: 7 x 16
+WindowId(1) at row 0, column 16: 7 x 16
 │line 1         │┃
 :o              :
 │line 2         │┃
@@ -132,7 +102,37 @@ WindowId(2) at row 0, column 16: 7 x 16
 │line 5         │┃
 │line 6         │┃
 --- test  1:0  F-┃
-WindowId(1) at row 0, column 32: 7 x 15
+WindowId(2) at row 0, column 32: 7 x 15, selected
+│line 1         │
+:^              :
+│line 2         │
+│line 3         │
+│line 4         │
+│line 5         │
+│line 6         │
+=-- test  1:0  F=
+"                                               "
+
+keys: run:windmove-left
+WindowId(0) at row 0, column 0: 7 x 16
+│line 1         │┃
+:o              :
+│line 2         │┃
+│line 3         │┃
+│line 4         │┃
+│line 5         │┃
+│line 6         │┃
+--- test  1:0  F-┃
+WindowId(1) at row 0, column 16: 7 x 16, selected
+│line 1         │┃
+:^              :
+│line 2         │┃
+│line 3         │┃
+│line 4         │┃
+│line 5         │┃
+│line 6         │┃
+=-- test  1:0  F=┃
+WindowId(2) at row 0, column 32: 7 x 15
 │line 1         │
 :o              :
 │line 2         │

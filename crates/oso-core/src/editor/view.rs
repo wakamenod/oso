@@ -211,18 +211,19 @@ impl Editor {
 
     /// As [`Editor::window_in_tree`], for what only the selected window draws: the region, the
     /// current line's band, the flash and isearch's matches (ADR 0112). `None` for any other
-    /// window, and for every tiled window beneath a prompt, which is drawn as not selected.
+    /// window. Beneath a prompt the window it came from keeps them, as Emacs keeps them in the
+    /// minibuffer's selected window, though its cursor is hollow and its modeline inactive
+    /// (ADR 0072, ADR 0097).
     pub(super) fn selected_in_tree(
         &self,
         id: WindowId,
     ) -> Option<(&Window, &Buffer, WindowRegions)> {
-        let selected = self.prompts.is_empty() && id == self.tiled_id();
-        self.window_in_tree(id).filter(|_| selected)
+        self.window_in_tree(id).filter(|_| id == self.tiled_id())
     }
 
     /// The cells of the text area of the window `id` that its regions take, as `screen` shows
     /// it ([`Editor::screen_of`]), into `out`, which is emptied first, and none while they are
-    /// hidden (ADR 0071). Only the selected window has them, and none beneath a prompt
+    /// hidden (ADR 0071). Only the selected window has them, also beneath a prompt
     /// (ADR 0112). A preedit pushes them as it pushes the text.
     pub fn region_cells(&self, id: WindowId, screen: &Screen, out: &mut Vec<CellRect>) {
         out.clear();

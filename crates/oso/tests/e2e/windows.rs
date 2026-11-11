@@ -42,7 +42,7 @@ fn c_x_3_draws_both_windows_and_a_key_goes_to_the_selected_one() {
     let state = app.state();
     let split = windows(&state);
     assert_eq!(split.len(), 2);
-    assert_eq!(split[0]["selected"], true, "the original stays selected");
+    assert_eq!(split[1]["selected"], true, "the new window is selected");
     assert_eq!(
         columns(&split[0]) + 1 + columns(&split[1]),
         whole,
@@ -53,17 +53,18 @@ fn c_x_3_draws_both_windows_and_a_key_goes_to_the_selected_one() {
         "the right window draws its text"
     );
 
-    // The other window's cursor goes down a line and types there; the first's stays.
+    // Back in the first window, its cursor goes down a line and types there; the new one's
+    // stays.
     app.send_keys("C-x o C-n x");
     let state = app.state();
     let split = windows(&state);
-    assert_eq!(split[1]["selected"], true);
+    assert_eq!(split[0]["selected"], true);
     assert_eq!(state["text"]["rows"][1], "xbudget");
     assert_eq!(
-        split[0]["selections"][0]["cursor"], 0,
-        "the first window's cursor"
+        split[1]["selections"][0]["cursor"], 0,
+        "the new window's cursor"
     );
-    assert_eq!(split[1]["selections"][0]["cursor"], 8);
+    assert_eq!(split[0]["selections"][0]["cursor"], 8);
 
     app.send_keys("C-x 0");
     let state = app.state();
@@ -89,7 +90,7 @@ fn a_composition_ends_when_another_window_is_selected() {
         .expect("the socket selects the other window");
     let state = app.state();
     assert_eq!(state["ime"]["composing"], false, "it ends");
-    assert_eq!(windows(&state)[1]["selected"], true);
+    assert_eq!(windows(&state)[0]["selected"], true, "back in the first");
     assert_eq!(state["text"]["rows"][0], "abc", "nothing of it went in");
 }
 

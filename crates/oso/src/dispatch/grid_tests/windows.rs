@@ -37,7 +37,7 @@ fn split_right_puts_a_divider_between_them() {
 }
 
 #[test]
-fn only_the_selected_window_has_the_band_and_the_region() {
+fn only_the_selected_window_has_the_band_and_the_region_also_beneath_a_prompt() {
     let text = lines(6);
     let mut editor = Editor::with_buffer(Buffer::from_text("test", &text));
     aids_off(&mut editor);
@@ -50,7 +50,16 @@ fn only_the_selected_window_has_the_band_and_the_region() {
         rows: 10,
         columns: 47,
     });
-    let steps = ["C-x 3", "C-SPC C-n C-f", "C-x o", "C-s l i n e"];
+    // Beneath a prompt, the window it came from keeps its region and band, its cursor hollow
+    // and its modeline inactive (ADR 0072, ADR 0097).
+    let steps = [
+        "C-x 3",
+        "C-SPC C-n C-f",
+        "C-x o",
+        "C-s l i n e",
+        "RET C-SPC C-n",
+        "M-g g",
+    ];
     check_editor("windows_selected_aids", text.as_bytes(), editor, &steps);
 }
 

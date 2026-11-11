@@ -3,6 +3,24 @@ source: crates/oso/src/dispatch/grid_tests.rs
 description: "text: line 1\\nline 2\\nline 3\\nline 4\\nline 5\\n"
 ---
 keys: C-x 2
+WindowId(0) at row 0, column 0: 6 x 24
+│line 1                  │
+:o                       :
+│line 2                  │
+│line 3                  │
+│line 4                  │
+│line 5                  │
+--- test  1:0  Fundamenta-
+WindowId(1) at row 6, column 0: 5 x 24, selected
+│line 1                  │
+:^                       :
+│line 2                  │
+│line 3                  │
+│line 4                  │
+=-- test  1:0  Fundamenta=
+"                        "
+
+keys: C-x o
 WindowId(0) at row 0, column 0: 6 x 24, selected
 │line 1                  │
 :^                       :
@@ -20,92 +38,74 @@ WindowId(1) at row 6, column 0: 5 x 24
 --- test  1:0  Fundamenta-
 "                        "
 
-keys: C-x o
-WindowId(0) at row 0, column 0: 6 x 24
-│line 1                  │
-:o                       :
-│line 2                  │
-│line 3                  │
-│line 4                  │
-│line 5                  │
---- test  1:0  Fundamenta-
-WindowId(1) at row 6, column 0: 5 x 24, selected
-│line 1                  │
-:^                       :
-│line 2                  │
-│line 3                  │
-│line 4                  │
-=-- test  1:0  Fundamenta=
-"                        "
-
 keys: M->
-WindowId(0) at row 0, column 0: 6 x 24
-│line 1                  │
-:o                       :
+WindowId(0) at row 0, column 0: 6 x 24, selected
 │line 2                  │
-│line 3                  │
-│line 4                  │
-│line 5                  │
---- test  1:0  Fundamenta-
-WindowId(1) at row 6, column 0: 5 x 24, selected
 │line 3                  │
 │line 4                  │
 │line 5                  │
 │                        │
 :^                       :
 =-- test  6:0  Fundamenta=
-"Mark set                "
-
-keys: C-x o
-WindowId(0) at row 0, column 0: 6 x 24, selected
+WindowId(1) at row 6, column 0: 5 x 24
 │line 1                  │
-:^                       :
+:o                       :
 │line 2                  │
 │line 3                  │
 │line 4                  │
-│line 5                  │
-=-- test  1:0  Fundamenta=
-WindowId(1) at row 6, column 0: 5 x 24
+--- test  1:0  Fundamenta-
+"Mark set                "
+
+keys: C-x o
+WindowId(0) at row 0, column 0: 6 x 24
+│line 2                  │
 │line 3                  │
 │line 4                  │
 │line 5                  │
 │                        │
 :o                       :
 --- test  6:0  Fundamenta-
-"                        "
-
-keys: x y z RET
-WindowId(0) at row 0, column 0: 6 x 24, selected
-│xyz                     │
+WindowId(1) at row 6, column 0: 5 x 24, selected
 │line 1                  │
 :^                       :
 │line 2                  │
 │line 3                  │
 │line 4                  │
-=** test  2:0  Fundamenta=
-WindowId(1) at row 6, column 0: 5 x 24
+=-- test  1:0  Fundamenta=
+"                        "
+
+keys: x y z RET
+WindowId(0) at row 0, column 0: 6 x 24
+│line 2                  │
 │line 3                  │
 │line 4                  │
 │line 5                  │
 │                        │
 :o                       :
 -** test  7:0  Fundamenta-
+WindowId(1) at row 6, column 0: 5 x 24, selected
+│xyz                     │
+│line 1                  │
+:^                       :
+│line 2                  │
+│line 3                  │
+=** test  2:0  Fundamenta=
 "                        "
 
 keys: C-a C-k C-k
-WindowId(0) at row 0, column 0: 6 x 24, selected
-│xyz                     │
-│line 3                  │
-:^                       :
-│line 4                  │
-│line 5                  │
-│                        │
-=** test  2:0  Fundamenta=
-WindowId(1) at row 6, column 0: 5 x 24
+WindowId(0) at row 0, column 0: 6 x 24
 │line 3                  │
 │line 4                  │
 │line 5                  │
 │                        │
 :o                       :
+│                        │
 -** test  5:0  Fundamenta-
+WindowId(1) at row 6, column 0: 5 x 24, selected
+│xyz                     │
+│line 3                  │
+:^                       :
+│line 4                  │
+│line 5                  │
+=** test  2:0  Fundamenta=
 "                        "

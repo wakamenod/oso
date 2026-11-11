@@ -310,6 +310,14 @@ file or a 10 MB line.
   and up, four a window, below them the echo area's and the floats'. A composition ends when
   another tiled window is selected, whatever selected it, and stays when a prompt opens over
   it (ADR 0077).
+- **A split selects the new window (the author's choice, 2026-11-12),** in place of question
+  3's (a): `C-x 2` and `C-x 3` select the window below or at the right, as the author's own
+  Emacs does, unlike Emacs's default. `split-window-below-and-select` and
+  `split-window-right-and-select` do the same, kept for configurations that name them.
+- **Beneath a prompt (the author's choice, 2026-11-12),** the window the prompt came from keeps
+  its region, its current line's band and its flash, as Emacs keeps them in the minibuffer's
+  selected window, so ADR 0072 and ADR 0097 hold as written. Its cursor is hollow and its
+  modeline inactive, as every window's beneath a prompt.
 - **`Agent` stays in sight (the author's choice, 2026-11-12):** a prompt's float can cover the
   selected window's modeline, which then sits mid-frame. While one does, the bottom-most
   window's modeline, the left-most on the bottom row, says `Agent` too (ADR 0085).

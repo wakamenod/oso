@@ -89,8 +89,9 @@ With several tiled windows ([ADR 0112](adr/0112-window-splits.md)), each comes i
 tree's order after a line such as `WindowId(1) at row 6, column 0: 5 x 24, selected`, with
 its rows and its modeline. A window with a divider at its right ends each of those lines
 with `┃`. The modeline of a window that is not selected is between `-`, its cursor is `o`,
-and it has no region, band, flash or isearch match. Beneath a prompt every window is drawn as
-not selected. A frame of one window has no such line, so it reads as before.
+and it has no region, band, flash or isearch match. Beneath a prompt every modeline is between
+`-`, but the window the prompt came from keeps its region and band. A frame of one window has
+no such line, so it reads as before.
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `]`
