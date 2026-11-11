@@ -281,3 +281,95 @@ fn the_count_comes_even_if_an_answer_came_first() {
     drain(&mut editor);
     assert_eq!(editor.replace().unwrap().count(), Some((2, 3)));
 }
+
+#[test]
+fn the_count_is_of_the_scope_as_it_began_even_after_a_replacement() {
+    let text = format!("a{}a a", ".".repeat(2 * KEY_BUDGET));
+    let mut editor = editor(&text);
+    begin(&mut editor, "a", "b");
+    // The answer's search passes a key's budget before the count has come.
+    answer(&mut editor, Replace);
+    assert!(editor.replace().unwrap().searching());
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((2, 3)));
+}
+
+#[test]
+fn caret_again_goes_further_back_over_replaced_matches() {
+    let mut editor = editor("x x x x");
+    begin(&mut editor, "x", "y");
+    answer(&mut editor, Replace);
+    answer(&mut editor, Replace);
+    answer(&mut editor, Back);
+    assert_eq!(cursor(&editor), 3);
+    answer(&mut editor, Back);
+    assert_eq!(cursor(&editor), 1);
+    answer(&mut editor, Back);
+    assert_eq!(cursor(&editor), 1, "none before the first");
+}
+
+#[test]
+fn undoing_the_session_puts_the_cursor_back_where_it_began() {
+    let mut editor = editor("foo bar foo");
+    begin(&mut editor, "foo", "x");
+    answer(&mut editor, Replace);
+    answer(&mut editor, Replace);
+    assert!(editor.replace().is_none());
+    editor.undo().unwrap();
+    assert_eq!(text(&editor), "foo bar foo");
+    assert_eq!(cursor(&editor), 0);
+    // Also after one replacement alone.
+    let mut editor = self::editor("foo foo");
+    begin(&mut editor, "foo", "x");
+    answer(&mut editor, Replace);
+    answer(&mut editor, Exit);
+    editor.undo().unwrap();
+    assert_eq!(cursor(&editor), 0);
+}
+
+#[test]
+fn no_debug_says_the_strings() {
+    let mut editor = editor("secret secret");
+    begin(&mut editor, "secret", "hidden");
+    let printed = format!("{:?} {:?}", editor.replace(), editor.replacing);
+    assert!(
+        !printed.contains("secret") && !printed.contains("hidden"),
+        "{printed}"
+    );
+}
+
+#[test]
+fn answers_waiting_for_the_worker_are_few() {
+    let far = format!("{}x", ".".repeat(2 * KEY_BUDGET));
+    let mut editor = editor(&far);
+    begin(&mut editor, "x", "y");
+    for _ in 0..40 {
+        answer(&mut editor, Skip);
+    }
+    assert_eq!(editor.replace().unwrap().pending.len(), super::MOST_PENDING);
+}
+
+#[test]
+fn an_empty_replacement_goes_on_at_its_end() {
+    let mut editor = editor("aab");
+    begin(&mut editor, "a", "");
+    answer(&mut editor, Replace);
+    answer(&mut editor, Replace);
+    assert_eq!(text(&editor), "b");
+}
+
+#[test]
+fn a_session_the_undo_limit_cut_still_undoes_what_is_left_at_once() {
+    let many = "ab ".repeat(5000);
+    let mut editor = editor(&many);
+    let id = editor.window().buffer();
+    // Room for a slice or two of `!`'s, not all five.
+    editor.buffer_mut(id).unwrap().set_undo_limit(400_000);
+    begin(&mut editor, "ab", "c");
+    answer(&mut editor, All);
+    finish_all(&mut editor);
+    assert_eq!(text(&editor), "c ".repeat(5000));
+    editor.undo().unwrap();
+    assert_ne!(text(&editor), "c ".repeat(5000), "it undid something");
+    assert!(editor.undo().is_err(), "all that was left, in one step");
+}

@@ -73,6 +73,13 @@ impl Buffer {
         }
     }
 
+    /// Counts `span` as edited whole: the ranges within or touching it become one. A command
+    /// that makes many edits close together, as `!` does, keeps the set from growing by one
+    /// range for each (ADR 0113).
+    pub(crate) fn cover_edited(&mut self, span: Range<usize>) {
+        self.edited.now.cover(span);
+    }
+
     /// Keeps `ranges` as `id`'s, following the edits made from now on.
     pub(crate) fn track(&mut self, id: Tracking, ranges: Vec<Range<usize>>) {
         self.edited.tracked.push((
@@ -146,6 +153,18 @@ impl Edited {
             start..start + edit.new_len
         });
         self.merge_from(&mut added);
+    }
+
+    /// Makes the ranges within or touching `span` one range, with `span`. O(ranges).
+    pub(crate) fn cover(&mut self, span: Range<usize>) {
+        let first = self.ranges.partition_point(|range| range.end < span.start);
+        let last = self.ranges.partition_point(|range| range.start <= span.end);
+        let (start, end) = self.ranges[first..last]
+            .iter()
+            .fold((span.start, span.end), |(start, end), range| {
+                (start.min(range.start), end.max(range.end))
+            });
+        self.ranges.splice(first..last, std::iter::once(start..end));
     }
 
     /// Takes `ranges`, ascending, in as edited too.
@@ -223,5 +242,20 @@ mod tests {
         );
         assert_eq!(edited.ranges().len(), 1000);
         assert_eq!(edited.ranges()[1], 12..14);
+    }
+
+    #[test]
+    fn a_span_covers_the_ranges_in_it_as_one() {
+        let mut edited = Edited::default();
+        edited.follow(&[
+            edit(0, 0, 1),
+            edit(10, 0, 1),
+            edit(20, 0, 1),
+            edit(40, 0, 1),
+        ]);
+        edited.cover(5..22);
+        assert_eq!(edited.ranges(), [0..1, 5..23, 43..44]);
+        edited.cover(30..35);
+        assert_eq!(edited.ranges(), [0..1, 5..23, 30..35, 43..44]);
     }
 }

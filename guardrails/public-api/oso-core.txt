@@ -1569,7 +1569,7 @@ pub fn oso_core::editor::Editor::text_screen(&self, &mut oso_core::window::Scree
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::ReplaceAnswer)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::replace_continue(&mut self) -> bool
+pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
@@ -1679,13 +1679,9 @@ pub struct oso_core::editor::Replace
 impl oso_core::editor::Replace
 pub fn oso_core::editor::Replace::around_secret(&self) -> bool
 pub fn oso_core::editor::Replace::count(&self) -> core::option::Option<(usize, usize)>
-pub fn oso_core::editor::Replace::from(&self) -> &str
 pub fn oso_core::editor::Replace::regexp(&self) -> bool
 pub fn oso_core::editor::Replace::replaced(&self) -> usize
-pub fn oso_core::editor::Replace::replacing_all(&self) -> bool
 pub fn oso_core::editor::Replace::searching(&self) -> bool
-pub fn oso_core::editor::Replace::skipped(&self) -> usize
-pub fn oso_core::editor::Replace::to(&self) -> &str
 impl core::fmt::Debug for oso_core::editor::Replace
 pub fn oso_core::editor::Replace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::SaveJob

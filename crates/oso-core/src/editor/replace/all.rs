@@ -19,20 +19,21 @@ impl Editor {
     }
 
     /// `!`'s next slice: the matches within a key's budget of text, at most [`ALL_SLICE`] of
-    /// them, replaced as one edit. Ends the session after the last. Returns whether the text
-    /// changed.
-    pub fn replace_continue(&mut self) -> bool {
+    /// them, replaced as one edit, which counts as edited whole for whitespace cleanup, so
+    /// that a long `!` does not grow the edited ranges by one for each match. Ends the session
+    /// after the last.
+    pub fn replace_continue(&mut self) {
         let Some(state) = self.replace() else {
-            return false;
+            return;
         };
         let Some(from) = state.all_from else {
-            return false;
+            return;
         };
         let (id, preserve) = (state.buffer, state.preserve_case);
         let to = state.to.clone();
         let (matches, next) = self.replace_slice(from);
         let Some(buffer) = self.buffer(id) else {
-            return false;
+            return;
         };
         let text = buffer.text();
         let texts: Vec<String> = matches
@@ -71,9 +72,12 @@ impl Editor {
             }
             state.all_from = next.map(|at| at.saturating_add_signed(shift));
         }
-        if let Some(last) = matches.last().zip(texts.last()) {
+        if let Some((first, last)) = matches.first().zip(matches.last()) {
             // Its start moved by what the others changed; its end by that and its own.
-            let end = last.0.start.saturating_add_signed(shift) + last.0.len();
+            let end = last.start.saturating_add_signed(shift) + last.len();
+            if changed && let Some(buffer) = self.buffer_mut(id) {
+                buffer.cover_edited(first.start..end);
+            }
             let display = self.current().1.display();
             let cursor = motion::cluster_start(&display, end);
             self.windows[self.selected].selections.move_primary(cursor);
@@ -82,7 +86,6 @@ impl Editor {
         if next.is_none() {
             self.replace_end(true);
         }
-        changed
     }
 
     /// The matches of `!`'s next slice from `from`, within a key's budget of text and at most
@@ -115,7 +118,7 @@ impl Editor {
                 ) {
                     Found::Match(found) => {
                         budget = budget.saturating_sub(found.end - start);
-                        start = after(&found);
+                        start = after(text, &found);
                         matches.push(found);
                     }
                     Found::None => {

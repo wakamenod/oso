@@ -19,7 +19,7 @@ use super::Editor;
 use super::isearch::MatchCells;
 use crate::buffer::ReadOnly;
 use crate::motion;
-use crate::search::{self, Found, KEY_BUDGET, Query, Report, Scope, SearchJob, SearchReport};
+use crate::search::{self, Counting, Found, KEY_BUDGET, Query, Report, SearchJob, SearchReport};
 use crate::window::{Screen, WindowId};
 
 mod all;
@@ -51,13 +51,29 @@ impl fmt::Display for ReplaceError {
     }
 }
 
-/// The session and the last pair of strings of each kind, for an empty answer.
-#[derive(Debug, Default)]
+/// The session and the last pair of strings of each kind, for an empty answer. Its `Debug`
+/// prints no string.
+#[derive(Default)]
 pub(super) struct Replacing {
     session: Option<Replace>,
     /// The last pair given, literal first and regexp second.
     last: [Option<(String, String)>; 2],
 }
+
+impl fmt::Debug for Replacing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Replacing")
+            .field("session", &self.session)
+            .field(
+                "last",
+                &self.last.iter().map(Option::is_some).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
+/// The most answers kept while a worker looks for the next match.
+const MOST_PENDING: usize = 16;
 
 /// Merges `ranges`, sorted, into ranges apart.
 fn merged(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
@@ -128,6 +144,8 @@ impl Editor {
         }
         let id = self.window().buffer();
         let cursor = self.window().selections.primary().cursor;
+        // Where an undo of the whole session takes the cursors back to.
+        let before = self.window().selections.clone();
         let selections = &self.window().selections;
         let ranges = if selections.mark_active().is_active() {
             merged(
@@ -143,8 +161,13 @@ impl Editor {
         let scope = self.new_tracking();
         let buffer = self.buffer_mut(id).ok_or(ReplaceError::EmptyString)?;
         buffer.track(scope, ranges.clone());
-        let began = (cursor, buffer.content_id());
+        let began = (cursor, buffer.undo_mark());
         let revision = buffer.revision();
+        let counting = Counting {
+            text: buffer.text().clone(),
+            invalid: buffer.invalid_bytes().clone(),
+            ranges: ranges.clone(),
+        };
         self.replacing.session = Some(Replace {
             from,
             to,
@@ -162,10 +185,13 @@ impl Editor {
             skipped: 0,
             visits: Vec::new(),
             began,
+            before: Some(before),
             revision,
             around_secret,
             all_from: None,
             help: false,
+            counting: Some(counting),
+            back: 0,
         });
         let start = ranges.first().map_or(cursor, |range| range.start);
         self.replace_find(start);
@@ -250,13 +276,14 @@ impl Editor {
             return;
         };
         let snapshot = (buffer.text().clone(), buffer.invalid_bytes().clone());
-        let scope = Scope {
-            find,
-            count,
-            most: None,
-        };
+        // The count is of the scope when the session began, whatever it replaced since.
+        let counting = self
+            .replace()
+            .and_then(|state| state.counting.clone())
+            .filter(|_| count);
         let live = (generation, self.search_live.clone());
-        self.search_job = Some(SearchJob::scoped(snapshot, query, ranges, scope, live));
+        let what = (find, counting);
+        self.search_job = Some(SearchJob::scoped(snapshot, query, ranges, what, live));
     }
 
     /// Asks about `range`: the cursor goes to its end.
@@ -267,6 +294,7 @@ impl Editor {
         state.current = Some(range.clone());
         state.searching = None;
         state.stay = None;
+        state.back = 0;
         let display = self.current().1.display();
         let cursor = motion::cluster_start(&display, range.end);
         self.windows[self.selected].selections.move_primary(cursor);
@@ -305,6 +333,7 @@ impl Editor {
             } if generation == live => {
                 if let Some(state) = &mut self.replacing.session {
                     state.total = Some(count.total);
+                    state.counting = None;
                 }
                 true
             }
@@ -323,7 +352,7 @@ impl Editor {
         self.supersede_search();
         if let Some(buffer) = self.buffer_mut(state.buffer) {
             buffer.untrack(state.scope);
-            buffer.join_undo_since(state.began.1);
+            buffer.join_undo_since(state.began.1, state.before.clone());
         }
         if self.window().buffer() == state.buffer {
             let selections = &mut self.windows[self.selected].selections;
@@ -409,12 +438,18 @@ impl Editor {
     }
 }
 
-/// Where the next search starts after `range`: its end, or one past an empty match.
-fn after(range: &Range<usize>) -> usize {
-    if range.is_empty() {
-        range.end + 1
-    } else {
-        range.end
+/// Where the next search starts after `range` in `text`: its end, or past an empty match,
+/// the next character.
+fn after(text: &crate::rope::Rope, range: &Range<usize>) -> usize {
+    search::after(text, range)
+}
+
+impl Editor {
+    /// Where the session's next search starts after `range`, as [`after`] says.
+    fn next_from(&self, range: &Range<usize>) -> usize {
+        self.replace()
+            .and_then(|state| self.buffer(state.buffer))
+            .map_or(range.end, |buffer| after(buffer.text(), range))
     }
 }
 

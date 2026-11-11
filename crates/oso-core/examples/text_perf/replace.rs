@@ -1,5 +1,5 @@
-//! query-replace's `!` (ADR 0113): each slice it replaces on the UI thread, over a large file
-//! with many matches. Run with `-- replace`.
+//! query-replace's `!` (ADR 0113): each slice it replaces on the UI thread, over large texts
+//! with sparse and dense matches, and undoing the whole session. Run with `-- replace`.
 //!
 //! Must not depend on: other workspace crates or crate internals; it uses only the public
 //! API.
@@ -21,27 +21,15 @@ fn spread(mut times: Vec<Duration>) -> (Duration, Duration, Duration) {
     (at(0.5), at(0.99), times.last().copied().unwrap_or_default())
 }
 
-pub(crate) fn replace_costs() {
-    println!("== query-replace's ! (ADR 0113)");
-    // 100 MB of source-like text, with a word on a line of its own every 25 lines.
-    let source = file_text(100 * MB);
-    let mut text = String::with_capacity(source.len() + 1_000_000);
-    let mut placed = 0;
-    for (index, line) in source.split_inclusive('\n').enumerate() {
-        text.push_str(line);
-        if index % 25 == 0 && placed < 100_000 {
-            text.push_str("needle\n");
-            placed += 1;
-        }
-    }
-    let mut editor = Editor::with_buffer(Buffer::from_text("file", &text));
-    let started = Instant::now();
+/// `!` replacing `from` with `to` over `text`: each slice, the first and last apart, so a
+/// slowdown as it goes shows, and the undo of the whole session.
+fn bang(label: &str, text: &str, from: &str, to: &str) {
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", text));
     editor.begin_undo_group();
     editor
-        .replace_begin("needle", "thread", false)
+        .replace_begin(from, to, false)
         .expect("the buffer takes edits");
     editor.end_undo_group();
-    let begun = started.elapsed();
     editor.replace_answer(ReplaceAnswer::All);
     let mut slices = Vec::new();
     while editor.replace_works() {
@@ -49,12 +37,40 @@ pub(crate) fn replace_costs() {
         editor.replace_continue();
         slices.push(started.elapsed());
     }
-    let count = slices.len();
-    let (p50, p99, most) = spread(slices);
-    println!(
-        "100 MB, {placed} matches: begin {begun:>9.2?}; {count} slices p50 {p50:>9.2?} p99 {p99:>9.2?} most {most:>9.2?}"
+    let (count, first, last) = (
+        slices.len(),
+        slices.first().copied().unwrap_or_default(),
+        slices.last().copied().unwrap_or_default(),
     );
+    let (p50, p99, most) = spread(slices);
     let started = Instant::now();
     editor.undo().expect("the session undoes");
-    println!("undo of the whole session  {:>9.2?}", started.elapsed());
+    let undone = started.elapsed();
+    println!(
+        "{label:<28} {count:>5} slices: first {first:>9.2?} last {last:>9.2?} p50 {p50:>9.2?} p99 {p99:>9.2?} most {most:>9.2?}; undo {undone:>9.2?}"
+    );
+}
+
+pub(crate) fn replace_costs() {
+    println!("== query-replace's ! (ADR 0113)");
+    // 100 MB of source-like text, with a word on a line of its own every 25 lines.
+    let source = file_text(100 * MB);
+    let mut sparse = String::with_capacity(source.len() + 1_000_000);
+    let mut placed = 0;
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        sparse.push_str(line);
+        if index % 25 == 0 && placed < 100_000 {
+            sparse.push_str("needle\n");
+            placed += 1;
+        }
+    }
+    bang("100 MB, 100k sparse", &sparse, "needle", "thread");
+    // Dense: every slice reaches its cap of matches.
+    bang(
+        "12 MB, 4M lines of ab",
+        &"ab\n".repeat(4_000_000),
+        "ab",
+        "c",
+    );
+    bang("6 MB line, 2M matches", &"abc".repeat(2_000_000), "ab", "c");
 }

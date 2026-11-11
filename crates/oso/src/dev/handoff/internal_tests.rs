@@ -191,6 +191,29 @@ fn a_composition_holds_the_handover_and_an_exit_for_a_generation() {
 }
 
 #[test]
+fn a_query_replace_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = Editor::default();
+    let id = editor.window().buffer();
+    let text = oso_core::buffer::Replacement {
+        range: 0..0,
+        text: "a a",
+    };
+    editor.apply_edits(id, &[text]).unwrap();
+    editor.current_mut().0.selections = oso_core::selection::SelectionSet::new(0);
+    let before = generation(&editor);
+    editor.replace_begin("a", "b", false).unwrap();
+    assert!(editor.replace().is_some());
+    assert_eq!(
+        check(&editor),
+        Err("cannot hand over: a search is under way".into())
+    );
+    let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+    assert!(refused.ends_with("a search is under way"), "{refused}");
+    editor.replace_exit();
+    assert!(check(&editor).is_ok());
+}
+
+#[test]
 fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
     let mut editor = Editor::default();
     let before = generation(&editor);

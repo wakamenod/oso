@@ -30,6 +30,7 @@ pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
 mod held;
+mod hold_all;
 mod keymaps;
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
@@ -79,6 +80,8 @@ pub struct Dispatcher {
     publisher: Option<Publisher>,
     /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
     waiting: Option<clipboard::Waiting>,
+    /// Input held while query-replace's `!` runs (ADR 0113).
+    held_during_all: hold_all::HeldDuringAll,
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
@@ -136,6 +139,7 @@ impl Dispatcher {
             last: None,
             publisher: None,
             waiting: None,
+            held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             completion_held: None,
             jump: None,
@@ -320,6 +324,13 @@ impl Dispatcher {
     /// and one undo step. A pending prefix makes it an undefined key sequence.
     /// A key that types several characters comes through here.
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        let held = hold_all::Held::Text {
+            text: text.to_owned(),
+            commit: false,
+        };
+        if let Some(done) = self.hold_during_all(editor, held) {
+            return done;
+        }
         if self.hold_text(text, false) {
             return Effects::default();
         }
@@ -340,6 +351,13 @@ impl Dispatcher {
     /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
     /// always as an undo step of its own, even of one character (ADR 0069).
     pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        let held = hold_all::Held::Text {
+            text: text.to_owned(),
+            commit: true,
+        };
+        if let Some(done) = self.hold_during_all(editor, held) {
+            return done;
+        }
         if self.hold_text(text, true) {
             return Effects::default();
         }
@@ -478,6 +496,9 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
+            return done;
+        }
         if self.hold_key(key) {
             return Effects::default();
         }

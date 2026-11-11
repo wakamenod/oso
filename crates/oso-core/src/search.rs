@@ -23,7 +23,7 @@ mod case;
 mod job;
 
 pub(crate) use case::casified;
-pub(crate) use job::{Find, MatchWork, Matched, Report, Scope};
+pub(crate) use job::{Counting, Find, MatchWork, Matched, Report, after};
 pub use job::{SearchJob, SearchReport};
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
