@@ -336,6 +336,20 @@ mod tests {
     }
 
     #[test]
+    fn only_the_modes_of_emergency_copies_have_keys_of_their_own() {
+        use super::{Unshowable, unshowable};
+        use oso_core::buffer::Mode;
+        let mut editor = editor("abc");
+        let rust = editor.add_internal_buffer("main.rs", Mode::Rust);
+        let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::CopyView);
+        assert!(unshowable(editor.buffer(rust).unwrap()).is_none());
+        assert!(matches!(
+            unshowable(editor.buffer(view).unwrap()),
+            Some(Unshowable::OwnKeys)
+        ));
+    }
+
+    #[test]
     fn the_list_of_emergency_copies_is_the_persons() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
         let notes = editor.window().buffer();

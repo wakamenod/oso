@@ -119,7 +119,8 @@ impl Document {
 
     /// Parses for at most about `slice`, going on from where the last call stopped.
     pub fn parse(&mut self, slice: Duration) -> Parsed {
-        let deadline = Instant::now() + slice;
+        // A slice past the first parse's limit gains nothing, and an `Instant` cannot overflow.
+        let deadline = Instant::now() + slice.min(self.limits.0);
         loop {
             if let Some(failure) = self.failed {
                 return Parsed::Failed(failure);
