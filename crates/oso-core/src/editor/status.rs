@@ -202,7 +202,7 @@ impl Editor {
             + 1
             + GAP.len()
             + status.state.len();
-        let columns = self.frame.window.modeline.columns;
+        let columns = self.tiled_regions().modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
         status.name.clear();
         status.name.push_str(marker);
@@ -216,7 +216,7 @@ impl Editor {
         if status.echo.is_empty() {
             self.write_isearch_line(&mut status.echo);
         }
-        status.warnings_on_echo_row = self.frame.window.modeline.rows == 0;
+        status.warnings_on_echo_row = self.tiled_regions().modeline.rows == 0;
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
     }

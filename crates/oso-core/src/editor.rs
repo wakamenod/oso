@@ -27,11 +27,11 @@
 
 use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
-use crate::frame::{self, FrameLayout, FrameSize};
+use crate::frame::{self, FrameLayout, FrameSize, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
 use crate::selection::SelectionSet;
 use crate::undo::Opening;
-use crate::window::{ViewSize, Window};
+use crate::window::{ViewSize, Window, WindowId};
 use follow::Selected;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -82,6 +82,9 @@ pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
 pub use yank_pop::YankPopError;
 
+/// The name of the window an editor starts with.
+const FIRST_WINDOW: WindowId = WindowId::new(0);
+
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
 
@@ -109,9 +112,13 @@ pub struct Editor {
     buffers: Vec<(BufferId, Buffer)>,
     windows: Vec<Window>,
     selected: usize,
+    /// The tiled windows, as a tree (ADR 0112).
+    splits: Splits,
     /// The frame's regions. Every window's size is its text area.
     frame: FrameLayout,
     next_id: u64,
+    /// The number the next window takes.
+    next_window: u64,
     undo_scope: Option<UndoScope>,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
@@ -222,8 +229,15 @@ impl Editor {
             buffers: Vec::new(),
             windows: Vec::new(),
             selected: 0,
-            frame: frame::layout(FrameSize::holding(ViewSize::default()), 0),
+            splits: Splits::new(FIRST_WINDOW),
+            frame: frame::layout(
+                FrameSize::holding(ViewSize::default()),
+                &Splits::new(FIRST_WINDOW),
+                FIRST_WINDOW,
+                |_| 0,
+            ),
             next_id: 0,
+            next_window: FIRST_WINDOW.get() + 1,
             undo_scope: None,
             join_ready: false,
             messages_buffer: BufferId(0),
@@ -269,7 +283,7 @@ impl Editor {
             aids: VisualAids::default(),
         };
         let id = editor.add_buffer(buffer);
-        editor.windows.push(Window::new(id));
+        editor.windows.push(Window::new(FIRST_WINDOW, id));
         editor.messages_buffer = editor.add_buffer(Buffer::internal(MESSAGES));
         editor
     }
@@ -323,6 +337,23 @@ impl Editor {
     /// Every window.
     pub fn windows(&self) -> impl ExactSizeIterator<Item = &Window> {
         self.windows.iter()
+    }
+
+    /// The tiled windows, as a tree (ADR 0112).
+    pub fn splits(&self) -> &Splits {
+        &self.splits
+    }
+
+    /// The window named `id`, if there is one.
+    pub fn window_by_id(&self, id: WindowId) -> Option<&Window> {
+        self.windows.iter().find(|window| window.id() == id)
+    }
+
+    /// A new window showing `buffer`, with a name no window had before.
+    pub(super) fn new_window(&mut self, buffer: BufferId) -> Window {
+        let id = WindowId::new(self.next_window);
+        self.next_window += 1;
+        Window::new(id, buffer)
     }
 
     /// The position of the selected window in [`Editor::windows`].
@@ -687,14 +718,14 @@ mod tests {
     fn a_frame_gives_the_windows_its_text_area() {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
         assert_eq!(editor.window().size(), ViewSize::default());
-        assert_eq!(editor.frame().window.text.view_size(), ViewSize::default());
+        assert_eq!(editor.tiled_regions().text.view_size(), ViewSize::default());
 
         let frame = FrameSize {
             rows: 12,
             columns: 40,
         };
         editor.set_frame_size(frame);
-        assert_eq!(editor.frame(), frame::layout(frame, 0));
+        assert_eq!(*editor.frame(), frame::single(frame, 0));
         assert_eq!(editor.window().size(), ViewSize::new(10, 40));
     }
 
@@ -789,7 +820,7 @@ mod tests {
             "moved with the text"
         );
         assert_eq!((first.y, first.height), (before.y, before.height));
-        let text = grid.rect(editor.frame.window.text);
+        let text = grid.rect(editor.tiled_regions().text);
         assert_eq!(positions.len(), 6, "each character and the end");
         for position in &positions {
             let x = first.x + position;

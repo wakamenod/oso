@@ -6,9 +6,10 @@
 //! Sizes come in as plain numbers, positions through a display snapshot, and
 //! nothing here draws.
 //!
-//! A frame is a grid of whole cells. From the top: the one tiled window's text
-//! area, with a gutter for line numbers at its left (ADR 0097), its modeline, then the echo
-//! area. A frame too small for all of them
+//! A frame is a grid of whole cells. From the top: the tiled windows, then the echo area.
+//! [`Splits`] divides the tiled area among the windows (ADR 0112): each has its text area,
+//! with a gutter for line numbers at its left (ADR 0097), its modeline below, and a divider
+//! column at its right while a window is to its right. A frame too small for all of them
 //! gives up the modeline first and the echo area next, so the text keeps a row
 //! as long as there is one. The regions always add up to the frame, and never
 //! overlap. Floating windows go above them and may cover them: [`float_regions`]
@@ -24,14 +25,16 @@
 //! the top-left margin and holds whole cells only. The pixels left over at the
 //! bottom and on the right are not part of any region.
 
-use crate::window::ViewSize;
+use crate::window::{ViewSize, WindowId};
 
 mod cells;
 mod float;
+mod splits;
 pub(crate) use cells::match_cells_on_row;
 pub use cells::{cursor_rect, match_cells, other_cursor_cells, region_cells};
 pub(crate) use float::completion_regions;
 pub use float::{FloatRegions, MIN_LIST_COLUMNS, float_regions};
+pub use splits::{Side, Splits, TooSmall, Way};
 
 /// The rows a frame reserves below the text area: the modeline and the echo
 /// area.
@@ -60,7 +63,7 @@ impl FrameSize {
 }
 
 /// A rectangle of cells on the frame's grid. It may be empty.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CellRect {
     /// The frame row of its top.
     pub row: usize,
@@ -76,16 +79,25 @@ impl CellRect {
     pub fn view_size(self) -> ViewSize {
         ViewSize::new(self.rows, self.columns)
     }
+
+    /// Whether the cell at `row` and `column` is in it.
+    pub fn contains(self, row: usize, column: usize) -> bool {
+        (self.row..self.row + self.rows).contains(&row)
+            && (self.column..self.column + self.columns).contains(&column)
+    }
 }
 
 /// The regions of one window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WindowRegions {
     /// The columns at the left of the text area, for line numbers (ADR 0097). None wide
     /// while they are off.
     pub gutter: CellRect,
     pub text: CellRect,
+    /// Its bottom row, below its gutter and text.
     pub modeline: CellRect,
+    /// Its right column, its modeline's row too, while a window is to its right (ADR 0112).
+    pub divider: Option<CellRect>,
 }
 
 impl WindowRegions {
@@ -98,24 +110,125 @@ impl WindowRegions {
             ..self.text
         }
     }
+
+    /// All its cells: its gutter, text, modeline and divider.
+    pub fn outer(&self) -> CellRect {
+        CellRect {
+            rows: self.text.rows + self.modeline.rows,
+            columns: self.gutter.columns
+                + self.text.columns
+                + self.divider.map_or(0, |divider| divider.columns),
+            ..self.area()
+        }
+    }
+}
+
+/// Which part of a window a cell is in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Part {
+    Text,
+    Gutter,
+    Modeline,
+    Divider,
+}
+
+/// A cell of the tiled area: the window and the part of it it is in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Hit {
+    pub window: WindowId,
+    pub part: Part,
 }
 
 /// A frame divided into regions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FrameLayout {
-    /// The one tiled window, until splits arrive (M3).
-    pub window: WindowRegions,
+    size: FrameSize,
+    /// Each window's regions, in the tree's order.
+    windows: Vec<(WindowId, WindowRegions)>,
     pub echo: CellRect,
 }
 
 impl FrameLayout {
     /// The size of the frame it divides.
     pub fn size(&self) -> FrameSize {
-        let window = &self.window;
-        FrameSize {
-            rows: window.text.rows + window.modeline.rows + self.echo.rows,
-            columns: window.area().columns,
+        self.size
+    }
+
+    /// Each tiled window's regions, in the tree's order: left to right, top to bottom. A
+    /// window the frame has no room for has none.
+    pub fn windows(&self) -> &[(WindowId, WindowRegions)] {
+        &self.windows
+    }
+
+    /// `window`'s regions, if it is a tiled window of this layout.
+    pub fn regions(&self, window: WindowId) -> Option<&WindowRegions> {
+        self.windows
+            .iter()
+            .find_map(|(id, regions)| (*id == window).then_some(regions))
+    }
+
+    /// Where floats go: the tiled area but the modelines on its bottom row, so they centre
+    /// as they did on the one window's gutter and text, whatever the layout (ADR 0112).
+    pub fn tiled(&self) -> CellRect {
+        let rows = self.echo.row;
+        let bottom = self
+            .windows
+            .iter()
+            .filter(|(_, regions)| {
+                let outer = regions.outer();
+                outer.rows > 0 && outer.row + outer.rows == rows
+            })
+            .map(|(_, regions)| regions.modeline.rows)
+            .max()
+            .unwrap_or(0);
+        CellRect {
+            row: 0,
+            column: 0,
+            rows: rows - bottom,
+            columns: self.size.columns,
         }
+    }
+
+    /// The window and part of it the cell at `row` and `column` is in, or `None` in the echo
+    /// area and past the frame. Clicks and drags will select and resize through it.
+    pub fn hit(&self, row: usize, column: usize) -> Option<Hit> {
+        self.windows.iter().find_map(|(window, regions)| {
+            let part = [
+                (Part::Text, Some(regions.text)),
+                (Part::Gutter, Some(regions.gutter)),
+                (Part::Modeline, Some(regions.modeline)),
+                (Part::Divider, regions.divider),
+            ]
+            .into_iter()
+            .find_map(|(part, rect)| rect.filter(|r| r.contains(row, column)).map(|_| part))?;
+            Some(Hit {
+                window: *window,
+                part,
+            })
+        })
+    }
+
+    /// The window next to `window` on `side` at `cell`: a row for the left and right, a
+    /// column for up and down, where the window's primary cursor is.
+    pub fn neighbour(&self, window: WindowId, side: Side, cell: usize) -> Option<WindowId> {
+        let me = self.regions(window)?.outer();
+        self.windows.iter().find_map(|(id, regions)| {
+            let other = regions.outer();
+            let touches = match side {
+                Side::Left => other.column + other.columns == me.column,
+                Side::Right => other.column == me.column + me.columns,
+                Side::Up => other.row + other.rows == me.row,
+                Side::Down => other.row == me.row + me.rows,
+            };
+            let across = match side {
+                Side::Left | Side::Right => (other.row..other.row + other.rows).contains(&cell),
+                Side::Up | Side::Down => {
+                    (other.column..other.column + other.columns).contains(&cell)
+                }
+            };
+            (*id != window && other.rows > 0 && other.columns > 0 && touches && across)
+                .then_some(*id)
+        })
     }
 }
 
@@ -125,36 +238,45 @@ pub fn fitting_gutter(size: FrameSize, gutter: usize) -> usize {
     if gutter < size.columns { gutter } else { 0 }
 }
 
-/// Divides a frame of `size` into regions, with a gutter of `gutter` columns at the window's
-/// left while the text area keeps a column, and none otherwise.
-pub fn layout(size: FrameSize, gutter: usize) -> FrameLayout {
+/// Divides a frame of `size` into regions: the echo area at the bottom, and the tiled area
+/// above it among the windows of `splits`, each with a gutter of `gutter(window)` columns at
+/// its left while its text area keeps a column, and none otherwise. A window the frame has
+/// no room for gets no cells, but never `keep`, the selected one.
+pub fn layout(
+    size: FrameSize,
+    splits: &Splits,
+    keep: WindowId,
+    gutter: impl Fn(WindowId) -> usize,
+) -> FrameLayout {
+    let mut frame = FrameLayout {
+        size,
+        windows: Vec::new(),
+        echo: CellRect::default(),
+    };
+    layout_into(&mut frame, size, splits, keep, gutter);
+    frame
+}
+
+/// [`layout`] into `frame`, reusing its room.
+pub fn layout_into(
+    frame: &mut FrameLayout,
+    size: FrameSize,
+    splits: &Splits,
+    keep: WindowId,
+    gutter: impl Fn(WindowId) -> usize,
+) {
     let echo_rows = size.rows.saturating_sub(1).min(1);
-    let window_rows = size.rows - echo_rows;
-    let modeline_rows = window_rows.saturating_sub(1).min(1);
-    let text_rows = window_rows - modeline_rows;
+    let tiled_rows = size.rows - echo_rows;
     let rows = |row, rows| CellRect {
         row,
         column: 0,
         rows,
         columns: size.columns,
     };
-    let gutter = fitting_gutter(size, gutter);
-    let text = rows(0, text_rows);
-    FrameLayout {
-        window: WindowRegions {
-            gutter: CellRect {
-                columns: gutter,
-                ..text
-            },
-            text: CellRect {
-                column: gutter,
-                columns: size.columns - gutter,
-                ..text
-            },
-            modeline: rows(text_rows, modeline_rows),
-        },
-        echo: rows(window_rows, echo_rows),
-    }
+    frame.size = size;
+    frame.echo = rows(tiled_rows, echo_rows);
+    frame.windows.clear();
+    splits.lay_out(rows(0, tiled_rows), keep, &gutter, &mut frame.windows);
 }
 
 /// A rectangle on the surface, in physical pixels.
@@ -228,13 +350,26 @@ fn whole_cells(pixels: u32, margin: f32, cell: f32) -> usize {
     }
 }
 
+/// The layout of a frame of one window, numbered 0, for tests.
+#[cfg(test)]
+pub(crate) fn single(size: FrameSize, gutter: usize) -> FrameLayout {
+    let one = WindowId::new(0);
+    layout(size, &Splits::new(one), one, |_| gutter)
+}
+
+/// The regions of [`single`]'s window.
+#[cfg(test)]
+pub(crate) fn only(frame: &FrameLayout) -> WindowRegions {
+    frame.windows()[0].1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
 
     fn frame(rows: usize, columns: usize) -> FrameLayout {
-        layout(FrameSize { rows, columns }, 0)
+        single(FrameSize { rows, columns }, 0)
     }
 
     fn rect(row: usize, column: usize, rows: usize, columns: usize) -> CellRect {
@@ -330,8 +465,8 @@ mod tests {
     #[test]
     fn the_modeline_and_the_echo_area_take_the_bottom_rows() {
         let layout = frame(24, 80);
-        assert_eq!(layout.window.text, rect(0, 0, 22, 80));
-        assert_eq!(layout.window.modeline, rect(22, 0, 1, 80));
+        assert_eq!(only(&layout).text, rect(0, 0, 22, 80));
+        assert_eq!(only(&layout).modeline, rect(22, 0, 1, 80));
         assert_eq!(layout.echo, rect(23, 0, 1, 80));
     }
 
@@ -339,8 +474,8 @@ mod tests {
     fn a_small_frame_gives_up_the_modeline_then_the_echo_area() {
         let rows = |layout: FrameLayout| {
             (
-                layout.window.text.rows,
-                layout.window.modeline.rows,
+                only(&layout).text.rows,
+                only(&layout).modeline.rows,
                 layout.echo.rows,
             )
         };
@@ -353,14 +488,14 @@ mod tests {
     #[test]
     fn a_frame_with_no_cells_still_gives_a_size_to_scroll_with() {
         let layout = frame(0, 0);
-        assert_eq!(layout.window.text.view_size(), ViewSize::new(1, 1));
+        assert_eq!(only(&layout).text.view_size(), ViewSize::new(1, 1));
     }
 
     #[test]
     fn a_very_large_frame_does_not_overflow() {
         let layout = frame(usize::MAX, usize::MAX);
-        assert_eq!(layout.window.text.rows, usize::MAX - 2);
-        assert_eq!(layout.window.modeline.row, usize::MAX - 2);
+        assert_eq!(only(&layout).text.rows, usize::MAX - 2);
+        assert_eq!(only(&layout).modeline.row, usize::MAX - 2);
         assert_eq!(layout.echo.row, usize::MAX - 1);
         assert_eq!(layout.echo.columns, usize::MAX);
     }
@@ -368,9 +503,9 @@ mod tests {
     #[test]
     fn a_frame_holding_a_view_gives_it_back_as_the_text_area() {
         let view = ViewSize::default();
-        let layout = layout(FrameSize::holding(view), 0);
-        assert_eq!(layout.window.text.view_size(), view);
-        assert_eq!(layout.window.modeline.rows, 1);
+        let layout = single(FrameSize::holding(view), 0);
+        assert_eq!(only(&layout).text.view_size(), view);
+        assert_eq!(only(&layout).modeline.rows, 1);
         assert_eq!(layout.echo.rows, 1);
     }
 
@@ -440,7 +575,7 @@ mod tests {
         #[test]
         fn prop_regions_add_up_to_the_frame(rows in 0usize..100, columns in 0usize..100) {
             let layout = frame(rows, columns);
-            let (text, modeline, echo) = (layout.window.text, layout.window.modeline, layout.echo);
+            let (text, modeline, echo) = (only(&layout).text, only(&layout).modeline, layout.echo);
             prop_assert_eq!(text.row, 0);
             prop_assert_eq!(modeline.row, text.rows);
             prop_assert_eq!(echo.row, text.rows + modeline.rows);
@@ -459,12 +594,12 @@ mod tests {
             content in 0usize..10, listed in 0usize..30,
         ) {
             let size = FrameSize { rows, columns };
-            let (with, without) = (layout(size, gutter), layout(size, 0));
-            let window = with.window;
+            let (with, without) = (single(size, gutter), single(size, 0));
+            let window = only(&with);
             prop_assert_eq!(window.gutter.columns + window.text.columns, columns);
             prop_assert_eq!(window.text.column, window.gutter.columns);
             prop_assert!(window.text.columns > 0 || columns == 0);
-            prop_assert_eq!(window.area(), without.window.text);
+            prop_assert_eq!(window.area(), only(&without).text);
             prop_assert_eq!(with.size(), size);
             prop_assert_eq!(float_regions(&with, content), float_regions(&without, content));
             prop_assert_eq!(
@@ -481,7 +616,7 @@ mod tests {
             listed in 0usize..30,
         ) {
             let layout = frame(rows, columns);
-            let text = layout.window.text;
+            let text = only(&layout).text;
             let regions = if listed == 0 {
                 float_regions(&layout, content)
             } else {

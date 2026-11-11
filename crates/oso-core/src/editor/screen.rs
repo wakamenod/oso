@@ -46,7 +46,7 @@ impl Editor {
     pub(super) fn selected_region(&self) -> CellRect {
         match self.prompt_layout() {
             Some(layout) => layout.input,
-            None => self.frame.window.text,
+            None => self.tiled_regions().text,
         }
     }
 

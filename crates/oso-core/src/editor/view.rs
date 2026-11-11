@@ -7,11 +7,11 @@
 
 use super::Editor;
 use crate::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect};
+use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect, WindowRegions};
 use crate::motion;
 use crate::motion::Edge;
 use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{self, Recenter, Screen, Scroll, ViewSize, ViewTop, Window};
+use crate::window::{self, Recenter, Screen, Scroll, ViewSize, ViewTop, Window, WindowId};
 
 impl Editor {
     /// Lays out a frame of `size` (ADR 0057), with the gutter line numbers need (ADR 0097).
@@ -31,9 +31,10 @@ impl Editor {
         let gutter = self.gutter_columns();
         let shown = self.tiled().0.buffer();
         self.gutter_floor = self.aids.line_numbers.then_some((shown, gutter));
-        self.frame = frame::layout(size, gutter);
-        let view = self.frame.window.text.view_size();
         let tiled = self.tiled_index();
+        let keep = self.windows[tiled].id();
+        frame::layout_into(&mut self.frame, size, &self.splits, keep, |_| gutter);
+        let view = self.tiled_regions().text.view_size();
         let added = view.rows.saturating_sub(self.windows[tiled].size().rows);
         let count = self.tiled_count();
         for window in &mut self.windows[..count] {
@@ -85,8 +86,21 @@ impl Editor {
     }
 
     /// The frame's regions.
-    pub fn frame(&self) -> FrameLayout {
-        self.frame
+    pub fn frame(&self) -> &FrameLayout {
+        &self.frame
+    }
+
+    /// `window`'s regions, if it is a tiled window (ADR 0112).
+    pub fn regions(&self, window: WindowId) -> Option<&WindowRegions> {
+        self.frame.regions(window)
+    }
+
+    /// The regions of the selected tiled window, or of the one beneath the prompts: none
+    /// while it has no room in the frame.
+    pub fn tiled_regions(&self) -> WindowRegions {
+        self.regions(self.tiled().0.id())
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Where the selected window's primary cursor is on the surface, in physical
@@ -168,7 +182,7 @@ impl Editor {
         if !window.selections.mark_active().is_active() {
             return;
         }
-        let text = self.frame.window.text;
+        let text = self.tiled_regions().text;
         frame::region_cells(text, screen, &buffer.display(), &window.selections, out);
     }
 
@@ -177,7 +191,7 @@ impl Editor {
     /// first (ADR 0091). A preedit pushes them as it pushes the text.
     pub fn other_cursor_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
         let (window, buffer) = self.tiled();
-        let text = self.frame.window.text;
+        let text = self.tiled_regions().text;
         frame::other_cursor_cells(text, screen, &buffer.display(), &window.selections, out);
     }
 

@@ -9,7 +9,7 @@ use crate::display_map::wrap_map::WrapMap;
 use crate::display_map::{DisplayMap, TabWidth};
 use crate::rope::Rope;
 use crate::selection::SelectionSet;
-use crate::window::{Scroll, ViewSize};
+use crate::window::{Scroll, ViewSize, WindowId};
 use proptest::prelude::*;
 
 fn snapshot(text: &str) -> DisplaySnapshot {
@@ -24,7 +24,7 @@ fn make(
     cursor: usize,
 ) -> (Window, DisplaySnapshot) {
     let display = snapshot(text);
-    let mut window = Window::new(BufferId(0));
+    let mut window = Window::new(WindowId::new(0), BufferId(0));
     window.set_size(ViewSize::new(rows, columns));
     if wraps {
         window.set_wrap(Some(WrapMap::new(&display, columns)), &display, 0);
