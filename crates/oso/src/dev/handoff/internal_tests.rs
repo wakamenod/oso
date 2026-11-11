@@ -208,3 +208,25 @@ fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
         Ok(json!({ "generation": before, "unsaved": false }))
     );
 }
+
+#[test]
+fn a_split_frame_holds_the_handover_until_the_state_carries_its_layout() {
+    let mut editor = Editor::default();
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 24,
+        columns: 80,
+    });
+    let before = generation(&editor);
+    editor
+        .split_window(oso_core::frame::Way::Down, false)
+        .unwrap();
+    let refused = "cannot hand over: the frame has more than one window";
+    assert_eq!(check(&editor), Err(refused.into()));
+    assert_eq!(export(&editor, &[], None, None), Err(refused.into()));
+    assert!(exit_allowed(&editor, Some(before)).is_err());
+    editor.delete_other_windows();
+    assert_eq!(
+        check(&editor),
+        Ok(json!({ "generation": before, "unsaved": false }))
+    );
+}
