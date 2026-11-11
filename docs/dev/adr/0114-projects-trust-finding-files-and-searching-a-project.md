@@ -342,6 +342,63 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   search's query, its line matching and its job and report, as `complete` has), and the tip crate
   modules `project` and `walk`, placed in `guardrails/layers.txt`, a guard file.
 
+## As built
+
+### Step 1: detection
+
+- **Windows has no owner or device to go by,** so there the walk up stops only at the home
+  directory (`USERPROFILE`) and at a link. `USERPROFILE` is also what `~` stands for there.
+
+### Step 2: the record and the commands
+
+- **The record has a thread of its own, `oso-trust`** (`config/trust.rs`), not `oso-config`. It
+  reads with `config.toml`'s checks (`watch::read`), and refuses a group as well. A write never
+  waits behind a parse of `config.toml` on its large stack, and a panic in one thread leaves the
+  other going. The thread's shell (its state, wake, poke and timed wait) copies `watch`'s.
+- **oso writes the record with a writer of its own, not the saver's safe save.** The saver
+  works on a buffer, its baseline and its emergency copy. The record is a short file of oso's
+  own, changed by commands, never from a buffer.
+  - The editor queues a `TrustChange`, and the thread makes it in the file as it is then, read
+    again with the full checks. A line written by hand since stays, and a file refused since is
+    not written over.
+  - It writes a part file of mode `0600`, named with the process's id, and renames it over the
+    file. Just before the rename it checks that the file is still what it read; if another
+    writer replaced it, the change is made again on what it holds, up to three times.
+  - The directory is synced after the rename, as the saver syncs it.
+  - It writes only in a directory no one else can change, made with mode `0700` if missing
+    once the nearest existing one passes, and never over a link, as a dotfiles setup makes.
+  - A part file older than a minute, of this user and another process, is taken for one a
+    crash left and removed.
+  - Each write is read back, so the editor holds what the file says.
+- **The UI thread waits up to 1 s at exit** for changes not yet made in the file, as
+  `untrust-project` already said it was done. The author accepted this on 2026-11-12, through
+  the coordinator, as an exception to "never block the UI thread" for exit alone. A quit the OS
+  forces does not wait.
+- **Windows records the path alone,** as `std` keeps a directory's identity unstable there. A
+  line of the other form for the system, an identity on Windows or none elsewhere, trusts
+  nothing, so it is skipped and counted.
+- **A path in the record holds no control or invisible character,** so that a line reads in
+  another editor as it does in oso.
+- **A dev build given `--config FILE` uses the record beside that file,** so the end-to-end
+  flows never touch the person's. `--no-config` reads none, and trusts nothing.
+- **`trust-project` is its own `y`,** as `revert-buffer` is: only the dispatcher's run of a
+  question's yes sets `confirmed`, so a key, `M-x`, run-command, the dev socket or the agent
+  channel only ask. On `y` the buffer's project root, by path and identity, must still be the
+  one the question named.
+- **The worktree check matches the claim with `same_place`:** component by component, a
+  verbatim `\\?\` prefix being the plain one, so a Windows worktree matches what git writes.
+  The main repository's record of the worktree is read by the trust record's spelling of the
+  root, and the main repository is looked at before and after the read.
+- **A change to the record asks for a project again** only for buffers in a worktree claiming a
+  root whose line came or went, and for files whose project has not come yet, whose answer may
+  have been checked against the record before.
+
+### Step 3: finding a file
+
+- **`C-u`, which asks for a directory first (Q10), comes with step 4,** shared with
+  `project-search` (the author's choice, 2026-11-12). The history of `project-find-file` is per
+  project, as decided above.
+
 ## Alternatives considered
 
 - **`rg` through the process module (Q1 (b)):** what the roadmap named, and `rg`'s handling of

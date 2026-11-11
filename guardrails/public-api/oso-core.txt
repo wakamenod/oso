@@ -2637,6 +2637,8 @@ impl core::cmp::PartialEq for oso_core::project::RootIdentity
 pub fn oso_core::project::RootIdentity::eq(&self, &oso_core::project::RootIdentity) -> bool
 impl core::fmt::Debug for oso_core::project::RootIdentity
 pub fn oso_core::project::RootIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::project::RootIdentity
+pub fn oso_core::project::RootIdentity::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::StructuralPartialEq for oso_core::project::RootIdentity
 pub struct oso_core::project::TrustList
 impl oso_core::project::TrustList
@@ -2644,10 +2646,6 @@ pub fn oso_core::project::TrustList::apply(&self, &oso_core::project::TrustChang
 pub fn oso_core::project::TrustList::format(&self) -> alloc::string::String
 pub fn oso_core::project::TrustList::parse(&str) -> (Self, usize)
 pub fn oso_core::project::TrustList::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
-pub fn oso_core::project::TrustList::records(&self, &std::path::Path) -> bool
-pub fn oso_core::project::TrustList::trusts(&self, &oso_core::project::RootIdentity) -> bool
-pub fn oso_core::project::TrustList::with(&self, oso_core::project::RootIdentity) -> core::result::Result<Self, oso_core::project::NotRecordable>
-pub fn oso_core::project::TrustList::without(&self, &std::path::Path) -> Self
 impl core::clone::Clone for oso_core::project::TrustList
 pub fn oso_core::project::TrustList::clone(&self) -> oso_core::project::TrustList
 impl core::cmp::Eq for oso_core::project::TrustList

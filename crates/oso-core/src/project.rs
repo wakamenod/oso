@@ -146,7 +146,7 @@ fn worktree_main(gitdir: &Path) -> Option<&Path> {
 
 /// A project's root and, where the system has them, the directory's device and inode. A
 /// directory deleted and made again at the same path is another one (ADR 0114).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RootIdentity {
     pub path: PathBuf,
     pub identity: Option<(u64, u64)>,
@@ -162,7 +162,8 @@ pub struct Found {
     /// is trusted and records this worktree back.
     pub worktree_of: Option<PathBuf>,
     /// The main repository [`Self::worktree_of`] names, once the host checked it: a trusted
-    /// root, which records this worktree back. The project is trusted while this root is.
+    /// root, which records this worktree back. The project is trusted while this root is. Only
+    /// the host's detector sets it, after that check; anything else leaves it `None`.
     pub checked_main: Option<RootIdentity>,
 }
 

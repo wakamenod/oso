@@ -1,10 +1,12 @@
 //! The record of trusted projects (ADR 0114): the text of `trusted-projects`, read and written
 //! as plain data. Each line is a root's absolute path, a tab, and the root directory's device
-//! and inode; a system with no stable identity records the path alone.
+//! and inode; Windows, where `std` keeps no stable identity, records the path alone. A line of
+//! the other form trusts nothing on this system, so it is skipped and counted.
 //!
 //! Must not depend on: `buffer`, `editor` or file I/O. The host reads and writes the file on a
 //! thread of its own, and this says what its text means.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::{Component, Path, PathBuf};
 
@@ -57,13 +59,14 @@ impl TrustList {
     /// could not read, which are skipped.
     pub fn parse(text: &str) -> (Self, usize) {
         let mut list = Self::default();
+        let mut seen = HashSet::new();
         let mut skipped = 0;
         for line in text.lines() {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
             match parse_line(line) {
-                Some(root) if !list.roots.contains(&root) => list.roots.push(root),
+                Some(root) if seen.insert(root.clone()) => list.roots.push(root),
                 Some(_) => {}
                 None => skipped += 1,
             }
@@ -90,7 +93,7 @@ impl TrustList {
     /// # Errors
     ///
     /// If its path cannot be written as a line.
-    pub fn with(&self, root: RootIdentity) -> Result<Self, NotRecordable> {
+    pub(crate) fn with(&self, root: RootIdentity) -> Result<Self, NotRecordable> {
         recordable(&root.path)?;
         let mut list = self.without(&root.path);
         list.roots.push(root);
@@ -110,7 +113,7 @@ impl TrustList {
     }
 
     /// This list with no line for `path`, whatever identity it recorded.
-    pub fn without(&self, path: &Path) -> Self {
+    pub(crate) fn without(&self, path: &Path) -> Self {
         let roots = self
             .roots
             .iter()
@@ -122,7 +125,7 @@ impl TrustList {
 
     /// Whether `root` is trusted: its path and its identity are both recorded, so a directory
     /// made again at the same path is not.
-    pub fn trusts(&self, root: &RootIdentity) -> bool {
+    pub(crate) fn trusts(&self, root: &RootIdentity) -> bool {
         self.roots.contains(root)
     }
 
@@ -137,18 +140,24 @@ impl TrustList {
     }
 
     /// Whether any line records `path`, whatever its identity.
-    pub fn records(&self, path: &Path) -> bool {
+    pub(crate) fn records(&self, path: &Path) -> bool {
         self.paths().any(|known| known == path)
     }
 }
 
-/// A line's root: an absolute path that [`recordable`] passes, then, unless the system records
-/// the path alone, a tab and `dev=<n> ino=<n>`.
+/// Whether this system records a root's device and inode, or its path alone.
+const RECORDS_IDENTITY: bool = cfg!(unix);
+
+/// A line's root: an absolute path that [`recordable`] passes, then, where the system records
+/// them, a tab and `dev=<n> ino=<n>`. A line of the other form is none.
 fn parse_line(line: &str) -> Option<RootIdentity> {
     let (path, identity) = match line.split_once('\t') {
         Some((path, rest)) => (path, Some(parse_identity(rest)?)),
         None => (line, None),
     };
+    if identity.is_some() != RECORDS_IDENTITY {
+        return None;
+    }
     let path = PathBuf::from(path);
     recordable(&path).ok()?;
     Some(RootIdentity { path, identity })
@@ -228,14 +237,16 @@ mod tests {
         let list = TrustList::default()
             .with(root("/w/oso", Some((16_777_230, 48_211_907))))
             .unwrap()
-            .with(root("/w/other", None))
+            .with(root("/w/other", Some((1, 2))))
             .unwrap();
         let text = list.format();
         assert_eq!(
             text,
-            format!("{HEADER}/w/oso\tdev=16777230 ino=48211907\n/w/other\n")
+            format!("{HEADER}/w/oso\tdev=16777230 ino=48211907\n/w/other\tdev=1 ino=2\n")
         );
         assert_eq!(TrustList::parse(&text), (list, 0));
+        let (_, skipped) = TrustList::parse("/w/no-identity\n");
+        assert_eq!(skipped, 1, "a path alone trusts nothing here");
     }
 
     #[cfg(unix)]
@@ -332,5 +343,7 @@ mod tests {
         assert_eq!(TrustList::parse(&text), (list.clone(), 0));
         assert!(list.trusts(&root(r"C:\w\oso", None)));
         assert!(list.with(root(r"\w\oso", None)).is_err(), "no drive");
+        let (_, skipped) = TrustList::parse("C:\\w\\oso\tdev=1 ino=2\n");
+        assert_eq!(skipped, 1, "an identity trusts nothing here");
     }
 }
