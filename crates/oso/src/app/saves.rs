@@ -32,6 +32,12 @@ impl App {
         self.spawn_saves(true)
     }
 
+    /// Starts the saves a whitespace scan let go on, as the agent's if its command was
+    /// (ADR 0113).
+    pub(super) fn start_saves_after_trim(&mut self, for_agent: bool) {
+        let _ = self.spawn_saves(for_agent);
+    }
+
     fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
         let mut started_saves = Vec::new();
         let mut failed = None;

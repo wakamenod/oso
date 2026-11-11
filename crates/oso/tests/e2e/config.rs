@@ -313,3 +313,25 @@ fn a_file_other_users_can_change_is_not_read() {
     app.send_keys("C-c e");
     assert_eq!(app.state()["echo"], "C-c e is undefined");
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn with_trim_whitespace_a_save_cleans_only_the_lines_edited() {
+    let (scratch, config) = with_config(
+        "config-trim",
+        format!("{SAID}[save]\ntrim-whitespace = true\n").as_bytes(),
+    );
+    let notes = scratch.write("notes.txt", b"keep  \nedit");
+    let mut app = App::start_with_config(Some(&notes), scratch.path(), &config);
+    app.wait_until_ready();
+    app.wait_for("the look", |state| state["echo"] == SAID_ECHO);
+    app.send_keys("C-n C-e SPC SPC M-< C-x C-s");
+    let started = Instant::now();
+    while fs::read(&notes).ok().as_deref() != Some(b"keep  \nedit\n".as_slice()) {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "never saved as cleaned"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}

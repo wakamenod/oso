@@ -29,6 +29,7 @@ mod scroll;
 mod session;
 mod theme;
 mod view;
+mod whitespace;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;
@@ -63,6 +64,7 @@ const TABLES: &[&[Command]] = &[
     session::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
+    whitespace::COMMANDS,
 ];
 
 /// Refuses a command that would change which buffer a window shows, while a prompt is

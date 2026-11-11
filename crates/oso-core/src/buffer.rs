@@ -30,6 +30,7 @@ mod agent;
 mod baseline;
 mod carried;
 mod edit;
+mod edited;
 mod internal;
 mod mode;
 mod names;
@@ -38,11 +39,14 @@ mod recovery;
 mod reload;
 pub(crate) use reload::Noticed;
 mod splice;
+mod trim;
+pub(crate) use trim::{TrimRules, trailing_whitespace};
 
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, DiskState, FileStamp};
 pub use carried::FileFacts;
 pub(crate) use edit::{Rewrap, StagedEdit};
+pub(crate) use edited::Edited;
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
 use splice::normalized;
@@ -186,6 +190,8 @@ pub struct Buffer {
     next_content: u64,
     /// Undo and redo.
     history: History,
+    /// Where it was edited since its file was read, read again or saved (ADR 0113).
+    edited: Edited,
 }
 
 impl Buffer {
@@ -229,6 +235,7 @@ impl Buffer {
             saved: ContentId(0),
             next_content: 1,
             history: History::default(),
+            edited: Edited::default(),
         }
     }
 
@@ -268,6 +275,7 @@ impl Buffer {
         self.revision += 1;
         self.content = self.new_content();
         self.saved = self.content;
+        self.edited.clear();
         self.history.clear();
     }
 

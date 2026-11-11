@@ -1,4 +1,5 @@
-//! The file's settings: the theme, the visual aids and the agent channel at launch (ADR 0108).
+//! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108) and
+//! whitespace cleanup on save (ADR 0113).
 //! Each is `None` where the file leaves it out or gives a bad value, so the caller keeps its own.
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
@@ -19,6 +20,15 @@ pub struct Settings {
     pub aids: Aids,
     /// `[agent-channel] start`: whether the channel starts at launch (ADR 0085).
     pub agent_channel_start: Option<bool>,
+    /// `[save]`.
+    pub save: Save,
+}
+
+/// `[save]`: what a save does besides writing (ADR 0113).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Save {
+    /// `trim-whitespace`: clean the lines edited since the file was read or saved.
+    pub trim_whitespace: Option<bool>,
 }
 
 /// `[theme]`: built-in themes, by name (ADR 0089).
@@ -151,6 +161,23 @@ pub(super) fn agent_channel(value: &Spanned<DeValue<'_>>, found: &mut Found) -> 
         }
     }
     start
+}
+
+/// `[save]`.
+pub(super) fn save(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Save {
+    let mut save = Save::default();
+    let Some(entries) = table(value, "[save]", found) else {
+        return save;
+    };
+    for (name, value) in entries {
+        match name.get_ref().as_ref() {
+            "trim-whitespace" => {
+                save.trim_whitespace = switch(value, "[save]", "trim-whitespace", found);
+            }
+            other => unknown(found, name.span().start, other, "[save]"),
+        }
+    }
+    save
 }
 
 /// A setting that is `true` or `false`.
