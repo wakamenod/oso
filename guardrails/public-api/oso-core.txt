@@ -1392,9 +1392,10 @@ pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(o
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::delete_trailing_whitespace(&mut self) -> core::result::Result<bool, oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::set_trim_whitespace(&mut self, bool)
+pub fn oso_core::editor::Editor::take_agent_trim_saves(&mut self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::take_trim_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::TrimJob>
 pub fn oso_core::editor::Editor::trim_failed(&mut self, oso_core::buffer::BufferId)
-pub fn oso_core::editor::Editor::trim_reported(&mut self, oso_core::editor::TrimReport) -> core::option::Option<bool>
+pub fn oso_core::editor::Editor::trim_reported(&mut self, oso_core::editor::TrimReport) -> core::option::Option<oso_core::editor::TrimOutcome>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
 impl oso_core::editor::Editor
@@ -1628,6 +1629,19 @@ pub fn oso_core::editor::TrimJob::buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::TrimJob::run(self) -> oso_core::editor::TrimReport
 impl core::fmt::Debug for oso_core::editor::TrimJob
 pub fn oso_core::editor::TrimJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::TrimOutcome
+pub oso_core::editor::TrimOutcome::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::TrimOutcome::for_agent: bool
+pub oso_core::editor::TrimOutcome::refused: core::option::Option<oso_core::editor::SaveRefused>
+impl core::clone::Clone for oso_core::editor::TrimOutcome
+pub fn oso_core::editor::TrimOutcome::clone(&self) -> oso_core::editor::TrimOutcome
+impl core::cmp::Eq for oso_core::editor::TrimOutcome
+impl core::cmp::PartialEq for oso_core::editor::TrimOutcome
+pub fn oso_core::editor::TrimOutcome::eq(&self, &oso_core::editor::TrimOutcome) -> bool
+impl core::fmt::Debug for oso_core::editor::TrimOutcome
+pub fn oso_core::editor::TrimOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::TrimOutcome
+impl core::marker::StructuralPartialEq for oso_core::editor::TrimOutcome
 pub struct oso_core::editor::TrimReport
 impl core::fmt::Debug for oso_core::editor::TrimReport
 pub fn oso_core::editor::TrimReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

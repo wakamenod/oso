@@ -261,6 +261,22 @@ impl App {
             .send(save_reply(saving.done, failure, report.wrote()));
     }
 
+    /// Replies `why` to the request whose save of `buffer` waited for a whitespace scan and
+    /// then could not start (ADR 0113).
+    pub(super) fn agent_save_not_started(&mut self, buffer: BufferId, why: &str) {
+        let Some(index) = self
+            .agent
+            .saving
+            .iter()
+            .position(|saving| saving.buffer == buffer)
+        else {
+            return;
+        };
+        let saving = self.agent.saving.swap_remove(index);
+        self.agent_log(&format!("save: {why}"));
+        let _ = saving.reply.send(Err(why.to_owned()));
+    }
+
     /// Replies to each request whose save still runs past [`SAVE_WITHIN`], under the
     /// channel's wait: the save goes on, and the person's echo area says how it ended.
     fn reply_to_long_saves(&mut self) {

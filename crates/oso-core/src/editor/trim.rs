@@ -11,7 +11,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use super::Editor;
-use super::save::Elsewhere;
+use super::save::{Elsewhere, SaveRefused};
 use crate::buffer::{BufferId, EditError, Replacement, TrimRules, trailing_whitespace};
 use crate::rope::Rope;
 
@@ -97,6 +97,20 @@ pub(super) struct Trims {
     on_save: bool,
     jobs: Vec<TrimJob>,
     waiting: Vec<Waiting>,
+    /// Buffers whose agent's save began to wait for a scan, not yet taken by the host.
+    agent_saves: Vec<BufferId>,
+}
+
+/// How what waited for a scan went on, for the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrimOutcome {
+    /// The buffer scanned.
+    pub buffer: BufferId,
+    /// The agent channel ran what waited, so a save it queued is the agent's.
+    pub for_agent: bool,
+    /// A save or a write that waited queued no job, for this reason. `None` for the command,
+    /// and for a save that queued its job.
+    pub refused: Option<SaveRefused>,
 }
 
 /// Whether a cleanup is done, or waits for a scan.
@@ -203,11 +217,15 @@ impl Editor {
         };
         let looked_at: usize = job.ranges.iter().map(ExactSizeIterator::len).sum();
         if looked_at > TRIM_ON_THE_UI_THREAD {
+            let for_agent = self.runs_for_agent();
+            if for_agent && !matches!(then, Then::Command { .. }) {
+                self.trims.agent_saves.push(id);
+            }
             self.trims.jobs.push(job);
             self.trims.waiting.push(Waiting {
                 buffer: id,
                 then,
-                for_agent: self.runs_for_agent(),
+                for_agent,
             });
             self.message("Cleaning up whitespace…");
             return Trimmed::Waiting;
@@ -249,6 +267,12 @@ impl Editor {
         self.apply_edits(id, &edits).is_ok()
     }
 
+    /// The buffers whose save, run for the agent channel, waits for a scan since the last
+    /// call: the agent's reply waits for that save's end, as for any save of its own.
+    pub fn take_agent_trim_saves(&mut self) -> Vec<BufferId> {
+        std::mem::take(&mut self.trims.agent_saves)
+    }
+
     /// The scans to run, once each, for the host.
     pub fn take_trim_jobs(&mut self) -> Vec<TrimJob> {
         std::mem::take(&mut self.trims.jobs)
@@ -266,9 +290,9 @@ impl Editor {
     /// Takes in what a scan found, and goes on with what waited for it, in an undo step of
     /// its own: the cleanup, then for a save its final newline and its job. If the text
     /// changed since the scan began, it scans again, and the host runs the new job. Returns,
-    /// once what waited has gone on, whether a save it queued is the agent's, for the host to
-    /// start it as such.
-    pub fn trim_reported(&mut self, report: TrimReport) -> Option<bool> {
+    /// once what waited has gone on, how it went: whether a save it queued is the agent's,
+    /// for the host to start it as such, or why a save queued nothing.
+    pub fn trim_reported(&mut self, report: TrimReport) -> Option<TrimOutcome> {
         let index = self
             .trims
             .waiting
@@ -289,29 +313,33 @@ impl Editor {
         } = self.trims.waiting.swap_remove(index);
         self.begin_undo_group();
         self.delete_ranges(id, &report.deletions);
-        match then {
-            Then::Command { .. } => {}
+        let went = match then {
+            Then::Command { .. } => Ok(false),
             Then::Save { over } => {
                 if let Some(buffer) = self.buffer_mut(id) {
                     buffer.clear_edited();
                     buffer.set_saving(false);
                 }
-                if let Err(refused) = self.save_after_trim(id, over) {
-                    self.message(format!("Not saved: {refused}"));
-                }
+                self.save_after_trim(id, over)
             }
             Then::Write { path, elsewhere } => {
                 if let Some(buffer) = self.buffer_mut(id) {
                     buffer.clear_edited();
                     buffer.set_saving(false);
                 }
-                if let Err(refused) = self.write_after_trim(id, path, elsewhere) {
-                    self.message(format!("Not written: {refused}"));
-                }
+                self.write_after_trim(id, path, elsewhere)
             }
-        }
+        };
         self.end_undo_group();
-        Some(for_agent)
+        let refused = went.err();
+        if let Some(refused) = refused {
+            self.message(format!("Not saved: {refused}"));
+        }
+        Some(TrimOutcome {
+            buffer: id,
+            for_agent,
+            refused,
+        })
     }
 
     /// The scan for `id` could not run: what waited for it is dropped, and a save of it does

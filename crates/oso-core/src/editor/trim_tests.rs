@@ -159,7 +159,11 @@ fn past_the_budget_the_save_waits_for_a_scan_on_a_thread() {
     let mut jobs = editor.take_trim_jobs();
     assert_eq!(jobs.len(), 1);
     let report = jobs.pop().unwrap().run();
-    assert_eq!(editor.trim_reported(report), Some(false));
+    assert!(
+        editor
+            .trim_reported(report)
+            .is_some_and(|went| went.refused.is_none())
+    );
     assert_eq!(text(&editor), pasted.replace(" \n", "\n"));
     assert!(!editor.trim_waits(id));
     assert_eq!(editor.take_save_jobs().len(), 1);
@@ -179,7 +183,11 @@ fn an_edit_during_the_scan_scans_again() {
     edit(&mut editor, 0..0, "new ");
     assert_eq!(editor.trim_reported(report), None);
     let report = editor.take_trim_jobs().pop().unwrap().run();
-    assert_eq!(editor.trim_reported(report), Some(false));
+    assert!(
+        editor
+            .trim_reported(report)
+            .is_some_and(|went| went.refused.is_none())
+    );
     assert!(text(&editor).starts_with("new line\nline\n"));
     assert_eq!(editor.take_save_jobs().len(), 1);
 }
@@ -218,4 +226,37 @@ fn the_command_refuses_a_read_only_buffer() {
         editor.delete_trailing_whitespace(),
         Err(EditError::ReadOnly(ReadOnly::Loading))
     );
+}
+
+#[test]
+fn an_agents_save_that_waits_for_a_scan_is_named_for_its_reply() {
+    let mut editor = visiting("notes.txt", "");
+    put_cursor(&mut editor, 0);
+    edit(&mut editor, 0..0, &large());
+    let id = editor.window().buffer();
+    editor.for_agent(save).unwrap();
+    assert_eq!(editor.take_agent_trim_saves(), [id]);
+    assert!(editor.take_agent_trim_saves().is_empty(), "once");
+    let report = editor.take_trim_jobs().pop().unwrap().run();
+    let went = editor.trim_reported(report).unwrap();
+    assert!(went.for_agent && went.refused.is_none());
+    assert_eq!(editor.take_save_jobs().len(), 1);
+}
+
+#[test]
+fn a_save_that_can_no_longer_go_after_the_scan_says_why() {
+    let mut editor = visiting("notes.txt", "");
+    put_cursor(&mut editor, 0);
+    edit(&mut editor, 0..0, &large());
+    save(&mut editor).unwrap();
+    assert!(editor.take_agent_trim_saves().is_empty(), "the person's");
+    let report = editor.take_trim_jobs().pop().unwrap().run();
+    // Meanwhile a look found the file changed on disk, which needs the person's agreement.
+    let id = editor.window().buffer();
+    editor.file_changed_on_disk(id);
+    editor.may_save_over(id, stamp());
+    let went = editor.trim_reported(report).unwrap();
+    assert_eq!(went.refused, Some(SaveRefused::ChangedOnDisk));
+    assert!(editor.take_save_jobs().is_empty());
+    assert!(!editor.current().1.is_saving());
 }

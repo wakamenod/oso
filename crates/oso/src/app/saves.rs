@@ -23,19 +23,25 @@ impl App {
     pub(super) fn start_saves(&mut self) {
         let for_agent = self.dispatcher.take_ran_for_agent();
         let _ = self.spawn_saves(for_agent);
+        // A save the person's `y` let go waits for no agent's reply.
+        drop(self.editor.take_agent_trim_saves());
     }
 
     /// Starts the saves a command run for the agent channel queued. Each is checked on its
     /// thread before it writes, and never goes into oso's configuration directory (ADR 0108).
     /// Returns the buffers whose saves started, and what the agent hears of one that could not.
+    /// A save that waits for a whitespace scan counts as started: its reply waits for the
+    /// scan and then for the save's end (ADR 0113).
     pub(super) fn start_agent_saves(&mut self) -> (Vec<BufferId>, Option<&'static str>) {
-        self.spawn_saves(true)
+        let (mut started, failed) = self.spawn_saves(true);
+        started.extend(self.editor.take_agent_trim_saves());
+        (started, failed)
     }
 
     /// Starts the saves a whitespace scan let go on, as the agent's if its command was
-    /// (ADR 0113).
-    pub(super) fn start_saves_after_trim(&mut self, for_agent: bool) {
-        let _ = self.spawn_saves(for_agent);
+    /// (ADR 0113). Returns what the agent hears of one that could not start.
+    pub(super) fn start_saves_after_trim(&mut self, for_agent: bool) -> Option<&'static str> {
+        self.spawn_saves(for_agent).1
     }
 
     fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
