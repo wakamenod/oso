@@ -491,8 +491,9 @@ The UI thread never blocks on I/O or parsing:
   reports and what threads find of emergency copies in every build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
-- Search (ripgrep-style), git status and language servers stream results in
-  asynchronously.
+- Project search (in-process and ripgrep-style,
+  [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
+  git status and language servers stream results in asynchronously.
 
 ### Configuration
 
@@ -556,7 +557,8 @@ changed asks before going over it, and replaces it only if it is still what that
 
 - Projects open in **restricted mode** until trusted with `M-x trust-project`.
   Trust is stored in user config, never in the repository
-  ([ADR 0009](adr/0009-project-trust.md)).
+  ([ADR 0009](adr/0009-project-trust.md),
+  [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Child processes are spawned only through `oso-platform::process`, and a
   lint enforces this. oso contains no network code
   ([ADR 0010](adr/0010-process-and-network-policy.md)).

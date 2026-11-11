@@ -241,7 +241,8 @@ alongside the steps above, after M2-16:
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML.
 - Window splits, indentation, project trust model.
-- Project file finding and asynchronous ripgrep search.
+- Project file finding and asynchronous ripgrep-style search, in-process
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Migemo-style romaji search for Japanese text, and avy-style jumps.
 - The menu component, porting the author's hydra menus.
 - query-replace (`M-%`), keyboard macros, whitespace cleanup on save.

@@ -1,6 +1,6 @@
 # 0114. Projects, their trust, finding their files and searching them
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -64,8 +64,10 @@ out. Reading the files costs most of the time, and the `regex` crate is the engi
 
 ## Decision
 
-Proposed. The questions below go to the author; the text says what the recommended answers
-give, and names the question each part depends on.
+The author chose (a) on every question below on 2026-11-12, through the coordinator. Q16 does
+not apply, as the search runs in-process. The author also approved the `ignore` crate and what it
+adds to the lock: `globset`, `crossbeam-deque` and `crossbeam-epoch`. The text names the question
+each part answers.
 
 ### What a project is
 
@@ -212,34 +214,10 @@ Listing and searching walk the same files, in-process, with the `ignore` crate (
 - **The channel gets no search of its own now (Q14).** An agent such as Claude Code has its own
   search over the same files with its own permission rules.
 
-### If the author chooses `rg` (Q1 (b))
-
-These replace the search's in-process parts; the rest stands.
-
-- **The process module ships in release builds,** and `just release-safety` changes from
-  "no spawn marker" to "no dev spawn": a guard file, with its own approval.
-- **Where `rg` comes from (Q16):** the absolute path in a new `[programs] rg = "…"` table of
-  `config.toml`, else `Executable::from_path("rg", Some(root))`. Either is refused when anyone
-  but the person and root can change it or the way to it (`who_can_change`), or when it lies
-  under any project root oso has seen. An oso started from the Dock has only the system's
-  `PATH`, so a Homebrew `rg` needs the setting.
-- **The arguments are fixed and the input is one argument:** `--no-config --json --hidden
-  --glob !.git --glob !.jj --glob !.hg --no-follow --max-columns 512 --max-columns-preview
-  --max-filesize 64M --smart-case --regexp <input> -- .`, run in the root. `--no-config` and the
-  allowlisted environment keep out `RIPGREP_CONFIG_PATH`, which could add `--pre` and run a
-  program. No shell is involved; `--regexp` keeps an input starting with `-` from being an
-  option. The input is one regular expression: rg cannot match components in any order without
-  PCRE2.
-- **Its output is untrusted text.** The release build has no JSON parser, so either `serde_json`
-  joins it, or oso reads `--null` text output (`path\0line:column:text\n`) and finds the matches
-  again with the `regex` crate. Output is cut at 16 MiB and 10,000 rows, and the process is killed
-  on a newer key, `C-g` or 30 s, and waited for on a thread.
-- **The command is `Person`, from the window only,** and is allowed in a restricted project: it
-  runs the person's program, not the project's code.
-
 ## Questions
 
-Put to the author through the coordinator, the recommended option first.
+Put to the author through the coordinator, the recommended option first. The author chose (a) on
+each; Q16 does not apply.
 
 1. **How to search and list:** (a) in-process: a walker with ignore rules and the `regex`
    crate, on worker threads, for both listing and searching; as fast as `rg` in the table
@@ -359,6 +337,29 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 
 ## Alternatives considered
 
+- **`rg` through the process module (Q1 (b)):** what the roadmap named, and `rg`'s handling of
+  encodings and compressed files. It would have needed:
+
+  - **The process module ships in release builds,** and `just release-safety` changes from
+    "no spawn marker" to "no dev spawn": a guard file, with its own approval.
+  - **Where `rg` comes from (Q16):** the absolute path in a new `[programs] rg = "…"` table of
+    `config.toml`, else `Executable::from_path("rg", Some(root))`. Either is refused when anyone
+    but the person and root can change it or the way to it (`who_can_change`), or when it lies
+    under any project root oso has seen. An oso started from the Dock has only the system's
+    `PATH`, so a Homebrew `rg` needs the setting.
+  - **The arguments are fixed and the input is one argument:** `--no-config --json --hidden
+    --glob !.git --glob !.jj --glob !.hg --no-follow --max-columns 512 --max-columns-preview
+    --max-filesize 64M --smart-case --regexp <input> -- .`, run in the root. `--no-config` and the
+    allowlisted environment keep out `RIPGREP_CONFIG_PATH`, which could add `--pre` and run a
+    program. No shell is involved; `--regexp` keeps an input starting with `-` from being an
+    option. The input is one regular expression: rg cannot match components in any order without
+    PCRE2.
+  - **Its output is untrusted text.** The release build has no JSON parser, so either `serde_json`
+    joins it, or oso reads `--null` text output (`path\0line:column:text\n`) and finds the matches
+    again with the `regex` crate. Output is cut at 16 MiB and 10,000 rows, and the process is killed
+    on a newer key, `C-g` or 30 s, and waited for on a thread.
+  - **The command is `Person`, from the window only,** and is allowed in a restricted project: it
+    runs the person's program, not the project's code.
 - **ripgrep's libraries in-process (`grep-searcher`, `grep-regex`, `ignore`):** `rg`'s behaviour
   exactly, with encodings and binary detection, but `encoding_rs` and `memmap2` come with them,
   and the measurements show the plain `regex` crate already keeps up.
