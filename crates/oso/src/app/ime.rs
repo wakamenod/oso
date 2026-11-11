@@ -95,8 +95,8 @@ pub(super) struct ImeState {
     japanese_prompt: Option<PromptId>,
     /// Whether the window was last asked for an ASCII input source (ADR 0106).
     ascii: bool,
-    /// The window selected after the last event, so that a composition ends when another is
-    /// selected, as keys go only there (ADR 0112).
+    /// The tiled window selected after the last event, or the one beneath the prompts, so
+    /// that a composition ends when another is selected, as keys go only there (ADR 0112).
     selected: Option<WindowId>,
 }
 
@@ -143,7 +143,9 @@ impl App {
         }
         // What follows logs, and the event may have brought a secret buffer into view.
         self.note_logging();
-        let window = self.editor.window().id();
+        // The tiled window, so that a prompt opened over a composition keeps it, as it waits
+        // there or commits where typing goes (ADR 0077).
+        let window = self.editor.tiled().0.id();
         let moved = self
             .ime
             .selected
