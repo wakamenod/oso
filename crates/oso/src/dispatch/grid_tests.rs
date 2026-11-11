@@ -95,7 +95,12 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
         editor.screen_of(*id, &mut screen);
         let flash = editor.flash_cells(*id, &screen).filter(|_| flashing);
         draw_text_area(editor, (*id, window), &screen, flash, &mut lines);
-        let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
+        let modeline = [
+            &status.warnings[..],
+            &status.name[..],
+            &status.project[..],
+            &status.state[..],
+        ];
         let edge = if status.selected { '=' } else { '-' };
         let start = lines.len();
         draw_spans(&modeline, window.modeline, edge, &mut lines);
@@ -1104,6 +1109,41 @@ mod scenarios {
         assert_frames(
             "status_escaped_name",
             name.as_bytes(),
+            &[text_grid(&editor)],
+        );
+    }
+
+    #[test]
+    fn a_project_name_from_disk_is_escaped_on_the_modeline() {
+        let root = "/w/a\nb\u{202e}\u{1b}c\tいe\u{301}";
+        let path = std::path::PathBuf::from(root).join("x.rs");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_load(oso_core::load::decode_all(b"", Default::default()));
+        buffer.judge_secret(Some(std::slice::from_ref(&path)));
+        buffer.set_baseline(oso_core::buffer::Baseline {
+            location: path,
+            file: None,
+        });
+        let mut editor = Editor::with_buffer(buffer);
+        aids_off(&mut editor);
+        let id = editor.tiled().0.buffer();
+        editor.request_project(id);
+        let request = editor.take_project_requests().pop().unwrap();
+        let found = oso_core::project::Found {
+            root: oso_core::project::RootIdentity {
+                path: std::path::PathBuf::from(root),
+                identity: None,
+            },
+            worktree_of: None,
+        };
+        editor.project_found(&request, Some(found));
+        editor.set_frame_size(FrameSize {
+            rows: 3,
+            columns: 70,
+        });
+        assert_frames(
+            "status_escaped_project",
+            root.as_bytes(),
             &[text_grid(&editor)],
         );
     }

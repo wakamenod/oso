@@ -107,7 +107,7 @@ pub(super) fn tiled_status<'a>(
 /// (ADR 0085), which only the selected window's says. A name and the rest are shaped apart,
 /// so that neither changes how the other reads. A window that is not selected has its
 /// modeline in [`Face::ModelineInactive`] (ADR 0112).
-fn modeline_spans(status: &Status) -> [Span<'_>; 4] {
+fn modeline_spans(status: &Status) -> [Span<'_>; 5] {
     let span = |text, face| Span { text, face };
     let agent = if status.agent_connected {
         Face::Warning
@@ -119,6 +119,7 @@ fn modeline_spans(status: &Status) -> [Span<'_>; 4] {
         span(status.agent, agent),
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], face),
+        span(&status.project[..], face),
         span(&status.state[..], face),
     ]
 }
@@ -148,7 +149,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); 5] {
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.
 #[derive(Default)]
 pub(super) struct Room {
-    modelines: Vec<[Span<'static>; 4]>,
+    modelines: Vec<[Span<'static>; 5]>,
     modeline_rows: Vec<[&'static [Span<'static>]; 1]>,
     numbers: Vec<[Span<'static>; 1]>,
     gutters: Vec<&'static [Span<'static>]>,
@@ -178,7 +179,7 @@ pub(super) fn spans_of<'a>(
     empty: &'a Status,
     room: &mut Room,
 ) -> Spans<'a> {
-    let mut modelines: Vec<[Span<'a>; 4]> = super::reuse(std::mem::take(&mut room.modelines));
+    let mut modelines: Vec<[Span<'a>; 5]> = super::reuse(std::mem::take(&mut room.modelines));
     modelines.extend(
         windows
             .iter()
@@ -203,14 +204,14 @@ pub(super) fn spans_of<'a>(
 
 /// Every window's modeline spans, gutter numbers and fills, as [`spans_of`] makes them.
 pub(super) type Spans<'a> = (
-    Vec<[Span<'a>; 4]>,
+    Vec<[Span<'a>; 5]>,
     Vec<[Span<'a>; 1]>,
     Vec<[(Face, &'a [CellRect]); 5]>,
 );
 
 /// The rows of every window's modeline and gutter, over the spans [`spans_of`] made.
 pub(super) fn rows_of<'a>(
-    modelines: &'a [[Span<'a>; 4]],
+    modelines: &'a [[Span<'a>; 5]],
     numbers: &'a [[Span<'a>; 1]],
     room: &mut Room,
 ) -> (Vec<[&'a [Span<'a>]; 1]>, Vec<&'a [Span<'a>]>) {

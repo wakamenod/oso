@@ -98,6 +98,7 @@ impl App {
         let mut buffer = Buffer::visiting(path.clone());
         buffer.apply_carried(text, facts);
         let buffer = self.editor.add_buffer(buffer);
+        self.editor.request_project(buffer);
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
@@ -302,8 +303,9 @@ impl App {
     }
 
     /// Takes in what the load at `index` found of `id`'s file before its content: the verdict,
-    /// the baseline and the file's own spelling. Returns whether the buffer went, as another one
-    /// visits that very file.
+    /// the baseline and the file's own spelling, and asks for its project, which a thread of its
+    /// own finds while the text comes (ADR 0114). Returns whether the buffer went, as another
+    /// one visits that very file.
     fn take_what_was_found(&mut self, index: usize, id: BufferId) -> bool {
         let handle = &self.loads[index].handle;
         let (resolved, baseline, spelling) = (
@@ -324,6 +326,7 @@ impl App {
             return false;
         };
         buffer.set_baseline(baseline);
+        self.editor.request_project(id);
         self.shows_the_one_open(index, id)
     }
 

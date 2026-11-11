@@ -43,6 +43,8 @@ const MIN_NAME_CELLS: usize = 20;
 const GAP: &str = "  ";
 /// Says that the agent channel is on (ADR 0085).
 const AGENT: &str = "Agent  ";
+/// The most cells a project's name takes (ADR 0114).
+const PROJECT_CELLS: usize = 24;
 
 /// The text of the modeline and the echo area. Comparing two says whether a frame
 /// would differ there.
@@ -57,6 +59,9 @@ pub struct Status {
     pub warnings: String,
     /// The modified marker and the buffer's name, cut to fit, as they come from disk.
     pub name: String,
+    /// The name of the project the buffer's file is in, cut to [`PROJECT_CELLS`], or nothing
+    /// (ADR 0114).
+    pub project: String,
     /// Loading progress, the position, the major mode, the encoding and line endings.
     pub state: String,
     /// The echo area's line, as it comes from a message.
@@ -74,7 +79,10 @@ pub struct Status {
 impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
-        format!("{}{}{}{}", self.agent, self.warnings, self.name, self.state)
+        format!(
+            "{}{}{}{}{}",
+            self.agent, self.warnings, self.name, self.project, self.state
+        )
     }
 
     /// The warnings that go first on the echo row: all of them in a frame with no
@@ -116,6 +124,11 @@ fn push_cut(out: &mut String, name: &str, cells: usize) {
         }
     }
     out.push_str(name);
+}
+
+/// The cells `text` takes.
+fn text_cells(text: &str) -> usize {
+    text_clusters(text, 0).map(|cluster| cluster.cells).sum()
 }
 
 /// How far along a load is. It stays under 100 while the load runs, since a file can
@@ -211,6 +224,11 @@ impl Editor {
         }
         status.state.clear();
         push_state(&mut status.state, window, buffer);
+        status.project.clear();
+        if let Some(project) = self.buffer_project(window.buffer()) {
+            push_cut(&mut status.project, project.name(), PROJECT_CELLS);
+            status.project.push_str(GAP);
+        }
 
         let marker = marker(buffer);
         // These parts are ASCII, so their bytes are their cells.
@@ -219,6 +237,7 @@ impl Editor {
             + marker.len()
             + 1
             + GAP.len()
+            + text_cells(&status.project)
             + status.state.len();
         let columns = regions.modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
@@ -331,6 +350,38 @@ mod tests {
         assert_eq!(status.name, "-- notes.md  ");
         assert_eq!(status.state, "2:1  Fundamental  UTF-8 LF");
         assert_eq!(status.modeline(), "-- notes.md  2:1  Fundamental  UTF-8 LF");
+    }
+
+    /// `editor`'s shown buffer, put in the project rooted at `root`.
+    fn in_project(editor: &mut Editor, root: &str) {
+        let id = editor.window().buffer();
+        let found = crate::project::Found {
+            root: crate::project::RootIdentity {
+                path: PathBuf::from(root),
+                identity: Some((1, 2)),
+            },
+            worktree_of: None,
+        };
+        editor.set_buffer_project(id, Some(found));
+    }
+
+    #[test]
+    fn the_project_follows_the_name() {
+        let mut editor = file("notes.md", 80);
+        in_project(&mut editor, "/w/oso");
+        assert_eq!(
+            status(&editor).modeline(),
+            "%% notes.md  oso  Loading 0 MiB  1:0  Fundamental  UTF-8 LF"
+        );
+        in_project(&mut editor, "/w/a-very-long-project-name-that-goes-on");
+        let long = status(&editor).project;
+        assert_eq!(long, format!("a-very-long-project-nam{CUT}  "));
+    }
+
+    #[test]
+    fn a_buffer_in_no_project_shows_none() {
+        let editor = file("notes.md", 80);
+        assert_eq!(status(&editor).project, "");
     }
 
     #[test]
