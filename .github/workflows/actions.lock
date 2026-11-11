@@ -8,6 +8,9 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'swatinem/rust-cache@v2.9.3'
         - 'taiki-e/install-action@v2.87.29'
+    '.github/workflows/codeql.yml':
+        - 'actions/checkout@v7.0.1'
+        - 'github/codeql-action@v4.39.1'
     '.github/workflows/coverage.yml':
         - 'actions/cache@v6.1.0'
         - 'actions/checkout@v7.0.1'
@@ -48,6 +51,11 @@ dependencies:
         commit: 'sha1-cf430e030ddbb5b0abf93d22962f4752f3646cd9'
         owner_id: 44036562
         repo_id: 192625955
+    'github/codeql-action@v4.39.1':
+        ref: 'v4.39.1'
+        commit: 'sha1-9b3254085494b55a0f7c4c2b3d2d52cc712ce370'
+        owner_id: 9919
+        repo_id: 259445878
     'swatinem/rust-cache@v2.9.3':
         ref: 'v2.9.3'
         commit: 'sha1-d1527c8f67ef9af357290475d4af4b0fab8f12e0'

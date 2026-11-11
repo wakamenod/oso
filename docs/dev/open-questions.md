@@ -26,6 +26,13 @@ item notes when it must be settled.
   no measurable difference. Decide whether to look for more in AppKit or to
   change the budget. The "50 ms after window creation" in ADR 0036 counted
   a skipped frame.
+- While the window is occluded, no frame is drawn, and what waits for the first frame of a file
+  waits with it. A load stays listed until a frame shows its file. A read of the file again that
+  started before then was never taken in, until the wake of the loading threads came to reach
+  it whatever is listed. In the end-to-end flows, which start windows behind others, a file's
+  first frame came after the first keys. Decide whether a load should end when its text and
+  verdict are in rather than at its first frame, which also moves when the first-screen timings
+  are taken.
 - Key latency leaves out the GPU's work. If a frame's GPU cost starts to
   matter, record GPU completion too, in dev builds. Key samples also end at
   the first frame after a key, even if glyphs fill in over the next ones.
@@ -34,6 +41,18 @@ item notes when it must be settled.
   while the buffer's revision holds. After a change every visible row seeks
   and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
   rows of ordinary text, so this waits until a profile shows it.
+- Rendering, since soft wrap draws view rows: key latency is 4 to 9% above main's at p50 and
+  p99 on the macmini (about 0.1 to 0.2 ms), and startup 1 to 7%. A frame builds the rows it
+  shows (`window::Screen`) and their cells once: 24 to 40 µs on a wrapped 10 MB line, 38 µs on
+  100 MB of source, and 85 to 130 µs while composing (`text_perf -- screen`)
+  ([ADR 0104](adr/0104-soft-wrap-drawn-in-view-rows.md)). Ways to cut it, once a profile shows
+  which:
+  - keep the screen while the buffer's revision, the window's top, size and wrap and the
+    preedit hold;
+  - read the rows by walking the wrap's tree with one cursor, in place of a seek and a column
+    lookup a row;
+  - on rows that do not wrap, take a line's start from its row, in place of a seek, for the
+    trailing whitespace and the cursors on its line.
 - A path swapped for a FIFO between the loader's check and its open blocks
   the loading thread (not the UI). M2-18 closes this: the loader opens through
   `oso_platform::file_meta::open_for_reading`, without waiting on the file, as
