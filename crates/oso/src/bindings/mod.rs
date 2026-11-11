@@ -11,6 +11,7 @@ mod edit;
 mod files;
 mod isearch;
 mod kill;
+mod macros;
 mod mark;
 mod messages;
 mod minibuffer;
@@ -39,6 +40,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     files::BINDINGS,
     isearch::BINDINGS,
     kill::BINDINGS,
+    macros::BINDINGS,
     mark::BINDINGS,
     buffers::BINDINGS,
     messages::BINDINGS,

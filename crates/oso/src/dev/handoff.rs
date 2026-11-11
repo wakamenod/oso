@@ -85,8 +85,8 @@ pub fn export(
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
-    if editor.isearch().is_some() || editor.replace().is_some() {
-        return Err(SEARCHING.into());
+    if let Some(why) = under_way(editor) {
+        return Err(why.into());
     }
     carried_bytes(editor)?;
     let mut items = Vec::new();
@@ -382,8 +382,8 @@ pub fn check(editor: &Editor) -> Reply {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
-    if editor.isearch().is_some() || editor.replace().is_some() {
-        return Err(SEARCHING.into());
+    if let Some(why) = under_way(editor) {
+        return Err(why.into());
     }
     Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
 }
@@ -399,6 +399,19 @@ const PROMPTING: &str = "cannot hand over: a prompt is open";
 /// Why a restart waits for isearch to end: a new instance would take the search away
 /// mid-typing (ADR 0082).
 const SEARCHING: &str = "cannot hand over: a search is under way";
+
+/// Why a handover waits for what the person is doing: a search or a query-replace, or a
+/// keyboard macro being recorded or run (ADR 0082, ADR 0113).
+fn under_way(editor: &Editor) -> Option<&'static str> {
+    if editor.isearch().is_some() || editor.replace().is_some() {
+        Some(SEARCHING)
+    } else if editor.macro_recording() || editor.macro_replaying() {
+        Some(MACRO)
+    } else {
+        None
+    }
+}
+const MACRO: &str = "cannot hand over: a keyboard macro is being recorded or run";
 
 /// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
 /// whatever that buffer holds.
@@ -454,6 +467,9 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
             Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
         Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
+        Some(_) if editor.macro_recording() || editor.macro_replaying() => Err(format!(
+            "{EXIT_REFUSED}: a keyboard macro is being recorded or run"
+        )),
         Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
             Err(format!("{EXIT_REFUSED}: a search is under way"))
         }

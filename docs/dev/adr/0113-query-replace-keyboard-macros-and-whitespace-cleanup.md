@@ -316,6 +316,21 @@ coordinator.
 - **The channel waits while a macro is recorded or replayed:** a channel command would change the
   text under the macro without being in it.
 
+#### As built (step 4, 2026-11-12)
+
+- **The editor keeps the macros, the dispatcher records and feeds them.** `Editor` holds the
+  recording, the last macro and a replay's place, with `MacroEvent` (a key, or text and whether
+  an input method committed it), and the dispatcher records a command's input at a time, so a
+  macro command's own keys, and a prefix argument given to it, are never in it.
+- **A replay is fed for 4 ms at each turn of the loop** (`Dispatcher::replay`), and waits while a
+  clipboard read, a key held for a completion, a search on a worker, `!`'s slices, a search for
+  cursors or a file's load is under way.
+- **A question stops the replay,** left open with the recorded answer dropped, and so does a
+  passphrase prompt; a command's error, an undefined key and a failing isearch stop it too.
+- **What a replay changed undoes as one step** in each buffer, through the history's join of
+  the steps made since it began.
+- **`Def` is the last part of the modeline's state,** in the selected window's modeline.
+
 ### 3. Whitespace cleanup on save
 
 #### What is cleaned

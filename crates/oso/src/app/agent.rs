@@ -127,8 +127,10 @@ struct Now {
     persons_prompt: bool,
     keys_in_progress: bool,
     composing: bool,
-    /// An isearch is on (ADR 0082).
+    /// An isearch or a query-replace is on (ADR 0082, ADR 0113).
     searching: bool,
+    /// A keyboard macro is being recorded or replayed (ADR 0113).
+    macro_running: bool,
     /// How long since the person last typed, if they have.
     since_typed: Option<Duration>,
 }
@@ -152,6 +154,9 @@ fn waits(now: &Now) -> Option<&'static str> {
     }
     if now.searching {
         return Some("the person is searching or replacing");
+    }
+    if now.macro_running {
+        return Some("the person is recording or running a keyboard macro");
     }
     if now.since_typed.is_some_and(|since| since < PERSON_TYPING) {
         return Some("the person is typing; try again in a moment");
@@ -463,6 +468,7 @@ impl App {
             keys_in_progress: self.dispatcher.keys_in_progress(),
             composing: self.composing(),
             searching: self.editor.isearch().is_some() || self.editor.replace().is_some(),
+            macro_running: self.editor.macro_recording() || self.editor.macro_replaying(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),
         })
     }
@@ -596,6 +602,13 @@ mod tests {
                     ..Now::default()
                 },
                 "searching",
+            ),
+            (
+                Now {
+                    macro_running: true,
+                    ..Now::default()
+                },
+                "keyboard macro",
             ),
             (
                 Now {

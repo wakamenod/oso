@@ -96,6 +96,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "prompts": prompts_state(editor),
         "isearch": isearch_state(editor),
         "replace": replace_state(editor),
+        "macro": { "recording": editor.macro_recording(), "replaying": editor.macro_replaying() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
     if !buffer.is_secret() {
@@ -674,6 +675,7 @@ mod tests {
                 "prompts": [],
                 "isearch": null,
                 "replace": null,
+                "macro": { "recording": false, "replaying": false },
                 "surface": { "width": 800, "height": 600 },
             })
         );

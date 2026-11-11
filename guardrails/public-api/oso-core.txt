@@ -1093,6 +1093,35 @@ impl core::fmt::Debug for oso_core::editor::KillRefused
 pub fn oso_core::editor::KillRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::KillRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::KillRefused
+pub enum oso_core::editor::MacroError
+pub oso_core::editor::MacroError::AlreadyRecording
+pub oso_core::editor::MacroError::NoMacro
+pub oso_core::editor::MacroError::NotRecording
+pub oso_core::editor::MacroError::Replaying
+impl core::clone::Clone for oso_core::editor::MacroError
+pub fn oso_core::editor::MacroError::clone(&self) -> oso_core::editor::MacroError
+impl core::cmp::Eq for oso_core::editor::MacroError
+impl core::cmp::PartialEq for oso_core::editor::MacroError
+pub fn oso_core::editor::MacroError::eq(&self, &oso_core::editor::MacroError) -> bool
+impl core::fmt::Debug for oso_core::editor::MacroError
+pub fn oso_core::editor::MacroError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::MacroError
+pub fn oso_core::editor::MacroError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::MacroError
+impl core::marker::StructuralPartialEq for oso_core::editor::MacroError
+pub enum oso_core::editor::MacroEvent
+pub oso_core::editor::MacroEvent::Key(oso_core::key::KeyPress)
+pub oso_core::editor::MacroEvent::Text
+pub oso_core::editor::MacroEvent::Text::commit: bool
+pub oso_core::editor::MacroEvent::Text::text: alloc::string::String
+impl core::clone::Clone for oso_core::editor::MacroEvent
+pub fn oso_core::editor::MacroEvent::clone(&self) -> oso_core::editor::MacroEvent
+impl core::cmp::Eq for oso_core::editor::MacroEvent
+impl core::cmp::PartialEq for oso_core::editor::MacroEvent
+pub fn oso_core::editor::MacroEvent::eq(&self, &oso_core::editor::MacroEvent) -> bool
+impl core::fmt::Debug for oso_core::editor::MacroEvent
+pub fn oso_core::editor::MacroEvent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::MacroEvent
 pub enum oso_core::editor::Preview
 pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
@@ -1460,14 +1489,15 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::cursor_search_waits(&self) -> bool
+pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::delete_trailing_whitespace(&mut self) -> core::result::Result<bool, oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::set_trim_whitespace(&mut self, bool)
 pub fn oso_core::editor::Editor::take_agent_trim_saves(&mut self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::take_trim_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::TrimJob>
 pub fn oso_core::editor::Editor::trim_failed(&mut self, oso_core::editor::TrimId)
 pub fn oso_core::editor::Editor::trim_reported(&mut self, oso_core::editor::TrimReport) -> core::option::Option<oso_core::editor::TrimOutcome>
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::isearch_mark(&mut self, core::option::Option<oso_core::editor::Toward>) -> core::result::Result<(), oso_core::editor::CursorError>
@@ -1556,6 +1586,17 @@ pub fn oso_core::editor::Editor::loaded(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::set_wraps(&mut self, oso_core::buffer::BufferId, bool) -> bool
 pub fn oso_core::editor::Editor::take_wrap_jobs(&mut self) -> alloc::vec::Vec<oso_core::display_map::wrap_map::WrapJob>
 pub fn oso_core::editor::Editor::take_wrap_report(&mut self, oso_core::display_map::wrap_map::WrapReport) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::macro_call(&mut self, core::option::Option<usize>) -> core::result::Result<(), oso_core::editor::MacroError>
+pub fn oso_core::editor::Editor::macro_cancel(&mut self, &str)
+pub fn oso_core::editor::Editor::macro_end(&mut self) -> core::result::Result<(), oso_core::editor::MacroError>
+pub fn oso_core::editor::Editor::macro_next(&mut self) -> core::option::Option<oso_core::editor::MacroEvent>
+pub fn oso_core::editor::Editor::macro_record(&mut self, impl core::iter::traits::collect::IntoIterator<Item = oso_core::editor::MacroEvent>)
+pub fn oso_core::editor::Editor::macro_recording(&self) -> bool
+pub fn oso_core::editor::Editor::macro_replaying(&self) -> bool
+pub fn oso_core::editor::Editor::macro_secret(&self) -> bool
+pub fn oso_core::editor::Editor::macro_start(&mut self) -> core::result::Result<(), oso_core::editor::MacroError>
+pub fn oso_core::editor::Editor::macro_stop(&mut self, core::option::Option<&str>)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::FileStamp, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
@@ -1805,6 +1846,8 @@ impl core::fmt::Debug for oso_core::editor::VisualAids
 pub fn oso_core::editor::VisualAids::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::VisualAids
 impl core::marker::StructuralPartialEq for oso_core::editor::VisualAids
+pub const oso_core::editor::MAX_MACRO_EVENTS: usize
+pub const oso_core::editor::MAX_MACRO_TEXT: usize
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
 pub mod oso_core::frame
