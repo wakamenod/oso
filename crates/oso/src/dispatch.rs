@@ -8,8 +8,6 @@
 //! Must not depend on: `app` or winit; key sequences stay testable without a
 //! window.
 
-use std::fmt::Write;
-
 use oso_core::command::{
     Args, CommandId, Ctx, Effects, ExecuteError, Invocation, Prefix, Registry,
 };
@@ -18,8 +16,7 @@ use oso_core::key::Key;
 use oso_core::key::KeyPress;
 #[cfg(any(test, feature = "dev"))]
 use oso_core::keymap::Layers;
-use oso_core::keymap::{CANCEL, KeyResolver, Keymap, Resolution, display_keys};
-use oso_core::minibuffer::Kind;
+use oso_core::keymap::{CANCEL, KeyResolver, Keymap, Resolution};
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
@@ -37,36 +34,10 @@ mod keymaps;
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
 mod run_command;
+mod shown;
 
 use keymaps::Keymaps;
-
-/// Keys in Emacs notation, each key that types a character as `<char>` where `mask` holds:
-/// always in the log, as typed text stays out of it (ADR 0028), and on screen in a passphrase
-/// prompt, where the user's keys can make a typing key part of a prefix (ADR 0110).
-fn masked(keys: &[KeyPress], mask: bool) -> String {
-    if !mask {
-        return display_keys(keys).to_string();
-    }
-    let mut text = String::new();
-    for (i, key) in keys.iter().enumerate() {
-        if i > 0 {
-            text.push(' ');
-        }
-        if key.text().is_some() {
-            text.push_str("<char>");
-        } else {
-            let _ = write!(text, "{key}");
-        }
-    }
-    text
-}
-
-/// Whether the innermost prompt reads a passphrase, so typing keys stay off the screen.
-fn reads_passphrase(editor: &Editor) -> bool {
-    editor
-        .prompt()
-        .is_some_and(|prompt| prompt.kind() == Kind::Passphrase)
-}
+use shown::{masked, reads_passphrase};
 
 /// Whether a command's edits may join the undo step before, if it asks.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -288,31 +259,6 @@ impl Dispatcher {
             }
         }
         self.show_keys_in_progress(editor);
-    }
-
-    /// Tells the echo area the keys in progress: the prefix argument and the keys of a
-    /// pending prefix (ADR 0058, ADR 0063).
-    fn show_keys_in_progress(&self, editor: &mut Editor) {
-        let pending = self.resolver.pending();
-        let mut keys = String::new();
-        match self.prefix {
-            None => {}
-            Some(Prefix::Universal(4)) => keys.push_str("C-u"),
-            Some(Prefix::Negative) => keys.push_str("C-u -"),
-            Some(prefix) => {
-                let _ = write!(keys, "C-u {}", prefix.value());
-            }
-        }
-        if !pending.is_empty() {
-            if !keys.is_empty() {
-                keys.push(' ');
-            }
-            keys.push_str(&masked(pending, reads_passphrase(editor)));
-        }
-        if !keys.is_empty() {
-            keys.push('-');
-        }
-        editor.set_keys_in_progress(&keys);
     }
 
     /// Handles key presses in order. Keys after one that exits are dropped.
