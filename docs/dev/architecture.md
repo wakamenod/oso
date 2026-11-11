@@ -497,8 +497,9 @@ The UI thread never blocks on I/O or parsing:
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
   files over 8 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
-- Search (ripgrep-style), git status and language servers stream results in
-  asynchronously.
+- Project search (in-process and ripgrep-style,
+  [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
+  git status and language servers stream results in asynchronously.
 
 ### Configuration
 
@@ -562,7 +563,8 @@ changed asks before going over it, and replaces it only if it is still what that
 
 - Projects open in **restricted mode** until trusted with `M-x trust-project`.
   Trust is stored in user config, never in the repository
-  ([ADR 0009](adr/0009-project-trust.md)).
+  ([ADR 0009](adr/0009-project-trust.md),
+  [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Child processes are spawned only through `oso-platform::process`, and a
   lint enforces this. oso contains no network code
   ([ADR 0010](adr/0010-process-and-network-policy.md)).

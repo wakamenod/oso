@@ -1,6 +1,6 @@
 # 0009. Project trust model
 
-- Status: Accepted
+- Status: Accepted, amended by 0114
 - Date: 2026-11-03
 
 ## Context

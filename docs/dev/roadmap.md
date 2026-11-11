@@ -243,7 +243,8 @@ alongside the steps above, after M2-16:
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Later, Markdown's fenced code tagged
   `rust` or `toml` is highlighted with those grammars.
 - Window splits ([ADR 0112](adr/0112-window-splits.md)), indentation, project trust model.
-- Project file finding and asynchronous ripgrep search.
+- Project file finding and asynchronous ripgrep-style search, in-process
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Migemo-style romaji search for Japanese text, and avy-style jumps.
 - The menu component, porting the author's hydra menus.
 - query-replace (`M-%`), keyboard macros, whitespace cleanup on save.
