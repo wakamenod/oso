@@ -46,9 +46,10 @@ impl Editor {
         };
         let (window, buffer, revision) = (marking.window, marking.buffer, marking.revision);
         self.clear_echo_saying(SEARCHING);
-        let moved = window != self.selected
-            || self.windows[window].buffer() != buffer
-            || self.windows[window].selections != pending.selections;
+        let selected = &self.windows[self.selected];
+        let moved = window != selected.id()
+            || selected.buffer() != buffer
+            || selected.selections != pending.selections;
         if moved {
             return true;
         }

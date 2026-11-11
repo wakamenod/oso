@@ -296,7 +296,7 @@ impl Editor {
         if !self.current().1.is_internal() {
             return None;
         }
-        let first = *self.way_back.first()?;
+        let first = *self.tiled().0.way_back().first()?;
         let buffer = self.buffer(first)?;
         if buffer.is_internal() {
             return None;
@@ -330,9 +330,13 @@ impl Editor {
     /// Shows the internal buffer `id`, to come back from later. If the window has already come
     /// through it, this goes back to it, so that going between two of them cannot grow the way.
     pub(super) fn go_to_internal(&mut self, id: BufferId) {
-        match self.way_back.iter().position(|other| *other == id) {
-            Some(index) => self.way_back.truncate(index),
-            None => self.way_back.push(self.window().buffer()),
+        let index = self.tiled_index();
+        let window = &mut self.windows[index];
+        let shown = window.buffer();
+        let way_back = window.way_back_mut();
+        match way_back.iter().position(|other| *other == id) {
+            Some(index) => way_back.truncate(index),
+            None => way_back.push(shown),
         }
         self.show(id);
     }
@@ -340,7 +344,8 @@ impl Editor {
     /// Goes back to where the window was before the internal buffer it is on, or to
     /// `*scratch*` if that buffer has gone.
     pub(super) fn leave_internal(&mut self) {
-        let back = self.way_back.pop();
+        let index = self.tiled_index();
+        let back = self.windows[index].way_back_mut().pop();
         self.go_back(back);
     }
 

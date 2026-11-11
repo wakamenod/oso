@@ -372,7 +372,9 @@ fn undoing_a_recovery_brings_the_warning_and_the_row_back_at_once() {
     fixture.run(scan);
     assert_eq!(fixture.state(), RowState::Unchanged);
     let mut status = oso_core::editor::Status::default();
-    fixture.editor.status_into(&mut status);
+    fixture
+        .editor
+        .status_into(fixture.editor.tiled().0.id(), &mut status);
     assert_eq!(status.warnings, "[emergency copy] ");
 }
 
@@ -487,7 +489,9 @@ fn what_depends_on_withheld_text_stays_out_of_the_messages() {
         "{kept:?}"
     );
     let mut status = oso_core::editor::Status::default();
-    fixture.editor.status_into(&mut status);
+    fixture
+        .editor
+        .status_into(fixture.editor.tiled().0.id(), &mut status);
     assert!(
         status.echo.contains("not text"),
         "for the person at the screen"
@@ -693,7 +697,9 @@ fn a_failure_of_a_withheld_copy_says_only_what_the_socket_may_read_from_the_list
     fixture.open_list();
     fixture.answer(RecoveryAction::Compare(HEADER_ROWS));
     let mut status = oso_core::editor::Status::default();
-    fixture.editor.status_into(&mut status);
+    fixture
+        .editor
+        .status_into(fixture.editor.tiled().0.id(), &mut status);
     assert_eq!(status.echo, "This copy cannot be compared here");
     assert!(
         !kept_messages(&fixture.editor)
@@ -810,6 +816,8 @@ fn a_compare_ending_takes_only_what_said_it_was_comparing_from_the_echo_area() {
     fixture.answer(RecoveryAction::MarkForDelete(HEADER_ROWS));
     fixture.run(work);
     let mut status = oso_core::editor::Status::default();
-    fixture.editor.status_into(&mut status);
+    fixture
+        .editor
+        .status_into(fixture.editor.tiled().0.id(), &mut status);
     assert!(status.echo.starts_with("Press d again"), "{}", status.echo);
 }

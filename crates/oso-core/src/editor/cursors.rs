@@ -22,6 +22,7 @@ use crate::motion::{self, WalkBudget};
 use crate::search::{KEY_BUDGET, MAX_QUERY_CHARS, Matched, Query};
 use crate::selection::{Goal, MAX_CURSORS, MarkActive, Selection, SelectionSet};
 use crate::sum_tree::Bias;
+use crate::window::WindowId;
 use crate::word;
 
 mod find;
@@ -85,7 +86,7 @@ impl std::error::Error for CursorError {}
 /// The query a window keeps for a run of the keys that add cursors, while it has several
 /// cursors and its text stays, and a search a worker does for it.
 pub(super) struct Marking {
-    window: usize,
+    window: WindowId,
     buffer: BufferId,
     revision: u64,
     wanted: Wanted,
@@ -254,7 +255,7 @@ impl Editor {
         };
         let (window, buffer) = self.current();
         self.marking = Some(Marking {
-            window: self.selected,
+            window: window.id(),
             buffer: window.buffer(),
             revision: buffer.revision(),
             wanted: wanted.clone(),
@@ -439,12 +440,12 @@ impl Editor {
     /// What the keys that add cursors look for: the query the window keeps, or a new one
     /// from the primary's region, or from the word at each cursor, which it selects.
     fn wanted(&mut self) -> Result<Wanted, CursorError> {
-        let index = self.selected;
         let (window, buffer) = self.current();
+        let me = window.id();
         let (id, revision) = (window.buffer(), buffer.revision());
         let selections = &window.selections;
         if let Some(marking) = &self.marking
-            && (marking.window, marking.buffer, marking.revision) == (index, id, revision)
+            && (marking.window, marking.buffer, marking.revision) == (me, id, revision)
             && selections.len() > 1
         {
             return Ok(marking.wanted.clone());
@@ -467,7 +468,7 @@ impl Editor {
         let wanted = Wanted { query, whole_word };
         let revision = self.current().1.revision();
         self.marking = Some(Marking {
-            window: index,
+            window: me,
             buffer: id,
             revision,
             wanted: wanted.clone(),

@@ -10,7 +10,7 @@ keys: x M-g g 4 C-x C-c
 │                                                                │
 │                                                                │
 │                                                                │
-=** test  1:1  Fundamental  UTF-8 LF                             =
+-** test  1:1  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 5 x 40
 │  [2] 1 modified buffer; exit without   │
@@ -27,7 +27,7 @@ keys: C-g
 │                                                                │
 │                                                                │
 │                                                                │
-=** test  1:1  Fundamental  UTF-8 LF                             =
+-** test  1:1  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 4 x 40
 │  Go to line:                           │
