@@ -62,9 +62,10 @@ impl<'a> Rows<'a> {
         }
     }
 
-    /// Whether rows wrap.
+    /// Whether rows wrap: not while the window is too narrow to wrap, when they are one a
+    /// logical line and scroll sideways as a window that does not wrap (ADR 0104).
     pub(crate) fn wrapped(&self) -> bool {
-        self.wrap.is_some()
+        self.wrap.is_some_and(WrapSnapshot::wraps)
     }
 
     /// The wrap they come from, if they wrap.

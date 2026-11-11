@@ -66,8 +66,14 @@ marked (question N) was one of those choices, listed under [Questions](#question
   way.
 - **Smallest window (question 1):**
   - A split is refused when either half would have fewer than 2 text rows above its modeline, or
-    fewer than 10 text columns beside its gutter, ADR 0104's narrowest wrap. It says "Window too
-    small for splitting".
+    fewer than 10 text columns, ADR 0104's narrowest wrap, beside the narrowest gutter: 4
+    columns while line numbers are on, none while they are off. It says "Window too small for
+    splitting". Resizing stops at the same size.
+  - A window's own gutter never counts there. It grows with its buffer's line count, which a
+    buffer that may hold secrets in another window must not give away through where a split or
+    a resize stops (ADR 0097). A buffer of 1000 lines or more has a wider gutter, so a window
+    of it at the smallest size keeps fewer than 10 text columns, and does not wrap until it is
+    wider (ADR 0104).
   - When the frame shrinks, every window keeps at least 1 text row and its modeline, and 1 text
     column. Its gutter goes first, as ADR 0097 has it for a narrow frame.
   - When even that does not fit, the windows that do not fit get no cells and are not drawn, those

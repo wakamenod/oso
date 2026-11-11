@@ -69,6 +69,17 @@ impl Editor {
         self.windows.iter().position(|window| window.id() == id)
     }
 
+    /// Tells the tree the gutter its smallest window counts: the narrowest while line numbers
+    /// are on, whatever any buffer's line count (ADR 0112).
+    fn set_split_gutter(&mut self) {
+        let gutter = if self.aids.line_numbers {
+            super::gutter::NARROWEST
+        } else {
+            0
+        };
+        self.splits.set_gutter(gutter);
+    }
+
     /// The selected tiled window's name, or the name of the one beneath the prompts.
     pub(super) fn tiled_id(&self) -> WindowId {
         self.windows[self.tiled_index()].id()
@@ -86,6 +97,7 @@ impl Editor {
     pub fn split_window(&mut self, way: Way, select: bool) -> Result<WindowId, TooSmall> {
         let at = self.tiled_index();
         let id = WindowId::new(self.next_window);
+        self.set_split_gutter();
         let mut splits = self.splits.clone();
         splits.split(self.windows[at].id(), way, id, &self.frame)?;
         self.isearch_exit();
@@ -261,6 +273,7 @@ impl Editor {
             return Ok(());
         }
         let id = self.tiled_id();
+        self.set_split_gutter();
         if self.splits.resize(id, way, cells, &self.frame) == 0 {
             return Err(if cells > 0 {
                 CannotResize::Enlarge
@@ -282,5 +295,7 @@ impl Editor {
     }
 }
 
+#[cfg(test)]
+mod buffer_tests;
 #[cfg(test)]
 mod tests;
