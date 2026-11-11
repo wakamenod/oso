@@ -376,7 +376,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
 fn columns(editor: &Editor, window: &Window) -> usize {
     let tiled = std::ptr::eq(window, editor.tiled().0);
     let gutter = if tiled {
-        editor.frame().window.gutter.columns
+        editor.tiled_regions().gutter.columns
     } else {
         0
     };
@@ -552,7 +552,7 @@ mod tests {
             line_numbers: true,
             ..oso_core::editor::VisualAids::default()
         });
-        assert_eq!(editor.frame().window.gutter.columns, 5);
+        assert_eq!(editor.tiled_regions().gutter.columns, 5);
         let state = get_state(&editor, &[], None);
         assert_eq!(state["window"]["columns"], 20);
         assert_eq!(state["windows"][0]["columns"], 20);

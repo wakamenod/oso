@@ -133,8 +133,9 @@ are rounded.
   switching, ripgrep search and line search, the popup splits: candidates on
   the left, a preview of the selected candidate on the right. Commands
   without a preview, such as `M-x`, use a single-column popup.
-- The preview is read-only, and it only renders already-open buffers or
-  files the trust model allows reading.
+- The preview is read-only, and it only renders already-open buffers or,
+  for a project search, files read from disk that may not hold secrets
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 
 ### Finding files (`C-x C-f`, `C-x C-w`)
 
@@ -247,7 +248,8 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   count, and a file not yet judged shows none of them.
 - A frame of two rows has no modeline, and its warnings go first on the echo row. A frame of
   one row has no place for them ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-- M3 adds the project trust indicator.
+- M3 adds the project: its name, then `restricted` in the dim face until it
+  is trusted ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 
 ## Cursor
 

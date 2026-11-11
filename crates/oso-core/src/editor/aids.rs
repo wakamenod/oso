@@ -72,7 +72,7 @@ impl Editor {
         }
         let (window, buffer) = self.tiled();
         let display = buffer.display();
-        let text = self.frame.window.text;
+        let text = self.tiled_regions().text;
         let selections = window.selections.as_slice();
         let mut left = FRAME_CHARS;
         for (index, row) in screen.rows().iter().take(text.rows).enumerate() {
@@ -107,7 +107,7 @@ impl Editor {
         }
         let (window, buffer) = self.tiled();
         let line = window.cursor_point(&buffer.display()).row;
-        let text = self.frame.window.text;
+        let text = self.tiled_regions().text;
         let rows = &screen.rows()[..screen.rows().len().min(text.rows)];
         let top = rows.iter().position(|row| row.line == line)?;
         let count = rows[top..]
@@ -170,7 +170,7 @@ impl Editor {
     /// its view row, if that row is in view as `screen` shows it ([`Editor::screen`]).
     pub fn flash_cells(&self, screen: &Screen) -> Option<CellRect> {
         let (window, buffer) = self.tiled();
-        let text = self.frame.window.text;
+        let text = self.tiled_regions().text;
         let point = window.cursor_point(&buffer.display());
         let row = screen.row_of(point).filter(|&row| row < text.rows)?;
         let column = point

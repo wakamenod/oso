@@ -1240,6 +1240,7 @@ pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
+pub fn oso_core::editor::Editor::window_by_id(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::window::Window>
 pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
@@ -1370,7 +1371,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) -> core::option::Option<oso_core::frame::PixelRect>
 pub fn oso_core::editor::Editor::deactivate_mark(&mut self) -> bool
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
-pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
+pub fn oso_core::editor::Editor::frame(&self) -> &oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::other_cursor_cells(&self, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
 pub fn oso_core::editor::Editor::preedit_layout(&self, oso_core::frame::PixelGrid, &mut alloc::vec::Vec<f32>) -> core::option::Option<oso_core::frame::PixelRect>
@@ -1378,6 +1379,7 @@ pub fn oso_core::editor::Editor::preedit_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::prompt_region_cells(&self, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::recenter(&mut self, oso_core::window::Recenter) -> bool
 pub fn oso_core::editor::Editor::region_cells(&self, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::editor::Editor::regions(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::frame::WindowRegions>
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_lines(&mut self, isize) -> core::result::Result<bool, oso_core::motion::Edge>
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
@@ -1385,6 +1387,7 @@ pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
+pub fn oso_core::editor::Editor::tiled_regions(&self) -> oso_core::frame::WindowRegions
 pub fn oso_core::editor::Editor::top_row(&self) -> usize
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
@@ -1725,9 +1728,11 @@ impl core::marker::Copy for oso_core::frame::FloatRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::FloatRegions
 pub struct oso_core::frame::FrameLayout
 pub oso_core::frame::FrameLayout::echo: oso_core::frame::CellRect
-pub oso_core::frame::FrameLayout::window: oso_core::frame::WindowRegions
 impl oso_core::frame::FrameLayout
+pub fn oso_core::frame::FrameLayout::regions(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::frame::WindowRegions>
 pub fn oso_core::frame::FrameLayout::size(&self) -> oso_core::frame::FrameSize
+pub fn oso_core::frame::FrameLayout::tiled(&self) -> oso_core::frame::CellRect
+pub fn oso_core::frame::FrameLayout::windows(&self) -> &[(oso_core::window::WindowId, oso_core::frame::WindowRegions)]
 impl core::clone::Clone for oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::clone(&self) -> oso_core::frame::FrameLayout
 impl core::cmp::Eq for oso_core::frame::FrameLayout
@@ -1737,7 +1742,6 @@ impl core::fmt::Debug for oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::hash::Hash for oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for oso_core::frame::FrameLayout
 impl core::marker::StructuralPartialEq for oso_core::frame::FrameLayout
 pub struct oso_core::frame::FrameSize
 pub oso_core::frame::FrameSize::columns: usize
@@ -1783,6 +1787,7 @@ pub fn oso_core::frame::PixelRect::fmt(&self, &mut core::fmt::Formatter<'_>) -> 
 impl core::marker::Copy for oso_core::frame::PixelRect
 impl core::marker::StructuralPartialEq for oso_core::frame::PixelRect
 pub struct oso_core::frame::WindowRegions
+pub oso_core::frame::WindowRegions::divider: core::option::Option<oso_core::frame::CellRect>
 pub oso_core::frame::WindowRegions::gutter: oso_core::frame::CellRect
 pub oso_core::frame::WindowRegions::modeline: oso_core::frame::CellRect
 pub oso_core::frame::WindowRegions::text: oso_core::frame::CellRect
@@ -1803,7 +1808,6 @@ pub const oso_core::frame::MIN_LIST_COLUMNS: usize
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, &oso_core::window::Screen, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::fitting_gutter(oso_core::frame::FrameSize, usize) -> usize
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
-pub fn oso_core::frame::layout(oso_core::frame::FrameSize, usize) -> oso_core::frame::FrameLayout
 pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, &oso_core::window::Screen, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::other_cursor_cells(oso_core::frame::CellRect, &oso_core::window::Screen, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, &oso_core::window::Screen, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
@@ -2813,7 +2817,7 @@ impl oso_core::window::Window
 pub fn oso_core::window::Window::buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::window::Window::cursor_point(&self, &oso_core::display_map::DisplaySnapshot) -> oso_core::display_map::DisplayPoint
 pub fn oso_core::window::Window::cursor_row(&self, &oso_core::display_map::DisplaySnapshot) -> usize
-pub fn oso_core::window::Window::new(oso_core::buffer::BufferId) -> Self
+pub fn oso_core::window::Window::id(&self) -> oso_core::window::WindowId
 pub fn oso_core::window::Window::places(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::window::Place)>
 pub fn oso_core::window::Window::row_count(&self, &oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::window::Window::scroll(&self) -> oso_core::window::Scroll
@@ -2826,6 +2830,22 @@ impl core::clone::Clone for oso_core::window::Window
 pub fn oso_core::window::Window::clone(&self) -> Self
 impl core::fmt::Debug for oso_core::window::Window
 pub fn oso_core::window::Window::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::window::WindowId(_)
+impl core::clone::Clone for oso_core::window::WindowId
+pub fn oso_core::window::WindowId::clone(&self) -> oso_core::window::WindowId
+impl core::cmp::Eq for oso_core::window::WindowId
+impl core::cmp::Ord for oso_core::window::WindowId
+pub fn oso_core::window::WindowId::cmp(&self, &oso_core::window::WindowId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::window::WindowId
+pub fn oso_core::window::WindowId::eq(&self, &oso_core::window::WindowId) -> bool
+impl core::cmp::PartialOrd for oso_core::window::WindowId
+pub fn oso_core::window::WindowId::partial_cmp(&self, &oso_core::window::WindowId) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_core::window::WindowId
+pub fn oso_core::window::WindowId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::window::WindowId
+pub fn oso_core::window::WindowId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::window::WindowId
+impl core::marker::StructuralPartialEq for oso_core::window::WindowId
 pub const oso_core::window::CONTEXT_LINES: usize
 pub fn oso_core::window::follow(oso_core::window::ViewTop, oso_core::window::ViewSize, oso_core::display_map::DisplayPoint, usize) -> oso_core::window::ViewTop
 pub fn oso_core::window::reaches(usize, oso_core::window::ViewSize, usize) -> bool

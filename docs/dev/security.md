@@ -42,8 +42,13 @@ network features.
 
 - Projects open in **restricted mode**. A modeline indicator shows the
   mode, and no popup asks about it.
-- `M-x trust-project` marks a project as trusted. Trust is stored in user
-  config, never inside the repository.
+- A project is the nearest directory above a file holding `.git`, `.jj` or
+  `.hg`, found from metadata alone. A git worktree takes its main
+  repository's trust ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- `M-x trust-project` marks a project as trusted. Trust is stored in
+  `trusted-projects` in oso's configuration directory, by the root's path,
+  device and inode, never inside the repository. That file is refused when
+  anyone else, a group included, can change it or the way to it.
 - Trust means "I accept running this project's code on my machine".
 
 | Capability | Restricted | Trusted |
@@ -52,6 +57,7 @@ network features.
 | Syntax highlighting (in-process tree-sitter) | yes | yes |
 | Git status display (in-process `gix`) | yes | yes |
 | Terminal (explicit user action) | yes | yes |
+| Finding and searching the project's files (in-process) | yes | yes |
 | Language servers | no | yes |
 | Formatters, format on save | no | yes |
 | Git write operations (commit, push, rebase; hooks run) | no | yes |
