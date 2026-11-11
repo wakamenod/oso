@@ -14,7 +14,7 @@ use super::Editor;
 use super::follow::clip_selections;
 use super::save::{Elsewhere, SaveRefused};
 use crate::buffer::{
-    BufferId, EditError, Reads, Replacement, Tracking, Trim, TrimRules, as_spans,
+    BufferId, EditError, Mode, Reads, Replacement, Tracking, Trim, TrimRules, as_spans,
     trailing_whitespace,
 };
 use crate::rope::Rope;
@@ -169,13 +169,9 @@ impl Trimmed {
     };
 }
 
-/// Whether `path` names a Markdown file, by its name until major modes come.
+/// Whether `path` names a Markdown file: its major mode, as the name decides it (ADR 0111).
 fn is_markdown(path: Option<&Path>) -> bool {
-    path.and_then(Path::extension)
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
-        })
+    path.is_some_and(|path| Mode::for_path(path) == Mode::Markdown)
 }
 
 /// `ranges` moved through `deletions`, both ascending and apart.
