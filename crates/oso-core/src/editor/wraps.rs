@@ -107,6 +107,11 @@ impl Editor {
                 if stale {
                     window.realize_top(&display);
                 }
+                // Wide enough to wrap again, it shows from the left edge (ADR 0104).
+                let scroll = window.scroll();
+                if scroll.left != 0 && window.rows(&display).wrapped() {
+                    window.set_scroll(Scroll { left: 0, ..scroll });
+                }
                 0
             }
             (false, false) => budget,
