@@ -305,7 +305,7 @@ mod tests {
                 path: PathBuf::from(root),
                 identity: Some((1, 2)),
             },
-            trust_root: None,
+            worktree_of: None,
         };
         editor.set_buffer_project(id, Some(found));
     }

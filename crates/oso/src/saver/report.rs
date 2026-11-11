@@ -96,7 +96,6 @@ fn moved_to(
     let elsewhere::Moved {
         resolved,
         spelling,
-        project,
         location,
         path,
     } = moved;
@@ -107,7 +106,6 @@ fn moved_to(
         }
     };
     editor.written_elsewhere(buffer, path, content, location, stamp, judge);
-    editor.set_buffer_project(buffer, project);
 }
 
 /// What a write to a new place that wrote nothing says, and the file found there that the

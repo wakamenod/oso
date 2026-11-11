@@ -166,6 +166,8 @@ impl Editor {
         // one a longer one.
         self.name_files_like(&old);
         self.name_files_like(&new);
+        // It may be in another project now.
+        self.request_project(id);
     }
 }
 

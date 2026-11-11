@@ -30,9 +30,6 @@
 //! a baseline, but its text comes whole, compared with the buffer's on this thread
 //! ([`spawn_reload`]). [`Watcher`] notices the change (ADR 0083).
 //!
-//! A load, not a reload, also finds the project the file is in (`crate::project`, ADR 0114)
-//! before the first update, by the place the path leads.
-//!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1). Nothing logged says how large a file is, as it may hold secrets.
 
@@ -47,7 +44,6 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::{Baseline, BufferId};
 use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, LoadSnapshot, Reloaded};
-use oso_core::project::Found;
 use oso_core::rope::Rope;
 
 mod error;
@@ -123,9 +119,6 @@ struct Shared {
     baseline: Mutex<Option<Baseline>>,
     /// The file's own spelling. Set before the first update, and taken once.
     spelling: Mutex<Option<PathBuf>>,
-    /// The project the file is in, if a load looked for one (ADR 0114). Set before the
-    /// first update, and taken once.
-    project: Mutex<Option<Found>>,
 }
 
 impl Shared {
@@ -144,11 +137,6 @@ impl Shared {
     /// Locks the file's own spelling, which is also held only to swap an `Option`.
     fn spelling(&self) -> std::sync::MutexGuard<'_, Option<PathBuf>> {
         self.spelling.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Locks the project, which is also held only to swap an `Option`.
-    fn project(&self) -> std::sync::MutexGuard<'_, Option<Found>> {
-        self.project.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Locks the baseline, which is also held only to swap an `Option`.
@@ -186,13 +174,6 @@ impl LoadHandle {
     /// opened. Every update comes after this is available.
     pub fn take_own_spelling(&self) -> Option<PathBuf> {
         self.shared.spelling().take()
-    }
-
-    /// The project the file is in, the first time this is called after it was opened, if
-    /// it is in one. Every update comes after this is available. Only a load looks for it,
-    /// not a reload.
-    pub fn take_project(&self) -> Option<Found> {
-        self.shared.project().take()
     }
 
     /// The file's baseline, the first time this is called after it was opened. Every
@@ -264,12 +245,6 @@ where
                 verdict_of_opened(resolve(&path), file)
             });
             *thread_shared.resolved() = Some(judged.unwrap_or(Resolved::Unknown(Vec::new())));
-            let found = std::panic::catch_unwind(|| {
-                location(&path)
-                    .ok()
-                    .and_then(|location| crate::project::detect(&location))
-            });
-            *thread_shared.project() = found.ok().flatten();
             *thread_shared.slot() = Some(LoadUpdate::Judged);
             wake(buffer);
         })?;
@@ -291,7 +266,7 @@ where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
     spawn_reading(buffer, wake, move |shared, post| {
-        let (file, metadata) = open_and_record(&path, shared, || {}, false)?;
+        let (file, metadata) = open_and_record(&path, shared, || {})?;
         // A buffer the agent opened is read again only as it may be opened (ADR 0085).
         if for_agent {
             for_the_agent(&metadata)?;
@@ -461,7 +436,7 @@ fn load_around(
     after_open: impl FnOnce(),
     one_name: bool,
 ) -> Result<(), LoadError> {
-    let (file, metadata) = open_and_record(path, shared, after_open, true)?;
+    let (file, metadata) = open_and_record(path, shared, after_open)?;
     if metadata.len() > limit {
         return Err(LoadError::TooLarge(metadata.len()));
     }
@@ -486,13 +461,11 @@ fn for_the_agent(metadata: &Metadata) -> Result<(), LoadError> {
 }
 
 /// Opens `path`, runs `after_open`, and records where the path leads, the verdict, the file's own
-/// spelling and its baseline for the UI, and with `find_project` the project it is in, before
-/// anything is read.
+/// spelling and its baseline for the UI, before anything is read.
 fn open_and_record(
     path: &Path,
     shared: &Shared,
     after_open: impl FnOnce(),
-    find_project: bool,
 ) -> Result<(File, Metadata), LoadError> {
     let opened = open(path);
     after_open();
@@ -506,14 +479,6 @@ fn open_and_record(
     *shared.spelling() = baseline
         .as_ref()
         .and_then(|baseline| own_spelling(&baseline.location));
-    if find_project {
-        // A panic there must not stop the load; the file is then in no project.
-        *shared.project() = baseline.as_ref().and_then(|baseline| {
-            std::panic::catch_unwind(|| crate::project::detect(&baseline.location))
-                .ok()
-                .flatten()
-        });
-    }
     *shared.baseline() = baseline;
     opened
 }
@@ -667,34 +632,6 @@ mod tests {
             [LoadUpdate::Failed(LoadError::TooLarge(LARGE))]
         ));
         std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn a_load_finds_the_project_before_its_first_update_and_a_reload_does_not() {
-        let dir = std::fs::canonicalize(std::env::temp_dir())
-            .unwrap()
-            .join(format!("oso-loader-test-{}-project", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".git")).unwrap();
-        std::fs::create_dir_all(dir.join("src")).unwrap();
-        let path = dir.join("src/main.rs");
-        std::fs::write(&path, "fn main() {}\n").unwrap();
-
-        let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
-        rx.recv_timeout(Duration::from_secs(10)).unwrap();
-        let found = handle.take_project().unwrap();
-        assert_eq!(found.root.path, dir);
-        assert!(handle.take_project().is_none(), "taken once");
-
-        let (tx, rx) = mpsc::channel();
-        let reload = spawn_reload(id(), path, Rope::default(), false, move |_| {
-            tx.send(()).is_ok()
-        })
-        .unwrap();
-        rx.recv_timeout(Duration::from_secs(10)).unwrap();
-        assert!(reload.take_project().is_none());
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

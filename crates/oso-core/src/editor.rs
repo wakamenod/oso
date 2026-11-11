@@ -76,6 +76,7 @@ pub use gutter::Gutter;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
+pub use projects::ProjectRequest;
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
@@ -208,6 +209,8 @@ pub struct Editor {
     reverts: Vec<(BufferId, ContentId)>,
     /// The projects buffers are in, which `ProjectId` indexes (ADR 0114).
     projects: Vec<Project>,
+    /// Files whose project the host should find.
+    project_requests: Vec<ProjectRequest>,
     themes: themes::Themes,
     aids: VisualAids,
 }
@@ -270,6 +273,7 @@ impl Editor {
             marking: None,
             reverts: Vec::new(),
             projects: Vec::new(),
+            project_requests: Vec::new(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
         };

@@ -5,8 +5,7 @@
 //! The new path is followed to where it leads, on this thread, and then written as a save
 //! writes, in the same order (ADR 0059), with nothing expected there, or the file the person
 //! agreed to write over. The path is judged as a load judges it, so that the buffer's verdict
-//! comes from where its text now is (ADR 0044), and its project is found there again
-//! (`crate::project`, ADR 0114).
+//! comes from where its text now is (ADR 0044).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,8 +25,6 @@ pub struct Moved {
     pub(super) resolved: Resolved,
     /// The file's own spelling there.
     pub(super) spelling: Option<PathBuf>,
-    /// The project the file is in there (ADR 0114).
-    pub(super) project: Option<oso_core::project::Found>,
     /// The path written, which the buffer now visits: the one given, or the buffer's file's
     /// name in it if it was a directory.
     pub(super) path: PathBuf,
@@ -77,9 +74,6 @@ pub(super) fn write(job: &SaveJob, elsewhere: &Elsewhere) -> Result<Option<Writt
     written.moved = Some(Box::new(Moved {
         resolved: resolve(&path),
         spelling: own_spelling(&location),
-        project: std::panic::catch_unwind(|| crate::project::detect(&location))
-            .ok()
-            .flatten(),
         location,
         path,
     }));
