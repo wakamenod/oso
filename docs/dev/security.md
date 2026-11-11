@@ -293,12 +293,20 @@ and below the row, and a label's glyphs keep their own cells
   before it is read, as running out of memory aborts with no emergency save. Rendering shapes only the visible
   columns of a row, and rasterizes a bounded number of new glyphs per frame
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
-- Parsing runs in the background with cancellation and timeouts.
+- Parsing runs in the background with cancellation and timeouts. Tree-sitter parses no file over
+  8 MiB, and stops highlighting a buffer whose first parse passes 5 s or a later one 1 s. Its
+  queries are oso's own, compiled in, with a match limit; nothing is loaded at run time
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 
 ### Untrusted parsers (T10)
 
 - Image and PDF support (M4 and later) will use pure-Rust decoders, or isolate
   parsing in a separate process.
+- Tree-sitter's grammars are the exception: generated and hand-written C that runs in the oso
+  process on untrusted files ([ADR 0012](adr/0012-tree-sitter.md)). They are few, pinned to exact
+  versions, with each `build.rs` and scanner read before a bump, and never run on a buffer that
+  may hold secrets. A memory error in one ends oso with no emergency save
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Fuzz targets (`cargo-fuzz`) cover file loading, decoding, highlighting and
   layout.
 

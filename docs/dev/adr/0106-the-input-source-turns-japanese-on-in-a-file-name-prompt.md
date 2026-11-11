@@ -1,6 +1,6 @@
 # 0106. The input source turns Japanese on in a file name's prompt
 
-- Status: Accepted
+- Status: Accepted, amended by 0113
 - Date: 2026-11-11
 
 ## Context

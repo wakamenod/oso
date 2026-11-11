@@ -491,8 +491,12 @@ The UI thread never blocks on I/O or parsing:
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - The event loop's user event is an enum: loader wake-ups, save reports, the watcher's
   reports and what threads find of emergency copies in every build, and control socket requests in dev builds.
-- Tree-sitter parsing runs on a background thread with cancellation and
-  timeouts. Results replace the syntax decoration layer atomically.
+- Tree-sitter parsing (M3) will run on one worker thread of the tip crate, which owns every
+  buffer's tree; the UI thread never calls tree-sitter. A buffer's highlights are a map of runs
+  in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
+  reports replace it, mapped through the edits made since. Colour is applied when glyph
+  instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
+  files over 8 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Search (ripgrep-style), git status and language servers stream results in
   asynchronously.
 

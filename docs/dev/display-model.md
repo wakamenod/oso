@@ -185,7 +185,7 @@ one layer:
 
 | Layer owner | Examples | Notes |
 |---|---|---|
-| Syntax | tree-sitter highlights | computed in the background, swapped atomically |
+| Syntax | tree-sitter highlights | computed in the background, swapped atomically; a map of runs that follows edits until the next report, coloured after shaping ([ADR 0111](adr/0111-tree-sitter-highlighting.md)) |
 | Search | isearch matches | built in M2-20 as rectangles of the view's cells, worked out each frame ([ADR 0082](adr/0082-isearch.md)) |
 | Diagnostics | LSP errors and warnings | underline styles and gutter signs |
 | Modes | dired file lines, git sections and hunks | carry typed data |

@@ -1,6 +1,6 @@
 # 0004. Workspace crate layout
 
-- Status: Accepted
+- Status: Accepted, amended by 0111
 - Date: 2026-11-03
 
 ## Context
