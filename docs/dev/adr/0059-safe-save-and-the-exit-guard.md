@@ -1,6 +1,6 @@
 # 0059. Safe save and the exit guard
 
-- Status: Accepted, amended by 0083, 0087 and 0090
+- Status: Accepted, amended by 0083, 0087, 0090 and 0113
 - Date: 2026-11-05
 
 ## Context
