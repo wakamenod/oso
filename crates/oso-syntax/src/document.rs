@@ -209,4 +209,6 @@ impl Document {
 }
 
 #[cfg(test)]
+mod properties;
+#[cfg(test)]
 mod tests;

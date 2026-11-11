@@ -436,8 +436,30 @@ decision above. The options not taken are listed with their trade-offs.
   where its lexer reads, so an edit's wrong point leaves the tree right. The property test
   catches a wrong byte; a unit test checks the points, which `Tree::changed_ranges` reports.
 - **The agent channel** counted every mode but `Fundamental` as one with keys of its own, so it
-  would have refused every Rust, Markdown or TOML buffer. It now asks whether the mode shows
-  emergency copies.
+  would have refused every Rust, Markdown or TOML buffer. It now matches every mode with no
+  wildcard, so a new mode says whether it has keys of its own.
+- **An incremental parse need not equal a fresh one.** tree-sitter does not promise it once
+  error recovery is involved: on texts of 12 KB, the review found a few trees in every 300 rounds
+  that differed, all with errors. So the property tests compare a document with the same history
+  parsed from one contiguous string, which always matched, and with a fresh parse only where
+  neither tree holds an error. Their texts span several of the rope's 1008-byte chunks, and edits
+  also come while a parse is stopped part way.
+- **Markdown's inline grammar overflows a thread's stack on deeply nested inline links.** The
+  review found that about 96 KB of such text in one inline node overflows a 2 MiB stack, and the
+  process aborts: no panic, so no emergency save. An 8 MiB stack fails at 1 MiB of it, and 2 MiB
+  needed 64 MiB. The size limit does not prevent it, and the Context above was wrong to say the
+  runtime never recurses. Rust's and TOML's grammars and Markdown's block grammar parse 2 MiB of
+  nesting with no trouble. So:
+  - step 3 caps the text of one inline node far below what overflows, measured, and leaves a
+    longer one plain;
+  - step 4 runs the worker on a thread of its own with a stack size set from those measurements;
+  - such text is one of the cases the property tests and their weekly runs feed every grammar.
+- **One slice can overshoot its time:** tree-sitter asks the progress callback only every so
+  often, and the review measured single slices of 178 ms (Rust), 522 ms (Markdown inline) and
+  577 ms (TOML) on crafted nesting. That holds no key, as it is the worker's time, but it delays
+  other buffers' jobs by as much.
+- **Edits that wait for a stopped parse** are kept in full, one entry a batch, with no bound.
+  Step 2, which gives the worker its jobs, merges them.
 
 ## Alternatives considered
 

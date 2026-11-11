@@ -5,7 +5,7 @@
 //! Must not depend on: the channel's socket or protocol, or `app`; the host decides when the
 //! channel may run anything at all.
 
-use oso_core::buffer::{Buffer, BufferId};
+use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::command::{ArgSpec, BufferPurpose, Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
 
@@ -204,10 +204,19 @@ pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
         Some(Unshowable::Opening)
     } else if buffer.loading().is_some() {
         Some(Unshowable::Loading)
-    } else if buffer.mode().shows_copies() {
+    } else if has_own_keys(buffer.mode()) {
         Some(Unshowable::OwnKeys)
     } else {
         None
+    }
+}
+
+/// Whether a buffer in `mode` takes keys of its own, which the person's typing would reach. A
+/// match with no wildcard, so that a new mode says.
+fn has_own_keys(mode: Mode) -> bool {
+    match mode {
+        Mode::CopyList | Mode::CopyView => true,
+        Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }
 }
 

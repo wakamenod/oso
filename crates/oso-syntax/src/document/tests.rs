@@ -7,19 +7,18 @@ use std::time::Duration;
 
 use oso_core::rope::Rope;
 use oso_core::syntax::Splice;
-use proptest::prelude::*;
 use tree_sitter::Tree;
 
 use super::{Document, Failure, MAX_BYTES, Parsed};
 use crate::language::Language;
 
-const LONG: Duration = Duration::from_secs(30);
+pub(super) const LONG: Duration = Duration::from_secs(30);
 
 /// A node's kind, its bytes, and its first and last points as rows and columns.
-type Node = (String, usize, usize, (usize, usize), (usize, usize));
+pub(super) type Node = (String, usize, usize, (usize, usize), (usize, usize));
 
 /// Every node of `tree`, in order, walked with a cursor.
-fn nodes(tree: &Tree) -> Vec<Node> {
+pub(super) fn nodes(tree: &Tree) -> Vec<Node> {
     let mut out = Vec::new();
     let mut cursor = tree.walk();
     loop {
@@ -46,14 +45,14 @@ fn nodes(tree: &Tree) -> Vec<Node> {
     }
 }
 
-fn parsed(language: Language, text: &str) -> Document {
+pub(super) fn parsed(language: Language, text: &str) -> Document {
     let mut document = Document::new(language, Rope::from(text));
     assert_eq!(document.parse(LONG), Parsed::Done);
     document
 }
 
 /// Applies a batch to `text` as an editor does, highest first, and returns the text after.
-fn apply(text: &Rope, batch: &[(Splice, String)]) -> Rope {
+pub(super) fn apply(text: &Rope, batch: &[(Splice, String)]) -> Rope {
     let mut after = text.clone();
     for (splice, new) in batch.iter().rev() {
         after.replace(splice.start..splice.start + splice.old_len, new);
@@ -167,111 +166,4 @@ fn a_parse_past_its_time_limit_stops_for_good() {
     }
     assert_eq!(result, Parsed::Failed(Failure::TooSlow));
     assert!(document.tree().is_none());
-}
-
-/// Pieces that edits insert: tokens of each language, line breaks, and text of several bytes
-/// a character, so that points count bytes.
-const PIECES: [&str; 16] = [
-    "fn ", "{", "}", "\n", "\"", "//", " ", "x", "日本", "# ", "*", "`", "[a]", " = ", "1", "é",
-];
-
-fn batch(len: usize) -> impl Strategy<Value = Vec<(Splice, String)>> {
-    prop::collection::vec(
-        (
-            0..=len,
-            0usize..6,
-            prop::collection::vec(0..PIECES.len(), 0..4),
-        ),
-        1..4,
-    )
-    .prop_map(move |mut picks| {
-        picks.sort_by_key(|pick| pick.0);
-        let mut out: Vec<(Splice, String)> = Vec::new();
-        let mut end = 0;
-        for (start, old_len, pieces) in picks {
-            let start = start.max(end);
-            let old_len = old_len.min(len.saturating_sub(start));
-            if start > len {
-                break;
-            }
-            let new: String = pieces.iter().map(|&i| PIECES[i]).collect();
-            out.push((
-                Splice {
-                    start,
-                    old_len,
-                    new_len: new.len(),
-                },
-                new,
-            ));
-            end = start + old_len;
-        }
-        out
-    })
-}
-
-/// Keeps offsets on character boundaries: a start or an end inside a character moves to its
-/// start, as the editor's offsets never fall inside one.
-fn on_boundaries(text: &str, batch: Vec<(Splice, String)>) -> Vec<(Splice, String)> {
-    let floor = |mut at: usize| {
-        while !text.is_char_boundary(at) {
-            at -= 1;
-        }
-        at
-    };
-    let mut out: Vec<(Splice, String)> = Vec::new();
-    let mut end = 0;
-    for (splice, new) in batch {
-        let start = floor(splice.start).max(end);
-        let old_end = floor(splice.start + splice.old_len).max(start);
-        out.push((
-            Splice {
-                start,
-                old_len: old_end - start,
-                new_len: new.len(),
-            },
-            new,
-        ));
-        end = old_end;
-    }
-    out
-}
-
-const SEEDS: [(Language, &str); 3] = [
-    (
-        Language::Rust,
-        "fn main() {\n    let s = \"日本\"; // note\n}\n",
-    ),
-    (
-        Language::Markdown,
-        "# Title\n\n- item *one*\n\n```rust\nx\n```\n",
-    ),
-    (Language::Toml, "[package]\nname = \"oso\" # é\n[[bin]]\n"),
-];
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
-
-    #[test]
-    fn an_incremental_parse_gives_the_tree_of_a_fresh_one(
-        seed in 0..SEEDS.len(),
-        batches in prop::collection::vec(batch(64), 1..6),
-    ) {
-        let (language, text) = SEEDS[seed];
-        let mut document = parsed(language, text);
-        let mut text = Rope::from(text);
-        for batch in batches {
-            let batch = on_boundaries(&text.to_string(), batch);
-            let batch: Vec<_> = batch
-                .into_iter()
-                .filter(|(splice, _)| splice.start + splice.old_len <= text.len())
-                .collect();
-            let after = apply(&text, &batch);
-            let splices: Vec<Splice> = batch.iter().map(|(splice, _)| *splice).collect();
-            document.edit(&splices, &after);
-            prop_assert_eq!(document.parse(LONG), Parsed::Done);
-            text = after;
-        }
-        let fresh = parsed(language, &text.to_string());
-        prop_assert_eq!(nodes(document.tree().unwrap()), nodes(fresh.tree().unwrap()));
-    }
 }
