@@ -52,8 +52,10 @@ impl Buffer {
     /// Puts a staged edit in the buffer with no undo record, and leaves it
     /// unmodified. Nothing here can panic part way.
     pub(crate) fn commit_internal(&mut self, staged: StagedEdit) {
+        let highlighting = self.highlighting.stage(staged.steps());
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
+        self.highlighting.commit(self.revision, highlighting);
     }
 }

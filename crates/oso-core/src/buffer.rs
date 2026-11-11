@@ -30,6 +30,7 @@ mod agent;
 mod baseline;
 mod carried;
 mod edit;
+mod highlighting;
 mod internal;
 mod mode;
 mod names;
@@ -186,6 +187,8 @@ pub struct Buffer {
     next_content: u64,
     /// Undo and redo.
     history: History,
+    /// What the syntax worker reported, and the edits since (ADR 0111).
+    highlighting: highlighting::Highlighting,
 }
 
 impl Buffer {
@@ -229,6 +232,7 @@ impl Buffer {
             saved: ContentId(0),
             next_content: 1,
             history: History::default(),
+            highlighting: highlighting::Highlighting::default(),
         }
     }
 
@@ -261,11 +265,18 @@ impl Buffer {
 
     /// Replaces the content with what has loaded so far. O(1).
     pub fn apply_load(&mut self, snapshot: LoadSnapshot) {
+        let whole = OffsetEdit {
+            start: 0,
+            old_len: self.text.len(),
+            new_len: snapshot.text.len(),
+        };
+        let highlighting = self.highlighting.stage(&[vec![whole]]);
         self.text = snapshot.text;
         self.display = snapshot.display;
         self.info = snapshot.info;
         self.loading = (!snapshot.done).then_some(snapshot.progress);
         self.revision += 1;
+        self.highlighting.commit(self.revision, highlighting);
         self.content = self.new_content();
         self.saved = self.content;
         self.history.clear();
@@ -297,6 +308,7 @@ impl Buffer {
     pub(crate) fn treat_as_secret(&mut self) -> bool {
         let was_withheld = self.verdict().is_withheld();
         self.yanked_secret = true;
+        self.drop_highlights();
         !was_withheld
     }
 

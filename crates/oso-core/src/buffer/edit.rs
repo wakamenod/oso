@@ -140,11 +140,13 @@ impl Buffer {
         opening: Opening,
         after: Option<SelectionSet>,
     ) {
+        let highlighting = self.highlighting.stage(staged.steps());
         let before = self.content;
         self.content = self.new_content();
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
+        self.highlighting.commit(self.revision, highlighting);
         if self.no_history {
             return;
         }
@@ -189,10 +191,12 @@ impl Buffer {
     /// Puts a staged undo or redo in the buffer, and restores the content id
     /// of the state it returns to.
     pub(crate) fn commit_crossing(&mut self, staged: StagedCrossing) {
+        let highlighting = self.highlighting.stage(staged.steps());
         self.content = staged.crossed.source.content;
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
+        self.highlighting.commit(self.revision, highlighting);
         self.history.cross(staged.direction, staged.crossed);
         self.note_crossing();
     }

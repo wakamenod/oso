@@ -14,7 +14,7 @@ use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
 use oso_core::rope::Rope;
-use oso_core::syntax::Splice;
+use oso_core::syntax::{Splice, compose};
 use tree_sitter::{ParseOptions, ParseState, Parser, Tree};
 
 use crate::edit::input_edits;
@@ -29,6 +29,10 @@ const FIRST_LIMIT: Duration = Duration::from_secs(5);
 
 /// How much a parse from an earlier tree may take.
 const LATER_LIMIT: Duration = Duration::from_secs(1);
+
+/// The most splices that wait for a stopped parse as one batch. Past it, the next parse starts
+/// from nothing, which costs a parse and keeps no more.
+const MAX_WAITING: usize = 4096;
 
 /// What a call to [`Document::parse`] came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,8 +66,9 @@ pub struct Document {
     text: Rope,
     /// Whether the tree is for `text` as it is.
     current: bool,
-    /// Edits that came while a parse was stopped part way, with the text after each batch.
-    waiting: Vec<(Vec<Splice>, Rope)>,
+    /// Edits that came while a parse was stopped part way, joined into one batch, with the text
+    /// after them; no batch if they could not be joined, so that the next parse starts afresh.
+    waiting: Option<(Option<Vec<Splice>>, Rope)>,
     /// A parse that a slice stopped part way: what it may take in all, and what it took.
     running: Option<(Duration, Duration)>,
     failed: Option<Failure>,
@@ -85,7 +90,7 @@ impl Document {
             tree: None,
             text,
             current: false,
-            waiting: Vec::new(),
+            waiting: None,
             running: None,
             failed,
             limits: (FIRST_LIMIT, LATER_LIMIT),
@@ -105,7 +110,13 @@ impl Document {
             return;
         }
         if self.running.is_some() {
-            self.waiting.push((splices.to_vec(), after.clone()));
+            let joined = match self.waiting.take() {
+                None => Some(splices.to_vec()),
+                Some((batch, _)) => batch
+                    .and_then(|batch| compose(&batch, splices))
+                    .filter(|batch| batch.len() <= MAX_WAITING),
+            };
+            self.waiting = Some((joined, after.clone()));
             return;
         }
         if let Some(tree) = &mut self.tree {
@@ -127,11 +138,16 @@ impl Document {
                 return Parsed::Failed(failure);
             }
             if self.current {
-                if self.waiting.is_empty() {
+                let Some((batch, after)) = self.waiting.take() else {
                     return Parsed::Done;
-                }
-                for (splices, after) in std::mem::take(&mut self.waiting) {
-                    self.edit(&splices, &after);
+                };
+                match batch {
+                    Some(batch) => self.edit(&batch, &after),
+                    None => {
+                        self.tree = None;
+                        self.text = after;
+                        self.current = false;
+                    }
                 }
                 continue;
             }
@@ -195,7 +211,7 @@ impl Document {
     fn fail(&mut self, failure: Failure) -> Parsed {
         self.failed = Some(failure);
         self.tree = None;
-        self.waiting.clear();
+        self.waiting = None;
         self.running = None;
         self.parser.reset();
         Parsed::Failed(failure)

@@ -461,6 +461,22 @@ decision above. The options not taken are listed with their trade-offs.
 - **Edits that wait for a stopped parse** are kept in full, one entry a batch, with no bound.
   Step 2, which gives the worker its jobs, merges them.
 
+### Step 2: the highlight map
+
+- **`oso_core::syntax`** holds `Highlight`, `Highlights` (a `SumTree` of runs, with `runs`,
+  `at`, `replace` and `splice`) and `compose`, which makes two batches one.
+- **Line breaks carry no highlight,** by the worker's rule, so the guess for inserted text needs
+  no text: it takes the highlight of the byte before it, which after a line break is none.
+- **The buffer keeps each of its last 64 revisions' batches,** composed for an undo's or a
+  redo's several. `Buffer::splices_since` composes those since a revision into one batch for the
+  worker's parse, and `Buffer::take_highlights` (in the plan, `take_report`) maps a report
+  through it. Every commit maps the highlights, an edit, an undo, an internal buffer's edit and a
+  load alike, computed before anything moves, so a panic there leaves the buffer as it was.
+- **A buffer that may hold secrets shows no highlights and takes none,** whatever it held before,
+  and a yank that makes it secret drops them.
+- **Edits that wait for a stopped parse are one batch,** composed as they come. Past 4096
+  splices, or if they do not compose, the next parse starts from nothing.
+
 ## Alternatives considered
 
 - **Highlighting the whole buffer after every parse:** simplest, but a query over a large file
