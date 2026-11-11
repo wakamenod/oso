@@ -170,7 +170,11 @@ fn a_text_past_the_size_limit_is_not_parsed() {
 fn a_parse_past_its_time_limit_stops_for_good() {
     let text = "fn f(a: u32) -> u32 { a + 1 }\n".repeat(20_000);
     let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
-    document.limits = (Duration::from_micros(300), Duration::from_micros(300));
+    document.limits = (
+        Duration::from_micros(300),
+        Duration::from_micros(300),
+        Duration::from_micros(300),
+    );
     let mut result = Parsed::Paused;
     for _ in 0..100_000 {
         result = document.parse(Duration::from_micros(100));

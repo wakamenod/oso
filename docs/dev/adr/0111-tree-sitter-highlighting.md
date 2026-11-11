@@ -527,12 +527,21 @@ decision above. The options not taken are listed with their trade-offs.
   edit can change a paragraph's inline text past its line (a backtick that opens a code span)
   while the block tree's ranges stay the same, which the property test found.
 - **Limits** (the author's choice, after the review found that some crafted texts make every
-  query slow): a query past 256 matches in progress leaves its piece plain. A piece the slice
-  stops stays to do, which the Decision did not say: it is done again from its start. If it had
-  most of a slice, pieces halve, and grow back as they fit again. If a piece of 1 KiB, or a
-  Markdown piece widened past the limit, still outlasts a slice, the document fails as too slow
-  (`Failure::TooSlow`) and stays plain, as after a slow parse; step 4's message says so. A slow
-  file so costs a few slices, not one a kilobyte.
+  query slow): a query past 256 matches in progress leaves its piece plain, and a predicate
+  reads at most 1 KiB of a node, so a longer name matches none. A piece the slice stops stays
+  to do, which the Decision did not say: it is done again from its start. If it had most of a
+  slice, pieces halve, and grow back after four fit in a row. The document fails as too slow
+  (`Failure::TooSlow`) and stays plain, as after a slow parse, when:
+  - a piece of 1 KiB, or a Markdown piece widened past the limit, still outlasts a slice;
+  - a piece runs past its slice's end by more than a slice (at least 10 ms): tree-sitter asks
+    the progress callback only every so many steps, and on such text a step can cost much;
+  - highlighting takes 2 s of the worker's time in all before it is done, as a parse has its
+    limits. A whole 2 MiB file takes 0.2 to 0.7 s (below).
+
+  A slice shorter than 10 ms fails no piece, as it is too short to judge one by, though pieces
+  shrink in it. Measured on crafted texts of 2 MiB in a release build, a document failed after
+  at most about 2.5 s of the worker's time, and its longest call took about 1 s: one piece runs
+  until the callback is asked, which no slice can cut shorter.
 - **Painting:** an inner capture paints over an outer one; of two on one span, the first
   pattern wins, and an injected grammar's over the block grammar's. One sweep over the captures
   with a stack of those open costs O(k log k) for k captures, however deeply they nest. Line

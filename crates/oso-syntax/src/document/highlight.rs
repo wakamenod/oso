@@ -9,8 +9,10 @@
 //!   to the inline nodes it meets: an edit can change a paragraph's inline text past its line.
 //! - A query that passes its match limit leaves its piece plain. One stopped by the slice's
 //!   end stays to do, unless it had most of a slice: then pieces halve, back up to [`PIECE`]
-//!   as they fit again, and if one of [`MIN_PIECE`] bytes, or a Markdown piece widened past
-//!   the limit, still does not fit, the document fails as too slow, as after a slow parse.
+//!   after a few fit in a row. The document fails as too slow, as after a slow parse, if a
+//!   piece of [`MIN_PIECE`] bytes, or a Markdown piece widened past the limit, still does not
+//!   fit; if a piece runs far past its slice; or if highlighting takes [`HIGHLIGHT_LIMIT`] in
+//!   all before it is done.
 //! - Line breaks are never highlighted ([`crate::paint`]).
 
 use std::cell::Cell;
@@ -35,6 +37,23 @@ pub(super) const PIECE: usize = 16 << 10;
 
 /// The fewest bytes a piece shrinks to.
 const MIN_PIECE: usize = 1 << 10;
+
+/// How far past its slice's end a piece may run, at least, before the document fails as too
+/// slow: tree-sitter asks its progress callback only every so many steps. A slice shorter than
+/// this is too short to judge a piece by.
+const MIN_OVERRUN: Duration = Duration::from_millis(10);
+
+/// How many pieces in a row must fit before pieces grow again, so that a slow text does not
+/// shrink and grow them by turns.
+const FITS_TO_GROW: u32 = 4;
+
+/// How much of the worker's time highlighting may take in all until it is done, as a parse has
+/// its limits. Past it, the document fails as too slow.
+pub(super) const HIGHLIGHT_LIMIT: Duration = Duration::from_secs(2);
+
+/// The longest text a predicate reads: the queries test names (`#match?` on identifiers), and
+/// a longer node, which the predicate would copy for each piece, matches none.
+const MAX_PREDICATE_BYTES: usize = 1 << 10;
 
 /// The most matches a query keeps in progress at once: past it, its piece stays plain.
 const MATCH_LIMIT: u32 = 256;
@@ -85,6 +104,33 @@ impl Document {
             Parsed::Paused => return Highlighted::Paused,
             Parsed::Failed(failure) => return Highlighted::Failed(failure),
         }
+        let started = Instant::now();
+        let done = self.highlight_pieces(queries, first, budget, deadline);
+        self.spent += started.elapsed();
+        match done {
+            Highlighted::Done => self.spent = Duration::ZERO,
+            Highlighted::Paused if self.spent > self.limits.2 => {
+                self.fail(Failure::TooSlow);
+                return Highlighted::Failed(Failure::TooSlow);
+            }
+            Highlighted::Paused | Highlighted::Failed(_) => {}
+        }
+        done
+    }
+
+    /// Highlights pieces until `deadline` or none is left.
+    fn highlight_pieces(
+        &mut self,
+        queries: &Queries,
+        first: &[Range<usize>],
+        budget: Duration,
+        deadline: Instant,
+    ) -> Highlighted {
+        // tree-sitter asks its callback only so often, so one piece can run past the deadline.
+        // A slice shorter than that is too short to fail a piece by, though pieces shrink in it:
+        // only the total limit holds it.
+        let judged = budget >= MIN_OVERRUN;
+        let overrun = deadline + budget.max(MIN_OVERRUN);
         while let Some(piece) = self.next_piece(first) {
             let started = Instant::now();
             if started >= deadline {
@@ -93,11 +139,19 @@ impl Document {
             // A piece that had most of a slice and still did not fit will not fit the next.
             let had_a_slice = deadline - started >= budget / 2;
             let (piece, outcome) = self.highlight_piece(queries, piece, deadline);
+            if judged && Instant::now() > overrun {
+                self.fail(Failure::TooSlow);
+                return Highlighted::Failed(Failure::TooSlow);
+            }
             match outcome {
                 Piece::Done(runs) => {
                     self.highlights.replace(piece.clone(), runs);
                     self.pending.remove(piece);
-                    self.max_piece = (self.max_piece * 2).min(PIECE);
+                    self.fits += 1;
+                    if self.fits >= FITS_TO_GROW {
+                        self.max_piece = (self.max_piece * 2).min(PIECE);
+                        self.fits = 0;
+                    }
                 }
                 Piece::Limit => self.leave_plain(piece),
                 // A Markdown piece widened past the limit would not shrink with it.
@@ -107,9 +161,10 @@ impl Document {
                         && piece.len() <= self.max_piece =>
                 {
                     self.max_piece /= 2;
+                    self.fits = 0;
                 }
                 // Too slow for any slice: the document stops, as after a slow parse.
-                Piece::Stopped if had_a_slice => {
+                Piece::Stopped if had_a_slice && judged => {
                     self.fail(Failure::TooSlow);
                     return Highlighted::Failed(Failure::TooSlow);
                 }
@@ -250,8 +305,16 @@ pub(super) fn run<'tree>(
     let mut cursor = QueryCursor::new();
     cursor.set_byte_range(piece);
     cursor.set_match_limit(MATCH_LIMIT);
-    // Never panics: a panic here would cross tree-sitter's C.
-    let source = |node: Node| text.chunks_in_range(node.byte_range()).map(str::as_bytes);
+    // Never panics: a panic here would cross tree-sitter's C. A predicate copies the node's
+    // text each time, so a node too long for a name reads as empty, and matches none.
+    let source = |node: Node| {
+        let range = node.byte_range();
+        let range = match range.len() {
+            len if len > MAX_PREDICATE_BYTES => range.start..range.start,
+            _ => range,
+        };
+        text.chunks_in_range(range).map(str::as_bytes)
+    };
     let options = QueryCursorOptions::new().progress_callback(&mut progress);
     let mut matches = cursor.matches_with_options(query, tree.root_node(), source, options);
     while let Some(found_match) = matches.next() {

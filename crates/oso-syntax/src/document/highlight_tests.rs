@@ -238,13 +238,17 @@ fn a_slice_resumes_where_it_stopped() {
     let text = "fn f() { let x = \"s\"; } // c\n".repeat(20_000);
     let whole = runs(&highlighted(Language::Rust, &text));
     let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    // Slices this short judge no piece too slow, and a slow runner meets no total limit: the
+    // test holds whatever the machine's speed.
+    document.limits.2 = LONG;
     let mut queries = Queries::new();
     let mut calls = 0;
-    while document.highlight(&mut queries, &[], std::time::Duration::from_millis(2))
-        != Highlighted::Done
-    {
-        calls += 1;
-        assert!(calls < 10_000);
+    loop {
+        match document.highlight(&mut queries, &[], std::time::Duration::from_millis(5)) {
+            Highlighted::Done => break,
+            Highlighted::Paused => calls += 1,
+            failed => panic!("{failed:?} after {calls} slices"),
+        }
     }
     assert!(calls > 1, "the slices stopped it");
     assert_eq!(runs(&document), whole);
@@ -266,4 +270,16 @@ fn a_failed_document_is_plain() {
     assert_eq!(failed, Highlighted::Failed(super::Failure::TooLarge));
     assert!(runs(&document).is_empty());
     assert_eq!(document.highlights().len(), after.len());
+}
+
+#[test]
+fn a_name_too_long_for_a_predicate_matches_none() {
+    let long = format!("X{}", "y".repeat(2 << 10));
+    let text = format!("fn f() {{ g(Short, {long}); }}\n");
+    let runs = runs(&highlighted(Language::Rust, &text));
+    assert!(has(&runs, "Short", Type), "{runs:?}");
+    assert!(
+        !runs.iter().any(|(run, _)| run == &long),
+        "the long name is plain"
+    );
 }

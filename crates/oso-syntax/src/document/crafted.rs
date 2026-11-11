@@ -1,6 +1,7 @@
 //! Crafted nesting and random text for every grammar: texts made of a few openers repeated, or
-//! of any characters, highlighted on a thread with a small stack (ADR 0111). The openers are combined here, so no case is written
-//! out; deeply nested inline links are among the combinations.
+//! of any characters, highlighted on a thread with a small stack (ADR 0111). The openers are
+//! combined here, so no case is written out; deeply nested inline links are among the
+//! combinations.
 //!
 //! Must not depend on: the worker; these call a document directly.
 //!
@@ -28,8 +29,8 @@ const ATOMS: [&str; 18] = [
     "\n",
 ];
 
-/// The stack of the thread the texts are highlighted on: an eighth of the 8 MiB step 4 gives the worker, and
-/// twice what the inline cap needs.
+/// The stack of the thread the texts are highlighted on: an eighth of the 8 MiB step 4 gives
+/// the worker, and twice what the inline cap needs.
 const STACK: usize = 1 << 20;
 
 /// How long an inline case is: past what overflows `STACK` without the inline cap.
@@ -137,6 +138,7 @@ fn a_text_too_slow_for_a_slice_fails_in_a_few_slices() {
     let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
     let mut queries = Queries::new();
     let mut calls = 0;
+    let started = std::time::Instant::now();
     let done = loop {
         calls += 1;
         match document.highlight(&mut queries, &[], SLICE) {
@@ -146,6 +148,9 @@ fn a_text_too_slow_for_a_slice_fails_in_a_few_slices() {
     };
     assert_eq!(done, Highlighted::Failed(Failure::TooSlow));
     assert!(calls <= 8, "{calls} slices");
+    // The total limit and one piece past its slice, with room for a debug build.
+    let took = started.elapsed();
+    assert!(took < Duration::from_secs(5), "{took:?}");
     let highlights = document.highlights();
     assert_eq!(highlights.len(), text.len());
     assert!(
@@ -174,7 +179,8 @@ proptest! {
         language in 0..LANGUAGES.len(),
         atoms in prop::collection::vec(0..ATOMS.len(), 1..4),
     ) {
-        let result = highlight_on_a_small_stack(LANGUAGES[language], repeated(&atoms, BYTES), SLICE);
+        let text = repeated(&atoms, BYTES);
+        let result = highlight_on_a_small_stack(LANGUAGES[language], text, SLICE);
         prop_assert!(result.is_ok(), "{:?}", result);
     }
 }

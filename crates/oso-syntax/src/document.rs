@@ -58,8 +58,7 @@ pub enum Failure {
     /// The text grew past [`MAX_BYTES`], or past the inline cap in a document of Markdown's
     /// inline grammar.
     TooLarge,
-    /// A parse passed its time limit, or a piece of highlighting the least size outlasted a
-    /// slice.
+    /// A parse, or highlighting, passed its time limits (ADR 0111).
     TooSlow,
     /// The grammar, or oso's query for it, does not fit the tree-sitter runtime oso was built
     /// with.
@@ -82,8 +81,12 @@ pub struct Document {
     /// A parse that a slice stopped part way: what it may take in all, and what it took.
     running: Option<(Duration, Duration)>,
     failed: Option<Failure>,
-    /// [`FIRST_LIMIT`] and [`LATER_LIMIT`], shorter in tests.
-    limits: (Duration, Duration),
+    /// [`FIRST_LIMIT`], [`LATER_LIMIT`] and [`highlight::HIGHLIGHT_LIMIT`], shorter in tests.
+    limits: (Duration, Duration, Duration),
+    /// The worker's time highlighting took since it was last done.
+    spent: Duration,
+    /// How many pieces fitted in a row since pieces last shrank or grew.
+    fits: u32,
     /// What the newest text is, as far as it is highlighted: it covers the text after every
     /// edit, waiting ones too.
     highlights: Highlights,
@@ -113,7 +116,9 @@ impl Document {
             waiting: None,
             running: None,
             failed,
-            limits: (FIRST_LIMIT, LATER_LIMIT),
+            limits: (FIRST_LIMIT, LATER_LIMIT, highlight::HIGHLIGHT_LIMIT),
+            spent: Duration::ZERO,
+            fits: 0,
             pending: Pending::default(),
             inline: None,
             max_piece: highlight::PIECE,
