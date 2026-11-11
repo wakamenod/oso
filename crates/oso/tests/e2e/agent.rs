@@ -98,6 +98,23 @@ impl Agent {
     }
 }
 
+/// Answers the agent's question with `key` once a quiet moment has passed since `asked`, when
+/// the reply that opened it or a refused key came. A refusal says how long after that it
+/// came, with the app's log rows of what restarted its wait, which name only a kind and a
+/// time, with `RUST_LOG=oso=debug`.
+fn answer_after_quiet(app: &mut App, key: &str, asked: Instant) {
+    thread::sleep(QUIET);
+    if let Err(e) = app.try_call("send-keys", Some(json!({ "keys": key }))) {
+        let after = asked.elapsed().as_millis();
+        let log = app.stop_and_read_log();
+        let restarts: Vec<&str> = log
+            .lines()
+            .filter(|row| row.contains("agent question:"))
+            .collect();
+        panic!("{e}: {after} ms after; restarts: {restarts:#?}");
+    }
+}
+
 /// Turns the channel on as the person would, connects, and lets the agent in with `y` after a
 /// quiet moment, checking on the way that a hasty `y` does not answer.
 fn let_in(app: &mut App) -> Agent {
@@ -123,9 +140,9 @@ fn let_in(app: &mut App) -> Agent {
     );
     assert!(!label.contains("oso mcp"), "the test is not oso: {label}");
     let hasty = app.try_call("send-keys", Some(json!({ "keys": "y" })));
+    let refused = Instant::now();
     assert!(hasty.unwrap_err().contains("takes no answer yet"));
-    thread::sleep(QUIET);
-    app.send_keys("y");
+    answer_after_quiet(app, "y", refused);
     let (agent, result) = version.join().unwrap();
     assert_eq!(result.unwrap()["protocol"], 1);
     thread::sleep(AFTER_TYPING);
@@ -375,6 +392,7 @@ fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
     );
     assert!(inserted.is_ok(), "{inserted:?}");
     let waiting = agent.run("save-buffer", None, "change").unwrap();
+    let asked = Instant::now();
     let waiting = waiting["waiting"].as_str().unwrap();
     assert!(
         waiting.contains("Agent: Save ") && waiting.contains("other.txt, which the agent opened?"),
@@ -385,8 +403,7 @@ fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
         b"first\nsecond\nthird\n",
         "not yet"
     );
-    thread::sleep(QUIET);
-    app.send_keys("y");
+    answer_after_quiet(&mut app, "y", asked);
     app.wait_for("the save", |state| state["buffer"]["modified"] == false);
     assert_eq!(
         std::fs::read(&other).unwrap(),

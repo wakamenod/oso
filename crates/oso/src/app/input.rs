@@ -116,7 +116,7 @@ impl App {
 
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
-        self.person_typed();
+        self.person_typed("text");
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
