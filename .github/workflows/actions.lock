@@ -19,6 +19,9 @@ workflows:
         - 'actions/cache@v6.1.0'
         - 'actions/checkout@v7.0.1'
         - 'swatinem/rust-cache@v2.9.3'
+    '.github/workflows/e2e-weston-repeat.yml':
+        - 'actions/checkout@v7.0.1'
+        - 'swatinem/rust-cache@v2.9.3'
     '.github/workflows/e2e.yml':
         - 'actions/cache@v6.1.0'
         - 'actions/checkout@v7.0.1'
