@@ -1,6 +1,6 @@
 # 0030. M2 editing command semantics
 
-- Status: Accepted, amended by 0087 and 0091
+- Status: Accepted, amended by 0087, 0091 and 0111
 - Date: 2026-11-03
 
 ## Context
