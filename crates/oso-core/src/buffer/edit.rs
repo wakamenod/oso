@@ -8,6 +8,7 @@
 use std::ops::Range;
 use std::slice;
 
+use super::highlighting::StagedHighlighting;
 use super::splice::{SpliceText, apply_group, apply_marking, normalized, offset_edit};
 use super::{Buffer, EditError, Replacement};
 use crate::display_map::wrap_map::Splice as WrapSplice;
@@ -35,6 +36,8 @@ pub(crate) struct StagedEdit {
     pub(super) undo: Batch,
     pub(super) changed: Vec<Range<usize>>,
     pub(super) rewrap: Rewrap,
+    /// What it does to highlighting, made on clones too (ADR 0111).
+    pub(super) highlighting: StagedHighlighting,
 }
 
 impl StagedEdit {
@@ -67,6 +70,7 @@ pub(crate) struct StagedCrossing {
     direction: Direction,
     crossed: Group,
     changed: Vec<Range<usize>>,
+    highlighting: StagedHighlighting,
 }
 
 impl StagedCrossing {
@@ -122,13 +126,16 @@ impl Buffer {
         let mut wraps = Vec::new();
         let collect = self.wraps.then_some(&mut wraps);
         let undo = apply_marking(splices, &mut text, &mut display, &mut changed, collect);
+        let edits: Vec<OffsetEdit> = splices.iter().map(offset_edit).collect();
+        let highlighting = self.stage_highlighting(slice::from_ref(&edits), text.len());
         StagedEdit {
             text,
             display,
-            edits: splices.iter().map(offset_edit).collect(),
+            edits,
             undo,
             changed,
             rewrap: Rewrap::Splices(wraps),
+            highlighting,
         }
     }
 
@@ -146,6 +153,7 @@ impl Buffer {
         self.display = staged.display;
         self.revision += 1;
         self.edited.follow(&staged.edits);
+        self.highlighting.commit(self.revision, staged.highlighting);
         if self.no_history {
             return;
         }
@@ -176,6 +184,7 @@ impl Buffer {
         let collect = self.wraps.then_some(&mut wraps);
         let (steps, batches, changed) =
             apply_group(&group.batches, &mut text, &mut display, collect);
+        let highlighting = self.stage_highlighting(&steps, text.len());
         Ok(StagedCrossing {
             text,
             display,
@@ -184,6 +193,7 @@ impl Buffer {
             direction,
             crossed: group.crossed(batches),
             changed,
+            highlighting,
         })
     }
 
@@ -197,6 +207,7 @@ impl Buffer {
         for step in &staged.steps {
             self.edited.follow(step);
         }
+        self.highlighting.commit(self.revision, staged.highlighting);
         self.history.cross(staged.direction, staged.crossed);
         self.note_crossing();
     }
@@ -207,10 +218,21 @@ impl Buffer {
         self.history.can_join(self.content, selections)
     }
 
-    /// Joins the undo groups made since the state `before` into one (ADR 0113). Returns
+    /// Joins the undo groups made since the state `before` into one, which goes back to
+    /// `selections` if given (ADR 0113). Returns
     /// whether it joined any.
-    pub(crate) fn join_undo_since(&mut self, before: ContentId) -> bool {
-        self.history.join_since(before)
+    pub(crate) fn join_undo_since(
+        &mut self,
+        (before, evicted): (ContentId, u64),
+        selections: Option<SelectionSet>,
+    ) -> bool {
+        self.history.join_since(before, selections, evicted)
+    }
+
+    /// Where the undo history stands, for [`Buffer::join_undo_since`] later: this state, and
+    /// how many groups the limit has dropped so far.
+    pub(crate) fn undo_mark(&self) -> (ContentId, u64) {
+        (self.content, self.history.evicted())
     }
 
     /// Sets the cursors the newest undo group ends with.

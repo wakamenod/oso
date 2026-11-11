@@ -298,10 +298,11 @@ impl Window {
         if !(top..top.saturating_add(self.size.rows)).contains(&row) {
             return None;
         }
-        let Some(wrap) = rows.wrap() else {
+        // A window too narrow to wrap scrolls sideways as one that does not wrap (ADR 0104).
+        let Some(wrap) = rows.wrap().filter(|wrap| wrap.wraps()) else {
             return Some((row - top, self.scroll.left));
         };
-        let Some(preedit) = preedit.filter(|_| wrap.wraps()) else {
+        let Some(preedit) = preedit else {
             let column = display.offset_to_display_point(rows.start(row)).column;
             return Some((row - top, column));
         };
@@ -371,7 +372,8 @@ fn fill(
         (point, preedit.cells())
     });
     let wanted = size.rows;
-    let Some(wrap) = rows.wrap() else {
+    // A window too narrow to wrap shows a line a row, scrolled sideways (ADR 0104).
+    let Some(wrap) = rows.wrap().filter(|wrap| wrap.wraps()) else {
         out.width = usize::MAX;
         let end = out.top.saturating_add(wanted).min(display.row_count());
         // Each line's start is the one before's end: one seek a row.

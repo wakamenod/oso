@@ -10,7 +10,8 @@ use std::ops::Range;
 
 use crate::buffer::{BufferId, ContentId, Tracking};
 use crate::minibuffer;
-use crate::search::Needle;
+use crate::search::{Counting, Needle};
+use crate::selection::SelectionSet;
 
 /// The most cells each string takes on the echo line.
 const STRING_CELLS: usize = 40;
@@ -72,7 +73,9 @@ pub struct Replace {
     pub(super) skipped: usize,
     pub(super) visits: Vec<Visit>,
     /// Where the primary cursor was, and the buffer's state, when the session began.
-    pub(super) began: (usize, ContentId),
+    pub(super) began: (usize, (ContentId, u64)),
+    /// The selected window's cursors when it began, which undoing the session goes back to.
+    pub(super) before: Option<SelectionSet>,
     /// The buffer's revision after the session's last look at it.
     pub(super) revision: u64,
     pub(super) around_secret: bool,
@@ -80,6 +83,10 @@ pub struct Replace {
     pub(super) all_from: Option<usize>,
     /// `?` was the last answer: the line shows the keys.
     pub(super) help: bool,
+    /// The scope as the session began, for the count, until it has come.
+    pub(super) counting: Option<Counting>,
+    /// How many matches `^` has gone back over, from the last.
+    pub(super) back: usize,
 }
 
 impl fmt::Debug for Replace {
@@ -94,13 +101,9 @@ impl fmt::Debug for Replace {
 }
 
 impl Replace {
-    /// The string or regexp it replaces.
-    pub fn from(&self) -> &str {
-        &self.from
-    }
-
     /// What it puts in its place.
-    pub fn to(&self) -> &str {
+    #[cfg(test)]
+    pub(crate) fn to(&self) -> &str {
         &self.to
     }
 
@@ -115,7 +118,7 @@ impl Replace {
     }
 
     /// Whether `!` is replacing every match left.
-    pub fn replacing_all(&self) -> bool {
+    pub(crate) fn replacing_all(&self) -> bool {
         self.all_from.is_some()
     }
 
@@ -130,11 +133,6 @@ impl Replace {
     /// How many it replaced.
     pub fn replaced(&self) -> usize {
         self.replaced
-    }
-
-    /// How many it skipped.
-    pub fn skipped(&self) -> usize {
-        self.skipped
     }
 
     /// Whether it began, or went on, while a buffer that may hold secrets was shown: its

@@ -249,7 +249,9 @@ impl Window {
         self.wrap = wrap;
         self.wrap_revision = revision;
         if self.wrap.is_some() {
-            self.scroll.left = 0;
+            if self.rows(display).wrapped() {
+                self.scroll.left = 0;
+            }
             self.realize_top(display);
         }
     }

@@ -151,6 +151,8 @@ pub(crate) struct History {
     /// The cost of every group in both.
     bytes: usize,
     limit: usize,
+    /// How many undo groups the limit has dropped, oldest first, ever.
+    evicted: u64,
 }
 
 impl Default for History {
@@ -166,6 +168,7 @@ impl History {
             redo: VecDeque::new(),
             bytes: 0,
             limit,
+            evicted: 0,
         }
     }
 
@@ -217,21 +220,39 @@ impl History {
     /// undo goes back to it, as Emacs's `undo-amalgamate-change-group` does (ADR 0113).
     /// Does nothing if no group starts from `before`, as when an undo went past it or the
     /// limit dropped it. Returns whether it joined any.
-    pub(crate) fn join_since(&mut self, before: ContentId) -> bool {
-        let Some(first) = self
+    /// With `selections`, the joined group goes back to them, rather than to where its first
+    /// command began.
+    ///
+    /// If the limit dropped groups since `evicted` was read, the group that started from
+    /// `before` may be gone: the oldest go first, so what is left is all since then, and it is
+    /// joined whole.
+    pub(crate) fn join_since(
+        &mut self,
+        before: ContentId,
+        selections: Option<SelectionSet>,
+        evicted: u64,
+    ) -> bool {
+        let found = self
             .undo
             .iter()
-            .rposition(|group| group.target.content == before)
-        else {
+            .rposition(|group| group.target.content == before);
+        let Some(first) = found.or_else(|| (self.evicted > evicted).then_some(0)) else {
             return false;
         };
-        if first + 1 >= self.undo.len() {
+        if self.undo.is_empty() {
+            return false;
+        }
+        // One group alone is joined only to take it back to `selections`.
+        if first + 1 >= self.undo.len() && selections.is_none() {
             return false;
         }
         let joined: Vec<Group> = self.undo.drain(first..).collect();
         let old: usize = joined.iter().map(|group| group.bytes).sum();
         let commands = joined.iter().map(|group| group.joined + 1).sum::<usize>() - 1;
-        let target = joined[0].target.clone();
+        let mut target = joined[0].target.clone();
+        if selections.is_some() {
+            target.selections = selections;
+        }
         let source = joined[joined.len() - 1].source.clone();
         let batches = joined.into_iter().flat_map(|group| group.batches).collect();
         let mut group = Group::new(batches, target, source);
@@ -239,6 +260,11 @@ impl History {
         self.bytes = self.bytes - old + group.bytes;
         self.undo.push_back(group);
         true
+    }
+
+    /// How many undo groups the limit has dropped, ever, for [`History::join_since`].
+    pub(crate) fn evicted(&self) -> u64 {
+        self.evicted
     }
 
     /// Sets the cursors the newest group ends with, once its command is done.
@@ -303,6 +329,7 @@ impl History {
             let dropped = if self.redo.len() > redo_kept {
                 self.redo.pop_front()
             } else {
+                self.evicted += 1;
                 self.undo.pop_front()
             };
             let Some(dropped) = dropped else {

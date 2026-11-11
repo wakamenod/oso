@@ -5,8 +5,8 @@
 
 use std::ops::Range;
 
+use super::ReplaceAnswer;
 use super::state::Visit;
-use super::{ReplaceAnswer, after};
 use crate::buffer::Replacement;
 use crate::editor::Editor;
 use crate::motion;
@@ -59,6 +59,11 @@ impl Editor {
             return;
         }
         if state.searching.is_some() && answer != ReplaceAnswer::Exit {
+            // Each runs a search of its own once the match comes, so only a few wait.
+            if state.pending.len() >= super::MOST_PENDING {
+                self.echo("Still searching; that answer was dropped");
+                return;
+            }
             state.pending.push_back(answer);
             return;
         }
@@ -72,8 +77,20 @@ impl Editor {
                 self.replace_find(at);
             }
             ReplaceAnswer::Replace => {
-                if let Some(now) = current.and_then(|range| self.replace_one(range)) {
-                    self.replace_find(after(&now));
+                let Some(range) = current else {
+                    return;
+                };
+                // Past an empty match the search moves on a character; past a replacement,
+                // even an empty one, it goes on at its end.
+                let empty = range.is_empty();
+                if let Some(now) = self.replace_one(range) {
+                    // An empty match at the replacement's end would be the same one again.
+                    let next = if empty {
+                        self.next_from(&(now.end..now.end))
+                    } else {
+                        now.end
+                    };
+                    self.replace_find(next);
                 }
             }
             ReplaceAnswer::Skip => {
@@ -85,7 +102,8 @@ impl Editor {
                             replaced: None,
                         });
                     }
-                    self.replace_find(after(&range));
+                    let next = self.next_from(&range);
+                    self.replace_find(next);
                 }
             }
             ReplaceAnswer::ReplaceAndExit => {
@@ -133,18 +151,26 @@ impl Editor {
         let Some(state) = &mut self.replacing.session else {
             return;
         };
-        let Some(visit) = state.visits.last().cloned() else {
+        let back = state.back;
+        let Some(index) = state.visits.len().checked_sub(back + 1) else {
             self.echo("No previous match");
             return;
         };
+        let visit = state.visits[index].clone();
         match visit.replaced {
-            Some(now) => self.replace_stay(now),
+            // Shown as it is now; the next `^` goes further back.
+            Some(now) => {
+                state.back += 1;
+                self.replace_stay(now);
+            }
+            // Asked again: it is no longer skipped, and the next `^` goes to the one before.
             None => {
-                if let Some(state) = &mut self.replacing.session {
-                    state.visits.pop();
-                    state.skipped = state.skipped.saturating_sub(1);
-                }
+                state.visits.remove(index);
+                state.skipped = state.skipped.saturating_sub(1);
                 self.replace_at(visit.found);
+                if let Some(state) = &mut self.replacing.session {
+                    state.back = back;
+                }
             }
         }
     }

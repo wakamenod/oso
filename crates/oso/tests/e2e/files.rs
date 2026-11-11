@@ -75,6 +75,41 @@ fn c_x_c_w_writes_under_a_new_name_and_the_buffer_visits_it() {
     );
 }
 
+/// Whether the modeline names `project` after the buffer's name.
+fn names_project(state: &Value, project: &str) -> bool {
+    state["modeline"]
+        .as_str()
+        .is_some_and(|modeline| modeline.contains(&format!("  {project}  ")))
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_modeline_names_the_files_project_and_a_write_elsewhere_leaves_it() {
+    let scratch = Scratch::new("files-project");
+    let main = scratch.write("proj-e2e/src/main.rs", b"fn main() {}\n");
+    std::fs::create_dir(scratch.path().join("proj-e2e/.git")).unwrap();
+    std::fs::create_dir(scratch.path().join("loose")).unwrap();
+    let mut app = App::start(Some(&main), scratch.path());
+    app.wait_until_ready();
+    let state = app.wait_for("the project", |state| names_project(state, "proj-e2e"));
+    assert_eq!(state["buffer"]["name"], "main.rs");
+
+    // Written outside it, the buffer is in no project there.
+    app.send_keys("C-x C-w");
+    listed(&mut app);
+    app.send_keys("C-a C-k");
+    let target = scratch.path().join("loose/main.rs");
+    app.send_keys(&typing(target.to_str().expect("a UTF-8 scratch path")));
+    app.send_keys("M-RET");
+    let state = app.wait_for("the write", |state| {
+        state["buffer"]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("loose/main.rs"))
+            && state["buffer"]["modified"] == false
+    });
+    assert!(!names_project(&state, "proj-e2e"), "{}", state["modeline"]);
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_link_to_a_file_open_already_shows_that_buffer() {

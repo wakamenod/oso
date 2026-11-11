@@ -4,7 +4,7 @@
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`: per-query costs do not grow
 //! with file size or line length. CI's budgets are in `crates/oso/examples/perf`. A part's name
-//! (`words`, `cursors`, `trim`, `replace`, `wrap` or `screen`) runs only that part.
+//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap` or `screen`) runs only that part.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -15,14 +15,14 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::{DisplayMap, DisplayPoint, TabWidth};
 use oso_core::editor::Editor;
-use oso_core::motion::WalkBudget;
 use oso_core::rope::{Point, Rope};
 use oso_core::selection::{Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
-use oso_core::word;
 
 #[path = "text_perf/cursors.rs"]
 mod cursors;
+#[path = "text_perf/highlights.rs"]
+mod highlights;
 #[path = "text_perf/replace.rs"]
 mod replace;
 #[path = "text_perf/trim.rs"]
@@ -277,102 +277,17 @@ fn old_map_slot(map: &mut DisplayMap) -> DisplayMap {
     std::mem::replace(map, DisplayMap::new(&Rope::new(), TabWidth::default()))
 }
 
-/// The longest and the middle of some keys' worth of word motion from `start`, each
-/// way, with a new budget for each key, as commands have.
-fn word_costs(label: &str, text: &str) {
-    let display = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
-    let times = |forward: bool| {
-        let mut rng = Lcg(5);
-        let mut samples: Vec<Duration> = (0..200)
-            .map(|_| {
-                let at = floor_boundary(text, rng.below(text.len()));
-                let at = display
-                    .display_point_to_offset(display.offset_to_display_point(at), Bias::Left);
-                let mut budget = WalkBudget::new();
-                time(|| {
-                    black_box(if forward {
-                        word::forward_word(&display, at, &mut budget)
-                    } else {
-                        word::backward_word(&display, at, &mut budget)
-                    })
-                })
-                .1
-            })
-            .collect();
-        percentiles(&mut samples)
-    };
-    let (forward_p50, forward_p99) = times(true);
-    let (backward_p50, backward_p99) = times(false);
-    println!(
-        "{label:<28} M-f p50 {forward_p50:>9.2?} p99 {forward_p99:>9.2?}   M-b p50 {backward_p50:>9.2?} p99 {backward_p99:>9.2?}"
-    );
-}
-
-/// A count that reads all a command may, each way.
-fn word_count_costs(label: &str, text: &str) {
-    let display = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
-    let (forward, forward_time) = time(|| {
-        let mut budget = WalkBudget::new();
-        word::move_words(&display, 0, isize::MAX, &mut budget)
-    });
-    let (backward, backward_time) = time(|| {
-        let mut budget = WalkBudget::new();
-        word::move_words(&display, text.len(), isize::MIN, &mut budget)
-    });
-    println!(
-        "{label:<28} huge count: forward {forward_time:>9.2?} to {forward}, backward {backward_time:>9.2?} to {backward}"
-    );
-}
-
-/// What word motion costs, on ordinary text and on runs with no boundary, and at several
-/// cursors with TAB beside it. Run with the argument `words` for this alone.
-fn word_motion_costs() {
-    println!("== Word motion, one key at a time");
-    word_costs("100 MB file", &file_text(100 * MB));
-    word_costs("10 MB line", &single_line(10 * MB));
-    word_costs("10 MB line of x", &"x".repeat(10 * MB));
-    word_costs("10 MB line of 語", &"語".repeat(10 * MB / 3));
-    word_costs("10 MB line of spaces", &" ".repeat(10 * MB));
-    word_costs("10 MB of empty lines", &"\n".repeat(10 * MB));
-    word_costs(
-        "10 MB of marks",
-        &("e".to_owned() + &"\u{301}".repeat(5 * MB)),
-    );
-    word_costs(
-        "10 MB of e + 8 marks",
-        &format!("e{}", "\u{301}".repeat(8)).repeat(MB / 2),
-    );
-    let chain = ["👨"; 8].join("\u{200d}");
-    word_costs("10 MB of ZWJ chains", &chain.repeat(10 * MB / chain.len()));
-    word_costs("10 MB line of д", &"д".repeat(5 * MB));
-    word_costs("10 MB line of 한", &"한".repeat(10 * MB / 3));
-    word_costs("10 MB line of ZWSP", &"\u{200b}".repeat(10 * MB / 3));
-    word_costs(
-        "10 MB of rows of 、",
-        &("、".repeat(300) + "\n").repeat(10 * MB / 901),
-    );
-    println!();
-    println!("== Word motion with a count past what a command reads");
-    word_count_costs("100 MB file", &file_text(100 * MB));
-    word_count_costs("10 MB of empty lines", &"\n".repeat(10 * MB));
-    word_count_costs("10 MB of `a `", &"a ".repeat(5 * MB));
-    word_count_costs("10 MB line of 語", &"語".repeat(10 * MB / 3));
-    let chain = ["👨"; 8].join("\u{200d}");
-    word_count_costs("10 MB of ZWJ chains", &chain.repeat(10 * MB / chain.len()));
-    println!();
-    words::cursor_costs();
-}
-
 #[expect(
     clippy::too_many_lines,
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
-    let parts: [(&str, fn()); 6] = [
-        ("words", word_motion_costs),
+    let parts: [(&str, fn()); 7] = [
+        ("words", words::word_motion_costs),
         ("trim", trim::trim_costs),
         ("replace", replace::replace_costs),
         ("cursors", cursors::cursor_costs),
+        ("highlights", highlights::highlight_costs),
         ("wrap", wrap::wrap_costs),
         ("screen", wrap::screen_costs),
     ];
@@ -518,7 +433,7 @@ fn main() {
     }
 
     println!();
-    word_motion_costs();
+    words::word_motion_costs();
 
     println!();
     println!("== Adversarial text: building at 1 MB and 10 MB (should scale ~10x)");

@@ -187,8 +187,7 @@ coordinator.
   channel: each slice finds the matches within a key's budget of text, at most 1000 of them, and
   replaces them as one edit, and the host asks for the next at its next turn. The offsets stay
   right with no remapping, and isearch's worker, which runs one job at a time, stays free for
-  the count. Over 100 MB with 100,000 matches, a slice takes 1.2 ms at p50 and 1.5 ms at p99.
-  Undoing that whole session is one step, which takes about 230 ms on the UI thread, once.
+  the count. Over 100 MB with 100,000 matches, a slice takes 1.1 ms at p50 and 1.5 ms at p99.
 - **The count and a search past a key's budget are a scoped job on isearch's worker,** over the
   scope's ranges. The count is of the matches in the scope when the session began.
 - **Answers given while the worker looks are kept by the session,** in order, not held in the
@@ -203,6 +202,28 @@ coordinator.
   is on.
 - **Whitespace cleanup judges Markdown by the major mode** now that modes exist (ADR 0111), as
   `Mode::for_path` gives it from the name, for `C-x C-w`'s new name too.
+- **Each slice of `!` counts as edited whole** for whitespace cleanup, as one range from its first
+  match to its last replacement, so the edited ranges grow by one a slice, not one a match; a
+  long `!` keeps an even pace (1.4 ms at p50 a slice over 4 million matches). A save after it
+  cleans the lines between the matches of a slice too.
+- **Keys while `!` runs are held** and run once it ends, and `C-g` stops it, keeping what it
+  replaced, as the decision says.
+- **Answers waiting for the worker are at most 16;** one more says so and is dropped.
+- **The count is of the scope when the session began,** from a snapshot kept until it comes, also
+  when a later search on the worker took the count's place.
+- **`^` again goes further back** over the matches replaced, and asks a skipped one again.
+- **Undoing the session takes the cursors back to where it began.** When the undo limit dropped
+  the session's earliest steps, what is left of it is still one step.
+- **Undo after a large `!` is an exception the author accepted on 2026-11-12.** It applies every
+  slice's batch on the UI thread, at once: about 200 ms over 100 MB with 100,000 sparse matches,
+  590 ms over 4 million short lines, and 1.7 s over 2 million matches on one 6 MB line. Undoing a
+  large step in slices comes later, as work of its own for every large undo: `!`, a macro's
+  replay and whitespace cleanup.
+- **A slice of `!` on one long line passes the 4 ms target:** 5.2 ms at p99 over 2 million matches
+  on one 6 MB line, as a batch of 1000 splices on a long line costs, as typing at 1000 cursors
+  there does. The last slice of a large `!` takes a few milliseconds more, joining its undo steps.
+- **The undo limit of 64 MiB bounds what undo brings back.** Past it, the oldest slices of a large
+  `!` are dropped, and the one undo step goes back only to the oldest one kept.
 - **The two prompts** are read by `ArgSpec::Replace`, which `Ctx::replace_pair` gives back, and
   take Japanese as the prompt for a file's name does.
 

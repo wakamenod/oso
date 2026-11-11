@@ -313,11 +313,14 @@ impl Editor {
         self.fit_preview();
         let mut moved = self.follow_window(self.selected);
         if self.prompts.is_empty() && !self.moved_windows.is_empty() {
-            for id in std::mem::take(&mut self.moved_windows) {
+            // By position, so the list keeps its room from command to command.
+            for at in 0..self.moved_windows.len() {
+                let id = self.moved_windows[at];
                 if let Some(index) = self.window_index(id).filter(|&i| i != self.selected) {
                     moved |= self.follow_window(index);
                 }
             }
+            self.moved_windows.clear();
             // What is left goes back to the selected window, for what the command does next.
             self.pass_wrap_budget(self.selected);
         }
@@ -460,11 +463,12 @@ impl Editor {
     /// do. Returns whether the view moved.
     pub fn scroll_view_sideways(&mut self, columns: isize) -> bool {
         let (window, buffer) = self.window_mut(self.tiled_index());
-        if window.wrap().is_some() {
-            // Nothing scrolls sideways while the buffer wraps (ADR 0100).
+        let display = buffer.display();
+        if window.rows(&display).wrapped() {
+            // Nothing scrolls sideways while the buffer wraps (ADR 0100), but a window too
+            // narrow to wrap does (ADR 0104).
             return false;
         }
-        let display = buffer.display();
         let scroll = window.scroll();
         // Unwrapped, as nothing scrolls sideways while wrapped: a view row is a line.
         let top = window.top_row(&display);
@@ -491,12 +495,13 @@ impl Editor {
 }
 
 /// Scrolls `window` by the fewest rows and columns that show its primary cursor, its box
-/// pushed by `preedit` (ADR 0069). While wrapped, rows are view rows and the left column 0.
+/// pushed by `preedit` (ADR 0069). While wrapped, rows are view rows and the left column 0; a
+/// window too narrow to wrap scrolls sideways as one that does not wrap (ADR 0104).
 fn follow_in(window: &mut Window, display: &DisplaySnapshot, preedit: Option<&Preedit>) {
     let point = window.cursor_point(display);
     let (cursor, cells) = motion::cursor_box(display, point, preedit);
     let span = cursor.column - point.column + cells;
-    let (point, cells) = if window.wrap().is_some() {
+    let (point, cells) = if window.rows(display).wrapped() {
         // While composing, the caret's row as the preedit wraps (ADR 0104).
         let row = preedit
             .and_then(|preedit| window.caret_row(display, preedit))

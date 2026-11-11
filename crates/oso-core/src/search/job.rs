@@ -86,23 +86,34 @@ enum Work {
     /// The keys that add cursors': matches by rules of their own.
     Matches(MatchWork),
     /// query-replace's (ADR 0113): within its ranges, the next match from `find`, then a
-    /// count if `count`.
+    /// count of the scope as `count` holds it, if given.
     Scoped {
         text: Rope,
         invalid: InvalidBytes,
         needle: Needle,
         ranges: Vec<Range<usize>>,
-        scope: Scope,
+        find: Option<usize>,
+        count: Option<Counting>,
     },
 }
 
-/// What a scoped job is to do, for [`SearchJob::scoped`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Scope {
-    /// Find the next match from here.
-    pub(crate) find: Option<usize>,
-    /// Then count the matches.
-    pub(crate) count: bool,
+/// The scope a query-replace counts: its text and ranges when the session began, so that a
+/// count started after replacements counts what was there to replace (ADR 0113).
+#[derive(Clone)]
+pub(crate) struct Counting {
+    pub(crate) text: Rope,
+    pub(crate) invalid: InvalidBytes,
+    pub(crate) ranges: Vec<Range<usize>>,
+}
+
+/// Where a search goes on after `found`: its end, or past an empty match, the next
+/// character's start.
+pub(crate) fn after(text: &Rope, found: &Range<usize>) -> usize {
+    if found.is_empty() {
+        text.clip_offset(found.end + 1, crate::sum_tree::Bias::Right)
+    } else {
+        found.end
+    }
 }
 
 /// Why a scoped search went no further.
@@ -118,12 +129,12 @@ fn run_scoped(
     snapshot: (&Rope, &InvalidBytes),
     needle: &Needle,
     ranges: &[Range<usize>],
-    scope: Scope,
+    (find, count): (Option<usize>, Option<&Counting>),
     stop: &dyn Fn() -> bool,
     generation: u64,
     report: &mut dyn FnMut(Report),
 ) {
-    if let Some(from) = scope.find {
+    if let Some(from) = find {
         match find_scoped(snapshot, needle, ranges, from, stop) {
             Ok(at) => report(Report::Found { generation, at }),
             Err(Halt::TooLong(at)) => {
@@ -133,26 +144,28 @@ fn run_scoped(
             Err(Halt::Stopped) => return,
         }
     }
-    if scope.count {
-        let mut total = 0;
-        let mut from = 0;
-        loop {
-            match find_scoped(snapshot, needle, ranges, from, stop) {
-                Ok(Some(next)) => {
-                    total += 1;
-                    from = next.end.max(next.start + 1);
-                }
-                Ok(None) => break,
-                // A count past a line too long would say less than there is.
-                Err(_) => return,
+    let Some(counting) = count else {
+        return;
+    };
+    let snapshot = (&counting.text, &counting.invalid);
+    let mut total = 0;
+    let mut from = 0;
+    loop {
+        match find_scoped(snapshot, needle, &counting.ranges, from, stop) {
+            Ok(Some(next)) => {
+                total += 1;
+                from = after(&counting.text, &next);
             }
+            Ok(None) => break,
+            // A count past a line too long would say less than there is.
+            Err(_) => return,
         }
-        report(Report::Counted {
-            generation,
-            count: Count { total, before: 0 },
-            at: None,
-        });
     }
+    report(Report::Counted {
+        generation,
+        count: Count { total, before: 0 },
+        at: None,
+    });
 }
 
 /// The first match within `ranges`, ascending and apart, that starts at `from` or after.
@@ -226,13 +239,13 @@ impl SearchJob {
         }
     }
 
-    /// A job of `generation` for query-replace, over `ranges` of the snapshot, while `live`
-    /// holds it.
+    /// A job of `generation` for query-replace, over `ranges` of the snapshot: the next match
+    /// from `find`, then a count of `count`, while `live` holds it.
     pub(crate) fn scoped(
         (text, invalid): (Rope, InvalidBytes),
         needle: Needle,
         ranges: Vec<Range<usize>>,
-        scope: Scope,
+        (find, count): (Option<usize>, Option<Counting>),
         (generation, live): (u64, Arc<AtomicU64>),
     ) -> Self {
         Self {
@@ -241,7 +254,8 @@ impl SearchJob {
                 invalid,
                 needle,
                 ranges,
-                scope,
+                find,
+                count,
             },
             generation,
             live,
@@ -283,11 +297,13 @@ impl SearchJob {
                 invalid,
                 needle,
                 ranges,
-                scope,
+                find,
+                count,
             } => {
                 let done = &mut |done| report(SearchReport(done));
                 let snapshot = (&text, &invalid);
-                run_scoped(snapshot, &needle, &ranges, scope, &stop, generation, done);
+                let what = (find, count.as_ref());
+                run_scoped(snapshot, &needle, &ranges, what, &stop, generation, done);
                 return;
             }
             Work::Isearch {
