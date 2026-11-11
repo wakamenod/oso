@@ -75,7 +75,8 @@ impl Disk {
         }
     }
 
-    fn busy(&self, buffer: BufferId) -> bool {
+    /// Whether a read of `buffer`'s file again is running.
+    pub(super) fn busy(&self, buffer: BufferId) -> bool {
         self.running
             .iter()
             .any(|running| running.handle.buffer() == buffer)

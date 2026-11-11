@@ -143,9 +143,12 @@ impl App {
     /// frame if it needs one.
     pub(super) fn load_updated(&mut self, buffer: BufferId) {
         let load = self.loads.iter().position(|l| l.handle.buffer() == buffer);
-        if load.is_none() {
+        let wake = wake_for(load.is_some(), self.disk.busy(buffer));
+        if wake.reload {
             // A file read again, which `reloads` runs.
             self.reload_updated(buffer);
+        }
+        if !wake.load {
             return;
         }
         if let Some(index) = load
@@ -403,5 +406,57 @@ impl App {
                 buffer.loading().is_some() || buffer.verdict() == Verdict::Unjudged
             })
         });
+    }
+}
+
+/// Which of a buffer's reads a wake from the loading threads may be for: its load, its read
+/// again, or both. A load stays listed until a frame shows its file (`note_first_screens`),
+/// while a read again can already have started, as a revert or a file changed on disk before
+/// the window drew: its wake must reach it, or its text is never taken in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Wake {
+    load: bool,
+    reload: bool,
+}
+
+/// [`Wake`] for a buffer with a load listed or not, and a read again running or not.
+fn wake_for(load_listed: bool, reload_running: bool) -> Wake {
+    Wake {
+        load: load_listed,
+        // With no load listed, the read again is the only reader the wake can be from.
+        reload: reload_running || !load_listed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Wake, wake_for};
+
+    #[test]
+    fn a_reload_running_before_the_loads_first_frame_still_gets_its_wake() {
+        let both = Wake {
+            load: true,
+            reload: true,
+        };
+        assert_eq!(wake_for(true, true), both);
+    }
+
+    #[test]
+    fn a_wake_goes_to_whichever_read_there_is() {
+        let load = Wake {
+            load: true,
+            reload: false,
+        };
+        let reload = Wake {
+            load: false,
+            reload: true,
+        };
+        assert_eq!(wake_for(true, false), load);
+        assert_eq!(wake_for(false, true), reload);
+        assert_eq!(
+            wake_for(false, false),
+            reload,
+            "a read that has ended takes nothing"
+        );
     }
 }
