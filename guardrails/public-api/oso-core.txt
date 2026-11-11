@@ -158,6 +158,7 @@ impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
+pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId
 pub const fn oso_core::buffer::BufferId::get(self) -> u64
@@ -1325,6 +1326,10 @@ pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str) -> core::resul
 pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::buffer_project(&self, oso_core::buffer::BufferId) -> core::option::Option<&oso_core::project::Project>
+pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>
+pub fn oso_core::editor::Editor::set_buffer_project(&mut self, oso_core::buffer::BufferId, core::option::Option<oso_core::project::Found>)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::candidate_rows(&self) -> usize
 pub fn oso_core::editor::Editor::insert_completion(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::keep_out_of_history(&mut self, oso_core::minibuffer::PromptId)
@@ -1601,6 +1606,7 @@ pub oso_core::editor::Status::agent: &'static str
 pub oso_core::editor::Status::agent_connected: bool
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::name: alloc::string::String
+pub oso_core::editor::Status::project: alloc::string::String
 pub oso_core::editor::Status::state: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String
 impl oso_core::editor::Status
@@ -2336,6 +2342,88 @@ pub fn oso_core::motion::next_cluster(&oso_core::display_map::DisplaySnapshot, u
 pub fn oso_core::motion::prev_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
 pub fn oso_core::motion::toggle_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
 pub fn oso_core::motion::toggle_line_start(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
+pub mod oso_core::project
+pub enum oso_core::project::GitMarker
+pub oso_core::project::GitMarker::Dir
+pub oso_core::project::GitMarker::File
+impl core::clone::Clone for oso_core::project::GitMarker
+pub fn oso_core::project::GitMarker::clone(&self) -> oso_core::project::GitMarker
+impl core::cmp::Eq for oso_core::project::GitMarker
+impl core::cmp::PartialEq for oso_core::project::GitMarker
+pub fn oso_core::project::GitMarker::eq(&self, &oso_core::project::GitMarker) -> bool
+impl core::fmt::Debug for oso_core::project::GitMarker
+pub fn oso_core::project::GitMarker::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::project::GitMarker
+impl core::marker::StructuralPartialEq for oso_core::project::GitMarker
+pub struct oso_core::project::Found
+pub oso_core::project::Found::root: oso_core::project::RootIdentity
+pub oso_core::project::Found::trust_root: core::option::Option<oso_core::project::RootIdentity>
+impl core::clone::Clone for oso_core::project::Found
+pub fn oso_core::project::Found::clone(&self) -> oso_core::project::Found
+impl core::cmp::Eq for oso_core::project::Found
+impl core::cmp::PartialEq for oso_core::project::Found
+pub fn oso_core::project::Found::eq(&self, &oso_core::project::Found) -> bool
+impl core::fmt::Debug for oso_core::project::Found
+pub fn oso_core::project::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::project::Found
+pub struct oso_core::project::Markers
+pub oso_core::project::Markers::git: core::option::Option<oso_core::project::GitMarker>
+pub oso_core::project::Markers::hg: bool
+pub oso_core::project::Markers::jj: bool
+impl oso_core::project::Markers
+pub fn oso_core::project::Markers::any(self) -> bool
+impl core::clone::Clone for oso_core::project::Markers
+pub fn oso_core::project::Markers::clone(&self) -> oso_core::project::Markers
+impl core::cmp::Eq for oso_core::project::Markers
+impl core::cmp::PartialEq for oso_core::project::Markers
+pub fn oso_core::project::Markers::eq(&self, &oso_core::project::Markers) -> bool
+impl core::default::Default for oso_core::project::Markers
+pub fn oso_core::project::Markers::default() -> oso_core::project::Markers
+impl core::fmt::Debug for oso_core::project::Markers
+pub fn oso_core::project::Markers::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::project::Markers
+impl core::marker::StructuralPartialEq for oso_core::project::Markers
+pub struct oso_core::project::Project
+impl oso_core::project::Project
+pub fn oso_core::project::Project::found(&self) -> &oso_core::project::Found
+pub fn oso_core::project::Project::name(&self) -> &str
+pub fn oso_core::project::Project::root(&self) -> &std::path::Path
+impl core::clone::Clone for oso_core::project::Project
+pub fn oso_core::project::Project::clone(&self) -> oso_core::project::Project
+impl core::cmp::Eq for oso_core::project::Project
+impl core::cmp::PartialEq for oso_core::project::Project
+pub fn oso_core::project::Project::eq(&self, &oso_core::project::Project) -> bool
+impl core::fmt::Debug for oso_core::project::Project
+pub fn oso_core::project::Project::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::project::Project
+pub struct oso_core::project::ProjectId(_)
+impl core::clone::Clone for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::clone(&self) -> oso_core::project::ProjectId
+impl core::cmp::Eq for oso_core::project::ProjectId
+impl core::cmp::PartialEq for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::eq(&self, &oso_core::project::ProjectId) -> bool
+impl core::fmt::Debug for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::project::ProjectId
+pub fn oso_core::project::ProjectId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::project::ProjectId
+impl core::marker::StructuralPartialEq for oso_core::project::ProjectId
+pub struct oso_core::project::RootIdentity
+pub oso_core::project::RootIdentity::identity: core::option::Option<(u64, u64)>
+pub oso_core::project::RootIdentity::path: std::path::PathBuf
+impl core::clone::Clone for oso_core::project::RootIdentity
+pub fn oso_core::project::RootIdentity::clone(&self) -> oso_core::project::RootIdentity
+impl core::cmp::Eq for oso_core::project::RootIdentity
+impl core::cmp::PartialEq for oso_core::project::RootIdentity
+pub fn oso_core::project::RootIdentity::eq(&self, &oso_core::project::RootIdentity) -> bool
+impl core::fmt::Debug for oso_core::project::RootIdentity
+pub fn oso_core::project::RootIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::project::RootIdentity
+pub const oso_core::project::MAX_GIT_FILE: u64
+pub fn oso_core::project::git_file_target(&[u8]) -> core::option::Option<std::path::PathBuf>
+pub fn oso_core::project::nearest_root<'a>(impl core::iter::traits::collect::IntoIterator<Item = (&'a std::path::Path, oso_core::project::Markers)>) -> core::option::Option<(&'a std::path::Path, oso_core::project::Markers)>
+pub fn oso_core::project::worktree_backlink(&[u8]) -> core::option::Option<std::path::PathBuf>
+pub fn oso_core::project::worktree_main(&std::path::Path) -> core::option::Option<&std::path::Path>
 pub mod oso_core::rope
 pub struct oso_core::rope::Chunks<'a>
 impl<'a> core::iter::traits::iterator::Iterator for oso_core::rope::Chunks<'a>

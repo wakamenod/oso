@@ -161,3 +161,35 @@ fn an_oversized_git_file_is_not_read_as_a_link() {
     fs::write(&git_file, text).unwrap();
     assert_eq!(detect(&worktree.join("a")).unwrap().trust_root, None);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_git_that_links_to_a_worktrees_git_takes_nothing() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("linked");
+    let (_, worktree) = scratch.worktree("main", "real");
+    let absolute = scratch.dir("absolute");
+    symlink(worktree.join(".git"), absolute.join(".git")).unwrap();
+    let relative = scratch.dir("deep/relative");
+    symlink("../../real/.git", relative.join(".git")).unwrap();
+    for linked in [absolute, relative] {
+        let found = detect(&linked.join("a.rs")).unwrap();
+        assert_eq!(found.root.path, linked);
+        assert_eq!(found.trust_root, None, "{}", linked.display());
+    }
+    // The worktree itself still takes its main repository.
+    assert!(detect(&worktree.join("a.rs")).unwrap().trust_root.is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_worktree_reached_through_a_linked_directory_takes_nothing() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("linked-dir");
+    let (_, worktree) = scratch.worktree("main", "real");
+    let alias = scratch.0.join("alias");
+    symlink(&worktree, &alias).unwrap();
+    // A location that is not its own real path names no worktree; the loader always gives one
+    // that is.
+    assert_eq!(detect(&alias.join("a.rs")).unwrap().trust_root, None);
+}

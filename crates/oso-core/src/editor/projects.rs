@@ -10,8 +10,9 @@ use crate::project::{Found, Project, ProjectId};
 
 impl Editor {
     /// The host found that `id`'s file is in the project `found`, or in none. A project
-    /// already in the table, by its root and the directory's identity, is shared; any other
-    /// is added.
+    /// already in the table, by its root and the directory's identity, is shared, and takes
+    /// what was found of its worktree link this time; any other is added. So one root is one
+    /// project, whatever trust step 2 gives it.
     pub fn set_buffer_project(&mut self, id: BufferId, found: Option<Found>) {
         if self.buffer(id).is_none() {
             return;
@@ -36,8 +37,9 @@ impl Editor {
         if let Some(place) = self
             .projects
             .iter()
-            .position(|known| *known.found() == found)
+            .position(|known| known.found().root == found.root)
         {
+            self.projects[place].set_trust_root(found.trust_root);
             return ProjectId(u32::try_from(place).unwrap_or(u32::MAX));
         }
         self.projects.push(Project::new(found));
@@ -89,6 +91,20 @@ mod tests {
             editor.buffer(a).unwrap().project(),
             editor.buffer(b).unwrap().project()
         );
+    }
+
+    #[test]
+    fn one_root_is_one_project_whatever_its_link_said() {
+        let mut editor = Editor::with_buffer(Buffer::visiting(PathBuf::from("/w/wt/a.rs")));
+        let a = editor.tiled().0.buffer();
+        let b = editor.add_buffer(Buffer::visiting(PathBuf::from("/w/wt/b.rs")));
+        let mut linked = found("/w/wt", 7);
+        linked.trust_root = Some(found("/w/main", 3).root);
+        editor.set_buffer_project(a, Some(linked));
+        editor.set_buffer_project(b, Some(found("/w/wt", 7)));
+        let project = editor.buffer(a).unwrap().project();
+        assert_eq!(project, editor.buffer(b).unwrap().project());
+        assert_eq!(editor.buffer_project(a).unwrap().found().trust_root, None);
     }
 
     #[test]

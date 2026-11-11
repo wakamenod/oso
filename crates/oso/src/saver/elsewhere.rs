@@ -5,7 +5,8 @@
 //! The new path is followed to where it leads, on this thread, and then written as a save
 //! writes, in the same order (ADR 0059), with nothing expected there, or the file the person
 //! agreed to write over. The path is judged as a load judges it, so that the buffer's verdict
-//! comes from where its text now is (ADR 0044).
+//! comes from where its text now is (ADR 0044), and its project is found there again
+//! (`crate::project`, ADR 0114).
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -17,12 +17,13 @@ use oso_core::project::{
 };
 
 /// The project of the file at `location`, the real place a path led, whether or not a file is
-/// there yet. `None` if no directory above it holds a marker.
+/// there yet: its directory must be its own real path, as `loader::location` gives it. `None`
+/// if no directory above it holds a marker.
 pub fn detect(location: &Path) -> Option<Found> {
     let start = location.parent()?;
-    let root = nearest_root(start.ancestors().map(|dir| (dir, markers_in(dir))))?;
+    let (root, markers) = nearest_root(start.ancestors().map(|dir| (dir, markers_in(dir))))?;
     let metadata = fs::metadata(root).ok()?;
-    let trust_root = if markers_in(root).git == Some(GitMarker::File) {
+    let trust_root = if markers.git == Some(GitMarker::File) {
         worktree_main_of(root)
     } else {
         None
@@ -49,16 +50,26 @@ fn markers_in(dir: &Path) -> Markers {
 }
 
 /// The main repository of the worktree at `root`, if its `.git` file names
-/// `<main>/.git/worktrees/<name>` and that directory's `gitdir` file names this `.git` file
-/// back, both by where they really lead.
+/// `<main>/.git/worktrees/<name>` and that directory's `gitdir` file names this very `.git`
+/// file back.
+///
+/// The link back is followed to where it leads and compared with `root/.git` as written,
+/// under a root that is its own real path. So only what the main repository records decides:
+/// a `.git` that is a link to a worktree's `.git` is not that worktree, however the link is
+/// set up or swapped meanwhile.
 fn worktree_main_of(root: &Path) -> Option<RootIdentity> {
+    if fs::canonicalize(root).ok()? != root {
+        return None;
+    }
     let git_file = root.join(".git");
+    if !fs::symlink_metadata(&git_file).is_ok_and(|metadata| metadata.is_file()) {
+        return None;
+    }
     let target = git_file_target(&read_small(&git_file).ok()?)?;
     let gitdir = fs::canonicalize(root.join(target)).ok()?;
     let main = worktree_main(&gitdir)?;
     let back = worktree_backlink(&read_small(&gitdir.join("gitdir")).ok()?)?;
-    let back = fs::canonicalize(gitdir.join(back)).ok()?;
-    if back != fs::canonicalize(&git_file).ok()? {
+    if fs::canonicalize(gitdir.join(back)).ok()? != git_file {
         return None;
     }
     let metadata = fs::metadata(main).ok()?;

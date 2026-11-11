@@ -30,6 +30,9 @@
 //! a baseline, but its text comes whole, compared with the buffer's on this thread
 //! ([`spawn_reload`]). [`Watcher`] notices the change (ADR 0083).
 //!
+//! A load, not a reload, also finds the project the file is in (`crate::project`, ADR 0114)
+//! before the first update, by the place the path leads.
+//!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1). Nothing logged says how large a file is, as it may hold secrets.
 

@@ -41,11 +41,11 @@ pub enum GitMarker {
 }
 
 /// The first of `dirs` whose markers make it a root, so the nearest when they go from the
-/// file up. `dirs` is lazy, so the host looks no further up than it must.
-pub fn nearest_root<'a>(dirs: impl IntoIterator<Item = (&'a Path, Markers)>) -> Option<&'a Path> {
-    dirs.into_iter()
-        .find(|(_, markers)| markers.any())
-        .map(|(dir, _)| dir)
+/// file up, with its markers. `dirs` is lazy, so the host looks no further up than it must.
+pub fn nearest_root<'a>(
+    dirs: impl IntoIterator<Item = (&'a Path, Markers)>,
+) -> Option<(&'a Path, Markers)> {
+    dirs.into_iter().find(|(_, markers)| markers.any())
 }
 
 /// The repository a `.git` file names: its first line, `gitdir: <path>`. `None` for anything
@@ -120,7 +120,7 @@ pub struct Project {
 
 impl Project {
     /// The project `found` is, named after its root's last component.
-    pub fn new(found: Found) -> Self {
+    pub(crate) fn new(found: Found) -> Self {
         let name = found.root.path.file_name().map_or_else(
             || found.root.path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
@@ -141,6 +141,11 @@ impl Project {
     /// What was found of it.
     pub fn found(&self) -> &Found {
         &self.found
+    }
+
+    /// What was found of it again: whether a worktree's link holds may have changed.
+    pub(crate) fn set_trust_root(&mut self, trust_root: Option<RootIdentity>) {
+        self.found.trust_root = trust_root;
     }
 }
 

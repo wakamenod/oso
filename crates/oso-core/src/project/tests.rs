@@ -29,7 +29,7 @@ fn the_nearest_marker_wins() {
     ];
     assert_eq!(
         nearest_root(dirs(&list)),
-        Some(Path::new("/w/oso/vendor/lib"))
+        Some((Path::new("/w/oso/vendor/lib"), GIT))
     );
 }
 
@@ -45,7 +45,7 @@ fn each_marker_makes_a_root_and_none_makes_no_project() {
         assert!(markers.any());
         assert_eq!(
             nearest_root(dirs(&[("/a", markers)])),
-            Some(Path::new("/a"))
+            Some((Path::new("/a"), markers))
         );
     }
     assert_eq!(nearest_root(dirs(&[("/a/b", NONE), ("/a", NONE)])), None);
@@ -62,7 +62,7 @@ fn the_search_stops_at_the_first_root() {
                 (Path::new(dir), markers)
             }),
     );
-    assert_eq!(found, Some(Path::new("/a/b")));
+    assert_eq!(found, Some((Path::new("/a/b"), GIT)));
     assert_eq!(seen, 1);
 }
 

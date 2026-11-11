@@ -67,7 +67,12 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     editor.screen(&mut screen);
     let flash = editor.flash_cells(&screen).filter(|_| flashing);
     draw_text_area(editor, (regions.window.text, &screen), flash, &mut lines);
-    let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
+    let modeline = [
+        &status.warnings[..],
+        &status.name[..],
+        &status.project[..],
+        &status.state[..],
+    ];
     draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
     let echo = [status.echo_warnings(), &status.echo[..]];
     draw_spans(&echo, regions.echo, '"', &mut lines);
@@ -1059,6 +1064,35 @@ mod scenarios {
         assert_frames(
             "status_escaped_name",
             name.as_bytes(),
+            &[text_grid(&editor)],
+        );
+    }
+
+    #[test]
+    fn a_project_name_from_disk_is_escaped_on_the_modeline() {
+        let root = "/w/a\nb\u{202e}\u{1b}c\tいe\u{301}";
+        let path = std::path::PathBuf::from(root).join("x.rs");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_load(oso_core::load::decode_all(b"", Default::default()));
+        buffer.judge_secret(Some(&[path]));
+        let mut editor = Editor::with_buffer(buffer);
+        aids_off(&mut editor);
+        let id = editor.tiled().0.buffer();
+        let found = oso_core::project::Found {
+            root: oso_core::project::RootIdentity {
+                path: std::path::PathBuf::from(root),
+                identity: None,
+            },
+            trust_root: None,
+        };
+        editor.set_buffer_project(id, Some(found));
+        editor.set_frame_size(FrameSize {
+            rows: 3,
+            columns: 70,
+        });
+        assert_frames(
+            "status_escaped_project",
+            root.as_bytes(),
             &[text_grid(&editor)],
         );
     }
