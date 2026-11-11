@@ -89,11 +89,6 @@ pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option
     }
 }
 
-/// Who besides this user and root can change a file or directory with `metadata`.
-pub(super) fn others_can_write(metadata: &fs::Metadata) -> Writers {
-    writers(metadata.mode(), metadata.uid(), euid())
-}
-
 /// Who besides this user and root can change the file at `path` and the way to it: each entry
 /// on the way, from the root, is judged with the directory it is in, as [`walk_the_way`] walks
 /// a private directory's.
@@ -163,7 +158,8 @@ fn holding(meta: &fs::Metadata, euid: u32) -> (Writers, bool) {
     )
 }
 
-/// [`others_can_write`] for a `mode` and `owner`, as user `euid`.
+/// Who besides this user and root can change a file or directory with `mode` and `owner`, as
+/// user `euid`.
 fn writers(mode: u32, owner: u32, euid: u32) -> Writers {
     if (owner != euid && owner != 0) || mode & 0o002 != 0 {
         Writers::Anyone

@@ -104,13 +104,14 @@ the same day.
 
 ### Step 3: reading and watching the file
 
-The author chose the shape of `others_can_write`, `Editor::note` and leaving dev restarts as they
-are on 2026-11-11, through the coordinator.
+The author chose the `Writers` levels, `Editor::note` and leaving dev restarts as they are on
+2026-11-11, through the coordinator.
 
 - **`oso-platform::privacy` gains `config_home()`,** which replaces the tip crate's own from
-  step 5 with the same rules, **and `others_can_write(&Metadata) -> Writers`:** `Anyone` if every
-  user may write it or another user than this one and root owns it, `Group` if its group may,
-  else `Nobody`. Windows has no modes, and says `Nobody`, as `is_this_users` says yes there.
+  step 5 with the same rules, **and `who_can_change(&Path)`,** which says the `Writers` of a file
+  and of the way to it: `Anyone` if every user may write it or another user than this one and
+  root owns it, `Group` if its group may, else `Nobody`. Windows has no modes, and says
+  `Nobody`, as `is_this_users` says yes there.
 - **The thread, `oso-config`, starts first thing in `main`,** as the theme's read does, with
   `config::STACK`, and is given the event loop's waker once there is one. A read done by the first
   frame is applied before it; a later one arrives as an event.

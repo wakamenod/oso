@@ -49,11 +49,6 @@ pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option
         .map(|base| base.join("oso"))
 }
 
-/// There are no modes to go by.
-pub(super) fn others_can_write(_: &fs::Metadata) -> super::Writers {
-    super::Writers::Nobody
-}
-
 /// There are no modes to go by: only the file is looked at, through links.
 pub(super) fn who_can_change(path: &Path) -> io::Result<super::WhoCanChange> {
     Ok(super::WhoCanChange {

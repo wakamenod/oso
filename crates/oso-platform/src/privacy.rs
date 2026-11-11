@@ -50,8 +50,8 @@ pub fn config_home() -> Option<PathBuf> {
     backend::config_home_from(&|name| std::env::var_os(name))
 }
 
-/// Who besides this user can change a file or directory, as [`others_can_write`] tells, fewest
-/// first.
+/// Who besides this user and root can change a file or directory, by its mode and owner, as
+/// [`who_can_change`] tells, fewest first. Access lists are not read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Writers {
     /// Only this user, or root.
@@ -60,14 +60,6 @@ pub enum Writers {
     Group,
     /// Every user, or it is another user's own.
     Anyone,
-}
-
-/// Who besides this user and root can change a file or directory with `metadata`, by its mode
-/// and owner: anyone, if every user may write it or another user owns it, else its group, if the
-/// group may (ADR 0108). Access lists are not read. Windows has no modes to go by, and relies on
-/// the per-user place the caller chose.
-pub fn others_can_write(metadata: &std::fs::Metadata) -> Writers {
-    backend::others_can_write(metadata)
 }
 
 /// Who besides this user and root can change a file, and who can change the way to it.
@@ -86,7 +78,8 @@ pub struct WhoCanChange {
 /// to it (ADR 0108, ADR 0110): every directory it passes through, as written and through
 /// every link, and every link's owner, from the root down, as the system walks it. In a
 /// directory every user may write that keeps each entry to its owner (sticky), an entry this
-/// user or root owns counts as no one else's. By mode and owner, as [`others_can_write`] goes.
+/// user or root owns counts as no one else's. By mode and owner: every user if every user may
+/// write it or another user owns it, else a group if its group may.
 /// Windows has no modes to go by, and says [`Writers::Nobody`] for all of it.
 ///
 /// # Errors
