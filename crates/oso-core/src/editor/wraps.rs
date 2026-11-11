@@ -62,6 +62,7 @@ impl Editor {
         for index in 0..self.tiled_count() {
             if self.windows[index].buffer() == id {
                 self.sync_wrap(index);
+                self.pass_wrap_budget(index);
                 let (window, buffer) = self.window_mut(index);
                 let display = buffer.display();
                 window.realize_view(&display);
@@ -102,13 +103,42 @@ impl Editor {
         }
     }
 
-    /// Gives each wrap its budget for what comes next: a command, a wheel scroll, a resize or
-    /// a report.
+    /// Gives the wraps their budget for what comes next: a command, a wheel scroll, a resize or
+    /// a report. All windows share one, which the selected tiled window holds first, or the
+    /// first other window that wraps, and each window followed then takes what is left
+    /// ([`Editor::pass_wrap_budget`], ADR 0112).
     pub(super) fn refill_wraps(&mut self) {
         for window in &mut self.windows {
             if let Some(wrap) = window.wrap_map_mut() {
-                wrap.refill();
+                wrap.take_budget();
             }
+        }
+        let first = std::iter::once(self.tiled_index())
+            .chain(0..self.tiled_count())
+            .find(|&index| self.windows[index].wrap_map().is_some());
+        if let Some(wrap) = first.and_then(|index| self.windows[index].wrap_map_mut()) {
+            wrap.refill();
+        }
+    }
+
+    /// Moves what is left of the shared wrap budget into the wrap of the window at `index`,
+    /// if it has one, from whichever wraps hold it (ADR 0112).
+    pub(super) fn pass_wrap_budget(&mut self, index: usize) {
+        if self
+            .windows
+            .get(index)
+            .is_none_or(|window| window.wrap_map().is_none())
+        {
+            return;
+        }
+        let mut left = 0usize;
+        for window in &mut self.windows {
+            if let Some(wrap) = window.wrap_map_mut() {
+                left = left.saturating_add(wrap.take_budget());
+            }
+        }
+        if let Some(wrap) = self.windows[index].wrap_map_mut() {
+            wrap.give_budget(left);
         }
     }
 
@@ -193,6 +223,7 @@ impl Editor {
         self.refill_wraps();
         // A wrap that missed a change starts over, and drops the report.
         self.sync_wrap(index);
+        self.pass_wrap_budget(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         let taken = window

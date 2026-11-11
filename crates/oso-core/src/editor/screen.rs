@@ -1,6 +1,6 @@
-//! The rows a frame shows (ADR 0100, ADR 0104): the tiled window's, with a preedit laid out in
-//! its line, and the preview's of the buffer a prompt previews, wrapped at the preview's width
-//! while that buffer wraps.
+//! The rows a frame shows (ADR 0100, ADR 0104): each tiled window's, the selected one with a
+//! preedit laid out in its line, and the preview's of the buffer a prompt previews, wrapped at
+//! the preview's width while that buffer wraps.
 //!
 //! Must not depend on: `command`, `keymap` or the host's window.
 //!
@@ -8,15 +8,26 @@
 
 use super::{Editor, Preview};
 use crate::frame::CellRect;
-use crate::window::{Rows, Screen, ScreenSource, Scroll};
+use crate::window::{Rows, Screen, ScreenSource, Scroll, WindowId};
 
 impl Editor {
     /// The rows a frame shows of the tiled window, also beneath a prompt, into `out`: with the
     /// preedit laid out in its line while no prompt is open, as only then does it show there
     /// (ADR 0069, ADR 0072).
     pub fn screen(&self, out: &mut Screen) {
-        let (window, buffer) = self.tiled();
-        let preedit = self.preedit.as_ref().filter(|_| self.prompts.is_empty());
+        self.screen_of(self.tiled_id(), out);
+    }
+
+    /// The rows a frame shows of the tiled window `id`, into `out`: with the preedit laid out
+    /// in its line if it is the selected window and no prompt is open, and none for a window
+    /// that is not tiled (ADR 0112).
+    pub fn screen_of(&self, id: WindowId, out: &mut Screen) {
+        let Some((window, buffer, _)) = self.tiled_window(id) else {
+            out.clear();
+            return;
+        };
+        let selected = id == self.tiled_id() && self.prompts.is_empty();
+        let preedit = self.preedit.as_ref().filter(|_| selected);
         window.screen_into(&buffer.display(), preedit, out);
     }
 

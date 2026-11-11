@@ -12,7 +12,7 @@ keys: M-x
 =-- test  1:0  Fundamental  UTF-8 LF                                             =
 "                                                                                "
 float at row 0, column 15: 5 x 49
-│ 1/74  M-x                                       │
+│ 1/90  M-x                                       │
 :           ^                                     :
 │>undo (C-z)     Undo the last N changes to the … │
 │ yank (C-y)     Insert the newest kill at every… │

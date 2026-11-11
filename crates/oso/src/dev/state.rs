@@ -111,7 +111,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     }
     if !shows_secret && !editor.echo_withheld() {
         let mut status = Status::default();
-        editor.status_into(&mut status);
+        editor.status_into(editor.tiled().0.id(), &mut status);
         state["modeline"] = json!(status.modeline());
         // isearch's line holds its string.
         let search_withheld = editor.isearch().is_some_and(Isearch::around_secret);

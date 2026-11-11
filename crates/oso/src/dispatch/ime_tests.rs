@@ -26,7 +26,7 @@ fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str) {
 
 fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     status.echo
 }
 

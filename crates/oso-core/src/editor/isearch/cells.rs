@@ -13,7 +13,7 @@ use crate::editor::Editor;
 use crate::frame::{self, CellRect};
 use crate::search;
 use crate::sum_tree::Bias;
-use crate::window::Screen;
+use crate::window::{Screen, WindowId};
 
 /// The most matches in view a frame highlights, so that their rectangles leave room for
 /// the rest of the frame.
@@ -35,9 +35,10 @@ pub struct MatchCells {
 }
 
 impl Editor {
-    /// The cells the matches in view take in the tiled window's text area, as `screen` shows
-    /// it ([`Editor::screen`]), into `cells`, emptied first.
-    pub fn isearch_cells(&self, screen: &Screen, cells: &mut MatchCells) {
+    /// The cells the matches in view take in the text area of the tiled window `id`, as
+    /// `screen` shows it ([`Editor::screen_of`]), into `cells`, emptied first. isearch runs in
+    /// the selected window, and only it shows them (ADR 0112).
+    pub fn isearch_cells(&self, id: WindowId, screen: &Screen, cells: &mut MatchCells) {
         let MatchCells {
             current,
             others,
@@ -54,13 +55,15 @@ impl Editor {
         let Some(query) = &state.query else {
             return;
         };
-        let (window, buffer) = self.tiled();
+        let Some((window, buffer, regions)) = self.selected_tiled(id) else {
+            return;
+        };
         if window.buffer() != state.buffer {
             return;
         }
         let display = buffer.display();
         let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
-        let area = self.tiled_regions().text;
+        let area = regions.text;
         let reach = query.max_bytes();
         // Each view row's columns in view, widened, and joined where they meet.
         for row in screen.rows().iter().take(area.rows) {

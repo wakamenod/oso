@@ -26,6 +26,12 @@
 //! of the boxes of the cursors other than the primary, drawn as dim outlines, from
 //! `Editor::other_cursor_cells` (ADR 0091).
 //!
+//! With several tiled windows, each comes in the tree's order after a line that says where it
+//! is and whether it is selected; a divider at a window's right ends its rows and modeline with
+//! `┃`, and the modeline of a window that is not selected is between `-`. Only the selected
+//! window has a region, a band, a flash and isearch's matches, and the others' cursors are `o`
+//! (ADR 0112).
+//!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
 //! (ADR 0072). Beneath it, the window's hollow cursor is marked `o` in place of `^`. That
@@ -58,18 +64,48 @@ fn text_grid(editor: &Editor) -> String {
 }
 
 /// As [`text_grid`], with the cursor flash at full strength if `flashing` (ADR 0097).
+///
+/// With several tiled windows, each comes in the tree's order after a line that says where it
+/// is, its rows and modeline ended by `┃` while it has a divider at its right, and the modeline
+/// of a window that is not selected between `-` (ADR 0112).
 fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let regions = editor.frame();
+    let tiled = editor.tiled().0.id();
+    let several = regions.windows().len() > 1;
     let mut status = Status::default();
-    editor.status_into(&mut status);
     let mut lines = Vec::new();
     let mut screen = Screen::default();
-    editor.screen(&mut screen);
-    let flash = editor.flash_cells(&screen).filter(|_| flashing);
-    let window = editor.tiled_regions();
-    draw_text_area(editor, (window.text, &screen), flash, &mut lines);
-    let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
-    draw_spans(&modeline, window.modeline, '=', &mut lines);
+    for (id, window) in regions.windows() {
+        let outer = window.outer();
+        if several {
+            let selected = if *id == tiled { ", selected" } else { "" };
+            lines.push(format!(
+                "window {} at row {}, column {}: {} x {}{selected}",
+                id.get(),
+                outer.row,
+                outer.column,
+                outer.rows,
+                outer.columns
+            ));
+        }
+        if outer.rows == 0 || outer.columns == 0 {
+            continue;
+        }
+        editor.status_into(*id, &mut status);
+        editor.screen_of(*id, &mut screen);
+        let flash = editor.flash_cells(*id, &screen).filter(|_| flashing);
+        draw_text_area(editor, (*id, window), &screen, flash, &mut lines);
+        let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
+        let edge = if *id == tiled { '=' } else { '-' };
+        let start = lines.len();
+        draw_spans(&modeline, window.modeline, edge, &mut lines);
+        if window.divider.is_some()
+            && let Some(line) = lines.get_mut(start)
+        {
+            line.push('┃');
+        }
+    }
+    editor.status_into(tiled, &mut status);
     let echo = [status.echo_warnings(), &status.echo[..]];
     draw_spans(&echo, regions.echo, '"', &mut lines);
     draw_float(editor, &mut lines);

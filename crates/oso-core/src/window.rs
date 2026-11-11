@@ -115,21 +115,22 @@ pub struct Window {
     wrap: Option<WrapMap>,
     /// The buffer's revision the wrap follows.
     wrap_revision: u64,
+    /// The widest its gutter has been for the buffer it shows (ADR 0104).
+    gutter_floor: Option<(BufferId, usize)>,
+    /// The buffers it was on before each internal buffer it has gone to, the first first.
+    /// Where it was in each is in its places (ADR 0088).
+    way_back: Vec<BufferId>,
 }
 
 impl Clone for Window {
-    /// A window like this one, whose wrap has a generation of its own, so that no job of this
-    /// window reports to it, as a split will need (M3).
+    /// A window like this one, with the same name, whose wrap has a generation of its own, so
+    /// that no job of this window reports to it. A split makes its new window with
+    /// [`Window::split_off`] instead.
     fn clone(&self) -> Self {
         Self {
             id: self.id,
-            buffer: self.buffer,
             selections: self.selections.clone(),
-            scroll: self.scroll,
-            size: self.size,
-            places: self.places.clone(),
-            wrap: self.wrap.as_ref().map(WrapMap::detached),
-            wrap_revision: self.wrap_revision,
+            ..self.split_off(self.id)
         }
     }
 }
@@ -159,6 +160,30 @@ impl Window {
             places: Places::default(),
             wrap: None,
             wrap_revision: 0,
+            gutter_floor: None,
+            way_back: Vec::new(),
+        }
+    }
+
+    /// A new window named `id` that shows what this one does, as a split makes it (ADR 0112):
+    /// the same buffer, the primary cursor with its goal and mark, the mark ring and whether
+    /// the region shows, but none of the other cursors; the same view, places, gutter and way
+    /// back. Its wrap has a generation of its own, so no job of this window reports to it, and
+    /// is wrapped again at its own width (ADR 0103).
+    pub(crate) fn split_off(&self, id: WindowId) -> Self {
+        let mut selections = self.selections.clone();
+        selections.keep_primary();
+        Self {
+            id,
+            buffer: self.buffer,
+            selections,
+            scroll: self.scroll,
+            size: self.size,
+            places: self.places.clone(),
+            wrap: self.wrap.as_ref().map(WrapMap::detached),
+            wrap_revision: self.wrap_revision,
+            gutter_floor: self.gutter_floor,
+            way_back: self.way_back.clone(),
         }
     }
 
@@ -172,43 +197,13 @@ impl Window {
         self.buffer
     }
 
-    /// Shows `buffer`, keeping where the window was in the one it leaves, and dropping its
-    /// wrap of it (ADR 0103). Gives where it was in `buffer` the last time, for the editor to
-    /// clip to the text as it is now; until then it shows `buffer` from its start, with one
-    /// cursor. Showing the buffer it shows changes nothing there. Ends a walk of `M-,` and
-    /// `M-/`.
-    pub(crate) fn show(&mut self, buffer: BufferId) -> Option<Place> {
-        self.places.end_walk();
-        if buffer == self.buffer {
-            return None;
-        }
-        let mut places = std::mem::take(&mut self.places);
-        let place = Place {
-            selections: std::mem::take(&mut self.selections),
-            scroll: self.scroll,
-        };
-        places.leave(self.buffer, place);
-        let place = places.take(buffer);
-        *self = Self {
-            size: self.size,
-            places,
-            ..Self::new(self.id, buffer)
-        };
-        place
+    /// The widest its gutter has been for the buffer it shows, as the layout last gave it.
+    pub(crate) fn gutter_floor(&self) -> Option<(BufferId, usize)> {
+        self.gutter_floor
     }
 
-    /// The buffers the window showed before the one it shows, most recent first, with where it
-    /// was in each.
-    pub fn places(&self) -> impl Iterator<Item = (BufferId, &Place)> {
-        self.places.iter()
-    }
-
-    pub(crate) fn places_mut(&mut self) -> &mut Places {
-        &mut self.places
-    }
-
-    pub(crate) fn walk(&self) -> Option<&Walk> {
-        self.places.walk(self.buffer)
+    pub(crate) fn set_gutter_floor(&mut self, floor: Option<(BufferId, usize)>) {
+        self.gutter_floor = floor;
     }
 
     /// The rows and columns shown in full.
