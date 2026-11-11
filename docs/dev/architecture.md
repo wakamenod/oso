@@ -488,6 +488,16 @@ User configuration is TOML: key bindings, menus, theme, fonts and per-mode
 settings. It reloads on file change. Inside repositories, only EditorConfig is
 read. See [ADR 0019](adr/0019-configuration.md).
 
+- One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
+  (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
+  without it.
+- A thread in the tip crate's `config` reads, parses and builds it at start and
+  when a `stat` once a second sees it change, and the UI thread swaps the result
+  in between keys. A bad file leaves the last good one, with messages.
+- User keys are a keymap directly above the global one, which can also leave a
+  key undefined. A setting applies at start and when its value in the file
+  changes. See [ADR 0108](adr/0108-the-user-configuration-file.md).
+
 ### Persistence
 
 There is no periodic auto-save and there are no backup files. If oso panics
