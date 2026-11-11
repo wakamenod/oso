@@ -51,6 +51,9 @@ insta = { version = "1.49", default-features = false }
 # channel in release builds too (ADR 0085). Used through `Value` only, so without
 # serde's derive macros.
 serde_json = "1"
+# TOML for the user configuration file (ADR 0108), parsed into spanned tables only:
+# no serde, no derive macros. The default recursion limit stays on.
+toml = { version = "1.1.8", default-features = false, features = ["std", "parse"] }
 
 # Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
