@@ -1,0 +1,80 @@
+# CodeQL code scanning, in place of the repository's default setup, so that a pull
+# request that changes only docs skips the Rust analysis. Actions are pinned by the
+# lockfile (ADR 0080). The job names and categories are the default setup's, so the
+# checks and the alerts' history stay the same.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, as the default setup was.
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # A pull request that changes nothing but docs/ and Markdown files has no Rust to scan:
+  # the job still reports, with its analysis skipped, so no check is left waiting and no
+  # job name is added. A push to main and the weekly run always scan.
+  rust:
+    name: Analyze (rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # The base and the head of a pull request, for the merge base between them.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          persist-credentials: false
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docs_only=false
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # What the pull request changes, from where it left the base.
+            changed=$(git diff --name-only "$BASE...$HEAD")
+            if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE '^docs/|\.md$'; then
+              docs_only=true
+            fi
+          fi
+          echo "docs-only=$docs_only" | tee -a "$GITHUB_OUTPUT"
+      - if: steps.diff.outputs.docs-only != 'true'
+        uses: github/codeql-action/init@v4.39.1
+        with:
+          languages: rust
+          build-mode: none
+      - if: steps.diff.outputs.docs-only != 'true'
+        uses: github/codeql-action/analyze@v4.39.1
+        with:
+          category: /language:rust
+
+  actions:
+    name: Analyze (actions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@v4.39.1
+        with:
+          languages: actions
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4.39.1
+        with:
+          category: /language:actions
