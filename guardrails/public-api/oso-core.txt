@@ -1477,6 +1477,8 @@ pub fn oso_core::editor::Editor::write_over_asked(&self) -> core::option::Option
 pub fn oso_core::editor::Editor::written_elsewhere(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::ContentId, std::path::PathBuf, oso_core::buffer::FileStamp, impl core::ops::function::FnOnce(&mut oso_core::buffer::Buffer))
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::tab_to_tab_stop(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
 pub struct oso_core::editor::Elsewhere

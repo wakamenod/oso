@@ -6,7 +6,6 @@
 
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::Replacement;
 use oso_core::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
 use oso_core::editor::Editor;
 use oso_core::motion::{self, WalkBudget};
@@ -58,35 +57,10 @@ fn cursor_word_costs(label: &str, text: &str) {
     }
 }
 
-/// TAB at every cursor of `editor`, as `tab-to-tab-stop` runs it: each later cursor on the
-/// line of the one before takes its column from the display map.
+/// TAB at every cursor of `editor`, as `tab-to-tab-stop` runs it, in one undo step.
 fn tab_at_cursors(editor: &mut Editor) {
-    let (window, buffer) = editor.current();
-    let id = window.buffer();
-    let display = buffer.display();
-    let tab_width = buffer.tab_width();
-    let spaces = " ".repeat(tab_width.get() as usize);
-    let mut edits = Vec::with_capacity(window.selections.len());
-    let mut earlier: Option<(usize, usize, usize)> = None;
-    for selection in window.selections.iter() {
-        let line = buffer.text().offset_to_point(selection.cursor).row;
-        let column = match earlier {
-            Some((from, row, column)) if row == line => {
-                display.column_after(from, column, selection.cursor)
-            }
-            _ => display.offset_to_display_point(selection.cursor).column,
-        };
-        let stop = tab_width.next_stop(column);
-        edits.push(Replacement {
-            range: selection.cursor..selection.cursor,
-            text: &spaces[..stop - column],
-        });
-        earlier = Some((selection.cursor, line, stop));
-    }
     editor.begin_undo_group();
-    editor
-        .apply_edits(id, &edits)
-        .expect("the buffer is editable");
+    editor.tab_to_tab_stop().expect("the buffer is editable");
     editor.end_undo_group();
 }
 
