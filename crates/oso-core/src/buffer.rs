@@ -398,9 +398,9 @@ impl Buffer {
         &self.text
     }
 
-    /// A snapshot of the display model. O(1).
+    /// A snapshot of the display model, at the buffer's revision. O(1).
     pub fn display(&self) -> DisplaySnapshot {
-        self.display.snapshot()
+        self.display.snapshot().at_revision(self.revision)
     }
 
     /// Whether the text holds bidirectional controls, for the modeline's warning. O(1).

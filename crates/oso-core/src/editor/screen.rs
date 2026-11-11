@@ -75,9 +75,10 @@ impl Editor {
             return;
         };
         let display = buffer.display();
-        let wrap = self.preview_wrap_of(id, buffer.revision(), region.columns);
+        let revision = buffer.revision();
+        let wrap = self.preview_wrap_of(id, revision, region.columns);
         let source = ScreenSource {
-            rows: Rows::new(&display, wrap),
+            rows: Rows::new(&display, wrap.map(|wrap| (wrap, revision))),
             scroll: Scroll { start, left: 0 },
             size: region.view_size(),
             cursor,

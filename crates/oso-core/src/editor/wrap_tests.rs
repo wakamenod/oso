@@ -210,6 +210,35 @@ fn a_load_that_changes_the_text_behind_the_wrap_starts_it_over() {
 }
 
 #[test]
+fn a_wrap_behind_a_load_of_text_as_long_is_not_read_until_it_is_brought_along() {
+    let text = "word ".repeat(60);
+    let (mut editor, id) = wrapped(&text, ViewSize::new(5, 20));
+    settle(&mut editor);
+    // As long as the text before, with a line break and wide characters where breaks were.
+    let mut other = "日本語".repeat(20);
+    other.push('\n');
+    other.push_str(&"x".repeat(text.len() - other.len()));
+    assert_eq!(other.len(), text.len());
+    let snapshot =
+        crate::load::decode_all(other.as_bytes(), crate::display_map::TabWidth::default());
+    editor.buffer_mut(id).unwrap().apply_load(snapshot);
+    let (window, buffer) = editor.current();
+    let display = buffer.display();
+    assert!(
+        window.wrap_of(&display).is_none(),
+        "its breaks are of the old text"
+    );
+    assert_eq!(
+        window.row_count(&display),
+        2,
+        "a row a logical line until then"
+    );
+    editor.loaded(id);
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor));
+}
+
+#[test]
 fn a_window_too_narrow_to_wrap_shows_a_row_a_line() {
     let text = format!("{}\nend\n", "word ".repeat(30));
     let (mut editor, _) = wrapped(&text, ViewSize::new(5, 7));
