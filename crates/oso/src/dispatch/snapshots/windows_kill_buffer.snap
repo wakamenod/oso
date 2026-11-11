@@ -2,7 +2,7 @@
 source: crates/oso/src/dispatch/grid_tests.rs
 description: "text: line 1\\nline 2\\nline 3\\n"
 ---
-keys: run:split-window-below
+keys: C-x 2
 WindowId(0) at row 0, column 0: 5 x 30, selected
 │a note                        │
 :^                             :

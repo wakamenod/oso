@@ -115,8 +115,7 @@ fn page_keys_scroll_by_a_screen() {
 `check_frame` takes the rows and columns of the whole frame instead, for scenarios
 about the frame itself. A step `run:` and a command's name, with a count after a space, such
 as `run:enlarge-window 2`, runs that command as the control socket's `run-command` does, for
-commands with no keys. It registers the window commands first, which the app gets only with
-ADR 0112's step 3.
+commands with no keys.
 
 Use a small window, write control and invisible characters as escapes in the
 test, and keep a scenario to one idea.

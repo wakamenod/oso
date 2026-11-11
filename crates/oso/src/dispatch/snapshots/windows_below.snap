@@ -17,7 +17,7 @@ keys: none
 =-- test  1:0  Fundamenta=
 "                        "
 
-keys: run:split-window-below
+keys: C-x 2
 WindowId(0) at row 0, column 0: 6 x 24, selected
 │line 1                  │
 :^                       :
@@ -53,7 +53,7 @@ WindowId(1) at row 6, column 0: 5 x 24
 --- test  1:0  Fundamenta-
 "                        "
 
-keys: run:other-window
+keys: C-x o
 WindowId(0) at row 0, column 0: 6 x 24
 │line 1                  │
 │line 2                  │
@@ -71,7 +71,7 @@ WindowId(1) at row 6, column 0: 5 x 24, selected
 =-- test  1:0  Fundamenta=
 "                        "
 
-keys: run:enlarge-window 2
+keys: C-u 2 C-x ^
 WindowId(0) at row 0, column 0: 4 x 24
 │line 1                  │
 │line 2                  │
@@ -89,7 +89,7 @@ WindowId(1) at row 4, column 0: 7 x 24, selected
 =-- test  1:0  Fundamenta=
 "                        "
 
-keys: run:delete-window
+keys: C-x 0
 │line 1                  │
 │line 2                  │
 │line 3                  │

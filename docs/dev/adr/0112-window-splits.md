@@ -300,12 +300,15 @@ file or a 10 MB line.
     `gutter_into` and the cell functions taking a window's id. The tree's order is
     `FrameLayout::windows`;
   - no new public module: `Splits` and `Way` go in `frame`, `WindowId` in `window`.
-- **As built, step 2:** the window commands are registered only in tests until step 3 draws
-  every window and binds their keys, so the app never shows a frame with windows it does not
+- **As built, step 2:** the window commands were registered only in tests until step 3 drew
+  every window and bound their keys, so the app never showed a frame with windows it did not
   draw. `windmove-up` and `windmove-down` say "No window up from selected window" and "…down…",
   as Emacs's `windmove` does.
-- **`oso-render`:** `Face::ModelineInactive` and `Face::Divider`, and a divider pane drawn as a
-  line.
+- **`oso-render`:** `Face::ModelineInactive` and `Face::Divider`, and `PaneContent::Divider`, a
+  line one pixel wide down the middle of its column.
+- **As built, step 3:** each window's panes take ids from its `WindowId` (`WindowId::get`): 16
+  and up, four a window, below them the echo area's and the floats'. A composition ends when
+  another window is selected, whatever selected it.
 - **`oso-platform`:** the wheel event's position.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.

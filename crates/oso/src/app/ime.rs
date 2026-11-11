@@ -19,6 +19,7 @@ use oso_core::buffer::{Buffer, BufferId};
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
 use oso_core::minibuffer::{Kind, Prompt, PromptId};
+use oso_core::window::WindowId;
 use oso_platform::window::{ImeEvent, InputSource};
 
 use super::App;
@@ -94,6 +95,9 @@ pub(super) struct ImeState {
     japanese_prompt: Option<PromptId>,
     /// Whether the window was last asked for an ASCII input source (ADR 0106).
     ascii: bool,
+    /// The window selected after the last event, so that a composition ends when another is
+    /// selected, as keys go only there (ADR 0112).
+    selected: Option<WindowId>,
 }
 
 impl App {
@@ -126,8 +130,8 @@ impl App {
 
     /// The input method's part of what follows every event, before the next is read, as the
     /// window system hands a key to the input method before it reaches oso (ADR 0069): a
-    /// composition ends if a buffer that
-    /// may hold secrets is selected, whatever selected it, then the IME is allowed as
+    /// composition ends if a buffer that may hold secrets is selected, or another window,
+    /// whatever selected it (ADR 0112), then the IME is allowed as
     /// wanted, and the window gets the cursor's cell if it changed, so that a composition
     /// started by the next key opens its candidate window there, and where each character of
     /// a composition is drawn.
@@ -139,7 +143,13 @@ impl App {
         }
         // What follows logs, and the event may have brought a secret buffer into view.
         self.note_logging();
-        if self.composing() && self.editor.current().1.is_secret() {
+        let window = self.editor.window().id();
+        let moved = self
+            .ime
+            .selected
+            .replace(window)
+            .is_some_and(|last| last != window);
+        if self.composing() && (moved || self.editor.current().1.is_secret()) {
             self.end_composition();
             // The window's input method too, so that nothing of it is committed later.
             if let Some(view) = &self.view {

@@ -13,7 +13,7 @@ keys: C-x x t
 =-- test  1:0  Fundamental  UTF-8 LF            =
 "Truncate long lines disabled                   "
 
-keys: run:split-window-right
+keys: C-x 3
 WindowId(0) at row 0, column 0: 7 x 24, selected
 │The quick brown fox   ↩│┃
 :^                     m:
@@ -38,7 +38,7 @@ WindowId(1) at row 0, column 24: 7 x 23
 --- test  1:0  Fundament-
 "                                               "
 
-keys: run:enlarge-window-horizontally 6
+keys: C-u 6 C-x }
 WindowId(0) at row 0, column 0: 7 x 30, selected
 │The quick brown fox jumps   ↩│┃
 :^                           m:

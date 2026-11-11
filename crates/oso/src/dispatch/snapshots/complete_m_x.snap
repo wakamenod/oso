@@ -35,7 +35,7 @@ keys: M-x
 --- test  1:0  Fundamental  UTF-8 LF                                                                 -
 "                                                                                                    "
 float at row 4, column 19: 19 x 62
-│ 1/74  M-x                                                    │
+│ 1/90  M-x                                                    │
 :           ^                                                  :
 │>undo (C-z)             Undo the last N changes to the buffe… │
 │ yank (C-y)             Insert the newest kill at every curs… │

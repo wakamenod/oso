@@ -19,26 +19,19 @@ fn lines(n: usize) -> String {
 
 #[test]
 fn split_below_then_move_select_and_delete() {
-    let steps = [
-        "",
-        "run:split-window-below",
-        "C-n C-n C-f",
-        "run:other-window",
-        "run:enlarge-window 2",
-        "run:delete-window",
-    ];
+    let steps = ["", "C-x 2", "C-n C-n C-f", "C-x o", "C-u 2 C-x ^", "C-x 0"];
     check_frame("windows_below", &lines(20), (12, 24), &steps);
 }
 
 #[test]
 fn split_right_puts_a_divider_between_them() {
     let steps = [
-        "run:split-window-right",
+        "C-x 3",
         "run:split-window-right-and-select",
-        "run:shrink-window-horizontally 3",
-        "run:balance-windows",
+        "C-u 3 C-x {",
+        "C-x +",
         "run:windmove-left",
-        "run:delete-other-windows",
+        "C-x 1",
     ];
     check_frame("windows_right", &lines(6), (8, 47), &steps);
 }
@@ -57,36 +50,20 @@ fn only_the_selected_window_has_the_band_and_the_region() {
         rows: 10,
         columns: 47,
     });
-    let steps = [
-        "run:split-window-right",
-        "C-SPC C-n C-f",
-        "run:other-window",
-        "C-s l i n e",
-    ];
+    let steps = ["C-x 3", "C-SPC C-n C-f", "C-x o", "C-s l i n e"];
     check_editor("windows_selected_aids", text.as_bytes(), editor, &steps);
 }
 
 #[test]
 fn an_edit_in_one_window_shows_in_the_other_on_the_same_buffer() {
-    let steps = [
-        "run:split-window-below",
-        "run:other-window",
-        "M->",
-        "run:other-window",
-        "x y z RET",
-        "C-a C-k C-k",
-    ];
+    let steps = ["C-x 2", "C-x o", "M->", "C-x o", "x y z RET", "C-a C-k C-k"];
     check_frame("windows_one_buffer", &lines(5), (12, 24), &steps);
 }
 
 #[test]
 fn each_window_wraps_at_its_own_width() {
     let text = "The quick brown fox jumps over the lazy dog and keeps on running.\nnext\n";
-    let steps = [
-        "C-x x t",
-        "run:split-window-right",
-        "run:enlarge-window-horizontally 6",
-    ];
+    let steps = ["C-x x t", "C-x 3", "C-u 6 C-x }"];
     check_frame("windows_wrap", text, (8, 47), &steps);
 }
 
@@ -101,7 +78,7 @@ fn killing_a_buffer_shown_in_both_windows_moves_both_back() {
     });
     let notes = editor.add_buffer(Buffer::from_text("notes", "a note\n"));
     editor.show(notes);
-    let steps = ["run:split-window-below", "C-x k RET"];
+    let steps = ["C-x 2", "C-x k RET"];
     check_editor("windows_kill_buffer", text.as_bytes(), editor, &steps);
 }
 

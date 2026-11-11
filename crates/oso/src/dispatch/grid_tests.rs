@@ -529,12 +529,7 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
     let mut frames = Vec::new();
     for &keys in steps {
         if let Some(command) = keys.strip_prefix("run:") {
-            // A command by its name and a count, for those with no keys yet. The window
-            // commands are registered only here until ADR 0112's step 3 draws every window.
-            if dispatcher.registry.lookup("split-window-below").is_none() {
-                let windows = crate::commands::windows::COMMANDS;
-                dispatcher.registry.register_all(windows).unwrap();
-            }
+            // A command by its name and a count, for those with no keys.
             let mut words = command.split(' ');
             let name = words.next().unwrap_or_default();
             let count = words.next().map(|count| count.parse().unwrap());

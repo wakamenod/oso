@@ -313,12 +313,11 @@ impl App {
             return;
         };
         let started = Instant::now();
-        let mut status = oso_core::editor::Status::default();
-        self.editor
-            .status_into(self.editor.tiled().0.id(), &mut status);
+        let mut statuses = Vec::new();
+        super::draw::statuses_into(&self.editor, &mut statuses);
         let render_state = &mut view.render_state;
         let cells = &mut super::draw::Cells::default();
-        let capture = with_panes(&self.editor, &status, cells, |panes| {
+        let capture = with_panes(&self.editor, &statuses, cells, |panes| {
             render_state.capture(panes)
         });
         log::debug!(

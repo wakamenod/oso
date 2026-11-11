@@ -84,6 +84,11 @@ enum Name {
     FgLineNumberCurrent,
     /// The wrap mark: dim, as whitespace's marks, in a hue of its own.
     FgWrapMark,
+    /// A modeline of a window that is not selected: dimmer than the selected one's.
+    FgModeInactive,
+    BgModeInactive,
+    /// The line between side by side windows.
+    Divider,
 }
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
@@ -225,7 +230,7 @@ impl Theme {
 }
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 29] = [
+const FACES: [Face; 31] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -255,6 +260,8 @@ const FACES: [Face; 29] = [
     Face::LineNumber,
     Face::LineNumberCurrent,
     Face::WrapMark,
+    Face::ModelineInactive,
+    Face::Divider,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -290,6 +297,8 @@ const fn index(face: Face) -> usize {
         Face::LineNumber => 26,
         Face::LineNumberCurrent => 27,
         Face::WrapMark => 28,
+        Face::ModelineInactive => 29,
+        Face::Divider => 30,
     }
 }
 
@@ -329,6 +338,9 @@ fn faces(face: Face) -> (Name, Name) {
         Face::LineNumber => (FgLineNumber, BgMain),
         Face::LineNumberCurrent => (FgLineNumberCurrent, BgMain),
         Face::WrapMark => (FgWrapMark, BgMain),
+        Face::ModelineInactive => (FgModeInactive, BgModeInactive),
+        // A line, drawn as a fill.
+        Face::Divider => (Divider, Divider),
     }
 }
 
@@ -364,6 +376,9 @@ fn dark(name: Name) -> Color {
         FgLineNumber => rgb(0x767c93),
         FgLineNumberCurrent => rgb(0xd8dbe6),
         FgWrapMark => rgb(0x6aa6c4),
+        FgModeInactive => rgb(0xa6b0d0),
+        BgModeInactive => rgb(0x1b1d26),
+        Divider => rgb(0x60667e),
         Hairline => rgba(0xffffff, 0.05),
         Border => rgb(0x30344a),
         Shadow => rgba(0x000000, 0.6),
@@ -401,6 +416,9 @@ fn light(name: Name) -> Color {
         FgLineNumber => rgb(0x6e7385),
         FgLineNumberCurrent => rgb(0x272a33),
         FgWrapMark => rgb(0x2f6684),
+        FgModeInactive => rgb(0x46507a),
+        BgModeInactive => rgb(0xeceef3),
+        Divider => rgb(0x858a9b),
         Hairline => rgba(0x000000, 0.08),
         Border => rgb(0xc2c6d4),
         Shadow => rgba(0x1a1f33, 0.18),
@@ -440,6 +458,9 @@ fn dusk(name: Name) -> Color {
         FgLineNumber => rgb(0xb0b3c4),
         FgLineNumberCurrent => rgb(0xf3f3f6),
         FgWrapMark => rgb(0x94cde6),
+        FgModeInactive => rgb(0xd2d6e4),
+        BgModeInactive => rgb(0x484855),
+        Divider => rgb(0x8c8fa3),
         Hairline => rgba(0xffffff, 0.035),
         Border => rgb(0x505265),
         Shadow => rgba(0x08090e, 0.55),
@@ -561,9 +582,16 @@ pub(crate) mod tests {
             ],
             Face::Cursor => &[(Face::Cursor, READ)],
             Face::Modeline => &[(Face::Modeline, READ)],
+            Face::ModelineInactive => &[(Face::ModelineInactive, LABEL)],
+            // A line to notice on the text's background (ADR 0112).
+            Face::Divider => &[(Face::Text, MARK)],
             Face::Float => &[(Face::Float, READ)],
             Face::Question => &[(Face::Float, READ)],
-            Face::Warning => &[(Face::Text, READ), (Face::Modeline, LABEL)],
+            Face::Warning => &[
+                (Face::Text, READ),
+                (Face::Modeline, LABEL),
+                (Face::ModelineInactive, LABEL),
+            ],
             Face::CompletionMatch => &[(LIST[0], READ), (LIST[1], READ)],
             // An escape's label sits wherever text can: on every fill behind buffer text, in a
             // modeline's name and on a float.
@@ -576,6 +604,7 @@ pub(crate) mod tests {
                 (Face::SearchCurrent, LABEL),
                 (Face::CompletionSelected, LABEL),
                 (Face::Modeline, LABEL),
+                (Face::ModelineInactive, LABEL),
                 (Face::Float, LABEL),
             ],
             Face::Boxed => &[(Face::Boxed, LABEL)],
@@ -742,6 +771,7 @@ pub(crate) mod tests {
                 (Face::SearchCurrent, behind_text),
                 (Face::CompletionSelected, behind_text),
                 (Face::Modeline, behind_text),
+                (Face::ModelineInactive, behind_text),
                 (Face::Float, behind_text),
                 (Face::Boxed, behind_text),
                 // A key's chip and an input field sit on a float's fill.
