@@ -155,7 +155,15 @@ fn what_a_git_file_names_is_never_looked_up() {
     let remote = scratch.dir("remote");
     scratch.file("remote/.git", "gitdir: /net/host/share/.git/worktrees/a\n");
     let found = detect(&remote.join("a"), None).unwrap();
-    assert_eq!(found.worktree_of, Some(PathBuf::from("/net/host/share")));
+    let claim = found.worktree_of.expect("a claim");
+    // A rooted path keeps the root's drive on Windows, as joining it does.
+    #[cfg(unix)]
+    assert_eq!(claim, PathBuf::from("/net/host/share"));
+    #[cfg(windows)]
+    assert!(
+        claim.is_absolute() && claim.ends_with("net/host/share"),
+        "{claim:?}"
+    );
     #[cfg(unix)]
     {
         // A link on the way stays in the words, as nothing resolves them.
