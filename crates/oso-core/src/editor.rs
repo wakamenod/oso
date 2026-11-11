@@ -990,6 +990,8 @@ mod tests {
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
+mod highlight_tests;
+#[cfg(test)]
 mod isearch_tests;
 #[cfg(test)]
 mod model_tests;

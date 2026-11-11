@@ -31,6 +31,7 @@ mod baseline;
 mod carried;
 mod edit;
 mod edited;
+mod highlighting;
 mod internal;
 mod mode;
 mod names;
@@ -194,6 +195,8 @@ pub struct Buffer {
     history: History,
     /// Where it was edited since its file was read, read again or saved (ADR 0113).
     edited: EditedLines,
+    /// What the syntax worker reported, and the edits since (ADR 0111).
+    highlighting: highlighting::Highlighting,
 }
 
 impl Buffer {
@@ -239,6 +242,7 @@ impl Buffer {
             next_content: 1,
             history: History::default(),
             edited: EditedLines::default(),
+            highlighting: highlighting::Highlighting::default(),
         }
     }
 
@@ -276,6 +280,8 @@ impl Buffer {
         self.info = snapshot.info;
         self.loading = (!snapshot.done).then_some(snapshot.progress);
         self.revision += 1;
+        // A report or a job from before a load is dropped, not mapped (ADR 0111).
+        self.highlighting.forget();
         self.content = self.new_content();
         self.saved = self.content;
         self.clear_edited();
@@ -293,12 +299,14 @@ impl Buffer {
     /// host resolves the path off the UI thread, before any content arrives.
     pub fn judge_secret(&mut self, resolved: Option<&[PathBuf]>) {
         self.verdict = secret::judge(self.path.as_deref(), resolved);
+        self.recheck_highlighting();
     }
 
     /// Decides whether the file may hold secrets when its path could not be resolved.
     /// `seen` holds what the walk passed before it failed, whose names count too.
     pub fn judge_unresolved(&mut self, seen: &[PathBuf]) {
         self.verdict = secret::judge_unresolved(self.path.as_deref(), seen);
+        self.recheck_highlighting();
     }
 
     /// Counts the text as secret from now on, as a kill that counts as secret was yanked
@@ -308,6 +316,7 @@ impl Buffer {
     pub(crate) fn treat_as_secret(&mut self) -> bool {
         let was_withheld = self.verdict().is_withheld();
         self.yanked_secret = true;
+        self.recheck_highlighting();
         !was_withheld
     }
 

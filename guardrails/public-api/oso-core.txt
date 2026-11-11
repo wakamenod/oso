@@ -159,6 +159,11 @@ pub fn oso_core::buffer::Buffer::set_copy_waits(&mut self, bool)
 pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::drop_highlights(&mut self)
+pub fn oso_core::buffer::Buffer::highlights(&self) -> core::option::Option<&oso_core::syntax::Highlights>
+pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
+pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
+impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
@@ -2854,6 +2859,48 @@ pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub mod oso_core::syntax
+pub enum oso_core::syntax::Highlight
+pub oso_core::syntax::Highlight::Comment
+pub oso_core::syntax::Highlight::Constant
+pub oso_core::syntax::Highlight::Function
+pub oso_core::syntax::Highlight::Heading
+pub oso_core::syntax::Highlight::Keyword
+pub oso_core::syntax::Highlight::Link
+pub oso_core::syntax::Highlight::Macro
+pub oso_core::syntax::Highlight::Markup
+pub oso_core::syntax::Highlight::Property
+pub oso_core::syntax::Highlight::String
+pub oso_core::syntax::Highlight::Type
+impl core::clone::Clone for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::clone(&self) -> oso_core::syntax::Highlight
+impl core::cmp::Eq for oso_core::syntax::Highlight
+impl core::cmp::PartialEq for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::eq(&self, &oso_core::syntax::Highlight) -> bool
+impl core::fmt::Debug for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::syntax::Highlight
+pub fn oso_core::syntax::Highlight::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::syntax::Highlight
+impl core::marker::StructuralPartialEq for oso_core::syntax::Highlight
+pub struct oso_core::syntax::Highlights
+impl oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::at(&self, usize) -> core::option::Option<oso_core::syntax::Highlight>
+pub fn oso_core::syntax::Highlights::is_empty(&self) -> bool
+pub fn oso_core::syntax::Highlights::len(&self) -> usize
+pub fn oso_core::syntax::Highlights::new(usize) -> Self
+pub fn oso_core::syntax::Highlights::replace(&mut self, core::ops::range::Range<usize>, impl core::iter::traits::collect::IntoIterator<Item = (usize, core::option::Option<oso_core::syntax::Highlight>)>)
+pub fn oso_core::syntax::Highlights::runs(&self, core::ops::range::Range<usize>) -> oso_core::syntax::Runs<'_>
+pub fn oso_core::syntax::Highlights::splice(&mut self, &[oso_core::syntax::Splice])
+impl core::clone::Clone for oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::clone(&self) -> oso_core::syntax::Highlights
+impl core::default::Default for oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::default() -> oso_core::syntax::Highlights
+impl core::fmt::Debug for oso_core::syntax::Highlights
+pub fn oso_core::syntax::Highlights::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::syntax::Runs<'a>
+impl core::iter::traits::iterator::Iterator for oso_core::syntax::Runs<'_>
+pub type oso_core::syntax::Runs<'_>::Item = (core::ops::range::Range<usize>, core::option::Option<oso_core::syntax::Highlight>)
+pub fn oso_core::syntax::Runs<'_>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct oso_core::syntax::Splice
 pub oso_core::syntax::Splice::new_len: usize
 pub oso_core::syntax::Splice::old_len: usize
@@ -2867,6 +2914,8 @@ impl core::fmt::Debug for oso_core::syntax::Splice
 pub fn oso_core::syntax::Splice::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::syntax::Splice
 impl core::marker::StructuralPartialEq for oso_core::syntax::Splice
+pub const oso_core::syntax::MAX_BYTES: usize
+pub fn oso_core::syntax::compose(&[oso_core::syntax::Splice], &[oso_core::syntax::Splice]) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub mod oso_core::window
 pub enum oso_core::window::Recenter
 pub oso_core::window::Recenter::Line(isize)
