@@ -20,7 +20,7 @@ use super::isearch::MatchCells;
 use crate::buffer::ReadOnly;
 use crate::motion;
 use crate::search::{self, Found, KEY_BUDGET, Query, Report, Scope, SearchJob, SearchReport};
-use crate::window::Screen;
+use crate::window::{Screen, WindowId};
 
 mod all;
 mod answers;
@@ -385,18 +385,19 @@ impl Editor {
 
     /// The match asked about and the others in the scope that the view shows, as cells, for
     /// the renderer, as isearch's are.
-    pub fn replace_cells(&self, screen: &Screen, cells: &mut MatchCells) {
+    pub fn replace_cells(&self, id: WindowId, screen: &Screen, cells: &mut MatchCells) {
         cells.current.clear();
         cells.others.clear();
         let Some(state) = self.replace() else {
             return;
         };
-        if self.tiled().0.buffer() != state.buffer || state.all_from.is_some() {
+        if state.all_from.is_some() {
             return;
         }
         let scope = self.replace_scope();
         let current = state.current.as_ref().or(state.stay.as_ref());
-        self.match_cells(screen, &state.query, current, Some(&scope), cells);
+        let query = (&state.query, current, Some(scope.as_slice()));
+        self.match_cells(id, state.buffer, screen, query, cells);
     }
 
     /// A new id for ranges tracked in a buffer.

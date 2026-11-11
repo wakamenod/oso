@@ -31,6 +31,10 @@ mod session;
 mod theme;
 mod view;
 mod whitespace;
+// Registered with their keys once every window is drawn (ADR 0112's step 3); until then
+// only the tests run them, so the app never shows a frame with windows it does not draw.
+#[cfg(test)]
+pub(crate) mod windows;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;

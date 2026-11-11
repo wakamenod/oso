@@ -27,7 +27,7 @@ pub(super) fn regions(editor: &Editor) -> (Vec<(usize, usize)>, usize) {
 
 fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     status.echo
 }
 
@@ -405,7 +405,7 @@ fn what_the_worker_says_around_a_secret_stays_out_of_the_messages() {
     let kept: String = messages.chunks().collect();
     assert!(!kept.contains("No more matches"), "{kept}");
     let mut status = Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     assert_eq!(status.echo, "No more matches");
 }
 

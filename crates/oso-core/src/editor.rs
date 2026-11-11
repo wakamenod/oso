@@ -5,9 +5,9 @@
 //!
 //! The host owns one [`Editor`] and lends it to each command through
 //! [`Ctx`](crate::command::Ctx). It holds the buffers and the windows that
-//! show them, each window with its own selection set (ADR 0007). There is
-//! one window until splits arrive (M3). New state is added here, so
-//! commands keep their signature as it grows.
+//! show them, each window with its own selection set (ADR 0007), and the tree
+//! the tiled ones are laid out by (ADR 0112, `windows`). New state is added
+//! here, so commands keep their signature as it grows.
 //!
 //! Text changes here ([`Editor::apply_edits`], ADR 0053), because a buffer does
 //! not know its windows. An edit is made on clones, every window's cursors are
@@ -61,6 +61,7 @@ mod themes;
 mod trim;
 mod undo_group;
 mod view;
+mod windows;
 mod wraps;
 mod write;
 mod yank_pop;
@@ -86,6 +87,7 @@ pub use themes::NoSuchTheme;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
 pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
+pub use windows::{CannotResize, NoWindow, SoleWindow};
 pub use yank_pop::YankPopError;
 
 /// The name of the window an editor starts with; the next takes 1.
@@ -125,6 +127,13 @@ pub struct Editor {
     next_id: u64,
     /// The number the next window takes.
     next_window: u64,
+    /// The tiled windows in the order they were selected, the most recent first (ADR 0112).
+    recent: Vec<WindowId>,
+    /// What is left of the command's wrap budget while no window's wrap holds it (ADR 0112).
+    wrap_pool: usize,
+    /// The tiled windows other than the selected one whose cursors or tops an edit moved in
+    /// the command, which follow their cursors when it ends (ADR 0112).
+    moved_windows: Vec<WindowId>,
     undo_scope: Option<UndoScope>,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
@@ -133,9 +142,6 @@ pub struct Editor {
     /// While a command runs, whether it has taken a buffer that may hold secrets off the
     /// screen. This holds whatever then becomes of that buffer.
     command_left_secret: Option<bool>,
-    /// The buffers the selected window was on before each internal buffer it has gone to, the
-    /// first first. Where it was in each is in the window's places (ADR 0088).
-    way_back: Vec<BufferId>,
     /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
     /// (ADR 0087).
     write_over_asked: Option<write::WriteOver>,
@@ -194,8 +200,6 @@ pub struct Editor {
     prompt_layout: Option<PromptLayout>,
     /// The preview's rows of the buffer it shows, while that buffer wraps (ADR 0100).
     preview_wrap: Option<wraps::PreviewWrap>,
-    /// The widest the gutter has been for the buffer the tiled window shows (ADR 0104).
-    gutter_floor: Option<(BufferId, usize)>,
     /// The number of the next prompt's id.
     next_prompt: u64,
     /// The command running got a passphrase, so what it says stays out of the log.
@@ -248,11 +252,13 @@ impl Editor {
             ),
             next_id: 0,
             next_window: 1,
+            recent: vec![FIRST_WINDOW],
+            wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
+            moved_windows: Vec::new(),
             undo_scope: None,
             join_ready: false,
             messages_buffer: BufferId(0),
             command_left_secret: None,
-            way_back: Vec::new(),
             home: None,
             mark_list: None,
             kill_list: None,
@@ -278,7 +284,6 @@ impl Editor {
             outcome: None,
             prompt_layout: None,
             preview_wrap: None,
-            gutter_floor: None,
             next_prompt: 0,
             passphrase_command: false,
             save_over_asked: None,

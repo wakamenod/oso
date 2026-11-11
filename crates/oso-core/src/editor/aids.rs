@@ -1,4 +1,4 @@
-//! The visual aids' switches, and what they fill in the tiled window: trailing whitespace,
+//! The visual aids' switches, and what they fill in each tiled window: trailing whitespace,
 //! the current line's band and the cursor flash, with what decides that it flashes
 //! (ADR 0097).
 //!
@@ -12,7 +12,7 @@ use crate::display_map::DisplaySnapshot;
 use crate::frame::{self, CellRect};
 use crate::motion;
 use crate::rope::Rope;
-use crate::window::Screen;
+use crate::window::{Screen, WindowId};
 
 /// The most whitespace one row's walk back over its trailing run may pass.
 const ROW_CHARS: usize = 512;
@@ -55,24 +55,28 @@ impl Editor {
     pub fn set_visual_aids(&mut self, aids: VisualAids) {
         self.aids = aids;
         // Turned on again, the gutter fits the line count as it is.
-        self.gutter_floor = None;
+        for window in &mut self.windows {
+            window.set_gutter_floor(None);
+        }
         self.fit_gutter();
     }
 
-    /// The cells of the tiled window's trailing whitespace in view, as `screen` shows it
-    /// ([`Editor::screen`]), into `out`, which is emptied first: none with whitespace off,
+    /// The cells of the trailing whitespace in view of the tiled window `id`, as `screen` shows
+    /// it ([`Editor::screen_of`]), into `out`, which is emptied first: none with whitespace off,
     /// only on a line's last view row, where spaces come before its break, and none on a line
     /// with a cursor, so that typing a space at a line's end does not flash a fill. A row whose
     /// trailing run does not end within its share of the walk gets none, so a long line costs
     /// no more than a short one.
-    pub fn trailing_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
+    pub fn trailing_cells(&self, id: WindowId, screen: &Screen, out: &mut Vec<CellRect>) {
         out.clear();
         if !self.aids.whitespace {
             return;
         }
-        let (window, buffer) = self.tiled();
+        let Some((window, buffer, regions)) = self.window_in_tree(id) else {
+            return;
+        };
         let display = buffer.display();
-        let text = self.tiled_regions().text;
+        let text = regions.text;
         let selections = window.selections.as_slice();
         let mut left = FRAME_CHARS;
         for (index, row) in screen.rows().iter().take(text.rows).enumerate() {
@@ -98,16 +102,17 @@ impl Editor {
         }
     }
 
-    /// The cells of the band on the tiled window's primary cursor's line, as `screen` shows it
-    /// ([`Editor::screen`]), if the current line is shown and some of it is in view: every
-    /// view row the line takes, so a wrapped line has the band on each of its rows (ADR 0097).
-    pub fn current_line_cells(&self, screen: &Screen) -> Option<CellRect> {
+    /// The cells of the band on the primary cursor's line of the tiled window `id`, as `screen`
+    /// shows it ([`Editor::screen_of`]), if the current line is shown and some of it is in
+    /// view: every view row the line takes, so a wrapped line has the band on each of its rows
+    /// (ADR 0097). Only the selected window has one, and none beneath a prompt (ADR 0112).
+    pub fn current_line_cells(&self, id: WindowId, screen: &Screen) -> Option<CellRect> {
         if !self.aids.current_line {
             return None;
         }
-        let (window, buffer) = self.tiled();
+        let (window, buffer, regions) = self.selected_in_tree(id)?;
         let line = window.cursor_point(&buffer.display()).row;
-        let text = self.tiled_regions().text;
+        let text = regions.text;
         let rows = &screen.rows()[..screen.rows().len().min(text.rows)];
         let top = rows.iter().position(|row| row.line == line)?;
         let count = rows[top..]
@@ -126,12 +131,13 @@ impl Editor {
 const FLASH_ROWS: usize = 5;
 
 /// What the cursor flash compares before and after an event (ADR 0097): which buffer the
-/// tiled window shows and which window that is, the primary cursor's view row, the top
-/// row in view, and whether isearch runs (ADR 0100).
+/// tiled window shows and which window that is, by its name so that a deleted window does not
+/// pass for another (ADR 0112), the primary cursor's view row, the top row in view, and whether
+/// isearch runs (ADR 0100).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ViewSample {
     buffer: BufferId,
-    window: usize,
+    window: WindowId,
     row: usize,
     top: usize,
     searching: bool,
@@ -144,7 +150,7 @@ impl Editor {
         let display = buffer.display();
         ViewSample {
             buffer: window.buffer(),
-            window: self.tiled_index(),
+            window: window.id(),
             row: window.cursor_row(&display),
             top: window.top_row(&display),
             searching: self.isearch().is_some() || self.replace().is_some(),
@@ -166,11 +172,13 @@ impl Editor {
         before.row.abs_diff(now.row) >= FLASH_ROWS || before.top.abs_diff(now.top) >= FLASH_ROWS
     }
 
-    /// The cells the flash covers: from the primary cursor to the text area's right edge, on
-    /// its view row, if that row is in view as `screen` shows it ([`Editor::screen`]).
-    pub fn flash_cells(&self, screen: &Screen) -> Option<CellRect> {
-        let (window, buffer) = self.tiled();
-        let text = self.tiled_regions().text;
+    /// The cells the flash covers in the tiled window `id`: from the primary cursor to the text
+    /// area's right edge, on its view row, if that row is in view as `screen` shows it
+    /// ([`Editor::screen_of`]). Only the selected window flashes, and none beneath a prompt
+    /// (ADR 0112).
+    pub fn flash_cells(&self, id: WindowId, screen: &Screen) -> Option<CellRect> {
+        let (window, buffer, regions) = self.selected_in_tree(id)?;
+        let text = regions.text;
         let point = window.cursor_point(&buffer.display());
         let row = screen.row_of(point).filter(|&row| row < text.rows)?;
         let column = point
@@ -276,7 +284,7 @@ mod tests {
     fn trailing_whitespace_is_filled_but_on_a_line_with_a_cursor() {
         let mut editor = editor("a  \nb\t\nc\u{3000}\r\nd e\n  \n", 0);
         let mut cells = Vec::new();
-        editor.trailing_cells(&editor.screen_now(), &mut cells);
+        editor.trailing_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
         // The cursor's line keeps its two spaces unmarked; the tab, the full-width space
         // before a `\r\n`, and a line of nothing but spaces are filled.
         assert_eq!(rows(&cells), [(1, 1, 7), (2, 1, 2), (4, 0, 2)]);
@@ -284,7 +292,7 @@ mod tests {
             whitespace: false,
             ..VisualAids::default()
         });
-        editor.trailing_cells(&editor.screen_now(), &mut cells);
+        editor.trailing_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
         assert!(cells.is_empty());
     }
 
@@ -293,7 +301,7 @@ mod tests {
         let long = format!("x{}\nshort  \n", " ".repeat(ROW_CHARS + 10));
         let editor = editor(&long, long.len());
         let mut cells = Vec::new();
-        editor.trailing_cells(&editor.screen_now(), &mut cells);
+        editor.trailing_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
         assert_eq!(
             rows(&cells),
             [(1, 5, 2)],
@@ -377,7 +385,7 @@ mod tests {
     fn the_flash_runs_from_the_cursor_to_the_right_edge() {
         let editor = editor("abcdef\nxy\n", 9);
         assert_eq!(
-            editor.flash_cells(&editor.screen_now()),
+            editor.flash_cells(editor.tiled().0.id(), &editor.screen_now()),
             Some(CellRect {
                 row: 1,
                 column: 2,
@@ -391,7 +399,7 @@ mod tests {
     fn the_band_is_on_the_primary_cursors_row_in_view() {
         let mut editor = editor("one\ntwo\nthree\n", 5);
         assert_eq!(
-            editor.current_line_cells(&editor.screen_now()),
+            editor.current_line_cells(editor.tiled().0.id(), &editor.screen_now()),
             Some(CellRect {
                 row: 1,
                 column: 0,
@@ -403,6 +411,9 @@ mod tests {
             current_line: false,
             ..VisualAids::default()
         });
-        assert_eq!(editor.current_line_cells(&editor.screen_now()), None);
+        assert_eq!(
+            editor.current_line_cells(editor.tiled().0.id(), &editor.screen_now()),
+            None
+        );
     }
 }

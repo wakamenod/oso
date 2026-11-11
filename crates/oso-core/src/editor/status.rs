@@ -22,7 +22,7 @@ use super::messages::CUT;
 use crate::buffer::{Buffer, Verdict};
 use crate::decode::{FileInfo, LineEnding};
 use crate::display_map::text_clusters;
-use crate::window::Window;
+use crate::window::{Window, WindowId};
 
 /// Says that the buffer holds bidirectional controls (`ui.md`, Trojan Source).
 const BIDI_WARNING: &str = "[bidi controls] ";
@@ -60,6 +60,9 @@ pub struct Status {
     pub state: String,
     /// The echo area's line, as it comes from a message.
     pub echo: String,
+    /// The window is the selected one and no prompt is open, so its modeline is drawn active
+    /// (ADR 0112).
+    pub selected: bool,
     /// A frame has no modeline, so the echo row has its warnings.
     warnings_on_echo_row: bool,
     /// `*Messages*` is in view at this revision, so that a message repeated there asks
@@ -167,18 +170,31 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
 }
 
 impl Editor {
-    /// Fills in what the modeline and the echo area say now, reusing `status`'s
-    /// strings. The selected window's, while there is one tiled window (M3).
-    pub fn status_into(&self, status: &mut Status) {
+    /// Fills in what the modeline of the tiled window `id` and the echo area say now, reusing
+    /// `status`'s strings. Segments about the frame, as `Agent`, are only in the modeline of
+    /// the selected tiled window, also beneath a prompt (ADR 0112). A window that is not tiled
+    /// gets the echo area alone.
+    pub fn status_into(&self, id: WindowId, status: &mut Status) {
         // A prompt has no modeline: it speaks of the window beneath (ADR 0072).
-        let (window, buffer) = self.tiled();
+        let tiled = self.tiled_id();
+        let Some((window, buffer, regions)) = self.window_in_tree(id) else {
+            let mut echo = std::mem::take(&mut status.echo);
+            echo.clear();
+            self.write_echo_line(&mut echo);
+            *status = Status {
+                echo,
+                ..Status::default()
+            };
+            return;
+        };
         let agent = self.agent_channel();
-        status.agent = if agent == super::AgentChannel::Off {
+        status.selected = id == tiled && self.prompts.is_empty();
+        status.agent = if agent == super::AgentChannel::Off || id != tiled {
             ""
         } else {
             AGENT
         };
-        status.agent_connected = agent == super::AgentChannel::Connected;
+        status.agent_connected = id == tiled && agent == super::AgentChannel::Connected;
         status.warnings.clear();
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
@@ -202,7 +218,7 @@ impl Editor {
             + 1
             + GAP.len()
             + status.state.len();
-        let columns = self.tiled_regions().modeline.columns;
+        let columns = regions.modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
         status.name.clear();
         status.name.push_str(marker);
@@ -211,15 +227,20 @@ impl Editor {
         status.name.push_str(GAP);
 
         status.echo.clear();
-        status.echo.push_str(self.echo_text());
-        // isearch's line, until a message takes its place for a key (ADR 0082).
-        if status.echo.is_empty() {
-            self.write_isearch_line(&mut status.echo);
-            self.write_replace_line(&mut status.echo);
-        }
-        status.warnings_on_echo_row = self.tiled_regions().modeline.rows == 0;
+        self.write_echo_line(&mut status.echo);
+        status.warnings_on_echo_row = regions.modeline.rows == 0;
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
+    }
+
+    /// What the echo area says: a message, or isearch's line until a message takes its place
+    /// for a key (ADR 0082), into `out`.
+    fn write_echo_line(&self, out: &mut String) {
+        out.push_str(self.echo_text());
+        if out.is_empty() {
+            self.write_isearch_line(out);
+            self.write_replace_line(out);
+        }
     }
 }
 
@@ -237,7 +258,7 @@ mod tests {
 
     fn status(editor: &Editor) -> Status {
         let mut status = Status::default();
-        editor.status_into(&mut status);
+        editor.status_into(editor.tiled().0.id(), &mut status);
         status
     }
 

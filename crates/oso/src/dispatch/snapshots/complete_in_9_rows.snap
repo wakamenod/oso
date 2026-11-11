@@ -11,7 +11,7 @@ keys: M-x
 │                                                                                │
 │                                                                                │
 │                                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                                             =
+--- test  1:0  Fundamental  UTF-8 LF                                             -
 "                                                                                "
 float at row 0, column 15: 7 x 49
 │ 1/76  M-x                                       │
@@ -32,7 +32,7 @@ keys: C-v
 │                                                                                │
 │                                                                                │
 │                                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                                             =
+--- test  1:0  Fundamental  UTF-8 LF                                             -
 "                                                                                "
 float at row 0, column 15: 7 x 49
 │ 7/76  M-x                                       │

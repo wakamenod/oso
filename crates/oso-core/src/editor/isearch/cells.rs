@@ -8,12 +8,13 @@
 
 use std::ops::Range;
 
+use crate::buffer::BufferId;
 use crate::display_map::DisplayPoint;
 use crate::editor::Editor;
 use crate::frame::{self, CellRect};
 use crate::search;
 use crate::sum_tree::Bias;
-use crate::window::Screen;
+use crate::window::{Screen, WindowId};
 
 /// The most matches in view a frame highlights, so that their rectangles leave room for
 /// the rest of the frame.
@@ -35,9 +36,10 @@ pub struct MatchCells {
 }
 
 impl Editor {
-    /// The cells the matches in view take in the tiled window's text area, as `screen` shows
-    /// it ([`Editor::screen`]), into `cells`, emptied first.
-    pub fn isearch_cells(&self, screen: &Screen, cells: &mut MatchCells) {
+    /// The cells the matches in view take in the text area of the tiled window `id`, as
+    /// `screen` shows it ([`Editor::screen_of`]), into `cells`, emptied first. isearch runs in
+    /// the selected window, and only it shows them (ADR 0112).
+    pub fn isearch_cells(&self, id: WindowId, screen: &Screen, cells: &mut MatchCells) {
         cells.current.clear();
         cells.others.clear();
         let Some(state) = &self.isearch else {
@@ -46,21 +48,23 @@ impl Editor {
         let Some(query) = &state.query else {
             return;
         };
-        if self.tiled().0.buffer() != state.buffer {
-            return;
-        }
         let current = state.current.as_ref().filter(|_| !state.failing);
-        self.match_cells(screen, query, current, None, cells);
+        self.match_cells(id, state.buffer, screen, (query, current, None), cells);
     }
 
-    /// The cells of `query`'s matches in view, within `scope` if given, `current` apart,
-    /// into `cells`, emptied first: isearch's and query-replace's (ADR 0113).
+    /// The cells of a query's matches in view in the tiled window `id`, if it is the selected
+    /// one and shows `buffer`, within a scope if given, the current one apart, into `cells`,
+    /// emptied first: isearch's and query-replace's (ADR 0113).
     pub(in crate::editor) fn match_cells(
         &self,
+        id: WindowId,
+        buffer: BufferId,
         screen: &Screen,
-        query: &search::Query,
-        current: Option<&Range<usize>>,
-        scope: Option<&[Range<usize>]>,
+        (query, current, scope): (
+            &search::Query,
+            Option<&Range<usize>>,
+            Option<&[Range<usize>]>,
+        ),
         cells: &mut MatchCells,
     ) {
         let MatchCells {
@@ -73,10 +77,15 @@ impl Editor {
         others.clear();
         spans.clear();
         found.clear();
-        let (_, buffer) = self.tiled();
-        let display = buffer.display();
-        let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
-        let area = self.tiled_regions().text;
+        let Some((window, shown, regions)) = self.selected_in_tree(id) else {
+            return;
+        };
+        if window.buffer() != buffer {
+            return;
+        }
+        let display = shown.display();
+        let (text, invalid) = (shown.text(), shown.invalid_bytes());
+        let area = regions.text;
         let reach = query.max_bytes();
         // Each view row's columns in view, widened, and joined where they meet.
         for row in screen.rows().iter().take(area.rows) {
