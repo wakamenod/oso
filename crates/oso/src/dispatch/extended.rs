@@ -18,7 +18,7 @@ use oso_core::command::{ArgSpec, CommandId, Prefix};
 use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
-use oso_core::keymap::{Binding, CANCEL, Layers, display_keys};
+use oso_core::keymap::{Binding, Layers, display_keys, is_cancel};
 
 use super::Dispatcher;
 
@@ -74,7 +74,7 @@ impl Dispatcher {
 /// part of them is bound to a command or left undefined, and `C-g` comes only first, where the
 /// user's keys do not bind it (ADR 0108).
 fn reaches(layers: &Layers<'_>, keys: &[KeyPress], id: CommandId) -> bool {
-    let cancels = |key: &KeyPress| *key == CANCEL || key.unshifted() == Some(CANCEL);
+    let cancels = |key: &KeyPress| is_cancel(*key);
     let Some((first, rest)) = keys.split_first() else {
         return false;
     };

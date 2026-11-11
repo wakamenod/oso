@@ -2,9 +2,11 @@
 //! (ADR 0108, ADR 0110). Only what the file says: nothing in it can run anything, and it names
 //! only registered commands, built-in themes and values of the types below.
 //!
-//! Must not depend on: `app`, `dispatch`, the file system or winit; text in, a finished value
-//! out, so it runs on any thread and its tests need no files. Reading and watching the file are
-//! the caller's.
+//! Must not depend on: `app`, `dispatch` or winit; the dispatcher takes the keymap it builds.
+//!
+//! [`parse`] and the files under it do no I/O: text in, a finished value out, so they run on any
+//! thread and their tests need no files. The thread that reads and watches the file joins them
+//! here in ADR 0108's next step.
 //!
 //! - A syntax error rejects the whole file: no keys and no settings, and every syntax error is
 //!   a problem.
@@ -14,6 +16,8 @@
 mod keys;
 mod problems;
 mod settings;
+
+use std::fmt;
 
 use oso_core::command::Registry;
 use oso_core::keymap::Keymap;
@@ -33,8 +37,11 @@ pub struct Loaded {
     pub keys: Option<Keymap>,
     /// The settings the file gives. All unset if it was rejected.
     pub settings: Settings,
-    /// What is wrong, in the order of the file.
+    /// What is wrong, in the order of the file: the first [`MAX_PROBLEMS`](problems::MAX_PROBLEMS)
+    /// problems.
     pub problems: Vec<Problem>,
+    /// How many problems there were after those.
+    pub more: usize,
 }
 
 impl Loaded {
@@ -49,38 +56,75 @@ impl Loaded {
 /// names. Never panics, whatever the text.
 pub fn parse(text: &str, registry: &Registry, defaults: &Keymap, themes: &[&str]) -> Loaded {
     let mut found = Found::default();
-    let (root, errors) = DeTable::parse_recoverable(text);
+    let (keys, settings) = match DeTable::parse(text) {
+        Ok(root) => {
+            let (keys, settings) = apply(root.get_ref(), registry, defaults, themes, &mut found);
+            (Some(keys), settings)
+        }
+        Err(first) => {
+            syntax_errors(text, &first, &mut found);
+            (None, Settings::default())
+        }
+    };
+    let (problems, more) = found.placed(text);
+    Loaded {
+        keys,
+        settings,
+        problems,
+        more,
+    }
+}
+
+/// The largest file whose every syntax error is reported. The parser keeps each one it finds,
+/// a few hundred bytes apiece, and a crafted file can hold one every other byte: a larger file
+/// reports its first only (ADR 0110).
+const RECOVER_UP_TO: usize = 64 * 1024;
+
+/// The syntax errors of `text`, which does not parse: every one, or for a file over
+/// [`RECOVER_UP_TO`], the `first`.
+fn syntax_errors(text: &str, first: &toml::de::Error, found: &mut Found) {
+    // `message`, not `Display`, which finds the error's line by reading the file from the start.
+    let at = |error: &toml::de::Error| error.span().map_or(0, |span| span.start);
+    if text.len() > RECOVER_UP_TO {
+        found.syntax(at(first), first.message());
+        found.at(
+            at(first),
+            format_args!(
+                "a file over {} KiB reports only its first syntax error",
+                RECOVER_UP_TO / 1024
+            ),
+        );
+        return;
+    }
+    let (_, errors) = DeTable::parse_recoverable(text);
     for error in &errors {
-        found.syntax(error.span().map_or(0, |span| span.start), error.message());
+        found.syntax(at(error), error.message());
     }
-    if !found.is_empty() {
-        return Loaded {
-            keys: None,
-            settings: Settings::default(),
-            problems: found.placed(text),
-        };
-    }
+}
+
+/// The user's keymap and the settings from the tables of a file that parsed.
+fn apply(
+    root: &DeTable<'_>,
+    registry: &Registry,
+    defaults: &Keymap,
+    themes: &[&str],
+    found: &mut Found,
+) -> (Keymap, Settings) {
     let mut user = Keymap::new();
     let mut settings = Settings::default();
-    for (name, value) in root.get_ref() {
+    for (name, value) in root {
         match name.get_ref().as_ref() {
-            "keys" => user = keys::keys(value, registry, defaults, &mut found),
-            "theme" => settings.theme = settings::theme(value, themes, &mut found),
-            "aids" => settings.aids = settings::aids(value, &mut found),
-            "agent-channel" => {
-                settings.agent_channel_start = settings::agent_channel(value, &mut found)
-            }
+            "keys" => user = keys::keys(value, registry, defaults, found),
+            "theme" => settings.theme = settings::theme(value, themes, found),
+            "aids" => settings.aids = settings::aids(value, found),
+            "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
             other => found.at(
                 name.span().start,
-                format!("unknown table [{}], skipped", table_name(other)),
+                format_args!("unknown table [{}], skipped", TableName(other)),
             ),
         }
     }
-    Loaded {
-        keys: Some(user),
-        settings,
-        problems: found.placed(text),
-    }
+    (user, settings)
 }
 
 /// The table `value`, called `name` in a message if it is something else.
@@ -92,7 +136,7 @@ fn table<'v, 'i>(
     if let DeValue::Table(table) = value.get_ref() {
         return Some(table);
     }
-    found.at(value.span().start, format!("{name} must be a table"));
+    found.at(value.span().start, format_args!("{name} must be a table"));
     None
 }
 
@@ -100,18 +144,39 @@ fn table<'v, 'i>(
 fn unknown(found: &mut Found, at: usize, name: &str, table: &str) {
     found.at(
         at,
-        format!("unknown name {} in {table}, skipped", quoted(name)),
+        format_args!("unknown name {} in {table}, skipped", quoted(name)),
     );
 }
 
+/// What a TOML value is, for a message.
+fn type_name(value: &DeValue<'_>) -> &'static str {
+    match value {
+        DeValue::String(_) => "a string",
+        DeValue::Integer(_) | DeValue::Float(_) => "a number",
+        DeValue::Boolean(_) => "true or false",
+        DeValue::Datetime(_) => "a date",
+        DeValue::Array(_) => "a list",
+        DeValue::Table(_) => "a table",
+    }
+}
+
 /// A table's name as TOML would write it: bare if it can be, quoted otherwise.
-fn table_name(name: &str) -> String {
-    let bare = !name.is_empty()
-        && name.len() <= MAX_QUOTED
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if bare { name.to_owned() } else { quoted(name) }
+struct TableName<'n>(&'n str);
+
+impl fmt::Display for TableName<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = self.0;
+        let bare = !name.is_empty()
+            && name.len() <= MAX_QUOTED
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        if bare {
+            f.write_str(name)
+        } else {
+            quoted(name).fmt(f)
+        }
+    }
 }
 
 #[cfg(test)]

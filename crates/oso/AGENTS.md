@@ -20,8 +20,9 @@ often, so it must rebuild within 2 s.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.
-- `src/config/` turns the user configuration file's text into the user keymap and settings
-  (ADR 0108, ADR 0110). It does no I/O, and only it uses `toml`.
+- `src/config/` reads the user configuration file and turns its text into the user keymap and
+  settings (ADR 0108, ADR 0110). Its parsing does no I/O. Only it uses `toml`, which review
+  keeps: no guard test checks it.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

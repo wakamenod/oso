@@ -16,7 +16,7 @@ use oso_core::key::Key;
 use oso_core::key::KeyPress;
 #[cfg(any(test, feature = "dev"))]
 use oso_core::keymap::Layers;
-use oso_core::keymap::{CANCEL, KeyResolver, Keymap, Resolution};
+use oso_core::keymap::{CANCEL, KeyResolver, Keymap, Resolution, is_cancel};
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
@@ -468,7 +468,7 @@ impl Dispatcher {
         let mut layers = self.keymaps.active(&reading, self.prefix, editor);
         // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
         // and on its own it runs what the defaults bind (ADR 0108, ADR 0110).
-        let cancels = key == CANCEL || key.unshifted() == Some(CANCEL);
+        let cancels = is_cancel(key);
         let key = if cancels && !self.resolver.pending().is_empty() {
             CANCEL
         } else {

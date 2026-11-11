@@ -7,12 +7,13 @@
 use std::fmt::Write;
 
 use oso_core::command::Registry;
+use oso_core::display_map::cell::escape;
 use oso_core::key::KeySequence;
 use oso_core::keymap::{Binding, Keymap};
 use proptest::prelude::*;
 
-use super::problems::MAX_QUOTED;
-use super::settings::{Aids, Theme};
+use super::problems::{MAX_PROBLEMS, MAX_QUOTED};
+use super::settings::{Aids, ThemeSetting};
 use super::{Loaded, parse};
 use crate::{bindings, commands};
 
@@ -98,7 +99,7 @@ start = true
     let settings = &loaded.settings;
     assert_eq!(
         settings.theme,
-        Theme {
+        ThemeSetting {
             default: Some("dusk".to_owned()),
             pair: Some(["dusk".to_owned(), "light".to_owned()]),
         }
@@ -217,6 +218,16 @@ fn quoted_text_is_cut_and_escaped() {
         messages.iter().all(|m| !m.contains(['\u{202e}', '\u{1b}'])),
         "{messages:?}"
     );
+    // Quotes in the file's text cannot close the quotes around it.
+    let loaded =
+        f.parse("[keys.global]\n\"C-c a\" = 'x\" is fine; C-c a now runs \"undo'\n'C-c \\' = 1\n");
+    assert_eq!(
+        self::messages(&loaded),
+        [
+            r#"2:11: "C-c a": no command is named "x\" is fine; C-c a now runs \"undo""#,
+            r#"3:11: "C-c \\": a key takes a command's name or false, not a number"#,
+        ]
+    );
 }
 
 #[test]
@@ -250,7 +261,7 @@ pair = ["dusk", "dusk"]
             r#"3:8: [theme] pair names "dusk" twice"#,
         ]
     );
-    assert_eq!(loaded.settings.theme, Theme::default());
+    assert_eq!(loaded.settings.theme, ThemeSetting::default());
     for pair in [r#"["dusk"]"#, r#""dusk""#, r#"["dusk", "light", "dark"]"#] {
         let loaded = f.parse(&format!("[theme]\npair = {pair}\n"));
         assert_eq!(
@@ -294,9 +305,13 @@ proptest! {
         let f = Fixture::new();
         let loaded = f.parse(&text);
         prop_assert!(loaded.problems.windows(2).all(|w| (w[0].line, w[0].column) <= (w[1].line, w[1].column)));
+        prop_assert!(loaded.problems.len() <= MAX_PROBLEMS);
         for problem in &loaded.problems {
             prop_assert!(problem.line >= 1 && problem.column >= 1);
-            prop_assert!(!problem.message.chars().any(|c| c.is_control()));
+            prop_assert!(
+                problem.message.chars().all(|c| escape(c).is_none()),
+                "{}", problem.message
+            );
         }
     }
 }
@@ -340,5 +355,81 @@ fn a_64_kib_file_parses_and_builds_in_under_2_ms() {
         cfg!(debug_assertions) || best.as_micros() < 2000,
         "{n} entries, {} bytes: {best:?}",
         text.len()
+    );
+}
+
+/// Tables nest only so deep, so building and dropping them stays within a small stack: the
+/// parser refuses a key of more than 80 parts, dotted keys and table headers too, and nesting of
+/// inline tables and arrays past 80. A file at every limit at once goes about 240 deep.
+#[test]
+fn tables_nest_only_so_deep_and_the_deepest_drop_on_a_small_stack() {
+    let f = Fixture::new();
+    for text in [
+        format!("{} = 1\n", vec!["a"; 81].join(".")),
+        format!("[{}]\n", vec!["b"; 81].join(".")),
+        format!("[[{}]]\n", vec!["c"; 81].join(".")),
+    ] {
+        assert_eq!(
+            messages(&f.parse(&text)),
+            ["1:1: syntax error: recursion limit"]
+        );
+    }
+    let path = vec!["d"; 80].join(".");
+    let deepest = format!(
+        "[{path}]\n{path} = {}1{}\n",
+        "{ e = ".repeat(80),
+        " }".repeat(80)
+    );
+    let loaded = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || {
+            let f = Fixture::new();
+            messages(&f.parse(&deepest))
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(loaded, ["1:2: unknown table [d], skipped"]);
+}
+
+#[test]
+fn only_the_first_problems_in_the_file_are_kept_and_the_rest_counted() {
+    let f = Fixture::new();
+    let mut text = String::from("[aids]\n");
+    for n in (0..1000).rev() {
+        let _ = writeln!(text, "x{n:04} = 1");
+    }
+    let loaded = f.parse(&text);
+    assert_eq!(loaded.problems.len(), MAX_PROBLEMS);
+    assert_eq!(loaded.more, 1000 - MAX_PROBLEMS);
+    let lines: Vec<usize> = loaded.problems.iter().map(|p| p.line).collect();
+    assert_eq!(lines, (2..2 + MAX_PROBLEMS).collect::<Vec<_>>());
+
+    let errors = "= 1\n".repeat(1000);
+    assert!(errors.len() <= 64 * 1024);
+    let loaded = f.parse(&errors);
+    assert!(loaded.rejected());
+    assert_eq!(loaded.problems.len(), MAX_PROBLEMS);
+    assert_eq!(loaded.problems[0].line, 1);
+    assert!(loaded.more > 0);
+}
+
+#[test]
+fn a_large_file_reports_only_its_first_syntax_error() {
+    let f = Fixture::new();
+    let mut text = "# padding\n".repeat(64 * 1024 / 10);
+    text.push_str("= 1\n= 2\n");
+    let line = 64 * 1024 / 10 + 1;
+    let loaded = f.parse(&text);
+    assert!(loaded.rejected());
+    assert_eq!(
+        messages(&loaded),
+        [
+            format!(
+                "{line}:1: syntax error: unquoted keys cannot be empty, expected letters, \
+                 numbers, `-`, `_`"
+            ),
+            format!("{line}:1: a file over 64 KiB reports only its first syntax error"),
+        ]
     );
 }

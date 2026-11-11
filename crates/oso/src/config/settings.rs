@@ -7,15 +7,14 @@
 use toml::Spanned;
 use toml::de::DeValue;
 
-use super::keys::type_name;
 use super::problems::{Found, quoted};
-use super::{table, unknown};
+use super::{table, type_name, unknown};
 
 /// Every setting the file holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Settings {
     /// `[theme]`.
-    pub theme: Theme,
+    pub theme: ThemeSetting,
     /// `[aids]`.
     pub aids: Aids,
     /// `[agent-channel] start`: whether the channel starts at launch (ADR 0085).
@@ -24,7 +23,7 @@ pub struct Settings {
 
 /// `[theme]`: built-in themes, by name (ADR 0089).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Theme {
+pub struct ThemeSetting {
     /// `default`: the theme to start in, until a choice made at run time.
     pub default: Option<String>,
     /// `pair`: the two themes `toggle-theme` switches between.
@@ -41,8 +40,12 @@ pub struct Aids {
 }
 
 /// `[theme]`, with each name one of `themes`.
-pub(super) fn theme(value: &Spanned<DeValue<'_>>, themes: &[&str], found: &mut Found) -> Theme {
-    let mut theme = Theme::default();
+pub(super) fn theme(
+    value: &Spanned<DeValue<'_>>,
+    themes: &[&str],
+    found: &mut Found,
+) -> ThemeSetting {
+    let mut theme = ThemeSetting::default();
     let Some(entries) = table(value, "[theme]", found) else {
         return theme;
     };
@@ -61,8 +64,9 @@ fn pair(value: &Spanned<DeValue<'_>>, themes: &[&str], found: &mut Found) -> Opt
     let refuse = |found: &mut Found| {
         found.at(
             value.span().start,
-            "[theme] pair takes a list of two themes' names, such as [\"dusk\", \"light\"]"
-                .to_owned(),
+            format_args!(
+                "[theme] pair takes a list of two themes' names, such as [\"dusk\", \"light\"]"
+            ),
         );
         None
     };
@@ -78,7 +82,7 @@ fn pair(value: &Spanned<DeValue<'_>>, themes: &[&str], found: &mut Found) -> Opt
     if first == second {
         found.at(
             value.span().start,
-            format!("[theme] pair names {} twice", quoted(&first)),
+            format_args!("[theme] pair names {} twice", quoted(&first)),
         );
         return None;
     }
@@ -96,7 +100,7 @@ fn theme_name(
     let DeValue::String(name) = value.get_ref() else {
         found.at(
             at,
-            format!(
+            format_args!(
                 "[theme] {key} takes a theme's name, not {}",
                 type_name(value.get_ref())
             ),
@@ -106,7 +110,7 @@ fn theme_name(
     if !themes.contains(&name.as_ref()) {
         found.at(
             at,
-            format!("[theme] {key}: no built-in theme is named {}", quoted(name)),
+            format_args!("[theme] {key}: no built-in theme is named {}", quoted(name)),
         );
         return None;
     }
@@ -156,7 +160,7 @@ fn switch(value: &Spanned<DeValue<'_>>, table: &str, key: &str, found: &mut Foun
     }
     found.at(
         value.span().start,
-        format!(
+        format_args!(
             "{table} {key} takes true or false, not {}",
             type_name(value.get_ref())
         ),

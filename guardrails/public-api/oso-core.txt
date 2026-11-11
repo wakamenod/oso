@@ -2016,6 +2016,7 @@ pub fn oso_core::keymap::TableError::fmt(&self, &mut core::fmt::Formatter<'_>) -
 impl core::marker::StructuralPartialEq for oso_core::keymap::TableError
 pub const oso_core::keymap::CANCEL: oso_core::key::KeyPress
 pub fn oso_core::keymap::display_keys(&[oso_core::key::KeyPress]) -> impl core::fmt::Display + '_
+pub fn oso_core::keymap::is_cancel(oso_core::key::KeyPress) -> bool
 pub mod oso_core::kill
 pub enum oso_core::kill::Direction
 pub oso_core::kill::Direction::Backward

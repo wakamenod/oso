@@ -396,6 +396,12 @@ pub const CANCEL: KeyPress = KeyPress {
     key: Key::Char('g'),
 };
 
+/// Whether `key` is `C-g`, with Shift or not (`C-G`): the key that is never the user's, which
+/// the dispatcher, `M-x`'s bindings and the configuration file all judge by (ADR 0108, ADR 0110).
+pub fn is_cancel(key: KeyPress) -> bool {
+    key == CANCEL || key.unshifted() == Some(CANCEL)
+}
+
 /// Turns key presses into commands, keeping the keys of a pending prefix.
 ///
 /// Each key is looked up as part of the whole pending sequence from the top
@@ -505,7 +511,7 @@ pub fn display_keys(keys: &[KeyPress]) -> impl fmt::Display + '_ {
 mod tests {
     use super::{
         BindError, Binding, CANCEL, KeyResolver, Keymap, Layers, Resolution, TableErrorReason,
-        display_keys,
+        display_keys, is_cancel,
     };
     use crate::command::{ArgSpec, Args, Command, CommandError, CommandId, Ctx, Reach, Registry};
     use crate::key::{KeyPress, KeySequence};
@@ -1240,6 +1246,16 @@ mod tests {
     #[test]
     fn cancel_is_c_g() {
         assert_eq!(CANCEL, "C-g".parse().unwrap());
+    }
+
+    #[test]
+    fn c_g_with_shift_or_not_is_the_cancel_key_and_nothing_else_is() {
+        for key in ["C-g", "C-G", "C-S-g"] {
+            assert!(is_cancel(key.parse().unwrap()), "{key}");
+        }
+        for key in ["g", "G", "M-g", "C-M-g", "s-g", "C-h"] {
+            assert!(!is_cancel(key.parse().unwrap()), "{key}");
+        }
     }
 
     #[test]

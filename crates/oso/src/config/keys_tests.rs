@@ -108,7 +108,7 @@ fn c_g_is_refused_anywhere_in_a_sequence_with_shift_or_not() {
 }
 
 #[test]
-fn a_binding_cannot_start_with_a_typing_key_but_may_unbind_one() {
+fn a_sequence_cannot_start_with_a_typing_key_but_one_may_be_unbound() {
     let f = Fixture::new();
     let loaded = f.parse(
         r#"[keys.global]
@@ -120,20 +120,29 @@ fn a_binding_cannot_start_with_a_typing_key_but_may_unbind_one() {
 "q" = false
 "s-a" = "undo"
 "C-c a" = "undo"
+"w x" = false
+"SPC x" = false
 "#,
     );
     assert_eq!(
         messages(&loaded),
         [
-            r#"2:1: "a": a key that types a character cannot start a binding; put it after a prefix, such as "C-c a""#,
-            r#"3:1: "A": a key that types a character cannot start a binding; put it after a prefix, such as "C-c A""#,
-            r#"4:1: "SPC": a key that types a character cannot start a binding; put it after a prefix, such as "C-c SPC""#,
-            r#"5:1: "a b": a key that types a character cannot start a binding; put it after a prefix, such as "C-c a b""#,
-            r#"6:1: "é": a key that types a character cannot start a binding; put it after a prefix, such as "C-c é""#,
+            r#"2:1: "a": a key that types a character cannot start a sequence; put it after a prefix, such as "C-c a""#,
+            r#"3:1: "A": a key that types a character cannot start a sequence; put it after a prefix, such as "C-c A""#,
+            r#"4:1: "SPC": a key that types a character cannot start a sequence; put it after a prefix, such as "C-c SPC""#,
+            r#"5:1: "a b": a key that types a character cannot start a sequence; put it after a prefix, such as "C-c a b""#,
+            r#"6:1: "é": a key that types a character cannot start a sequence; put it after a prefix, such as "C-c é""#,
+            r#"10:1: "w x": a key that types a character cannot start a sequence; put it after a prefix, such as "C-c w x""#,
+            r#"11:1: "SPC x": a key that types a character cannot start a sequence; put it after a prefix, such as "C-c SPC x""#,
         ]
     );
     let user = keys(&loaded);
     assert_eq!(f.bound(user, "q"), Some("undefined"));
+    assert_eq!(
+        f.bound(user, "w"),
+        None,
+        "an unbinding under it makes no prefix"
+    );
     assert_eq!(f.bound(user, "s-a"), Some("undo"), "Super types nothing");
     assert_eq!(f.bound(user, "C-c a"), Some("undo"));
 }
@@ -204,6 +213,9 @@ fn unbinding_a_shifted_key_whose_unshifted_one_is_bound_warns() {
 "C-S-z" = false
 "C-z" = false
 "C-Q" = false
+"C-X" = false
+"C-c C-K" = false
+"C-c C-k" = "undo"
 "#,
     );
     assert_eq!(
@@ -211,6 +223,8 @@ fn unbinding_a_shifted_key_whose_unshifted_one_is_bound_warns() {
         [
             r#"2:1: "C-F": changes nothing while "C-f" is bound, since a shifted key bound to nothing runs what it does without Shift"#,
             r#"3:1: "S-<f5>": changes nothing while "<f5>" is bound, since a shifted key bound to nothing runs what it does without Shift"#,
+            r#"7:1: "C-X": changes nothing while "C-x" is bound, since a shifted key bound to nothing runs what it does without Shift"#,
+            r#"8:1: "C-c C-K": changes nothing while "C-c C-k" is bound, since a shifted key bound to nothing runs what it does without Shift"#,
         ],
         "C-z is unbound by the file and C-q is bound by nothing"
     );
@@ -223,7 +237,7 @@ fn unbinding_a_shifted_key_whose_unshifted_one_is_bound_warns() {
 }
 
 #[test]
-fn entries_that_conflict_skip_the_longer_one() {
+fn of_entries_that_conflict_an_unbinding_wins_then_the_shorter_one() {
     let f = Fixture::new();
     let loaded = f.parse(
         r#"[keys.global]
@@ -248,9 +262,22 @@ fn entries_that_conflict_skip_the_longer_one() {
     assert_eq!(
         f.bound(user, "C-c y"),
         Some("undo"),
-        "the first spelling in text order"
+        "the first spelling in byte order"
     );
     assert_eq!(f.bound(user, "C-c z a"), Some("undefined"));
+
+    // The file's order changes nothing: of two spellings, the later in byte order is skipped.
+    let loaded = f.parse(
+        "[keys.global]\n\"C-c y\" = \"end-of-buffer\"\n\"C-c   y\" = \"undo\"\n\"C-c z\" = \"end-of-buffer\"\n\"C-c z a\" = false\n",
+    );
+    assert_eq!(
+        messages(&loaded),
+        [
+            r#"2:1: "C-c y": these keys are set more than once; skipped"#,
+            r#"4:1: "C-c z": other entries set keys after these; skipped"#,
+        ]
+    );
+    assert_eq!(f.bound(keys(&loaded), "C-c y"), Some("undo"));
 }
 
 #[test]

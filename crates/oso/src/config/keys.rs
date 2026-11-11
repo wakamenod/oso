@@ -9,12 +9,14 @@ use std::collections::HashSet;
 
 use oso_core::command::{CommandId, Registry};
 use oso_core::key::KeyPress;
-use oso_core::keymap::{BindError, Binding, CANCEL, Keymap, Layers, display_keys};
+use oso_core::keymap::{
+    BindError, Binding, KeyResolver, Keymap, Layers, Resolution, display_keys, is_cancel,
+};
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
 use super::problems::{Found, quoted};
-use super::{table, table_name};
+use super::{TableName, table, type_name};
 
 /// The most entries `[keys.global]` may have. A file with more binds none of them, so that a
 /// file of any size builds in bounded time (ADR 0110).
@@ -51,15 +53,16 @@ pub(super) fn keys(
             "global" => keymap = global(value, at, registry, defaults, found),
             "question" => found.at(
                 at,
-                "[keys.question] is never configurable: its keys answer the agent channel's \
+                format_args!(
+                    "[keys.question] is never configurable: its keys answer the agent channel's \
                  questions"
-                    .to_owned(),
+                ),
             ),
             other => found.at(
                 at,
-                format!(
+                format_args!(
                     "[keys.{}] is not configurable yet; only [keys.global] is",
-                    table_name(other)
+                    TableName(other)
                 ),
             ),
         }
@@ -83,7 +86,7 @@ fn global(
     if entries.len() > MAX_ENTRIES {
         found.at(
             at,
-            format!(
+            format_args!(
                 "[keys.global] has {} entries, more than {MAX_ENTRIES}; none of its keys apply",
                 entries.len()
             ),
@@ -93,8 +96,10 @@ fn global(
     let (mut unbinds, mut binds) = read(entries, registry, found);
     // Shorter sequences first, so that of two entries that conflict the longer one is skipped,
     // whatever the file's order.
-    unbinds.sort_by(|a, b| (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled)));
-    binds.sort_by(|(a, _), (b, _)| (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled)));
+    unbinds.sort_unstable_by(|a, b| (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled)));
+    binds.sort_unstable_by(|(a, _), (b, _)| {
+        (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled))
+    });
     let unbound: HashSet<&[KeyPress]> = unbinds.iter().map(|entry| &entry.keys[..]).collect();
     for entry in &unbinds {
         // Nothing is bound to a command yet, so only an empty sequence could fail, and
@@ -124,35 +129,38 @@ fn read<'t>(
     registry: &Registry,
     found: &mut Found,
 ) -> (Vec<Entry<'t>>, Vec<(Entry<'t>, CommandId)>) {
-    let (mut unbinds, mut binds) = (Vec::new(), Vec::new());
+    let (mut unbinds, mut binds) = (Vec::with_capacity(entries.len()), Vec::new());
     for (spelled, value) in entries {
         let Some(entry) = entry(spelled, found) else {
             continue;
         };
         let (spelled, at) = (entry.spelled, value.span().start);
+        let unbinds_one_key =
+            entry.keys.len() == 1 && matches!(value.get_ref(), DeValue::Boolean(false));
+        // A typing key that began a sequence would become a prefix, and swallow the next key
+        // typed. Unbinding it alone only stops it typing.
+        if entry.keys[0].text().is_some() && !unbinds_one_key {
+            found.about(
+                entry.at,
+                spelled,
+                format_args!(
+                    "a key that types a character cannot start a sequence; put it after a \
+                     prefix, such as {}",
+                    quoted(format_args!("C-c {}", display_keys(&entry.keys)))
+                ),
+            );
+            continue;
+        }
         match value.get_ref() {
             DeValue::Boolean(false) => unbinds.push(entry),
-            DeValue::String(name) => {
-                if entry.keys[0].text().is_some() {
-                    found.about(
-                        entry.at,
-                        spelled,
-                        format_args!(
-                            "a key that types a character cannot start a binding; put it after a \
-                             prefix, such as {}",
-                            quoted(&format!("C-c {}", display_keys(&entry.keys)))
-                        ),
-                    );
-                } else if let Some(command) = registry.lookup(name) {
-                    binds.push((entry, command));
-                } else {
-                    found.about(
-                        at,
-                        spelled,
-                        format_args!("no command is named {}", quoted(name)),
-                    );
-                }
-            }
+            DeValue::String(name) => match registry.lookup(name) {
+                Some(command) => binds.push((entry, command)),
+                None => found.about(
+                    at,
+                    spelled,
+                    format_args!("no command is named {}", quoted(name)),
+                ),
+            },
             DeValue::Boolean(true) => found.about(
                 at,
                 spelled,
@@ -206,10 +214,7 @@ fn entry<'t>(
         found.about(at, spelled, format_args!("no keys"));
         return None;
     }
-    if keys
-        .iter()
-        .any(|&key| key == CANCEL || key.unshifted() == Some(CANCEL))
-    {
+    if keys.iter().copied().any(is_cancel) {
         found.about(
             at,
             spelled,
@@ -233,39 +238,49 @@ fn bind(
 ) {
     let keys = &entry.keys[..];
     let hidden = |len: usize| (1..=len).any(|len| unbound.contains(&keys[..len]));
-    for len in 1..keys.len() {
-        if let Some(Binding::Command(default)) = defaults.lookup(&keys[..len])
-            && !hidden(len)
-        {
-            let prefix = quoted(&display_keys(&keys[..len]).to_string());
-            let name = registry
-                .get(default)
-                .map_or("a command", |command| command.name);
-            found.about(
-                entry.at,
-                entry.spelled,
-                format_args!(
-                    "{prefix} runs {name} by default; add {prefix} = false to make it a prefix"
-                ),
-            );
-            return;
-        }
-    }
-    let refused = match keymap.bind(keys, command) {
-        Ok(()) => None,
-        Err(BindError::AlreadyBound) => Some("these keys are set more than once".to_owned()),
-        Err(BindError::IsPrefix) => Some("other entries set keys after these".to_owned()),
-        Err(BindError::NonPrefix { len }) => Some(format!(
-            "{} is bound to a command here, so it cannot be a prefix",
-            quoted(&display_keys(&keys[..len]).to_string())
-        )),
-        Err(BindError::Empty) => Some("no keys".to_owned()),
-    };
-    if let Some(reason) = refused {
-        found.about(entry.at, entry.spelled, format_args!("{reason}; skipped"));
+    let default = defaults_along(defaults, keys);
+    if let Along::Command(len, default) = default
+        && !hidden(len)
+    {
+        let prefix = quoted(display_keys(&keys[..len]));
+        let name = registry
+            .get(default)
+            .map_or("a command", |command| command.name);
+        found.about(
+            entry.at,
+            entry.spelled,
+            format_args!(
+                "{prefix} runs {name} by default; add {prefix} = false to make it a prefix"
+            ),
+        );
         return;
     }
-    if let Some(Binding::Prefix(under)) = defaults.lookup(keys)
+    if let Err(error) = keymap.bind(keys, command) {
+        let (at, spelled) = (entry.at, entry.spelled);
+        match error {
+            BindError::AlreadyBound => found.about(
+                at,
+                spelled,
+                format_args!("these keys are set more than once; skipped"),
+            ),
+            BindError::IsPrefix => found.about(
+                at,
+                spelled,
+                format_args!("other entries set keys after these; skipped"),
+            ),
+            BindError::NonPrefix { len } => found.about(
+                at,
+                spelled,
+                format_args!(
+                    "{} is bound to a command here, so it cannot be a prefix; skipped",
+                    quoted(display_keys(&keys[..len]))
+                ),
+            ),
+            BindError::Empty => found.about(at, spelled, format_args!("no keys; skipped")),
+        }
+        return;
+    }
+    if let Along::Prefix(under) = default
         && !hidden(keys.len())
     {
         let mut count = 0;
@@ -281,9 +296,35 @@ fn bind(
     }
 }
 
+/// What the default keys have along a sequence.
+enum Along<'d> {
+    /// A command on its first `len` keys, shorter than the sequence.
+    Command(usize, CommandId),
+    /// A prefix on the whole sequence.
+    Prefix(&'d Keymap),
+    Nothing,
+}
+
+/// What the defaults have along `keys`, in one walk down their prefix keymaps.
+fn defaults_along<'d>(defaults: &'d Keymap, keys: &[KeyPress]) -> Along<'d> {
+    let mut level = defaults;
+    for (i, key) in keys.iter().enumerate() {
+        let whole = i + 1 == keys.len();
+        match level.get(*key) {
+            Some(Binding::Prefix(under)) if whole => return Along::Prefix(under),
+            Some(Binding::Prefix(under)) => level = under,
+            Some(Binding::Command(command)) if !whole => return Along::Command(i + 1, command),
+            Some(Binding::Command(_) | Binding::Undefined) | None => break,
+        }
+    }
+    Along::Nothing
+}
+
 /// Warns that an unbinding does nothing, when its last key has Shift and the same keys without
 /// it are bound: an undefined key is taken without Shift, as Emacs takes a key bound to nil
-/// (ADR 0110). `"C-F" = false` while `C-f` is bound leaves `C-F` running what `C-f` does.
+/// (ADR 0110). `"C-F" = false` while `C-f` is bound leaves `C-F` running what `C-f` does. The
+/// keys go through a resolver over the user's keys and the defaults, so the warning says what
+/// pressing them does.
 fn warn_if_shift_finds_more(
     keymap: &Keymap,
     entry: &Entry<'_>,
@@ -296,36 +337,33 @@ fn warn_if_shift_finds_more(
     let Some(unshifted) = last.unshifted() else {
         return;
     };
-    let mut keys = before.to_vec();
-    keys.push(unshifted);
     let layers = Layers {
         user: Some(keymap),
         ..Layers::global(defaults)
     };
-    if matches!(
-        layers.lookup(&keys),
-        Some(Binding::Command(_) | Binding::Prefix(_))
-    ) {
-        let without = quoted(&display_keys(&keys).to_string());
+    let mut resolver = KeyResolver::new();
+    for key in before {
+        if resolver.feed(&layers, *key) != Resolution::Pending {
+            return;
+        }
+    }
+    let finds = match resolver.feed(&layers, *last) {
+        Resolution::Shifted(_) => true,
+        // A prefix found without Shift stays among the pending keys unshifted.
+        Resolution::Pending => resolver.pending().last() == Some(&unshifted),
+        Resolution::Command(_) | Resolution::Unbound(_) | Resolution::Cancelled => false,
+    };
+    if finds {
+        let mut keys = before.to_vec();
+        keys.push(unshifted);
         found.about(
             entry.at,
             entry.spelled,
             format_args!(
-                "changes nothing while {without} is bound, since a shifted key bound to nothing \
-                 runs what it does without Shift"
+                "changes nothing while {} is bound, since a shifted key bound to nothing runs \
+                 what it does without Shift",
+                quoted(display_keys(&keys))
             ),
         );
-    }
-}
-
-/// What a TOML value is, for a message.
-pub(super) fn type_name(value: &DeValue<'_>) -> &'static str {
-    match value {
-        DeValue::String(_) => "a string",
-        DeValue::Integer(_) | DeValue::Float(_) => "a number",
-        DeValue::Boolean(_) => "true or false",
-        DeValue::Datetime(_) => "a date",
-        DeValue::Array(_) => "a list",
-        DeValue::Table(_) => "a table",
     }
 }
