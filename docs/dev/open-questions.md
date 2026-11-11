@@ -294,17 +294,17 @@ item notes when it must be settled.
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
   modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
   every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start
-  from ADR 0026's defaults
-  ([ADR 0097](adr/0097-visual-aids.md)).
+  from the configuration's `[aids]`
+  ([ADR 0097](adr/0097-visual-aids.md), [ADR 0108](adr/0108-the-user-configuration-file.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration
   names the default theme and `<f5>`'s pair
   ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 
-- The configuration setting that starts the agent channel at launch: its name, and whether it
-  may skip the question on each connection, which ADR 0085 always asks
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Which keymaps the configuration reaches after `global`: `minibuffer`, `completion`, `isearch`
+  and the major modes' are reserved names, and per-mode settings wait for modes
+  ([ADR 0108](adr/0108-the-user-configuration-file.md)).
 
 - With configurable fonts: `Placer::place` ends a span where the style changes,
   so a shaper cluster crossing a boundary between text and a label is cut to its

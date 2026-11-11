@@ -1,6 +1,6 @@
 # 0089. Built-in themes, switched at run time
 
-- Status: Accepted, amended by 0097
+- Status: Accepted, amended by 0097 and 0108
 - Date: 2026-11-08
 
 ## Context

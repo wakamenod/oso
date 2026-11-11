@@ -1,6 +1,6 @@
 # 0034. Command registry, keymaps and key resolution
 
-- Status: Accepted, amended by 0085 and 0076
+- Status: Accepted, amended by 0085, 0076 and 0108
 - Date: 2026-11-03
 
 ## Context

@@ -59,6 +59,12 @@ network features.
 
 - Inside repositories, oso reads only EditorConfig. It never reads settings
   that name commands or executables.
+- The user configuration is one per-user file, never searched for elsewhere.
+  It names registered commands and values only, is read off the UI thread with
+  checks on its owner and modes, and a bad one never stops a start. Its agent
+  channel setting starts the channel at launch, and each connection is still
+  asked. The channel never saves into oso's configuration directory
+  ([ADR 0108](adr/0108-the-user-configuration-file.md)).
 - There are no modelines and no file-local variables that execute anything.
   Org links of type `shell:` or `elisp:` are not supported.
 
