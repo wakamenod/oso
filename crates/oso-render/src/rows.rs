@@ -748,6 +748,25 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn an_entry_taken_along_its_line_is_read_again_before_it_is_drawn() {
+        let buffer = Buffer::from_text("t", "abcdefghijklmnopqrst");
+        let display = buffer.display();
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let mut draw = |rows: &mut Rows, columns: Range<usize>| -> String {
+            rows.begin(buffer_id(), 1);
+            rows.will_draw([(0, columns.start)]);
+            let row = rows.view_row(&display, (0, columns), (None, Some(0)), None, &mut system);
+            shown(row).into_iter().map(|(c, _)| c).collect()
+        };
+        assert_eq!(draw(&mut rows, 0..10), "abcdefghij");
+        // At the same revision, the place's row starts further along the line, and takes
+        // the entry it had.
+        assert_eq!(draw(&mut rows, 5..15), "fghijklmno");
+        assert_eq!(rows.len(), 1, "the entry moved");
+    }
+
+    #[test]
     fn marks_past_a_clusters_limit_are_shaped_as_labels_in_boxes() {
         let marks = format!("e{}", "\u{301}".repeat(100_000));
         let text = format!("{marks}\n{marks}");
