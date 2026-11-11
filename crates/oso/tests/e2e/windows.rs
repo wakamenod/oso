@@ -27,6 +27,14 @@ fn drawn_at_the_top_right(shot: &Png) -> usize {
     shot.drawn_in(shot.width * 53 / 100..shot.width, 0..shot.height / 10)
 }
 
+/// The pixels drawn at the top of the frame's middle, where a divider between two halves is.
+fn drawn_at_the_top_middle(shot: &Png) -> usize {
+    shot.drawn_in(
+        shot.width * 49 / 100..shot.width * 51 / 100,
+        0..shot.height / 10,
+    )
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn c_x_3_draws_both_windows_and_a_key_goes_to_the_selected_one() {
@@ -36,7 +44,9 @@ fn c_x_3_draws_both_windows_and_a_key_goes_to_the_selected_one() {
     app.visual_aids_off();
     let state = app.wait_until_ready();
     let whole = columns(&state["window"]);
-    assert_eq!(drawn_at_the_top_right(&app.screenshot()), 0, "short lines");
+    let one = app.screenshot();
+    assert_eq!(drawn_at_the_top_right(&one), 0, "short lines");
+    assert_eq!(drawn_at_the_top_middle(&one), 0, "no divider");
 
     app.send_keys("C-x 3");
     let state = app.state();
@@ -48,9 +58,14 @@ fn c_x_3_draws_both_windows_and_a_key_goes_to_the_selected_one() {
         whole,
         "the divider takes a column"
     );
-    assert!(
-        drawn_at_the_top_right(&app.screenshot()) > 0,
-        "the right window draws its text"
+    let two = app.screenshot();
+    assert!(drawn_at_the_top_middle(&two) > 0, "the divider is drawn");
+    // Only a system with a text backend draws text (ADR 0036): when Linux gets one this fails,
+    // and this line should change with it.
+    assert_eq!(
+        drawn_at_the_top_right(&two) > 0,
+        cfg!(target_os = "macos"),
+        "the right window draws its text on macOS and only there"
     );
 
     // Back in the first window, its cursor goes down a line and types there; the new one's
