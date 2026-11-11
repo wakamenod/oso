@@ -53,6 +53,8 @@ use super::Dispatcher;
 mod rows;
 mod text_area;
 #[cfg(test)]
+mod windows;
+#[cfg(test)]
 mod wrap;
 use rows::{Style, blank_row, draw_row, draw_run, screen_row};
 use text_area::draw_text_area;
@@ -503,7 +505,8 @@ fn assert_frames(name: &str, bytes: &[u8], frames: &[String]) {
 }
 
 /// Opens `text` in a window of `size` (rows, columns) and checks one frame per
-/// entry of `steps`: the keys to press first, on top of the earlier ones.
+/// entry of `steps`: the keys to press first, on top of the earlier ones, or `run:` and a
+/// command's name, with a count after a space, to run it as the control socket does.
 fn check(name: &str, text: impl AsRef<[u8]>, size: (usize, usize), steps: &[&str]) {
     check_bytes(name, text.as_ref(), size, steps);
 }
@@ -525,7 +528,14 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
     let mut dispatcher = Dispatcher::new();
     let mut frames = Vec::new();
     for &keys in steps {
-        if !keys.is_empty() {
+        if let Some(command) = keys.strip_prefix("run:") {
+            // A command by its name and a count, for those with no keys yet (ADR 0112).
+            let mut words = command.split(' ');
+            let name = words.next().unwrap_or_default();
+            let count = words.next().map(|count| count.parse().unwrap());
+            let (_, result) = dispatcher.run_command(&mut editor, name, count);
+            assert_eq!(result, Ok(()), "{keys}");
+        } else if !keys.is_empty() {
             let sequence: KeySequence = keys.parse().unwrap();
             dispatcher.handle_keys(&mut editor, sequence.0);
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
