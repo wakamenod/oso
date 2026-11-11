@@ -267,11 +267,12 @@ A panicking command is caught at the command boundary
   method's questions about text and ranges in that excerpt's coordinates, with the
   composition at the cursor, and drops the excerpt when the IME goes off.
 - `Layers` holds the active keymaps, highest priority first: keymap at
-  point, minor modes, major mode, global. The first keymap that binds the
-  whole key sequence decides. So far the global layer exists, a minor mode layer of
-  digits while a prefix argument is typed, and a major mode layer in the buffers that show
-  emergency copies and in a prompt. A question's keys take the global layer's place, so
-  that no other key reaches a command.
+  point, minor modes, major mode, the user's, global. The first keymap that binds the
+  whole key sequence, or leaves it undefined, decides. So far the global layer exists, a
+  minor mode layer of digits while a prefix argument is typed, a major mode layer in the
+  buffers that show emergency copies and in a prompt, and a layer for the user's keys, which
+  the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
+  take the global layer's place, so that no other key reaches a command.
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.
@@ -632,7 +633,12 @@ Full details are in [`security.md`](security.md).
     mark (ADR 0094). Until its open is done, a buffer the channel is opening is left out of
     `state`, `text`, `switch-to-buffer` and the dev restart's handoff. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
-    saving it. `ArgSpec::Text` and `insert` take text, and `switch-to-buffer` a buffer's name that
+    saving it. A save a command run for the agent queued, or the person's `y` to its question,
+    goes through `saver::spawn_for_agent`, which refuses it on the saving thread, right before
+    it writes, when a name it writes through or where that leads is in oso's configuration
+    directory or is what an entry of it leads to, by canonical path or by device and inode
+    (ADR 0108). The `run` reply waits for that save's end, up to 8 s, then says it still
+    saves. `ArgSpec::Text` and `insert` take text, and `switch-to-buffer` a buffer's name that
     `C-x b` lists: `Dispatcher::run_for_agent` resolves it once and shows that buffer, unless it
     may hold secrets, is still loading or has keys of its own, such as `*Emergency Copies*`
     (ADR 0094, ADR 0095); `dispatch::args` maps a given argument

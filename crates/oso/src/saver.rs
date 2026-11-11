@@ -52,6 +52,7 @@ use oso_platform::file_meta::{self, AccessList, Quarantine};
 use crate::loader::{location, parent, stamp_of};
 
 mod attributes;
+mod configuration;
 mod elsewhere;
 mod leaving;
 mod report;
@@ -59,6 +60,7 @@ mod report;
 #[cfg(all(test, unix))]
 use attributes::kept_mode;
 use attributes::{Made, attributes_moved, keep_mode, keep_owner};
+pub use configuration::spawn_for_agent;
 pub use leaving::{AfterSave, Agreement, AgreementCell, Leaving};
 pub use report::apply;
 
@@ -103,6 +105,9 @@ pub enum SaveError {
     Exists { found: FileStamp, location: PathBuf },
     /// A write to a new place found another buffer's file there.
     OpenElsewhere,
+    /// A save for the agent channel would have gone into oso's configuration directory,
+    /// which the channel never writes, whatever the person answered (ADR 0108).
+    IntoConfiguration,
 }
 
 impl From<io::Error> for SaveError {

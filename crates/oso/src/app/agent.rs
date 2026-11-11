@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use oso_core::buffer::BufferId;
 use oso_core::command::Reach;
 use oso_core::editor::AgentChannel;
 use oso_core::minibuffer::PromptId;
@@ -87,7 +88,26 @@ pub(super) struct Agent {
     opened: HashMap<Connection, usize>,
     /// The text each connection has given this minute: since when, and how many bytes.
     inserted: HashMap<Connection, (Instant, usize)>,
+    /// Requests whose reply waits for the save their command started (ADR 0108).
+    saving: Vec<Saving>,
 }
+
+/// A request whose reply waits until the save its command started has ended: whether it
+/// wrote, or was refused before it could.
+#[derive(Debug)]
+struct Saving {
+    connection: Connection,
+    buffer: BufferId,
+    reply: std::sync::mpsc::Sender<Reply>,
+    /// What the reply says, with how the save went.
+    done: serde_json::Value,
+    /// When it started: past [`SAVE_WITHIN`] the reply goes, saying it still saves.
+    started: Instant,
+}
+
+/// How long a request waits for the save its command started, under the channel's wait for
+/// a reply: then it says the save goes on, and the person's echo area says how it ended.
+const SAVE_WITHIN: Duration = Duration::from_secs(8);
 
 #[derive(Debug)]
 struct Asking {
@@ -191,17 +211,84 @@ impl App {
                         }
                     }
                     Op::Open { path, line } => self.agent_open(connection, path, line, reply),
+                    // This replies once the save its command started has ended, if it started one.
+                    Op::Run { name, arg, reach } => {
+                        let (ran, saves) =
+                            self.agent_run(event_loop, connection, &name, arg, reach);
+                        match (ran, saves.as_slice()) {
+                            (Ok(done), [buffer, ..]) => {
+                                self.agent.saving.push(Saving {
+                                    connection,
+                                    buffer: *buffer,
+                                    reply,
+                                    done,
+                                    started: Instant::now(),
+                                });
+                                self.wake_after(SAVE_WITHIN);
+                            }
+                            (ran, _) => {
+                                let _ = reply.send(ran);
+                            }
+                        }
+                    }
                     op => {
-                        let _ = reply.send(self.agent_op(event_loop, connection, op));
+                        let _ = reply.send(self.agent_op(connection, op));
                     }
                 }
             }
         }
     }
 
+    /// A save has ended: the request that started it, if one waits, hears how it went.
+    pub(super) fn agent_save_ended(&mut self, report: &crate::saver::SaveReport) {
+        let Some(index) = self
+            .agent
+            .saving
+            .iter()
+            .position(|saving| saving.buffer == report.buffer())
+        else {
+            return;
+        };
+        let saving = self.agent.saving.swap_remove(index);
+        let failure = report.agent_failure();
+        if let Some(why) = failure {
+            self.agent_log(&format!("save: {why}"));
+        }
+        let _ = saving
+            .reply
+            .send(save_reply(saving.done, failure, report.wrote()));
+    }
+
+    /// Replies to each request whose save still runs past [`SAVE_WITHIN`], under the
+    /// channel's wait: the save goes on, and the person's echo area says how it ended.
+    fn reply_to_long_saves(&mut self) {
+        let (late, kept) = std::mem::take(&mut self.agent.saving)
+            .into_iter()
+            .partition(|saving| saving.started.elapsed() >= SAVE_WITHIN);
+        self.agent.saving = kept;
+        for saving in late {
+            let _ = saving.reply.send(still_saving(saving.done));
+        }
+    }
+
+    /// Wakes the loop once `after` has passed, as nothing else may.
+    fn wake_after(&self, after: Duration) {
+        let waker = self.waker.clone();
+        let spawned = std::thread::Builder::new()
+            .name("oso-agent-deadline".into())
+            .spawn(move || {
+                std::thread::sleep(after);
+                waker.send(super::UserEvent::AgentDeadline);
+            });
+        if let Err(e) = spawned {
+            log::warn!("agent channel: cannot start the deadline thread: {e}");
+        }
+    }
+
     /// A connection closed, or the channel stopped under it.
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
+        forget_saves_of(&mut self.agent.saving, connection);
         self.orphan_questions(Some(connection));
         self.drop_agent_opens(Some(connection));
         if self
@@ -227,7 +314,7 @@ impl App {
     }
 
     /// Answers a request of a connection the person let in.
-    fn agent_op(&mut self, event_loop: &Loop<'_>, connection: Connection, op: Op) -> Reply {
+    fn agent_op(&mut self, connection: Connection, op: Op) -> Reply {
         match op {
             Op::State { buffer_offset } => {
                 self.agent_log_often("state");
@@ -250,15 +337,13 @@ impl App {
                     None => Err("no question this agent caused is open".into()),
                 }
             }
-            Op::Run { name, arg, reach } => {
-                self.agent_run(event_loop, connection, &name, arg, reach)
-            }
             // Answered where they come in, as they reply later.
-            Op::Text(_) | Op::Open { .. } => Err("not here".into()),
+            Op::Text(_) | Op::Open { .. } | Op::Run { .. } => Err("not here".into()),
         }
     }
 
     /// Runs a command for the channel, unless the person is in the middle of something.
+    /// Returns the reply, and the buffers whose saves it started, which the reply waits for.
     fn agent_run(
         &mut self,
         event_loop: &Loop<'_>,
@@ -266,17 +351,29 @@ impl App {
         name: &str,
         arg: Option<Arg>,
         reach: Reach,
-    ) -> Reply {
+    ) -> (Reply, Vec<BufferId>) {
         // What the channel may never run is said at once, before anything waits.
         if let Err(refused) = self.dispatcher.by_reach(name, reach) {
             self.agent_log(&format!("run: refused: {}", refused.0));
-            return Err(refused.0);
+            return (Err(refused.0), Vec::new());
         }
         if let Some(why) = self.agent_waits() {
             self.agent_log_often(why);
-            return Err(why.into());
+            return (Err(why.into()), Vec::new());
         }
-        let given = match &arg {
+        self.agent_run_now(event_loop, connection, name, arg.as_ref(), reach)
+    }
+
+    /// [`Self::agent_run`], once nothing makes the channel wait.
+    fn agent_run_now(
+        &mut self,
+        event_loop: &Loop<'_>,
+        connection: Connection,
+        name: &str,
+        arg: Option<&Arg>,
+        reach: Reach,
+    ) -> (Reply, Vec<BufferId>) {
+        let given = match arg {
             None => Given::Nothing,
             Some(Arg::Count(n)) => Given::Count(*n),
             Some(Arg::Text(text)) => Given::Text(text),
@@ -289,7 +386,8 @@ impl App {
                 (*since, *bytes) = (now, 0);
             }
             if bytes.saturating_add(text.len()) > MAX_TEXT_A_MINUTE {
-                return Err("this agent has put in as much text as it may this minute".into());
+                let full = "this agent has put in as much text as it may this minute";
+                return (Err(full.into()), Vec::new());
             }
             *bytes += text.len();
         }
@@ -301,16 +399,18 @@ impl App {
             Ok(ran) => ran,
             Err(refused) => {
                 self.agent_log(&format!("run: refused: {}", refused.0));
-                return Err(refused.0);
+                return (Err(refused.0), Vec::new());
             }
         };
+        // The saves it queued are the agent's, and its reply waits for them (ADR 0108).
+        let (saves, not_started) = self.start_agent_saves();
         // What the agent killed stays in oso's ring: never the OS clipboard (ADR 0085).
         drop(self.editor.take_clipboard_write());
         self.note_logging();
         let asked = self.note_caused(newest, connection);
         self.apply(event_loop, effects);
         // A text argument is never logged, only its length.
-        let shown_arg = match &arg {
+        let shown_arg = match arg {
             None => String::new(),
             Some(Arg::Count(n)) => format!(" {n}"),
             Some(Arg::Text(text)) => format!(" ({} bytes of text)", text.len()),
@@ -321,13 +421,17 @@ impl App {
             (Ok(()), None) => "ok".to_owned(),
         };
         self.agent_log(&format!("run {name}{shown_arg}: {outcome}"));
-        match (result, asked) {
+        let reply = match (result, asked) {
             (Err(message), _) => Err(message),
             (Ok(()), Some(label)) => Ok(json!({
                 "command": name,
                 "waiting": format!("waiting for the person: {label}"),
             })),
             (Ok(()), None) => Ok(json!({ "command": name })),
+        };
+        match not_started {
+            Some(why) => (Err(why.into()), Vec::new()),
+            None => (reply, saves),
         }
     }
 
@@ -357,6 +461,7 @@ impl App {
         self.ask_about_a_connection();
         self.close_orphaned_questions();
         self.progress_agent_opens();
+        self.reply_to_long_saves();
         self.track_follow_up_questions();
         let status = match (&self.agent.channel, self.agent.connected.is_empty()) {
             (None, _) => AgentChannel::Off,
@@ -394,6 +499,32 @@ impl App {
         self.editor
             .agent_log(&format!("+{:02}:{:02}  {row}", seconds / 60, seconds % 60));
     }
+}
+
+/// Forgets the replies `connection` waits for: they go nowhere now, and each save still ends as
+/// it would.
+fn forget_saves_of(saving: &mut Vec<Saving>, connection: Connection) {
+    saving.retain(|saving| saving.connection != connection);
+}
+
+/// The reply to a request whose command started a save, once that save has ended: what it
+/// would have said, with `failure` if the save failed, and whether it wrote.
+fn save_reply(mut done: serde_json::Value, failure: Option<&str>, wrote: bool) -> Reply {
+    if let Some(why) = failure {
+        return Err(why.to_owned());
+    }
+    done["saved"] = json!(wrote);
+    if !wrote {
+        done["unchanged"] = json!("nothing to write: the file already held the buffer's text");
+    }
+    Ok(done)
+}
+
+/// The reply to a request whose save still runs: it goes on, and is not yet said to have
+/// written.
+fn still_saving(mut done: serde_json::Value) -> Reply {
+    done["saving"] = json!(true);
+    Ok(done)
 }
 
 #[cfg(test)]
@@ -467,5 +598,59 @@ mod tests {
             ..Now::default()
         };
         assert_eq!(waits(&long_ago), None);
+    }
+
+    #[test]
+    fn a_save_reply_says_whether_it_wrote_and_why_it_did_not() {
+        use super::{save_reply, still_saving};
+        use serde_json::json;
+        let done = || json!({ "command": "save-buffer" });
+        let wrote = save_reply(done(), None, true).unwrap();
+        assert_eq!(wrote["saved"], true);
+        let unchanged = save_reply(done(), None, false).unwrap();
+        assert_eq!(unchanged["saved"], false);
+        assert!(
+            unchanged["unchanged"]
+                .as_str()
+                .unwrap()
+                .contains("nothing to write")
+        );
+        let refused = save_reply(done(), Some("refused: the file is in …"), false);
+        assert_eq!(refused, Err("refused: the file is in …".to_owned()));
+        let long = still_saving(done()).unwrap();
+        assert_eq!(long["saving"], true);
+        assert!(long.get("saved").is_none(), "not yet said to have written");
+    }
+
+    #[test]
+    fn the_replies_a_connection_waits_for_go_with_it() {
+        use super::{Saving, forget_saves_of};
+        use crate::channel::Connection;
+        use oso_core::buffer::Buffer;
+        use oso_core::editor::Editor;
+        let mut editor = Editor::default();
+        let buffer = editor.add_buffer(Buffer::from_text("notes.md", ""));
+        let gone = Connection { run: 1, number: 1 };
+        let other = Connection { run: 1, number: 2 };
+        let saving = |connection| {
+            let (reply, replies) = std::sync::mpsc::channel();
+            let waiting = Saving {
+                connection,
+                buffer,
+                reply,
+                done: serde_json::json!({}),
+                started: std::time::Instant::now(),
+            };
+            (waiting, replies)
+        };
+        let (first, first_replies) = saving(gone);
+        let (second, second_replies) = saving(other);
+        let mut waiting = vec![first, second];
+        forget_saves_of(&mut waiting, gone);
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].connection, other);
+        assert!(first_replies.recv().is_err(), "its reply is dropped");
+        assert!(second_replies.try_recv().is_err(), "the other still waits");
+        drop(waiting);
     }
 }

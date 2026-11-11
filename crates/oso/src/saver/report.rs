@@ -146,6 +146,9 @@ fn not_saved(error: SaveError, path: &std::path::Display<'_>) -> String {
         ),
         SaveError::Io(e) => format!("Not saved: {e}: {path}"),
         SaveError::Panicked => format!("Not saved: the save failed: {path}"),
+        SaveError::IntoConfiguration => format!(
+            "Not saved: the agent channel never saves into oso's configuration directory: {path}"
+        ),
         SaveError::Conflict(_)
         | SaveError::Elsewhere
         | SaveError::UnknownLocation

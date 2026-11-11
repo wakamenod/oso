@@ -1913,6 +1913,7 @@ impl core::marker::StructuralPartialEq for oso_core::keymap::BindError
 pub enum oso_core::keymap::Binding<'a>
 pub oso_core::keymap::Binding::Command(oso_core::command::CommandId)
 pub oso_core::keymap::Binding::Prefix(&'a oso_core::keymap::Keymap)
+pub oso_core::keymap::Binding::Undefined
 impl<'a> core::clone::Clone for oso_core::keymap::Binding<'a>
 pub fn oso_core::keymap::Binding<'a>::clone(&self) -> oso_core::keymap::Binding<'a>
 impl<'a> core::cmp::Eq for oso_core::keymap::Binding<'a>
@@ -1971,6 +1972,7 @@ pub fn oso_core::keymap::Keymap::lookup(&self, &[oso_core::key::KeyPress]) -> co
 pub fn oso_core::keymap::Keymap::new() -> Self
 pub fn oso_core::keymap::Keymap::set_text_command(&mut self, oso_core::command::CommandId)
 pub fn oso_core::keymap::Keymap::text_command(&self) -> core::option::Option<oso_core::command::CommandId>
+pub fn oso_core::keymap::Keymap::unbind(&mut self, &[oso_core::key::KeyPress]) -> core::result::Result<(), oso_core::keymap::BindError>
 impl core::clone::Clone for oso_core::keymap::Keymap
 pub fn oso_core::keymap::Keymap::clone(&self) -> oso_core::keymap::Keymap
 impl core::cmp::Eq for oso_core::keymap::Keymap
@@ -1986,6 +1988,7 @@ pub oso_core::keymap::Layers::at_point: core::option::Option<&'a oso_core::keyma
 pub oso_core::keymap::Layers::global: &'a oso_core::keymap::Keymap
 pub oso_core::keymap::Layers::major: core::option::Option<&'a oso_core::keymap::Keymap>
 pub oso_core::keymap::Layers::minor: &'a [&'a oso_core::keymap::Keymap]
+pub oso_core::keymap::Layers::user: core::option::Option<&'a oso_core::keymap::Keymap>
 impl<'a> oso_core::keymap::Layers<'a>
 pub fn oso_core::keymap::Layers<'a>::global(&'a oso_core::keymap::Keymap) -> Self
 pub fn oso_core::keymap::Layers<'a>::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = &'a oso_core::keymap::Keymap>
