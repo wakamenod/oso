@@ -181,6 +181,29 @@ coordinator.
   with its own tools on the file.
 - **The channel waits while a session is on,** as for isearch: a channel command would end it.
 
+#### As built (step 2, 2026-11-12)
+
+- **`!` replaces a slice a turn on the UI thread,** not from a worker's list over a bounded
+  channel: each slice finds the matches within a key's budget of text, at most 1000 of them, and
+  replaces them as one edit, and the host asks for the next at its next turn. The offsets stay
+  right with no remapping, and isearch's worker, which runs one job at a time, stays free for
+  the count. Over 100 MB with 100,000 matches, a slice takes 1.2 ms at p50 and 1.5 ms at p99.
+  Undoing that whole session is one step, which takes about 230 ms on the UI thread, once.
+- **The count and a search past a key's budget are a scoped job on isearch's worker,** over the
+  scope's ranges. The count is of the matches in the scope when the session began.
+- **Answers given while the worker looks are kept by the session,** in order, not held in the
+  dispatcher, and run once the match comes.
+- **The scope is a set of ranges the buffer tracks,** as the cleanup command's are, so it follows
+  the session's own edits.
+- **One undo step:** each answer's replacement is a step while the session runs, and the
+  history joins the steps made since the session began when it ends (`History::join_since`).
+- **The answers are commands of their own,** `replace-this`, `replace-skip`, `replace-all`,
+  `replace-this-and-end`, `replace-this-and-stay`, `replace-back`, `replace-undo`, `replace-end`
+  and `replace-help`, all `Person`, in a keymap that takes the others' place while the session
+  is on.
+- **The two prompts** are read by `ArgSpec::Replace`, which `Ctx::replace_pair` gives back, and
+  take Japanese as the prompt for a file's name does.
+
 ### 2. Keyboard macros
 
 #### Keys

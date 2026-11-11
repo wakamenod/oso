@@ -1,13 +1,10 @@
 //! Informal timings for the rope and the display model (M1-4).
 //!
-//! Must not depend on: other workspace crates or crate internals; it uses
-//! only the public API.
+//! Must not depend on: other workspace crates or crate internals; it uses only the public API.
 //!
-//! Run with `cargo run --release -p oso-core --example text_perf`. Shows that
-//! per-query costs do not grow with file size or line length. The benchmarks
-//! that CI checks against the budgets are in `crates/oso/examples/perf`. `-- words`,
-//! `-- cursors`, `-- trim` and `-- wrap` run only word motion, typing at many cursors,
-//! whitespace cleanup on save, or soft wrap.
+//! Run with `cargo run --release -p oso-core --example text_perf`: per-query costs do not grow
+//! with file size or line length. CI's budgets are in `crates/oso/examples/perf`. A part's name
+//! (`words`, `cursors`, `trim`, `replace`, `wrap` or `screen`) runs only that part.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -26,6 +23,8 @@ use oso_core::word;
 
 #[path = "text_perf/cursors.rs"]
 mod cursors;
+#[path = "text_perf/replace.rs"]
+mod replace;
 #[path = "text_perf/trim.rs"]
 mod trim;
 #[path = "text_perf/words.rs"]
@@ -369,9 +368,10 @@ fn word_motion_costs() {
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
-    let parts: [(&str, fn()); 5] = [
+    let parts: [(&str, fn()); 6] = [
         ("words", word_motion_costs),
         ("trim", trim::trim_costs),
+        ("replace", replace::replace_costs),
         ("cursors", cursors::cursor_costs),
         ("wrap", wrap::wrap_costs),
         ("screen", wrap::screen_costs),

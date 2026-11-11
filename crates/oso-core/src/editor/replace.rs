@@ -384,13 +384,15 @@ impl Editor {
     }
 
     /// The match asked about and the others in the scope that the view shows, as cells, for
-    /// the renderer, as isearch's are.
+    /// the renderer, as isearch's are, in place of what `cells` held. With no query-replace
+    /// under way, `cells` stays as it is.
     pub fn replace_cells(&self, id: WindowId, screen: &Screen, cells: &mut MatchCells) {
-        cells.current.clear();
-        cells.others.clear();
+        // With none under way, the cells stay isearch's.
         let Some(state) = self.replace() else {
             return;
         };
+        cells.current.clear();
+        cells.others.clear();
         if state.all_from.is_some() {
             return;
         }

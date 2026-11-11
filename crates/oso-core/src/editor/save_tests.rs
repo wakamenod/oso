@@ -545,3 +545,27 @@ fn a_confirmed_exit_asks_again_for_a_buffer_the_question_did_not_name() {
         "as many at risk as asked about, but another buffer"
     );
 }
+
+#[test]
+fn the_final_newline_keeps_the_cursors_at_the_end_in_every_window() {
+    let mut editor = visiting(b"abc");
+    editor.set_view_size(ViewSize::new(20, 40));
+    let first = editor.window().id();
+    let second = editor.split_window(crate::frame::Way::Down, false).unwrap();
+    insert(&mut editor, 3, "d");
+    for id in [first, second] {
+        editor.select_window(id);
+        editor.current_mut().0.selections = SelectionSet::new(4);
+    }
+    editor.select_window(first);
+    assert_eq!(editor.start_save(), Ok(true));
+    assert_eq!(text(&editor), "abcd\n");
+    for id in [first, second] {
+        editor.select_window(id);
+        assert_eq!(
+            cursors(&editor),
+            [4],
+            "window {id:?} stays before the line break"
+        );
+    }
+}

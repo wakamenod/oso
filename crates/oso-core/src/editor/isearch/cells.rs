@@ -35,6 +35,13 @@ pub struct MatchCells {
     found: Vec<Range<usize>>,
 }
 
+/// What [`Editor::match_cells`] looks for: a query, the current match, and a scope.
+pub(in crate::editor) type MatchQuery<'a> = (
+    &'a search::Query,
+    Option<&'a Range<usize>>,
+    Option<&'a [Range<usize>]>,
+);
+
 impl Editor {
     /// The cells the matches in view take in the text area of the tiled window `id`, as
     /// `screen` shows it ([`Editor::screen_of`]), into `cells`, emptied first. isearch runs in
@@ -60,11 +67,7 @@ impl Editor {
         id: WindowId,
         buffer: BufferId,
         screen: &Screen,
-        (query, current, scope): (
-            &search::Query,
-            Option<&Range<usize>>,
-            Option<&[Range<usize>]>,
-        ),
+        (query, current, scope): MatchQuery<'_>,
         cells: &mut MatchCells,
     ) {
         let MatchCells {
