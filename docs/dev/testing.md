@@ -516,6 +516,9 @@ still run. A push to `main` always runs everything.
   it cannot fail the build
 - weekly, mutation testing of `oso-core` (`mutants.yml`), read by the design
   health report ([ADR 0050](adr/0050-test-quality-checks.md))
+- weekly, `oso-syntax`'s property tests with 4096 cases (`syntax-properties.yml`): random
+  edits, resumed slices and crafted nesting for every grammar; `just ci` runs them with few
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md))
 - CodeQL code scanning (`codeql.yml`), `Analyze (rust)` and `Analyze (actions)`, on pull
   requests, pushes to `main` and weekly. It replaces the repository's default setup, which
   is off. A pull request that changes nothing but `docs/` and Markdown files skips the Rust
