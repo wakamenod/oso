@@ -24,8 +24,9 @@
 //!   the root is listed without a look, and the loader judges it when it is opened. A link that
 //!   leads to a directory, or nowhere, is not listed.
 //! - A path that is not UTF-8 is left out, as an answer naming it would name another file.
-//! - At most [`MAX_WALKED`] files are listed, and at most [`MAX_PATH_BYTES`] of their paths;
-//!   past either the walk stops and says it was cut.
+//! - At most [`MAX_WALKED`] files are listed, and at most [`MAX_PATH_BYTES`] of their paths.
+//!   At most [`MAX_ENTRIES`] entries are read, ignored ones too, and [`MAX_IGNORE_BYTES`] of
+//!   ignore files. Past any of them the walk stops and says it was cut.
 //!
 //! What it finds goes to the editor in batches, one at most every [`BATCH_EVERY`]. A newer
 //! listing, `C-g` or closing the prompt moves the request's live generation on, and the walk
@@ -37,7 +38,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fs::{self, FileType};
 use std::io::Read;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -57,24 +58,51 @@ pub const MAX_IGNORE_FILE: u64 = 1024 * 1024;
 /// The most bytes of paths a walk lists, as 100,000 paths can each be up to a few KiB long.
 pub const MAX_PATH_BYTES: usize = 32 * 1024 * 1024;
 
-/// How much a walk lists at most.
+/// The most entries a walk reads, listed or not, as an ignored directory of millions of names
+/// would be read whole otherwise.
+pub const MAX_ENTRIES: usize = 1_000_000;
+
+/// The most bytes of ignore files a walk reads, all of them together.
+pub const MAX_IGNORE_BYTES: u64 = 16 * 1024 * 1024;
+
+/// How much a walk lists and reads at most.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
+    /// Files listed.
     pub files: usize,
+    /// Bytes of the paths listed.
     pub bytes: usize,
+    /// Entries read, listed or not.
+    pub entries: usize,
+    /// Bytes of ignore files read.
+    pub ignore_bytes: u64,
 }
 
 impl Limits {
-    /// A project's: [`MAX_WALKED`] files, and [`MAX_PATH_BYTES`] of their paths (ADR 0114).
+    /// A project's: [`MAX_WALKED`] files, [`MAX_PATH_BYTES`] of their paths (ADR 0114),
+    /// [`MAX_ENTRIES`] entries and [`MAX_IGNORE_BYTES`] of ignore files.
     pub const PROJECT: Self = Self {
         files: MAX_WALKED,
         bytes: MAX_PATH_BYTES,
+        entries: MAX_ENTRIES,
+        ignore_bytes: MAX_IGNORE_BYTES,
     };
 }
 
-/// The most links a link's path goes through before it is taken for one that leads nowhere, as
-/// the system's own bound.
-const MAX_HOPS: usize = 40;
+/// What a walk has read so far, against its [`Limits`].
+struct Spent {
+    limits: Limits,
+    entries: usize,
+    ignore_bytes: u64,
+}
+
+/// Why a walk ends before it has walked everything.
+enum Ended {
+    /// A newer listing, or the prompt closed.
+    Stopped,
+    /// It reached a limit.
+    Cut,
+}
 
 /// The ignore files of a directory, in `rg`'s order: the first that says anything decides.
 const IGNORE_FILES: [&str; 3] = [".rgignore", ".ignore", ".gitignore"];
@@ -102,17 +130,25 @@ impl fmt::Debug for Walked {
 pub struct Walker {
     requests: Option<Sender<WalkRequest>>,
     send: SendBatch,
+    /// The home directory as the person's environment spells it, which the thread finds the
+    /// real place of once.
+    home: Option<PathBuf>,
 }
 
 /// Hands a batch to the event loop; `false` once it is gone.
 type SendBatch = std::sync::Arc<dyn Fn(Walked) -> bool + Send + Sync>;
 
 impl Walker {
-    /// A walker that hands each batch to `send`.
-    pub fn new(send: impl Fn(Walked) -> bool + Send + Sync + 'static) -> Self {
+    /// A walker that hands each batch to `send`, and never walks a root that holds `home`, by
+    /// the real place of either: the editor refuses it by its words, which a link can hide.
+    pub fn new(
+        home: Option<PathBuf>,
+        send: impl Fn(Walked) -> bool + Send + Sync + 'static,
+    ) -> Self {
         Self {
             requests: None,
             send: std::sync::Arc::new(send),
+            home,
         }
     }
 
@@ -123,9 +159,10 @@ impl Walker {
         if self.requests.is_none() {
             let (requests, queue) = mpsc::channel::<WalkRequest>();
             let send = std::sync::Arc::clone(&self.send);
+            let home = self.home.clone();
             let spawned = thread::Builder::new()
                 .name("oso-walk".into())
-                .spawn(move || serve(&queue, &*send));
+                .spawn(move || serve(&queue, &*send, home.as_deref()));
             if spawned.is_ok() {
                 self.requests = Some(requests);
             } else {
@@ -150,11 +187,29 @@ impl Walker {
 
 /// Walks each request that comes, in turn, until the walker is dropped or the event loop has
 /// gone.
-fn serve(queue: &mpsc::Receiver<WalkRequest>, send: &(dyn Fn(Walked) -> bool + Send + Sync)) {
+fn serve(
+    queue: &mpsc::Receiver<WalkRequest>,
+    send: &(dyn Fn(Walked) -> bool + Send + Sync),
+    home: Option<&Path>,
+) {
+    let home = home.and_then(|home| fs::canonicalize(home).ok());
     while let Ok(request) = queue.recv() {
         let generation = request.generation;
         let live = || request.live.load(Ordering::Relaxed) == generation;
         if !live() {
+            continue;
+        }
+        let root = fs::canonicalize(&request.root).unwrap_or_else(|_| request.root.clone());
+        if home.as_deref().is_some_and(|home| home.starts_with(&root)) {
+            // Nothing is listed, and the prompt stops waiting.
+            let ended = send(Walked {
+                generation,
+                paths: Vec::new(),
+                end: Some(WalkEnd { cut: false }),
+            });
+            if !ended {
+                return;
+            }
             continue;
         }
         let mut gone = false;
@@ -196,10 +251,18 @@ pub fn walk(
     stop: &dyn Fn() -> bool,
     batch: &mut dyn FnMut(Vec<Box<str>>, Option<WalkEnd>),
 ) {
-    let project = Project::at(root);
+    let mut spent = Spent {
+        limits,
+        entries: 0,
+        ignore_bytes: 0,
+    };
+    let project = Project::at(root, &mut spent);
     let mut stack = Vec::new();
-    if let Some(directory) = Directory::open(root, &project, false) {
-        stack.push(directory);
+    match Directory::open(root, &project, false, &mut spent, stop) {
+        Ok(Some(directory)) => stack.push(directory),
+        Ok(None) => {}
+        Err(Ended::Stopped) => return,
+        Err(Ended::Cut) => return batch(Vec::new(), Some(WalkEnd { cut: true })),
     }
     let mut found = Vec::new();
     let (mut count, mut bytes) = (0, 0);
@@ -223,8 +286,11 @@ pub fn walk(
         }
         if is_dir {
             // One that cannot be listed is left out, as `rg` leaves it.
-            if let Some(directory) = Directory::open(&path, &project, true) {
-                stack.push(directory);
+            match Directory::open(&path, &project, true, &mut spent, stop) {
+                Ok(Some(directory)) => stack.push(directory),
+                Ok(None) => {}
+                Err(Ended::Stopped) => return,
+                Err(Ended::Cut) => return batch(found, Some(WalkEnd { cut: true })),
             }
         } else if let Some(path) = listed(root, &path, kind) {
             if count == limits.files || bytes + path.len() > limits.bytes {
@@ -253,7 +319,7 @@ struct Project {
 }
 
 impl Project {
-    fn at(root: &Path) -> Self {
+    fn at(root: &Path, spent: &mut Spent) -> Self {
         let git = fs::symlink_metadata(root.join(".git")).ok();
         let git_directory = git.as_ref().is_some_and(|git| git.is_dir());
         let git = git_directory || git.is_some_and(|git| git.is_file());
@@ -261,12 +327,12 @@ impl Project {
         let info = root.join(".git").join("info");
         let exclude = (git_directory
             && fs::symlink_metadata(&info).is_ok_and(|info| info.is_dir()))
-        .then(|| patterns(root, &info.join("exclude"), Here))
+        .then(|| patterns(root, &info.join("exclude"), Here, spent))
         .flatten();
         let global = git
             .then(ignore::gitignore::gitconfig_excludes_path)
             .flatten()
-            .and_then(|path| patterns(root, &path, Followed));
+            .and_then(|path| patterns(root, &path, Followed, spent));
         Self {
             git,
             exclude,
@@ -314,10 +380,27 @@ struct Directory {
 impl Directory {
     /// The directory at `path`, listed, with its ignore files read. `None` if it cannot be
     /// listed, or if it is `below_root` and holds a marker, as it is another project then. Its
-    /// listing says what each entry is, so nothing more is looked at for the markers.
-    fn open(path: &Path, project: &Project, below_root: bool) -> Option<Self> {
+    /// listing says what each entry is, so nothing more is looked at for the markers. Each entry
+    /// read counts against `spent`, and `stop` is asked as they are read.
+    fn open(
+        path: &Path,
+        project: &Project,
+        below_root: bool,
+        spent: &mut Spent,
+        stop: &dyn Fn() -> bool,
+    ) -> Result<Option<Self>, Ended> {
         let mut entries = VecDeque::new();
-        for entry in fs::read_dir(path).ok()? {
+        let Ok(listing) = fs::read_dir(path) else {
+            return Ok(None);
+        };
+        for entry in listing {
+            if spent.entries == spent.limits.entries {
+                return Err(Ended::Cut);
+            }
+            spent.entries += 1;
+            if spent.entries.is_multiple_of(1024) && stop() {
+                return Err(Ended::Stopped);
+            }
             // An entry that cannot be read is left out, as `rg` leaves it.
             let Ok(entry) = entry else { continue };
             let Ok(kind) = entry.file_type() else {
@@ -326,22 +409,26 @@ impl Directory {
             entries.push_back((entry.file_name(), kind));
         }
         if below_root && holds_marker(path, &entries) {
-            return None;
+            return Ok(None);
         }
-        let ignores = IGNORE_FILES.map(|name| {
+        let mut ignores = [None, None, None];
+        for (ignores, name) in ignores.iter_mut().zip(IGNORE_FILES) {
             let here = entries
                 .iter()
                 .any(|(entry, kind)| entry == name && kind.is_file());
             let counts = name != ".gitignore" || project.git;
-            (here && counts)
-                .then(|| patterns(path, &path.join(name), Here))
-                .flatten()
-        });
-        Some(Self {
+            if here && counts {
+                if spent.ignore_bytes >= spent.limits.ignore_bytes {
+                    return Err(Ended::Cut);
+                }
+                *ignores = patterns(path, &path.join(name), Here, spent);
+            }
+        }
+        Ok(Some(Self {
             path: path.to_path_buf(),
             entries,
             ignores,
-        })
+        }))
     }
 }
 
@@ -379,7 +466,8 @@ use Open::{Followed, Here};
 
 /// The patterns of the ignore file at `file`, for the directory `base`: `None` unless it is a
 /// regular file of at most [`MAX_IGNORE_FILE`] bytes, opened as `open` says, without waiting.
-fn patterns(base: &Path, file: &Path, open: Open) -> Option<Gitignore> {
+/// What it read counts against `spent`.
+fn patterns(base: &Path, file: &Path, open: Open, spent: &mut Spent) -> Option<Gitignore> {
     let opened = match open {
         Here => oso_platform::file_meta::open_regular_here(file),
         Followed => oso_platform::file_meta::open_for_reading(file),
@@ -397,6 +485,7 @@ fn patterns(base: &Path, file: &Path, open: Open) -> Option<Gitignore> {
     if bytes.len() as u64 > MAX_IGNORE_FILE {
         return None;
     }
+    spent.ignore_bytes += bytes.len() as u64;
     let mut builder = GitignoreBuilder::new(base);
     for line in bytes.split(|&byte| byte == b'\n') {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
@@ -428,91 +517,9 @@ fn listed(root: &Path, path: &Path, kind: FileType) -> Option<Box<str>> {
     Some(relative.into())
 }
 
-/// Where a link leads, found by its words.
-#[derive(Debug, PartialEq, Eq)]
-enum Leads {
-    /// Under the root, to a file (`true`) or to something else.
-    Inside(bool),
-    /// Out of the root, at some hop: nothing there is looked at.
-    Outside,
-    /// Nowhere: a link of too many hops, or one that cannot be read.
-    Nowhere,
-}
+mod links;
 
-/// Where the link at `link`, under `root`, leads. Each name on the way is looked at without
-/// following it, and each link's target is read and taken by its words, only while the way
-/// stays under `root`.
-fn resolve(root: &Path, link: &Path) -> Leads {
-    let Ok(relative) = link.strip_prefix(root) else {
-        return Leads::Outside;
-    };
-    let mut ahead: VecDeque<OsString> = VecDeque::new();
-    let mut at = root.to_path_buf();
-    if !push_ahead(&mut ahead, relative) {
-        return Leads::Outside;
-    }
-    let mut hops = 0;
-    while let Some(name) = ahead.pop_front() {
-        if name == ".." {
-            if at == root {
-                return Leads::Outside;
-            }
-            at.pop();
-            continue;
-        }
-        let next = at.join(&name);
-        let Ok(metadata) = fs::symlink_metadata(&next) else {
-            return Leads::Nowhere;
-        };
-        if !metadata.is_symlink() {
-            if ahead.is_empty() {
-                return Leads::Inside(metadata.is_file());
-            }
-            at = next;
-            continue;
-        }
-        hops += 1;
-        let Ok(target) = fs::read_link(&next) else {
-            return Leads::Nowhere;
-        };
-        if hops > MAX_HOPS {
-            return Leads::Nowhere;
-        }
-        let mut rest = VecDeque::new();
-        let target = if target.has_root() {
-            // Taken from the root again, if it names a place under it by its words.
-            match target.strip_prefix(root) {
-                Ok(under) => {
-                    at = root.to_path_buf();
-                    under.to_path_buf()
-                }
-                Err(_) => return Leads::Outside,
-            }
-        } else {
-            target
-        };
-        if !push_ahead(&mut rest, &target) {
-            return Leads::Outside;
-        }
-        rest.extend(ahead);
-        ahead = rest;
-    }
-    Leads::Inside(false)
-}
-
-/// Puts the names of `path`, relative, at the end of `ahead`: `..` as one, `.` as none. `false`
-/// for a path with a root or a prefix, which leaves the place it is taken from.
-fn push_ahead(ahead: &mut VecDeque<OsString>, path: &Path) -> bool {
-    for component in path.components() {
-        match component {
-            Component::Normal(name) => ahead.push_back(name.to_os_string()),
-            Component::ParentDir => ahead.push_back(OsString::from("..")),
-            Component::CurDir => {}
-            Component::RootDir | Component::Prefix(_) => return false,
-        }
-    }
-    true
-}
+use links::{Leads, resolve};
 
 #[cfg(test)]
 mod tests;

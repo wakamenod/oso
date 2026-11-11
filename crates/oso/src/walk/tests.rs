@@ -357,7 +357,7 @@ fn the_walker_thread_sends_batches_of_the_live_request_only() {
     let scratch = Scratch::new("thread");
     scratch.file("a.rs", "");
     let (sent, received) = mpsc::channel();
-    let mut walker = Walker::new(move |walked| sent.send(walked).is_ok());
+    let mut walker = Walker::new(None, move |walked| sent.send(walked).is_ok());
     let live = Arc::new(AtomicU64::new(2));
     // A request a newer listing has passed is never walked.
     walker.walk(WalkRequest {
@@ -398,4 +398,57 @@ fn a_walk_of_a_large_tree_takes_about_as_long_as_rg() {
         .min();
     let (took, count) = fastest.unwrap();
     assert!(took < Duration::from_secs(1), "{count} files in {took:?}");
+}
+
+#[test]
+fn a_walk_stops_at_its_entries_read_ignored_ones_too() {
+    let scratch = Scratch::new("entries");
+    scratch.file(".ignore", "*.o\n");
+    for index in 0..20 {
+        scratch.file(&format!("{index}.o"), "");
+    }
+    scratch.file("a.rs", "");
+    let (_, cut) = scratch.walked(Limits {
+        entries: 10,
+        ..Limits::PROJECT
+    });
+    assert!(cut, "the ignored names count");
+    let (listed, cut) = scratch.walked(Limits::PROJECT);
+    assert_eq!(
+        (listed, cut),
+        (vec![".ignore".to_owned(), "a.rs".to_owned()], false)
+    );
+}
+
+#[test]
+fn a_walk_stops_at_its_bytes_of_ignore_files() {
+    let scratch = Scratch::new("ignore-bytes");
+    for depth in 1..=4 {
+        let dir = "d/".repeat(depth);
+        scratch.file(&format!("{dir}.ignore"), "*.o\n");
+        scratch.file(&format!("{dir}x.rs"), "");
+    }
+    let (_, cut) = scratch.walked(Limits {
+        ignore_bytes: 8,
+        ..Limits::PROJECT
+    });
+    assert!(cut);
+}
+
+#[test]
+fn the_walker_lists_nothing_of_a_root_that_holds_home_by_its_real_place() {
+    let scratch = Scratch::new("home");
+    scratch.file("me/notes.md", "");
+    let (sent, received) = mpsc::channel();
+    let mut walker = Walker::new(Some(scratch.0.join("me")), move |walked| {
+        sent.send(walked).is_ok()
+    });
+    walker.walk(WalkRequest {
+        generation: 1,
+        root: scratch.0.clone(),
+        live: Arc::new(AtomicU64::new(1)),
+    });
+    let walked = received.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(walked.paths.is_empty());
+    assert_eq!(walked.end, Some(WalkEnd { cut: false }));
 }

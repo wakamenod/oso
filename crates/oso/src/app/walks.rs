@@ -12,7 +12,7 @@ use crate::walk::{Walked, Walker};
 /// The walker for the app, waking the event loop with [`UserEvent::Walked`].
 pub(super) fn walker(waker: &Waker) -> Walker {
     let waker = Mutex::new(waker.clone());
-    Walker::new(move |walked| {
+    Walker::new(super::home(), move |walked| {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
