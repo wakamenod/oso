@@ -119,14 +119,25 @@ impl Keymap {
             }
             Some(Entry::Undefined) => Ok(()),
             Some(Entry::Prefix(sub)) => {
-                sub.hides = true;
+                sub.hide();
                 Ok(())
             }
             Some(Entry::Command(_)) => Err(BindError::AlreadyBound),
         }
     }
 
+    /// Makes this keymap, and every prefix keymap under it, hide what lower layers bind.
+    fn hide(&mut self) {
+        self.hides = true;
+        for entry in self.bindings.values_mut() {
+            if let Entry::Prefix(sub) = entry {
+                sub.hide();
+            }
+        }
+    }
+
     /// The last key of `keys`, and the keymap it goes in, creating prefix keymaps as needed.
+    /// One made under a keymap that hides, or where a key was undefined, hides too.
     fn prefix_for<'k>(
         &mut self,
         keys: &'k [KeyPress],
@@ -136,10 +147,13 @@ impl Keymap {
         // deeper can conflict, and an error never leaves one behind.
         let mut map = self;
         for (i, key) in prefix.iter().enumerate() {
-            let entry = map
-                .bindings
-                .entry(*key)
-                .or_insert_with(|| Entry::Prefix(Keymap::new()));
+            let hides = map.hides;
+            let entry = map.bindings.entry(*key).or_insert_with(|| {
+                Entry::Prefix(Keymap {
+                    hides,
+                    ..Keymap::new()
+                })
+            });
             if matches!(entry, Entry::Undefined) {
                 *entry = Entry::Prefix(Keymap {
                     hides: true,
@@ -1075,6 +1089,50 @@ mod tests {
                 "unbind first: {unbind_first}"
             );
         }
+    }
+
+    #[test]
+    fn a_prefix_unbound_hides_the_defaults_at_every_level_under_it() {
+        let registry = registry(NAMES);
+        let global = global(&registry);
+        for unbind_first in [true, false] {
+            let mut user = Keymap::new();
+            let other = id(&registry, "other");
+            if unbind_first {
+                user.unbind(&keys("C-x")).unwrap();
+            }
+            user.bind(&keys("C-x 4 o"), other).unwrap();
+            user.bind(&keys("C-x 4 5 o"), other).unwrap();
+            if !unbind_first {
+                user.unbind(&keys("C-x")).unwrap();
+            }
+            let layers = with_user(&user, &global);
+            for (probe, found) in [
+                ("C-x 4 o", Some(Binding::Command(other))),
+                ("C-x 4 5 o", Some(Binding::Command(other))),
+                ("C-x 4 f", Some(Binding::Undefined)),
+                ("C-x 4 5 f", Some(Binding::Undefined)),
+                ("C-x C-c", Some(Binding::Undefined)),
+            ] {
+                assert_eq!(
+                    layers.lookup(&keys(probe)),
+                    found,
+                    "{probe}, unbind first: {unbind_first}"
+                );
+            }
+            let mut resolver = KeyResolver::new();
+            assert_eq!(
+                feed_all(&mut resolver, &layers, &registry, "C-x 4 f"),
+                ["pending", "pending", "unbound C-x 4 f"]
+            );
+        }
+        // Without the unbinding, the prefixes made are the defaults' too.
+        let user = Keymap::from_table(&registry, &[("C-x 4 o", "other")]).unwrap();
+        let layers = with_user(&user, &global);
+        assert_eq!(
+            layers.lookup(&keys("C-x 4 f")),
+            Some(Binding::Command(id(&registry, "find-file")))
+        );
     }
 
     #[test]

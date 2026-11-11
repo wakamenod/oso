@@ -18,7 +18,7 @@ use oso_core::command::{ArgSpec, CommandId, Prefix};
 use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
-use oso_core::keymap::{Binding, Layers, display_keys};
+use oso_core::keymap::{Binding, CANCEL, Layers, display_keys};
 
 use super::Dispatcher;
 
@@ -71,8 +71,20 @@ impl Dispatcher {
 }
 
 /// Whether `keys` run `id` in `layers`, as the resolver reads them a key at a time: no shorter
-/// part of them is bound to a command or left undefined.
+/// part of them is bound to a command or left undefined, and `C-g` comes only first, where the
+/// user's keys do not bind it (ADR 0108).
 fn reaches(layers: &Layers<'_>, keys: &[KeyPress], id: CommandId) -> bool {
+    let cancels = |key: &KeyPress| *key == CANCEL || key.unshifted() == Some(CANCEL);
+    let Some((first, rest)) = keys.split_first() else {
+        return false;
+    };
+    if rest.iter().any(cancels) {
+        return false;
+    }
+    let layers = &Layers {
+        user: layers.user.filter(|_| !cancels(first)),
+        ..*layers
+    };
     layers.lookup(keys) == Some(Binding::Command(id))
         && (1..keys.len()).all(|len| {
             !matches!(

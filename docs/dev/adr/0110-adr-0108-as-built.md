@@ -19,13 +19,20 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
 - **A prefix made where a key was unbound hides the defaults under it,** as Emacs's fresh prefix
   map does. `"C-x" = false` with `"C-x C-k" = "…"` leaves `C-x C-k` the only key under `C-x`.
   Unbinding a prefix that the user's keys already made does the same, so the order of the
-  entries, which TOML does not keep, changes nothing.
+  entries, which TOML does not keep, changes nothing. It holds at every level: a prefix made under
+  one that hides hides too, so `C-x 4 f` stays hidden beside a user's `C-x 4 o`.
 - **An undefined sequence is still taken without Shift,** as Emacs translates a key bound to
   nil ([ADR 0071](0071-mark-and-region.md)). `C-x C-K` runs a user's `C-x C-k` under such a
-  prefix.
-- **In a passphrase prompt, a typing key left undefined is echoed as `<char> is undefined`,**
-  without its character, which would otherwise be part of what is typed. Beside a buffer that may
-  hold secrets, the echo keeps the key, and goes with the buffer, as it does today.
+  prefix. So `"C-F" = false` changes nothing while `C-f` is bound; step 2 warns of such an entry.
+- **In a passphrase prompt, every key that types a character is shown as `<char>`:** in the keys
+  in progress (`<char>-`) and in "… is undefined", since a user's prefix can start with a typing
+  key, which is then part of what is typed. Beside a buffer that may hold secrets, the echo keeps
+  the keys, and goes with the buffer, as it does today.
+- **The log masks every key that types a character,** not only the last one, as typed text stays
+  out of it ([ADR 0028](0028-secrets-handling.md)).
+- **`C-g` is never the user's,** whatever the layer holds: under a prefix it cancels, and on its
+  own, Shift or not, it runs what the defaults bind. `M-x` shows no user binding of it. The
+  dispatcher keeps this, so it holds whatever fills the layer.
 - **`M-x` shows no default key that a user command on a shorter key cuts short,** as the resolver
   reads keys one at a time, and a command whose default key the user's keys shadow is listed with
   no key.

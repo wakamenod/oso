@@ -200,3 +200,81 @@ fn a_typing_key_left_undefined_stays_off_the_screen_in_a_passphrase() {
         "beside nothing secret, as Emacs says"
     );
 }
+
+#[cfg(feature = "dev")]
+#[test]
+fn a_user_prefix_of_typing_keys_stays_off_the_screen_in_a_passphrase() {
+    let (mut d, mut editor) = at("abcdef", &[3]);
+    d.set_user_keymap(user(
+        &[("a b", "forward-char"), ("C-c a b", "forward-char")],
+        &[],
+    ));
+    send(&mut d, &mut editor, "<f34> h a");
+    assert_eq!(echo(&editor), "<char>-", "the keys in progress");
+    send(&mut d, &mut editor, "x");
+    assert_eq!(echo(&editor), "<char> <char> is undefined");
+    send(&mut d, &mut editor, "C-c a");
+    assert_eq!(echo(&editor), "C-c <char>-");
+    send(&mut d, &mut editor, "C-g C-g a");
+    assert_eq!(echo(&editor), "a-", "beside nothing secret, as Emacs says");
+}
+
+#[test]
+fn the_log_masks_every_typing_key_and_the_screen_only_when_asked() {
+    let keys: KeySequence = "C-x a <f5> Ж".parse().unwrap();
+    assert_eq!(super::masked(&keys.0, true), "C-x <char> <f5> <char>");
+    assert_eq!(super::masked(&keys.0, false), "C-x a <f5> Ж");
+}
+
+#[test]
+fn c_g_is_never_the_user_s() {
+    let (mut d, mut editor) = at("abcdef", &[3]);
+    let mut keymap = user(&[("C-g", "forward-char"), ("C-c C-g", "forward-char")], &[]);
+    keymap
+        .bind(
+            &"C-G x".parse::<KeySequence>().unwrap().0,
+            commands::registry().lookup("forward-char").unwrap(),
+        )
+        .unwrap();
+    d.set_user_keymap(keymap);
+    for keys in ["C-g", "C-c C-g", "C-G"] {
+        send(&mut d, &mut editor, keys);
+        assert_eq!(echo(&editor), "Quit", "{keys}");
+    }
+    assert_eq!(cursors(&editor), [3]);
+    d.set_user_keymap(user(&[], &["C-g"]));
+    send(&mut d, &mut editor, "C-g");
+    assert_eq!(echo(&editor), "Quit", "an undefined C-g too");
+    // M-x lists what it lists without the user's C-g, and forward-char by its own key.
+    let listed = |d: &super::Dispatcher| {
+        let items = d.command_candidates(&editor);
+        let find = |name: &str| {
+            items
+                .iter()
+                .find(|item| item.text() == name)
+                .map(|item| item.binding().to_owned())
+        };
+        (find("keyboard-quit"), find("forward-char"))
+    };
+    let undefined = listed(&d);
+    d.set_user_keymap(user(
+        &[("C-g", "forward-char"), ("C-c C-g", "forward-char")],
+        &[],
+    ));
+    let bound = listed(&d);
+    d.set_user_keymap(Keymap::new());
+    assert_eq!(undefined, listed(&d));
+    assert_eq!(bound, listed(&d));
+}
+
+#[test]
+fn a_prefix_argument_s_digits_win_over_the_user_s_keys() {
+    let (mut d, mut editor) = at(&"x".repeat(40), &[0]);
+    d.set_user_keymap(user(&[("1", "backward-char"), ("-", "backward-char")], &[]));
+    send(&mut d, &mut editor, "C-u 1 2 C-f");
+    assert_eq!(cursors(&editor), [12]);
+    send(&mut d, &mut editor, "C-u - 2 C-f");
+    assert_eq!(cursors(&editor), [10]);
+    send(&mut d, &mut editor, "1");
+    assert_eq!(cursors(&editor), [9], "on its own, the user's key");
+}
