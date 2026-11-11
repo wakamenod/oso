@@ -145,9 +145,8 @@ impl Dispatcher {
         // Its kill joins no kill of the person's, before or after it, so that what reaches the
         // OS clipboard from a person's kill never holds the agent's text (ADR 0085).
         editor.forget_kills();
-        // The prompts it opens are the agent's, and say so (ADR 0085), and so are the saves it
-        // queues (ADR 0108).
-        self.ran_for_agent = true;
+        // The prompts it opens are the agent's, and say so (ADR 0085). What it queues to save
+        // its caller starts as the agent's (ADR 0108).
         let ran = self.as_input(editor, |this, editor| {
             editor.for_agent(|editor| {
                 let (effects, result) = this.execute(editor, id, args, invocation, Step::Apart);
@@ -540,18 +539,40 @@ mod tests {
                 .label()
                 .starts_with("Agent: First?")
         );
-        // The person answers, outside anything the agent runs.
+        // The agent's own run leaves nothing for the next saves to be taken as the agent's:
+        // its caller starts what it queued.
+        assert!(!dispatcher.take_ran_for_agent());
+        // The person answers, outside anything the agent runs: what that runs is the agent's.
         editor.answer_question(true).unwrap();
         dispatcher.after_prompts(&mut editor);
         let again = editor.prompt().unwrap();
         assert!(again.from_agent(), "{}", again.label());
         assert!(again.label().starts_with("Agent: Again?"));
+        assert!(dispatcher.take_ran_for_agent(), "the y ran for the agent");
+        assert!(!dispatcher.take_ran_for_agent(), "and only once");
         // A person's own question stays the person's.
         editor.answer_question(false).unwrap();
         editor.ask("Mine?", "ask-again").unwrap();
         editor.answer_question(true).unwrap();
         dispatcher.after_prompts(&mut editor);
         assert!(!editor.prompt().unwrap().from_agent());
+        assert!(!dispatcher.take_ran_for_agent());
+    }
+
+    #[test]
+    fn a_persons_save_after_an_agents_open_at_a_line_is_the_persons() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("one\ntwo\n"));
+        // As the channel's open does when it shows a file at a line.
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "goto-line", Given::Count(2), Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        assert!(!dispatcher.take_ran_for_agent());
+        let _ = dispatcher.run_command(&mut editor, "save-buffer", None);
+        assert!(
+            !dispatcher.take_ran_for_agent(),
+            "the person's save is not checked"
+        );
     }
 
     #[test]

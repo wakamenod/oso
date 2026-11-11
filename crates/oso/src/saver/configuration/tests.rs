@@ -132,3 +132,73 @@ fn an_agents_save_into_the_directory_is_refused_and_writes_nothing() {
     assert_eq!(report.agent_failure(), None);
     assert_eq!(fs::read(&notes).unwrap(), b"new\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_file_kept_elsewhere_and_linked_into_the_directory_is_refused_by_either_name() {
+    use super::{SaveError, run_for_agent};
+    let scratch = Scratch::new("config-dotfiles");
+    let config = scratch.path().join("oso");
+    fs::create_dir(&config).unwrap();
+    let dotfiles = scratch.path().join("dotfiles");
+    fs::create_dir(&dotfiles).unwrap();
+    let real = dotfiles.join("config.toml");
+    fs::write(&real, b"theme = \"dusk\"\n").unwrap();
+    let link = config.join("config.toml");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    for opened in [&link, &real] {
+        let report = run_for_agent(save_of(opened, "agent = 1\n"), Some(&config));
+        assert!(
+            matches!(report.outcome, Err(SaveError::IntoConfiguration)),
+            "{}: {:?}",
+            opened.display(),
+            report.outcome
+        );
+    }
+    assert_eq!(
+        fs::read(&real).unwrap(),
+        b"theme = \"dusk\"\n",
+        "nothing written"
+    );
+    // A file beside it in the same place, which no entry leads to, is not refused.
+    let other = dotfiles.join("notes.md");
+    fs::write(&other, b"old\n").unwrap();
+    assert!(!is_inside(&other, &config).unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_in_the_directory_to_what_is_not_there_yet_is_where_it_leads() {
+    let scratch = Scratch::new("config-dangling");
+    let config = scratch.path().join("oso");
+    fs::create_dir(&config).unwrap();
+    let missing = scratch.path().join("dotfiles-config.toml");
+    std::os::unix::fs::symlink(&missing, config.join("config.toml")).unwrap();
+    assert!(
+        is_inside(&missing, &config).unwrap(),
+        "the file the link waits for"
+    );
+    assert!(is_inside(&config.join("config.toml"), &config).unwrap());
+}
+
+#[test]
+fn a_write_to_a_new_place_is_judged_where_it_would_go() {
+    use super::{SaveError, run_for_agent};
+    use oso_core::editor::Elsewhere;
+    let scratch = Scratch::new("config-write-file");
+    let config = scratch.path().join("oso");
+    fs::create_dir(&config).unwrap();
+    let notes = scratch.file("config.toml", b"mine\n");
+    // `C-x C-w` into the directory itself writes the buffer's file's name there.
+    let mut job = save_of(&notes, "agent = 1\n");
+    job.path = config.clone();
+    job.baseline = None;
+    job.elsewhere = Some(Elsewhere {
+        over: None,
+        open: Vec::new(),
+        name: "config.toml".into(),
+    });
+    let report = run_for_agent(job, Some(&config));
+    assert!(matches!(report.outcome, Err(SaveError::IntoConfiguration)));
+    assert!(!config.join("config.toml").exists());
+}

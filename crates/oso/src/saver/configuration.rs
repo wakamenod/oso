@@ -45,6 +45,11 @@ fn run_for_agent(job: SaveJob, directory: Option<&Path>) -> SaveReport {
 }
 
 impl SaveReport {
+    /// Whether the save wrote the file: not one that failed, nor one with nothing to write.
+    pub fn wrote(&self) -> bool {
+        matches!(self.outcome, Ok(Some(_)))
+    }
+
     /// What the agent channel hears of a save made for it that failed, if it did: never the
     /// path, which the person's echo area names.
     pub fn agent_failure(&self) -> Option<&'static str> {
@@ -59,13 +64,14 @@ impl SaveReport {
     }
 }
 
-/// The most entries of the configuration directory looked through for another name of a file.
-#[cfg(unix)]
+/// The most entries of the configuration directory looked through, all levels together.
 const MAX_ENTRIES: usize = 1000;
 
 /// How deep into the configuration directory that look goes.
-#[cfg(unix)]
 const MAX_DEPTH: usize = 4;
+
+/// The most links followed to resolve one path.
+const MAX_LINKS: usize = 40;
 
 /// oso's configuration directory, asking the environment and not the disk:
 /// `$XDG_CONFIG_HOME/oso` when that is set and absolute, else `~/.config/oso`, and
@@ -92,9 +98,11 @@ fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     }
 }
 
-/// Why `job`, a save for the agent channel, must not be written, if it must not: its target
-/// is in `directory`, oso's configuration directory. A save of the buffer's file goes where
-/// that file was found to be; one to a new place goes to the path given.
+/// Why `job`, a save for the agent channel, must not be written, if it must not: a name it
+/// writes through, or what that name leads to, is in `directory`, oso's configuration
+/// directory, or is what an entry of it leads to. A save of the buffer's file writes through
+/// the name it was opened by to where that was found to be; one to a new place, to the path
+/// given, or the buffer's file's name in it if it is a directory.
 ///
 /// # Errors
 ///
@@ -103,16 +111,40 @@ pub fn refuse(job: &SaveJob, directory: Option<&Path>) -> io::Result<bool> {
     let Some(directory) = directory else {
         return Ok(false);
     };
-    let target = match (&job.elsewhere, &job.baseline) {
-        (None, Some(baseline)) => baseline.location.as_path(),
-        _ => job.path.as_path(),
-    };
-    is_inside(target, directory)
+    let mut targets = Vec::new();
+    match (&job.elsewhere, &job.baseline) {
+        (Some(elsewhere), _) => {
+            // As `elsewhere::write` works it out.
+            let into_directory = fs::metadata(&job.path).is_ok_and(|meta| meta.is_dir());
+            targets.push(if into_directory {
+                job.path.join(&elsewhere.name)
+            } else {
+                job.path.clone()
+            });
+        }
+        (None, Some(baseline)) => {
+            targets.push(job.path.clone());
+            targets.push(baseline.location.clone());
+        }
+        (None, None) => targets.push(job.path.clone()),
+    }
+    for target in &targets {
+        if is_inside(target, directory)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
-/// Whether `target`, a file that may not exist yet, is in `directory` or below it: by its
-/// canonical path, by the device and inode of what holds it, or, for a file with more than
-/// one name, as another name of a file there. A directory that does not exist holds nothing.
+/// Whether a save to `target`, a path that may not exist yet, would write into `directory`:
+/// the path as given or what it leads to is in it or below it, by canonical path or by the
+/// device and inode of what holds it; or it is what an entry of the directory leads to, as a
+/// configuration file kept elsewhere and linked into it, by path or by device and inode. A
+/// directory that does not exist holds nothing.
+///
+/// Past [`MAX_ENTRIES`] entries the directory cannot be told apart from what it might lead to,
+/// so the answer is yes. A subdirectory that cannot be read is passed over, as nothing in it
+/// could be read as configuration either.
 ///
 /// # Errors
 ///
@@ -123,27 +155,28 @@ pub fn is_inside(target: &Path, directory: &Path) -> io::Result<bool> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e),
     };
-    let target = resolved(target)?;
-    if target.starts_with(&directory) {
+    // The name as given, with only its directory resolved, and where it finally leads.
+    let named = named(target)?;
+    let resolved = resolved(target)?;
+    if named.starts_with(&directory) || resolved.starts_with(&directory) {
         return Ok(true);
     }
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let held = fs::metadata(&directory)?;
-        let identity = (held.dev(), held.ino());
-        // Another spelling of the directory, as through a bind mount, holds the same inode.
-        for ancestor in target.ancestors().skip(1) {
-            let meta = fs::metadata(ancestor)?;
-            if (meta.dev(), meta.ino()) == identity {
-                return Ok(true);
-            }
-        }
-        // A hard link elsewhere to a file in the directory is that file by another name.
-        match fs::metadata(&target) {
-            Ok(meta) if meta.nlink() > 1 => {
-                return holds_file(&directory, (meta.dev(), meta.ino()));
-            }
+    if held_by(&named, &directory)? || held_by(&resolved, &directory)? {
+        return Ok(true);
+    }
+    leads_there(&directory, &resolved)
+}
+
+/// Whether a directory holding `path`, under another spelling, as through a bind mount, is
+/// `directory`, by device and inode.
+#[cfg(unix)]
+fn held_by(path: &Path, directory: &Path) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let held = fs::metadata(directory)?;
+    for ancestor in path.ancestors().skip(1) {
+        match fs::metadata(ancestor) {
+            Ok(meta) if (meta.dev(), meta.ino()) == (held.dev(), held.ino()) => return Ok(true),
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),
@@ -152,45 +185,88 @@ pub fn is_inside(target: &Path, directory: &Path) -> io::Result<bool> {
     Ok(false)
 }
 
-/// `target` with every link on its way followed, its own name kept if it does not exist.
-fn resolved(target: &Path) -> io::Result<PathBuf> {
-    match fs::canonicalize(target) {
-        Ok(resolved) => Ok(resolved),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            let (Some(parent), Some(name)) = (target.parent(), target.file_name()) else {
-                return Err(e);
-            };
-            Ok(fs::canonicalize(parent)?.join(name))
+/// Whether an entry of `directory`, at most [`MAX_DEPTH`] down, leads to `target`, a resolved
+/// path: by path, by holding it, or, on Unix, by device and inode, as a hard link would.
+fn leads_there(directory: &Path, target: &Path) -> io::Result<bool> {
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        match fs::metadata(target) {
+            Ok(meta) => Some((meta.dev(), meta.ino())),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
         }
-        Err(e) => Err(e),
-    }
-}
-
-/// Whether `directory` holds, at most [`MAX_DEPTH`] down and among its first [`MAX_ENTRIES`]
-/// entries, a file whose device and inode are `identity`. Links are not followed: what one
-/// leads to is judged where it is.
-#[cfg(unix)]
-fn holds_file(directory: &Path, identity: (u64, u64)) -> io::Result<bool> {
-    use std::os::unix::fs::MetadataExt;
+    };
     let mut pending = vec![(directory.to_path_buf(), 0)];
     let mut seen = 0;
     while let Some((dir, depth)) = pending.pop() {
-        for entry in fs::read_dir(&dir)? {
-            seen += 1;
-            if seen > MAX_ENTRIES {
-                // Too many to tell: refused, as what it might hold cannot be ruled out.
+        let Ok(entries) = fs::read_dir(&dir) else {
+            if depth == 0 {
+                // The directory itself: what it holds cannot be ruled out.
                 return Ok(true);
             }
-            let entry = entry?;
-            let meta = fs::symlink_metadata(entry.path())?;
-            if meta.is_dir() && depth < MAX_DEPTH {
-                pending.push((entry.path(), depth + 1));
-            } else if meta.is_file() && (meta.dev(), meta.ino()) == identity {
+            continue;
+        };
+        for entry in entries {
+            seen += 1;
+            if seen > MAX_ENTRIES {
                 return Ok(true);
+            }
+            let path = entry?.path();
+            let Ok(led) = resolved(&path) else {
+                continue;
+            };
+            if led == target || target.starts_with(&led) {
+                return Ok(true);
+            }
+            #[cfg(unix)]
+            if let Some(identity) = identity
+                && let Ok(meta) = fs::metadata(&led)
+            {
+                use std::os::unix::fs::MetadataExt;
+                if (meta.dev(), meta.ino()) == identity {
+                    return Ok(true);
+                }
+            }
+            if depth < MAX_DEPTH && fs::metadata(&led).is_ok_and(|meta| meta.is_dir()) {
+                pending.push((path, depth + 1));
             }
         }
     }
     Ok(false)
+}
+
+/// `path` with its directory resolved and its own name kept, whatever that name is.
+fn named(path: &Path) -> io::Result<PathBuf> {
+    let path = std::path::absolute(path)?;
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return fs::canonicalize(&path);
+    };
+    Ok(resolved(parent)?.join(name))
+}
+
+/// Where `path` leads, every link on its way followed, a link that leads nowhere yet included;
+/// a final name that is not there yet is kept as it is.
+fn resolved(path: &Path) -> io::Result<PathBuf> {
+    let mut path = std::path::absolute(path)?;
+    for _ in 0..MAX_LINKS {
+        match fs::canonicalize(&path) {
+            Ok(resolved) => return Ok(resolved),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+                    return Err(e);
+                };
+                let (parent, name) = (parent.to_path_buf(), name.to_os_string());
+                match fs::read_link(&path) {
+                    // A link to what is not there yet leads there all the same.
+                    Ok(to) => path = parent.join(to),
+                    Err(_) => return Ok(resolved(&parent)?.join(name)),
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::other("too many links on the way"))
 }
 
 #[cfg(test)]
