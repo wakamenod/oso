@@ -1,43 +1,43 @@
-//! Splitting, deleting, selecting and resizing the tiled windows on the editor, and what each
-//! window keeps of its own over a shared buffer (ADR 0112).
+//! Splitting, deleting, selecting and resizing the tiled windows on the editor (ADR 0112).
+//! What each window keeps of its own over a shared buffer is in `buffer_tests`.
 //!
 //! Must not depend on: the host's window.
 
 use std::path::PathBuf;
 
 use super::*;
-use crate::buffer::{Buffer, Replacement};
+use crate::buffer::Buffer;
 use crate::editor::{Status, VisualAids};
 use crate::frame::{FrameSize, Side, Way};
 use crate::selection::{MarkActive, Selection, SelectionSet};
 use crate::window::{Screen, Scroll};
 
-fn lines(n: usize) -> String {
+pub(super) fn lines(n: usize) -> String {
     (0..n).map(|i| format!("line {i:03}\n")).collect()
 }
 
 /// An editor on `text` in a frame of `rows` by `columns`.
-fn editor(text: &str, (rows, columns): (usize, usize)) -> Editor {
+pub(super) fn editor(text: &str, (rows, columns): (usize, usize)) -> Editor {
     let mut editor = Editor::with_buffer(Buffer::from_text("t", text));
     editor.set_frame_size(FrameSize { rows, columns });
     editor
 }
 
-fn ids(editor: &Editor) -> Vec<WindowId> {
+pub(super) fn ids(editor: &Editor) -> Vec<WindowId> {
     editor.splits.iter().collect()
 }
 
-fn selected(editor: &Editor) -> WindowId {
+pub(super) fn selected(editor: &Editor) -> WindowId {
     editor.window().id()
 }
 
-fn status(editor: &Editor, id: WindowId) -> Status {
+pub(super) fn status(editor: &Editor, id: WindowId) -> Status {
     let mut status = Status::default();
     editor.status_into(id, &mut status);
     status
 }
 
-fn screen(editor: &Editor, id: WindowId) -> Screen {
+pub(super) fn screen(editor: &Editor, id: WindowId) -> Screen {
     let mut screen = Screen::default();
     editor.screen_of(id, &mut screen);
     screen
@@ -293,177 +293,6 @@ fn resizing_takes_cells_from_the_neighbours_and_says_when_nothing_moved() {
 }
 
 #[test]
-fn an_edit_in_one_window_moves_the_others_cursor_and_it_follows_it_when_the_command_ends() {
-    let row = "line 000\n".len();
-    let mut editor = editor(&lines(100), (24, 80));
-    editor.current_mut().0.selections = SelectionSet::new(row * 50);
-    editor.follow_cursor();
-    let other = editor.split_window(Way::Down, false).unwrap();
-    // The selected window goes to the top, and deletes the 40 lines above the other's
-    // cursor and top.
-    editor.current_mut().0.selections = SelectionSet::new(0);
-    editor.follow_cursor();
-    let id = editor.window().buffer();
-    editor
-        .apply_edits(
-            id,
-            &[Replacement {
-                range: 0..row * 40,
-                text: "",
-            }],
-        )
-        .unwrap();
-    let window = editor.window_by_id(other).unwrap();
-    assert_eq!(window.selections.primary().cursor, row * 10, "as a marker");
-    editor.follow_cursor();
-    let window = editor.window_by_id(other).unwrap();
-    let display = editor.shown(window).display();
-    let (top, cursor) = (window.top_row(&display), window.cursor_row(&display));
-    assert!(
-        top <= cursor && cursor < top + window.size().rows,
-        "in view"
-    );
-}
-
-#[test]
-fn a_window_whose_top_went_past_the_end_follows_its_cursor() {
-    let row = "line 000\n".len();
-    let mut editor = editor(&lines(100), (24, 80));
-    editor.current_mut().0.selections = SelectionSet::new(row * 90);
-    editor.follow_cursor();
-    let other = editor.split_window(Way::Down, false).unwrap();
-    editor.current_mut().0.selections = SelectionSet::new(0);
-    editor.follow_cursor();
-    let id = editor.window().buffer();
-    let end = editor.current().1.text().len();
-    let edit = Replacement {
-        range: row * 10..end,
-        text: "",
-    };
-    editor.apply_edits(id, &[edit]).unwrap();
-    editor.follow_cursor();
-    let window = editor.window_by_id(other).unwrap();
-    let display = editor.shown(window).display();
-    assert!(window.top_row(&display) <= window.cursor_row(&display));
-}
-
-#[test]
-fn each_window_wraps_at_its_own_width_and_they_share_the_commands_budget() {
-    let mut editor = editor(&"word ".repeat(400), (24, 81));
-    let id = editor.window().buffer();
-    let other = editor.split_window(Way::Across, false).unwrap();
-    editor.select_window(other);
-    editor.resize_window(Way::Across, 10).unwrap();
-    assert!(editor.set_wraps(id, true));
-    let columns: Vec<usize> = editor
-        .windows()
-        .filter(|window| window.wrap().is_some())
-        .map(|window| window.size().columns)
-        .collect();
-    assert_eq!(columns.len(), 2, "both wrap");
-    assert_ne!(columns[0], columns[1]);
-    editor.begin_undo_group();
-    let spent: usize = editor
-        .windows
-        .iter()
-        .filter_map(|window| window.wrap_map())
-        .map(crate::display_map::wrap_map::WrapMap::budget_left)
-        .sum();
-    assert_eq!(
-        spent,
-        crate::display_map::wrap_map::COMMAND_BUDGET,
-        "one budget"
-    );
-    let held: Vec<usize> = editor
-        .windows
-        .iter()
-        .map(|window| window.wrap_map().unwrap().budget_left())
-        .collect();
-    let index = editor.selected;
-    assert_eq!(held[index], spent, "the selected window first");
-    editor.end_undo_group();
-}
-
-#[test]
-fn a_buffer_a_window_never_showed_starts_where_the_window_selected_last_left_it() {
-    let row = "line 000\n".len();
-    let mut editor = editor("scratch", (41, 80));
-    let file = editor.add_buffer(Buffer::from_text("f", &lines(100)));
-    let other = editor.split_window(Way::Down, false).unwrap();
-    editor.show(file);
-    editor.current_mut().0.selections = SelectionSet::new(row * 60);
-    editor.follow_cursor();
-    editor.select_window(other);
-    editor.show(file);
-    assert_eq!(editor.window().selections.primary().cursor, row * 60);
-    let first = editor.splits.iter().next().unwrap();
-    let start = editor.window_by_id(first).unwrap().scroll().start;
-    assert_eq!(editor.window().scroll().start, start);
-}
-
-#[test]
-fn killing_a_buffer_shown_twice_moves_both_windows_and_deletes_none() {
-    let mut editor = editor("scratch", (40, 80));
-    let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/b")));
-    editor.show(file);
-    let other = editor.split_window(Way::Across, false).unwrap();
-    editor.kill_buffer(file);
-    assert_eq!(editor.windows().len(), 2);
-    assert!(editor.windows().all(|window| window.buffer() != file));
-    assert!(editor.window_by_id(other).is_some());
-}
-
-#[test]
-fn only_the_selected_window_has_a_region_a_band_a_flash_and_isearchs_matches() {
-    let mut editor = editor("abc abc\n", (24, 80));
-    editor
-        .current_mut()
-        .0
-        .selections
-        .set_mark_active(MarkActive::Active);
-    editor.current_mut().0.selections = {
-        let mut set = SelectionSet::new(3);
-        set.push_primary_mark(0);
-        set.set_mark_active(MarkActive::Active);
-        set
-    };
-    let me = selected(&editor);
-    let other = editor.split_window(Way::Down, false).unwrap();
-    for (id, has) in [(me, true), (other, false)] {
-        let screen = screen(&editor, id);
-        let mut cells = Vec::new();
-        editor.region_cells(id, &screen, &mut cells);
-        assert_eq!(!cells.is_empty(), has, "region");
-        assert_eq!(
-            editor.current_line_cells(id, &screen).is_some(),
-            has,
-            "band"
-        );
-        assert_eq!(editor.flash_cells(id, &screen).is_some(), has, "flash");
-        assert_eq!(status(&editor, id).selected, has);
-    }
-    editor.isearch_begin(false);
-    editor.isearch_add("abc");
-    let mut cells = crate::editor::MatchCells::default();
-    editor.isearch_cells(other, &screen(&editor, other), &mut cells);
-    assert!(cells.current.is_empty() && cells.others.is_empty());
-    editor.isearch_cells(me, &screen(&editor, me), &mut cells);
-    assert!(!cells.current.is_empty());
-}
-
-#[test]
-fn the_agent_segment_is_only_on_the_selected_windows_modeline() {
-    let mut editor = editor("text", (24, 80));
-    editor.set_agent_channel(crate::editor::AgentChannel::Connected);
-    let me = selected(&editor);
-    let other = editor.split_window(Way::Down, false).unwrap();
-    assert!(!status(&editor, me).agent.is_empty());
-    assert!(status(&editor, other).agent.is_empty());
-    assert!(!status(&editor, other).agent_connected);
-    assert_eq!(status(&editor, other).echo, status(&editor, me).echo);
-}
-
-#[test]
 fn selecting_another_window_flashes_and_a_delete_is_not_mistaken_for_it() {
     let mut editor = editor("text", (24, 80));
     let other = editor.split_window(Way::Down, false).unwrap();
@@ -474,43 +303,6 @@ fn selecting_another_window_flashes_and_a_delete_is_not_mistaken_for_it() {
     let before = editor.view_sample();
     editor.delete_window().unwrap();
     assert!(editor.flashes(&before, &editor.view_sample()));
-}
-
-#[test]
-fn each_window_has_the_gutter_its_own_buffer_needs() {
-    let mut editor = editor("a\n", (24, 81));
-    editor.set_visual_aids(VisualAids {
-        line_numbers: true,
-        ..VisualAids::default()
-    });
-    let me = selected(&editor);
-    let other = editor.split_window(Way::Across, true).unwrap();
-    let file = editor.add_buffer(Buffer::from_text("f", &lines(2000)));
-    editor.show(file);
-    assert_eq!(editor.regions(me).unwrap().gutter.columns, 4);
-    assert_eq!(editor.regions(other).unwrap().gutter.columns, 5);
-    let mut gutter = crate::editor::Gutter::default();
-    editor.gutter_into(me, &screen(&editor, me), &mut gutter);
-    assert_eq!(gutter.rows().next(), Some(("  1 ", true)));
-}
-
-#[test]
-fn a_secret_buffer_in_a_window_not_selected_is_still_shown() {
-    let mut editor = editor("text", (24, 80));
-    let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/.env")));
-    let other = editor.split_window(Way::Down, true).unwrap();
-    editor.show(secret);
-    assert!(editor.shows_secret());
-    editor.other_window(1);
-    assert_ne!(selected(&editor), other);
-    assert!(editor.shows_secret(), "beside the selected one");
-    assert!(
-        !editor.current().1.is_secret(),
-        "the selected window's is not"
-    );
-    editor.select_window(other);
-    editor.delete_window().unwrap();
-    assert!(!editor.shows_secret());
 }
 
 #[test]
@@ -529,60 +321,63 @@ fn window_commands_inside_a_prompt_keep_the_window_beneath_by_its_name() {
 }
 
 #[test]
-fn deleting_a_window_that_shows_a_secret_buffer_takes_what_was_said_around_it_along() {
-    let echo = |editor: &Editor| status(editor, editor.window().id()).echo;
-    for others in [false, true] {
-        let mut editor = editor("text", (24, 80));
-        let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/.env")));
+fn enlarging_stops_where_a_neighbours_line_count_cannot_be_read_from() {
+    // The neighbour shows a buffer that may hold secrets, of 3 lines or of 100,000, whose
+    // gutters are 4 and 7 columns wide.
+    let stop = |lines: usize| {
+        let mut editor = editor("text", (24, 61));
+        editor.set_visual_aids(VisualAids {
+            line_numbers: true,
+            ..VisualAids::default()
+        });
+        let mut secret = Buffer::visiting(PathBuf::from("/a/.env"));
+        secret.apply_load(crate::load::decode_all(
+            "x\n".repeat(lines).as_bytes(),
+            crate::display_map::TabWidth::default(),
+        ));
+        let secret = editor.add_buffer(secret);
         let me = selected(&editor);
-        let other = editor.split_window(Way::Down, true).unwrap();
+        let other = editor.split_window(Way::Across, true).unwrap();
         editor.show(secret);
+        assert!(editor.set_wraps(secret, true));
         editor.select_window(me);
-        editor.echo("said beside a secret");
-        assert_eq!(echo(&editor), "said beside a secret");
-        editor.begin_command();
-        if others {
-            assert!(editor.delete_other_windows());
-        } else {
-            editor.select_window(other);
-            editor.delete_window().unwrap();
-        }
-        editor.message("said by the command that took it away");
-        editor.end_command();
-        assert!(!editor.shows_secret());
-        assert_eq!(echo(&editor), "", "others: {others}");
-    }
-}
-
-/// What is left of the command's wrap budget, in the pool and every wrap.
-fn budget_left(editor: &Editor) -> usize {
-    editor.wrap_pool
-        + editor
-            .windows
-            .iter()
-            .filter_map(|window| window.wrap_map())
-            .map(crate::display_map::wrap_map::WrapMap::budget_left)
-            .sum::<usize>()
+        editor.resize_window(Way::Across, isize::MAX).unwrap();
+        // A window that narrow wraps nothing, and still shows its cursor's row.
+        editor.select_window(other);
+        editor.follow_cursor();
+        let wrapped = editor.window().wrap().is_some_and(|wrap| wrap.wraps());
+        assert_eq!(
+            wrapped,
+            lines < 1000,
+            "7 columns are below the narrowest wrap"
+        );
+        assert!(!screen(&editor, other).rows().is_empty());
+        let regions = *editor.regions(other).unwrap();
+        (regions.area().columns, regions.text.columns)
+    };
+    let (few, many) = (stop(3), stop(100_000));
+    assert_eq!(few.0, many.0, "the same stop");
+    assert_eq!(
+        (few.1, many.1),
+        (10, 7),
+        "fewer text columns beside a wider gutter"
+    );
 }
 
 #[test]
-fn new_wraps_in_several_windows_share_one_budget() {
-    let budget = crate::display_map::wrap_map::COMMAND_BUDGET;
-    let mut editor = editor("ab\n", (24, 81));
-    let id = editor.window().buffer();
-    editor.split_window(Way::Across, false).unwrap();
-    editor.split_window(Way::Down, false).unwrap();
-    editor.begin_undo_group();
-    assert_eq!(budget_left(&editor), budget);
-    // Each window makes a wrap here, which used to come with a budget of its own.
-    assert!(editor.set_wraps(id, true));
-    assert!(budget_left(&editor) < budget, "spent some");
-    editor.end_undo_group();
-    editor.begin_undo_group();
-    editor.split_window(Way::Down, false).unwrap();
-    assert!(
-        budget_left(&editor) <= budget,
-        "a split's wrap has none of its own"
-    );
-    editor.end_undo_group();
+fn a_deleted_window_gives_its_cells_to_the_one_before_it_or_after_the_first() {
+    let mut editor = editor(&lines(10), (40, 80));
+    let a = selected(&editor);
+    let c = editor.split_window(Way::Down, false).unwrap();
+    let b = editor.split_window(Way::Down, false).unwrap();
+    assert_eq!(ids(&editor), [a, b, c]);
+    let rows = |editor: &Editor, id| editor.regions(id).unwrap().outer().rows;
+    let (a_rows, b_rows, c_rows) = (rows(&editor, a), rows(&editor, b), rows(&editor, c));
+    editor.select_window(b);
+    editor.delete_window().unwrap();
+    assert_eq!(rows(&editor, a), a_rows + b_rows, "the one before");
+    assert_eq!(rows(&editor, c), c_rows);
+    editor.select_window(a);
+    editor.delete_window().unwrap();
+    assert_eq!(rows(&editor, c), 39, "after the first: all of it");
 }

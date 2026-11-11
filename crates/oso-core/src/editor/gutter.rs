@@ -32,6 +32,9 @@ impl Gutter {
     }
 }
 
+/// The fewest columns line numbers take: [`MIN_DIGITS`] and a cell of space.
+pub(super) const NARROWEST: usize = MIN_DIGITS + 1;
+
 /// The columns line numbers take for a buffer of `lines` lines: its digits, at least 3, and a
 /// cell of space.
 fn columns_for(lines: usize) -> usize {
