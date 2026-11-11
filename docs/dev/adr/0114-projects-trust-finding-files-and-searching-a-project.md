@@ -325,6 +325,11 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 - Files placed inside a trusted project without a marker of their own, such as an archive
   unpacked there, are that project's and share its trust. That is what trusting a directory means;
   ADR 0009's wording already implies it.
+- A worktree is recognised as git recognises it: by the main repository's record of where
+  the worktree is. A directory made later at the place of a worktree removed without
+  `git worktree prune` is that worktree to git, and takes the main repository's trust here
+  too. The author accepted this on 2026-11-12, through the coordinator, as git's own
+  behaviour; `git worktree prune` clears such records.
 - A project's ignore files can hide its files from a listing and a search. They can do nothing
   else.
 - A walk of a very large tree stops at 100,000 files, so the rest of such a project is not listed
