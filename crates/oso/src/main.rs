@@ -93,6 +93,7 @@ fn main() {
     // Read while the event loop and the GPU start, and taken as the window opens.
     let theme_read = app::ThemeRead::start(theme_directory.clone());
     let config_reader = config::Reader::start(&config_source);
+    let trust_file = config::TrustFile::start(config_source.trust_file());
     let emergency = Emergency::new(emergency_directory);
     emergency.install_hook();
     app::run(started, |waker| {
@@ -111,6 +112,7 @@ fn main() {
             theme_read,
         );
         app.set_configuration(&config_source, config_reader);
+        app.set_trust_file(trust_file);
         #[cfg(feature = "dev")]
         app.set_dev(dev);
         app.check_emergency_directory();

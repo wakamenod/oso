@@ -83,6 +83,8 @@ pub(super) fn with_panes<R>(
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], Face::Modeline),
         span(&status.project[..], Face::Modeline),
+        // Dim, as `Agent` is: what the trust record says, never a name (ADR 0114).
+        span(status.restricted, Face::Prompt),
         span(&status.state[..], Face::Modeline),
     ];
     let echo = [

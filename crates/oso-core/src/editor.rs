@@ -78,7 +78,7 @@ pub use gutter::Gutter;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
-pub use projects::ProjectRequest;
+pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
@@ -226,6 +226,8 @@ pub struct Editor {
     projects: Vec<Project>,
     /// Files whose project the host should find.
     project_requests: Vec<ProjectRequest>,
+    /// The record of trusted projects, and what of it waits to be written.
+    trust: projects::Trust,
     themes: themes::Themes,
     aids: VisualAids,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
@@ -299,6 +301,7 @@ impl Editor {
             reverts: Vec::new(),
             projects: Vec::new(),
             project_requests: Vec::new(),
+            trust: projects::Trust::default(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
             trims: trim::Trims::default(),
