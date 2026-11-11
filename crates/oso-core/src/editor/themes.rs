@@ -15,7 +15,7 @@ pub(super) struct Themes {
     /// Each theme's name and what it is, such as `dark`, in the order the host gave them.
     names: Vec<(&'static str, &'static str)>,
     current: usize,
-    /// What `toggle-theme` switches between: the first two, until configuration names them.
+    /// What `toggle-theme` switches between: the first two, or the pair the host sets.
     pair: [usize; 2],
 }
 

@@ -243,8 +243,12 @@ and below the row, and a label's glyphs keep their own cells
   only files that exist, saves without asking only buffers the person visited, and never saves
   oso's configuration or trust ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is
   an agent steered by text it read, and other processes of the same user:
-  - The channel is off until the person runs `agent-channel-start`, and each new connection
-    asks the person on its first request, from the keyboard only, naming the process as it
+  - The channel is off until the person runs `agent-channel-start`, or `[agent-channel] start =
+    true` in `config.toml` starts it at launch. Only the first look at the file starts it, and a
+    reload never does; a file that other users in a group can change, or the way to it, does not
+    start it ([ADR 0108](adr/0108-the-user-configuration-file.md),
+    [ADR 0110](adr/0110-adr-0108-as-built.md)). Each new connection asks the person on its
+    first request, however the channel started, from the keyboard only, naming the process as it
     reports itself, and `oso mcp` only when the process runs oso's own program. A connection
     that sends nothing within 2 s is closed unasked and uncounted, so a probe raises no
     question. One connection waits at a time, at most 10 ask a minute, at most 60 connect a

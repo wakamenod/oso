@@ -37,10 +37,10 @@ impl std::fmt::Debug for Channel {
     }
 }
 
-/// Starts the channel's run `run` on `<pid>-agent.sock`. `send` hands a request to the UI thread and
-/// returns false once the UI is gone. Only the person's command, or the configuration file at
-/// launch (ADR 0108), calls this, once per channel: the app holds at most one. It checks and binds in the file system, so call it
-/// off the UI thread.
+/// Starts the channel's run `run` on `<pid>-agent.sock`. `send` hands a request to the UI thread
+/// and returns false once the UI is gone. Only the person's command, or the configuration file
+/// at launch (ADR 0108), calls this, once per channel: the app holds at most one. It checks and
+/// binds in the file system, so call it off the UI thread.
 pub fn start<S>(run: u64, send: S) -> io::Result<Channel>
 where
     S: Fn(Request) -> bool + Clone + Send + 'static,
