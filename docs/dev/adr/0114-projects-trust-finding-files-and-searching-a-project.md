@@ -75,21 +75,23 @@ each part answers.
   in a worktree or submodule), `.jj` or `.hg` (Q3).** Its root is the nearest such directory
   above the file, so a submodule or a repository cloned inside another is its own project. A
   file with no marker above it is in no project.
-- **Detection runs nothing and reads no file but a `.git` file.** It asks the metadata of the
-  three names in each directory from the file's up to the file system's root. It runs on the
-  loader thread, which already resolves the path for the secret verdict
-  ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)), from the canonical path of the
-  file opened, and the load's report carries the root. The UI thread never touches the disk for
-  it.
+- **Detection runs nothing and reads no file but a `.git` file.** It asks the metadata of each
+  directory and of the three names in it, from the file's directory up, following no link: a
+  link is no marker. It stops at the home directory, which is never a project, at a directory
+  or marker another user owns (root aside), as git's `safe.directory` does, and where the file
+  system changes, as git does by default. It starts from the place the file's path leads, once
+  the loader has found it, and runs on a thread of its own, `oso-project`, so neither the
+  file's text nor the UI thread waits for it; a slow or hung mount delays only other projects.
 - **The editor keeps a table of the projects its buffers are in:** root, a name (the root's last
   component, shown as any label is, with controls boxed) and whether it is trusted. A buffer
   points into it. A buffer with no file, such as `*scratch*`, is in no project.
-- **A worktree belongs with its main repository for trust (Q4).** A `.git` file of at most 1 KiB
-  whose `gitdir:` line names `<main>/.git/worktrees/<name>`, where that directory's own `gitdir`
-  file names this `.git` file back, makes `<main>` the project whose trust applies. Both are read
-  as data, on the loader thread. Anything else, a submodule (`.git/modules/…`) among them, is a
-  project of its own. A repository cannot claim a trusted project's trust, since the link back
-  lives inside the trusted project's `.git`.
+- **A worktree belongs with its main repository for trust (Q4).** A root whose `.git` is a file
+  of at most 1 KiB, whose `gitdir:` line names `<main>/.git/worktrees/<name>` once `.` and `..`
+  are worked out by the words alone, claims `<main>`. Detection keeps the claim and looks up
+  nothing it names. The claim counts only when `<main>` is trusted and that directory's own
+  `gitdir` file names this root's `.git` back, which step 2 checks within the trusted
+  repository, never following a link at the worktree's place. Anything else, a submodule
+  (`.git/modules/…`) among them, is a project of its own.
 
 ### Trust
 
@@ -325,6 +327,11 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 - Files placed inside a trusted project without a marker of their own, such as an archive
   unpacked there, are that project's and share its trust. That is what trusting a directory means;
   ADR 0009's wording already implies it.
+- A worktree is recognised as git recognises it: by the main repository's record of where
+  the worktree is. A directory made later at the place of a worktree removed without
+  `git worktree prune` is that worktree to git, and takes the main repository's trust here
+  too. The author accepted this on 2026-11-12, through the coordinator, as git's own
+  behaviour; `git worktree prune` clears such records.
 - A project's ignore files can hide its files from a listing and a search. They can do nothing
   else.
 - A walk of a very large tree stops at 100,000 files, so the rest of such a project is not listed
