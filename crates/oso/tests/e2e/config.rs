@@ -1,16 +1,21 @@
 //! The user configuration file under a running instance (ADR 0108): its keys apply, what is
 //! wrong in it reaches `*Messages*` with its line, and a change to it applies without a restart.
+//! Its settings apply at start and again only when they change, beside the theme remembered
+//! from before and a restart's handoff.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. What the file may
 //! say, and what is refused, are in the tests of `config`.
 
 use std::fs;
 use std::path::Path;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
 use super::cursor;
-use super::harness::{App, Scratch};
+use super::handover::hand_over;
+use super::harness::{App, Scratch, emergency_dir};
 
 /// Gives `path` `mode`, whatever the umask, so that the file is read as the person's own.
 fn set_mode(path: &Path, mode: u32) {
@@ -47,6 +52,161 @@ fn messages(app: &mut App) -> Vec<Value> {
     let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 100 })));
     app.send_keys("C-x b RET");
     rows["rows"].as_array().cloned().unwrap_or_default()
+}
+
+/// The theme the instance draws with.
+fn theme(app: &mut App) -> String {
+    let state = app.call("export-state", None);
+    state["theme"].as_str().unwrap_or_default().to_owned()
+}
+
+/// Waits until the instance draws with `name`.
+fn wait_for_theme(app: &mut App, name: &str) {
+    let started = Instant::now();
+    while theme(app) != name {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "never drew with {name}"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Waits until `*Messages*` has `line`.
+fn wait_for_message(app: &mut App, line: &str) {
+    let started = Instant::now();
+    while !messages(app).contains(&json!(line)) {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "*Messages* never had {line:?}"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A table this oso does not know, so that a look at the file says something.
+const SAID: &str = "[later]\n";
+/// What it says.
+const SAID_ECHO: &str = "Configuration: 1 problem, see *Messages*";
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_files_settings_apply_at_start_and_again_only_when_they_change() {
+    let settings = |line_numbers: bool, start: bool, default: &str| {
+        format!(
+            "[theme]\ndefault = \"{default}\"\npair = [\"dusk\", \"light\"]\n\n\
+             [aids]\nline-numbers = {line_numbers}\n\n[agent-channel]\nstart = {start}\n"
+        )
+    };
+    let (scratch, config) = with_config("config-settings", settings(true, true, "dusk").as_bytes());
+    let mut app = App::start_with_config(None, scratch.path(), &config);
+    app.wait_until_ready();
+    let state = app.wait_for("the channel, started", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.starts_with("Agent  "))
+    });
+    assert_eq!(state["visual_aids"]["line_numbers"], true);
+    assert_eq!(theme(&mut app), "dusk");
+    wait_for_message(
+        &mut app,
+        "Agent channel on, as config.toml says: each agent asks you first",
+    );
+
+    // Choices made at run time stand while their settings do not change.
+    app.run_command("global-whitespace-mode", Some(0))
+        .expect("an aid toggles");
+    app.run_command("toggle-theme", None)
+        .expect("the theme toggles");
+    assert_eq!(theme(&mut app), "light", "within the file's pair");
+    replace(&config, &settings(false, false, "dusk"));
+    let state = app.wait_for("the channel's change, said", |state| {
+        state["echo"] == "config.toml: [agent-channel] start = false applies from the next start"
+    });
+    assert_eq!(state["visual_aids"]["line_numbers"], false, "it changed");
+    assert_eq!(
+        state["visual_aids"]["whitespace"], false,
+        "the choice stood"
+    );
+    assert_eq!(theme(&mut app), "light", "the choice stood");
+    assert!(
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.starts_with("Agent  ")),
+        "a reload never stops the channel"
+    );
+
+    replace(&config, &settings(false, false, "dark"));
+    wait_for_theme(&mut app, "dark");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_theme_shown_last_wins_until_the_configured_default_changes() {
+    let file = |default: &str| format!("{SAID}[theme]\ndefault = \"{default}\"\n");
+    let (scratch, config) = with_config("config-theme", file("light").as_bytes());
+    let remembered = emergency_dir(scratch.path())
+        .parent()
+        .expect("the state directory")
+        .join("theme");
+    {
+        let mut app = App::start_with_config(None, scratch.path(), &config);
+        app.wait_until_ready();
+        app.wait_for("the look", |state| state["echo"] == SAID_ECHO);
+        assert_eq!(theme(&mut app), "light");
+        app.run_command("toggle-theme", None)
+            .expect("the theme toggles");
+        assert_eq!(theme(&mut app), "dark");
+        let started = Instant::now();
+        while fs::read_to_string(&remembered).ok().as_deref() != Some("dark\nlight\n") {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "never remembered"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+    {
+        let mut app = App::start_with_config(None, scratch.path(), &config);
+        app.wait_until_ready();
+        app.wait_for("the look", |state| state["echo"] == SAID_ECHO);
+        assert_eq!(theme(&mut app), "dark", "the choice wins");
+    }
+    replace(&config, &file("dusk"));
+    let mut app = App::start_with_config(None, scratch.path(), &config);
+    app.wait_until_ready();
+    app.wait_for("the look", |state| state["echo"] == SAID_ECHO);
+    assert_eq!(theme(&mut app), "dusk", "the changed default wins");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_restarts_aids_win_over_the_files_which_become_the_baseline() {
+    let file = |whitespace: bool| {
+        format!("{SAID}[aids]\nline-numbers = true\nwhitespace = {whitespace}\n")
+    };
+    let (scratch, config) = with_config("config-handover", file(true).as_bytes());
+    let mut old = App::start_with_config(None, scratch.path(), &config);
+    old.wait_until_ready();
+    old.wait_for("the look", |state| state["echo"] == SAID_ECHO);
+    old.run_command("global-display-line-numbers-mode", Some(0))
+        .expect("an aid toggles");
+    let mut new = App::start_with_config(None, scratch.path(), &config);
+    new.wait_until_ready();
+    hand_over(&mut old, &mut new);
+    // Whether the new instance's look came before the import or after, the handoff's switch
+    // stands.
+    wait_for_message(&mut new, "config.toml:1:2: unknown table [later], skipped");
+    assert_eq!(new.state()["visual_aids"]["line_numbers"], false);
+
+    replace(&config, &file(false));
+    let state = new.wait_for("whitespace, changed", |state| {
+        state["visual_aids"]["whitespace"] == false
+    });
+    assert_eq!(
+        state["visual_aids"]["line_numbers"], false,
+        "its setting did not change"
+    );
 }
 
 #[test]

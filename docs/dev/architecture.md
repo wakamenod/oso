@@ -503,7 +503,7 @@ read. See [ADR 0019](adr/0019-configuration.md).
 - One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
   (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
   without it.
-- A thread in the tip crate's `config` (`config::Watch`) reads, parses and builds it at
+- A thread in the tip crate's `config` (`config::Reader`) reads, parses and builds it at
   start and when a `stat` once a second, on focus or after a save sees it change, and the UI
   thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap
   on another thread. A bad file leaves the last good one, with messages.
@@ -513,6 +513,10 @@ read. See [ADR 0019](adr/0019-configuration.md).
 - User keys are a keymap directly above the global one, which can also leave a
   key undefined. A setting applies at start and when its value in the file
   changes. See [ADR 0108](adr/0108-the-user-configuration-file.md).
+- The app keeps the settings in force (`config::InForce`: the file's, or the compiled-in
+  value of each it leaves out) and applies only those a look changes, so a choice made at run
+  time stands. The theme shown last is remembered with the configured default then, in
+  `oso/theme`, and wins at start while that default is the file's.
 
 ### Persistence
 

@@ -1,6 +1,6 @@
 # 0110. ADR 0108 as built
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-11
 
 ## Context
@@ -13,7 +13,7 @@ land, and is accepted with the last one.
 ## Decision
 
 The author chose D1 and D2 on 2026-11-11, through the coordinator, and the 256 KiB file limit
-the same day.
+and step 4's questions the same day.
 
 ### Step 1: the user's key layer
 
@@ -167,6 +167,47 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
   keeps the agent channel out of, `~/.config/oso`.
 - **The settings are parsed and not yet applied;** step 4 applies them.
 
+### Step 4: the settings
+
+- **The app keeps the settings in force, `config::InForce`:** each as the file gives it, or its
+  compiled-in value where the file leaves it out or there is no file. Those are the first
+  built-in theme, the first two as the pair, ADR 0026's aids, and no channel. Each look that
+  applies the file compares them one by one, and only what differs applies. So a setting removed
+  from the file, or a file removed, applies the compiled-in value. Each aid applies on its own:
+  a changed `flash` leaves `whitespace` as the person switched it.
+- **A file rejected or refused changes no setting,** nor what the next look is compared with.
+- **`oso/theme` holds the theme shown last and, on a second line, the configured default
+  then.** At start, the second line is taken as the default in force, so the file's default
+  applies only if it differs. A file of one line, written before, counts as the first built-in
+  theme. The file is written whenever the theme shown or the configured default changes, not
+  only on a choice. A theme the file set is remembered too, so a session that changes the
+  default and back starts next time where it ended.
+- **A theme the file sets is switched to quietly,** with no "Theme: …" line. `toggle-theme`'s
+  pair is set by `Editor::set_theme_pair`, new in `oso-core`, by index as `set_themes` is. An
+  index past the list, or one given twice, leaves the first two.
+- **What the thread finds before the window opens waits for it,** as the window takes the
+  remembered theme first. A look done by the first frame picks the theme before it is drawn. A
+  later look switches the theme when it comes. That can show one theme and then another only if
+  the file's default changed since the theme was remembered, or nothing is remembered and the
+  file names one. The UI thread never waits for the file.
+- **Only the launch's look starts the channel:** the first look the thread reports, if it read
+  and applied the file. The echo area and `*Messages*` say "Agent channel on, as config.toml
+  says: each agent asks you first". If a later look gives another value, oso says
+  "config.toml: [agent-channel] start = true applies from the next start". The line goes in the
+  echo area when nothing else is said there, and otherwise in `*Messages*` only. A file that was
+  bad at launch and fixed later does not start the channel either.
+- **A restart under `oso dev`:** the new instance reads the file at its start, as any start
+  does, and the import comes after. The handoff's theme and aids replace what the file applied.
+  If no look has applied the file by the import, the next one takes the file's theme and aids as
+  those in force without applying them. Either way, a later change of another setting does not
+  undo an `M-x` toggle. The pair and the channel apply as at a launch.
+
+### Step 5: the agent channel and the configuration directory
+
+- A directory in oso's configuration directory, at any depth, that can be searched but not
+  listed refuses every agent save, since what its entries lead to cannot be ruled out, as for an
+  unreadable configuration directory and one with more than 1000 entries.
+
 ## Changes to accepted ADRs
 
 **[ADR 0108](0108-the-user-configuration-file.md)** (The user configuration file):
@@ -200,6 +241,20 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
   under one says it is not configurable yet" holds, and also: so does every other name under
   `[keys]` but `global`, since modes' names are not known yet. Unknown names elsewhere still warn
   and are skipped.
+- "A setting applies at start, and again only when its value in the file changes" holds, and
+  also: a setting the file leaves out counts as its compiled-in value, so removing it applies
+  that value, and a file rejected or refused changes no setting.
+- "The state file gains a second line, the configured default when the choice was made" holds,
+  and also: the file is written whenever the theme shown or the configured default changes, also
+  for a theme the file set, and a file of one line counts as the first built-in theme.
+- "`agent-channel.start = true` starts the channel at launch" holds: at launch means the first
+  look at the file, if it applied the file.
+
+**[ADR 0089](0089-built-in-themes-switched-at-run-time.md)** (Built-in themes switched at run
+time):
+
+- "The current theme is written to `oso/theme`" holds, with the configured default on a second
+  line, as ADR 0108 says.
 
 ## Consequences
 
@@ -209,7 +264,11 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
 - A user cannot make a letter a prefix of their own, as some Emacs setups do with modal keys.
   `C-c` and the function keys stay free for that.
 - A file written for a newer oso loads, with a message for each table this one does not know.
-- Later steps add their points here.
+- A theme set in the file is kept across starts, as a choice is, and a choice stands until the
+  file names another default.
+- An aid toggled at run time stands through changes to the other settings and through a restart
+  under `oso dev`.
+- Turning the channel on or off in the file takes a start, and the person is told so.
 
 ## Alternatives considered
 
@@ -223,5 +282,11 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
 - **Super keys counted as typing keys:** they would be refused too, but they type nothing in oso,
   and Emacs users bind them.
 - **Ignoring `C-g` entries without a word:** the person would wonder why a binding does nothing.
+- **Writing `oso/theme` only on a choice:** a session that changes the configured default and
+  back would end in one theme and start the next time in another.
+- **Comparing a setting left out with the file's last value, not the compiled-in one:** removing
+  a line would change nothing until the next start.
+- **Waiting a moment for the file's look before the first frame:** a frame would wait on a read,
+  to save a switch that only follows a change to the file since the last start.
 - **Over the entry limit, binding the first 10,000:** TOML keeps no order, so which ones apply
   would depend on how their keys sort.

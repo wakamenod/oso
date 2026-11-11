@@ -14,6 +14,15 @@ use super::CONNECTION_VERBS;
 use crate::channel;
 
 impl App {
+    /// Starts the channel at launch, as the configuration file called `file` says
+    /// (ADR 0108). Each connection still asks the person.
+    pub(in crate::app) fn start_agent_channel_as_configured(&mut self, file: &str) {
+        self.start_agent_channel();
+        if self.agent.starting {
+            self.agent.started_by = Some(file.to_owned());
+        }
+    }
+
     /// Starts the channel on a thread of its own, as it checks and binds in the file system.
     pub(super) fn start_agent_channel(&mut self) {
         self.agent.stop_when_started = false;
@@ -21,6 +30,7 @@ impl App {
             self.editor.message("The agent channel is on already");
             return;
         }
+        self.agent.started_by = None;
         self.agent.run += 1;
         let run = self.agent.run;
         let waker = self.waker.clone();
@@ -43,6 +53,7 @@ impl App {
     /// The channel's thread started it, or could not.
     pub(in crate::app) fn agent_started(&mut self, started: std::io::Result<channel::Channel>) {
         self.agent.starting = false;
+        let started_by = self.agent.started_by.take();
         if std::mem::take(&mut self.agent.stop_when_started) {
             return;
         }
@@ -51,8 +62,12 @@ impl App {
                 self.agent.channel = Some(channel);
                 self.agent.started = Some(Instant::now());
                 self.agent_log("the agent channel is on");
+                let on = match started_by {
+                    Some(file) => format!("Agent channel on, as {file} says"),
+                    None => "Agent channel on".to_owned(),
+                };
                 self.editor
-                    .message("Agent channel on: each agent asks you first");
+                    .message(format!("{on}: each agent asks you first"));
             }
             Err(e) => {
                 log::warn!("the agent channel did not start: {e}");

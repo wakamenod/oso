@@ -1,18 +1,20 @@
-//! What a look at the configuration file comes to: the user's keys to put in, the lines for
-//! `*Messages*`, the one for the echo area, and whether something is still wrong (ADR 0108,
-//! ADR 0110). A pure function, so the app only carries it out.
+//! What a look at the configuration file comes to: the user's keys and settings to put in, the
+//! lines for `*Messages*`, the one for the echo area, and whether something is still wrong
+//! (ADR 0108, ADR 0110). A pure function, so the app only carries it out.
 //!
 //! Must not depend on: `app` or `dispatch`; this only words what the thread found.
 
 use oso_core::keymap::Keymap;
 
-use super::Report;
+use super::{Report, Settings};
 
 /// What the app does with a [`Report`].
 #[derive(Debug, PartialEq, Eq)]
 pub struct Outcome {
     /// The user's keys to put in, in place of those in force; `None` keeps them.
     pub keys: Option<Keymap>,
+    /// The settings to put in, all unset for no file; `None` keeps those in force.
+    pub settings: Option<Settings>,
     /// Lines for `*Messages*` alone (`Editor::note`).
     pub notes: Vec<String>,
     /// The line for the echo area and `*Messages*`, or `None` to say it only in the log.
@@ -29,6 +31,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
             log::info!("no configuration file: the defaults apply");
             Outcome {
                 keys: Some(Keymap::new()),
+                settings: Some(Settings::default()),
                 notes: Vec::new(),
                 said: None,
                 troubled: false,
@@ -36,6 +39,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
         }
         Report::Refused(why) => Outcome {
             keys: None,
+            settings: None,
             notes: Vec::new(),
             said: Some(format!("Configuration not read: {why}")),
             troubled: true,
@@ -76,6 +80,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
                 None
             };
             Outcome {
+                settings: applied.then_some(loaded.settings),
                 keys: loaded.keys,
                 notes,
                 said,
@@ -116,6 +121,7 @@ mod tests {
             quiet,
             Outcome {
                 keys: Some(Keymap::new()),
+                settings: Some(Settings::default()),
                 notes: Vec::new(),
                 said: None,
                 troubled: false,
@@ -152,20 +158,29 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_or_refused_file_keeps_the_keys_in_force_and_a_missing_one_drops_them() {
+    fn a_rejected_or_refused_file_keeps_what_is_in_force_and_a_missing_one_drops_it() {
         let rejected = outcome(read(None, 1, 0, false), "config.toml", false);
         assert_eq!(rejected.keys, None);
+        assert_eq!(
+            rejected.settings, None,
+            "nothing in a rejected file applies"
+        );
         assert_eq!(
             rejected.said.as_deref(),
             Some("Configuration not loaded: 1 problem, see *Messages*")
         );
         assert!(rejected.troubled);
         let refused = outcome(Report::Refused("why".to_owned()), "config.toml", false);
-        assert_eq!(refused.keys, None);
+        assert_eq!((refused.keys, refused.settings), (None, None));
         assert_eq!(refused.said.as_deref(), Some("Configuration not read: why"));
         assert!(refused.troubled);
         let missing = outcome(Report::Missing, "config.toml", true);
         assert_eq!(missing.keys, Some(Keymap::new()));
+        assert_eq!(
+            missing.settings,
+            Some(Settings::default()),
+            "the compiled-in ones"
+        );
         assert_eq!(missing.said, None);
         assert!(!missing.troubled);
     }
