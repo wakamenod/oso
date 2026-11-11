@@ -145,6 +145,7 @@ impl Buffer {
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
+        self.edited.follow(&staged.edits);
         if self.no_history {
             return;
         }
@@ -193,6 +194,9 @@ impl Buffer {
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
+        for step in &staged.steps {
+            self.edited.follow(step);
+        }
         self.history.cross(staged.direction, staged.crossed);
         self.note_crossing();
     }

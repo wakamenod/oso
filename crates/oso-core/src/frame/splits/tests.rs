@@ -2,8 +2,9 @@
 //!
 //! Must not depend on: `editor`; the tree is tested with plain ids and sizes.
 
+use super::cells::largest_remainder;
 use super::*;
-use crate::frame::{Hit, Part, layout};
+use crate::frame::{FrameSize, Hit, Part, layout};
 use proptest::prelude::*;
 
 const A: WindowId = WindowId::new(0);
@@ -88,12 +89,40 @@ fn a_split_leaves_each_half_two_rows_and_ten_columns_of_text() {
     let mut splits = Splits::new(A);
     let frame = lay(&splits, 30, 20);
     assert_eq!(splits.split(A, Way::Across, B, &frame), Err(TooSmall));
-    // A gutter of 4 takes from each half: 15 with the divider, 14.
-    let mut splits = Splits::new(A);
-    let frame = layout(size(30, 28), &splits, A, |_| 4);
-    assert_eq!(splits.split(A, Way::Across, B, &frame), Err(TooSmall));
-    let frame = layout(size(30, 29), &splits, A, |_| 4);
-    assert_eq!(splits.split(A, Way::Across, B, &frame), Ok(()));
+    // With line numbers on, the narrowest gutter, 4, takes from each half: 15 with the
+    // divider, 14. The window's own gutter, wider for a long buffer, does not count.
+    for own in [4, 7] {
+        let mut splits = Splits::new(A);
+        splits.set_gutter(4);
+        let frame = layout(size(30, 28), &splits, A, |_| own);
+        assert_eq!(splits.split(A, Way::Across, B, &frame), Err(TooSmall));
+        let frame = layout(size(30, 29), &splits, A, |_| own);
+        assert_eq!(splits.split(A, Way::Across, B, &frame), Ok(()), "{own}");
+    }
+}
+
+#[test]
+fn a_wider_gutter_than_the_narrowest_leaves_fewer_text_columns_and_moves_no_floor() {
+    // Resized to the floor, a window of a 100,000-line buffer keeps 7 text columns beside
+    // its 7, where one of 3 lines keeps 10 beside its 4: the same cells either way.
+    let floor = |own: usize| {
+        let mut splits = Splits::new(A);
+        splits.set_gutter(4);
+        let frame = layout(size(30, 61), &splits, A, |_| own);
+        splits.split(A, Way::Across, B, &frame).unwrap();
+        let frame = layout(size(30, 61), &splits, A, |_| own);
+        splits.resize(A, Way::Across, isize::MAX, &frame);
+        let frame = layout(size(30, 61), &splits, A, |_| own);
+        *frame.regions(B).unwrap()
+    };
+    let (few, many) = (floor(4), floor(7));
+    assert_eq!(
+        few.outer(),
+        many.outer(),
+        "the stop says nothing of the line count"
+    );
+    assert_eq!((few.gutter.columns, few.text.columns), (4, 10));
+    assert_eq!((many.gutter.columns, many.text.columns), (7, 7));
 }
 
 #[test]
@@ -101,6 +130,7 @@ fn a_split_leaves_each_half_room_across_the_split_too() {
     // Stacked halves of 9 columns of text, or with a gutter of 4 and 13 columns.
     for (rows, columns, gutter) in [(41, 9, 0), (41, 13, 4), (0, 31, 0)] {
         let mut splits = Splits::new(A);
+        splits.set_gutter(gutter);
         let frame = layout(size(rows, columns), &splits, A, |_| gutter);
         assert_eq!(
             splits.split(A, Way::Down, B, &frame),

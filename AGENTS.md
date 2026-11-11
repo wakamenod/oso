@@ -43,7 +43,9 @@ one. Open topics are in `docs/dev/open-questions.md`.
 
 ## Workflow
 
-- Run `just ci` (check, lint, fmt-check, test) before every commit. Run
+- Run `just ci` (check, lint, fmt-check, test) before every commit, and
+  `just clippy-windows` before every push: it lints for Windows from any OS,
+  with stub C tools, as no Mac has the headers the grammars' C needs (ADR 0111). Run
   `just deny` and `just audit` when dependencies change, and
   `just release-safety` when dev features change.
 - Run `just e2e` when a change touches the control socket, the input path,

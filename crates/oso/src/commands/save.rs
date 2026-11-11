@@ -14,7 +14,7 @@ const NAME_CELLS: usize = 40;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "save-buffer",
-        doc: "Save the buffer to its file, if it is modified.\n\nEnsures a final newline first, as an edit of its own. The file is written in the background, and replaced at once and whole. If it has changed on disk since it was read, it is kept and the buffer stays modified, and the next save asks whether to save over it. `y` replaces it only if it is still the file that save found. A second save while one runs is refused.",
+        doc: "Save the buffer to its file, if it is modified.\n\nEnsures a final newline first, as an edit of its own. With `[save] trim-whitespace = true` in `config.toml`, that edit also deletes the spaces and tabs at the ends of the lines edited since the file was read or saved, except before a cursor, and the blank lines at the end if they were edited. The file is written in the background, and replaced at once and whole. If it has changed on disk since it was read, it is kept and the buffer stays modified, and the next save asks whether to save over it. `y` replaces it only if it is still the file that save found. A second save while one runs is refused.",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: save_buffer,

@@ -6,7 +6,8 @@
 //! Run with `cargo run --release -p oso-core --example text_perf`. Shows that
 //! per-query costs do not grow with file size or line length. The benchmarks
 //! that CI checks against the budgets are in `crates/oso/examples/perf`. `-- words`,
-//! `-- cursors` and `-- wrap` run only word motion, typing at many cursors, or soft wrap.
+//! `-- cursors`, `-- trim` and `-- wrap` run only word motion, typing at many cursors,
+//! whitespace cleanup on save, or soft wrap.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -25,6 +26,8 @@ use oso_core::word;
 
 #[path = "text_perf/cursors.rs"]
 mod cursors;
+#[path = "text_perf/trim.rs"]
+mod trim;
 #[path = "text_perf/words.rs"]
 mod words;
 #[path = "text_perf/wrap.rs"]
@@ -366,21 +369,18 @@ fn word_motion_costs() {
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
-    if std::env::args().any(|arg| arg == "words") {
-        word_motion_costs();
-        return;
-    }
-    if std::env::args().any(|arg| arg == "cursors") {
-        cursors::cursor_costs();
-        return;
-    }
-    if std::env::args().any(|arg| arg == "wrap") {
-        wrap::wrap_costs();
-        return;
-    }
-    if std::env::args().any(|arg| arg == "screen") {
-        wrap::screen_costs();
-        return;
+    let parts: [(&str, fn()); 5] = [
+        ("words", word_motion_costs),
+        ("trim", trim::trim_costs),
+        ("cursors", cursors::cursor_costs),
+        ("wrap", wrap::wrap_costs),
+        ("screen", wrap::screen_costs),
+    ];
+    for (name, part) in parts {
+        if std::env::args().any(|arg| arg == name) {
+            part();
+            return;
+        }
     }
     println!("== Building (100 MB, source-like text)");
     let text = file_text(100 * MB);

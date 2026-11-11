@@ -36,6 +36,7 @@ mod reloads;
 mod saves;
 mod searches;
 mod theme_file;
+mod trims;
 mod wraps;
 // The window system: oso's own layer on macOS, and winit on Windows and Linux (ADR 0070,
 // stage 3).
@@ -77,6 +78,8 @@ pub enum UserEvent {
     Copies(CopiesEvent),
     /// The clipboard's threads wrote or read (ADR 0074).
     Clipboard(clipboard::ClipboardEvent),
+    /// A whitespace scan ended (ADR 0113).
+    Trim(oso_core::editor::TrimReport),
     /// isearch's worker found or counted something (ADR 0082).
     Search(oso_core::editor::SearchReport),
     /// Soft wrap's worker wrapped a window's rows (ADR 0100).
@@ -360,6 +363,7 @@ impl App {
         self.serve_files();
         self.forget_listings();
         self.start_saves();
+        self.start_trims();
         self.start_searches();
         self.start_reverts();
         self.answer_about_copies();

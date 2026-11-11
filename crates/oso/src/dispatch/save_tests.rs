@@ -184,6 +184,49 @@ fn the_final_newline_is_one_undo_step_and_the_cursor_stays_before_it() {
 }
 
 #[test]
+fn with_trim_whitespace_a_save_cleans_the_lines_edited_and_undoes_as_one_step() {
+    let scratch = Scratch::new("dispatch-trim");
+    let path = scratch.file("notes.txt", b"keep  \nedit");
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
+    editor.set_trim_whitespace(true);
+    // A space typed on the second line, then the cursor back to the first.
+    send(&mut dispatcher, &mut editor, "C-n C-e SPC SPC M-<");
+    send(&mut dispatcher, &mut editor, "C-x C-s");
+    assert_eq!(
+        text(&editor),
+        "keep  \nedit\n",
+        "the line not edited keeps its spaces"
+    );
+    finish_saves(&mut editor);
+    assert_eq!(fs::read(&path).unwrap(), b"keep  \nedit\n");
+    send(&mut dispatcher, &mut editor, "C-z");
+    assert_eq!(
+        text(&editor),
+        "keep  \nedit  ",
+        "the cleanup and the line break together"
+    );
+}
+
+#[test]
+fn delete_trailing_whitespace_cleans_the_whole_buffer() {
+    let scratch = Scratch::new("dispatch-delete-trailing");
+    let path = scratch.file("notes.txt", b"a  \nb\t\n\n\n");
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
+    let name: Vec<String> = "delete-trailing-whitespace"
+        .chars()
+        .map(String::from)
+        .collect();
+    send(
+        &mut dispatcher,
+        &mut editor,
+        &format!("M-x {} RET", name.join(" ")),
+    );
+    assert_eq!(text(&editor), "a\nb\n");
+    send(&mut dispatcher, &mut editor, "C-z");
+    assert_eq!(text(&editor), "a  \nb\t\n\n\n");
+}
+
+#[test]
 fn typing_after_a_save_continues_the_line() {
     let scratch = Scratch::new("dispatch-continue");
     let path = scratch.path().join("new.txt");
