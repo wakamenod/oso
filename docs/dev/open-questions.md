@@ -62,6 +62,19 @@ item notes when it must be settled.
   `take-timings`, they cost about 40 µs at the median, mostly the current line's band, with
   one frame per key and no change in waiting for a drawable or presenting. Find what the
   benchmark's way of driving keys adds ([ADR 0097](adr/0097-visual-aids.md)).
+- There is no wall-clock figure for typing with line numbers on: the benchmark runs with them
+  off, and its scenarios are in a guard file (`examples/perf/bench.rs`), which waits for the
+  author ([ADR 0105](adr/0105-m2-24-part-2-the-flash-and-line-numbers.md)).
+- The flash's colour is checked only by eye, as the control socket's screenshots do not include
+  the flash ([ADR 0105](adr/0105-m2-24-part-2-the-flash-and-line-numbers.md)).
+- An `oso dev` restart from a build whose handoff has visual aids without `line_numbers` is
+  refused, as `parse_aids` wants every switch. That fails safe, but ADR 0097 promises
+  the defaults only for a handoff with no visual aids at all. Decide whether a missing switch
+  takes its default ([ADR 0097](adr/0097-visual-aids.md)).
+- Small API tidy-ups in the gutter: `Gutter::rows` gives whether a row is the current line as
+  a bare `bool`, `Editor::fit_gutter`'s `bool` result is used only by tests, and text-grid
+  snapshots do not mark the current line's number
+  ([ADR 0105](adr/0105-m2-24-part-2-the-flash-and-line-numbers.md)).
 
 - Safe save loses a file's extended attributes other than the quarantine flag ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)). On macOS that includes Finder tags. Decide whether copying them is worth it.
 - A control socket's own file is not sealed as a screenshot is. It is a dev tool's, its peer is checked, and an inherited `deny delete` can leave a dead
@@ -224,25 +237,6 @@ item notes when it must be settled.
   name `oso-core`'s. That only `app/shell.rs` names winit is said in the tip crate's
   `AGENTS.md` and not checked by the guard tests
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- What stays to check at the keyboard now that oso's own layer is the default on macOS
-  (ADR 0070, stage 3), with the author's choices in
-  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md): on the default build, the
-  candidate window's place, a full-width space and letter in Japanese mode, and secure input
-  following `.env`; and the input method's predictions with the cursor's line. The author
-  checked at the keyboard on 2026-11-08 the candidate window's place, also after a prefix key
-  and back from `*Messages*`, a full-width space and letter in Japanese mode, and secure input
-  following `.env`, other apps in front, Spotlight and quitting; and on 2026-11-09, on the
-  native layer, a window covered by another app and uncovered drawing again with no key, a
-  composition committed when the IME turns off, the candidate window following the segment
-  being converted, also near the right edge, nothing typed from the Emoji & Symbols palette
-  while the IME is off, a Dock quit asking the exit question, and a live resize with no text
-  stretched or smeared and `get-state`'s `live_resize` showing a frame for each step.
-  Accepted unchecked by the author: Writing Tools, and a real Log Out, which the e2e flow
-  covers with the system's own Apple event
-  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
-  [ADR 0073](adr/0073-secure-input-in-secret-buffers.md),
-  [ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md),
-  [ADR 0086](adr/0086-frames-during-a-live-resize.md)).
 - Reconversion: a replacement range outside the marked text is ignored for now, and the text
   goes in at the cursor, though the input method now reads the cursor's line. Decide whether
   to apply one inside the excerpt last given, as ADR 0070 allows
