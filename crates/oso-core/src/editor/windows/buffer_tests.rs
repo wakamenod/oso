@@ -328,3 +328,30 @@ fn killing_a_buffer_shown_only_in_the_window_not_selected_moves_only_that_window
     assert_eq!(editor.window_by_id(other).unwrap().buffer(), scratch);
     assert!(editor.buffer(file).is_none());
 }
+
+#[test]
+fn the_agent_segment_goes_to_the_bottom_modeline_too_while_a_float_covers_the_selected_one() {
+    let mut editor = editor("text", (24, 80));
+    editor.set_agent_channel(crate::editor::AgentChannel::Connected);
+    let top = selected(&editor);
+    let bottom = editor.split_window(Way::Down, false).unwrap();
+    let says = |editor: &Editor, id| !status(editor, id).agent.is_empty();
+    assert!(
+        says(&editor, top) && !says(&editor, bottom),
+        "the selected one's alone"
+    );
+    // A completion's float centres on the tiled area, over the top window's modeline.
+    let items: std::sync::Arc<[crate::complete::Candidate]> =
+        vec![crate::complete::Candidate::new("forward-char", "", "")].into();
+    editor.open_completion("M-x", "command", items).unwrap();
+    let float = editor.prompt_layout().unwrap().regions.outer;
+    let modeline = editor.regions(top).unwrap().modeline;
+    assert!(float.row <= modeline.row && modeline.row < float.row + float.rows);
+    assert!(says(&editor, top), "still the selected one's");
+    assert!(says(&editor, bottom), "and the bottom one's, in sight");
+    assert!(status(&editor, bottom).agent_connected);
+    // A question's panel hangs from the top, clear of the top window's modeline.
+    editor.quit();
+    editor.ask("Exit?", "keyboard-quit").unwrap();
+    assert!(!says(&editor, bottom), "not while the selected one's shows");
+}

@@ -308,7 +308,11 @@ file or a 10 MB line.
   line one pixel wide down the middle of its column.
 - **As built, step 3:** each window's panes take ids from its `WindowId` (`WindowId::get`): 16
   and up, four a window, below them the echo area's and the floats'. A composition ends when
-  another window is selected, whatever selected it.
+  another tiled window is selected, whatever selected it, and stays when a prompt opens over
+  it (ADR 0077).
+- **`Agent` stays in sight (the author's choice, 2026-11-12):** a prompt's float can cover the
+  selected window's modeline, which then sits mid-frame. While one does, the bottom-most
+  window's modeline, the left-most on the bottom row, says `Agent` too (ADR 0085).
 - **`oso-platform`:** the wheel event's position.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.
