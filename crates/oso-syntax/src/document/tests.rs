@@ -14,6 +14,20 @@ use crate::language::Language;
 
 pub(super) const LONG: Duration = Duration::from_secs(30);
 
+/// A property test's number of cases: `default`, or `PROPTEST_CASES` if it is set, so that the
+/// weekly workflow runs many more.
+pub(super) fn cases(default: u32) -> proptest::prelude::ProptestConfig {
+    let config = proptest::prelude::ProptestConfig::default();
+    if std::env::var_os("PROPTEST_CASES").is_some() {
+        config
+    } else {
+        proptest::prelude::ProptestConfig {
+            cases: default,
+            ..config
+        }
+    }
+}
+
 /// A node's kind, its bytes, and its first and last points as rows and columns.
 pub(super) type Node = (String, usize, usize, (usize, usize), (usize, usize));
 

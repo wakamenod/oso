@@ -12,6 +12,19 @@ impl core::fmt::Debug for oso_syntax::Failure
 pub fn oso_syntax::Failure::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_syntax::Failure
 impl core::marker::StructuralPartialEq for oso_syntax::Failure
+pub enum oso_syntax::Highlighted
+pub oso_syntax::Highlighted::Done
+pub oso_syntax::Highlighted::Failed(oso_syntax::Failure)
+pub oso_syntax::Highlighted::Paused
+impl core::clone::Clone for oso_syntax::Highlighted
+pub fn oso_syntax::Highlighted::clone(&self) -> oso_syntax::Highlighted
+impl core::cmp::Eq for oso_syntax::Highlighted
+impl core::cmp::PartialEq for oso_syntax::Highlighted
+pub fn oso_syntax::Highlighted::eq(&self, &oso_syntax::Highlighted) -> bool
+impl core::fmt::Debug for oso_syntax::Highlighted
+pub fn oso_syntax::Highlighted::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_syntax::Highlighted
+impl core::marker::StructuralPartialEq for oso_syntax::Highlighted
 pub enum oso_syntax::Language
 pub oso_syntax::Language::Markdown
 pub oso_syntax::Language::MarkdownInline
@@ -50,4 +63,12 @@ pub fn oso_syntax::Document::edit(&mut self, &[oso_core::syntax::Splice], &oso_c
 pub fn oso_syntax::Document::language(&self) -> oso_syntax::Language
 pub fn oso_syntax::Document::new(oso_syntax::Language, oso_core::rope::Rope) -> Self
 pub fn oso_syntax::Document::parse(&mut self, core::time::Duration) -> oso_syntax::Parsed
+impl oso_syntax::Document
+pub fn oso_syntax::Document::highlight(&mut self, &mut oso_syntax::Queries, &[core::ops::range::Range<usize>], core::time::Duration) -> oso_syntax::Highlighted
+pub fn oso_syntax::Document::highlights(&self) -> &oso_core::syntax::highlights::Highlights
+pub struct oso_syntax::Queries
+impl oso_syntax::Queries
+pub fn oso_syntax::Queries::new() -> Self
+impl core::default::Default for oso_syntax::Queries
+pub fn oso_syntax::Queries::default() -> oso_syntax::Queries
 pub const oso_syntax::MAX_BYTES: usize
