@@ -289,6 +289,8 @@ impl App {
             self.view = Some(View::open(event_loop));
             // Before the first frame, so that it is drawn in the remembered theme.
             self.take_remembered_theme();
+            // A read done by the first frame applies before it (ADR 0108).
+            self.configuration_reported();
             // At once: it costs under 1 µs and does not slow the first frame.
             self.sync_ime(event_loop);
             self.sync_secure_input();

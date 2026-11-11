@@ -1,4 +1,5 @@
-//! The private directory and the core dump limit on Unix.
+//! The private directory, the core dump limit, where state and configuration live, and who else
+//! can change a file, on Unix.
 //!
 //! Must not depend on: `control`, `process` or `text`.
 
@@ -10,7 +11,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
 
 use super::{
-    DirProblem, ancestor_is_safe, check_dir, list_stops_making, list_stops_the_way,
+    DirProblem, Writers, ancestor_is_safe, check_dir, list_stops_making, list_stops_the_way,
     list_stops_writing, own_list_problem, parent_list_problem, way_list_problem,
 };
 use crate::file_meta::{AccessEntry, directory_access_list};
@@ -70,6 +71,36 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
     match absolute("XDG_STATE_HOME") {
         Some(base) => Some(base),
         None => Some(absolute("HOME")?.join(".local").join("state")),
+    }
+}
+
+/// oso's configuration directory: `$XDG_CONFIG_HOME/oso` or `~/.config/oso`, on macOS too, as
+/// most dotfile setups and cross-platform tools have it (ADR 0108). Only an absolute value counts.
+pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let absolute = |name: &str| {
+        var(name)
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+    };
+    match absolute("XDG_CONFIG_HOME") {
+        Some(base) => Some(base.join("oso")),
+        None => Some(absolute("HOME")?.join(".config").join("oso")),
+    }
+}
+
+/// Who besides this user and root can change a file or directory with `metadata`.
+pub(super) fn others_can_write(metadata: &fs::Metadata) -> Writers {
+    writers(metadata.mode(), metadata.uid(), euid())
+}
+
+/// [`others_can_write`] for a `mode` and `owner`, as user `euid`.
+fn writers(mode: u32, owner: u32, euid: u32) -> Writers {
+    if (owner != euid && owner != 0) || mode & 0o002 != 0 {
+        Writers::Anyone
+    } else if mode & 0o020 != 0 {
+        Writers::Group
+    } else {
+        Writers::Nobody
     }
 }
 
@@ -1095,6 +1126,25 @@ mod tests {
             assert!(PrivateDir::open(path.join("inner")).is_err());
             assert!(!path.join("inner").exists());
         }
+    }
+
+    #[test]
+    fn who_else_can_write_goes_by_the_owner_and_the_group_and_others_bits() {
+        use super::{Writers, writers};
+        assert_eq!(writers(0o644, 501, 501), Writers::Nobody);
+        assert_eq!(writers(0o755, 0, 501), Writers::Nobody, "root's own");
+        assert_eq!(writers(0o664, 501, 501), Writers::Group);
+        assert_eq!(writers(0o646, 501, 501), Writers::Anyone);
+        assert_eq!(
+            writers(0o1777, 0, 501),
+            Writers::Anyone,
+            "sticky is still every user's"
+        );
+        assert_eq!(
+            writers(0o600, 502, 501),
+            Writers::Anyone,
+            "another user's own"
+        );
     }
 
     #[test]

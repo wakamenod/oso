@@ -35,6 +35,7 @@ impl App {
     fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
         let mut started_saves = Vec::new();
         let mut failed = None;
+        let configuration = self.configuration_directories();
         for job in self.editor.take_save_jobs() {
             let started = Instant::now();
             let (buffer, path) = (job.buffer, job.path.clone());
@@ -44,7 +45,7 @@ impl App {
                 let _ = waker.send(UserEvent::Save(report));
             };
             let spawned = if for_agent {
-                saver::spawn_for_agent(job, report)
+                saver::spawn_for_agent(job, configuration.clone(), report)
             } else {
                 saver::spawn(job, report)
             };
@@ -70,6 +71,8 @@ impl App {
         self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
         self.look_again_after_save(buffer);
+        // The save may have been of the configuration file, which is read again at once.
+        self.look_at_configuration_again();
         self.dispatcher.publish_for_emergency(&self.editor);
         self.copies_after_a_save(buffer, confirmed);
         self.answer_session_end(event_loop);

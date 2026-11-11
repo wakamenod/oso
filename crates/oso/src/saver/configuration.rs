@@ -4,9 +4,9 @@
 //! link or a hard link to a file there is caught as well. It runs the channel's saves, and
 //! says what the channel hears of one that failed.
 //!
-//! Must not depend on: the editor or `app`; this asks the environment and the file system only.
+//! Must not depend on: the editor or `app`; this asks the file system only, about the directories
+//! it is given.
 
-use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -17,28 +17,31 @@ use oso_core::editor::SaveJob;
 use super::{SaveError, SaveReport, run_with, write};
 
 /// Runs `job`, a save made for the agent channel, as [`super::spawn`] does, refusing it right before
-/// it would write if its target is in oso's configuration directory (ADR 0108). The check
-/// asks the disk, so it is made here, on the saving thread, fresh each time.
+/// it would write if its target is in one of `directories`, oso's configuration directories: the
+/// person's, and the one `--config` names in a dev build (ADR 0108). The check asks the disk, so
+/// it is made here, on the saving thread, fresh each time.
 ///
 /// # Errors
 ///
 /// If the thread cannot start. The job is gone, and nothing was written.
-pub fn spawn_for_agent<R>(job: SaveJob, report: R) -> io::Result<()>
+pub fn spawn_for_agent<R>(job: SaveJob, directories: Vec<PathBuf>, report: R) -> io::Result<()>
 where
     R: FnOnce(SaveReport) + Send + 'static,
 {
     thread::Builder::new()
         .name("oso-save".into())
-        .spawn(move || report(run_for_agent(job, config_home().as_deref())))
+        .spawn(move || report(run_for_agent(job, &directories)))
         .map(drop)
 }
 
-/// Runs `job` for the agent channel here and now, with `directory` as oso's configuration
-/// directory.
-fn run_for_agent(job: SaveJob, directory: Option<&Path>) -> SaveReport {
+/// Runs `job` for the agent channel here and now, with `directories` as oso's configuration
+/// directories.
+fn run_for_agent(job: SaveJob, directories: &[PathBuf]) -> SaveReport {
     run_with(job, |job| {
-        if refuse(job, directory)? {
-            return Err(SaveError::IntoConfiguration);
+        for directory in directories {
+            if refuse(job, Some(directory))? {
+                return Err(SaveError::IntoConfiguration);
+            }
         }
         write(job)
     })
@@ -72,31 +75,6 @@ const MAX_DEPTH: usize = 4;
 
 /// The most links followed to resolve one path.
 const MAX_LINKS: usize = 40;
-
-/// oso's configuration directory, asking the environment and not the disk:
-/// `$XDG_CONFIG_HOME/oso` when that is set and absolute, else `~/.config/oso`, and
-/// `%APPDATA%\oso` on Windows (ADR 0108). `None` with no absolute base to go by.
-///
-/// For now this is the tip crate's own: ADR 0108's step 3 adds
-/// `oso_platform::privacy::config_home()`, which replaces it.
-pub fn config_home() -> Option<PathBuf> {
-    config_home_from(&|name| std::env::var_os(name))
-}
-
-fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let absolute = |name: &str| {
-        var(name)
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-    };
-    if cfg!(windows) {
-        return Some(absolute("APPDATA")?.join("oso"));
-    }
-    match absolute("XDG_CONFIG_HOME") {
-        Some(base) => Some(base.join("oso")),
-        None => Some(absolute("HOME")?.join(".config").join("oso")),
-    }
-}
 
 /// Why `job`, a save for the agent channel, must not be written, if it must not: a name it
 /// writes through, or what that name leads to, is in `directory`, oso's configuration

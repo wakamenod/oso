@@ -341,15 +341,15 @@ fn shifted_keys_shadow_the_defaults_they_reach_without_shift() {
         ),
         (
             r#""C-X 4" = "undo""#,
-            format!(r#"2:1: "C-X 4": "C-X" begins the keys under "C-x" by default, without Shift; this makes it a prefix of its own and hides those {under} default keys"#),
+            format!(r#"2:1: "C-X 4": "C-X" begins the keys under "C-x" by default, without Shift; this makes it a prefix of its own and hides the {under} default keys there"#),
         ),
         (
             r#""C-X C-F" = false"#,
-            format!(r#"2:1: "C-X C-F": "C-X" begins the keys under "C-x" by default, without Shift; this makes it a prefix of its own and hides those {under} default keys"#),
+            format!(r#"2:1: "C-X C-F": "C-X" begins the keys under "C-x" by default, without Shift; this makes it a prefix of its own and hides the {under} default keys there"#),
         ),
         (
             r#""C-X" = "undo""#,
-            format!(r#"2:1: "C-X": begins the keys under "C-x" by default, without Shift; this hides those {under} default keys"#),
+            format!(r#"2:1: "C-X": begins the keys under "C-x" by default, without Shift; this hides the {under} default keys there"#),
         ),
     ];
     for (entry, message) in cases {

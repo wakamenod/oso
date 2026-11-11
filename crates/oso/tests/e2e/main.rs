@@ -12,6 +12,7 @@
 mod agent;
 mod buffers;
 mod complete;
+mod config;
 mod cursors;
 mod files;
 mod handover;

@@ -89,6 +89,37 @@ fn keys_given_during_a_prefix_wait_for_it_to_resolve() {
 }
 
 #[test]
+fn the_keymap_a_new_one_replaces_is_handed_back_to_drop_elsewhere() {
+    let (mut d, mut editor) = at("abcdef", &[3]);
+    let first = user(&[("C-c a", "forward-char")], &[]);
+    assert_eq!(d.set_user_keymap(first.clone()), Some(Keymap::new()));
+    let second = user(&[("C-c b", "forward-char")], &[]);
+    assert_eq!(d.set_user_keymap(second.clone()), Some(first));
+    assert_eq!(d.take_replaced_keymap(), None);
+
+    // While a prefix is pending, a new one waits, and the one it replaces once that resolves
+    // is kept to be taken.
+    send(&mut d, &mut editor, "C-x");
+    let third = user(&[("C-c c", "forward-char")], &[]);
+    assert_eq!(d.set_user_keymap(third.clone()), None);
+    let fourth = user(&[("C-c d", "forward-char")], &[]);
+    assert_eq!(d.set_user_keymap(fourth), Some(third), "the one waiting");
+    send(&mut d, &mut editor, "h");
+
+    // Another swap waits and resolves before the first replaced one is taken: both are kept.
+    send(&mut d, &mut editor, "C-x");
+    let fifth = user(&[("C-c e", "forward-char")], &[]);
+    assert_eq!(d.set_user_keymap(fifth), None);
+    send(&mut d, &mut editor, "h");
+    let mut replaced = Vec::new();
+    while let Some(keymap) = d.take_replaced_keymap() {
+        replaced.push(keymap);
+    }
+    assert_eq!(replaced.len(), 2);
+    assert!(replaced.contains(&second), "the one in force first");
+}
+
+#[test]
 fn m_x_shows_the_user_s_keys_and_not_the_defaults_they_hide() {
     let (mut d, editor) = at("abc", &[0]);
     d.set_user_keymap(user(&[("C-c s", "save-buffer")], &["C-x C-s", "C-y"]));
@@ -285,4 +316,46 @@ fn a_prefix_argument_s_digits_win_over_the_user_s_keys() {
     assert_eq!(cursors(&editor), [10]);
     send(&mut d, &mut editor, "1");
     assert_eq!(cursors(&editor), [9], "on its own, the user's key");
+}
+
+/// Swapping in the user's keys from a 64 KiB file stays within ADR 0108's budget of 0.1 ms on
+/// the UI thread: the keymap it replaces is dropped elsewhere. Run it by hand in release:
+/// `cargo test --release -p oso swapping_in -- --ignored`.
+#[test]
+#[ignore = "a timing to read, run by hand in release"]
+fn swapping_in_a_64_kib_files_keys_takes_under_a_tenth_of_a_millisecond() {
+    use std::time::{Duration, Instant};
+    const KEYS: &str = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let registry = commands::registry();
+    let command = registry.lookup("forward-char").unwrap();
+    // As many bindings as a 64 KiB file of `"C-c x y z" = "forward-char"` lines holds.
+    let large = || {
+        let mut keymap = Keymap::new();
+        for n in 0..3121 {
+            let keys: Vec<char> = KEYS.chars().collect();
+            let text = format!(
+                "C-c {} {} {}",
+                keys[n / 1296 % 36],
+                keys[n / 36 % 36],
+                keys[n % 36]
+            );
+            let sequence: KeySequence = text.parse().unwrap();
+            keymap.bind(&sequence.0, command).unwrap();
+        }
+        keymap
+    };
+    let (mut d, _editor) = at("abc", &[0]);
+    let mut best = Duration::MAX;
+    for _ in 0..20 {
+        let keymap = large();
+        let start = Instant::now();
+        let old = d.set_user_keymap(keymap);
+        best = best.min(start.elapsed());
+        drop(old);
+    }
+    // A debug build is several times slower; the budget is a release build's.
+    assert!(
+        cfg!(debug_assertions) || best.as_micros() < 100,
+        "swapped in {best:?}"
+    );
 }

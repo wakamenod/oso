@@ -41,6 +41,7 @@ impl App {
             }
             UserEvent::Save(report) => self.save_ended(event_loop, report),
             UserEvent::Watch => self.watch_reported(),
+            UserEvent::Configuration => self.configuration_reported(),
             UserEvent::NoEmergencyCopies(problem) => {
                 // Only this level reaches a terminal with no `RUST_LOG`.
                 log::error!("{}", problem.escape_debug());
@@ -72,6 +73,7 @@ impl App {
         self.check_leaving(event_loop);
         self.scan_if_a_file_has_loaded();
         self.check_disk();
+        self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.
         self.start_searches();
         // Commands, a resize or a load may have left rows to wrap.
@@ -110,7 +112,10 @@ impl App {
             Event::Occluded(false) => self.request_redraw(),
 
             // ---- In front again: another program may have changed open files ----
-            Event::Focused => self.window_focused(),
+            Event::Focused => {
+                self.window_focused();
+                self.look_at_configuration_again();
+            }
 
             // ---- Redraw ----
             Event::RedrawRequested => self.draw_frame(),

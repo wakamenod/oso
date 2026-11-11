@@ -1306,6 +1306,7 @@ pub fn oso_core::editor::Editor::end_command(&mut self)
 pub fn oso_core::editor::Editor::keys_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::note(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::restore_kept_place(&mut self, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
 pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)

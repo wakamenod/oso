@@ -3,7 +3,8 @@
 OS abstractions: the text system backends, the clipboard (ADR 0074), and later
 IME, filesystem and the PTY (ADR 0003, ADR 0004). `clipboard` runs on threads of
 its own, as reading it can wait on another process. `privacy` holds what keeps text
-private to its user: no core dumps, and private directories (ADR 0062), and
+private to its user: no core dumps, and private directories (ADR 0062), where oso's
+state and configuration live, and who else can change a file by its mode (ADR 0108), and
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065). The
 control sockets' transport lives in `control`, in every build, for the dev socket
 and the agent channel (ADR 0085); only the dev tooling and the agent channel

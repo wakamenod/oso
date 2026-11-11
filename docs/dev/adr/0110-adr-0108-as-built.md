@@ -102,12 +102,66 @@ the same day.
   that fits, 5,824 sequences of 16 keys that part early, builds in 4.5 ms and takes 2.1 ms to
   drop, so step 3 must drop a replaced keymap off the UI thread.
 
+### Step 3: reading and watching the file
+
+The author chose the shape of `others_can_write`, `Editor::note` and leaving dev restarts as they
+are on 2026-11-11, through the coordinator.
+
+- **`oso-platform::privacy` gains `config_home()`,** which replaces the tip crate's own from
+  step 5 with the same rules, **and `others_can_write(&Metadata) -> Writers`:** `Anyone` if every
+  user may write it or another user than this one and root owns it, `Group` if its group may,
+  else `Nobody`. Windows has no modes, and says `Nobody`, as `is_this_users` says yes there.
+- **The thread, `oso-config`, starts first thing in `main`,** as the theme's read does, with
+  `config::STACK`, and is given the event loop's waker once there is one. A read done by the first
+  frame is applied before it; a later one arrives as an event.
+- **The file is opened through links and judged by what was opened:** a regular file
+  (`file_meta::open_for_reading`) of at most 256 KiB of UTF-8, which neither it, the directory
+  it is named in nor the one it really is in leaves to `Anyone`. A link must not take the file
+  out of a directory other users can change. The path, resolved, must lead to the file opened,
+  so the directory judged is the one holding it. `Group` reads it with a warning, counted as a
+  problem. Any other failure leaves what was in force, and the echo area says why
+  ("Configuration not read: other users can change it"). A panic on the thread is caught and
+  said the same way, so the file is still watched.
+- **It is read again when its time, size, mode, device or inode changes,** or it comes or goes,
+  as ADR 0083 compares files: looked at once a second, when oso gains the focus, and after any
+  save oso makes, so that a save of the file applies at once without telling which file it was.
+  A look asked for reads a refused file again whatever its stamp, as fixing its directory's mode
+  changes nothing in it. A file that goes leaves the defaults, with a log line. The thread wakes
+  once a second for itself, beside the loader's watcher; the UI thread is woken only for news.
+- **Each problem is a line of `*Messages*`, `config.toml:3:11: …`, and the echo area says one
+  line** ("Configuration: 2 problems, see *Messages*", or "Configuration not loaded: …" for a
+  syntax error). `Editor::note`, new in `oso-core`, writes `*Messages*` and the log without the
+  echo area; from a command around a buffer that may hold secrets it goes nowhere. The first good
+  load after a bad one says "Configuration loaded"; any other only logs. `config::outcome` decides
+  all of it, so the app only carries it out. Writing 22 notes and the line into a full
+  `*Messages*` took 0.4 ms in a release build, once a load with that many problems.
+- **The keymap a reload replaces is dropped on the `oso-free` thread:** `set_user_keymap` returns
+  it, and one that a keymap waiting for a prefix key replaces later is taken with
+  `take_replaced_keymap` before the event loop waits. Swapping in a 64 KiB file's keys measured
+  under a microsecond in a release build, within ADR 0108's 0.1 ms.
+- **`--no-config` works in every build, anywhere among the options; `--config FILE`, in a dev
+  build, comes first after `--emergency-dir` and `--clipboard`,** as they do, and is made
+  absolute. The end-to-end flows pass `--no-config`, or `--config` for the configuration's own.
+  `just perf` gives each instance a configuration directory of its own through
+  `XDG_CONFIG_HOME`: empty, as for a person with no file, or holding the file `OSO_PERF_CONFIG`
+  names. Not an option, so that `perf-remote`'s base, built from before, runs the same.
+- **The agent channel never saves into the person's configuration directory, nor the one
+  holding the `--config` file:** `config_home()` counts under `--config` and `--no-config` too,
+  as the person's next start reads it.
+- **A restart under `oso dev` passes no options,** so the new instance reads the person's file
+  even if the first was given `--config`. ADR 0108 says a new instance reads the file itself; the
+  supervisor is left as it is.
+- **The settings are parsed and not yet applied;** step 4 applies them.
+
 ## Changes to accepted ADRs
 
 **[ADR 0108](0108-the-user-configuration-file.md)** (The user configuration file):
 
 - "at most 1 MiB of UTF-8" becomes: at most 256 KiB of UTF-8.
-
+- "A save of the file from oso wakes it at once" holds, as any save oso makes wakes it.
+- "What it reaches must be a regular file of this user or root, not writable by every user, in a
+  directory not writable by every user" holds, and also: a directory another user owns counts as
+  writable by every user.
 - "Shadowing a default prefix with a command, or a default command with a prefix (binding `C-a x`
   while `C-a` runs a command) needs that key unbound in the same table too" becomes: shadowing a
   default command with a prefix needs that key unbound in the same table; shadowing a default

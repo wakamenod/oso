@@ -41,6 +41,19 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
         .filter(|path| path.is_absolute())
 }
 
+/// `%APPDATA%\oso`, if `%APPDATA%` is an absolute path (ADR 0108).
+pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    var("APPDATA")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .map(|base| base.join("oso"))
+}
+
+/// There are no modes to go by.
+pub(super) fn others_can_write(_: &fs::Metadata) -> super::Writers {
+    super::Writers::Nobody
+}
+
 /// Makes sure the directory at `path` is a real directory, creating it if missing.
 pub(super) fn open_private(path: &Path) -> io::Result<()> {
     check_private(path)?;

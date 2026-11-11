@@ -192,6 +192,23 @@ pub fn oso_platform::file_meta::open_for_writing(&std::path::Path) -> std::io::e
 pub fn oso_platform::file_meta::path_of_opened(&std::fs::File) -> std::io::error::Result<core::option::Option<std::path::PathBuf>>
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
 pub mod oso_platform::privacy
+pub enum oso_platform::privacy::Writers
+pub oso_platform::privacy::Writers::Anyone
+pub oso_platform::privacy::Writers::Group
+pub oso_platform::privacy::Writers::Nobody
+impl core::clone::Clone for oso_platform::privacy::Writers
+pub fn oso_platform::privacy::Writers::clone(&self) -> oso_platform::privacy::Writers
+impl core::cmp::Eq for oso_platform::privacy::Writers
+impl core::cmp::Ord for oso_platform::privacy::Writers
+pub fn oso_platform::privacy::Writers::cmp(&self, &oso_platform::privacy::Writers) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_platform::privacy::Writers
+pub fn oso_platform::privacy::Writers::eq(&self, &oso_platform::privacy::Writers) -> bool
+impl core::cmp::PartialOrd for oso_platform::privacy::Writers
+pub fn oso_platform::privacy::Writers::partial_cmp(&self, &oso_platform::privacy::Writers) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_platform::privacy::Writers
+pub fn oso_platform::privacy::Writers::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::privacy::Writers
+impl core::marker::StructuralPartialEq for oso_platform::privacy::Writers
 pub struct oso_platform::privacy::PrivateDir
 impl oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::check(&std::path::Path) -> std::io::error::Result<()>
@@ -202,9 +219,11 @@ impl core::clone::Clone for oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::clone(&self) -> oso_platform::privacy::PrivateDir
 impl core::fmt::Debug for oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn oso_platform::privacy::config_home() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::privacy::disable_core_dumps() -> std::io::error::Result<()>
 pub fn oso_platform::privacy::has_one_name(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::is_this_users(&std::fs::Metadata) -> bool
+pub fn oso_platform::privacy::others_can_write(&std::fs::Metadata) -> oso_platform::privacy::Writers
 pub fn oso_platform::privacy::state_home() -> core::option::Option<std::path::PathBuf>
 pub mod oso_platform::process
 pub enum oso_platform::process::Sink

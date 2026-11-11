@@ -48,6 +48,23 @@ pub fn take_emergency_dir(mut args: Vec<OsString>) -> (Vec<OsString>, Option<Pat
     (args, Some(directory))
 }
 
+/// The option that reads the user configuration from another file, so that the end-to-end
+/// flows and benchmarks never read the person's (ADR 0108). Only a dev build knows it.
+const CONFIG_OPTION: &str = "--config";
+
+/// Takes `--config FILE` from the front of `args`, if it is there, and returns the rest with
+/// the file, made absolute: the agent channel never saves into its directory. On its own
+/// the option stays, and is an unknown option.
+pub fn take_config_file(mut args: Vec<OsString>) -> (Vec<OsString>, Option<PathBuf>) {
+    if args.len() < 2 || args[0] != CONFIG_OPTION {
+        return (args, None);
+    }
+    let file = PathBuf::from(args.remove(1));
+    args.remove(0);
+    let file = std::path::absolute(&file).unwrap_or(file);
+    (args, Some(file))
+}
+
 /// The option that gives the editor a clipboard in memory, so that the end-to-end flows
 /// never touch the person's (ADR 0074). Only a dev build knows it.
 const CLIPBOARD_OPTION: &str = "--clipboard";
@@ -153,7 +170,7 @@ fn write_screenshot(capture: Capture, dir: &ControlDir, name: &str) -> Reply {
 
 #[cfg(test)]
 mod tests {
-    use super::take_emergency_dir;
+    use super::{take_config_file, take_emergency_dir};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -175,6 +192,27 @@ mod tests {
         assert_eq!(
             take_emergency_dir(args(&["f", "--emergency-dir", "/d"])),
             (args(&["f", "--emergency-dir", "/d"]), None)
+        );
+    }
+
+    #[test]
+    fn the_config_option_comes_first_and_its_file_is_made_absolute() {
+        let absolute = if cfg!(windows) {
+            r"C:\c\config.toml"
+        } else {
+            "/c/config.toml"
+        };
+        assert_eq!(
+            take_config_file(args(&["--config", absolute, "--", "f"])),
+            (args(&["--", "f"]), Some(PathBuf::from(absolute)))
+        );
+        let (rest, file) = take_config_file(args(&["--config", "c.toml"]));
+        assert!(rest.is_empty());
+        let file = file.unwrap();
+        assert!(file.is_absolute() && file.ends_with("c.toml"), "{file:?}");
+        assert_eq!(
+            take_config_file(args(&["f", "--config", "c.toml"])),
+            (args(&["f", "--config", "c.toml"]), None)
         );
     }
 }

@@ -503,9 +503,10 @@ read. See [ADR 0019](adr/0019-configuration.md).
 - One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
   (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
   without it.
-- A thread in the tip crate's `config` reads, parses and builds it at start and
-  when a `stat` once a second sees it change, and the UI thread swaps the result
-  in between keys. A bad file leaves the last good one, with messages.
+- A thread in the tip crate's `config` (`config::Watch`) reads, parses and builds it at
+  start and when a `stat` once a second, on focus or after a save sees it change, and the UI
+  thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap
+  on another thread. A bad file leaves the last good one, with messages.
 - `config::parse` is a pure function from the file's text to the user keymap, the settings
   and the problems, with their lines. A syntax error rejects the file; a bad entry is skipped
   and the rest applies. See [ADR 0110](adr/0110-adr-0108-as-built.md).
