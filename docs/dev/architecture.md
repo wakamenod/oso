@@ -474,6 +474,12 @@ The UI thread never blocks on I/O or parsing:
   waits while a prompt is open (`Editor::reload_waits`)
   ([ADR 0029](adr/0029-file-changes-on-disk.md),
   [ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
+- A file's project is found on the thread that loads it, or that writes it under a new
+  name (`crates/oso/src/project.rs`): the metadata of `.git`, `.jj` and `.hg` from its
+  directory up, and a worktree's `.git` file and the link back to it, read as data. The load
+  hands it over before its first update, and the editor keeps a table of projects that
+  buffers point into (`oso_core::project`,
+  [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest

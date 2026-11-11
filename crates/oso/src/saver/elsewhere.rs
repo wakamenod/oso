@@ -25,6 +25,8 @@ pub struct Moved {
     pub(super) resolved: Resolved,
     /// The file's own spelling there.
     pub(super) spelling: Option<PathBuf>,
+    /// The project the file is in there (ADR 0114).
+    pub(super) project: Option<oso_core::project::Found>,
     /// The path written, which the buffer now visits: the one given, or the buffer's file's
     /// name in it if it was a directory.
     pub(super) path: PathBuf,
@@ -74,6 +76,9 @@ pub(super) fn write(job: &SaveJob, elsewhere: &Elsewhere) -> Result<Option<Writt
     written.moved = Some(Box::new(Moved {
         resolved: resolve(&path),
         spelling: own_spelling(&location),
+        project: std::panic::catch_unwind(|| crate::project::detect(&location))
+            .ok()
+            .flatten(),
         location,
         path,
     }));

@@ -155,6 +155,8 @@ pub struct Buffer {
     copy_waits: bool,
     /// The file's own spelling, if something else may have been typed.
     own_spelling: Option<PathBuf>,
+    /// The project its file is in, once the host has found it (ADR 0114).
+    project: Option<crate::project::ProjectId>,
     /// Changes whenever the name or the path does, so that what is kept of them elsewhere,
     /// such as an emergency entry, can tell (ADR 0062, ADR 0087).
     naming: u32,
@@ -215,6 +217,7 @@ impl Buffer {
             mode: Mode::Fundamental,
             copy_waits: false,
             own_spelling: None,
+            project: None,
             naming: 0,
             recovery: None,
             saving: false,

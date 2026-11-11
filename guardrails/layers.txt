@@ -30,7 +30,7 @@ buffer motion search
 undo kill
 load selection
 display_map
-complete decode key rope secret
+complete decode key project rope secret
 sum_tree
 
 [oso-platform]
@@ -57,4 +57,4 @@ emergency
 saver
 lister
 commands dev keys loader text
-channel
+channel project

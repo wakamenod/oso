@@ -44,12 +44,15 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::{Baseline, BufferId};
 use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, LoadSnapshot, Reloaded};
+use oso_core::project::Found;
 use oso_core::rope::Rope;
 
+mod error;
 mod identity;
 mod resolve;
 mod watch;
 
+pub use error::LoadError;
 #[cfg(test)]
 use identity::same_stamp;
 pub use identity::stamp_of;
@@ -104,44 +107,6 @@ impl std::fmt::Debug for LoadUpdate {
 use oso_core::load::LARGE;
 pub use oso_core::load::{UNASKED, gib};
 
-/// Why a file could not be loaded.
-#[derive(Debug)]
-pub enum LoadError {
-    /// There is no such file. Emacs visits it as a new, empty file.
-    NotFound,
-    /// A directory, a device or a pipe: only regular files are opened.
-    NotAFile,
-    /// The file holds this many bytes, more than the load may read. Nothing was read.
-    TooLarge(u64),
-    /// Reading failed.
-    Io(io::Error),
-    /// The loading thread panicked.
-    Panicked,
-    /// The file opened has more than one name, which a load for the agent channel refuses:
-    /// its other names, which the secret patterns judge, are not seen (ADR 0085).
-    #[cfg_attr(
-        not(unix),
-        expect(dead_code, reason = "only Unix counts a file's names")
-    )]
-    SeveralNames,
-    /// The file opened is larger than a load for the agent channel takes (ADR 0085).
-    TooLargeForTheAgent,
-}
-
-impl std::fmt::Display for LoadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound => f.write_str("no such file"),
-            Self::NotAFile => f.write_str("not a regular file"),
-            Self::TooLarge(bytes) => write!(f, "{}, too large to open without asking", gib(*bytes)),
-            Self::Io(e) => write!(f, "{e}"),
-            Self::Panicked => f.write_str("loading failed"),
-            Self::SeveralNames => f.write_str("the file has more than one name"),
-            Self::TooLargeForTheAgent => f.write_str("the file is larger than the agent may open"),
-        }
-    }
-}
-
 /// What the loading thread and the UI share.
 #[derive(Default)]
 struct Shared {
@@ -155,6 +120,9 @@ struct Shared {
     baseline: Mutex<Option<Baseline>>,
     /// The file's own spelling. Set before the first update, and taken once.
     spelling: Mutex<Option<PathBuf>>,
+    /// The project the file is in, if a load looked for one (ADR 0114). Set before the
+    /// first update, and taken once.
+    project: Mutex<Option<Found>>,
 }
 
 impl Shared {
@@ -173,6 +141,11 @@ impl Shared {
     /// Locks the file's own spelling, which is also held only to swap an `Option`.
     fn spelling(&self) -> std::sync::MutexGuard<'_, Option<PathBuf>> {
         self.spelling.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Locks the project, which is also held only to swap an `Option`.
+    fn project(&self) -> std::sync::MutexGuard<'_, Option<Found>> {
+        self.project.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Locks the baseline, which is also held only to swap an `Option`.
@@ -210,6 +183,13 @@ impl LoadHandle {
     /// opened. Every update comes after this is available.
     pub fn take_own_spelling(&self) -> Option<PathBuf> {
         self.shared.spelling().take()
+    }
+
+    /// The project the file is in, the first time this is called after it was opened, if
+    /// it is in one. Every update comes after this is available. Only a load looks for it,
+    /// not a reload.
+    pub fn take_project(&self) -> Option<Found> {
+        self.shared.project().take()
     }
 
     /// The file's baseline, the first time this is called after it was opened. Every
@@ -281,6 +261,12 @@ where
                 verdict_of_opened(resolve(&path), file)
             });
             *thread_shared.resolved() = Some(judged.unwrap_or(Resolved::Unknown(Vec::new())));
+            let found = std::panic::catch_unwind(|| {
+                location(&path)
+                    .ok()
+                    .and_then(|location| crate::project::detect(&location))
+            });
+            *thread_shared.project() = found.ok().flatten();
             *thread_shared.slot() = Some(LoadUpdate::Judged);
             wake(buffer);
         })?;
@@ -302,7 +288,7 @@ where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
     spawn_reading(buffer, wake, move |shared, post| {
-        let (file, metadata) = open_and_record(&path, shared, || {})?;
+        let (file, metadata) = open_and_record(&path, shared, || {}, false)?;
         // A buffer the agent opened is read again only as it may be opened (ADR 0085).
         if for_agent {
             for_the_agent(&metadata)?;
@@ -472,7 +458,7 @@ fn load_around(
     after_open: impl FnOnce(),
     one_name: bool,
 ) -> Result<(), LoadError> {
-    let (file, metadata) = open_and_record(path, shared, after_open)?;
+    let (file, metadata) = open_and_record(path, shared, after_open, true)?;
     if metadata.len() > limit {
         return Err(LoadError::TooLarge(metadata.len()));
     }
@@ -497,11 +483,13 @@ fn for_the_agent(metadata: &Metadata) -> Result<(), LoadError> {
 }
 
 /// Opens `path`, runs `after_open`, and records where the path leads, the verdict, the file's own
-/// spelling and its baseline for the UI, before anything is read.
+/// spelling and its baseline for the UI, and with `find_project` the project it is in, before
+/// anything is read.
 fn open_and_record(
     path: &Path,
     shared: &Shared,
     after_open: impl FnOnce(),
+    find_project: bool,
 ) -> Result<(File, Metadata), LoadError> {
     let opened = open(path);
     after_open();
@@ -515,6 +503,14 @@ fn open_and_record(
     *shared.spelling() = baseline
         .as_ref()
         .and_then(|baseline| own_spelling(&baseline.location));
+    if find_project {
+        // A panic there must not stop the load; the file is then in no project.
+        *shared.project() = baseline.as_ref().and_then(|baseline| {
+            std::panic::catch_unwind(|| crate::project::detect(&baseline.location))
+                .ok()
+                .flatten()
+        });
+    }
     *shared.baseline() = baseline;
     opened
 }
@@ -668,6 +664,34 @@ mod tests {
             [LoadUpdate::Failed(LoadError::TooLarge(LARGE))]
         ));
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_load_finds_the_project_before_its_first_update_and_a_reload_does_not() {
+        let dir = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!("oso-loader-test-{}-project", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        let path = dir.join("src/main.rs");
+        std::fs::write(&path, "fn main() {}\n").unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let found = handle.take_project().unwrap();
+        assert_eq!(found.root.path, dir);
+        assert!(handle.take_project().is_none(), "taken once");
+
+        let (tx, rx) = mpsc::channel();
+        let reload = spawn_reload(id(), path, Rope::default(), false, move |_| {
+            tx.send(()).is_ok()
+        })
+        .unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(reload.take_project().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

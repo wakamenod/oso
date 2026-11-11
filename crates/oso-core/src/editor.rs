@@ -29,6 +29,7 @@ use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
+use crate::project::Project;
 use crate::selection::SelectionSet;
 use crate::undo::Opening;
 use crate::window::{ViewSize, Window};
@@ -49,6 +50,7 @@ mod isearch;
 mod kill;
 mod marks;
 mod messages;
+mod projects;
 mod prompts;
 mod reload;
 mod save;
@@ -204,6 +206,8 @@ pub struct Editor {
     marking: Option<cursors::Marking>,
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
     reverts: Vec<(BufferId, ContentId)>,
+    /// The projects buffers are in, which `ProjectId` indexes (ADR 0114).
+    projects: Vec<Project>,
     themes: themes::Themes,
     aids: VisualAids,
 }
@@ -265,6 +269,7 @@ impl Editor {
             search_job: None,
             marking: None,
             reverts: Vec::new(),
+            projects: Vec::new(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
         };

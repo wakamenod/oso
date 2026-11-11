@@ -17,6 +17,7 @@ mod emergency;
 mod keys;
 mod lister;
 mod loader;
+mod project;
 mod saver;
 mod text;
 

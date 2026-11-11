@@ -321,15 +321,19 @@ impl App {
     }
 
     /// Takes in what the load at `index` found of `id`'s file before its content: the verdict,
-    /// the baseline and the file's own spelling. Returns whether the buffer went, as another one
-    /// visits that very file.
+    /// the baseline, the file's own spelling and its project. Returns whether the buffer went,
+    /// as another one visits that very file.
     fn take_what_was_found(&mut self, index: usize, id: BufferId) -> bool {
         let handle = &self.loads[index].handle;
-        let (resolved, baseline, spelling) = (
+        let (resolved, baseline, spelling, project) = (
             handle.take_resolved(),
             handle.take_baseline(),
             handle.take_own_spelling(),
+            handle.take_project(),
         );
+        if project.is_some() {
+            self.editor.set_buffer_project(id, project);
+        }
         let Some(buffer) = self.editor.buffer_mut(id) else {
             return false;
         };

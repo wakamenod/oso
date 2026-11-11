@@ -23,6 +23,7 @@ pub mod kill;
 pub mod load;
 pub mod minibuffer;
 pub mod motion;
+pub mod project;
 pub mod rope;
 mod search;
 mod secret;
