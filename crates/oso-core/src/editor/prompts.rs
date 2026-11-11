@@ -90,6 +90,7 @@ impl Editor {
             typed: None,
             from_agent,
             completion: None,
+            regexp: false,
         });
         self.relayout_prompt();
         Ok(id)
@@ -246,6 +247,14 @@ impl Editor {
         });
         if matches!(prompt.kind, Kind::Number { .. }) && minibuffer::parse_number(&text).is_none() {
             self.prompt_says("Not a number");
+            return Err(PromptError::Invalid);
+        }
+        // An empty answer takes the last pair (ADR 0113).
+        if prompt.regexp
+            && !text.is_empty()
+            && let Err(why) = crate::search::compile_regexp(&text)
+        {
+            self.prompt_says(why);
             return Err(PromptError::Invalid);
         }
         self.give_answer(text)
@@ -466,6 +475,14 @@ impl Editor {
             return Quit::Cursors;
         }
         Quit::Nothing
+    }
+
+    /// Makes the innermost prompt take only a regexp that compiles: another answer leaves it
+    /// open, saying why (ADR 0113).
+    pub fn prompt_takes_regexp(&mut self) {
+        if let Some(prompt) = self.prompts.last_mut() {
+            prompt.regexp = true;
+        }
     }
 
     /// Clears what a key typed in the innermost prompt said, as the next key does.

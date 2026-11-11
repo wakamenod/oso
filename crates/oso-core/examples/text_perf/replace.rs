@@ -1,5 +1,5 @@
-//! query-replace's `!` (ADR 0113): each slice it replaces on the UI thread, over a large file
-//! with many matches. Run with `-- replace`.
+//! query-replace (ADR 0113): each slice `!` replaces on the UI thread, over a large file with
+//! many matches, and a regexp over a long line on the worker. Run with `-- replace`.
 //!
 //! Must not depend on: other workspace crates or crate internals; it uses only the public
 //! API.
@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::Buffer;
 use oso_core::editor::{Editor, ReplaceAnswer};
 
-use super::{MB, file_text};
+use super::{MB, file_text, single_line};
 
 /// p50, p99 and the most of `times`.
 fn spread(mut times: Vec<Duration>) -> (Duration, Duration, Duration) {
@@ -57,4 +57,25 @@ pub(crate) fn replace_costs() {
     let started = Instant::now();
     editor.undo().expect("the session undoes");
     println!("undo of the whole session  {:>9.2?}", started.elapsed());
+
+    // A regexp over a 10 MB line, one match at its end: the key's budget, then the worker.
+    let line = format!("{}key=42", single_line(10 * MB));
+    let mut editor = Editor::with_buffer(Buffer::from_text("line", &line));
+    let started = Instant::now();
+    editor
+        .replace_begin(r"key=(\d+)", "$1", true)
+        .expect("the buffer takes edits");
+    let on_key = started.elapsed();
+    let started = Instant::now();
+    while let Some(job) = editor.take_isearch_job() {
+        let mut reports = Vec::new();
+        job.run(|report| reports.push(report));
+        for report in reports {
+            editor.isearch_reported(report);
+        }
+    }
+    println!(
+        "10 MB line, a regexp: key {on_key:>9.2?}; worker find and count {:>9.2?}",
+        started.elapsed()
+    );
 }

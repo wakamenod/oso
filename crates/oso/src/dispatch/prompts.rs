@@ -369,6 +369,10 @@ impl Dispatcher {
         };
         let stage = ReplaceStage::From { regexp };
         self.open_replace_prompt(editor, id, prefix, label, stage);
+        if regexp {
+            // A regexp that does not compile keeps the prompt open, saying why (ADR 0113).
+            editor.prompt_takes_regexp();
+        }
         (redraw, Ok(()))
     }
 

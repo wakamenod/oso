@@ -37,7 +37,7 @@ pub struct MatchCells {
 
 /// What [`Editor::match_cells`] looks for: a query, the current match, and a scope.
 pub(in crate::editor) type MatchQuery<'a> = (
-    &'a search::Query,
+    &'a search::Needle,
     Option<&'a Range<usize>>,
     Option<&'a [Range<usize>]>,
 );
@@ -56,7 +56,8 @@ impl Editor {
             return;
         };
         let current = state.current.as_ref().filter(|_| !state.failing);
-        self.match_cells(id, state.buffer, screen, (query, current, None), cells);
+        let needle = search::Needle::Literal(query.clone());
+        self.match_cells(id, state.buffer, screen, (&needle, current, None), cells);
     }
 
     /// The cells of a query's matches in view in the tiled window `id`, if it is the selected
@@ -89,7 +90,7 @@ impl Editor {
         let display = shown.display();
         let (text, invalid) = (shown.text(), shown.invalid_bytes());
         let area = regions.text;
-        let reach = query.max_bytes();
+        let reach = query.reach();
         // Each view row's columns in view, widened, and joined where they meet.
         for row in screen.rows().iter().take(area.rows) {
             let offset = |column| {
@@ -116,7 +117,7 @@ impl Editor {
             }
         }
         let limits = (MAX_MATCHES_SHOWN, FRAME_BUDGET);
-        search::matches_in((text, invalid), query, spans, limits, found);
+        query.matches_in((text, invalid), spans, limits, found);
         // The current one alone, and the rest without what overlaps it.
         if let Some(range) = current {
             found.retain(|other| other.end <= range.start || other.start >= range.end);

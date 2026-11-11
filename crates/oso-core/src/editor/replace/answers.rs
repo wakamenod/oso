@@ -10,7 +10,6 @@ use super::{ReplaceAnswer, after};
 use crate::buffer::Replacement;
 use crate::editor::Editor;
 use crate::motion;
-use crate::search;
 
 impl Editor {
     /// Runs the answers given while a worker looked, in order, until one waits again.
@@ -29,15 +28,8 @@ impl Editor {
     /// Replaces `range` with the session's replacement, in its case if it preserves case.
     /// Returns where the replacement is now.
     fn replace_one(&mut self, range: Range<usize>) -> Option<Range<usize>> {
-        let state = self.replace()?;
-        let id = state.buffer;
-        let buffer = self.buffer(id)?;
-        let matched: String = buffer.text().chunks_in_range(range.clone()).collect();
-        let to = if state.preserve_case {
-            search::casified(&matched, &state.to).into_owned()
-        } else {
-            state.to.clone()
-        };
+        let id = self.replace()?.buffer;
+        let to = self.replacement_for(&range)?;
         let edit = Replacement {
             range: range.clone(),
             text: &to,

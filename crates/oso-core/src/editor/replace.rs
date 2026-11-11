@@ -19,7 +19,9 @@ use super::Editor;
 use super::isearch::MatchCells;
 use crate::buffer::ReadOnly;
 use crate::motion;
-use crate::search::{self, Found, KEY_BUDGET, Query, Report, Scope, SearchJob, SearchReport};
+use crate::search::{
+    self, Found, KEY_BUDGET, LineTooLong, Needle, Query, Report, Scope, SearchJob, SearchReport,
+};
 use crate::window::{Screen, WindowId};
 
 mod all;
@@ -33,12 +35,14 @@ pub use state::{Replace, ReplaceAnswer};
 const ALL_SLICE: usize = 1000;
 
 /// Why query-replace did not begin. Nothing changed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReplaceError {
     /// The buffer is read-only, for this reason.
     ReadOnly(ReadOnly),
     /// No string to replace, and none from before.
     EmptyString,
+    /// The regexp does not compile, for this reason, on one line.
+    Regexp(String),
 }
 
 impl fmt::Display for ReplaceError {
@@ -47,6 +51,7 @@ impl fmt::Display for ReplaceError {
             Self::ReadOnly(ReadOnly::Loading) => "Buffer is still loading",
             Self::ReadOnly(_) => "Buffer is read-only",
             Self::EmptyString => "Empty search string",
+            Self::Regexp(why) => why,
         })
     }
 }
@@ -118,8 +123,14 @@ impl Editor {
         } else {
             (from.to_owned(), to.to_owned())
         };
-        let case_sensitive = search::smart_case(&from);
-        let query = Query::new(&from, case_sensitive).ok_or(ReplaceError::EmptyString)?;
+        let (needle, case_sensitive) = if regexp {
+            let regexp = search::compile_regexp(&from).map_err(ReplaceError::Regexp)?;
+            (Needle::Regexp(regexp), search::regexp_smart_case(&from))
+        } else {
+            let case_sensitive = search::smart_case(&from);
+            let query = Query::new(&from, case_sensitive).ok_or(ReplaceError::EmptyString)?;
+            (Needle::Literal(query), case_sensitive)
+        };
         self.isearch_abandon();
         self.replace_end(false);
         let around_secret = self.shows_secret();
@@ -149,7 +160,7 @@ impl Editor {
             from,
             to,
             regexp,
-            query,
+            needle,
             preserve_case: !case_sensitive,
             buffer: id,
             scope,
@@ -196,27 +207,31 @@ impl Editor {
         let Some(state) = self.replace() else {
             return;
         };
-        let (id, query) = (state.buffer, state.query.clone());
+        let (id, needle) = (state.buffer, state.needle.clone());
         let ranges = self.replace_scope();
         let Some(buffer) = self.buffer(id) else {
             return;
         };
-        let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
+        let snapshot = (buffer.text(), buffer.invalid_bytes());
         let never = || false;
         let mut budget = KEY_BUDGET;
         let mut found = None;
         let mut resume = None;
         for range in ranges.iter().filter(|range| range.end > from) {
             let start = range.start.max(from);
-            match search::find_in(text, invalid, &query, start..range.end, budget, &never) {
-                Found::Match(range) => {
+            match needle.find_in(snapshot, start..range.end, budget, &never) {
+                Ok(Found::Match(range)) => {
                     found = Some(range);
                     break;
                 }
-                Found::None => budget = budget.saturating_sub(range.end - start),
-                Found::Stopped { resume: at } => {
+                Ok(Found::None) => budget = budget.saturating_sub(range.end - start),
+                Ok(Found::Stopped { resume: at }) => {
                     resume = Some(at);
                     break;
+                }
+                Err(LineTooLong(at)) => {
+                    self.replace_line_too_long(at);
+                    return;
                 }
             }
             if budget == 0 {
@@ -243,20 +258,16 @@ impl Editor {
         let Some(state) = self.replace() else {
             return;
         };
-        let (id, query) = (state.buffer, state.query.clone());
+        let (id, needle) = (state.buffer, state.needle.clone());
         let ranges = self.replace_scope();
         let generation = self.supersede_search();
         let Some(buffer) = self.buffer(id) else {
             return;
         };
         let snapshot = (buffer.text().clone(), buffer.invalid_bytes().clone());
-        let scope = Scope {
-            find,
-            count,
-            most: None,
-        };
+        let scope = Scope { find, count };
         let live = (generation, self.search_live.clone());
-        self.search_job = Some(SearchJob::scoped(snapshot, query, ranges, scope, live));
+        self.search_job = Some(SearchJob::scoped(snapshot, needle, ranges, scope, live));
     }
 
     /// Asks about `range`: the cursor goes to its end.
@@ -297,6 +308,10 @@ impl Editor {
                     Some(range) => self.replace_at(range),
                     None => self.replace_end(true),
                 }
+                true
+            }
+            Report::LineTooLong { generation, at } if generation == live => {
+                self.replace_line_too_long(at);
                 true
             }
             // The count is of the scope when it began, so edits since do not make it stale.
@@ -399,8 +414,31 @@ impl Editor {
         }
         let scope = self.replace_scope();
         let current = state.current.as_ref().or(state.stay.as_ref());
-        let query = (&state.query, current, Some(scope.as_slice()));
+        let query = (&state.needle, current, Some(scope.as_slice()));
         self.match_cells(id, state.buffer, screen, query, cells);
+    }
+
+    /// Ends the session at a line a regexp cannot be matched in, which starts at `at`.
+    fn replace_line_too_long(&mut self, at: usize) {
+        let row = self.current().1.text().offset_to_point(at).row + 1;
+        let limit = search::MAX_LINE / (1024 * 1024);
+        self.replace_end(false);
+        self.echo(format!(
+            "Regexp search stops at line {row}: it is longer than {limit} MiB"
+        ));
+    }
+
+    /// The replacement for the match at `range`: the session's, with a regexp's groups
+    /// expanded, in the match's case while the search folds.
+    fn replacement_for(&self, range: &Range<usize>) -> Option<String> {
+        let state = self.replace()?;
+        let text = self.buffer(state.buffer)?.text();
+        let to = state.needle.replacement(text, range, &state.to);
+        if !state.preserve_case {
+            return Some(to);
+        }
+        let matched: String = text.chunks_in_range(range.clone()).collect();
+        Some(search::casified(&matched, &to).into_owned())
     }
 
     /// A new id for ranges tracked in a buffer.

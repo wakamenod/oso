@@ -206,6 +206,20 @@ coordinator.
 - **The two prompts** are read by `ArgSpec::Replace`, which `Ctx::replace_pair` gives back, and
   take Japanese as the prompt for a file's name does.
 
+#### As built (step 3, 2026-11-12)
+
+- **A regexp is matched a line at a time,** each line copied into a string the search reuses,
+  and a line that would take a search past its budget is not read: a key leaves it to the
+  worker, and `!` gives it a slice of its own. A regexp's first match on a 10 MB line takes
+  0.5 ms of a key, and the rest the worker.
+- **What is searched for is a `Needle`,** the literal query or the regexp, for the session, the
+  scoped job and the highlights. A regexp's highlights read the lines in view whole, up to
+  64 KiB each; a longer line shows only the current match.
+- **The first prompt checks the regexp** (`Editor::prompt_takes_regexp`), so one that does not
+  compile keeps it open, saying why, as a number prompt does with `Not a number`.
+- **Case follows the match whenever the search folds,** also where an inline `(?-i)` makes a part
+  of the regexp case-sensitive, as Emacs looks only at the regexp's letters.
+
 ### 2. Keyboard macros
 
 #### Keys

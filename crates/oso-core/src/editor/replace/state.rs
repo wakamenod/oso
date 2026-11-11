@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use crate::buffer::{BufferId, ContentId, Tracking};
 use crate::minibuffer;
-use crate::search::Query;
+use crate::search::Needle;
 
 /// The most cells each string takes on the echo line.
 const STRING_CELLS: usize = 40;
@@ -52,7 +52,7 @@ pub struct Replace {
     pub(super) from: String,
     pub(super) to: String,
     pub(super) regexp: bool,
-    pub(super) query: Query,
+    pub(super) needle: Needle,
     /// The case of the replacement follows the match's: the search folds case.
     pub(super) preserve_case: bool,
     pub(super) buffer: BufferId,

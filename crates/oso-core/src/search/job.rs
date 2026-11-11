@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{Count, Found, Query, count, find_backward, find_forward, find_in};
+use super::{Count, Found, LineTooLong, Needle, Query, count, find_backward, find_forward};
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
 
@@ -31,7 +31,8 @@ impl fmt::Debug for SearchReport {
         let generation = match &self.0 {
             Report::Found { generation, .. }
             | Report::Counted { generation, .. }
-            | Report::Matches { generation, .. } => generation,
+            | Report::Matches { generation, .. }
+            | Report::LineTooLong { generation, .. } => generation,
         };
         f.debug_struct("SearchReport")
             .field("generation", generation)
@@ -55,6 +56,9 @@ pub(crate) enum Report {
     },
     /// What a search for cursors found (ADR 0091).
     Matches { generation: u64, matched: Matched },
+    /// query-replace's regexp met a line too long to match in, which starts at `at`
+    /// (ADR 0113).
+    LineTooLong { generation: u64, at: usize },
 }
 
 /// The matches a search for cursors took, in the order it found them, and how many it
@@ -82,15 +86,13 @@ enum Work {
     /// The keys that add cursors': matches by rules of their own.
     Matches(MatchWork),
     /// query-replace's (ADR 0113): within its ranges, the next match from `find`, then a
-    /// count if `count`, or with `most`, the matches from `find` on, at most that many.
+    /// count if `count`.
     Scoped {
         text: Rope,
         invalid: InvalidBytes,
-        query: Query,
+        needle: Needle,
         ranges: Vec<Range<usize>>,
-        find: Option<usize>,
-        count: bool,
-        most: Option<usize>,
+        scope: Scope,
     },
 }
 
@@ -101,70 +103,48 @@ pub(crate) struct Scope {
     pub(crate) find: Option<usize>,
     /// Then count the matches.
     pub(crate) count: bool,
-    /// Instead, take at most this many matches from `find` on, and say if there are more.
-    pub(crate) most: Option<usize>,
+}
+
+/// Why a scoped search went no further.
+enum Halt {
+    /// A newer job took its place.
+    Stopped,
+    /// A regexp met a line too long to match in, which starts here.
+    TooLong(usize),
 }
 
 /// Does a scoped job's work, and reports each part as it ends, unless `stop` says so first.
 fn run_scoped(
     snapshot: (&Rope, &InvalidBytes),
-    query: &Query,
+    needle: &Needle,
     ranges: &[Range<usize>],
     scope: Scope,
     stop: &dyn Fn() -> bool,
     generation: u64,
     report: &mut dyn FnMut(Report),
 ) {
-    if let Some(most) = scope.most {
-        let mut found = Vec::new();
-        let mut from = scope.find.unwrap_or(0);
-        loop {
-            let Ok(next) = find_scoped(snapshot, query, ranges, from, stop) else {
-                return;
-            };
-            let Some(next) = next else { break };
-            if found.len() == most {
-                // One more is there: the total says so.
-                let total = most + 1;
-                report(Report::Matches {
-                    generation,
-                    matched: Matched {
-                        ranges: found,
-                        total,
-                    },
-                });
+    if let Some(from) = scope.find {
+        match find_scoped(snapshot, needle, ranges, from, stop) {
+            Ok(at) => report(Report::Found { generation, at }),
+            Err(Halt::TooLong(at)) => {
+                report(Report::LineTooLong { generation, at });
                 return;
             }
-            from = next.end.max(next.start + 1);
-            found.push(next);
+            Err(Halt::Stopped) => return,
         }
-        let total = found.len();
-        report(Report::Matches {
-            generation,
-            matched: Matched {
-                ranges: found,
-                total,
-            },
-        });
-        return;
-    }
-    if let Some(from) = scope.find {
-        let Ok(at) = find_scoped(snapshot, query, ranges, from, stop) else {
-            return;
-        };
-        report(Report::Found { generation, at });
     }
     if scope.count {
         let mut total = 0;
         let mut from = 0;
         loop {
-            match find_scoped(snapshot, query, ranges, from, stop) {
+            match find_scoped(snapshot, needle, ranges, from, stop) {
                 Ok(Some(next)) => {
                     total += 1;
                     from = next.end.max(next.start + 1);
                 }
                 Ok(None) => break,
-                Err(()) => return,
+                // A count past a line too long would say less than there is.
+                Err(_) => return,
             }
         }
         report(Report::Counted {
@@ -175,21 +155,23 @@ fn run_scoped(
     }
 }
 
-/// The first match within `ranges`, ascending and apart, that starts at `from` or after, or
-/// `Err(())` if `stop` said so first.
+/// The first match within `ranges`, ascending and apart, that starts at `from` or after.
 fn find_scoped(
-    (text, invalid): (&Rope, &InvalidBytes),
-    query: &Query,
+    snapshot: (&Rope, &InvalidBytes),
+    needle: &Needle,
     ranges: &[Range<usize>],
     from: usize,
     stop: &dyn Fn() -> bool,
-) -> Result<Option<Range<usize>>, ()> {
+) -> Result<Option<Range<usize>>, Halt> {
+    let (text, _) = snapshot;
     for range in ranges.iter().filter(|range| range.end > from) {
-        let start = range.start.max(from);
-        match find_in(text, invalid, query, start..range.end, usize::MAX, stop) {
-            Found::Match(found) => return Ok(Some(found)),
-            Found::None => {}
-            Found::Stopped { .. } => return Err(()),
+        // Past an empty match, on at the next character.
+        let start = text.clip_offset(range.start.max(from), crate::sum_tree::Bias::Right);
+        match needle.find_in(snapshot, start..range.end, usize::MAX, stop) {
+            Ok(Found::Match(found)) => return Ok(Some(found)),
+            Ok(Found::None) => {}
+            Ok(Found::Stopped { .. }) => return Err(Halt::Stopped),
+            Err(LineTooLong(at)) => return Err(Halt::TooLong(at)),
         }
     }
     Ok(None)
@@ -248,7 +230,7 @@ impl SearchJob {
     /// holds it.
     pub(crate) fn scoped(
         (text, invalid): (Rope, InvalidBytes),
-        query: Query,
+        needle: Needle,
         ranges: Vec<Range<usize>>,
         scope: Scope,
         (generation, live): (u64, Arc<AtomicU64>),
@@ -257,11 +239,9 @@ impl SearchJob {
             work: Work::Scoped {
                 text,
                 invalid,
-                query,
+                needle,
                 ranges,
-                find: scope.find,
-                count: scope.count,
-                most: scope.most,
+                scope,
             },
             generation,
             live,
@@ -301,23 +281,13 @@ impl SearchJob {
             Work::Scoped {
                 text,
                 invalid,
-                query,
+                needle,
                 ranges,
-                find,
-                count,
-                most,
+                scope,
             } => {
-                let scope = Scope { find, count, most };
                 let done = &mut |done| report(SearchReport(done));
-                run_scoped(
-                    (&text, &invalid),
-                    &query,
-                    &ranges,
-                    scope,
-                    &stop,
-                    generation,
-                    done,
-                );
+                let snapshot = (&text, &invalid);
+                run_scoped(snapshot, &needle, &ranges, scope, &stop, generation, done);
                 return;
             }
             Work::Isearch {

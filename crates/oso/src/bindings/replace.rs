@@ -5,7 +5,8 @@
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 /// The global keys that start a query-replace.
-pub const BINDINGS: &[(&str, &str)] = &[("M-%", "query-replace")];
+pub const BINDINGS: &[(&str, &str)] =
+    &[("M-%", "query-replace"), ("C-M-%", "query-replace-regexp")];
 
 /// The answers of a query-replace under way, as Emacs's.
 pub const REPLACE: &[(&str, &str)] = &[

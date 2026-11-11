@@ -281,3 +281,77 @@ fn the_count_comes_even_if_an_answer_came_first() {
     drain(&mut editor);
     assert_eq!(editor.replace().unwrap().count(), Some((2, 3)));
 }
+
+/// Begins replacing a regexp, as the command does.
+fn begin_regexp(editor: &mut Editor, from: &str, to: &str) {
+    editor.begin_undo_group();
+    editor.replace_begin(from, to, true).unwrap();
+    editor.end_undo_group();
+}
+
+fn all_of_regexp(text: &str, from: &str, to: &str) -> String {
+    let mut editor = editor(text);
+    begin_regexp(&mut editor, from, to);
+    answer(&mut editor, All);
+    // A first match past a key's budget comes from the worker, and `!` waits for it.
+    drain(&mut editor);
+    finish_all(&mut editor);
+    self::text(&editor)
+}
+
+#[test]
+fn a_regexps_groups_go_into_the_replacement() {
+    assert_eq!(
+        all_of_regexp("key=value a=b", r"(\w+)=(?P<v>\w+)", "${v}=$1"),
+        "value=key b=a"
+    );
+    assert_eq!(all_of_regexp("cost 5", r"\d", "$$$0"), "cost $5");
+}
+
+#[test]
+fn a_regexp_keeps_to_lines_and_finds_empty_matches() {
+    assert_eq!(all_of_regexp("ab\nab", "^a", "x"), "xb\nxb");
+    assert_eq!(all_of_regexp("a\nb", "$", "!"), "a!\nb!");
+    assert_eq!(all_of_regexp("a\nb", r"a\nb", "x"), "a\nb");
+}
+
+#[test]
+fn a_regexp_has_smart_case_and_the_replacement_the_matchs_case() {
+    assert_eq!(all_of_regexp("Foo foo FOO", "fo+", "bar"), "Bar bar BAR");
+    assert_eq!(all_of_regexp("Foo foo", "Fo+", "bar"), "bar foo");
+    // Folding, so the case follows the match, whatever an inline flag says of a part.
+    assert_eq!(all_of_regexp("Foo foo", r"\w(?-i)oo", "x"), "X x");
+}
+
+#[test]
+fn a_regexp_that_does_not_compile_says_why() {
+    let mut editor = editor("a");
+    let refused = editor.replace_begin("(", "x", true).unwrap_err();
+    assert!(
+        matches!(&refused, ReplaceError::Regexp(why) if why.starts_with("Invalid regexp")),
+        "{refused:?}"
+    );
+    assert!(editor.replace().is_none());
+}
+
+#[test]
+fn a_regexp_past_a_keys_budget_is_found_on_the_worker() {
+    let far = format!("{}\nend 42", "x".repeat(2 * KEY_BUDGET));
+    let mut editor = editor(&far);
+    begin_regexp(&mut editor, r"\d+", "n");
+    assert!(editor.replace().unwrap().searching());
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((1, 1)));
+    answer(&mut editor, Replace);
+    assert!(text(&editor).ends_with("end n"));
+}
+
+#[test]
+fn bang_passes_a_line_longer_than_a_slices_budget() {
+    let long = "x".repeat(2 * KEY_BUDGET);
+    let text = format!("{long}a1 b2\nc3");
+    let replaced = all_of_regexp(&text, r"[abc]\d", "N");
+    let end = &replaced[long.len().min(replaced.len())..];
+    assert_eq!(end, "N N\nN");
+    assert!(replaced.starts_with(&long));
+}

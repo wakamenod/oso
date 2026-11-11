@@ -9,7 +9,17 @@ use super::{ALL_SLICE, Replace, after};
 use crate::buffer::Replacement;
 use crate::editor::Editor;
 use crate::motion;
-use crate::search::{self, Found, KEY_BUDGET};
+use crate::search::{Found, KEY_BUDGET, LineTooLong};
+
+/// Where `!` goes on after a slice.
+enum Next {
+    /// From here, at the next turn.
+    From(usize),
+    /// Nowhere: no match is left.
+    Done,
+    /// Nowhere: a regexp met a line too long to match in, which starts here.
+    TooLong(usize),
+}
 
 impl Editor {
     /// Whether `!` has more to replace, for the host to call [`Editor::replace_continue`] at
@@ -28,23 +38,11 @@ impl Editor {
         let Some(from) = state.all_from else {
             return false;
         };
-        let (id, preserve) = (state.buffer, state.preserve_case);
-        let to = state.to.clone();
+        let id = state.buffer;
         let (matches, next) = self.replace_slice(from);
-        let Some(buffer) = self.buffer(id) else {
-            return false;
-        };
-        let text = buffer.text();
         let texts: Vec<String> = matches
             .iter()
-            .map(|range| {
-                if preserve {
-                    let matched: String = text.chunks_in_range(range.clone()).collect();
-                    search::casified(&matched, &to).into_owned()
-                } else {
-                    to.clone()
-                }
-            })
+            .filter_map(|range| self.replacement_for(range))
             .collect();
         let edits: Vec<Replacement<'_>> = matches
             .iter()
@@ -69,7 +67,10 @@ impl Editor {
             if let Some(revision) = revision {
                 state.revision = revision;
             }
-            state.all_from = next.map(|at| at.saturating_add_signed(shift));
+            state.all_from = match next {
+                Next::From(at) => Some(at.saturating_add_signed(shift)),
+                Next::Done | Next::TooLong(_) => None,
+            };
         }
         if let Some(last) = matches.last().zip(texts.last()) {
             // Its start moved by what the others changed; its end by that and its own.
@@ -79,21 +80,23 @@ impl Editor {
             self.windows[self.selected].selections.move_primary(cursor);
             self.follow_cursor();
         }
-        if next.is_none() {
-            self.replace_end(true);
+        match next {
+            Next::From(_) => {}
+            Next::Done => self.replace_end(true),
+            Next::TooLong(at) => self.replace_line_too_long(at.saturating_add_signed(shift)),
         }
         changed
     }
 
     /// The matches of `!`'s next slice from `from`, within a key's budget of text and at most
     /// [`ALL_SLICE`] of them, and where the slice after starts, if there is more.
-    fn replace_slice(&self, from: usize) -> (Vec<Range<usize>>, Option<usize>) {
+    fn replace_slice(&self, from: usize) -> (Vec<Range<usize>>, Next) {
         let Some(state) = self.replace() else {
-            return (Vec::new(), None);
+            return (Vec::new(), Next::Done);
         };
         let ranges = self.replace_scope();
         let Some(buffer) = self.buffer(state.buffer) else {
-            return (Vec::new(), None);
+            return (Vec::new(), Next::Done);
         };
         let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
         let never = || false;
@@ -103,29 +106,45 @@ impl Editor {
             let mut start = range.start.max(from);
             while start < range.end {
                 if matches.len() == ALL_SLICE || budget == 0 {
-                    return (matches, Some(start));
+                    return (matches, Next::From(start));
                 }
-                match search::find_in(
-                    text,
-                    invalid,
-                    &state.query,
-                    start..range.end,
-                    budget,
-                    &never,
-                ) {
-                    Found::Match(found) => {
+                match state
+                    .needle
+                    .find_in((text, invalid), start..range.end, budget, &never)
+                {
+                    Ok(Found::Match(found)) => {
                         budget = budget.saturating_sub(found.end - start);
                         start = after(&found);
                         matches.push(found);
                     }
-                    Found::None => {
+                    Ok(Found::None) => {
                         budget = budget.saturating_sub(range.end - start);
                         break;
                     }
-                    Found::Stopped { resume } => return (matches, Some(resume)),
+                    // A regexp's line longer than a slice's budget gets a slice of its own,
+                    // read whole, or `!` would never pass it.
+                    Ok(Found::Stopped { resume }) if resume == start && matches.is_empty() => {
+                        let end = text.line_end(text.offset_to_point(start).row) + 1;
+                        let line = start..end.min(range.end);
+                        return match state.needle.find_in(
+                            (text, invalid),
+                            line.clone(),
+                            usize::MAX,
+                            &never,
+                        ) {
+                            Ok(Found::Match(found)) => {
+                                let next = after(&found);
+                                (vec![found], Next::From(next))
+                            }
+                            Err(LineTooLong(at)) => (matches, Next::TooLong(at)),
+                            Ok(_) => (matches, Next::From(line.end)),
+                        };
+                    }
+                    Ok(Found::Stopped { resume }) => return (matches, Next::From(resume)),
+                    Err(LineTooLong(at)) => return (matches, Next::TooLong(at)),
                 }
             }
         }
-        (matches, None)
+        (matches, Next::Done)
     }
 }

@@ -181,6 +181,9 @@ pub struct Prompt {
     /// Its candidates, for a prompt that completes, and the revision of its buffer they
     /// were last matched against.
     pub(crate) completion: Option<(Candidates, u64)>,
+    /// Its answer must be a regexp that compiles, or the prompt stays open saying why
+    /// (ADR 0113).
+    pub(crate) regexp: bool,
 }
 
 impl Prompt {
