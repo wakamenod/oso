@@ -8,6 +8,8 @@
 
 use std::time::Instant;
 
+use oso_core::buffer::BufferId;
+
 use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::saver::{self, AfterSave, SaveReport};
@@ -17,21 +19,47 @@ use oso_platform::window::{Event, QuitAnswer, QuitReason};
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
+    /// What the person's `y` to a question the agent caused queued is the agent's.
     pub(super) fn start_saves(&mut self) {
+        let for_agent = self.dispatcher.take_ran_for_agent();
+        let _ = self.spawn_saves(for_agent);
+    }
+
+    /// Starts the saves a command run for the agent channel queued. Each is checked on its
+    /// thread before it writes, and never goes into oso's configuration directory (ADR 0108).
+    /// Returns the buffers whose saves started, and what the agent hears of one that could not.
+    pub(super) fn start_agent_saves(&mut self) -> (Vec<BufferId>, Option<&'static str>) {
+        self.spawn_saves(true)
+    }
+
+    fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
+        let mut started_saves = Vec::new();
+        let mut failed = None;
         for job in self.editor.take_save_jobs() {
             let started = Instant::now();
             let (buffer, path) = (job.buffer, job.path.clone());
             let waker = self.waker.clone();
-            let spawned = saver::spawn(job, move |report| {
-                // It fails only once the event loop is gone, past the time limit.
+            // It fails only once the event loop is gone, past the time limit.
+            let report = move |report| {
                 let _ = waker.send(UserEvent::Save(report));
-            });
+            };
+            let spawned = if for_agent {
+                saver::spawn_for_agent(job, report)
+            } else {
+                saver::spawn(job, report)
+            };
             log::trace!("save started in {:?}", started.elapsed());
-            if let Err(e) = spawned {
-                saver::apply(&mut self.editor, SaveReport::not_started(buffer, path, e));
-                self.dispatcher.publish_for_emergency(&self.editor);
+            match spawned {
+                Ok(()) => started_saves.push(buffer),
+                Err(e) => {
+                    let report = SaveReport::not_started(buffer, path, e);
+                    failed = failed.or_else(|| report.agent_failure());
+                    saver::apply(&mut self.editor, report);
+                    self.dispatcher.publish_for_emergency(&self.editor);
+                }
             }
         }
+        (started_saves, failed)
     }
 
     /// A saving thread has ended: takes in how it went. If an exit is under way, that may
@@ -39,6 +67,7 @@ impl App {
     pub(super) fn save_ended(&mut self, event_loop: &Loop<'_>, report: SaveReport) {
         let failed = report.failed();
         let (buffer, confirmed) = (report.buffer(), report.reached_the_disk());
+        self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
         self.look_again_after_save(buffer);
         self.dispatcher.publish_for_emergency(&self.editor);

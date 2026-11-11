@@ -340,6 +340,7 @@ impl Dispatcher {
                     // What the person's `y` to the agent's question runs is the agent's, so
                     // that a prompt it opens says so too (ADR 0085).
                     let agents = editor.take_agents_answer();
+                    self.ran_for_agent |= agents;
                     self.forget_closed(editor);
                     let Some(id) = self.registry.lookup(name) else {
                         // A bug: a question named a command that does not exist.

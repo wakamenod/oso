@@ -1,6 +1,6 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
-//! argument's, a prompt's, a completion's or a question's, isearch's, a mode's and the global
-//! one (ADR 0034, ADR 0072, ADR 0076, ADR 0082).
+//! argument's, a prompt's, a completion's or a question's, isearch's, a mode's, the user's and
+//! the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -13,6 +13,9 @@ use oso_core::minibuffer::Kind;
 /// Every keymap a dispatcher holds.
 pub(super) struct Keymaps {
     pub(super) global: Keymap,
+    /// The user's keys from the configuration, just above the global ones (ADR 0108). Empty
+    /// without any, and then not a layer.
+    pub(super) user: Keymap,
     /// Active while the prefix argument reads digits, and a minus sign. They come
     /// first among the minor modes, as what is being typed is for them.
     pub(super) prefix: [Keymap; 2],
@@ -32,9 +35,10 @@ pub(super) struct Keymaps {
 impl Keymaps {
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 9] {
+    pub(super) fn all(&self) -> [&Keymap; 10] {
         let Self {
             global,
+            user,
             prefix: [digits, minus],
             copy: [list, copy],
             minibuffer,
@@ -43,7 +47,7 @@ impl Keymaps {
             isearch,
         } = self;
         [
-            global, digits, minus, list, copy, minibuffer, question, completing, isearch,
+            global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
         ]
     }
 
@@ -55,7 +59,8 @@ impl Keymaps {
     /// The keymaps active now. A question's keys take the global keymap's place, so that
     /// no other key reaches a command, and a prompt's go above it (ADR 0072), a completion's
     /// with them (ADR 0076). So do isearch's, and a key they do not bind ends the search first
-    /// (ADR 0082). `reading` holds the keymaps of a prefix argument.
+    /// (ADR 0082). The user's keys go just above the global ones, so neither a question nor a
+    /// search under way sees them (ADR 0108). `reading` holds the keymaps of a prefix argument.
     pub(super) fn active<'a>(
         &'a self,
         reading: &'a [&'a Keymap; 2],
@@ -91,7 +96,14 @@ impl Keymaps {
         Layers {
             minor,
             major,
+            user: self.user(),
             ..Layers::global(&self.global)
         }
+    }
+
+    /// The user's keymap as a layer, none when it is empty, so that a key costs nothing more
+    /// without user keys.
+    pub(super) fn user(&self) -> Option<&Keymap> {
+        Some(&self.user).filter(|user| !user.is_empty())
     }
 }
