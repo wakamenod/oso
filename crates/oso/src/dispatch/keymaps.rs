@@ -95,7 +95,7 @@ impl Keymaps {
             }
         } else {
             match editor.current().1.mode() {
-                Mode::Fundamental => None,
+                Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => None,
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
             }
