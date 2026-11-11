@@ -201,6 +201,8 @@ coordinator.
   `replace-this-and-end`, `replace-this-and-stay`, `replace-back`, `replace-undo`, `replace-end`
   and `replace-help`, all `Person`, in a keymap that takes the others' place while the session
   is on.
+- **Whitespace cleanup judges Markdown by the major mode** now that modes exist (ADR 0111), as
+  `Mode::for_path` gives it from the name, for `C-x C-w`'s new name too.
 - **The two prompts** are read by `ArgSpec::Replace`, which `Ctx::replace_pair` gives back, and
   take Japanese as the prompt for a file's name does.
 
