@@ -12,7 +12,7 @@ keys: M-g g
 │- office                                                        │
 │                                                                │
 │                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                             =
+--- test  1:0  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 4 x 40
 │  Go to line:                           │
@@ -31,7 +31,7 @@ keys: 4 2
 │- office                                                        │
 │                                                                │
 │                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                             =
+--- test  1:0  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 4 x 40
 │  Go to line:                           │
@@ -50,7 +50,7 @@ keys: C-a C-b
 │- office                                                        │
 │                                                                │
 │                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                             =
+--- test  1:0  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 4 x 40
 │  Go to line:                           │
@@ -69,7 +69,7 @@ keys: C-e 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2
 │- office                                                        │
 │                                                                │
 │                                                                │
-=-- test  1:0  Fundamental  UTF-8 LF                             =
+--- test  1:0  Fundamental  UTF-8 LF                             -
 "                                                                "
 float at row 0, column 12: 4 x 40
 │  Go to line:                           │

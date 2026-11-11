@@ -55,5 +55,6 @@ impl Buffer {
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
+        self.highlighting.commit(self.revision, staged.highlighting);
     }
 }

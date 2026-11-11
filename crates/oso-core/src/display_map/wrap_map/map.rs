@@ -109,6 +109,17 @@ impl WrapMap {
         self.budget = COMMAND_BUDGET;
     }
 
+    /// Takes what is left of the command's budget, leaving it none, for another window's wrap
+    /// to spend: the windows share one budget (ADR 0112).
+    pub(crate) fn take_budget(&mut self) -> usize {
+        std::mem::take(&mut self.budget)
+    }
+
+    /// Adds `budget` to what is left of the command's, up to one command's.
+    pub(crate) fn give_budget(&mut self, budget: usize) {
+        self.budget = self.budget.saturating_add(budget).min(COMMAND_BUDGET);
+    }
+
     /// What is left of the command's budget, for tests.
     #[cfg(test)]
     pub(crate) fn budget_left(&self) -> usize {

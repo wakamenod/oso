@@ -314,7 +314,8 @@ impl App {
         };
         let started = Instant::now();
         let mut status = oso_core::editor::Status::default();
-        self.editor.status_into(&mut status);
+        self.editor
+            .status_into(self.editor.tiled().0.id(), &mut status);
         let render_state = &mut view.render_state;
         let cells = &mut super::draw::Cells::default();
         let capture = with_panes(&self.editor, &status, cells, |panes| {

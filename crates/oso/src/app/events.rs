@@ -49,6 +49,7 @@ impl App {
             }
             UserEvent::Copies(event) => self.copies_event(event),
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
+            UserEvent::Trim(report) => self.trim_reported(report),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Wrap(report) => self.wrap_reported(report),
             // `before_waiting` asks for the job again.

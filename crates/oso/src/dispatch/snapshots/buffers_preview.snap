@@ -26,7 +26,7 @@ keys: C-x b
 │                                                                                                    │
 │                                                                                                    │
 │                                                                                                    │
-=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+--- test  1:0  Fundamental  UTF-8 LF                                                                 -
 "                                                                                                    "
 float at row 1, column 19: 19 x 62
 │ 1/4 Switch to buffer:                                        │
@@ -74,7 +74,7 @@ keys: C-n
 │                                                                                                    │
 │                                                                                                    │
 │                                                                                                    │
-=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+--- test  1:0  Fundamental  UTF-8 LF                                                                 -
 "                                                                                                    "
 float at row 1, column 19: 19 x 62
 │ 2/4 Switch to buffer:                                        │

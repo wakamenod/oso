@@ -1,0 +1,53 @@
+pub mod oso_syntax
+pub enum oso_syntax::Failure
+pub oso_syntax::Failure::Incompatible
+pub oso_syntax::Failure::TooLarge
+pub oso_syntax::Failure::TooSlow
+impl core::clone::Clone for oso_syntax::Failure
+pub fn oso_syntax::Failure::clone(&self) -> oso_syntax::Failure
+impl core::cmp::Eq for oso_syntax::Failure
+impl core::cmp::PartialEq for oso_syntax::Failure
+pub fn oso_syntax::Failure::eq(&self, &oso_syntax::Failure) -> bool
+impl core::fmt::Debug for oso_syntax::Failure
+pub fn oso_syntax::Failure::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_syntax::Failure
+impl core::marker::StructuralPartialEq for oso_syntax::Failure
+pub enum oso_syntax::Language
+pub oso_syntax::Language::Markdown
+pub oso_syntax::Language::MarkdownInline
+pub oso_syntax::Language::Rust
+pub oso_syntax::Language::Toml
+impl oso_syntax::Language
+pub fn oso_syntax::Language::name(self) -> &'static str
+pub fn oso_syntax::Language::of(oso_core::buffer::mode::Mode) -> core::option::Option<Self>
+impl core::clone::Clone for oso_syntax::Language
+pub fn oso_syntax::Language::clone(&self) -> oso_syntax::Language
+impl core::cmp::Eq for oso_syntax::Language
+impl core::cmp::PartialEq for oso_syntax::Language
+pub fn oso_syntax::Language::eq(&self, &oso_syntax::Language) -> bool
+impl core::fmt::Debug for oso_syntax::Language
+pub fn oso_syntax::Language::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_syntax::Language
+pub fn oso_syntax::Language::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_syntax::Language
+impl core::marker::StructuralPartialEq for oso_syntax::Language
+pub enum oso_syntax::Parsed
+pub oso_syntax::Parsed::Done
+pub oso_syntax::Parsed::Failed(oso_syntax::Failure)
+pub oso_syntax::Parsed::Paused
+impl core::clone::Clone for oso_syntax::Parsed
+pub fn oso_syntax::Parsed::clone(&self) -> oso_syntax::Parsed
+impl core::cmp::Eq for oso_syntax::Parsed
+impl core::cmp::PartialEq for oso_syntax::Parsed
+pub fn oso_syntax::Parsed::eq(&self, &oso_syntax::Parsed) -> bool
+impl core::fmt::Debug for oso_syntax::Parsed
+pub fn oso_syntax::Parsed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_syntax::Parsed
+impl core::marker::StructuralPartialEq for oso_syntax::Parsed
+pub struct oso_syntax::Document
+impl oso_syntax::Document
+pub fn oso_syntax::Document::edit(&mut self, &[oso_core::syntax::Splice], &oso_core::rope::Rope)
+pub fn oso_syntax::Document::language(&self) -> oso_syntax::Language
+pub fn oso_syntax::Document::new(oso_syntax::Language, oso_core::rope::Rope) -> Self
+pub fn oso_syntax::Document::parse(&mut self, core::time::Duration) -> oso_syntax::Parsed
+pub const oso_syntax::MAX_BYTES: usize

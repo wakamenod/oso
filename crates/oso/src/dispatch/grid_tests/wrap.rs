@@ -107,3 +107,10 @@ fn line_numbers_are_on_a_lines_first_row_only() {
         &[WRAP, "C-n C-e"],
     );
 }
+
+#[test]
+fn a_window_too_narrow_to_wrap_scrolls_sideways_to_the_cursor() {
+    // 7 columns, below the narrowest wrap (ADR 0104): a line a row, scrolled to the cursor.
+    let text = "word word word word\nnext\n";
+    check("wrap_too_narrow", text, (3, 7), &[WRAP, "C-e", "C-a"]);
+}
