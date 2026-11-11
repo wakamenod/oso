@@ -34,7 +34,8 @@ pub(crate) use cells::match_cells_on_row;
 pub use cells::{cursor_rect, match_cells, other_cursor_cells, region_cells};
 pub(crate) use float::completion_regions;
 pub use float::{FloatRegions, MIN_LIST_COLUMNS, float_regions};
-pub(crate) use splits::{Side, Splits};
+pub(crate) use splits::Splits;
+pub use splits::{Side, TooSmall, Way};
 
 /// The rows a frame reserves below the text area: the modeline and the echo
 /// area.
@@ -126,6 +127,12 @@ impl WindowRegions {
         modeline: CellRect::EMPTY,
         divider: None,
     };
+
+    /// Whether the frame had room for it: a window it has none for gets empty regions.
+    pub(crate) fn has_cells(&self) -> bool {
+        let outer = self.outer();
+        outer.rows > 0 && outer.columns > 0
+    }
 
     /// All its cells: its gutter, text, modeline and divider.
     pub(crate) fn outer(&self) -> CellRect {
@@ -227,10 +234,6 @@ impl FrameLayout {
 
     /// The window next to `window` on `side` at `cell`: a row for the left and right, a
     /// column for up and down, where the window's primary cursor is.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "windmove comes in ADR 0112's step 2")
-    )]
     pub(crate) fn neighbour(&self, window: WindowId, side: Side, cell: usize) -> Option<WindowId> {
         let me = self.regions(window)?.outer();
         self.windows.iter().find_map(|(id, regions)| {
@@ -247,8 +250,7 @@ impl FrameLayout {
                     (other.column..other.column + other.columns).contains(&cell)
                 }
             };
-            (*id != window && other.rows > 0 && other.columns > 0 && touches && across)
-                .then_some(*id)
+            (*id != window && regions.has_cells() && touches && across).then_some(*id)
         })
     }
 }

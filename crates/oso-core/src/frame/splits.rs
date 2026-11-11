@@ -11,12 +11,6 @@
 //! the tree first sets the weights it touches to the cells laid out, so that it works in
 //! cells and keeps what the person sees.
 
-// The editor splits, removes, resizes and balances windows from ADR 0112's step 2.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the window commands come in ADR 0112's step 2")
-)]
-
 use super::{CellRect, FrameLayout, FrameSize, WindowRegions, fitting_gutter};
 use crate::window::WindowId;
 
@@ -28,7 +22,7 @@ const SPLIT_COLUMNS: usize = 10;
 
 /// How a run lays out its children.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Way {
+pub enum Way {
     /// Side by side, from the left.
     Across,
     /// Stacked, from the top.
@@ -37,7 +31,7 @@ pub(crate) enum Way {
 
 /// A side of a window, for the window next to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Side {
+pub enum Side {
     Left,
     Right,
     Up,
@@ -46,7 +40,16 @@ pub(crate) enum Side {
 
 /// A split refused, as a half would be smaller than a window may be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TooSmall;
+pub struct TooSmall;
+
+impl std::fmt::Display for TooSmall {
+    /// As Emacs says it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Window too small for splitting")
+    }
+}
+
+impl std::error::Error for TooSmall {}
 
 /// The tiled windows of a frame, as a tree.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -122,7 +122,7 @@ fn a_message_from_a_key_in_the_prompt_shows_there_and_not_on_the_echo_row() {
         Some("Beginning of buffer")
     );
     let mut status = oso_core::editor::Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     assert_eq!(status.echo, "");
     assert!(kept_messages(&editor).contains(&"Beginning of buffer".to_owned()));
 }
@@ -362,7 +362,7 @@ mod passphrase {
             "what its command says stays out of *Messages*"
         );
         let mut status = oso_core::editor::Status::default();
-        editor.status_into(&mut status);
+        editor.status_into(editor.tiled().0.id(), &mut status);
         assert_eq!(status.echo, "Read a passphrase", "but shows");
         let state = crate::dev::get_state(&editor, &[], None);
         assert!(state.get("echo").is_none(), "and not over the socket");

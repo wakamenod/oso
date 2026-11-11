@@ -92,13 +92,13 @@ pub(super) fn with_panes<R>(
     editor.prompt_screen(&mut cells.answer);
     editor.preview_screen(&mut cells.preview);
     let screen = &cells.screen;
-    editor.region_cells(screen, &mut cells.region);
-    editor.other_cursor_cells(screen, &mut cells.others);
-    editor.isearch_cells(screen, &mut cells.matches);
-    editor.trailing_cells(screen, &mut cells.trailing);
-    editor.gutter_into(screen, &mut cells.gutter);
+    editor.region_cells(editor.tiled().0.id(), screen, &mut cells.region);
+    editor.other_cursor_cells(editor.tiled().0.id(), screen, &mut cells.others);
+    editor.isearch_cells(editor.tiled().0.id(), screen, &mut cells.matches);
+    editor.trailing_cells(editor.tiled().0.id(), screen, &mut cells.trailing);
+    editor.gutter_into(editor.tiled().0.id(), screen, &mut cells.gutter);
     let flash = (cells.flash).and_then(|strength| {
-        let cells = editor.flash_cells(screen)?;
+        let cells = editor.flash_cells(editor.tiled().0.id(), screen)?;
         Some(FlashFill { cells, strength })
     });
     // Built each frame, only with line numbers on, in room kept from the last (ADR 0097).
@@ -114,7 +114,9 @@ pub(super) fn with_panes<R>(
     let mut gutter: Vec<&[Span<'_>]> = reuse(std::mem::take(&mut cells.rows));
     gutter.extend(numbers.iter().map(|row| &row[..]));
     cells.band.clear();
-    cells.band.extend(editor.current_line_cells(screen));
+    cells
+        .band
+        .extend(editor.current_line_cells(editor.tiled().0.id(), screen));
     // From the back: the current line's band, trailing whitespace, then the current match
     // first, so that it always has room, and the regions over the matches.
     let fills = [
@@ -331,7 +333,8 @@ impl App {
         if self.view.is_none() {
             return;
         }
-        self.editor.status_into(&mut self.next_status);
+        self.editor
+            .status_into(self.editor.tiled().0.id(), &mut self.next_status);
         if self.next_status != self.status {
             std::mem::swap(&mut self.status, &mut self.next_status);
             self.request_redraw();
@@ -358,7 +361,8 @@ impl App {
         }
         let window = &view.window;
         let window_size = || window.inner_size();
-        self.editor.status_into(&mut self.status);
+        self.editor
+            .status_into(self.editor.tiled().0.id(), &mut self.status);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
         #[cfg(feature = "dev")]
@@ -432,7 +436,7 @@ mod tests {
         editor.set_frame_size(FrameSize { rows, columns: 80 });
         editor.message("Saved");
         let mut status = Status::default();
-        editor.status_into(&mut status);
+        editor.status_into(editor.tiled().0.id(), &mut status);
         with_panes(&editor, &status, &mut Cells::default(), |panes| {
             panes
                 .iter()
@@ -539,7 +543,7 @@ mod tests {
         });
         let first = |editor: &Editor| {
             let mut status = Status::default();
-            editor.status_into(&mut status);
+            editor.status_into(editor.tiled().0.id(), &mut status);
             with_panes(
                 editor,
                 &status,

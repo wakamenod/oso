@@ -111,7 +111,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     }
     if !shows_secret && !editor.echo_withheld() {
         let mut status = Status::default();
-        editor.status_into(&mut status);
+        editor.status_into(editor.tiled().0.id(), &mut status);
         state["modeline"] = json!(status.modeline());
         // isearch's line holds its string.
         let search_withheld = editor.isearch().is_some_and(Isearch::around_secret);
@@ -371,16 +371,13 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     })
 }
 
-/// A window's columns: the tiled window's gutter and text together, so the gutter's width,
-/// which grows with the line count, says nothing of a secret buffer's (ADR 0097).
+/// A window's columns: a tiled window's gutter and text together, every tiled window's, so the
+/// gutter's width, which grows with the line count, says nothing of a secret buffer's in any
+/// window (ADR 0097, ADR 0112). A prompt's window has no gutter.
 fn columns(editor: &Editor, window: &Window) -> usize {
-    let tiled = std::ptr::eq(window, editor.tiled().0);
-    let gutter = if tiled {
-        editor.tiled_regions().gutter.columns
-    } else {
-        0
-    };
-    window.size().columns + gutter
+    editor
+        .regions(window.id())
+        .map_or(window.size().columns, |regions| regions.area().columns)
 }
 
 fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
@@ -556,6 +553,39 @@ mod tests {
         let state = get_state(&editor, &[], None);
         assert_eq!(state["window"]["columns"], 20);
         assert_eq!(state["windows"][0]["columns"], 20);
+    }
+
+    #[test]
+    fn a_window_not_selected_gives_no_secret_buffers_gutter_width_away() {
+        let columns = |lines: usize| {
+            let (mut editor, _) = visiting("/a/.env", None, &"x\n".repeat(lines));
+            editor.set_frame_size(oso_core::frame::FrameSize {
+                rows: 20,
+                columns: 41,
+            });
+            editor.set_visual_aids(oso_core::editor::VisualAids {
+                line_numbers: true,
+                ..oso_core::editor::VisualAids::default()
+            });
+            editor
+                .split_window(oso_core::frame::Way::Across, true)
+                .unwrap();
+            let scratch = editor.buffers().next().unwrap().0;
+            editor.show(scratch);
+            let state = get_state(&editor, &[], None);
+            let windows = state["windows"].as_array().unwrap().clone();
+            (windows, editor.frame().windows()[0].1.gutter.columns)
+        };
+        let (few, few_gutter) = columns(3);
+        let (many, many_gutter) = columns(20_000);
+        assert_ne!(few_gutter, many_gutter, "the gutters differ");
+        let widths = |windows: &[serde_json::Value]| -> Vec<serde_json::Value> {
+            windows
+                .iter()
+                .map(|window| window["columns"].clone())
+                .collect()
+        };
+        assert_eq!(widths(&few), widths(&many), "the columns do not");
     }
 
     #[test]

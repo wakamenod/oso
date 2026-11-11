@@ -78,7 +78,7 @@ fn cursors(editor: &Editor) -> Vec<usize> {
 
 fn warnings(editor: &Editor) -> String {
     let mut status = Status::default();
-    editor.status_into(&mut status);
+    editor.status_into(editor.tiled().0.id(), &mut status);
     status.warnings
 }
 

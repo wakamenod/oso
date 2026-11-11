@@ -27,6 +27,7 @@ use crate::complete::Candidate;
 use crate::kill::{KillEntry, PIECE_SEPARATOR};
 use crate::minibuffer::{Prompt, PromptError, PromptId};
 use crate::selection::{MarkActive, Selection, SelectionSet};
+use crate::window::WindowId;
 
 /// The most bytes of an entry a row shows, and of the row once escaped, which is what the
 /// input matches against.
@@ -48,7 +49,7 @@ pub(super) struct KillList {
 /// cursor's range of new text, so that `M-y` right after it can take its place.
 #[derive(Debug)]
 pub(super) struct LastYank {
-    window: usize,
+    window: WindowId,
     buffer: BufferId,
     revision: u64,
     ranges: Vec<Range<usize>>,
@@ -241,7 +242,7 @@ impl Editor {
         let (window, buffer) = self.current();
         let ranges = window.selections.iter().map(Selection::range).collect();
         self.kills.last_yank = Some(LastYank {
-            window: self.selected,
+            window: window.id(),
             buffer: window.buffer(),
             revision: buffer.revision(),
             ranges,
@@ -254,7 +255,7 @@ impl Editor {
     fn last_yank(&self) -> Option<&LastYank> {
         let last = self.kills.last_yank.as_ref()?;
         let (window, buffer) = self.current();
-        let same = last.window == self.selected
+        let same = last.window == window.id()
             && last.buffer == window.buffer()
             && last.revision == buffer.revision()
             && window
