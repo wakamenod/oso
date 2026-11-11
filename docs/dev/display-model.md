@@ -202,15 +202,16 @@ one layer:
 
 ## Windows, frames and floating windows
 
-- A frame holds a tree of split windows. Tabs (tab-bar style) hold separate
-  window trees.
+- A frame holds a tree of split windows: runs of windows side by side or stacked, each child
+  with a weight that the layout turns into whole cells
+  ([ADR 0112](adr/0112-window-splits.md)). Tabs (tab-bar style) hold separate window trees.
 - Each window has its own selection set, so the same buffer in two windows can
   be edited at different places.
 - Floating windows are positioned freely above the tree. They show the
   minibuffer, menus, completion popups and hover documentation. Their
   placement is decided per feature.
-- `oso_core::frame` lays out a frame in whole cells: the window's text area and
-  modeline, and the echo area. `frame::float_regions` places a float over them, outside the
+- `oso_core::frame` lays out a frame in whole cells: each window's text area and
+  modeline, and the echo area. `frame::float_regions` places a float over the tiled area, outside the
   layout: a prompt's, attached to the top edge at the center, whose window goes after the tiled
   ones and is the selected one while it is open
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
