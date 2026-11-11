@@ -1,6 +1,6 @@
 # 0113. query-replace, keyboard macros and whitespace cleanup on save
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -47,8 +47,10 @@ buffer on the UI thread.
 
 ## Decision
 
-Proposed. The text below describes the first option of each question under
-[Questions](#questions). The rest are defaults put to the author with this ADR.
+The author chose on 2026-11-12 the first option of each question under
+[Questions](#questions), which the text below describes. The rest are defaults put to them with
+this ADR. They accepted this ADR, with the rest as written, on 2026-11-12, through the
+coordinator.
 
 ### 1. query-replace
 
@@ -369,7 +371,7 @@ Proposed. The text below describes the first option of each question under
 
 ## Questions
 
-Put to the author on 2026-11-12. The recommended option is first.
+Put to the author on 2026-11-12, the recommended option first; each answer was the first.
 
 ### query-replace
 
