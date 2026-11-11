@@ -82,6 +82,7 @@ pub(super) fn with_panes<R>(
         span(status.agent, agent),
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], Face::Modeline),
+        span(&status.project[..], Face::Modeline),
         span(&status.state[..], Face::Modeline),
     ];
     let echo = [
