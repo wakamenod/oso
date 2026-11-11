@@ -69,6 +69,11 @@ struct Shared {
 struct State {
     /// What the last look found, until it is taken.
     report: Option<Report>,
+    /// Whether that is the launch's: the first look, which no later one replaced before it was
+    /// taken. Only it starts the agent channel (ADR 0108).
+    launch: bool,
+    /// Whether a look has said anything yet.
+    delivered: bool,
     /// Called with the lock held: it only posts an event, and never calls back here.
     wake: Option<Box<dyn Fn() + Send>>,
     poked: bool,
@@ -88,6 +93,12 @@ enum Said {
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn take(&self) -> Option<(Report, bool)> {
+        let mut state = self.lock();
+        let report = state.report.take()?;
+        Some((report, std::mem::take(&mut state.launch)))
     }
 }
 
@@ -123,9 +134,12 @@ impl Reader {
         state.wake = Some(Box::new(wake));
     }
 
-    /// What the last look found, if it found something new since this was last asked.
-    pub fn take(&self) -> Option<Report> {
-        self.shared.lock().report.take()
+    /// What the last look found, if it found something new since this was last asked, and
+    /// whether it is the launch's: the first look, which no later one replaced before it was
+    /// taken. A look done before the app takes any can replace a bad first one, and the file
+    /// it found fixed is not the launch's.
+    pub fn take(&self) -> Option<(Report, bool)> {
+        self.shared.take()
     }
 
     /// Looks at the file now: oso gained the focus, or saved a file. A file refused is read
@@ -247,6 +261,8 @@ fn deliver(shared: &Shared, report: Report) {
     let untaken = {
         let mut state = shared.lock();
         let untaken = state.report.replace(report);
+        state.launch = !state.delivered;
+        state.delivered = true;
         if let Some(wake) = &state.wake {
             wake();
         }

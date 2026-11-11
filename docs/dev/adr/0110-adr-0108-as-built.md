@@ -13,7 +13,7 @@ land, and is accepted with the last one.
 ## Decision
 
 The author chose D1 and D2 on 2026-11-11, through the coordinator, and the 256 KiB file limit
-and step 4's questions the same day.
+and step 4's questions, Q6 among them, the same day.
 
 ### Step 1: the user's key layer
 
@@ -172,7 +172,8 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
 - **The app keeps the settings in force, `config::InForce`:** each as the file gives it, or its
   compiled-in value where the file leaves it out or there is no file. Those are the first
   built-in theme, the first two as the pair, ADR 0026's aids, and no channel. Each look that
-  applies the file compares them one by one, and only what differs applies. So a setting removed
+  applies the file compares them one by one, and only what differs applies. `InForce::changes`,
+  a pure function, decides all of it, as `config::outcome` does for the rest of a look. So a setting removed
   from the file, or a file removed, applies the compiled-in value. Each aid applies on its own:
   a changed `flash` leaves `whitespace` as the person switched it.
 - **A file rejected or refused changes no setting,** nor what the next look is compared with.
@@ -190,12 +191,19 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
   later look switches the theme when it comes. That can show one theme and then another only if
   the file's default changed since the theme was remembered, or nothing is remembered and the
   file names one. The UI thread never waits for the file.
-- **Only the launch's look starts the channel:** the first look the thread reports, if it read
-  and applied the file. The echo area and `*Messages*` say "Agent channel on, as config.toml
+- **Only the launch's look starts the channel:** the thread's first look, if it read and
+  applied the file and no later look replaced it before the app took it. A look done before the
+  window opens waits for it, so a file refused at launch and fixed a moment later is found by a
+  look that is not the launch's. The echo area and `*Messages*` say "Agent channel on, as config.toml
   says: each agent asks you first". If a later look gives another value, oso says
   "config.toml: [agent-channel] start = true applies from the next start". The line goes in the
   echo area when nothing else is said there, and otherwise in `*Messages*` only. A file that was
   bad at launch and fixed later does not start the channel either.
+- **Q6: a file that other users in a group can change does not start the channel,** nor does
+  one whose way to it they can change. On macOS such a group, `staff`, can hold every account,
+  and the file would let them open the channel's socket at launch. `*Messages*` says
+  "config.toml: [agent-channel] start not applied: other users in a group can change it", and
+  every other setting applies.
 - **A restart under `oso dev`:** the new instance reads the file at its start, as any start
   does, and the import comes after. The handoff's theme and aids replace what the file applied.
   If no look has applied the file by the import, the next one takes the file's theme and aids as
@@ -204,9 +212,14 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
 
 ### Step 5: the agent channel and the configuration directory
 
-- A directory in oso's configuration directory, at any depth, that can be searched but not
-  listed refuses every agent save, since what its entries lead to cannot be ruled out, as for an
-  unreadable configuration directory and one with more than 1000 entries.
+- Before an agent's save is written, oso looks through its configuration directory for an
+  entry that leads to the save's target, through at most 1000 entries in all and at most 4
+  levels of directories below it. Past either limit, every agent save is refused, since what
+  the directory leads to can no longer be ruled out. So it is when the configuration directory,
+  or any directory in it, can be searched but not listed, since what is in it can still be read
+  by name. A directory link loop in the configuration directory therefore refuses every agent
+  save. These are safe defaults: a refused save tells the agent so and writes nothing, and the
+  person can still save the file themselves.
 
 ## Changes to accepted ADRs
 
@@ -248,7 +261,8 @@ The author chose the `Writers` levels, `Editor::note` and leaving dev restarts a
   and also: the file is written whenever the theme shown or the configured default changes, also
   for a theme the file set, and a file of one line counts as the first built-in theme.
 - "`agent-channel.start = true` starts the channel at launch" holds: at launch means the first
-  look at the file, if it applied the file.
+  look at the file, if it applied the file and nothing replaced it before it was taken. A file
+  that other users in its group can change, or the way to it, does not start it.
 
 **[ADR 0089](0089-built-in-themes-switched-at-run-time.md)** (Built-in themes switched at run
 time):
@@ -282,6 +296,8 @@ time):
 - **Super keys counted as typing keys:** they would be refused too, but they type nothing in oso,
   and Emacs users bind them.
 - **Ignoring `C-g` entries without a word:** the person would wonder why a binding does nothing.
+- **Q6, letting a file a group can change start the channel, with the risk written down:** each
+  connection still asks, but the socket would open at launch on another user's word.
 - **Writing `oso/theme` only on a choice:** a session that changes the configured default and
   back would end in one theme and start the next time in another.
 - **Comparing a setting left out with the file's last value, not the compiled-in one:** removing

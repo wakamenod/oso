@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use oso_core::keymap::Keymap;
 
-use super::{App, UserEvent, theme_names};
-use crate::config::{InForce, Reader, Settings, Source, outcome};
+use super::{App, UserEvent};
+use crate::config::{InForce, Look, Reader, Settings, Source, outcome};
 
 /// The configuration's thread, what has been said of the file, and the settings in force.
 pub(super) struct Configuration {
@@ -23,11 +23,11 @@ pub(super) struct Configuration {
     name: String,
     /// Whether the last look found something wrong, so that a good one after says so.
     troubled: bool,
+    /// The built-in themes' names, the default first, which settings name.
+    names: Vec<&'static str>,
     /// The settings in force: the compiled-in ones until a look applies the file's, with the
     /// default theme remembered with the theme shown last.
     in_force: InForce,
-    /// Whether the launch's look has come: only it starts the agent channel.
-    looked: bool,
     /// Whether a look has applied settings.
     applied: bool,
     /// A dev restart's handoff set the theme and the aids before any look applied settings: the
@@ -39,14 +39,14 @@ pub(super) struct Configuration {
 impl Configuration {
     /// No configuration yet, with `themes`, the built-in themes, the default first.
     pub(super) fn new(themes: &[(&'static str, &'static str)]) -> Self {
-        let names: Vec<&str> = themes.iter().map(|&(name, _)| name).collect();
+        let names: Vec<&'static str> = themes.iter().map(|&(name, _)| name).collect();
         Self {
             reader: None,
             directories: Vec::new(),
             name: String::new(),
             troubled: false,
             in_force: InForce::compiled(&names),
-            looked: false,
+            names,
             applied: false,
             #[cfg(feature = "dev")]
             handed_over: false,
@@ -73,6 +73,27 @@ impl Configuration {
         if !self.applied {
             self.handed_over = true;
         }
+    }
+
+    /// Whether a handoff set the theme and the aids before a look applied settings, once.
+    #[cfg(feature = "dev")]
+    fn take_handed_over(&mut self) -> bool {
+        std::mem::take(&mut self.handed_over)
+    }
+
+    /// Only a dev build takes a handoff.
+    #[cfg(not(feature = "dev"))]
+    #[expect(
+        clippy::unused_self,
+        reason = "the dev build's takes the handoff's mark"
+    )]
+    fn take_handed_over(&mut self) -> bool {
+        false
+    }
+
+    /// Where the theme called `name` is among the built-in ones.
+    fn theme_index(&self, name: &str) -> Option<usize> {
+        self.names.iter().position(|&theme| theme == name)
     }
 }
 
@@ -118,83 +139,72 @@ impl App {
         if self.view.is_none() {
             return;
         }
-        let Some(report) = configuration.reader.as_ref().and_then(Reader::take) else {
+        let Some((report, launch)) = configuration.reader.as_ref().and_then(Reader::take) else {
             return;
         };
-        let outcome = outcome(report, &configuration.name, configuration.troubled);
-        if let Some(keys) = outcome.keys {
+        let mut outcome = outcome(report, &configuration.name, configuration.troubled);
+        if let Some(keys) = outcome.keys.take() {
             self.replace_user_keymap(keys);
         }
-        let launch = !std::mem::replace(&mut self.configuration.looked, true);
-        let later = outcome
-            .settings
-            .and_then(|settings| self.apply_settings(&settings, launch));
+        if let Some(settings) = outcome.settings.take() {
+            let look = Look {
+                launch,
+                handed_over: self.configuration.take_handed_over(),
+                group_writes: outcome.group_writes,
+            };
+            if let Some(later) = self.apply_settings(&settings, look) {
+                outcome.say_later(later);
+            }
+        }
         for note in outcome.notes {
             self.editor.note(note);
         }
-        match (outcome.said, later) {
-            (Some(said), later) => {
-                if let Some(later) = later {
-                    self.editor.note(later);
-                }
-                self.editor.message(said);
-            }
-            (None, Some(later)) => self.editor.message(later),
-            (None, None) => {}
+        if let Some(said) = outcome.said {
+            self.editor.message(said);
         }
         self.configuration.troubled = outcome.troubled;
     }
 
-    /// Applies each of `settings` whose value differs from the one in force, and starts the
-    /// agent channel if this is the `launch`'s look and they say so. Returns what to say of a
-    /// change that applies only at the next start.
-    fn apply_settings(&mut self, settings: &Settings, launch: bool) -> Option<String> {
-        let themes = theme_names();
-        let names: Vec<&str> = themes.iter().map(|&(name, _)| name).collect();
-        let index = |name: &str| names.iter().position(|&theme| theme == name);
-        let now = InForce::of(settings, &names);
-        let pair = now.pair.each_ref().map(|name| index(name));
-        let theme = (now.theme != self.configuration.in_force.theme)
-            .then(|| index(&now.theme))
-            .flatten();
+    /// Carries out what `settings` come to on this `look`, against those in force
+    /// (`InForce::changes`). Returns what to say of a change that applies only at the next
+    /// start.
+    fn apply_settings(&mut self, settings: &Settings, look: Look) -> Option<String> {
         let configuration = &mut self.configuration;
-        let before = std::mem::replace(&mut configuration.in_force, now);
+        let now = InForce::of(settings, &configuration.names);
+        let changes = now.changes(
+            &configuration.in_force,
+            self.editor.visual_aids(),
+            look,
+            &configuration.name,
+        );
+        configuration.in_force = now;
         configuration.applied = true;
-        #[cfg(feature = "dev")]
-        let handed_over = std::mem::take(&mut configuration.handed_over);
-        #[cfg(not(feature = "dev"))]
-        let handed_over = false;
-        let now = &configuration.in_force;
-        if !handed_over {
-            let aids = now.aids_over(&before, self.editor.visual_aids());
-            if aids != self.editor.visual_aids() {
-                self.editor.set_visual_aids(aids);
-            }
-            // Quietly: the person changed the file, or set the theme to start in.
-            if let Some(theme) = theme {
-                self.editor.set_themes(themes, theme);
-            }
+        if let Some(aids) = changes.aids {
+            self.editor.set_visual_aids(aids);
         }
-        if let [Some(first), Some(second)] = pair {
+        let configuration = &self.configuration;
+        // Quietly. Taking the themes again sets the pair back to the first two, and the
+        // configured pair is set after it, on every look.
+        if let Some(index) = changes
+            .theme
+            .and_then(|name| configuration.theme_index(&name))
+        {
+            self.editor.set_themes(self.themes.clone(), index);
+        }
+        let pair = &configuration.in_force.pair;
+        if let (Some(first), Some(second)) = (
+            configuration.theme_index(&pair[0]),
+            configuration.theme_index(&pair[1]),
+        ) {
             self.editor.set_theme_pair([first, second]);
         }
-        let start = now.agent_channel_start;
-        let changed = start != before.agent_channel_start;
         self.remember_theme();
         self.request_redraw();
-        if launch {
-            if start {
-                let name = self.configuration.name.clone();
-                self.start_agent_channel_as_configured(&name);
-            }
-            return None;
+        if changes.start_channel {
+            let name = self.configuration.name.clone();
+            self.start_agent_channel_as_configured(&name);
         }
-        changed.then(|| {
-            format!(
-                "{}: [agent-channel] start = {start} applies from the next start",
-                self.configuration.name
-            )
-        })
+        changes.later
     }
 
     /// Puts in the user's keys, and drops those they replace on the freeing thread: a large

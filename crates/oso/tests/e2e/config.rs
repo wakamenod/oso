@@ -177,6 +177,48 @@ fn the_theme_shown_last_wins_until_the_configured_default_changes() {
     app.wait_until_ready();
     app.wait_for("the look", |state| state["echo"] == SAID_ECHO);
     assert_eq!(theme(&mut app), "dusk", "the changed default wins");
+
+    // A reload never starts the channel.
+    replace(
+        &config,
+        &format!("{}[agent-channel]\nstart = true\n", file("dusk")),
+    );
+    wait_for_message(
+        &mut app,
+        "config.toml: [agent-channel] start = true applies from the next start",
+    );
+    assert!(
+        app.state()["modeline"]
+            .as_str()
+            .is_some_and(|modeline| !modeline.starts_with("Agent  "))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_file_its_group_can_change_does_not_start_the_channel() {
+    let (scratch, config) = with_config(
+        "config-group",
+        b"[aids]\nline-numbers = true\n\n[agent-channel]\nstart = true\n",
+    );
+    set_mode(&config, 0o664);
+    let mut app = App::start_with_config(None, scratch.path(), &config);
+    app.wait_until_ready();
+    let state = app.wait_for("the warning", |state| state["echo"] == SAID_ECHO);
+    assert_eq!(
+        state["visual_aids"]["line_numbers"], true,
+        "the rest applies"
+    );
+    wait_for_message(
+        &mut app,
+        "config.toml: [agent-channel] start not applied: other users in a group can change it",
+    );
+    assert!(
+        app.state()["modeline"]
+            .as_str()
+            .is_some_and(|modeline| !modeline.starts_with("Agent  "))
+    );
 }
 
 #[test]

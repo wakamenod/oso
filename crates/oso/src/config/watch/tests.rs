@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use super::{MAX_BYTES, Reader, Report};
+use super::{MAX_BYTES, Reader, Report, Shared, deliver};
 use crate::config::{FILE_NAME, Source};
 use crate::saver::tests::Scratch;
 
@@ -50,10 +50,27 @@ fn next(watch: &Reader, wakes: &mpsc::Receiver<()>) -> Report {
         wakes
             .recv_timeout(Duration::from_secs(10))
             .expect("the thread says nothing");
-        if let Some(report) = watch.take() {
+        if let Some((report, _)) = watch.take() {
             return report;
         }
     }
+}
+
+#[test]
+fn only_the_first_look_taken_as_it_was_is_the_launchs() {
+    let refused = || Report::Refused("why".to_owned());
+    let shared = Shared::default();
+    deliver(&shared, refused());
+    assert!(matches!(shared.take(), Some((Report::Refused(_), true))));
+    deliver(&shared, Report::Missing);
+    assert!(matches!(shared.take(), Some((Report::Missing, false))));
+    assert!(shared.take().is_none());
+
+    // A first look replaced before it was taken: the file found fixed is not the launch's.
+    let shared = Shared::default();
+    deliver(&shared, refused());
+    deliver(&shared, Report::Missing);
+    assert!(matches!(shared.take(), Some((Report::Missing, false))));
 }
 
 fn refusal(report: Report) -> String {

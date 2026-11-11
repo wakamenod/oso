@@ -1,5 +1,6 @@
-//! Starting and stopping the agent channel at the person's command, and asking the person
-//! about each connection once they are free (ADR 0085).
+//! Starting and stopping the agent channel at the person's command, or at launch as the
+//! configuration file says, and asking the person about each connection once they are free
+//! (ADR 0085, ADR 0108).
 //!
 //! Must not depend on: sockets or threads, which stay behind the channel's requests.
 

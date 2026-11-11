@@ -15,12 +15,25 @@ pub struct Outcome {
     pub keys: Option<Keymap>,
     /// The settings to put in, all unset for no file; `None` keeps those in force.
     pub settings: Option<Settings>,
+    /// Whether other users in a group can change the file, or the way to it.
+    pub group_writes: bool,
     /// Lines for `*Messages*` alone (`Editor::note`).
     pub notes: Vec<String>,
     /// The line for the echo area and `*Messages*`, or `None` to say it only in the log.
     pub said: Option<String>,
     /// Whether something is wrong, so that the next good look says so.
     pub troubled: bool,
+}
+
+impl Outcome {
+    /// Says `line`, of a setting that applies only at the next start: in the echo area if
+    /// nothing else is said there, and otherwise in `*Messages*` alone.
+    pub fn say_later(&mut self, line: String) {
+        match self.said {
+            None => self.said = Some(line),
+            Some(_) => self.notes.push(line),
+        }
+    }
 }
 
 /// What `report` comes to, for the file called `name`, after a look that found something wrong
@@ -32,6 +45,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
             Outcome {
                 keys: Some(Keymap::new()),
                 settings: Some(Settings::default()),
+                group_writes: false,
                 notes: Vec::new(),
                 said: None,
                 troubled: false,
@@ -40,6 +54,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
         Report::Refused(why) => Outcome {
             keys: None,
             settings: None,
+            group_writes: false,
             notes: Vec::new(),
             said: Some(format!("Configuration not read: {why}")),
             troubled: true,
@@ -81,6 +96,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
             };
             Outcome {
                 settings: applied.then_some(loaded.settings),
+                group_writes,
                 keys: loaded.keys,
                 notes,
                 said,
@@ -122,6 +138,7 @@ mod tests {
             Outcome {
                 keys: Some(Keymap::new()),
                 settings: Some(Settings::default()),
+                group_writes: false,
                 notes: Vec::new(),
                 said: None,
                 troubled: false,
@@ -130,6 +147,21 @@ mod tests {
         let after = outcome(read(Some(Keymap::new()), 0, 0, false), "config.toml", true);
         assert_eq!(after.said.as_deref(), Some("Configuration loaded"));
         assert!(!after.troubled);
+    }
+
+    #[test]
+    fn a_line_for_the_next_start_is_echoed_unless_something_else_is() {
+        let mut quiet = outcome(read(Some(Keymap::new()), 0, 0, false), "config.toml", false);
+        quiet.say_later("later".to_owned());
+        assert_eq!(quiet.said.as_deref(), Some("later"));
+        assert!(quiet.notes.is_empty());
+        let mut said = outcome(read(Some(Keymap::new()), 1, 0, false), "config.toml", false);
+        said.say_later("later".to_owned());
+        assert_eq!(
+            said.said.as_deref(),
+            Some("Configuration: 1 problem, see *Messages*")
+        );
+        assert_eq!(said.notes.last().map(String::as_str), Some("later"));
     }
 
     #[test]

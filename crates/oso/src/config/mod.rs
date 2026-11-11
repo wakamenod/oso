@@ -29,7 +29,7 @@ use oso_core::keymap::Keymap;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
-pub use in_force::InForce;
+pub use in_force::{InForce, Look};
 pub use outcome::outcome;
 pub use problems::Problem;
 pub use settings::Settings;
