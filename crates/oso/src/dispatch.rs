@@ -510,10 +510,15 @@ impl Dispatcher {
         let dropped = self.drop_held_completion();
         let reading = self.keymaps.reading();
         let mut layers = self.keymaps.active(&reading, self.prefix, editor);
-        // `C-g` is never the user's: under a prefix it cancels whatever is bound, and on its
-        // own it runs what the defaults bind (ADR 0108).
-        if self.resolver.pending().is_empty() && (key == CANCEL || key.unshifted() == Some(CANCEL))
-        {
+        // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
+        // and on its own it runs what the defaults bind (ADR 0108, ADR 0110).
+        let cancels = key == CANCEL || key.unshifted() == Some(CANCEL);
+        let key = if cancels && !self.resolver.pending().is_empty() {
+            CANCEL
+        } else {
+            key
+        };
+        if cancels {
             layers.user = None;
         }
         let (id, shifted) = match self.resolver.feed(&layers, key) {

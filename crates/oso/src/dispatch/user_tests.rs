@@ -229,7 +229,15 @@ fn the_log_masks_every_typing_key_and_the_screen_only_when_asked() {
 #[test]
 fn c_g_is_never_the_user_s() {
     let (mut d, mut editor) = at("abcdef", &[3]);
-    let mut keymap = user(&[("C-g", "forward-char"), ("C-c C-g", "forward-char")], &[]);
+    let mut keymap = user(
+        &[
+            ("C-g", "forward-char"),
+            ("C-c C-g", "forward-char"),
+            ("C-c C-G", "forward-char"),
+            ("C-x C-G", "forward-char"),
+        ],
+        &[],
+    );
     keymap
         .bind(
             &"C-G x".parse::<KeySequence>().unwrap().0,
@@ -237,7 +245,7 @@ fn c_g_is_never_the_user_s() {
         )
         .unwrap();
     d.set_user_keymap(keymap);
-    for keys in ["C-g", "C-c C-g", "C-G"] {
+    for keys in ["C-g", "C-c C-g", "C-G", "C-c C-G", "C-x C-G"] {
         send(&mut d, &mut editor, keys);
         assert_eq!(echo(&editor), "Quit", "{keys}");
     }

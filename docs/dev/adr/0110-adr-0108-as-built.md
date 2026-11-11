@@ -25,13 +25,12 @@ The author chose D1 and D2 on 2026-11-11, through the coordinator.
   nil ([ADR 0071](0071-mark-and-region.md)). `C-x C-K` runs a user's `C-x C-k` under such a
   prefix. So `"C-F" = false` changes nothing while `C-f` is bound; step 2 warns of such an entry.
 - **In a passphrase prompt, every key that types a character is shown as `<char>`:** in the keys
-  in progress (`<char>-`) and in "… is undefined", since a user's prefix can start with a typing
-  key, which is then part of what is typed. Beside a buffer that may hold secrets, the echo keeps
+  in progress (`<char>-`) and in "… is undefined". Beside a buffer that may hold secrets, the echo keeps
   the keys, and goes with the buffer, as it does today.
 - **The log masks every key that types a character,** not only the last one, as typed text stays
   out of it ([ADR 0028](0028-secrets-handling.md)).
-- **`C-g` is never the user's,** whatever the layer holds: under a prefix it cancels, and on its
-  own, Shift or not, it runs what the defaults bind. `M-x` shows no user binding of it. The
+- **`C-g` is never the user's,** whatever the layer holds, Shift or not: under a prefix it
+  cancels, and on its own it runs what the defaults bind. `M-x` shows no user binding of it. The
   dispatcher keeps this, so it holds whatever fills the layer.
 - **`M-x` shows no default key that a user command on a shorter key cuts short,** as the resolver
   reads keys one at a time, and a command whose default key the user's keys shadow is listed with
