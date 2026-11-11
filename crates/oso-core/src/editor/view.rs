@@ -313,11 +313,14 @@ impl Editor {
         self.fit_preview();
         let mut moved = self.follow_window(self.selected);
         if self.prompts.is_empty() && !self.moved_windows.is_empty() {
-            for id in std::mem::take(&mut self.moved_windows) {
+            // By position, so the list keeps its room from command to command.
+            for at in 0..self.moved_windows.len() {
+                let id = self.moved_windows[at];
                 if let Some(index) = self.window_index(id).filter(|&i| i != self.selected) {
                     moved |= self.follow_window(index);
                 }
             }
+            self.moved_windows.clear();
             // What is left goes back to the selected window, for what the command does next.
             self.pass_wrap_budget(self.selected);
         }
