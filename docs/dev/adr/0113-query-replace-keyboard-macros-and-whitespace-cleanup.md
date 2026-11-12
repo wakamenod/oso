@@ -243,16 +243,19 @@ coordinator.
   goes, also within one line.
 - **Empty matches go as `Regex::replace_all` takes them,** for `!`, the answers and the count: one
   right where a match ended is skipped, and one at the end of the scope counts.
-- **Each range of the scope is the haystack,** as in Emacs's search of a narrowed buffer: a match
-  ends within it, so a greedy pattern stops at its end, and that end counts as a line's end for
-  `$`.
+- **A range of the scope ends a match as Emacs's bounded search does:** a match ends within it,
+  so a greedy pattern stops at its end, but where it ends inside a line it is neither a line's
+  end for `$` nor a word's for `\b`, which see the text after it (the author's choice,
+  2026-11-12). The range is the haystack, so a search reads no further than it; a match that
+  ends at the range's end is checked against the next character by two regexps made from the
+  pattern, one whose match ends there and one whose match ends before it.
 - **What is searched for is a `Needle`,** the literal query or the regexp, for the session, the
   scoped job and the highlights. A regexp's highlights read each line in view, up to 64 KiB, and
   look from a little before the view to a little after; a match the window cuts at its end is
   not shown, and the current match always is.
-- **A regexp is at most 1024 characters, and compiles within 2 MiB.** The first prompt checks it,
-  so one that does not compile keeps the prompt open, saying why, as a number prompt does with
-  `Not a number` (`Editor::prompt_takes_regexp`), and the session takes the regexp it compiled.
+- **A regexp is at most 1024 characters, and compiles within 2 MiB,** as do the two made from
+  it. The first prompt checks it, so one that does not compile keeps the prompt open, saying
+  why, as a number prompt does with `Not a number` (`Editor::prompt_takes_regexp`), and the session takes the regexp it compiled.
 - **The replacement's groups** are read from the match and the character before it, not its whole
   line.
 - **Case follows the match whenever the search folds,** also where an inline `(?-i)` makes a part
@@ -261,6 +264,10 @@ coordinator.
   fewer matches a slice on a long line, so it takes longer in all while each slice stays within
   its time; a count with such a pattern takes longer on the worker, where a newer job can still
   take its place.
+  A pattern whose preferred match runs to a range's end inside a line but fails there, as
+  `\w+\b|\w` on a long word cut by the region, reads to the range's end for each match it
+  takes instead, as Emacs does: a few milliseconds a match over a range of 4 MB, so a slice
+  can pass the 4 ms target by one such match, and the count takes long on the worker.
   The first slice on a line copies the line, so on a very long line it passes the 4 ms target:
   about 40 ms on a 60 MB line with no match. The name of a group, `(?P<Name>…)`, says nothing of
   case.

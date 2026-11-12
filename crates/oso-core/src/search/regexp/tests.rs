@@ -85,6 +85,24 @@ fn a_range_is_its_own_haystack_as_a_narrowed_search() {
 }
 
 #[test]
+fn a_range_s_end_inside_a_line_is_neither_a_line_s_end_nor_a_word_s() {
+    assert!(within(r"\s+$", "foo bar", &[0..4]).is_empty());
+    assert!(within(r"\w+$", "foo.bar", &[0..3]).is_empty());
+    assert_eq!(within(r"\b", "abc def", &[0..2]), [0..0]);
+    assert!(within("a+$", "aaaa", &[0..2]).is_empty());
+    // Where the text after it makes them hold, they do.
+    assert_eq!(within(r"\w+\b", "foo.bar", &[0..3]), [0..3]);
+    assert_eq!(within(r"\s+$", "foo  ", &[0..5]), [3..5]);
+    // A match that cannot end at the range's end gives way to a shorter one.
+    assert_eq!(within("a+$|a", "aaab", &[0..2]), [0..1, 1..2]);
+    assert_eq!(within(r"\w+\b|\w", "abcd", &[0..2]), [0..1, 1..2]);
+    // An empty match at its end counts.
+    assert_eq!(within(r"x*", "ab", &[1..1]), [1..1]);
+    // A `(?x)` pattern's comment.
+    assert_eq!(within("(?x) a+ # as", "aaa", &[0..2]), [0..2]);
+}
+
+#[test]
 fn a_greedy_match_on_a_long_line_with_a_range_ending_in_it_is_quick() {
     let text = "a".repeat(200 * 1024);
     let started = std::time::Instant::now();

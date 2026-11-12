@@ -17,6 +17,9 @@ use regex::{Regex, RegexBuilder};
 
 use super::Found;
 use crate::rope::Rope;
+use cut::{AtCut, Ending};
+
+mod cut;
 
 /// The longest line a regexp is matched in: past it, a search stops at the line.
 pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
@@ -48,6 +51,8 @@ pub(crate) struct LineTooLong(pub(crate) usize);
 #[derive(Clone)]
 pub(crate) struct Regexp {
     regex: Regex,
+    /// For a match at a range's end inside a line.
+    at_cut: AtCut,
     /// The longest line it is matched in.
     longest: usize,
 }
@@ -128,14 +133,15 @@ pub(crate) fn compile(pattern: &str) -> Result<Regexp, String> {
             "Invalid regexp: longer than {MAX_PATTERN_CHARS} characters"
         ));
     }
-    RegexBuilder::new(pattern)
-        .case_insensitive(!smart_case(pattern))
-        .multi_line(false)
-        .size_limit(SIZE_LIMIT)
+    let insensitive = !smart_case(pattern);
+    builder(pattern, insensitive)
         .build()
-        .map(|regex| Regexp {
-            regex,
-            longest: MAX_LINE,
+        .and_then(|regex| {
+            Ok(Regexp {
+                regex,
+                at_cut: AtCut::new(pattern, insensitive)?,
+                longest: MAX_LINE,
+            })
         })
         .map_err(|error| {
             let error = error.to_string();
@@ -143,6 +149,16 @@ pub(crate) fn compile(pattern: &str) -> Result<Regexp, String> {
             let last = last.strip_prefix("error:").unwrap_or(last).trim();
             format!("Invalid regexp: {last}")
         })
+}
+
+/// A builder of `pattern` with query-replace's settings.
+fn builder(pattern: &str, insensitive: bool) -> RegexBuilder {
+    let mut builder = RegexBuilder::new(pattern);
+    builder
+        .case_insensitive(insensitive)
+        .multi_line(false)
+        .size_limit(SIZE_LIMIT);
+    builder
 }
 
 /// A line's text, read from a rope, which a search keeps while it is in the line, and which
@@ -216,6 +232,8 @@ pub(crate) struct Scan<'a> {
     /// An empty match here is skipped: a match ended here.
     skip_empty_at: Option<usize>,
     line: Option<Line>,
+    /// Where a match that ends at a range's end inside its line starts, kept.
+    ending: Ending,
     /// The work done, against `limit`.
     work: usize,
     limit: usize,
@@ -246,6 +264,7 @@ impl<'a> Scan<'a> {
             at: from,
             skip_empty_at: after_match.then_some(from),
             line,
+            ending: Ending::default(),
             work: 0,
             limit,
             looked: 0,
@@ -334,32 +353,29 @@ impl<'a> Scan<'a> {
             };
             let (start, next) = (line.start, line.next);
             let mut from = self.at - start;
-            // The range is the haystack, as in a narrowed search: a match ends within it, so a
-            // greedy pattern stops at its end, and that end counts as a line's end.
+            // The range is the haystack, as in Emacs's bounded search: a match ends within it,
+            // so a greedy pattern stops at its end, while `$` and `\b` there see what follows.
             let mut cut = (range.end - start).min(line.text.len());
             while !line.text.is_char_boundary(cut) {
                 cut -= 1;
             }
-            let haystack = &line.text[..cut];
             let found = loop {
-                if from > cut {
-                    break None;
-                }
-                let found = self.regexp.regex.find_at(haystack, from);
-                // A look that finds nothing read to the haystack's end; one that finds a match
-                // read about to its end, and a pattern that reads further is what `until` is for.
-                let cost = found.map_or(cut - from, |found| found.end() - from);
-                self.work = self.work.saturating_add(cost + PER_MATCH);
-                let Some(found) = found else {
+                let Some(found) = cut::find(
+                    self.regexp,
+                    (&line.text, start, cut),
+                    from,
+                    &mut self.ending,
+                    &mut self.work,
+                ) else {
                     break None;
                 };
-                let matched = start + found.start()..start + found.end();
+                let matched = start + found.start..start + found.end;
                 if !(matched.is_empty() && self.skip_empty_at == Some(matched.start)) {
                     break Some(matched);
                 }
                 // An empty match right where a match ended is skipped, once.
                 self.skip_empty_at = None;
-                from = char_after(haystack, found.start());
+                from = char_after(&line.text[..cut], found.start);
             };
             match found {
                 Some(matched) if matched.end <= range.end => {

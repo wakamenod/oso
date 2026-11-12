@@ -570,3 +570,26 @@ fn a_greedy_regexp_on_a_long_line_with_a_region_ending_in_it_is_quick() {
     );
     assert_eq!(text(&editor).len(), 256 * 1024 + 1);
 }
+
+/// `!` with the region `0..end`, as Emacs's bounded search takes it.
+fn all_in_region(text: &str, end: usize, from: &str, to: &str) -> String {
+    let mut editor = with_region(text, end);
+    begin_regexp(&mut editor, from, to);
+    drain(&mut editor);
+    if editor
+        .replace()
+        .is_some_and(|replace| replace.count() != Some((0, 0)))
+    {
+        answer(&mut editor, All);
+        finish_all(&mut editor);
+    }
+    self::text(&editor)
+}
+
+#[test]
+fn a_region_s_end_inside_a_line_is_neither_a_line_s_end_nor_a_word_s() {
+    assert_eq!(all_in_region("foo bar", 4, r"\s+$", ""), "foo bar");
+    assert_eq!(all_in_region("foo.bar", 3, r"\w+$", "X"), "foo.bar");
+    assert_eq!(all_in_region("abc def", 2, r"\b", "|"), "|abc def");
+    assert_eq!(all_in_region("foo  \nx", 5, r"\s+$", ""), "foo\nx");
+}
