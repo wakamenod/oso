@@ -1,6 +1,6 @@
-//! Building a list and matching an input, on the UI thread up to [`WORKER_PAST`] candidates
-//! and as a job for the worker past that (ADR 0096): what a job holds, running it, and the
-//! report it sends back.
+//! Building a list, matching an input and adding a walk's paths to a list, on the UI thread up
+//! to [`WORKER_PAST`] candidates and as a job for the worker past that (ADR 0096, ADR 0114):
+//! what a job holds, running it, and the report it sends back.
 //!
 //! Must not depend on: `editor`, threads or a log. The host runs a job on its thread, and the
 //! editor makes it and takes the report in. Neither a job nor a report says in `Debug` what
@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::merge::{exact_in, merge_in};
 use super::path::{self, Found, Name, Reached};
 use super::{Candidate, MAX_INPUT_BYTES, Query, offset_u32};
 
@@ -98,9 +99,7 @@ pub(crate) fn match_over(
             }
         }
     }
-    let exact = matches
-        .iter()
-        .position(|&index| items[index as usize].text() == input);
+    let exact = exact_in(items, &matches, Some(input));
     Some(Matched {
         matches: matches.into(),
         exact,
@@ -116,23 +115,14 @@ pub(crate) fn order_of<'a>(
     history: impl IntoIterator<Item = &'a str>,
     stop: &dyn Fn() -> bool,
 ) -> Option<Arc<[u32]>> {
-    let mut recent: HashMap<&str, usize> = HashMap::new();
-    for (place, text) in history.into_iter().enumerate() {
-        // The newest of an answer given twice decides.
-        recent.entry(text).or_insert(place);
-    }
+    let recent = recent_of(history);
     let mut keyed: Vec<(usize, usize, &str, u32)> = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() {
         if index % STOP_EVERY == STOP_EVERY - 1 && stop() {
             return None;
         }
-        let text = item.text();
-        keyed.push((
-            recent.get(text).copied().unwrap_or(usize::MAX),
-            text.chars().count(),
-            text,
-            offset_u32(index),
-        ));
+        let (rank, length, text) = key(&recent, item);
+        keyed.push((rank, length, text, offset_u32(index)));
     }
     // A sort cannot be left midway, so once a newer job has come its comparisons end at once.
     let (compared, stopped) = (Cell::new(0_usize), Cell::new(false));
@@ -151,6 +141,30 @@ pub(crate) fn order_of<'a>(
         return None;
     }
     Some(keyed.into_iter().map(|(_, _, _, index)| index).collect())
+}
+
+/// What orders a candidate among others (ADR 0076): its place in the history, its length in
+/// characters, its text.
+pub(crate) type Key<'a> = (usize, usize, &'a str);
+
+/// The key of `item`, with `recent` from [`recent_of`].
+pub(crate) fn key<'a>(recent: &HashMap<&str, usize>, item: &'a Candidate) -> Key<'a> {
+    let text = item.text();
+    (
+        recent.get(text).copied().unwrap_or(usize::MAX),
+        text.chars().count(),
+        text,
+    )
+}
+
+/// Where each answer of `history`, newest first, stands in it: the newest of an answer given
+/// twice decides.
+pub(crate) fn recent_of<'a>(history: impl IntoIterator<Item = &'a str>) -> HashMap<&'a str, usize> {
+    let mut recent: HashMap<&str, usize> = HashMap::new();
+    for (place, text) in history.into_iter().enumerate() {
+        recent.entry(text).or_insert(place);
+    }
+    recent
 }
 
 /// The list a prompt that reads a path is to have: the directories its segments reached, each
@@ -237,10 +251,100 @@ pub(crate) struct Matching {
     pub(crate) input: Option<String>,
 }
 
+/// Paths a walk found, to add to a list past [`WORKER_PAST`], and the input to match then
+/// (ADR 0114).
+pub(crate) struct Merge {
+    pub(crate) items: Arc<[Candidate]>,
+    pub(crate) order: Arc<[u32]>,
+    /// What the list's input matched last came to.
+    pub(crate) matched: Matched,
+    /// The batches of paths to add, the oldest first.
+    pub(crate) batches: Vec<Arc<[Box<str>]>>,
+    /// The prompt's history, newest first, which orders the list, shared with every job.
+    pub(crate) history: Arc<[String]>,
+    /// The part of what is typed that the list matches now, or `None` for one too long.
+    pub(crate) input: Option<String>,
+}
+
+impl Merge {
+    /// The list with the paths added. Only they are matched, against the input now; when that
+    /// is not the input matched last, the list before is matched again first, narrowing what
+    /// it matched where the input narrows that one. `None` if `stop` says so first.
+    fn run(&self, stop: &dyn Fn() -> bool) -> Option<Merged> {
+        let start = self.items.len();
+        let added: usize = self.batches.iter().map(|batch| batch.len()).sum();
+        let mut items = Vec::with_capacity(start + added);
+        for (index, item) in self.items.iter().enumerate() {
+            if index % STOP_EVERY == STOP_EVERY - 1 && stop() {
+                return None;
+            }
+            items.push(item.duplicate());
+        }
+        for (index, path) in self
+            .batches
+            .iter()
+            .flat_map(|batch| batch.iter())
+            .enumerate()
+        {
+            if index % STOP_EVERY == STOP_EVERY - 1 && stop() {
+                return None;
+            }
+            items.push(Candidate::new(&**path, "", ""));
+        }
+        let items: Arc<[Candidate]> = items.into();
+        // The list before, over the input now: its indexes are the same in the list grown.
+        let before = if self.input == self.matched.input {
+            self.matched.clone()
+        } else {
+            let matched = (&self.matched.matches[..], &self.matched.query);
+            match_over(
+                &items,
+                &self.order,
+                Some(matched),
+                self.input.as_deref(),
+                stop,
+            )?
+        };
+        let history = self.history.iter().map(String::as_str);
+        let (order, matches) = merge_in(
+            &items,
+            start,
+            (&self.order, &before.matches),
+            &before.query,
+            history,
+            stop,
+        )?;
+        let matched = Matched {
+            exact: exact_in(&items, &matches, self.input.as_deref()),
+            matches,
+            query: before.query,
+            input: self.input.clone(),
+        };
+        Some(Merged {
+            base: Arc::clone(&self.items),
+            items,
+            order,
+            matched,
+            carried: self.batches.len(),
+        })
+    }
+}
+
+/// A list a walk added to: the list it was added to, to tell it is still the one shown, the
+/// list now, its order, what the input came to, and how many batches it took in.
+pub(crate) struct Merged {
+    pub(crate) base: Arc<[Candidate]>,
+    pub(crate) items: Arc<[Candidate]>,
+    pub(crate) order: Arc<[u32]>,
+    pub(crate) matched: Matched,
+    pub(crate) carried: usize,
+}
+
 /// What a job does.
 enum Work {
     Build(Box<Build>),
     Match(Box<Matching>),
+    Merge(Box<Merge>),
     /// What the prompt no longer holds, to be dropped off the UI thread.
     Free(#[expect(dead_code, reason = "held only to be dropped where the job runs")] Box<dyn Send>),
 }
@@ -275,6 +379,14 @@ impl CompletionJob {
             generation,
             live,
             work: Work::Match(Box::new(matching)),
+        }
+    }
+
+    pub(crate) fn merge(merge: Merge, generation: u64, live: Arc<AtomicU64>) -> Self {
+        Self {
+            generation,
+            live,
+            work: Work::Merge(Box::new(merge)),
         }
     }
 
@@ -324,6 +436,10 @@ impl CompletionJob {
                     matched,
                 }
             }
+            Work::Merge(merge) => Report::Merged {
+                generation,
+                merged: Box::new(merge.run(&stop)?),
+            },
         };
         // Superseded at the end: the newer job's report is the one to send.
         (!stop()).then_some(CompletionReport(report))
@@ -354,12 +470,18 @@ pub(crate) enum Report {
         items: Arc<[Candidate]>,
         matched: Matched,
     },
+    Merged {
+        generation: u64,
+        merged: Box<Merged>,
+    },
 }
 
 impl Report {
     pub(crate) fn generation(&self) -> u64 {
         match self {
-            Self::Built { generation, .. } | Self::Matched { generation, .. } => *generation,
+            Self::Built { generation, .. }
+            | Self::Matched { generation, .. }
+            | Self::Merged { generation, .. } => *generation,
         }
     }
 }

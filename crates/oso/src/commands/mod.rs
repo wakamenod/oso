@@ -212,6 +212,7 @@ mod tests {
             "scroll-completions-up",
             "next-history-element",
             "previous-history-element",
+            "project-find-file",
             // Emergency copies.
             "emergency-copies-back",
             "emergency-copies-refresh",

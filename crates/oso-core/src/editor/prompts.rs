@@ -91,6 +91,7 @@ impl Editor {
             from_agent,
             completion: None,
             regexp: false,
+            history_key: None,
         });
         self.relayout_prompt();
         Ok(id)
@@ -260,6 +261,11 @@ impl Editor {
                 }
             }
         }
+        // A project's file is given as its whole path, and kept in the history by its path
+        // from the root, as the list shows it (ADR 0114).
+        if let Some(path) = self.project_file_answer(&text) {
+            return self.give_answer_recording(path, text.trim());
+        }
         self.give_answer(text)
     }
 
@@ -270,6 +276,22 @@ impl Editor {
     ///
     /// [`PromptError::NoPrompt`] if the innermost prompt is a question or there is none.
     pub(super) fn give_answer(&mut self, text: String) -> Result<(), PromptError> {
+        let recorded = text.trim().to_owned();
+        self.give_answer_recording(text, &recorded)
+    }
+
+    /// Gives `text` as the innermost prompt's answer, records `recorded` in its history in its
+    /// place, as a project's file is recorded by its path from the root (ADR 0114), and closes
+    /// the prompt.
+    ///
+    /// # Errors
+    ///
+    /// As [`Editor::give_answer`].
+    pub(super) fn give_answer_recording(
+        &mut self,
+        text: String,
+        recorded: &str,
+    ) -> Result<(), PromptError> {
         let Some(prompt) = self.prompts.last().filter(|p| !p.kind.is_question()) else {
             return Err(PromptError::NoPrompt);
         };
@@ -279,11 +301,11 @@ impl Editor {
         self.note_kill_pick();
         if let Some(prompt) = self.close_innermost()
             && records
-            && let Some(name) = prompt.kind.history()
+            && let Some(name) = prompt.history_name()
             // An empty name is no history, as `C-.`'s rows are the buffer's text (ADR 0088).
             && !name.is_empty()
         {
-            self.histories.record(name, text.trim());
+            self.histories.record(name, recorded);
         }
         self.outcome = Some(Outcome::Answered { prompt: id, text });
         Ok(())
@@ -339,8 +361,7 @@ impl Editor {
             return Err(PromptError::NoPrompt);
         };
         let name = prompt
-            .kind
-            .history()
+            .history_name()
             .filter(|_| !prompt.around_secret)
             .ok_or(PromptError::NoHistory)?;
         let next = match (prompt.walk, older) {
@@ -439,6 +460,7 @@ impl Editor {
         self.forget_marks(prompt.id);
         self.forget_kill_list(prompt.id);
         self.forget_files(prompt.id);
+        self.forget_project_files(prompt.id);
         self.forget_completion_work(prompt.id);
         // A list of 100,000 is dropped on the worker (ADR 0096).
         self.free_prompts_list(&mut prompt);

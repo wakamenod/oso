@@ -24,6 +24,8 @@ often, so it must rebuild within 2 s.
   settings (ADR 0108, ADR 0110), and reads and writes the record of trusted projects beside it
   (`config/trust.rs`, ADR 0114). Its parsing does no I/O. Only it uses `toml`, which review
   keeps: no guard test checks it.
+- `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it uses `ignore`, which
+  review keeps: no guard test checks it.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

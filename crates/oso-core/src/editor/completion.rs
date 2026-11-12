@@ -108,6 +108,8 @@ impl Editor {
     pub fn match_completion(&mut self) {
         // A path's segments decide the list before its last is matched (ADR 0087).
         self.refresh_files();
+        // The files a project's walk found since go in first (ADR 0114).
+        self.merge_pending_batches();
         // A list on its way takes in what is typed now once it comes.
         if self.building_completion() {
             return;
@@ -127,11 +129,18 @@ impl Editor {
         let revision = buffer.revision();
         // An answer too long to match, such as a whole file yanked into it, is never read.
         let text = (buffer.text().len() <= MAX_INPUT_BYTES).then(|| buffer.text().to_string());
+        let unmerged = self.has_pending_batches();
         let Some((candidates, seen)) = self.completion_mut() else {
             return;
         };
         *seen = revision;
         match text {
+            // A job adding a walk's batches matches the input too, so none is lost to a match.
+            Some(_) if unmerged => {
+                if !self.merge_job_for(revision) {
+                    self.leave_batches_for_worker();
+                }
+            }
             Some(text) if candidates.total() > WORKER_PAST => {
                 match candidates.matching(&text) {
                     Some(matching) => self.leave_match(matching, revision),
@@ -143,6 +152,7 @@ impl Editor {
             None => {
                 candidates.set_too_long();
                 self.stop_completion_job();
+                self.merge_pending_batches();
             }
         }
         // Which also keeps the selection in view, in the rows the float has now.

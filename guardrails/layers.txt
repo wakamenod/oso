@@ -57,7 +57,8 @@ emergency
 saver
 lister
 commands dev keys loader text
-channel project
+# `walk` lists a project's files (ADR 0114), beside `project`, which finds them.
+channel project walk
 
 [oso-syntax]
 crate
