@@ -25,6 +25,8 @@ pub const ISEARCH: &[(&str, &str)] = &[
     ("C->", "isearch-mark-next"),
     ("C-<", "isearch-mark-previous"),
     ("C-c C-<", "isearch-mark-all"),
+    // Labels on the matches in view (ADR 0116).
+    ("M-j", "avy-isearch"),
     ("C-g", "keyboard-quit"),
 ];
 

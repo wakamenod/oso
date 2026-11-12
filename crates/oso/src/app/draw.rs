@@ -86,6 +86,7 @@ pub(super) fn with_panes<R>(
     let drawn = tiled::Drawn {
         cells: &cells.windows,
         fills: &spans.2,
+        labels: &spans.3,
         modelines: &rows.0,
         gutters: &rows.1,
         statuses,

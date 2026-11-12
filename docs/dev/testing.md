@@ -85,6 +85,11 @@ whitespace with `t` and the cursor flash with `f`, from `Editor::current_line_ce
 key flashes, as `Editor::flashes` says after each key. The visual aids start off in every scenario, so a
 snapshot shows only those it turns on.
 
+A jump's matches are `~` on the same line, and its labels, from `Editor::jump_cells`, are `J`
+under each one's first key and `j` under the keys after it, over every other mark. A line
+between `@` below gives the keys at their cells
+([ADR 0116](adr/0116-migemo-and-jumps.md)). A jump's matches and labels show in every window.
+
 With line numbers on, each of a window's rows begins with the gutter's text, from
 `Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
 ([ADR 0097](adr/0097-visual-aids.md)).
@@ -289,6 +294,7 @@ what you type goes into their buffers, which can fail a flow.
 | exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. On oso's own macOS layer a person's quit, as another app sends it, asks the same question, `n` stays and `y` goes with nothing written (ADR 0084). What makes it ask again is tested through the `Dispatcher` |
 | prompts | `M-g g` reads a line in a float and goes there, `C-g` runs nothing, the IME off in a prompt and on after it, the exit question on `n` and `y`, a passphrase withheld from `get-state`, screenshots and the log, and a restart held while a prompt is open (ADR 0072) |
 | projects | `C-x p f` walks a scratch project on the walker's thread and `RET` visits a file; `C-u` lists only directories, then one as a project; `M-s r` searches it and previews each row, never a file that may hold secrets; `trust-project`'s `y` writes `trusted-projects` beside the `--config` file, a new instance reads it back, and `untrust-project` removes the line, with the modeline's `restricted` following (`projects.rs`, ADR 0114) |
+| jumps | `M-j` reads a string and its labels show after `[jump] timeout`, with `get-state`'s `jump` following its stage; a label moves the cursor, also into another window, which it selects; `M-g f` labels line starts; around a secret buffer `jump` is only `{"active": true}` and the log holds nothing of it (`jump.rs`, ADR 0116) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend

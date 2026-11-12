@@ -52,15 +52,18 @@ impl Editor {
     pub fn isearch_cells(&self, id: WindowId, screen: &Screen, cells: &mut MatchCells) {
         cells.current.clear();
         cells.others.clear();
-        let Some(state) = &self.isearch else {
-            return;
-        };
-        let Some(query) = &state.query else {
+        let (Some(state), Some(needle)) = (&self.isearch, self.isearch_needle()) else {
             return;
         };
         let current = state.current.as_ref().filter(|_| !state.failing);
-        let needle = search::Needle::Literal(query.clone());
         self.match_cells(id, state.buffer, screen, (&needle, current, None), cells);
+    }
+
+    /// What isearch looks for: what its highlights show, and what `avy-isearch` labels, its
+    /// matches in view (ADR 0116).
+    pub(in crate::editor) fn isearch_needle(&self) -> Option<search::Needle> {
+        let state = self.isearch.as_ref()?;
+        Some(search::Needle::Literal(state.query.clone()?))
     }
 
     /// The cells of a query's matches in view in the tiled window `id`, if it is the selected

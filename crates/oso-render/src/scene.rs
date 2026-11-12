@@ -15,6 +15,10 @@
 //!   budget, which the next frame makes up, the front first again.
 //! - A full atlas clears, which leaves the quads built so far pointing at glyphs
 //!   that are gone, so every pane is built again.
+//! - A jump's labels are drawn over everything in their cells (ADR 0116): what they draw is
+//!   held back while their layer is built, and goes in a layer of its own just in front of it,
+//!   so no glyph of another row, or of a pane beside them, paints over a label. They take their
+//!   room under the caps as they are built, like the rest.
 
 use std::ops::Range;
 
@@ -30,10 +34,12 @@ use crate::text::{GlyphInstance, Layout};
 use crate::theme::Theme;
 
 mod highlight;
+mod labels;
 mod panel;
 mod text_pane;
 
 use highlight::{Plain, RowFaces};
+use labels::{Covered, Keys, Over, draw_labels};
 
 use text_pane::{cursor_cells, draw_text, preedit_lines, underline_preedit};
 
@@ -75,18 +81,36 @@ struct Draws {
     theme: Theme,
     /// Where a text pane's text keeps its plain colour, for the pane being drawn.
     plain: Plain,
+    /// The glyphs of a jump's label keys (ADR 0116).
+    keys: Keys,
+    /// What the labels of the layer being built draw, held back to go over all of it.
+    over: Over,
 }
 
 impl Draws {
+    /// Whether one more rectangle fits, besides those held back.
+    fn room_for_rect(&self) -> bool {
+        self.rects.len() + self.over.rects.len() + self.held < self.limits.rects
+    }
+
+    /// Whether one more quad fits.
+    fn room_for_quad(&self) -> bool {
+        self.quads.len() + self.over.quads.len() < self.limits.quads
+    }
+
+    /// The rectangle that fills `rect` in `face`'s background.
+    fn filled(&self, rect: PixelRect, face: Face) -> Rect {
+        Rect {
+            position: [rect.x, rect.y],
+            size: [rect.width, rect.height],
+            color: self.theme.background(face),
+        }
+    }
+
     /// Fills `rect`, if it shows and there is room.
     fn fill(&mut self, rect: Option<PixelRect>, face: Face) {
-        let room = self.rects.len() + self.held < self.limits.rects;
-        if let Some(rect) = rect.filter(|_| room) {
-            self.rects.push(Rect {
-                position: [rect.x, rect.y],
-                size: [rect.width, rect.height],
-                color: self.theme.background(face),
-            });
+        if let Some(rect) = rect.filter(|_| self.room_for_rect()) {
+            self.rects.push(self.filled(rect, face));
         }
     }
 
@@ -100,13 +124,13 @@ impl Draws {
         }
     }
 
-    /// Adds what `row` shows, its plain text in what `faces` says. Returns false once there is
-    /// no room for more.
+    /// Adds what `row` shows, its plain text in what `faces` says, but the glyphs a label in
+    /// `covered` covers even in part (ADR 0116). Returns false once there is no room for more.
     fn row<G: GlyphSource>(
         &mut self,
         (layout, row): (&Layout, usize),
         shaped: &ShapedRow,
-        mut faces: Option<RowFaces<'_>>,
+        (mut faces, mut covered): (Option<RowFaces<'_>>, Covered<'_>),
         system: &mut dyn TextSystem,
         glyphs: &mut G,
     ) -> bool {
@@ -135,16 +159,21 @@ impl Draws {
             if glyph.column >= columns.end {
                 break;
             }
-            if self.quads.len() >= self.limits.quads {
+            if !self.room_for_quad() {
                 return false;
+            }
+            let [_, column] = layout.frame_cell(row, glyph.column);
+            let cells = column..column + i64::from(glyph.cells);
+            // Hidden whole, and never looked up, under a label.
+            if covered.any(&cells) {
+                continue;
             }
             let Some(entry) = glyphs.get(system, glyph.key) else {
                 continue;
             };
             let mut glyph = *glyph;
             if let Some(faces) = faces.as_mut().filter(|_| glyph.face == Face::Text) {
-                let [_, column] = layout.frame_cell(row, glyph.column);
-                glyph.face = faces.face(glyph.column, column..column + i64::from(glyph.cells));
+                glyph.face = faces.face(glyph.column, cells);
             }
             if let Some(quad) = layout.quad(row, &glyph, &entry, &self.theme) {
                 self.quads.push(quad);
@@ -179,6 +208,8 @@ impl Scene {
                 held: 0,
                 theme,
                 plain: Plain::default(),
+                keys: Keys::default(),
+                over: Over::default(),
             },
             layers: Vec::new(),
         }
@@ -198,6 +229,7 @@ impl Scene {
         for (_, rows) in &mut self.rows {
             rows.invalidate();
         }
+        self.draws.keys.clear();
     }
 
     /// Rows shaped so far by the panes still here, for logs.
@@ -281,6 +313,7 @@ impl Scene {
             let pane = &panes[index];
             if current != Some(pane.layer) {
                 current = Some(pane.layer);
+                self.draws.end_layer(&mut self.layers);
                 let rects = self.draws.rects.len() as u32;
                 let rounded = self.draws.rounded.len() as u32;
                 let quads = self.draws.quads.len() as u32;
@@ -298,6 +331,7 @@ impl Scene {
                 layer.quads.end = self.draws.quads.len() as u32;
             }
         }
+        self.draws.end_layer(&mut self.layers);
         self.layers.reverse();
     }
 }
@@ -380,6 +414,8 @@ fn draw_pane<G: GlyphSource>(
             if let Some(cells) = cursor {
                 fill_cursor(draws, &layout, cells, hollow, metrics);
             }
+            // Over all of it, the cursor box too, and over the rest of the layer (ADR 0116).
+            draw_labels(draws, view.labels, (pane, metrics), system, glyphs);
         }
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
@@ -519,7 +555,7 @@ fn draw_lines<G: GlyphSource>(
     let end = layout.columns().end;
     for (row, spans) in lines.iter().enumerate().take(shown) {
         let shaped = rows.line(row, spans, end, system);
-        if !draws.row((layout, row), shaped, None, system, glyphs) {
+        if !draws.row((layout, row), shaped, (None, Covered::NONE), system, glyphs) {
             break;
         }
     }
@@ -556,7 +592,7 @@ mod tests {
         /// How many glyphs it has before the rest must wait.
         budget: Option<usize>,
         /// The bitmap's size, left and top, if not the usual one.
-        bitmap: Option<([u32; 2], i32, i32)>,
+        pub(super) bitmap: Option<([u32; 2], i32, i32)>,
     }
 
     impl GlyphSource for FakeAtlas {
@@ -623,6 +659,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -729,6 +766,7 @@ mod tests {
                     others: &[],
                     preedit: None,
                     fills: &[],
+                    labels: &[],
                     whitespace: false,
                     flash: None,
                     highlights: None,
@@ -822,6 +860,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1075,6 +1114,7 @@ mod tests {
             others: &others,
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1112,6 +1152,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1208,6 +1249,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1244,6 +1286,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1274,6 +1317,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[(Face::CurrentLine, &band)],
+            labels: &[],
             whitespace: false,
             flash: Some(FlashFill {
                 cells: rect(1, 1, 1, 7),
@@ -1310,6 +1354,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: Some(FlashFill {
                 cells: rect(0, 0, 1, 12),
@@ -1344,6 +1389,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[(Face::Region, &region)],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1393,6 +1439,7 @@ mod tests {
             others: &[],
             preedit: Some(&preedit),
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1435,6 +1482,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1487,6 +1535,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1536,6 +1585,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1599,6 +1649,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1643,6 +1694,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1678,6 +1730,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1712,6 +1765,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace,
                 flash: None,
                 highlights: None,
@@ -1754,6 +1808,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1789,6 +1844,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1953,6 +2009,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,

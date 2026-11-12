@@ -187,7 +187,7 @@ impl Theme {
 pub(crate) const SYNTAX_FILLS: [Face; 1] = [Face::CurrentLine];
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 42] = [
+const FACES: [Face; 44] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -230,6 +230,8 @@ const FACES: [Face; 42] = [
     Face::SyntaxHeading,
     Face::SyntaxLink,
     Face::SyntaxMarkup,
+    Face::JumpLabel,
+    Face::JumpLabelNext,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -278,6 +280,8 @@ const fn index(face: Face) -> usize {
         Face::SyntaxHeading => 39,
         Face::SyntaxLink => 40,
         Face::SyntaxMarkup => 41,
+        Face::JumpLabel => 42,
+        Face::JumpLabelNext => 43,
     }
 }
 
@@ -333,6 +337,9 @@ fn faces(face: Face) -> (Name, Name) {
         Face::SyntaxHeading => (SynHeading, BgMain),
         Face::SyntaxLink => (SynLink, BgMain),
         Face::SyntaxMarkup => (SynMarkup, BgMain),
+        // Drawn over the text, each in a fill of its own (ADR 0116).
+        Face::JumpLabel => (FgJump, BgJump),
+        Face::JumpLabelNext => (FgJumpNext, BgJumpNext),
     }
 }
 
@@ -525,6 +532,10 @@ pub(crate) mod tests {
             | Face::SyntaxHeading
             | Face::SyntaxLink
             | Face::SyntaxMarkup => &SYNTAX_PAIRS,
+            // A jump's label is read on its own fill (ADR 0116). Nothing else is drawn on it, as
+            // the text's glyphs under a label are not drawn: no escape or mark lists its fill.
+            Face::JumpLabel => &[(Face::JumpLabel, READ)],
+            Face::JumpLabelNext => &[(Face::JumpLabelNext, READ)],
             // Drawn as fills or lines, checked as such below.
             Face::Preedit
             | Face::FloatBorder
@@ -681,6 +692,8 @@ pub(crate) mod tests {
                 (Face::CurrentLine, behind_text),
                 (Face::TrailingWhitespace, behind_text),
                 (Face::Flash, behind_text),
+                (Face::JumpLabel, behind_text),
+                (Face::JumpLabelNext, behind_text),
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
@@ -716,6 +729,8 @@ pub(crate) mod tests {
                 Face::SearchCurrent,
                 Face::TrailingWhitespace,
                 Face::Flash,
+                Face::JumpLabel,
+                Face::JumpLabelNext,
             ] {
                 let apart = distance(theme.background(face), band);
                 assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
@@ -735,6 +750,8 @@ pub(crate) mod tests {
                 Face::SearchCurrent,
                 Face::TrailingWhitespace,
                 Face::CompletionSelected,
+                Face::JumpLabel,
+                Face::JumpLabelNext,
             ] {
                 let apart = distance(theme.background(face), flash);
                 assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
@@ -929,9 +946,49 @@ pub(crate) mod tests {
                 (Face::SearchCurrent, Face::SearchMatch),
                 (Face::SearchMatch, Face::Region),
                 (Face::SearchCurrent, Face::Region),
+                (Face::JumpLabel, Face::JumpLabelNext),
             ] {
                 let apart = distance(fill(a), fill(b));
                 assert!(apart >= 0.09, "{name}: {a:?} and {b:?} {apart:.3}");
+            }
+            // A label is never taken for an escape, a box, a match or the region (ADR 0116). An
+            // escape has no box, so its label's own colour is what a label's fill must not be.
+            for label in [Face::JumpLabel, Face::JumpLabelNext] {
+                let colours = [
+                    ("Escape's label", theme.foreground(Face::Escape)),
+                    ("Boxed", fill(Face::Boxed)),
+                    ("SearchMatch", fill(Face::SearchMatch)),
+                    ("SearchCurrent", fill(Face::SearchCurrent)),
+                    ("Region", fill(Face::Region)),
+                ];
+                for (what, colour) in colours {
+                    let apart = distance(fill(label), colour);
+                    assert!(apart >= 0.09, "{name}: {label:?} and {what} {apart:.3}");
+                }
+            }
+        }
+    }
+
+    /// A jump's label fills are no other face's, nor near one: whatever else a frame fills or
+    /// draws a line in, a label stands apart from it (ADR 0116).
+    #[test]
+    fn a_labels_fill_is_no_other_faces() {
+        for theme in &themes() {
+            for label in [Face::JumpLabel, Face::JumpLabelNext] {
+                let fill = theme.background(label);
+                for face in FACES {
+                    if matches!(face, Face::JumpLabel | Face::JumpLabelNext) {
+                        continue;
+                    }
+                    let other = theme.background(face);
+                    assert_ne!(fill, other, "{}: {label:?} and {face:?}", theme.name());
+                    let apart = distance(fill, other);
+                    assert!(
+                        apart >= 0.05,
+                        "{}: {label:?} and {face:?} {apart:.3}",
+                        theme.name()
+                    );
+                }
             }
         }
     }

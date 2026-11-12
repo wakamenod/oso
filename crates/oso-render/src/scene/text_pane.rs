@@ -10,7 +10,7 @@ use oso_core::frame::{self, CellRect, PixelRect};
 use oso_core::motion;
 use oso_platform::text::{CellMetrics, TextSystem};
 
-use super::{Draws, GlyphSource, RowFaces, line_width};
+use super::{Covered, Draws, GlyphSource, RowFaces, line_width};
 use crate::pane::{Face, Pane, PaneContent, TextView};
 use crate::rows::Rows;
 use crate::text::Layout;
@@ -83,7 +83,7 @@ pub(super) fn underline_preedit(
 }
 
 /// Draws a window's view of a buffer in `layout`: the rows of its region, its plain text in
-/// the faces of its highlights (ADR 0111).
+/// the faces of its highlights (ADR 0111), but where a jump's labels cover it (ADR 0116).
 pub(super) fn draw_text<G: GlyphSource>(
     draws: &mut Draws,
     view: &TextView,
@@ -125,6 +125,7 @@ pub(super) fn draw_text<G: GlyphSource>(
         let frame_row = row_layout.frame_cell(index, 0)[0];
         let faces = (view.highlights)
             .map(|highlights| RowFaces::new(highlights, &shaped_row.clusters, &plain, frame_row));
+        let faces = (faces, Covered::on(view.labels, frame_row));
         if !draws.row((&row_layout, index), shaped_row, faces, system, glyphs) {
             break;
         }

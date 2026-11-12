@@ -21,6 +21,7 @@ mod highlight;
 mod ime;
 mod indent;
 mod isearch;
+mod jump;
 mod kill;
 mod macros;
 mod mark;

@@ -146,6 +146,7 @@ fn apply(
             "aids" => settings.aids = settings::aids(value, found),
             "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
             "save" => settings.save = settings::save(value, found),
+            "jump" => settings.jump = settings::jump(value, found),
             "indent" => settings.indent = indentation::indent(value, found),
             "modes" => settings.modes = indentation::modes(value, found),
             other => found.at(
@@ -223,6 +224,8 @@ impl fmt::Display for TableName<'_> {
     }
 }
 
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod keys_tests;
 #[cfg(test)]

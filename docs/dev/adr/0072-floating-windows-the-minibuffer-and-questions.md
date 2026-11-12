@@ -1,6 +1,6 @@
 # 0072. Floating windows, the minibuffer and questions
 
-- Status: Accepted, amended by 0085, 0076, 0090, 0091, 0112 and 0113
+- Status: Accepted, amended by 0085, 0076, 0090, 0091, 0112, 0113 and 0116
 - Date: 2026-11-08
 
 ## Context
@@ -207,14 +207,15 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 
 1. a composition, under ADR 0070's own view: discards it;
 2. a pending prefix key or prefix argument: cancels it, in `KeyResolver`, as before;
-3. an active region in the selected window, on every cursor (M2-13);
-4. the innermost prompt or question: closes it, and runs nothing;
-5. isearch (M2-20), its own two steps;
-6. extra cursors (M2-21);
-7. otherwise nothing more.
+3. a jump by label (ADR 0116): ends it, with nothing moved (`Quit::Jump`);
+4. an active region in the selected window, on every cursor (M2-13);
+5. the innermost prompt or question: closes it, and runs nothing;
+6. isearch (M2-20), its own two steps;
+7. extra cursors (M2-21);
+8. otherwise nothing more.
 
-Steps 3 to 7 are one function, `Editor::quit`, which returns what it did (`Quit::Region`,
-`Quit::Prompt` or `Quit::Nothing`). `keyboard-quit` is a thin
+Steps 3 to 8 are one function, `Editor::quit`, which returns what it did (`Quit::Jump`,
+`Quit::Region`, `Quit::Prompt` or `Quit::Nothing`). `keyboard-quit` is a thin
 call into it in every keymap, the prompt's too, so M2-13, M2-20 and M2-21 add their step there and
 nowhere else.
 
