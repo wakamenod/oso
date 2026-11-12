@@ -157,7 +157,7 @@ pub fn oso_core::buffer::Buffer::mode_revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::place_for_copy(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::recovery_stands(&self) -> bool
 pub fn oso_core::buffer::Buffer::set_copy_waits(&mut self, bool)
-pub fn oso_core::buffer::Buffer::set_mode(&mut self, oso_core::buffer::Mode)
+pub fn oso_core::buffer::Buffer::set_mode(&mut self, oso_core::buffer::Mode) -> bool
 pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer

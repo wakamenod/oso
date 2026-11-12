@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use oso_core::buffer::{Buffer, BufferId, Replacement};
 use oso_core::display_map::TabWidth;
@@ -313,7 +313,32 @@ fn setting_the_mode_again_gives_a_stopped_buffer_another_try() {
         .buffer_mut(id)
         .unwrap()
         .set_mode(oso_core::buffer::Mode::Rust);
+    assert!(
+        syntax.orders(&editor).jobs.is_empty(),
+        "too soon after it stopped"
+    );
+    // Later, the same mode set again tries again.
+    let long_ago = Instant::now().checked_sub(super::RETRY_EVERY * 2).unwrap();
+    syntax.stopped.get_mut(&id).unwrap().1 = long_ago;
     let retry = syntax.orders(&editor);
     assert_eq!(job_ids(&retry), [id], "rust-mode again tries again");
     assert!(retry.jobs[0].epoch > job.epoch, "from a new start");
+}
+
+#[test]
+fn two_mode_changes_in_one_command_start_over_though_they_end_where_they_began() {
+    let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let mut syntax = Syntax::on();
+    let first = syntax.orders(&editor).jobs.remove(0);
+    let buffer = editor.buffer_mut(id).unwrap();
+    buffer.set_mode(oso_core::buffer::Mode::Markdown);
+    buffer.set_mode(oso_core::buffer::Mode::Rust);
+    let again = syntax.orders(&editor);
+    assert_eq!(
+        job_ids(&again),
+        [id],
+        "the mode was set, and the highlights forgotten"
+    );
+    assert_eq!(again.jobs[0].edits, None);
+    assert!(again.jobs[0].epoch > first.epoch);
 }

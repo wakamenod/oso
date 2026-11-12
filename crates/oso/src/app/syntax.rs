@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
+use std::time::{Duration, Instant};
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::Editor;
@@ -38,9 +39,10 @@ pub(super) struct Syntax {
     broken: bool,
     /// What each buffer the worker has was sent last.
     sent: HashMap<BufferId, Sent>,
-    /// Buffers whose highlighting failed, with the mode revision it failed in: setting a
-    /// mode, the same one too, moves it on and gives the buffer another try.
-    stopped: HashMap<BufferId, u64>,
+    /// Buffers whose highlighting failed, with the mode revision it failed in and when:
+    /// setting a mode, the same one too, moves it on and gives the buffer another try, at most
+    /// once every [`RETRY_EVERY`].
+    stopped: HashMap<BufferId, (u64, Instant)>,
     /// The last epoch given out: each new start of a buffer takes the next.
     epochs: u64,
     /// What windows show, kept while nothing that decides it moved.
@@ -52,6 +54,10 @@ pub(super) struct Syntax {
     present: HashMap<BufferId, (Mode, bool)>,
 }
 
+/// How long a buffer whose highlighting stopped waits before a mode set again tries again, so
+/// that retries, whoever asks for them, cost the worker a bounded share of its time.
+const RETRY_EVERY: Duration = Duration::from_secs(10);
+
 /// What decides what a window shows, as far as the next job cares.
 type View = (WindowId, BufferId, u64, Scroll, ViewSize, bool);
 
@@ -61,6 +67,8 @@ struct Sent {
     epoch: u64,
     revision: u64,
     mode: Mode,
+    /// The buffer's mode revision: a mode set since, the same one too, starts from nothing.
+    mode_revision: u64,
     shown: Vec<Range<usize>>,
     loading: bool,
     /// The stamp of the last report taken: an older one that comes later is dropped.
@@ -130,7 +138,10 @@ impl Syntax {
             .buffers()
             .filter(|(id, buffer)| {
                 let revision = buffer.mode_revision();
-                allowed(editor, buffer) && self.stopped.get(id) != Some(&revision)
+                let held = self.stopped.get(id).is_some_and(|(stopped, at)| {
+                    *stopped == revision || at.elapsed() < RETRY_EVERY
+                });
+                allowed(editor, buffer) && !held
             })
             .peekable();
         if wanted.peek().is_none() {
@@ -159,15 +170,19 @@ impl Syntax {
             let shown = self.shown.iter().filter(|(shown, _)| *shown == id);
             shown.map(|(_, range)| range).eq(last.shown.iter())
         };
-        // While a file loads, the snapshots after the first are skipped.
+        // While a file loads, the snapshots after the first are skipped. A mode set since, even
+        // twice in one command and back, is a change: it forgot the highlights.
+        let mode_revision = buffer.mode_revision();
         let unchanged = last.is_some_and(|last| {
-            (loading && last.loading) || (last.revision == buffer.revision() && same_shown(last))
+            last.mode_revision == mode_revision
+                && ((loading && last.loading)
+                    || (last.revision == buffer.revision() && same_shown(last)))
         });
         if unchanged {
             return None;
         }
         let edits = last
-            .filter(|last| last.mode == mode)
+            .filter(|last| last.mode == mode && last.mode_revision == mode_revision)
             .and_then(|last| buffer.splices_since(last.revision));
         let (epoch, stamp) = match (&edits, last) {
             (Some(_), Some(last)) => (last.epoch, last.stamp),
@@ -186,6 +201,7 @@ impl Syntax {
             epoch,
             revision: buffer.revision(),
             mode,
+            mode_revision,
             shown: shown.clone(),
             loading,
             stamp,
@@ -250,7 +266,8 @@ impl Syntax {
             Outcome::Lost => "the highlighter failed",
         };
         self.sent.remove(&report.buffer);
-        self.stopped.insert(report.buffer, buffer.mode_revision());
+        let stopped = (buffer.mode_revision(), Instant::now());
+        self.stopped.insert(report.buffer, stopped);
         buffer.drop_highlights();
         Some(format!("Highlighting stopped in {}: {why}", buffer.name()))
     }

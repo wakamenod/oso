@@ -66,7 +66,7 @@ impl Editor {
     /// Adds an internal buffer, shown in no window yet.
     pub fn add_internal_buffer(&mut self, name: impl Into<String>, mode: Mode) -> BufferId {
         let mut buffer = Buffer::internal(name);
-        buffer.set_mode(mode);
+        buffer.set_internal_mode(mode);
         self.add_buffer(buffer)
     }
 

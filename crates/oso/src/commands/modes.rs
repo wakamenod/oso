@@ -72,10 +72,9 @@ fn set_mode(ctx: &mut Ctx<'_>, mode: Mode) -> Result<(), CommandError> {
     let Some(buffer) = ctx.editor.buffer_mut(id) else {
         return Err(CommandError::new("No buffer"));
     };
-    if buffer.is_internal() {
+    if !buffer.set_mode(mode) {
         return Err(CommandError::new("This buffer's mode cannot change"));
     }
-    buffer.set_mode(mode);
     ctx.editor.message(format!("{} mode", mode.name()));
     ctx.request_redraw();
     Ok(())
