@@ -228,6 +228,18 @@ fn jump_editor(text: &str, windows: usize, secret: bool) -> Editor {
 #[test]
 #[ignore = "a measure, in a release build"]
 fn migemo_jump_costs() {
+    // The needles of the jump's longest strings, which a key builds before its time starts.
+    for unit in ["a", "aiueo", "ga", "vu", "n", "kanjinohenkan"] {
+        let string = unit.repeat(crate::jump::MAX_STRING / unit.len());
+        let mut times = Vec::new();
+        for _ in 0..30 {
+            let started = Instant::now();
+            std::hint::black_box(Needle::migemo(&string, false));
+            times.push(ms(started));
+        }
+        let (p50, max) = p50_max(&mut times);
+        println!("jump needle {unit:13} p50={p50:.3} max={max:.3} ms");
+    }
     let long = "a".repeat(crate::jump::MAX_STRING);
     for (what, text) in texts() {
         for windows in [1, 4] {

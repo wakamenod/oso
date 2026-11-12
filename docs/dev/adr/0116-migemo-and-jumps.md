@@ -558,7 +558,7 @@ editor.
 - **Limits.** A string of at most 256 characters has a pattern, at most about 16 bytes a letter
   with a constant for an unfinished end; a longer one searches literally, as no one types that
   much romaji and its compile would pass a key's millisecond. The pattern compiles on a key,
-  within 0113's 256 KiB and a nest limit of 32, in about 1.5 ms at 256 characters; over
+  within 0113's 256 KiB and a nest limit of 32, in under a millisecond at 256 characters; over
   that it would search literally, which no romaji string reaches. 0116's 4 MiB and the build on
   the worker wait for the dictionary (step 3). Searching keeps step 1's limits.
 - **The cache** holds the last 32 compiled needles, by string and case, in the editor
@@ -583,10 +583,21 @@ editor.
   alone. Cursors from the search (`C->`, `C-<`, `C-c C-<`) take its needle as it is: once it
   went on literally, the literal string, and before, migemo's regexp, which, as step 1's
   regexp cursors, finds none past such a line.
-- **A key's cost**, the highlights included, in a release build on a loaded machine (the ignored
-  test `migemo_key_costs`): over 20 MB of short lines with no match, 1.0 ms p50 for a literal
-  string, 0.3 ms for `k`, 1.4 to 2.0 ms for `kanji`, and 2.0 to 2.3 ms for 256 characters of
-  romaji; over 20 MB of Japanese, 0.2 ms for `kanji`.
+- **A key's cost**, the highlights included, in a release build on an idle machine (the ignored
+  tests in `editor/migemo_costs.rs`, where step 1's literal `zzq` took its 0.58 ms again).
+  Building a needle takes 0.06 ms p50 for `k` and `kanji` and 0.4 to 0.7 ms for 256
+  characters, at most 1 ms. Over 20 MB of short English lines, forward and backward, a key
+  takes 0.2 ms p50 for `k`, 1.2 to 1.5 ms for `kanji`, and 1.4 to 1.8 ms for 256 characters,
+  the strings of the largest patterns among them (`a`, `aiueo`, `ga` and `vu` repeated); over
+  20 MB of short Japanese lines, 0.3 ms, 1.3 to 1.7 ms and 1.4 to 2.0 ms. All but two keys
+  took at most 2.2 ms. Typing 256 characters one at a time over the English lines and taking
+  them back, forward and backward, a key takes 1.3 to 1.7 ms p50 and `DEL`, whose needle the
+  cache keeps, 0.2 to 0.3 ms; that run's slowest keys, as other work loaded the machine again,
+  took 3 to 20 ms. A jump's needle of its 64 characters builds in 0.2 ms p50, at most 0.4 ms,
+  so the needle and the key's 3 ms stay well within the 8 ms of a key. A jump's key takes 0.25
+  to 0.55 ms p50 in one window of 120 by 400 and 0.35 to 0.9 ms in four; around a secret,
+  which builds its needle each key, within 0.2 ms of that. At a line of 100 MB, a migemo
+  search's key takes 0.7 ms, and the worker goes on literally to the match.
 - **Jumps** look for their string through the same cache, by the setting: `ka` labels `か` too.
   As migemo makes a regexp the usual needle of a jump, a jump's key has one time for matching
   in every window, isearch's 3 ms, once its needle is built, which a string of at most 64

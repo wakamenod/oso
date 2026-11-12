@@ -21,8 +21,8 @@ mod trie;
 
 use trie::Trie;
 
-/// The most characters of a string that has a pattern. Its pattern then compiles in about
-/// a millisecond, as a key's regexp does; a longer string is searched for as it is.
+/// The most characters of a string that has a pattern. Its pattern then compiles in under a
+/// millisecond on a key; a longer string is searched for as it is.
 pub(crate) const MAX_CHARS: usize = 256;
 
 /// Whether `string` is romaji: only lowercase ASCII letters, `'` and `-`, with at least one
