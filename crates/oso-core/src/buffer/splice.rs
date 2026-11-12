@@ -1,9 +1,11 @@
 //! Applying a batch of replacements to a rope and its display map, and the batch
-//! that undoes it (ADR 0053).
+//! that undoes it (ADR 0053). An undo group's batches that lie apart apply as one
+//! (ADR 0119).
 //!
 //! Must not depend on: `window`, `editor` or `command`; this sees only text.
 
 use std::borrow::Cow;
+use std::collections::VecDeque;
 use std::ops::Range;
 
 use super::Replacement;
@@ -188,8 +190,9 @@ pub(super) fn apply_marking<T: SpliceText>(
     undo
 }
 
-/// Applies the batches of an undo group, last first, as an undo or a redo crosses it.
-/// Returns what cursors follow, batch by batch, the batches that undo them, and where
+/// Applies the batches of an undo group, last first, as an undo or a redo crosses it, those
+/// that lie apart as one ([`joined_apart`]). Returns what cursors follow and the batches that
+/// undo them, one of each a batch applied, so not one a batch of `group`, and where
 /// [`apply_marking`] says clusters may have changed, once all have applied.
 pub(super) fn apply_group(
     group: &[Batch],
@@ -197,10 +200,11 @@ pub(super) fn apply_group(
     display: &mut DisplayMap,
     mut wraps: Option<&mut Vec<WrapSplice>>,
 ) -> (Vec<Vec<OffsetEdit>>, Vec<Batch>, Vec<Range<usize>>) {
-    let mut steps = Vec::with_capacity(group.len());
-    let mut batches = Vec::with_capacity(group.len());
+    let runs = joined_apart(group);
+    let mut steps = Vec::with_capacity(runs.len());
+    let mut batches = Vec::with_capacity(runs.len());
     let (mut changed, mut more) = (Vec::new(), Vec::new());
-    for batch in group.iter().rev() {
+    for batch in &runs {
         let step: Vec<_> = batch.iter().map(offset_edit).collect();
         // What earlier batches changed moves with this one.
         follow_ranges(&mut changed, &step);
@@ -215,6 +219,76 @@ pub(super) fn apply_group(
         changed = union(changed, std::mem::take(&mut more));
     }
     (steps, batches, changed)
+}
+
+/// The batches of `group` in the order they apply, last first, with those that lie apart
+/// joined: a batch whose splices all lie before those joined so far, or all after what they
+/// became, with a byte between, joins them, since one batch then does what they did one after
+/// another. So a step of many small batches, as a query-replace session answered match by match
+/// makes, applies, and is mapped and followed, as one batch rather than one an answer, whose
+/// cost would each grow with the ranges the batches before it changed (ADR 0119). O(splices).
+fn joined_apart(group: &[Batch]) -> Vec<Cow<'_, [Splice<Option<Rope>>]>> {
+    let mut runs = Vec::new();
+    // The run being joined: borrowed while it is one batch.
+    let mut alone: Option<&[Splice<Option<Rope>>]> = None;
+    let mut joined: VecDeque<Splice<Option<Rope>>> = VecDeque::new();
+    // What the run adds to the length, so that a batch after it can be put in the offsets
+    // before it.
+    let mut grown: isize = 0;
+    for batch in group.iter().rev() {
+        let (Some(first), Some(last)) = (batch.first(), batch.last()) else {
+            continue;
+        };
+        let front = alone.and_then(<[_]>::first).or(joined.front());
+        let back = alone.and_then(<[_]>::last).or(joined.back());
+        let before = front.is_some_and(|front| last.start + last.len < front.start);
+        let after = back.is_some_and(|back| {
+            (back.start + back.len)
+                .checked_add_signed(grown)
+                .is_some_and(|end| first.start > end)
+        });
+        if before || after {
+            if let Some(alone) = alone.take() {
+                joined.extend(alone.iter().cloned());
+            }
+            if before {
+                batch
+                    .iter()
+                    .rev()
+                    .for_each(|splice| joined.push_front(splice.clone()));
+            } else {
+                // Each starts past where the run ends after it, so past where it ends before.
+                joined.extend(batch.iter().map(|splice| Splice {
+                    start: splice.start.saturating_add_signed(-grown),
+                    len: splice.len,
+                    text: splice.text.clone(),
+                }));
+            }
+        } else {
+            end_run(&mut runs, &mut alone, &mut joined);
+            alone = Some(batch);
+            grown = 0;
+        }
+        grown += batch
+            .iter()
+            .map(|splice| splice.text.byte_len().cast_signed() - splice.len.cast_signed())
+            .sum::<isize>();
+    }
+    end_run(&mut runs, &mut alone, &mut joined);
+    runs
+}
+
+/// Puts the run being joined in `runs`, if there is one.
+fn end_run<'a>(
+    runs: &mut Vec<Cow<'a, [Splice<Option<Rope>>]>>,
+    alone: &mut Option<&'a [Splice<Option<Rope>>]>,
+    joined: &mut VecDeque<Splice<Option<Rope>>>,
+) {
+    if let Some(alone) = alone.take() {
+        runs.push(Cow::Borrowed(alone));
+    } else if !joined.is_empty() {
+        runs.push(Cow::Owned(Vec::from(std::mem::take(joined))));
+    }
 }
 
 /// The union of two lists of ranges that are each ascending and apart, also ascending
@@ -234,164 +308,4 @@ fn union(a: Vec<Range<usize>>, b: Vec<Range<usize>>) -> Vec<Range<usize>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use proptest::prelude::*;
-
-    use super::*;
-    use crate::display_map::TabWidth;
-    use crate::rope::tests::{ATOMS, floor_boundary, text_strategy};
-
-    /// Each chunk of `rope`, with where it starts.
-    fn chunks(rope: &Rope) -> Vec<(usize, String)> {
-        let mut at = 0;
-        rope.chunk_texts(0..rope.len())
-            .map(|text| {
-                let start = at;
-                at += text.len();
-                (start, text.to_string())
-            })
-            .collect()
-    }
-
-    /// Splices from `raw`, at character boundaries of `text`, sorted and apart.
-    fn batch<'a>(text: &str, raw: Vec<(usize, usize, &'a str)>) -> Vec<Splice<Cow<'a, str>>> {
-        let mut cut: Vec<(usize, usize, &str)> = raw
-            .into_iter()
-            .map(|(at, len, new)| {
-                let start = floor_boundary(text, at);
-                (start, floor_boundary(text, start + len), new)
-            })
-            .collect();
-        cut.sort_by_key(|&(start, end, _)| (start, end));
-        let mut splices: Vec<Splice<Cow<'a, str>>> = Vec::new();
-        for (start, end, new) in cut {
-            let apart = splices
-                .last()
-                .is_none_or(|last| start > last.start + last.len);
-            if apart && (start < end || !new.is_empty()) {
-                splices.push(Splice {
-                    start,
-                    len: end - start,
-                    text: Cow::Borrowed(new),
-                });
-            }
-        }
-        splices
-    }
-
-    /// Where `offset`, outside every splice, is once they have applied; `None` inside one,
-    /// or at its end if `inclusive`.
-    fn moved<T: SpliceText>(
-        splices: &[Splice<T>],
-        offset: usize,
-        inclusive: bool,
-    ) -> Option<usize> {
-        let mut delta = 0isize;
-        for splice in splices {
-            let (start, end) = (splice.start, splice.start + splice.len);
-            if offset < start {
-                break;
-            }
-            let after = if inclusive {
-                offset > end
-            } else {
-                offset >= end
-            };
-            if !after {
-                return None;
-            }
-            delta += splice.text.byte_len() as isize - splice.len as isize;
-        }
-        offset.checked_add_signed(delta)
-    }
-
-    /// Checks that every chunk the batch rebuilt is in `changed`.
-    fn rebuilt_chunks_are_changed(text: &str, splices: &[Splice<Cow<'_, str>>]) {
-        let mut rope = Rope::from(text);
-        let kept: HashSet<(usize, String)> = chunks(&rope)
-            .into_iter()
-            .filter_map(|(start, chunk)| {
-                let end = start + chunk.len();
-                let outside = splices
-                    .iter()
-                    .all(|splice| end <= splice.start || start >= splice.start + splice.len);
-                outside
-                    .then(|| moved(splices, start, false))
-                    .flatten()
-                    .map(|start| (start, chunk))
-            })
-            .collect();
-        let mut display = DisplayMap::new(&rope, TabWidth::new(4));
-        let mut changed = Vec::new();
-        apply_marking(splices, &mut rope, &mut display, &mut changed, None);
-        for (start, chunk) in chunks(&rope) {
-            if kept.contains(&(start, chunk.clone())) {
-                continue;
-            }
-            let end = start + chunk.len();
-            assert!(
-                changed
-                    .iter()
-                    .any(|range| range.start <= start && end <= range.end),
-                "chunk {start}..{end} is not in {changed:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn chunks_rebuilt_back_past_the_splice_below_are_changed() {
-        let text = "aのaのaa👍\r\na👍\r\n\r\n\u{7f}\r\n\u{e0041}🇯🇵\r\n日本語aaa\r\na\u{200b}\r\n\r\nの\r\nの\r\na日本語\u{e0041}の👨\u{200d}👩\u{200d}👧日本語a";
-        rebuilt_chunks_are_changed(text, &batch(text, vec![(95, 0, "a"), (109, 0, "a")]));
-    }
-
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(512))]
-
-        /// Every chunk a batch rebuilt is in what it says changed (ADR 0091).
-        #[test]
-        fn every_rebuilt_chunk_is_changed(
-            text in text_strategy(60),
-            raw in prop::collection::vec((0usize..400, 0usize..6, prop::sample::select(ATOMS)), 1..6),
-        ) {
-            let splices = batch(&text, raw);
-            prop_assume!(!splices.is_empty());
-            rebuilt_chunks_are_changed(&text, &splices);
-        }
-
-        /// A cluster start outside every splice and outside what changed is still one,
-        /// also among long runs of marks and of regional indicators.
-        #[test]
-        fn what_did_not_change_still_starts_its_clusters(
-            text in prop::collection::vec(
-                prop_oneof![
-                    3 => prop::sample::select(ATOMS).prop_map(str::to_owned),
-                    3 => (10usize..60).prop_map(|n| format!("a{}", "\u{301}".repeat(n))),
-                    1 => (40usize..160).prop_map(|n| "\u{1f1ef}".repeat(n)),
-                ],
-                0..30,
-            ).prop_map(|atoms| atoms.concat()),
-            raw in prop::collection::vec((0usize..1200, 0usize..6, prop::sample::select(ATOMS)), 1..8),
-        ) {
-            let splices = batch(&text, raw);
-            let mut rope = Rope::from(text.as_str());
-            let mut display = DisplayMap::new(&rope, TabWidth::new(4));
-            let before = display.snapshot();
-            let starts: Vec<usize> = (0..=text.len())
-                .filter(|&at| text.is_char_boundary(at) && before.cluster_at(at).0 == at)
-                .filter_map(|at| moved(&splices, at, true))
-                .collect();
-            let mut changed = Vec::new();
-            apply_marking(&splices, &mut rope, &mut display, &mut changed, None);
-            let after = display.snapshot();
-            for at in starts {
-                let index = changed.partition_point(|range| range.end < at);
-                if changed.get(index).is_some_and(|range| range.start <= at) {
-                    continue;
-                }
-                prop_assert_eq!(after.cluster_at(at).0, at, "changed {:?}", changed);
-            }
-        }
-    }
-}
+mod tests;
