@@ -22,6 +22,7 @@ impl Buffer {
     /// the old file goes: its baseline, its own spelling, its project and what a save found
     /// there. The new name gives the mode, as a visit does (ADR 0111).
     pub(crate) fn set_path(&mut self, path: PathBuf) {
+        // A name never gives the copies' modes, and an internal buffer is never written.
         self.set_mode(Mode::for_path(&path));
         self.path = Some(path);
         self.baseline = None;

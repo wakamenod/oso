@@ -294,6 +294,18 @@ fn a_state_of_version_3_reads_as_one_window() {
 }
 
 #[test]
+fn a_state_of_version_3_without_font_lock_keeps_it_on_and_one_with_it_hands_it_over() {
+    let mut editor = scratch_with("one\n");
+    editor.set_font_lock(false);
+    let mut state = export(&editor, &[], None, None).unwrap();
+    state["version"] = json!(3);
+    state.as_object_mut().unwrap().remove("layout");
+    assert_eq!(parse(&state).unwrap().font_lock, Some(false));
+    state.as_object_mut().unwrap().remove("font_lock");
+    assert_eq!(parse(&state).unwrap().font_lock, None, "kept on");
+}
+
+#[test]
 fn windows_split_deeper_than_a_state_keeps_hold_the_handover_with_a_reason() {
     let mut editor = scratch_with("deep\n");
     editor.set_frame_size(oso_core::frame::FrameSize {

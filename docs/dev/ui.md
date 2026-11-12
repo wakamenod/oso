@@ -463,6 +463,14 @@ toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
   two steps by 0.4 s. The scrolling that follows the cursor and the wheel do not flash. The
   next key ends it.
 
+**Highlighting** (`global-font-lock-mode`, the same argument) is on by default, but draws
+nothing until colour arrives ([ADR 0111](adr/0111-tree-sitter-highlighting.md), step 5); off,
+it drops every buffer's highlights. A buffer's language is its major mode, from the file's name
+on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode` and
+`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Setting a mode again,
+the same one too, gives a buffer whose highlighting stopped another try. The modeline names
+the mode.
+
 Off by default: **line numbers** (`global-display-line-numbers-mode`). They are absolute, the
 current one brighter, in a gutter as wide as the line count's digits plus one, at least
 3 digits. Floats keep their place when it appears.

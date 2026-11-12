@@ -625,7 +625,7 @@ sent; tests turn it on, and step 5 turns it on for every session.
   `Buffer::take_highlights` maps them through the edits since. Nothing is drawn yet (step 5).
 - **A failure** (too large, too slow, a grammar or query the build cannot use, or a slice that
   panicked, `Outcome::Lost`) drops the buffer's highlights, and it stays plain until its mode
-  changes. The echo area and `*Messages*` say "Highlighting stopped in NAME: WHY", naming the
+  is set again. The echo area and `*Messages*` say "Highlighting stopped in NAME: WHY", naming the
   buffer only: no path, no text. A panic loses that buffer alone; its thread compiles its
   queries again and goes on.
 - **Modes from names:** `Buffer::visiting` takes its mode from the file's name, and a write
@@ -639,6 +639,40 @@ sent; tests turn it on, and step 5 turns it on for every session.
 - **A flaky property, fixed** (#170): the step 3 property comparing sliced and whole
   highlighting compared them also where both trees held errors, which tree-sitter does not
   promise to agree on; it now compares only clean trees, as the incremental one does.
+
+### Step 4b: modes and font-lock
+
+The author's choices, with the plan:
+
+- **`rust-mode`, `markdown-mode`, `toml-mode` and `fundamental-mode`** set the current
+  buffer's mode, through `M-x` only, as in vanilla Emacs, reach `Look`, and say "Rust mode" and
+  so on. They refuse an internal buffer ("This buffer's mode cannot change"): the emergency
+  copies' list and view take keys by their mode. `Buffer::set_mode` is public.
+- **Setting a mode again,** the same one too, gives a buffer whose highlighting stopped another
+  try, as the Decision says, once 10 s have passed since it stopped, so that retries, whoever
+  asks for them, take a bounded share of the worker. `Buffer::mode_revision` (new, public)
+  moves on at every set; the UI keys a stopped buffer on it, and keeps it with each job, so any
+  set since, even two in one command that end where they began, starts from nothing in a new
+  epoch. A failure the worker reports for the document of the current epoch, after a set but
+  before its job, takes that retry: the person sets the mode again.
+- **`Buffer::set_mode` keeps the rule in core:** it refuses an internal buffer, and the
+  emergency copies' modes on any other, whose keys read copies; it says whether it took.
+- **`global-font-lock-mode`** takes ADR 0097's minor-mode argument, reach `Look`, and is on by
+  default (`Editor::font_lock`, `Editor::set_font_lock`, new, public). Off drops every buffer's
+  highlights at once, and the UI then counts no buffer as one the worker may have, so it drops
+  them all; on again, each starts from nothing. It says "Global Font-Lock mode enabled" or
+  "disabled", as the aids do.
+- **The dev restart hands over `font_lock`,** one flag beside the visual aids; a state without
+  it keeps highlighting on. Modes set by hand are not handed over yet: a visit sets them from the
+  name again, until the configuration's per-mode tables.
+- **Nothing is parsed yet:** highlighting stays off until step 5 (step 4a), so in normal use
+  the commands change the mode and the modeline, and font-lock only the flag.
+- **Whitespace cleanup reads the mode** (ADR 0113 said "by its name ... until major modes
+  come"): a save and `delete-trailing-whitespace` keep Markdown's hard breaks by the buffer's
+  mode, so `markdown-mode` in `notes.txt` keeps them and `rust-mode` in `README.md` does not; a
+  write under a new name follows the mode that name gives.
+- **While font-lock is off,** edits still compose and log their splices on the buffer, which the
+  log bounds (64 revisions, 4096 splices); nothing reaches the worker.
 
 ## Alternatives considered
 

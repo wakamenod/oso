@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use super::{Editor, SaveRefused, TRIM_ON_THE_UI_THREAD};
-use crate::buffer::{Buffer, EditError, ReadOnly, Replacement};
+use crate::buffer::{Buffer, EditError, Mode, ReadOnly, Replacement};
 use crate::display_map::TabWidth;
 use crate::load::decode_all;
 use crate::selection::{MarkActive, Selection, SelectionSet};
@@ -102,6 +102,28 @@ fn markdown_keeps_two_spaces_after_text() {
     edit(&mut editor, 1..1, "  \ny ");
     save(&mut editor).unwrap();
     assert_eq!(text(&editor), "x  \ny\n");
+}
+
+#[test]
+fn the_markdown_rule_follows_a_mode_set_by_hand_not_the_name() {
+    for (name, mode, expected) in [
+        ("notes.txt", Mode::Markdown, "x  \ny\n"),
+        ("README.md", Mode::Rust, "x\ny\n"),
+    ] {
+        let mut editor = visiting(name, "x\n");
+        let id = editor.window().buffer();
+        editor.buffer_mut(id).unwrap().set_mode(mode);
+        put_cursor(&mut editor, 0);
+        edit(&mut editor, 1..1, "  \ny ");
+        save(&mut editor).unwrap();
+        assert_eq!(text(&editor), expected, "{name} in {mode:?}, saved");
+        // The command reads the mode too.
+        let mut editor = visiting(name, "x  \ny \n");
+        editor.buffer_mut(id).unwrap().set_mode(mode);
+        put_cursor(&mut editor, 0);
+        assert_eq!(editor.delete_trailing_whitespace(), Ok(true));
+        assert_eq!(text(&editor), expected, "{name} in {mode:?}, cleaned");
+    }
 }
 
 #[test]

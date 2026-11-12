@@ -46,12 +46,37 @@ impl Buffer {
         self.mode
     }
 
-    pub(crate) fn set_mode(&mut self, mode: Mode) {
+    /// Sets its mode, as a command or a visit does, and says whether it took: an internal
+    /// buffer keeps the mode it was made with, and the emergency copies' modes, whose keys
+    /// read copies, are only an internal buffer's. Highlights and edits logged for another mode
+    /// go, and the mode's revision moves on even for the same mode, as setting a mode again
+    /// gives highlighting that stopped another try (ADR 0111).
+    pub fn set_mode(&mut self, mode: Mode) -> bool {
+        if self.internal || mode.shows_copies() {
+            return false;
+        }
+        self.put_mode(mode);
+        true
+    }
+
+    /// Gives an internal buffer the mode it is made with.
+    pub(crate) fn set_internal_mode(&mut self, mode: Mode) {
+        debug_assert!(self.internal, "only an internal buffer takes any mode");
+        self.put_mode(mode);
+    }
+
+    fn put_mode(&mut self, mode: Mode) {
         if mode != self.mode {
             // Highlights and edits logged for another language mean nothing in this one.
             self.highlighting.forget();
         }
         self.mode = mode;
+        self.mode_revision += 1;
+    }
+
+    /// A number that moves on whenever a mode is set, the same one too.
+    pub fn mode_revision(&self) -> u64 {
+        self.mode_revision
     }
 
     /// Fills this buffer from a thread: it reads as loading until the last snapshot.

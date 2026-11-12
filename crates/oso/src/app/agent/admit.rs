@@ -119,7 +119,8 @@ impl App {
     }
 
     /// Asks about the waiting connection once no prompt is open, no keys are in progress and
-    /// no keyboard macro is recorded or replayed, and takes the person's answer once its question has closed.
+    /// no keyboard macro is recorded or replayed, and takes the person's answer once its
+    /// question has closed.
     pub(super) fn ask_about_a_connection(&mut self) {
         let Some(asking) = &self.agent.asking else {
             return;

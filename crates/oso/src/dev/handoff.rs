@@ -45,7 +45,7 @@ use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
 pub mod carry;
 mod format;
 mod layout;
-mod looks;
+mod look;
 mod restore;
 
 use carry::{Exported, Item, MAX_CARRIED};
@@ -56,8 +56,7 @@ use format::{MAX_HISTORIES, MAX_HISTORY_NAME, MAX_KILL_PIECES, facts_state, sele
 pub use format::{MAX_ITEMS, State, parse};
 use layout::MAX_WINDOWS;
 pub use layout::Windows;
-pub(crate) use looks::aids_state;
-use looks::{parse_aids, parse_theme};
+pub(crate) use look::aids_state;
 pub use restore::Restore;
 
 /// The version of the state format. Bump it on any change that the previous
@@ -140,6 +139,8 @@ pub fn export(
         "theme": editor.theme_name(),
         // The visual aids, which nothing else remembers until configuration (ADR 0097).
         "visual_aids": aids_state(editor.visual_aids()),
+        // Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
+        "font_lock": editor.font_lock(),
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -580,5 +581,6 @@ fn export_value(
 
 #[cfg(test)]
 mod internal_tests;
+
 #[cfg(test)]
 mod tests;

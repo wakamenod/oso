@@ -1,7 +1,8 @@
-//! What a state holds of how the editor looks (ADR 0047): the visual aids and the theme's
-//! name, written and read back.
+//! The look a state hands over (ADR 0089, ADR 0097, ADR 0111): the theme's name, the visual
+//! aids and whether buffers are highlighted, written and read back checked. A state from before
+//! one of them says nothing of it, and the new instance keeps its default.
 //!
-//! Must not depend on: `app`, `server` or the editor's state beyond these values.
+//! Must not depend on: `app`, `server` or the editor; these are pure functions of values.
 
 use oso_core::editor::VisualAids;
 use serde_json::{Map, Value, json};
@@ -36,6 +37,18 @@ pub(super) fn parse_aids(state: &Map<String, Value>) -> Result<Option<VisualAids
         flash: on("flash")?,
         line_numbers: on("line_numbers")?,
     }))
+}
+
+/// Whether buffers are highlighted, if the state says. A state from before it says nothing,
+/// and the new instance keeps highlighting on.
+pub(super) fn parse_font_lock(state: &Map<String, Value>) -> Result<Option<bool>, String> {
+    match state.get("font_lock").filter(|on| !on.is_null()) {
+        None => Ok(None),
+        Some(on) => on
+            .as_bool()
+            .map(Some)
+            .ok_or_else(|| "font_lock is not true or false".to_owned()),
+    }
 }
 
 /// The theme's name, if the state has one, as the built-in themes are named: up to 32
