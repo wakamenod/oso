@@ -3,7 +3,8 @@
 //! difference is what colour costs (ADR 0111): per key, mapping the highlights through the edit
 //! and posting a job; per frame, a seek in the highlights per row and a step per run. Typing
 //! and the frames' preparation with colour are gated as plain typing is; the rest is reported.
-//! Also `RET` in the same file, which indents by Rust's rules (ADR 0115), reported only.
+//! Also `RET` in the same file, which indents by Rust's rules (ADR 0115), gated as typing is
+//! (ADR 0123).
 //!
 //! Must not depend on: anything but the harness's own pacing, from the module above, and its
 //! temporary directory, which is removed however the phase ends.
@@ -122,8 +123,8 @@ pub(super) fn highlighted_typing(
 }
 
 /// `RET` in the middle of a large Rust file, which indents each new line by Rust's rules
-/// (ADR 0115), in new processes, as `indent_ret_*`. Reported only: the author sets its
-/// thresholds.
+/// (ADR 0115), in new processes, as `indent_ret_*`. Its 99th percentile is gated as typing
+/// is (ADR 0123); the rest is reported.
 pub(super) fn indented_returns(
     exe: &std::path::Path,
     runs: usize,

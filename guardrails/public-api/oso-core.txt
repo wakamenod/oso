@@ -15,6 +15,7 @@ pub fn oso_core::buffer::DiskState::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 impl core::marker::Copy for oso_core::buffer::DiskState
 impl core::marker::StructuralPartialEq for oso_core::buffer::DiskState
 pub enum oso_core::buffer::EditError
+pub oso_core::buffer::EditError::Abandoned
 pub oso_core::buffer::EditError::NoRedo
 pub oso_core::buffer::EditError::NoSuchBuffer
 pub oso_core::buffer::EditError::NoUndo
@@ -1403,6 +1404,13 @@ impl core::fmt::Debug for oso_core::editor::CompletionStyle
 pub fn oso_core::editor::CompletionStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CompletionStyle
 impl core::marker::StructuralPartialEq for oso_core::editor::CompletionStyle
+pub struct oso_core::editor::Crossing
+impl oso_core::editor::Crossing
+pub fn oso_core::editor::Crossing::done(&self) -> f32
+pub fn oso_core::editor::Crossing::left(&self) -> usize
+pub fn oso_core::editor::Crossing::redo(&self) -> bool
+impl core::fmt::Debug for oso_core::editor::Crossing
+pub fn oso_core::editor::Crossing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -1508,6 +1516,11 @@ pub fn oso_core::editor::Editor::split_window(&mut self, oso_core::frame::Way, b
 pub fn oso_core::editor::Editor::tiling(&self) -> oso_core::frame::Tiling
 pub fn oso_core::editor::Editor::wheel_window(&self, core::option::Option<(usize, usize)>) -> oso_core::window::WindowId
 pub fn oso_core::editor::Editor::windmove(&mut self, oso_core::frame::Side) -> core::result::Result<(), oso_core::editor::NoWindow>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::begin_crossing(&mut self, isize) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::cancel_crossing(&mut self) -> bool
+pub fn oso_core::editor::Editor::crossing(&self) -> core::option::Option<&oso_core::editor::Crossing>
+pub fn oso_core::editor::Editor::go_on_crossing(&mut self) -> core::option::Option<core::result::Result<(), oso_core::buffer::EditError>>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::buffers_by_recency(&self) -> alloc::vec::Vec<oso_core::buffer::BufferId>

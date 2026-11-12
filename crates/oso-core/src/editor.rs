@@ -27,12 +27,12 @@
 
 use crate::buffer::{Buffer, BufferId, ContentId, EditError, Mode, Replacement};
 use crate::display_map::Preedit;
-use crate::frame::{self, FrameLayout, FrameSize, Splits};
+use crate::frame::{FrameLayout, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
 use crate::project::Project;
 use crate::selection::SelectionSet;
 use crate::undo::Opening;
-use crate::window::{ViewSize, Window, WindowId};
+use crate::window::{Window, WindowId};
 use follow::Selected;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -41,6 +41,7 @@ mod agent;
 mod aids;
 mod completion;
 mod copies;
+mod crossing;
 mod cursors;
 mod excerpt;
 mod files;
@@ -79,6 +80,7 @@ pub use agent::AgentChannel;
 pub use aids::{ViewSample, VisualAids};
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
+pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
 pub use gutter::Gutter;
@@ -152,6 +154,8 @@ pub struct Editor {
     /// the command, which follow their cursors when it ends (ADR 0112).
     moved_windows: Vec<WindowId>,
     undo_scope: Option<UndoScope>,
+    /// An undo or a redo under way, a slice at a time (ADR 0119).
+    crossing: crossing::Crossings,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
     /// The internal buffer that keeps every message.
@@ -288,18 +292,14 @@ impl Editor {
             windows: Vec::new(),
             selected: 0,
             splits: Splits::new(FIRST_WINDOW),
-            frame: frame::layout(
-                FrameSize::holding(ViewSize::default()),
-                &Splits::new(FIRST_WINDOW),
-                FIRST_WINDOW,
-                |_| 0,
-            ),
+            frame: windows::first_frame(),
             next_id: 0,
             next_window: 1,
             recent: vec![FIRST_WINDOW],
             wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
             moved_windows: Vec::new(),
             undo_scope: None,
+            crossing: crossing::Crossings::default(),
             join_ready: false,
             messages_buffer: BufferId(0),
             command_left_secret: None,
@@ -595,10 +595,11 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::display_map::TabWidth;
-    use crate::frame::{PixelGrid, PixelRect};
+    use crate::frame::{self, FrameSize, PixelGrid, PixelRect};
     use crate::load::Builder;
     use crate::selection::Selection;
     use crate::window::Scroll;
+    use crate::window::ViewSize;
     use proptest::prelude::*;
     use std::path::PathBuf;
 

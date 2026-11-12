@@ -36,9 +36,9 @@ pub(super) fn deleting(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Vec
 
 /// Key press to presented frame while digits are typed into `goto-line`'s prompt, for
 /// `count` keys after a warm-up: the answer's row is shaped again, and every row of the
-/// window beneath is reused. Only reported. Fails unless each key drew a frame and the
-/// prompt holds what they typed. The prompt closes with `C-g` after, so the file is as it
-/// was.
+/// window beneath is reused. Gated as typing is (ADR 0123). Fails unless each key drew a
+/// frame and the prompt holds what they typed. The prompt closes with `C-g` after, so the
+/// file is as it was.
 pub(super) fn prompting(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Vec<f64>, String> {
     app.send_keys("M-g g")?;
     settle(app)?;
@@ -67,9 +67,9 @@ pub(super) fn prompting(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Ve
 
 /// Key press to presented frame while `M-x` lists every command and a letter is typed and
 /// taken back in turn, for `count` keys (made even) after a warm-up: every key matches the
-/// whole registry and draws the candidate rows again. Only reported. Fails unless each key
-/// drew a frame and the prompt ends empty, listing every command. A build with no `M-x`, such
-/// as a base from before it, measures nothing.
+/// whole registry and draws the candidate rows again. Gated as typing is (ADR 0123). Fails
+/// unless each key drew a frame and the prompt ends empty, listing every command. A build with
+/// no `M-x`, such as a base from before it, measures nothing.
 pub(super) fn extended_command(
     app: &mut App,
     count: usize,

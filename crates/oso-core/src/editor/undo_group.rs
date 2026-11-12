@@ -4,10 +4,8 @@
 //!
 //! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O.
 
-use super::follow::Selected;
 use super::{Editor, UndoScope};
 use crate::buffer::{BufferId, EditError};
-use crate::undo::Direction;
 
 impl Editor {
     /// Opens the undo group of a command. The dispatcher calls it before it
@@ -77,7 +75,7 @@ impl Editor {
 
     /// Records the selected window's cursors as the end of the newest undo
     /// group of `id`, if it shows that buffer.
-    fn seal_undo_group(&mut self, id: BufferId) {
+    pub(super) fn seal_undo_group(&mut self, id: BufferId) {
         if let Some(selections) = self.selected_selections(id).cloned()
             && let Some(buffer) = self.buffer_mut(id)
         {
@@ -93,7 +91,7 @@ impl Editor {
     ///
     /// [`EditError::NoUndo`] and [`EditError::ReadOnly`]. Nothing changes.
     pub fn undo(&mut self) -> Result<(), EditError> {
-        self.cross(Direction::Undo)
+        self.cross_at_once(1)
     }
 
     /// Redoes the group the last undo crossed, if no edit came since (ADR
@@ -103,47 +101,6 @@ impl Editor {
     ///
     /// [`EditError::NoRedo`] and [`EditError::ReadOnly`]. Nothing changes.
     pub fn redo(&mut self) -> Result<(), EditError> {
-        self.cross(Direction::Redo)
-    }
-
-    fn cross(&mut self, direction: Direction) -> Result<(), EditError> {
-        let id = self.windows[self.selected].buffer();
-        let buffer = self.buffer(id).ok_or(EditError::NoSuchBuffer)?;
-        buffer.next_crossing(direction)?;
-        // Edits of this command come first in the history, as their own step.
-        if let Some(scope) = &mut self.undo_scope
-            && let Some(position) = scope.touched.iter().position(|other| *other == id)
-        {
-            scope.touched.swap_remove(position);
-            self.seal_undo_group(id);
-        }
-        let buffer = self.buffer(id).ok_or(EditError::NoSuchBuffer)?;
-        let staged = buffer.stage_crossing(direction)?;
-        let selected = Selected::Restored(staged.selections());
-        let moved = self.moved_selections(
-            id,
-            &staged.display(),
-            staged.steps(),
-            staged.changed(),
-            selected,
-        );
-        let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
-
-        // Nothing past this point can panic part way.
-        if let Some(buffer) = self.buffer_mut(id) {
-            buffer.commit_crossing(staged);
-        }
-        for (index, set) in moved {
-            self.windows[index].selections = set;
-        }
-        self.commit_views(id, views);
-        // Crossing a recovery takes its verdict along.
-        self.note_secret_shown();
-        if let Some(scope) = &mut self.undo_scope {
-            scope.before = (id, self.windows[self.selected].selections.clone());
-            scope.crossed = true;
-        }
-        self.join_ready = false;
-        Ok(())
+        self.cross_at_once(-1)
     }
 }

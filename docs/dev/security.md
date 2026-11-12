@@ -168,7 +168,10 @@ network features.
   drivers, textconv, external diff. Verifying that `gix` can be forced to skip
   all of these is an open item.
 - Write operations call the `git` CLI through the process module, and only in
-  trusted projects.
+  trusted projects. So do an agent review's reads (diffs, file lists, blobs),
+  with revisions resolved to object ids, option-like ones refused,
+  `--no-ext-diff --no-textconv`, and `GIT_OPTIONAL_LOCKS=0`
+  ([ADR 0122](adr/0122-agent-review.md)). Restricted projects get no review.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 

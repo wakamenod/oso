@@ -164,6 +164,23 @@ impl Editor {
         steps: &[Vec<OffsetEdit>],
         rewrap: &Rewrap,
     ) -> MovedViews {
+        self.moved_views_to(id, display, rewrap, |window| {
+            steps.iter().fold(window.scroll().start, |top, edits| {
+                follow_offset(top, edits, Bias::Left)
+            })
+        })
+    }
+
+    /// As [`Editor::moved_views`], each window's top going where `top` says: where its top
+    /// was has followed the change already, as an undo staged over several turns follows it
+    /// (ADR 0119).
+    pub(super) fn moved_views_to(
+        &self,
+        id: BufferId,
+        display: &DisplaySnapshot,
+        rewrap: &Rewrap,
+        top: impl Fn(&Window) -> usize,
+    ) -> MovedViews {
         let mut moved = Vec::new();
         let revision = self.buffer(id).map_or(0, |buffer| buffer.revision());
         for (index, window) in self.windows.iter().enumerate() {
@@ -173,9 +190,7 @@ impl Editor {
             // A wrap that missed a change since cannot follow this one's splices.
             let whole = window.wrap_revision() != revision;
             let mut scroll = window.scroll();
-            for edits in steps {
-                scroll.start = follow_offset(scroll.start, edits, Bias::Left);
-            }
+            scroll.start = top(window);
             let wrap = window.wrap_map().map(|wrap| {
                 let mut wrap = wrap.clone();
                 match rewrap {
