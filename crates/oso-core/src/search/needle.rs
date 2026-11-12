@@ -1,18 +1,16 @@
-//! What query-replace looks for (ADR 0113): a literal string with isearch's matcher, or a
-//! regexp matched one line at a time, and a search through a scope's ranges, match after
-//! match, within a budget of work.
+//! What query-replace and isearch look for (ADR 0113, ADR 0116): a literal string with
+//! isearch's matcher, or a regexp matched one line at a time; a search through a scope's
+//! ranges, match after match, within a budget of work; and isearch's searches forward,
+//! backward and its count over the whole text.
 //!
 //! Must not depend on: `buffer`, `editor` or a log.
 
 use std::ops::Range;
 
 use super::regexp::{self, Line, LineTooLong, Regexp};
-use super::{Found, Query, find_in, matches_in};
+use super::{Count, Found, Limits, Query, count, find_backward, find_forward, find_in, matches_in};
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
-
-/// The longest line a frame reads for a regexp's highlights.
-const LONGEST_SHOWN: usize = 64 * 1024;
 
 /// A literal query or a regexp.
 #[derive(Clone, Debug)]
@@ -83,7 +81,123 @@ impl Needle {
     ) {
         match self {
             Self::Literal(query) => matches_in((text, invalid), query, spans, (most, limit), out),
-            Self::Regexp(regexp) => regexp.matches_in(text, spans, (most, LONGEST_SHOWN), out),
+            Self::Regexp(regexp) => regexp.matches_in(text, spans, (most, limit), out),
+        }
+    }
+
+    /// The first match through the whole text that starts at `from` or after, an empty match
+    /// there skipped if `after_match`, within `limits`. [`Found::Stopped`] gives where to go
+    /// on from, with `after_match` still holding if that is `from`. `kept` is a line a regexp's
+    /// search before this one read, which it takes if it is in it, and the line it read last
+    /// goes back there.
+    ///
+    /// # Errors
+    ///
+    /// [`LineTooLong`] for a regexp, at a line too long to match in.
+    pub(crate) fn find_forward(
+        &self,
+        (text, invalid): (&Rope, &InvalidBytes),
+        (from, after_match): (usize, bool),
+        (limits, stop): (Limits, &dyn Fn() -> bool),
+        kept: &mut Option<Line>,
+    ) -> Result<Found, LineTooLong> {
+        let regexp = match self {
+            Self::Literal(query) => {
+                return Ok(find_forward(text, invalid, query, from, limits.work, stop));
+            }
+            Self::Regexp(regexp) => regexp,
+        };
+        let whole = 0..text.len();
+        let mut scan = regexp::Scan::new(
+            regexp,
+            text,
+            std::slice::from_ref(&whole),
+            (from, after_match),
+            limits.work,
+            kept.take(),
+        );
+        if let Some(until) = limits.until {
+            scan.until(until);
+        }
+        if limits.on_key {
+            scan.on_key();
+        }
+        let found = scan.next(stop);
+        *kept = scan.into_line();
+        found
+    }
+
+    /// The last match that ends by `before` and starts at `start_at_most` or before, within
+    /// `limits`: a literal query's as [`find_backward`] finds it, a regexp's the one that
+    /// starts last, as Emacs's `re-search-backward` does. [`Found::Stopped`] gives the
+    /// `before` to go on with. `kept` is as [`Needle::find_forward`] keeps it.
+    ///
+    /// # Errors
+    ///
+    /// [`LineTooLong`] for a regexp, at a line too long to match in.
+    pub(crate) fn find_backward(
+        &self,
+        (text, invalid): (&Rope, &InvalidBytes),
+        (before, start_at_most): (usize, usize),
+        (limits, stop): (Limits, &dyn Fn() -> bool),
+        kept: &mut Option<Line>,
+    ) -> Result<Found, LineTooLong> {
+        match self {
+            Self::Literal(query) => Ok(find_backward(
+                text,
+                invalid,
+                query,
+                before,
+                start_at_most,
+                limits.work,
+                stop,
+            )),
+            Self::Regexp(regexp) => {
+                regexp::find_backward(regexp, text, (before, start_at_most), (limits, stop), kept)
+            }
+        }
+    }
+
+    /// Every match in the text, as a scan from its start finds them, and those that start
+    /// before `current`. `None` if `stop` said so first.
+    ///
+    /// # Errors
+    ///
+    /// [`LineTooLong`] for a regexp, at a line too long to match in.
+    pub(crate) fn count(
+        &self,
+        (text, invalid): (&Rope, &InvalidBytes),
+        current: Option<usize>,
+        stop: &dyn Fn() -> bool,
+    ) -> Result<Option<Count>, LineTooLong> {
+        let regexp = match self {
+            Self::Literal(query) => return Ok(count(text, invalid, query, current, stop)),
+            Self::Regexp(regexp) => regexp,
+        };
+        let whole = 0..text.len();
+        let mut scan = regexp::Scan::new(
+            regexp,
+            text,
+            std::slice::from_ref(&whole),
+            (0, false),
+            usize::MAX,
+            None,
+        );
+        let mut counted = Count {
+            total: 0,
+            before: 0,
+        };
+        loop {
+            match scan.next(stop)? {
+                Found::Match(found) => {
+                    counted.total += 1;
+                    if current.is_some_and(|current| found.start < current) {
+                        counted.before += 1;
+                    }
+                }
+                Found::None => return Ok(Some(counted)),
+                Found::Stopped { .. } => return Ok(None),
+            }
         }
     }
 

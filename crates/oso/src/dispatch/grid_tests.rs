@@ -1516,6 +1516,16 @@ mod scenarios {
     }
 
     #[test]
+    fn a_regexp_isearch_says_its_line_and_an_incomplete_regexp() {
+        check_frame(
+            "isearch_regexp",
+            "foo1 bar foo22\nfo\n",
+            (6, 40),
+            &["C-M-s f o + 1", "DEL DEL", "C-s", "[", "DEL M-r"],
+        );
+    }
+
+    #[test]
     fn shift_selects_until_a_motion_without_it() {
         check(
             "region_by_shift",

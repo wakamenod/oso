@@ -1,5 +1,6 @@
-//! Literal search over a rope, for isearch (ADR 0082): a query built from a string with
-//! smart case, and searches forward, backward, in a range and through the whole text.
+//! Search over a rope, for isearch (ADR 0082) and query-replace (ADR 0113): a literal query
+//! built from a string with smart case, searched forward, backward, in a range and through
+//! the whole text, and the regexps of `regexp`, matched one line at a time.
 //!
 //! Must not depend on: `buffer`, `motion`, `editor`, threads or a log. The worker's
 //! [`SearchJob`] is a plain function here, and the host runs it on its thread.
@@ -8,12 +9,14 @@
 //!   linear in the text whatever the string, and a match may cross chunks.
 //! - Case folds one character at a time: a character whose lowercase is one character
 //!   becomes it, and any other stays. Width and characters are not folded.
-//! - The U+FFFD of an invalid byte matches nothing (ADR 0040).
+//! - The U+FFFD of an invalid byte matches nothing in a literal query (ADR 0040); a regexp's
+//!   `.` matches it, as in query-replace.
 //! - Nothing here logs, and `Debug` prints no text of a query or a job: a search string can
 //!   say something of a buffer that may hold secrets (ADR 0044).
 
 use std::fmt;
 use std::ops::Range;
+use std::time::{Duration, Instant};
 
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
@@ -25,11 +28,12 @@ mod needle;
 mod regexp;
 
 pub(crate) use case::casified;
-pub(crate) use job::{Counting, Find, MatchWork, Matched, Report, after};
+pub(crate) use job::{Counting, Find, MatchWork, Matched, Prepared, Report, after};
 pub use job::{SearchJob, SearchReport};
 pub(crate) use needle::Needle;
 pub(crate) use regexp::{
-    Line, LineTooLong, MAX_LINE, Regexp, compile as compile_regexp, smart_case as regexp_smart_case,
+    CompileError, Line, LineTooLong, MAX_LINE, On, Regexp, compile as compile_regexp,
+    compile_isearch, quote, smart_case as regexp_smart_case,
 };
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
@@ -38,6 +42,39 @@ pub const MAX_QUERY_CHARS: usize = 1024;
 
 /// How much text one key searches on the UI thread before the rest goes to a worker.
 pub const KEY_BUDGET: usize = 256 * 1024;
+
+/// The most time a key's search takes on the UI thread, as a regexp can read far past each
+/// place it looks.
+pub(crate) const KEY_TIME: Duration = Duration::from_millis(3);
+
+/// How far a search goes before it stops: its work, which for a literal query is the bytes it
+/// reads, a time, and whether it is an isearch key's on the UI thread, which leaves a regexp's
+/// long lines and the regexps for a cut to the worker.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Limits {
+    pub(crate) work: usize,
+    pub(crate) until: Option<Instant>,
+    pub(crate) on_key: bool,
+}
+
+impl Limits {
+    /// No bound but `stop`, for the worker.
+    pub(crate) const NONE: Self = Self {
+        work: usize::MAX,
+        until: None,
+        on_key: false,
+    };
+
+    /// A key's on the UI thread: [`KEY_BUDGET`], [`KEY_TIME`] from now, and the rest left to
+    /// the worker.
+    pub(crate) fn key() -> Self {
+        Self {
+            work: KEY_BUDGET,
+            until: Some(Instant::now() + KEY_TIME),
+            on_key: true,
+        }
+    }
+}
 
 /// The bytes a backward search reads at once, and a worker reads between looks at whether a
 /// newer job has taken its place.
@@ -682,8 +719,11 @@ mod tests {
         let live = Arc::new(AtomicU64::new(3));
         let job = SearchJob::new(
             (rope, InvalidBytes::new()),
-            query("a"),
-            Some(Find::Forward { from: 1 }),
+            Prepared::Ready(Needle::Literal(query("a"))),
+            Some(Find::Forward {
+                from: 1,
+                after_match: false,
+            }),
             None,
             (3, live),
         );
@@ -716,7 +756,7 @@ mod tests {
                 Rope::from("a".repeat(200_000).as_str()),
                 InvalidBytes::new(),
             ),
-            query("a"),
+            Prepared::Ready(Needle::Literal(query("a"))),
             None,
             None,
             (3, live),

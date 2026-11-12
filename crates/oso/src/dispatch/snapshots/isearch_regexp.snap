@@ -1,0 +1,55 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: foo1 bar foo22\\nfo\\n"
+---
+keys: C-M-s f o + 1
+│foo1 bar foo22                          │
+:    ^                                   :
++####                                    +
+│fo                                      │
+│                                        │
+│                                        │
+=-- test  1:4  Fundamental  UTF-8 LF     =
+"Regexp I-search: fo+1 [1/1]             "
+
+keys: DEL DEL
+│foo1 bar foo22                          │
+:  ^                                     :
++##       ~~                             +
+│fo                                      │
++~~                                      +
+│                                        │
+│                                        │
+=-- test  1:2  Fundamental  UTF-8 LF     =
+"Regexp I-search: fo [1/3]               "
+
+keys: C-s
+│foo1 bar foo22                          │
+:           ^                            :
++~~       ##                             +
+│fo                                      │
++~~                                      +
+│                                        │
+│                                        │
+=-- test  1:11  Fundamental  UTF-8 LF    =
+"Regexp I-search: fo [2/3]               "
+
+keys: [
+│foo1 bar foo22                          │
+:           ^                            :
+│fo                                      │
+│                                        │
+│                                        │
+=-- test  1:11  Fundamental  UTF-8 LF    =
+"Regexp I-search: fo[ [incomplete input] "
+
+keys: DEL M-r
+│foo1 bar foo22                          │
+:           ^                            :
++~~       ##                             +
+│fo                                      │
++~~                                      +
+│                                        │
+│                                        │
+=-- test  1:11  Fundamental  UTF-8 LF    =
+"I-search: fo [2/3]                      "
