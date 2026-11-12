@@ -173,8 +173,8 @@ fn other_window(app: &mut App, count: usize, rng: &mut Lcg) -> Result<f64, Strin
     };
     let first = selected(app)?;
     let mut samples = Vec::with_capacity(count);
-    // Whole rounds, so that it ends where it began.
-    let count = count / windows * windows;
+    // Whole rounds, so that it ends where it began, and at least one.
+    let count = (count / windows).max(1) * windows;
     for index in 0..windows + count {
         app.send_keys("C-x")?;
         // What the prefix draws is not this key's.
