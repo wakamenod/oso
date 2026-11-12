@@ -1068,6 +1068,8 @@ mod edit_tests;
 #[cfg(test)]
 mod highlight_tests;
 #[cfg(test)]
+mod isearch_regexp_tests;
+#[cfg(test)]
 mod isearch_tests;
 #[cfg(test)]
 mod jump_tests;

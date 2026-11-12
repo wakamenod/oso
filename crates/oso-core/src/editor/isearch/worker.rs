@@ -1,20 +1,22 @@
 //! isearch's worker (ADR 0082): the job a search leaves for a thread, what comes back from
-//! it, and a search again when the text changed under it.
+//! it, a regexp it compiled among that (ADR 0116), and a search again when the text changed
+//! under it.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads. The host
 //! runs the job; this only makes it and takes in what it reports.
 //!
 //! A newer job supersedes the one before through a generation, which the worker checks
-//! every block of text, and whose reports are dropped here once it is not the live one.
+//! every block of text, and before every look for a regexp's match, and whose reports are
+//! dropped here once it is not the live one.
 //! A report is also dropped once the search no longer keeps to the window it began in.
 
 use std::ops::Range;
 use std::sync::atomic::Ordering;
 
 use super::Tally;
-use super::state::Asked;
+use super::state::{Asked, Bad, Pattern};
 use crate::editor::Editor;
-use crate::search::{Find, Report, SearchJob, SearchReport};
+use crate::search::{Find, Needle, Regexp, Report, SearchJob, SearchReport};
 
 impl Editor {
     /// The job a worker is to do, once, for the host.
@@ -54,6 +56,18 @@ impl Editor {
                 }
                 true
             }
+            Report::Compiled { generation, regexp } if generation == live => {
+                self.isearch_compiled(regexp)
+            }
+            // The search's, which fails there, or the count's, which then shows nothing.
+            Report::LineTooLong { generation, at } if generation == live => {
+                if state.searching.is_some() {
+                    self.isearch_line_too_long(at);
+                } else {
+                    state.tally = None;
+                }
+                true
+            }
             Report::Counted {
                 generation,
                 count,
@@ -77,6 +91,26 @@ impl Editor {
             }
             _ => false,
         }
+    }
+
+    /// Takes in the regexp a worker compiled for the search, or why it could not; the search
+    /// and count of the same job follow it. Returns whether what shows changed.
+    fn isearch_compiled(&mut self, regexp: Result<Regexp, String>) -> bool {
+        let Some(state) = &mut self.isearch else {
+            return false;
+        };
+        if !matches!(state.pattern, Pattern::Compiling) {
+            return false;
+        }
+        state.pattern = match regexp {
+            Ok(regexp) => Pattern::Ready(Needle::Regexp(regexp)),
+            Err(why) => {
+                state.searching = None;
+                state.tally = None;
+                Pattern::Bad(Bad::Invalid(why))
+            }
+        };
+        true
     }
 
     /// Keeps the search true to its window and its text: ends it if the selected window no
@@ -114,7 +148,7 @@ impl Editor {
         if loading {
             // A count of a part would be wrong, and one per update never ends.
             let counting = matches!(state.tally, Some(Tally::Counting { .. }));
-            if state.query.is_some() && !counting {
+            if state.has_needle() && !counting {
                 state.tally = Some(Tally::Counting { moves: 0 });
                 self.supersede_search();
                 return true;
@@ -138,8 +172,9 @@ impl Editor {
             // A repeat a worker went on with is asked again, over the new text.
             Some((asked @ Asked::Repeat { .. }, find)) => {
                 let find = match find {
-                    Find::Forward { from } => Find::Forward {
+                    Find::Forward { from, after_match } => Find::Forward {
                         from: from.min(len),
+                        after_match,
                     },
                     Find::Backward {
                         before,
@@ -163,7 +198,7 @@ impl Editor {
         let Some(state) = &mut self.isearch else {
             return;
         };
-        let Some(query) = state.query.clone() else {
+        let Some(needle) = state.prepared() else {
             return;
         };
         if find.is_none() {
@@ -180,7 +215,7 @@ impl Editor {
         };
         let snapshot = (buffer.text().clone(), buffer.invalid_bytes().clone());
         let live = (generation, self.search_live.clone());
-        self.search_job = Some(SearchJob::new(snapshot, query, find, current, live));
+        self.search_job = Some(SearchJob::new(snapshot, needle, find, current, live));
     }
 
     /// Ends whatever a worker is doing, and returns the generation of the next job.

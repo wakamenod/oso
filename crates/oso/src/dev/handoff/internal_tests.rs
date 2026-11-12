@@ -220,7 +220,7 @@ fn a_query_replace_holds_the_handover_and_an_exit_for_a_generation() {
 fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
     let mut editor = Editor::default();
     let before = generation(&editor);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     assert_eq!(
         check(&editor),
         Err("cannot hand over: a search is under way".into())
