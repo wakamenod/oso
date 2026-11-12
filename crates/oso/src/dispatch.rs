@@ -92,6 +92,9 @@ pub struct Dispatcher {
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
+    /// The only commands `M-x` lists, for snapshots that a new command must not change.
+    #[cfg(test)]
+    m_x_only: Option<&'static [&'static str]>,
 }
 
 impl Dispatcher {
@@ -144,6 +147,8 @@ impl Dispatcher {
             completion_held: None,
             jump: None,
             ran_for_agent: false,
+            #[cfg(test)]
+            m_x_only: None,
         }
     }
 
@@ -286,16 +291,6 @@ impl Dispatcher {
             }
         }
         self.show_keys_in_progress(editor);
-    }
-
-    /// Handles key presses in order. Keys after one that exits are dropped.
-    #[cfg(test)]
-    pub fn handle_keys(
-        &mut self,
-        editor: &mut Editor,
-        keys: impl IntoIterator<Item = KeyPress>,
-    ) -> Effects {
-        self.handle_keys_with(editor, keys, |_, _| {})
     }
 
     /// Handles key presses in order, as from the control socket's `send-keys`,
@@ -591,6 +586,23 @@ impl Dispatcher {
         };
         let effects = self.run_or_read(editor, id, args, invocation).0;
         effects.union(self.after_prompts(editor))
+    }
+}
+
+#[cfg(test)]
+impl Dispatcher {
+    /// Handles key presses in order. Keys after one that exits are dropped.
+    pub fn handle_keys(
+        &mut self,
+        editor: &mut Editor,
+        keys: impl IntoIterator<Item = KeyPress>,
+    ) -> Effects {
+        self.handle_keys_with(editor, keys, |_, _| {})
+    }
+
+    /// Has `M-x` list only the commands named in `names`.
+    pub(crate) fn list_only_in_m_x(&mut self, names: &'static [&'static str]) {
+        self.m_x_only = Some(names);
     }
 }
 
