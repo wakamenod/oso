@@ -15,6 +15,7 @@ mod jump;
 mod kill;
 mod macros;
 mod mark;
+mod markdown;
 mod messages;
 mod minibuffer;
 mod motion;
@@ -163,6 +164,26 @@ pub fn isearch_commands(registry: &Registry) -> Vec<oso_core::command::CommandId
         .collect()
 }
 
+/// The keymap of the layer `C-x TAB` opens (ADR 0115). Empty for a registry without its
+/// commands, as in tests that bring their own.
+pub fn rigid_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, indent::RIGID).unwrap_or_default()
+}
+
+/// Markdown's own keymap, above the global one in a Markdown buffer (ADR 0115). Empty for a
+/// registry without its commands, as in tests that bring their own.
+pub fn markdown_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, markdown::MARKDOWN).unwrap_or_default()
+}
+
+/// The commands the layer of `C-x TAB` runs rather than closes for.
+pub fn rigid_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    indent::RIGID
+        .iter()
+        .filter_map(|&(_, name)| registry.lookup(name))
+        .collect()
+}
+
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global
 /// one (ADR 0064). Empty for a registry without their commands, as in tests that bring their
 /// own.
@@ -174,9 +195,9 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 #[cfg(test)]
 mod tests {
     use super::{
-        TABLES, complete, global_keymap, isearch, isearch_commands, isearch_keymap, jump,
-        jump_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps, recovery,
-        recovery_keymaps,
+        TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
+        jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
+        recovery, recovery_keymaps, rigid_commands, rigid_keymap,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -208,6 +229,14 @@ mod tests {
             };
             assert_eq!(registry.get(id).unwrap().name, name);
         }
+    }
+
+    #[test]
+    fn the_indent_keymaps_bind_all_their_rows() {
+        let registry = commands::registry();
+        assert_eq!(rigid_keymap(&registry).len(), indent::RIGID.len());
+        assert_eq!(markdown_keymap(&registry).len(), markdown::MARKDOWN.len());
+        assert_eq!(rigid_commands(&registry).len(), indent::RIGID.len());
     }
 
     #[test]

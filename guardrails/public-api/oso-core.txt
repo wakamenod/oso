@@ -27,6 +27,8 @@ impl core::cmp::PartialEq for oso_core::buffer::EditError
 pub fn oso_core::buffer::EditError::eq(&self, &oso_core::buffer::EditError) -> bool
 impl core::convert::From<oso_core::buffer::EditError> for oso_core::command::CommandError
 pub fn oso_core::command::CommandError::from(oso_core::buffer::EditError) -> Self
+impl core::convert::From<oso_core::buffer::EditError> for oso_core::editor::IndentError
+pub fn oso_core::editor::IndentError::from(oso_core::buffer::EditError) -> Self
 impl core::convert::From<oso_core::buffer::EditError> for oso_core::editor::YankError
 pub fn oso_core::editor::YankError::from(oso_core::buffer::EditError) -> Self
 impl core::error::Error for oso_core::buffer::EditError
@@ -1109,6 +1111,27 @@ impl core::fmt::Display for oso_core::editor::CursorError
 pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CursorError
 impl core::marker::StructuralPartialEq for oso_core::editor::CursorError
+pub enum oso_core::editor::IndentError
+pub oso_core::editor::IndentError::Edit(oso_core::buffer::EditError)
+pub oso_core::editor::IndentError::NoMark
+pub oso_core::editor::IndentError::NoRules
+pub oso_core::editor::IndentError::NotInList
+pub oso_core::editor::IndentError::TooLarge
+pub oso_core::editor::IndentError::TooMuchText
+impl core::clone::Clone for oso_core::editor::IndentError
+pub fn oso_core::editor::IndentError::clone(&self) -> oso_core::editor::IndentError
+impl core::cmp::Eq for oso_core::editor::IndentError
+impl core::cmp::PartialEq for oso_core::editor::IndentError
+pub fn oso_core::editor::IndentError::eq(&self, &oso_core::editor::IndentError) -> bool
+impl core::convert::From<oso_core::buffer::EditError> for oso_core::editor::IndentError
+pub fn oso_core::editor::IndentError::from(oso_core::buffer::EditError) -> Self
+impl core::error::Error for oso_core::editor::IndentError
+impl core::fmt::Debug for oso_core::editor::IndentError
+pub fn oso_core::editor::IndentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::IndentError
+pub fn oso_core::editor::IndentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::IndentError
+impl core::marker::StructuralPartialEq for oso_core::editor::IndentError
 pub enum oso_core::editor::KillRefused
 pub oso_core::editor::KillRefused::Gone
 pub oso_core::editor::KillRefused::Internal
@@ -1284,6 +1307,18 @@ impl core::fmt::Display for oso_core::editor::SaveRefused
 pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
+pub enum oso_core::editor::Shift
+pub oso_core::editor::Shift::Left
+pub oso_core::editor::Shift::Right
+impl core::clone::Clone for oso_core::editor::Shift
+pub fn oso_core::editor::Shift::clone(&self) -> oso_core::editor::Shift
+impl core::cmp::Eq for oso_core::editor::Shift
+impl core::cmp::PartialEq for oso_core::editor::Shift
+pub fn oso_core::editor::Shift::eq(&self, &oso_core::editor::Shift) -> bool
+impl core::fmt::Debug for oso_core::editor::Shift
+pub fn oso_core::editor::Shift::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Shift
+impl core::marker::StructuralPartialEq for oso_core::editor::Shift
 pub enum oso_core::editor::Toward
 pub oso_core::editor::Toward::Next
 pub oso_core::editor::Toward::Previous
@@ -1467,6 +1502,9 @@ pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
 pub fn oso_core::editor::Editor::shows_keys_in_progress(&self) -> bool
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::back_to_indentation(&mut self) -> bool
+pub fn oso_core::editor::Editor::delete_indentation(&mut self, bool) -> core::result::Result<(), oso_core::editor::IndentError>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::balance_windows(&mut self) -> bool
 pub fn oso_core::editor::Editor::delete_other_windows(&mut self) -> bool
 pub fn oso_core::editor::Editor::delete_window(&mut self) -> core::result::Result<(), oso_core::editor::SoleWindow>
@@ -1588,7 +1626,6 @@ pub fn oso_core::editor::Editor::electric_indent(&self) -> bool
 pub fn oso_core::editor::Editor::indent_for_tab(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::indent_typed_closers(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
-pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) -> core::result::Result<bool, oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::set_electric_indent(&mut self, bool)
 pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings); 4])
 impl oso_core::editor::Editor
@@ -1630,6 +1667,12 @@ pub fn oso_core::editor::Editor::view_sample(&self) -> oso_core::editor::ViewSam
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::indent_region(&mut self, core::option::Option<usize>, usize) -> core::result::Result<(), oso_core::editor::IndentError>
+pub fn oso_core::editor::Editor::indent_rigidly(&mut self, isize, usize) -> core::result::Result<(), oso_core::editor::IndentError>
+pub fn oso_core::editor::Editor::indent_rigidly_layer(&self) -> bool
+pub fn oso_core::editor::Editor::indent_rigidly_to_tab_stop(&mut self, oso_core::editor::Shift, usize) -> core::result::Result<(), oso_core::editor::IndentError>
+pub fn oso_core::editor::Editor::set_indent_rigidly_layer(&mut self, bool)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch(&self) -> core::option::Option<&oso_core::editor::Isearch>
 pub fn oso_core::editor::Editor::isearch_add(&mut self, &str)
@@ -1706,10 +1749,14 @@ pub fn oso_core::editor::Editor::macro_start(&mut self) -> core::result::Result<
 pub fn oso_core::editor::Editor::macro_stop(&mut self, core::option::Option<&str>)
 pub fn oso_core::editor::Editor::macro_takes_text(&mut self, usize) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::markdown_insert_list_item(&mut self, &str, usize) -> core::result::Result<(), oso_core::editor::IndentError>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::FileStamp, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::write_over_asked(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::written_elsewhere(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::ContentId, std::path::PathBuf, oso_core::buffer::FileStamp, impl core::ops::function::FnOnce(&mut oso_core::buffer::Buffer))
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) -> core::result::Result<bool, oso_core::buffer::EditError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::open_project_search(&mut self, std::path::PathBuf, &str, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::rows_found(&mut self, u64, alloc::vec::Vec<oso_core::editor::ProjectSearchRow>, core::option::Option<oso_core::editor::WalkEnd>)

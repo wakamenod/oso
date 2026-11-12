@@ -1,14 +1,19 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
-//! argument's, a prompt's, a completion's or a question's, a jump's, isearch's, a mode's, the
-//! user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108, ADR 0116).
+//! argument's, the layer `C-x TAB` opens, a prompt's, a completion's or a question's, a jump's,
+//! isearch's, a mode's, the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082,
+//! ADR 0108, ADR 0115, ADR 0116).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
+//!
+//! The default keymaps come from `bindings`.
 
 use oso_core::buffer::Mode;
-use oso_core::command::Prefix;
+use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
 use oso_core::keymap::{Keymap, Layers};
 use oso_core::minibuffer::Kind;
+
+use crate::bindings;
 
 /// Every keymap a dispatcher holds.
 pub(super) struct Keymaps {
@@ -34,12 +39,41 @@ pub(super) struct Keymaps {
     pub(super) jump: Keymap,
     /// The answers of a query-replace under way, in place of the others (ADR 0113).
     pub(super) replace: Keymap,
+    /// The keys of the layer `C-x TAB` opens, first while it is open (ADR 0115).
+    pub(super) rigid: Keymap,
+    /// The commands the layer runs rather than closes for.
+    pub(super) rigid_commands: Vec<CommandId>,
+    /// Markdown's own keys, above the global ones in a Markdown buffer.
+    pub(super) markdown: Keymap,
 }
 
 impl Keymaps {
+    /// The default keymaps over the commands in `registry`, with `global` as the global keymap
+    /// and no user keys.
+    pub(super) fn new(registry: &Registry, global: Keymap) -> Self {
+        let (digits, minus) = bindings::prefix_keymaps(registry);
+        let (list, copy) = bindings::recovery_keymaps(registry);
+        let [minibuffer, question, completing] = bindings::prompt_keymaps(registry);
+        Self {
+            global,
+            user: Keymap::new(),
+            prefix: [digits, minus],
+            copy: [list, copy],
+            minibuffer,
+            question,
+            completing,
+            isearch: bindings::isearch_keymap(registry),
+            jump: bindings::jump_keymap(registry),
+            replace: bindings::replace_keymap(registry),
+            rigid: bindings::rigid_keymap(registry),
+            rigid_commands: bindings::rigid_commands(registry),
+            markdown: bindings::markdown_keymap(registry),
+        }
+    }
+
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 12] {
+    pub(super) fn all(&self) -> [&Keymap; 14] {
         let Self {
             global,
             user,
@@ -51,26 +85,31 @@ impl Keymaps {
             isearch,
             jump,
             replace,
+            rigid,
+            rigid_commands: _,
+            markdown,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            jump, replace,
+            jump, replace, rigid, markdown,
         ]
     }
 
-    /// The prefix argument's keymaps, as [`Keymaps::active`] takes them.
-    pub(super) fn reading(&self) -> [&Keymap; 2] {
-        [&self.prefix[0], &self.prefix[1]]
+    /// The prefix argument's keymaps and the layer of `C-x TAB`, as [`Keymaps::active`] takes
+    /// them.
+    pub(super) fn reading(&self) -> [&Keymap; 3] {
+        [&self.prefix[0], &self.prefix[1], &self.rigid]
     }
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
     /// no other key reaches a command, and a prompt's go above it (ADR 0072), a completion's
     /// with them (ADR 0076). So do isearch's, and a key they do not bind ends the search first
     /// (ADR 0082). The user's keys go just above the global ones, so neither a question nor a
-    /// search under way sees them (ADR 0108). `reading` holds the keymaps of a prefix argument.
+    /// search under way sees them (ADR 0108). `reading` holds the keymaps of a prefix argument,
+    /// then the layer of `C-x TAB`, first while it is open and no prefix argument reads.
     pub(super) fn active<'a>(
         &'a self,
-        reading: &'a [&'a Keymap; 2],
+        reading: &'a [&'a Keymap; 3],
         prefix: Option<Prefix>,
         editor: &Editor,
     ) -> Layers<'a> {
@@ -90,8 +129,9 @@ impl Keymaps {
             return Layers::global(&self.replace);
         }
         let minor: &[&Keymap] = match prefix {
-            Some(prefix) if prefix.reads_minus() => reading,
+            Some(prefix) if prefix.reads_minus() => &reading[..2],
             Some(prefix) if prefix.reads_digits() => &reading[..1],
+            _ if editor.indent_rigidly_layer() => &reading[2..],
             _ => &[],
         };
         let major = if let Some(prompt) = editor.prompt() {
@@ -101,7 +141,8 @@ impl Keymaps {
             }
         } else {
             match editor.current().1.mode() {
-                Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => None,
+                Mode::Fundamental | Mode::Rust | Mode::Toml => None,
+                Mode::Markdown => Some(&self.markdown),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
             }

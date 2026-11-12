@@ -9,10 +9,10 @@ use crate::buffer::{Buffer, BufferId, EditError, Mode};
 use crate::editor::Editor;
 use crate::indent::{Settings, Style};
 
-const LIMIT: usize = 16 << 20;
+pub(super) const LIMIT: usize = 16 << 20;
 
 /// An editor showing `text` in `mode`, with cursors at the `|` marks, which are taken out.
-fn editor_in(mode: Mode, marked: &str) -> (Editor, BufferId) {
+pub(super) fn editor_in(mode: Mode, marked: &str) -> (Editor, BufferId) {
     let text = marked.replace('|', "");
     let mut at = Vec::new();
     for (index, _) in marked.match_indices('|') {
@@ -27,7 +27,7 @@ fn editor_in(mode: Mode, marked: &str) -> (Editor, BufferId) {
 }
 
 /// The text with `|` where every cursor is.
-fn marked(editor: &Editor, id: BufferId) -> String {
+pub(super) fn marked(editor: &Editor, id: BufferId) -> String {
     let mut text = text(editor, id);
     for at in cursors(&editor.windows[0]).into_iter().rev() {
         text.insert(at, '|');
@@ -36,7 +36,7 @@ fn marked(editor: &Editor, id: BufferId) -> String {
 }
 
 /// Runs one command's worth of `f`, as the dispatcher does, in an undo group.
-fn command<T>(editor: &mut Editor, f: impl FnOnce(&mut Editor) -> T) -> T {
+pub(super) fn command<T>(editor: &mut Editor, f: impl FnOnce(&mut Editor) -> T) -> T {
     editor.begin_undo_group();
     let result = f(editor);
     editor.end_undo_group();
@@ -228,10 +228,10 @@ fn each_mode_has_its_configured_indentation_or_the_default() {
 }
 
 #[test]
-fn tab_in_markdown_keeps_the_tab_stops_until_its_cycle_comes() {
+fn tab_in_markdown_cycles_through_the_lists_columns() {
     let (mut editor, id) = editor_in(Mode::Markdown, "- a\n|b");
     command(&mut editor, Editor::indent_for_tab).unwrap();
-    assert_eq!(marked(&editor, id), "- a\n        |b");
+    assert_eq!(marked(&editor, id), "- a\n  |b");
 }
 
 #[test]

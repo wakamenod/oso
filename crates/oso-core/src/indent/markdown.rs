@@ -20,6 +20,33 @@ const MAX_ITEMS: usize = 32;
 /// code inside the item, and its content column is one past the marker (CommonMark).
 const MAX_GAP: usize = 4;
 
+/// A list item's marker: a bullet, or a number and what follows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Marker {
+    /// `-`, `*` or `+`.
+    Bullet(u8),
+    /// A number of at most 9 digits, then `.` or `)`.
+    Number { number: u32, delimiter: u8 },
+}
+
+/// A list item open at a line: its indentation, its content column and its marker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Item {
+    pub(crate) indent: usize,
+    pub(crate) content: usize,
+    pub(crate) marker: Marker,
+}
+
+/// The list items open at a line, and whether it is inside a fenced code block.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Lists {
+    /// The items open, outermost first.
+    pub(crate) items: Vec<Item>,
+    pub(crate) fenced: bool,
+    /// The last line read started the innermost item.
+    pub(crate) started: bool,
+}
+
 /// The line before: its indentation, and the content column of the item it starts.
 #[derive(Clone, Copy, Debug)]
 struct Before {
@@ -32,8 +59,8 @@ pub(super) struct Markdown {
     settings: Settings,
     /// The fence character and its length, while inside a fenced code block.
     fence: Option<(u8, usize)>,
-    /// The items open, outermost first: each one's indentation and content column.
-    items: Vec<(usize, usize)>,
+    /// The items open, outermost first.
+    items: Vec<Item>,
     before: Option<Before>,
     blank_before: bool,
 }
@@ -87,11 +114,15 @@ impl Lexer for Markdown {
             },
         };
         let item = if fenced { None } else { item_content(rest) };
-        if let Some(gap) = item {
+        if let Some((gap, marker)) = item {
             let content = indent.saturating_add(gap);
-            self.items.retain(|&(open, _)| open < indent);
+            self.items.retain(|open| open.indent < indent);
             if self.items.len() < MAX_ITEMS {
-                self.items.push((indent, content));
+                self.items.push(Item {
+                    indent,
+                    content,
+                    marker,
+                });
             }
         } else if !fenced
             && !indentation.blank
@@ -103,7 +134,7 @@ impl Lexer for Markdown {
         }
         self.before = Some(Before {
             indent,
-            item: item.map(|gap| indent.saturating_add(gap)),
+            item: item.map(|(gap, _)| indent.saturating_add(gap)),
             fenced,
         });
         self.blank_before = indentation.blank;
@@ -132,20 +163,24 @@ fn fence(rest: &[u8]) -> Option<(u8, usize, &[u8])> {
 }
 
 /// The columns from where `rest`, a line past its indentation, starts to where its text
-/// starts, if it starts a list item.
-fn item_content(rest: &[u8]) -> Option<usize> {
-    let marker = match rest.first()? {
-        b'-' | b'*' | b'+' => 1,
+/// starts, and its marker, if it starts a list item.
+fn item_content(rest: &[u8]) -> Option<(usize, Marker)> {
+    let (marker, kind) = match *rest.first()? {
+        bullet @ (b'-' | b'*' | b'+') => (1, Marker::Bullet(bullet)),
         b'0'..=b'9' => {
             let digits = rest
                 .iter()
                 .take(10)
                 .take_while(|b| b.is_ascii_digit())
                 .count();
-            if digits > 9 || !matches!(rest.get(digits), Some(b'.' | b')')) {
-                return None;
-            }
-            digits + 1
+            let delimiter = match rest.get(digits) {
+                Some(&delimiter @ (b'.' | b')')) if digits <= 9 => delimiter,
+                _ => return None,
+            };
+            let number = rest[..digits]
+                .iter()
+                .fold(0u32, |number, digit| number * 10 + u32::from(digit - b'0'));
+            (digits + 1, Marker::Number { number, delimiter })
         }
         _ => return None,
     };
@@ -159,7 +194,7 @@ fn item_content(rest: &[u8]) -> Option<usize> {
     } else {
         gap
     };
-    Some(marker + gap)
+    Some((marker + gap, kind))
 }
 
 /// See [`super::markdown_stops`].
@@ -170,18 +205,53 @@ pub(super) fn stops(
     budget: &mut Budget,
 ) -> Vec<usize> {
     let target = rope.line_start(row);
-    let mut stops: Vec<usize> =
-        match pass::pass_at::<Markdown>(rope, settings, target, None, false, budget) {
-            Some(pass) if pass.lexer.fence.is_none() => {
-                let items = pass.lexer.items.iter().rev();
-                let contents = items.map(|&(_, content)| content);
-                contents.filter(|&content| content <= MAX_COLUMN).collect()
-            }
-            _ => Vec::new(),
+    lists(rope, settings, &[target], budget)
+        .pop()
+        .flatten()
+        .map_or_else(|| vec![0], |lists| lists.stops())
+}
+
+impl Lists {
+    /// The columns `TAB` cycles a line here through: the content columns of the items open, from
+    /// the innermost out, then 0. In a fenced code block, only 0.
+    pub(crate) fn stops(&self) -> Vec<usize> {
+        let mut stops: Vec<usize> = if self.fenced {
+            Vec::new()
+        } else {
+            let items = self.items.iter().rev();
+            let contents = items.map(|item| item.content);
+            contents.filter(|&content| content <= MAX_COLUMN).collect()
         };
-    stops.push(0);
-    stops.dedup();
-    stops
+        stops.push(0);
+        stops.dedup();
+        stops
+    }
+}
+
+/// The list items open at each of `offsets`, ascending line starts, and whether each is inside
+/// a fenced code block, read in one pass; none past the budget.
+pub(super) fn lists(
+    rope: &Rope,
+    settings: Settings,
+    offsets: &[usize],
+    budget: &mut Budget,
+) -> Vec<Option<Lists>> {
+    let mut pass = None;
+    offsets
+        .iter()
+        .map(|&at| {
+            let reached =
+                pass::pass_at::<Markdown>(rope, settings, at, pass.take(), false, budget)?;
+            let lexer = &reached.lexer;
+            let lists = Lists {
+                items: lexer.items.clone(),
+                fenced: lexer.fence.is_some(),
+                started: lexer.before.is_some_and(|before| before.item.is_some()),
+            };
+            pass = Some(reached);
+            Some(lists)
+        })
+        .collect()
 }
 
 /// Whether each of `offsets`, in order, is inside a fenced code block, read in one pass. Past

@@ -1,6 +1,7 @@
-//! The indentation commands of ADR 0115 step 2: `TAB` reindenting by the buffer's mode, the
-//! line breaks, `RET`'s `newline` among them, that indent and the one that does not, and
-//! `electric-indent-mode`.
+//! The indentation commands of ADR 0115: `TAB` reindenting by the buffer's mode, the line
+//! breaks, `RET`'s `newline` among them, that indent and the one that does not,
+//! `electric-indent-mode`, the region's `indent-region` and `indent-rigidly` with the commands
+//! of its layer, `back-to-indentation`, `delete-indentation` and Markdown's new list item.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -9,6 +10,7 @@
 //! cursor as one edit (`oso_core::editor`).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
+use oso_core::editor::{IndentError, Shift};
 
 use super::MAX_INSERT;
 
@@ -23,7 +25,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "indent-for-tab-command",
-        doc: "Indent the line of every cursor as the buffer's mode says.\n\nIn Rust and TOML the line goes to its rules' column, wherever the cursor is on it: a cursor in the indentation goes to its end, one in the text keeps its place. A line already right does not change. In Markdown, Fundamental mode and internal buffers it runs `tab-to-tab-stop`.",
+        doc: "Indent the line of every cursor as the buffer's mode says.\n\nIn Rust and TOML the line goes to its rules' column, wherever the cursor is on it: a cursor in the indentation goes to its end, one in the text keeps its place. A line already right does not change. With a region shown, it runs `indent-region`. In Markdown the line cycles through the columns of the list items it could belong to, innermost first, then the margin; in a fenced code block, and in Fundamental mode and internal buffers, it runs `tab-to-tab-stop`.",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: indent_for_tab_command,
@@ -49,10 +51,178 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Look,
         run: electric_indent_mode,
     },
+    Command {
+        name: "indent-region",
+        doc: "Reindent every line in each cursor's region, shown or not, as the buffer's mode says.\n\nWith a numeric argument N, put every line at column N instead. A line of only spaces and tabs becomes empty, unless it is inside a string. It works in Rust and TOML, and with N in any mode. A region too large to reindent at once signals and changes nothing; reindent it in parts.",
+        args: ArgSpec::Count,
+        reach: Reach::Change,
+        run: indent_region,
+    },
+    Command {
+        name: "indent-rigidly",
+        doc: "Shift every line in each cursor's region by N columns, to the left when N is negative.\n\nNo line goes past column 0, and a line of only spaces and tabs becomes empty. With no N, from a key or `M-x`, `<left>` and `<right>` then shift by one column and `S-<left>` and `S-<right>` to the next tab stop, until another key; those keys undo as one step. From the agent channel with no N, it shifts by the buffer's indent size.",
+        args: ArgSpec::Count,
+        reach: Reach::Change,
+        run: indent_rigidly,
+    },
+    Command {
+        name: "indent-rigidly-left",
+        doc: "Shift every line in each cursor's region one column to the left.",
+        args: ArgSpec::None,
+        reach: Reach::Change,
+        run: indent_rigidly_left,
+    },
+    Command {
+        name: "indent-rigidly-right",
+        doc: "Shift every line in each cursor's region one column to the right.",
+        args: ArgSpec::None,
+        reach: Reach::Change,
+        run: indent_rigidly_right,
+    },
+    Command {
+        name: "indent-rigidly-left-to-tab-stop",
+        doc: "Shift the lines of each cursor's region left, so that the least indented one reaches the tab stop before it.\n\nTab stops are every indent size columns.",
+        args: ArgSpec::None,
+        reach: Reach::Change,
+        run: indent_rigidly_left_to_tab_stop,
+    },
+    Command {
+        name: "indent-rigidly-right-to-tab-stop",
+        doc: "Shift the lines of each cursor's region right, so that the least indented one reaches the next tab stop.\n\nTab stops are every indent size columns.",
+        args: ArgSpec::None,
+        reach: Reach::Change,
+        run: indent_rigidly_right_to_tab_stop,
+    },
+    Command {
+        name: "back-to-indentation",
+        doc: "Move every cursor to the first character of its line that is not a space or a tab.\n\nA full-width space is text, so a cursor stops before it.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: back_to_indentation,
+    },
+    Command {
+        name: "delete-indentation",
+        doc: "Join this line to the one before, leaving one space between, or none at a line's edge, after an opening bracket or before a closing one.\n\nWith a prefix argument, join the next line to this one. With a region shown and no prefix argument, join all of its lines.",
+        args: ArgSpec::Count,
+        reach: Reach::Change,
+        run: delete_indentation,
+    },
+    Command {
+        name: "markdown-insert-list-item",
+        doc: "Start a new list item after the current one, with the same marker and indentation.\n\nIn a numbered list its number is one higher. The line breaks at point, which goes to the new item's text. Markdown only.",
+        args: ArgSpec::None,
+        reach: Reach::Change,
+        run: markdown_insert_list_item,
+    },
 ];
 
+/// The message of an indentation command that changed nothing.
+fn failed(error: IndentError) -> CommandError {
+    CommandError::new(error.to_string())
+}
+
 fn indent_for_tab_command(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ctx.editor.indent_for_tab()?;
+    let set = &ctx.editor.window().selections;
+    let shown = set.mark_active().is_active() && set.iter().any(|s| !s.range().is_empty());
+    // A mode with no rules to reindent a region by indents as with none shown.
+    match shown.then(|| ctx.editor.indent_region(None, MAX_INSERT)) {
+        Some(Err(IndentError::NoRules)) | None => ctx.editor.indent_for_tab()?,
+        Some(done) => done.map_err(failed)?,
+    }
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn indent_region(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let column = args.prefix().map(|n| usize::try_from(n).unwrap_or(0));
+    ctx.editor
+        .indent_region(column, MAX_INSERT)
+        .map_err(failed)?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+/// With no count, from a person, opens the layer whose arrows shift the region; from the agent
+/// channel, shifts by the indent size.
+fn indent_rigidly(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let columns = match args.prefix() {
+        Some(n) => n,
+        None if ctx.editor.runs_for_agent() => {
+            let size = ctx.editor.current().1.indent_settings().indent_size();
+            isize::try_from(size).unwrap_or(0)
+        }
+        None => {
+            if ctx
+                .editor
+                .window()
+                .selections
+                .iter()
+                .any(|s| s.mark.is_none())
+            {
+                return Err(failed(IndentError::NoMark));
+            }
+            ctx.editor.set_indent_rigidly_layer(true);
+            ctx.editor
+                .echo("Indent region with <left>, <right>, S-<left>, or S-<right>.");
+            return Ok(());
+        }
+    };
+    shift_rigidly(ctx, columns)
+}
+
+fn shift_rigidly(ctx: &mut Ctx<'_>, columns: isize) -> Result<(), CommandError> {
+    ctx.editor
+        .indent_rigidly(columns, MAX_INSERT)
+        .map_err(failed)?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn indent_rigidly_left(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    shift_rigidly(ctx, -1)
+}
+
+fn indent_rigidly_right(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    shift_rigidly(ctx, 1)
+}
+
+fn to_tab_stop(ctx: &mut Ctx<'_>, shift: Shift) -> Result<(), CommandError> {
+    ctx.editor
+        .indent_rigidly_to_tab_stop(shift, MAX_INSERT)
+        .map_err(failed)?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn indent_rigidly_left_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    to_tab_stop(ctx, Shift::Left)
+}
+
+fn indent_rigidly_right_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    to_tab_stop(ctx, Shift::Right)
+}
+
+fn back_to_indentation(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::mark::shift_select(ctx);
+    if ctx.editor.back_to_indentation() {
+        ctx.request_redraw();
+    }
+    Ok(())
+}
+
+fn delete_indentation(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    ctx.editor
+        .delete_indentation(args.prefix().is_some())
+        .map_err(failed)?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn markdown_insert_list_item(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let ending = ctx.editor.current().1.file_info().line_ending.text();
+    ctx.editor
+        .markdown_insert_list_item(ending, MAX_INSERT)
+        .map_err(failed)?;
     ctx.request_redraw();
     Ok(())
 }

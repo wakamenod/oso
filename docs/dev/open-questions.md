@@ -330,8 +330,10 @@ item notes when it must be settled.
 
 - After indentation: a query-based indenter on the worker for `indent-region` in more languages;
   fenced code in Markdown indented by its language's rules; detecting a file's indentation when
-  nothing gives it; formatting on save with a program the person approved
-  ([ADR 0115](adr/0115-indentation.md)).
+  nothing gives it; formatting on save with a program the person approved; a batched splice for
+  edits of many thousand lines, which would lift `indent-region`'s 30,000 changed lines (its own
+  ADR); `M-RET`'s counts (`C-u` to the parent item, `C-u C-u` a level in) and renumbering the
+  items after a new one ([ADR 0115](adr/0115-indentation.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration
