@@ -442,8 +442,13 @@ pub(crate) mod tests {
         (Face::CompletionSelected, 7.0),
     ];
 
-    /// Highlighted text is read on the background and on [`SYNTAX_FILLS`].
-    const SYNTAX_PAIRS: [(Face, f32); 2] = [(Face::Text, 7.0), (SYNTAX_FILLS[0], 7.0)];
+    /// Highlighted text is read on the background, on [`SYNTAX_FILLS`], and on a float's
+    /// background, where the preview of `switch-to-buffer` and the mark list draws it.
+    const SYNTAX_PAIRS: [(Face, f32); 3] = [
+        (Face::Text, 7.0),
+        (SYNTAX_FILLS[0], 7.0),
+        (Face::Float, 7.0),
+    ];
 
     /// What each face's foreground must reach on which background (ADR 0089). A match with no
     /// wildcard, so that a new face does not compile until it has its pairs.
@@ -819,21 +824,22 @@ pub(crate) mod tests {
     ];
 
     /// Highlighted text keeps the distances plain text keeps: a question's words, the marks
-    /// and an escape's label are never taken for it (ADR 0111).
+    /// and an escape's label are never taken for it (ADR 0111). An escape's label has no box,
+    /// so a real `^M` in highlighted text must stand further apart from text that reads `^M`.
     #[test]
     fn highlighted_text_is_in_no_colour_a_question_a_mark_or_an_escape_is_drawn_in() {
         for theme in &themes() {
             for syntax in SYNTAX {
                 let ink = theme.foreground(syntax);
-                for face in [
-                    Face::Question,
-                    Face::Whitespace,
-                    Face::WrapMark,
-                    Face::Escape,
+                for (face, floor) in [
+                    (Face::Question, 0.05),
+                    (Face::Whitespace, 0.05),
+                    (Face::WrapMark, 0.05),
+                    (Face::Escape, 0.10),
                 ] {
                     let apart = distance(ink, theme.foreground(face));
                     assert!(
-                        apart >= 0.05,
+                        apart >= floor,
                         "{}: {syntax:?} and {face:?} {apart:.3}",
                         theme.name()
                     );
@@ -849,22 +855,22 @@ pub(crate) mod tests {
             (
                 "dark",
                 [
-                    0xb4b4b0, 0x98a4ef, 0xbc9ae2, 0x3cbd93, 0xe091b4, 0x15b6e3, 0xeceef4, 0xf881bb,
-                    0xec8e8f, 0x04bcb9, 0xbbaa0d,
+                    0xb2b0aa, 0xa1a7eb, 0xc695e0, 0x3cbd93, 0xe48eb4, 0x00bbe2, 0xeceef4, 0xfd84bf,
+                    0xe69292, 0x0bbcb9, 0xbbaa0c,
                 ],
             ),
             (
                 "light",
                 [
-                    0x4e4a4b, 0x2c3ac1, 0x5536a8, 0x065179, 0x882757, 0x002fe0, 0x15161b, 0x8d2738,
-                    0x961e01, 0x2b544c, 0x614905,
+                    0x444345, 0x3837c0, 0x5536a9, 0x384d6b, 0x882757, 0x002ee0, 0x15161b, 0x900636,
+                    0x76273f, 0x06525e, 0x504f2e,
                 ],
             ),
             (
                 "dusk",
                 [
-                    0xeceee8, 0xe0ebff, 0xebe8ff, 0x90ffdf, 0xffe3ee, 0xd1efff, 0xf3f3f6, 0xffe4e8,
-                    0xffe4e4, 0x77fffb, 0xffed64,
+                    0xf3f3f6, 0xf3f3f6, 0xf3f3f6, 0x8efede, 0xf3f3f6, 0xb0fdf4, 0xf3f3f6, 0xf3f3f6,
+                    0xf3f3f6, 0x76fffb, 0xe2fb68,
                 ],
             ),
         ];

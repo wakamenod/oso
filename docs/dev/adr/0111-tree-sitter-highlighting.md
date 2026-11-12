@@ -701,12 +701,16 @@ The author's choices (2026-11-12):
   and links coloured. The candidates had been built from the modus themes' syntax colours,
   which ADR 0027 and ADR 0089 forbid copying, as the review found; the author then chose oso's
   own colours with the picked look. Each class keeps the picked look's hue in OKLab, its
-  chroma and hue moved as little as needed to stand at least 0.04 OKLab from every modus colour
-  the candidates came from, then made just light (or dark) enough for 7:1. **They are a bridge:
-  the author's own syntax theme replaces them.** Not taken: the picked colours as they were,
+  chroma, hue and lightness moved as little as needed for 7:1 and to stand at least 0.04 OKLab
+  from every colour of modus-operandi's and modus-vivendi's palettes (235 colours), and 0.10
+  from the escape colour. That was checked offline against the palettes as Emacs ships them;
+  the repository holds no copy of them, not even as test data. **They are a bridge: the
+  author's own syntax theme replaces them.** Not taken: the picked colours as they were,
   with a new ADR to amend 0027, 0089 and 0020. Fields are drawn as text in every theme.
 - **Dusk stays nearly plain.** 7:1 on its band (`#4a4a52`) needs a luminance of 0.78 at least,
-  which leaves pale tints, so comments there are close to text; dark is the theme for colour.
+  which leaves pale tints; dark is the theme for colour. Comments, strings, keywords,
+  functions, macros and headings are drawn as text there: every tint light enough is within
+  0.04 OKLab of a pale modus-operandi colour, and they were hardly apart from text anyway.
   Not taken: a darker band in dusk, and 4.5:1 on dusk's band.
 
 Built:
@@ -715,14 +719,17 @@ Built:
   `Face::of_highlight`, all public. Each takes a palette name of its own (`SynComment` and
   so on), which every theme maps; the palettes moved to `theme/palettes.rs` for the file size
   limit. Each syntax face's foreground sits on the text's background; fields take `FgMain`.
-- **Contrast tests:** each syntax face is a pair at 7:1 on `Text` and on the fills of
-  `SYNTAX_FILLS` (the current line's band), in every theme. The renderer reads the same
-  constant for the fills colour shows on, so the two cannot part. Each also keeps 0.05 OKLab from `Question`, the whitespace and wrap marks and the escape
-  colour, so neither a question's words, a mark nor an escape's label reads as highlighted
-  text. Another test pins the colours picked.
+- **Contrast tests:** each syntax face is a pair at 7:1 on `Text`, on the fills of
+  `SYNTAX_FILLS` (the current line's band) and on `Float`, where the preview draws it, in
+  every theme. The renderer reads the same constant for the fills colour shows on, so the two
+  cannot part. Each syntax face also keeps 0.05 OKLab from `Question` and the whitespace and
+  wrap marks, and 0.10 from the escape colour, as an escape's label has no box: neither a
+  question's words, a mark nor a label reads as highlighted text. Another test pins the
+  colours.
 - **`TextView::highlights`** (public) carries the buffer's highlights, or `None`: font-lock off
-  drops them, and a buffer that may hold secrets shows none. The tiled windows and the project
-  search preview pass them; the minibuffer's answer is plain.
+  drops them, and a buffer that may hold secrets shows none. The tiled windows and the preview
+  float (of `switch-to-buffer` and the mark list) pass them; the minibuffer's answer is
+  plain.
 - **Colour after shaping:** a shaped row keeps each cluster's first column and buffer offset
   (`ShapedRow::clusters`) apart from what the cache compares, read again whenever the row is
   read. So text that moves in the buffer, as every row below a typed character does, is
@@ -738,7 +745,7 @@ Built:
   costs nothing; the seek's cursor is the one allocation a row.
 - **A frame on a report:** `Syntax::take` compares the runs before and after over what windows
   show of that buffer, read afresh (a wrap may have settled rows since the last job), and over
-  the whole buffer when the switch-buffer preview shows it. It asks for a frame only if they
+  the whole buffer when the preview float shows it. It asks for a frame only if they
   differ. A range compares at most 4096 runs, past which it counts as changed: a window that
   shows long lines whole, unwrapped, may show far more runs than it draws, and a frame costs
   less than the walk. A failure asks for a frame too, for its message.

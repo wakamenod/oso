@@ -511,9 +511,10 @@ toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
 **Highlighting** (`global-font-lock-mode`, the same argument) is on by default
 ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). It colours comments, strings, keywords,
 types, functions, constants, macros, and Markdown's headings, links and markup, in each
-theme's syntax colours, at 7:1 on the background and the current line's band. Under the
-region, isearch's matches and the cursor flash, text is drawn in the text's colour. Dusk's
-syntax colours are pale tints, so it looks nearly plain. Off, it drops every buffer's
+theme's syntax colours, at 7:1 on the background, the current line's band and a float. Under
+the region, isearch's matches, trailing whitespace's fill and the cursor flash, text is drawn
+in the text's colour. The colours are provisional, until the author's own syntax theme.
+Dusk's are pale tints or the text's own, so it looks nearly plain. Off, it drops every buffer's
 highlights. A buffer's language is its major mode, from the file's name
 on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode` and
 `fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Setting a mode again,
