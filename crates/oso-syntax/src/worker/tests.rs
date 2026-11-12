@@ -139,7 +139,10 @@ fn edits_that_come_during_a_slice_follow_after_it() {
         scheduler.take_next().is_none(),
         "a checked-out buffer has one thread"
     );
-    let outcome = checkout.run(&mut queries);
+    // A long slice, so that it ends, and reports, on a slow runner too.
+    let outcome = checkout
+        .document
+        .highlight(&mut queries, &checkout.shown, LONG);
     let report = scheduler.give_back(checkout, outcome).unwrap();
     assert_eq!(
         report.revision, 1,
