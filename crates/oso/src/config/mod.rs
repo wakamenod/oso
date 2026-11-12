@@ -146,6 +146,7 @@ fn apply(
             "aids" => settings.aids = settings::aids(value, found),
             "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
             "save" => settings.save = settings::save(value, found),
+            "search" => settings.migemo = settings::search(value, found),
             "jump" => settings.jump = settings::jump(value, found),
             "indent" => settings.indent = indentation::indent(value, found),
             "modes" => settings.modes = indentation::modes(value, found),

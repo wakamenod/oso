@@ -522,6 +522,50 @@ coordinator; the notes below are those choices as built.
   still copies a long line on the UI thread, about 40 ms on a 60 MB line (0113's "Limits"); the
   rule above, that a key leaves such a line to the worker, would fit it too.
 
+#### As built (step 2, 2026-11-13)
+
+The author chose the first option of each of six questions on 2026-11-12, through the
+coordinator; the notes below are those choices as built.
+
+- **The module.** `oso_core::migemo` is private to the crate until step 4, when the tip crate's
+  project search needs it, so its public shape is settled once, with the dictionary. It holds
+  the romaji table (`migemo/table.rs`, one row a spelling, tested row by row), the other forms
+  (`migemo/forms.rs`) and the trie (`migemo/trie.rs`), and uses only `regex::escape`. It sits on
+  the lowest line of `guardrails/layers.txt`, beside `sum_tree`.
+- **One reading.** The longest spelling wins, and no spelling starts another, so a string has
+  one reading: `nn` is `ん`, as C/Migemo and input methods have it, so `konnichiha` is
+  `こんいちは` and `konnnichiha` finds `こんにちは`. Besides the table, `tch` and a doubled
+  consonant give `っ`, and `n'`, an `n` before a consonant other than `y` and an `n` before `-`
+  give `ん`.
+- **A letter that starts no spelling** before the end (`struct`, `rust`, `http`) leaves the string
+  literal: no `[migemo]`, the literal matcher, and no limit on a line's length.
+- **The forms:** the string, its hiragana, katakana and half-width katakana (`ｶﾞ`, a katakana with
+  no half-width form taking its nearest), and its full-width letters, `-` and `'`, compiled with
+  the search's case. Decomposed kana (a base and U+3099) are left to step 4, in
+  `open-questions.md`.
+- **The API:** `Editor::set_migemo`, `Editor::isearch_toggle_migemo` and `Isearch::migemo`, which
+  says whether its pattern is migemo's now: the switch is on, the search is not a regexp's, and
+  the string is romaji that gives kana. `get-state`'s `isearch` gains `migemo`, left out around a
+  buffer that may hold secrets as the rest is. `isearch-toggle-migemo` is `Person`.
+- **`M-m`** turns the search's switch and searches again from the match, as `M-r` does; `DEL`
+  takes it back. In a regexp's search it turns the switch, which shows once `M-r` makes the
+  string literal. `M-c` makes the letters case-sensitive; kana have no case. The line puts
+  `[migemo]` before Emacs's words: `[migemo] Failing I-search: kan`.
+- **Limits.** A string of at most 256 characters has a pattern, at most about 16 bytes a letter
+  with a constant for an unfinished end; a longer one searches literally, as no one types that
+  much romaji and its compile would pass a key's millisecond. The pattern compiles on a key,
+  within 0113's 256 KiB and a nest limit of 32, in about 1.5 ms at 256 characters; over
+  that it would search literally, which no romaji string reaches. 0116's 4 MiB and the build on
+  the worker wait for the dictionary (step 3). Searching keeps step 1's limits.
+- **The cache** holds the last 32 compiled needles, by string and case, in the editor, so `DEL`, a
+  repeat and `C-s C-s` compile nothing; a string typed around a buffer that may hold secrets
+  stays out of it, and `Debug` prints none of them.
+- **A key's cost**, the highlights included, in a release build on a loaded machine (the ignored
+  test `migemo_key_costs`): over 20 MB of short lines with no match, 1.0 ms p50 for a literal
+  string, 0.3 ms for `k`, 1.4 to 2.0 ms for `kanji`, and 2.0 to 2.3 ms for 256 characters of
+  romaji; over 20 MB of Japanese, 0.2 ms for `kanji`.
+- **Jumps** look for their string through the same cache, by the setting: `ka` labels `か` too.
+
 #### As built (step 5, 2026-11-12)
 
 The author answered seven questions on 2026-11-12, through the coordinator. Two depart from the

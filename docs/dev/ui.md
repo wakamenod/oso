@@ -449,6 +449,13 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   turns a search from literal to a regexp or back. A regexp still being typed says
   `[incomplete input]` and a wrong one `[Invalid regexp: …]`, and the cursor stays at the last
   match. Regexps have their own history ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+- A string of lowercase letters, `'` and `-` is romaji, and migemo searches for it with its kana
+  too: `ka` also finds `か`, `カ`, `ｶ` and `ｋａ`, and an unfinished end every kana it can start,
+  so `kan` finds `かな` and `かん`. The line then starts `[migemo]`. Any other character, an
+  uppercase letter among them, searches literally, and so does a string with a letter that starts
+  no spelling (`struct`). A regexp's search never uses it. `M-m` turns it off or on for the rest
+  of a search, and `[search] migemo = false` starts every search with it off
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)). Without a dictionary it finds no kanji.
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case

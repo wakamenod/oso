@@ -2,7 +2,7 @@
 source: crates/oso/src/dispatch/grid_tests.rs
 description: "text: foo bar foo\\nbaz foo\\nFoo\\n"
 ---
-keys: C-s f o
+keys: C-s M-m f o
 │foo bar foo                   │
 :  ^                           :
 +##      ~~                    +

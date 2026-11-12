@@ -240,6 +240,8 @@ pub struct Editor {
     agent: agent::Agent,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
+    /// Migemo's setting, and the needles of the last romaji strings (ADR 0116).
+    migemo: isearch::Migemo,
     /// The jump under way, and the keys its labels are typed with (ADR 0116).
     jump: Option<crate::jump::Jump>,
     jump_keys: crate::jump::Keys,
@@ -337,6 +339,7 @@ impl Editor {
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
             isearch: None,
+            migemo: isearch::Migemo::default(),
             jump: None,
             jump_keys: crate::jump::Keys::default(),
             jump_scratch: jump::Scratch::default(),
@@ -1063,6 +1066,8 @@ mod tests {
 mod edit_tests;
 #[cfg(test)]
 mod highlight_tests;
+#[cfg(test)]
+mod isearch_migemo_tests;
 #[cfg(test)]
 mod isearch_regexp_tests;
 #[cfg(test)]

@@ -185,6 +185,7 @@ impl App {
         configuration.applied = true;
         self.editor
             .set_trim_whitespace(configuration.in_force.trim_whitespace);
+        self.editor.set_migemo(configuration.in_force.migemo);
         // On every look, as neither has a run-time switch: one the file leaves out goes back to
         // the default (ADR 0116).
         let jump = &configuration.in_force.jump;

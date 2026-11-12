@@ -1,5 +1,5 @@
 //! isearch's commands (ADR 0082, ADR 0116): starting a search, literal or a regexp's, the
-//! keys of its keymap, and its exit. Where it goes, its count and its steps back are the
+//! keys of its keymap, migemo's among them, and its exit. Where it goes, its count and its steps back are the
 //! editor's.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
@@ -134,6 +134,13 @@ pub const COMMANDS: &[Command] = &[
         run: isearch_toggle_regexp,
     },
     Command {
+        name: "isearch-toggle-migemo",
+        doc: "Turn migemo off or on for the rest of this search.\n\nWith migemo, a string of lowercase letters, `'` and `-` also finds the kana it spells, in hiragana, katakana and half-width katakana, and its full-width letters: `ka` finds `か` and `カ`. A regexp's search never uses it. `[search] migemo` in the configuration file says how each search starts.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_toggle_migemo,
+    },
+    Command {
         name: "isearch-mark-next",
         doc: "End the search with the current match as the region, and add a cursor at the next match.\n\nAs `mark-next-like-this` goes on after it, with the search's string and case.",
         args: ArgSpec::None,
@@ -263,6 +270,10 @@ fn isearch_toggle_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError>
     searching(ctx, |ctx| ctx.editor.isearch_toggle_regexp())
 }
 
+fn isearch_toggle_migemo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    searching(ctx, |ctx| ctx.editor.isearch_toggle_migemo())
+}
+
 fn isearch_mark_next(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     mark(ctx, Some(Toward::Next))
 }
@@ -336,6 +347,7 @@ mod tests {
             "isearch-exit",
             "isearch-delete-char",
             "isearch-toggle-regexp",
+            "isearch-toggle-migemo",
         ] {
             assert!(
                 run(&mut editor, name, "")

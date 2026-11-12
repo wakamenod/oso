@@ -148,9 +148,10 @@ fn jump_state(editor: &Editor) -> Value {
 }
 
 /// The `isearch` field of `get-state`: null, or the search under way, its string, where it
-/// has got to, whether it is a regexp's (ADR 0116) and its count, `null` while counting
-/// (ADR 0082). While a buffer that may hold secrets is shown, or for a search around one,
-/// only that one is under way, as its string and its count can say something of the text.
+/// has got to, whether it is a regexp's or migemo's (ADR 0116) and its count, `null` while
+/// counting (ADR 0082). While a buffer that may hold secrets is shown, or for a search around
+/// one, only that one is under way, as its string and its count can say something of the
+/// text.
 fn isearch_state(editor: &Editor) -> Value {
     let Some(search) = editor.isearch() else {
         return Value::Null;
@@ -165,6 +166,7 @@ fn isearch_state(editor: &Editor) -> Value {
         "active": true,
         "string": search.string(),
         "regexp": search.regexp(),
+        "migemo": search.migemo(),
         "backward": search.backward(),
         "failing": search.failing(),
         "wrapped": search.wrapped(),
@@ -1052,6 +1054,7 @@ mod tests {
                 "active": true,
                 "string": "ab",
                 "regexp": false,
+                "migemo": true,
                 "backward": false,
                 "failing": false,
                 "wrapped": false,
@@ -1060,7 +1063,10 @@ mod tests {
                 "count": null,
             })
         );
-        assert_eq!(state["echo"], "I-search: ab [?/…]");
+        assert_eq!(state["echo"], "[migemo] I-search: ab [?/…]");
+        editor.isearch_toggle_migemo();
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"]["migemo"], false);
         editor.isearch_toggle_regexp();
         let state = get_state(&editor, &[], None);
         assert_eq!(state["isearch"]["regexp"], true);

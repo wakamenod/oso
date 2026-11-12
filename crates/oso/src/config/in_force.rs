@@ -55,6 +55,9 @@ pub struct InForce {
     /// Whether a save cleans the whitespace of the lines edited since (ADR 0113). It has no
     /// run-time switch, so the value in force is the one that applies.
     pub trim_whitespace: bool,
+    /// Whether a search starts with migemo on (ADR 0116). `M-m` turns it for one search, so
+    /// the value in force is the one that applies.
+    pub migemo: bool,
     /// The jump's keys and timeout (ADR 0116), `None` where the file leaves them out, for the
     /// editor's and the app's own. They have no run-time switch either.
     pub jump: Jump,
@@ -77,6 +80,7 @@ impl InForce {
             aids: VisualAids::default(),
             agent_channel_start: false,
             trim_whitespace: false,
+            migemo: true,
             jump: Jump::default(),
             electric_indent: true,
             mode_indents: [indent::Settings::default(); 4],
@@ -104,6 +108,7 @@ impl InForce {
                 .save
                 .trim_whitespace
                 .unwrap_or(compiled.trim_whitespace),
+            migemo: or(settings.migemo, compiled.migemo),
             jump: settings.jump.clone(),
             electric_indent: or(settings.indent.electric, compiled.electric_indent),
             mode_indents: std::array::from_fn(|index| {
@@ -189,6 +194,7 @@ mod tests {
                 aids: VisualAids::default(),
                 agent_channel_start: false,
                 trim_whitespace: false,
+                migemo: true,
                 jump: Jump::default(),
                 electric_indent: true,
                 mode_indents: [indent::Settings::default(); 4],
@@ -213,6 +219,7 @@ mod tests {
             save: Save {
                 trim_whitespace: Some(true),
             },
+            migemo: Some(false),
             jump: Jump {
                 keys: Some(Keys::new("hjkl").unwrap()),
                 timeout: Some(Duration::from_secs(1)),
@@ -232,6 +239,7 @@ mod tests {
                 },
                 agent_channel_start: true,
                 trim_whitespace: true,
+                migemo: false,
                 jump: Jump {
                     keys: Some(Keys::new("hjkl").unwrap()),
                     timeout: Some(Duration::from_secs(1)),

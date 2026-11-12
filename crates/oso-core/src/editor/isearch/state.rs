@@ -1,5 +1,6 @@
-//! What an isearch holds (ADR 0082, ADR 0116): the string, literal or a regexp, where it has
-//! got to, the count, the steps `DEL` goes back through, and the echo line it says.
+//! What an isearch holds (ADR 0082, ADR 0116): the string, literal, a regexp or romaji that
+//! migemo searches for, where it has got to, the count, the steps `DEL` goes back through,
+//! and the echo line it says.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -14,6 +15,8 @@ use crate::buffer::BufferId;
 use crate::search::{self, CompileError, Find, MAX_QUERY_CHARS, Needle, On, Prepared, Query};
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
+
+use super::migemo::Migemo;
 
 /// The most steps `DEL` can go back. The oldest go first.
 const MAX_STEPS: usize = 4096;
@@ -67,6 +70,7 @@ pub(super) struct Step {
     pub(super) backward: bool,
     pub(super) flipped: bool,
     pub(super) regexp: bool,
+    pub(super) migemo: bool,
     pub(super) current: Option<Range<usize>>,
     pub(super) failing: bool,
     /// The regexp did not compile, so `C-g` goes back past it as past a failing step.
@@ -86,6 +90,8 @@ pub struct Isearch {
     pub(super) flipped: bool,
     /// The string is a regexp, as `C-M-s` and `M-r` make it (ADR 0116).
     pub(super) regexp: bool,
+    /// Migemo searches for a romaji string, unless `M-m` turned it off (ADR 0116).
+    pub(super) migemo: bool,
     pub(super) pattern: Pattern,
     /// A line too long to match a regexp in stopped the search, at this row from 1, which the
     /// line says.
@@ -118,6 +124,7 @@ impl fmt::Debug for Isearch {
         // The string stays out of it (ADR 0044).
         f.debug_struct("Isearch")
             .field("regexp", &self.regexp)
+            .field("migemo", &self.migemo)
             .field("backward", &self.backward)
             .field("failing", &self.failing)
             .field("wrapped", &self.wrapped)
@@ -126,12 +133,13 @@ impl fmt::Debug for Isearch {
 }
 
 impl Isearch {
-    /// A search of `buffer` from the place `begin` keeps, forward or `backward`.
+    /// A search of `buffer` from the place `begin` keeps, forward or `backward`, of a
+    /// `regexp` or not, with `migemo` on or off.
     pub(super) fn new(
         buffer: BufferId,
         begin: (SelectionSet, Scroll),
         revision: u64,
-        (backward, regexp): (bool, bool),
+        (backward, regexp, migemo): (bool, bool, bool),
         around_secret: bool,
     ) -> Self {
         Self {
@@ -139,6 +147,7 @@ impl Isearch {
             backward,
             flipped: false,
             regexp,
+            migemo,
             pattern: Pattern::Empty,
             too_long: None,
             current: None,
@@ -169,6 +178,12 @@ impl Isearch {
     /// Whether the string is a regexp (ADR 0116).
     pub fn regexp(&self) -> bool {
         self.regexp
+    }
+
+    /// Whether it searches for migemo's pattern: the string is romaji that gives kana, in a
+    /// search that is not a regexp's, with migemo on (ADR 0116).
+    pub fn migemo(&self) -> bool {
+        !self.regexp && matches!(self.pattern, Pattern::Ready(Needle::Regexp(_)))
     }
 
     /// Whether the string has no match where it searched.
@@ -222,8 +237,12 @@ impl Isearch {
         self.around_secret = true;
     }
 
-    /// The echo line: `I-search: foo [3/17]`, with Emacs's words before it.
+    /// The echo line: `I-search: foo [3/17]`, with Emacs's words before it, and
+    /// `[migemo]` before them while migemo searches (ADR 0116).
     pub(super) fn write_line(&self, out: &mut String) {
+        if self.migemo() {
+            out.push_str("[migemo] ");
+        }
         let start = out.len();
         let mut word = |word: &str| {
             if out.len() > start {
@@ -306,6 +325,7 @@ impl Isearch {
             backward: self.backward,
             flipped: self.flipped,
             regexp: self.regexp,
+            migemo: self.migemo,
             current: self.current.clone(),
             failing: self.failing,
             invalid: matches!(self.pattern, Pattern::Bad(_)),
@@ -316,15 +336,20 @@ impl Isearch {
         });
     }
 
-    /// Makes what the string looks for anew: a literal query, or a regexp a key compiles,
-    /// one larger or heavier left for the worker to compile, or why it cannot.
-    pub(super) fn rebuild_query(&mut self) {
+    /// Makes what the string looks for anew: migemo's pattern for romaji, from `migemo`'s
+    /// cache, a literal query, or a regexp a key compiles, one larger or heavier left for
+    /// the worker to compile, or why it cannot.
+    pub(super) fn rebuild_query(&mut self, migemo: &mut Migemo) {
         self.pattern = if self.string.is_empty() {
             Pattern::Empty
         } else if !self.regexp {
-            Query::new(&self.string, self.case_sensitive()).map_or(Pattern::Empty, |query| {
-                Pattern::Ready(Needle::Literal(query))
-            })
+            let case_sensitive = self.case_sensitive();
+            let keep = !self.around_secret;
+            self.migemo
+                .then(|| migemo.needle(&self.string, case_sensitive, keep))
+                .flatten()
+                .or_else(|| Query::new(&self.string, case_sensitive).map(Needle::Literal))
+                .map_or(Pattern::Empty, Pattern::Ready)
         } else {
             let insensitive = !self.case_sensitive();
             match search::compile_isearch(&self.string, insensitive, On::Key) {

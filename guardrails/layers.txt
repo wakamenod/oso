@@ -31,7 +31,8 @@ undo kill indent
 load selection
 display_map syntax
 complete decode key project rope secret
-sum_tree
+# `migemo` turns a romaji string into a pattern (ADR 0116), for `search` and `complete`.
+migemo sum_tree
 
 [oso-platform]
 clipboard control process text window

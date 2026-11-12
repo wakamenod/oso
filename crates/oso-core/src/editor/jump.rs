@@ -23,7 +23,6 @@ use std::ops::Range;
 use super::{Editor, Isearch};
 use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
-use crate::search::{self, Needle, Query};
 use crate::window::{Screen, WindowId};
 
 mod cells;
@@ -347,8 +346,13 @@ impl Editor {
         let Some(jump) = &self.jump else {
             return;
         };
-        let needle = match jump.kind {
-            Kind::Char => string_needle(&jump.string),
+        let (kind, selected_only) = (jump.kind, jump.selected_only);
+        let needle = match kind {
+            // Migemo by the setting, as isearch starts (ADR 0116).
+            Kind::Char => {
+                let string = jump.string.clone();
+                self.needle_for(&string, self.migemo_on())
+            }
             Kind::Isearch => self.isearch_needle(),
             Kind::LineStart | Kind::LineEnd => None,
         };
@@ -362,7 +366,7 @@ impl Editor {
         } = &mut scratch;
         found.clear();
         cursors.clear();
-        self.jump_views(jump.selected_only, views);
+        self.jump_views(selected_only, views);
         let mut left = JUMP_BUDGET;
         for view in views.iter() {
             let (id, buffer) = (view.window, self.buffer(view.buffer));
@@ -387,7 +391,7 @@ impl Editor {
                 rows,
                 cursor,
             };
-            left -= candidates_in(&place, (jump.kind, needle.as_ref()), within, found, ranges);
+            left -= candidates_in(&place, (kind, needle.as_ref()), within, found, ranges);
             if left == 0 || found.len() >= MAX_FOUND {
                 break;
             }
@@ -438,10 +442,4 @@ impl Editor {
             }
         }
     }
-}
-
-/// What a jump's string matches: the literal string, with isearch's smart case. Migemo's
-/// pattern takes its place for a romaji string once ADR 0116's step 2 is in.
-fn string_needle(string: &str) -> Option<Needle> {
-    Query::new(string, search::smart_case(string)).map(Needle::Literal)
 }

@@ -1,7 +1,7 @@
 //! isearch on the editor (ADR 0082, ADR 0116): starting a search in the selected window,
 //! literal or a regexp's, its keys, and how it ends. What it holds is in [`state`], where
 //! each key searches from in [`find`], its worker in [`worker`], the cells of its matches in
-//! [`cells`], and `C-y` and `M-y` in [`yank`].
+//! [`cells`], `C-y` and `M-y` in [`yank`], and migemo's setting and needles in [`migemo`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -27,11 +27,13 @@ use state::{Asked, Step};
 
 mod cells;
 mod find;
+mod migemo;
 mod state;
 mod worker;
 mod yank;
 
 pub use cells::MatchCells;
+pub(super) use migemo::Migemo;
 pub use state::Isearch;
 pub(super) use state::Tally;
 
@@ -87,7 +89,7 @@ impl Editor {
             window.buffer(),
             begin,
             buffer.revision(),
-            (backward, regexp),
+            (backward, regexp, self.migemo_on()),
             around_secret,
         );
         self.isearch = Some(search);
@@ -114,7 +116,7 @@ impl Editor {
             state.push_step(cursor);
             state.backward = backward;
             state.add(&last);
-            state.rebuild_query();
+            state.rebuild_query(&mut self.migemo);
             self.isearch_typed();
             return;
         }
@@ -155,7 +157,7 @@ impl Editor {
         }
         debug_assert!(state.string.len() > len);
         state.around_secret |= secret;
-        state.rebuild_query();
+        state.rebuild_query(&mut self.migemo);
         self.isearch_typed();
     }
 
@@ -220,7 +222,7 @@ impl Editor {
         state.history = Some(index);
         state.string.clear();
         state.add(&entry);
-        state.rebuild_query();
+        state.rebuild_query(&mut self.migemo);
         self.isearch_typed();
     }
 
@@ -233,7 +235,7 @@ impl Editor {
         };
         state.push_step(cursor);
         state.flipped = !state.flipped;
-        state.rebuild_query();
+        state.rebuild_query(&mut self.migemo);
         self.isearch_typed();
     }
 
@@ -248,7 +250,7 @@ impl Editor {
         state.push_step(cursor);
         state.regexp = !state.regexp;
         state.history = None;
-        state.rebuild_query();
+        state.rebuild_query(&mut self.migemo);
         self.isearch_typed();
     }
 
@@ -429,13 +431,14 @@ impl Editor {
         state.backward = step.backward;
         state.flipped = step.flipped;
         state.regexp = step.regexp;
+        state.migemo = step.migemo;
         state.current = step.current;
         state.failing = step.failing;
         state.too_long = step.too_long;
         state.wrapped = step.wrapped;
         state.searching = None;
         state.tally = step.tally;
-        state.rebuild_query();
+        state.rebuild_query(&mut self.migemo);
         // A regexp the worker compiles needs its job, whatever count the step kept.
         let recount = match state.pattern {
             state::Pattern::Compiling => true,

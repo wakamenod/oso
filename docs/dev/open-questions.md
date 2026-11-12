@@ -331,6 +331,9 @@ item notes when it must be settled.
   thread, about 40 ms on a 60 MB line; regexp isearch leaves such a line to the worker, and
   query-replace could too, as a chore
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+- Migemo matches precomposed kana only: text whose voiced kana are decomposed, as `か` and
+  U+3099 in file names macOS gives, is not found by `ga`. Settle it with step 4, where file
+  names meet migemo ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 
 - After indentation: a query-based indenter on the worker for `indent-region` in more languages;
   fenced code in Markdown indented by its language's rules; detecting a file's indentation when

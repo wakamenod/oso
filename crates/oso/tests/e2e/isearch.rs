@@ -1,7 +1,7 @@
 //! isearch in the running app (ADR 0082): typing a search, the count its worker sends, the
 //! highlights on screen, the input method off while it reads keys, a restart held while it
-//! is on, and a search in a buffer that may hold secrets withheld from the socket and the
-//! log.
+//! is on, migemo's kana for a romaji string and `M-m` (ADR 0116), and a search in a buffer
+//! that may hold secrets withheld from the socket and the log.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. Where a search
 //! goes, its count and its steps back have their own tests.
@@ -10,6 +10,31 @@ use serde_json::json;
 
 use super::harness::{App, FAKE_SECRET, Scratch};
 use super::{assert_no_secret, cursor, numbered_lines, typing};
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn romaji_finds_its_kana_and_m_m_searches_it_literally() {
+    let scratch = Scratch::new("isearch-migemo");
+    let file = scratch.write("kana.txt", "か カ ｶ ka\n".as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+
+    app.send_keys("C-s k a");
+    let state = app.wait_for("the count", |state| !state["isearch"]["count"].is_null());
+    assert_eq!(state["isearch"]["migemo"], true);
+    assert_eq!(state["isearch"]["count"], json!({ "index": 1, "total": 4 }));
+    assert_eq!(state["echo"], "[migemo] I-search: ka [1/4]");
+    assert_eq!(state["ime"]["wanted"], false, "isearch reads keys");
+
+    app.send_keys("M-m");
+    let state = app.wait_for("the literal count", |state| {
+        state["isearch"]["count"]["total"] == 1
+    });
+    assert_eq!(state["isearch"]["migemo"], false);
+    assert_eq!(state["echo"], "I-search: ka [1/1]");
+    app.send_keys("RET");
+    assert!(app.state()["isearch"].is_null());
+}
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]

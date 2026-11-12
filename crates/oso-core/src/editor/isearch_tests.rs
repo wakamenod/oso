@@ -12,9 +12,11 @@ use crate::search::{KEY_BUDGET, MAX_QUERY_CHARS};
 use crate::selection::{Selection, SelectionSet};
 use crate::window::ViewSize;
 
+/// An editor whose searches are literal: migemo's are in `isearch_migemo_tests`.
 fn editor(text: &str) -> Editor {
     let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", text));
     editor.set_view_size(ViewSize::new(10, 80));
+    editor.set_migemo(false);
     editor
 }
 
@@ -484,6 +486,7 @@ fn a_load_holds_the_count_until_it_ends() {
     let mut buffer = Buffer::new("loading");
     buffer.apply_load(builder.snapshot());
     let mut editor = Editor::with_buffer(buffer);
+    editor.set_migemo(false);
     search(&mut editor, "ab");
     assert_eq!(line(&editor), "I-search: ab [1/2]");
     let id = editor.window().buffer();

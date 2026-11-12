@@ -33,7 +33,7 @@ mod cut;
 
 pub(crate) use back::find_backward;
 use compile::builder;
-pub(crate) use compile::{CompileError, On, compile, compile_isearch, smart_case};
+pub(crate) use compile::{CompileError, On, compile, compile_isearch, compile_migemo, smart_case};
 
 /// The longest line a regexp is matched in: past it, a search stops at the line.
 pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;

@@ -95,6 +95,9 @@ start = true
 [save]
 trim-whitespace = true
 
+[search]
+migemo = false
+
 [jump]
 keys = "hjkl"
 timeout = 0.3
@@ -124,6 +127,7 @@ timeout = 0.3
     );
     assert_eq!(settings.agent_channel_start, Some(true));
     assert_eq!(settings.save.trim_whitespace, Some(true));
+    assert_eq!(settings.migemo, Some(false));
     assert_eq!(
         settings.jump,
         Jump {
@@ -182,6 +186,8 @@ stop = true
 trim = true
 [jump]
 labels = "asdf"
+[search]
+migemo-dictionary = "~/dict"
 "#,
     );
     assert_eq!(
@@ -193,6 +199,7 @@ labels = "asdf"
             r#"9:1: unknown name "stop" in [agent-channel], skipped"#,
             r#"11:1: unknown name "trim" in [save], skipped"#,
             r#"13:1: unknown name "labels" in [jump], skipped"#,
+            r#"15:1: unknown name "migemo-dictionary" in [search], skipped"#,
         ]
     );
     assert_eq!(loaded.settings.aids.flash, Some(true));
@@ -202,7 +209,7 @@ labels = "asdf"
 fn a_table_that_is_a_value_is_reported() {
     let f = Fixture::new();
     let loaded = f.parse(
-        "keys = 1\naids = \"on\"\n[agent-channel]\nstart = \"yes\"\n[save]\ntrim-whitespace = 1\n",
+        "keys = 1\naids = \"on\"\n[agent-channel]\nstart = \"yes\"\n[save]\ntrim-whitespace = 1\n[search]\nmigemo = 0\n",
     );
     assert_eq!(
         messages(&loaded),
@@ -211,6 +218,7 @@ fn a_table_that_is_a_value_is_reported() {
             "2:8: [aids] must be a table",
             "4:9: [agent-channel] start takes true or false, not a string",
             "6:19: [save] trim-whitespace takes true or false, not a number",
+            "8:10: [search] migemo takes true or false, not a number",
         ]
     );
 }
