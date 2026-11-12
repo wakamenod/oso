@@ -127,7 +127,7 @@ timeout = 0.3
     );
     assert_eq!(settings.agent_channel_start, Some(true));
     assert_eq!(settings.save.trim_whitespace, Some(true));
-    assert_eq!(settings.migemo, Some(false));
+    assert_eq!(settings.search.migemo, Some(false));
     assert_eq!(
         settings.jump,
         Jump {

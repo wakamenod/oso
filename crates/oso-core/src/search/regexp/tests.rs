@@ -1,6 +1,7 @@
 //! Tests of query-replace's regexps (ADR 0113): smart case, errors, the matches a search goes
-//! through, its budget and its stops, the replacement, a line kept across edits, and the
-//! highlights.
+//! through, its budget and its stops, the replacement, a line kept across edits, the
+//! highlights, and migemo's regexps (ADR 0116): a long line's limit, and that every
+//! pattern compiles on a key.
 //!
 //! Must not depend on: `buffer` or `editor`.
 
@@ -11,9 +12,13 @@
 
 use std::ops::Range;
 
+use proptest::prelude::*;
+
 use super::{Line, LineTooLong, MAX_PATTERN_CHARS, Scan, compile, smart_case};
+use crate::decode::InvalidBytes;
+use crate::migemo;
 use crate::rope::Rope;
-use crate::search::Found;
+use crate::search::{Found, Needle};
 
 /// Every match of `pattern` in `text`, from its start, as `!` would take them.
 fn all(pattern: &str, text: &str) -> Vec<Range<usize>> {
@@ -195,4 +200,78 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
     out.clear();
     regexp.matches_in(&rope, &[0..2], (10, 64 * 1024), &mut out);
     assert!(out.is_empty(), "{out:?}");
+}
+
+#[test]
+fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
+    let needle = Needle::migemo("ka", false).unwrap();
+    // A match lies far into a line of 8 MiB.
+    let mut text = "x".repeat(8 * 1024 * 1024);
+    text.push_str("か\n");
+    let rope = Rope::from(text.as_str());
+    let snapshot = (&rope, &InvalidBytes::new());
+    let started = std::time::Instant::now();
+    let mut out = Vec::new();
+    needle.matches_in(snapshot, &[0..rope.len()], (16, 1024 * 1024), &mut out);
+    assert!(out.is_empty());
+    // A span within the limit is read.
+    needle.matches_in(
+        snapshot,
+        &[rope.len() - 64..rope.len()],
+        (16, 1024 * 1024),
+        &mut out,
+    );
+    assert_eq!(out.len(), 1);
+    assert!(started.elapsed() < std::time::Duration::from_millis(100));
+}
+
+/// A romaji string of `spellings` from the table, joined, cut to [`migemo::MAX_CHARS`] at
+/// a spelling's end, with `end` after it if that still fits.
+fn romaji(spellings: &[&str], end: &str) -> String {
+    let mut string = String::new();
+    for spelling in spellings {
+        if string.len() + spelling.len() > migemo::MAX_CHARS {
+            break;
+        }
+        string.push_str(spelling);
+    }
+    if string.len() + end.len() <= migemo::MAX_CHARS {
+        string.push_str(end);
+    }
+    string
+}
+
+/// Romaji strings of up to [`migemo::MAX_CHARS`]: spellings of the table at random, or one
+/// of them repeated, which gives the largest patterns, with an unfinished end or none.
+fn romaji_strings() -> impl Strategy<Value = String> {
+    let spellings: Vec<&'static str> = migemo::spellings().collect();
+    let any = proptest::sample::select(spellings);
+    let mixed = proptest::collection::vec(any.clone(), 1..=200);
+    let repeated = (any, 1..=256usize).prop_map(|(spelling, times)| vec![spelling; times]);
+    let ends = proptest::sample::select(vec!["", "k", "n", "t", "ky", "-", "'"]);
+    (prop_oneof![mixed, repeated], ends).prop_map(|(spellings, end)| romaji(&spellings, end))
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// Every romaji string that has a migemo pattern compiles on a key, in either case: the
+    /// string's length bound keeps its pattern within the key's size limit (ADR 0116).
+    #[test]
+    fn every_migemo_pattern_compiles_on_a_key(string in romaji_strings()) {
+        if migemo::pattern(&string).is_some() {
+            prop_assert!(Needle::migemo(&string, false).is_some(), "{} chars", string.len());
+            prop_assert!(Needle::migemo(&string, true).is_some(), "{} chars", string.len());
+        }
+    }
+}
+
+#[test]
+fn the_largest_migemo_patterns_compile_on_a_key() {
+    let longest = |unit: &str| unit.repeat(migemo::MAX_CHARS / unit.len());
+    for unit in ["a", "aiueo", "ga", "vu", "n", "kyo", "xtsu"] {
+        let string = longest(unit);
+        assert!(migemo::pattern(&string).is_some(), "{unit}");
+        assert!(Needle::migemo(&string, false).is_some(), "{unit}");
+    }
 }

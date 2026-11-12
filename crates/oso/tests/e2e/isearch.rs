@@ -13,25 +13,18 @@ use super::{assert_no_secret, cursor, numbered_lines, typing};
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn romaji_finds_its_kana_and_m_m_searches_it_literally() {
+fn get_state_says_migemo_applies_until_m_m_turns_it_off() {
     let scratch = Scratch::new("isearch-migemo");
     let file = scratch.write("kana.txt", "か カ ｶ ka\n".as_bytes());
     let mut app = App::start(Some(&file), scratch.path());
     app.wait_until_ready();
 
     app.send_keys("C-s k a");
-    let state = app.wait_for("the count", |state| !state["isearch"]["count"].is_null());
-    assert_eq!(state["isearch"]["migemo"], true);
-    assert_eq!(state["isearch"]["count"], json!({ "index": 1, "total": 4 }));
-    assert_eq!(state["echo"], "[migemo] I-search: ka [1/4]");
+    let state = app.wait_for("migemo", |state| state["isearch"]["migemo"] == true);
     assert_eq!(state["ime"]["wanted"], false, "isearch reads keys");
 
     app.send_keys("M-m");
-    let state = app.wait_for("the literal count", |state| {
-        state["isearch"]["count"]["total"] == 1
-    });
-    assert_eq!(state["isearch"]["migemo"], false);
-    assert_eq!(state["echo"], "I-search: ka [1/1]");
+    app.wait_for("migemo off", |state| state["isearch"]["migemo"] == false);
     app.send_keys("RET");
     assert!(app.state()["isearch"].is_null());
 }

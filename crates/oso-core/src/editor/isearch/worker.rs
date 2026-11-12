@@ -12,6 +12,7 @@
 
 use std::ops::Range;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use super::Tally;
 use super::state::{Asked, Bad, Pattern};
@@ -184,9 +185,9 @@ impl Editor {
                         start_at_most: start_at_most.min(len),
                     },
                 };
-                self.isearch_find(find, asked);
+                self.isearch_find(find, asked, Instant::now());
             }
-            _ => self.isearch_typed(),
+            _ => self.isearch_typed(Instant::now()),
         }
         true
     }

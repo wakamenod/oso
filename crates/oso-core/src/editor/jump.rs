@@ -348,10 +348,11 @@ impl Editor {
         };
         let (kind, selected_only) = (jump.kind, jump.selected_only);
         let needle = match kind {
-            // Migemo by the setting, as isearch starts (ADR 0116).
+            // Migemo by the setting, as isearch starts (ADR 0116), kept out of the cache as
+            // isearch keeps a string typed around a secret out of its history.
             Kind::Char => {
-                let string = jump.string.clone();
-                self.needle_for(&string, self.migemo_on())
+                let (string, around_secret) = (jump.string.clone(), jump.around_secret);
+                self.needle_for(&string, around_secret)
             }
             Kind::Isearch => self.isearch_needle(),
             Kind::LineStart | Kind::LineEnd => None,

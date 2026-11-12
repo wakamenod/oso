@@ -557,9 +557,18 @@ coordinator; the notes below are those choices as built.
   within 0113's 256 KiB and a nest limit of 32, in about 1.5 ms at 256 characters; over
   that it would search literally, which no romaji string reaches. 0116's 4 MiB and the build on
   the worker wait for the dictionary (step 3). Searching keeps step 1's limits.
-- **The cache** holds the last 32 compiled needles, by string and case, in the editor, so `DEL`, a
-  repeat and `C-s C-s` compile nothing; a string typed around a buffer that may hold secrets
-  stays out of it, and `Debug` prints none of them.
+- **The cache** holds the last 32 compiled needles, by string and case, in the editor
+  (`editor/migemo.rs`, beside isearch and jumps), so `DEL`, a repeat and `C-s C-s` compile no
+  pattern again. A needle from it is a clone, whose regexps for a cut a backward search may
+  still build on a key, as for any regexp a key compiled quickly. A string typed around a
+  buffer that may hold secrets stays out of it, as does a jump's string while the jump is
+  around one, and `Debug` prints none of them. At worst, 32 needles of 256 characters take
+  about 8.6 MB (the ignored tests `migemo_cache_memory_1` and `_32` under `/usr/bin/time -l`).
+- **The pattern is recorded as migemo's** (`Pattern::Migemo` in `isearch/state.rs`), so
+  `Isearch::migemo` does not guess from the needle's kind, and the worker takes the compiled
+  needle, never the string to compile.
+- **A key's time** is counted from the moment the key starts to build what it searches for, so
+  migemo's compile and step 1's search share the key's 3 ms.
 - **A key's cost**, the highlights included, in a release build on a loaded machine (the ignored
   test `migemo_key_costs`): over 20 MB of short lines with no match, 1.0 ms p50 for a literal
   string, 0.3 ms for `k`, 1.4 to 2.0 ms for `kanji`, and 2.0 to 2.3 ms for 256 characters of

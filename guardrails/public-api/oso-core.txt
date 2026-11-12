@@ -1683,6 +1683,7 @@ pub fn oso_core::editor::Editor::isearch_exit(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_history(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_repeat(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
+pub fn oso_core::editor::Editor::isearch_toggle_migemo(&mut self)
 pub fn oso_core::editor::Editor::isearch_toggle_regexp(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
@@ -1691,9 +1692,6 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
 pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::isearch_toggle_migemo(&mut self)
-pub fn oso_core::editor::Editor::set_migemo(&mut self, bool)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
@@ -1797,6 +1795,8 @@ pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::Rep
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::set_migemo(&mut self, bool)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
 impl oso_core::editor::Editor

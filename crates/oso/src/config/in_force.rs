@@ -108,7 +108,7 @@ impl InForce {
                 .save
                 .trim_whitespace
                 .unwrap_or(compiled.trim_whitespace),
-            migemo: or(settings.migemo, compiled.migemo),
+            migemo: or(settings.search.migemo, compiled.migemo),
             jump: settings.jump.clone(),
             electric_indent: or(settings.indent.electric, compiled.electric_indent),
             mode_indents: std::array::from_fn(|index| {
@@ -179,7 +179,7 @@ mod tests {
 
     use oso_core::jump::Keys;
 
-    use crate::config::settings::{Aids, Jump, Save, ThemeSetting};
+    use crate::config::settings::{Aids, Jump, Save, Search, ThemeSetting};
 
     const THEMES: &[&str] = &["dusk", "light", "dark"];
 
@@ -219,7 +219,9 @@ mod tests {
             save: Save {
                 trim_whitespace: Some(true),
             },
-            migemo: Some(false),
+            search: Search {
+                migemo: Some(false),
+            },
             jump: Jump {
                 keys: Some(Keys::new("hjkl").unwrap()),
                 timeout: Some(Duration::from_secs(1)),

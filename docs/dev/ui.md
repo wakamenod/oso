@@ -433,9 +433,9 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 
 ## isearch
 
-- `C-s` and `C-r` search for the literal string as it is typed, with smart case: case matters
-  once the string has an uppercase letter, and `M-c` turns that around for the search
-  ([ADR 0082](adr/0082-isearch.md)).
+- `C-s` and `C-r` search for the literal string as it is typed, or migemo's pattern for romaji
+  (below), with smart case: case matters once the string has an uppercase letter, and `M-c`
+  turns that around for the search ([ADR 0082](adr/0082-isearch.md)).
 - All matches in view are highlighted in a muted amber, and the current match in a strong one.
 - The search string is shown in the echo area, with the count anzu-style: `I-search: foo [3/17]`,
   `[?/…]` while a worker counts, and `[searching…]` while it looks for a far match.
@@ -455,7 +455,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   uppercase letter among them, searches literally, and so does a string with a letter that starts
   no spelling (`struct`). A regexp's search never uses it. `M-m` turns it off or on for the rest
   of a search, and `[search] migemo = false` starts every search with it off
-  ([ADR 0116](adr/0116-migemo-and-jumps.md)). Without a dictionary it finds no kanji.
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)). Kanji wait for the dictionary of the ADR's
+  step 3.
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case

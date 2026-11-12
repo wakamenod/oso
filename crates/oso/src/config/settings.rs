@@ -27,8 +27,8 @@ pub struct Settings {
     pub agent_channel_start: Option<bool>,
     /// `[save]`.
     pub save: Save,
-    /// `[search] migemo`: whether a search starts with migemo on (ADR 0116).
-    pub migemo: Option<bool>,
+    /// `[search]` (ADR 0116).
+    pub search: Search,
     /// `[jump]`.
     pub jump: Jump,
     /// `[indent]` (ADR 0115).
@@ -51,6 +51,13 @@ pub struct Jump {
 pub struct Save {
     /// `trim-whitespace`: clean the lines edited since the file was read or saved.
     pub trim_whitespace: Option<bool>,
+}
+
+/// `[search]`: how isearch and jumps search (ADR 0116).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Search {
+    /// `migemo`: whether a search starts with migemo on.
+    pub migemo: Option<bool>,
 }
 
 /// `[theme]`: built-in themes, by name (ADR 0089).
@@ -185,17 +192,19 @@ pub(super) fn agent_channel(value: &Spanned<DeValue<'_>>, found: &mut Found) -> 
     start
 }
 
-/// `[search] migemo`.
-pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<bool> {
-    let entries = table(value, "[search]", found)?;
-    let mut migemo = None;
+/// `[search]`.
+pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Search {
+    let mut search = Search::default();
+    let Some(entries) = table(value, "[search]", found) else {
+        return search;
+    };
     for (name, value) in entries {
         match name.get_ref().as_ref() {
-            "migemo" => migemo = switch(value, "[search]", "migemo", found),
+            "migemo" => search.migemo = switch(value, "[search]", "migemo", found),
             other => unknown(found, name.span().start, other, "[search]"),
         }
     }
-    migemo
+    search
 }
 
 /// `[save]`.

@@ -23,7 +23,7 @@ use trie::Trie;
 
 /// The most characters of a string that has a pattern. Its pattern then compiles in about
 /// a millisecond, as a key's regexp does; a longer string is searched for as it is.
-const MAX_CHARS: usize = 256;
+pub(crate) const MAX_CHARS: usize = 256;
 
 /// Whether `string` is romaji: only lowercase ASCII letters, `'` and `-`, with at least one
 /// letter.
@@ -158,6 +158,12 @@ pub(crate) fn pattern(string: &str) -> Option<String> {
     let mut out = String::new();
     trie.write(&mut out);
     Some(out)
+}
+
+/// Every spelling of the table, for tests that build romaji strings from them.
+#[cfg(test)]
+pub(crate) fn spellings() -> impl Iterator<Item = &'static str> {
+    table::ROWS.iter().map(|(spelling, _)| *spelling)
 }
 
 #[cfg(test)]

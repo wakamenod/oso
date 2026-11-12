@@ -1,6 +1,6 @@
 //! isearch's commands (ADR 0082, ADR 0116): starting a search, literal or a regexp's, the
-//! keys of its keymap, migemo's among them, and its exit. Where it goes, its count and its steps back are the
-//! editor's.
+//! keys of its keymap, migemo's among them, and its exit. Where it goes, its count and its
+//! steps back are the editor's.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.

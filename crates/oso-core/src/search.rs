@@ -65,12 +65,12 @@ impl Limits {
         on_key: false,
     };
 
-    /// A key's on the UI thread: [`KEY_BUDGET`], [`KEY_TIME`] from now, and the rest left to
-    /// the worker.
-    pub(crate) fn key() -> Self {
+    /// A key's on the UI thread: [`KEY_BUDGET`], [`KEY_TIME`] from `started`, when the key began
+    /// to build what it searches for, and the rest left to the worker.
+    pub(crate) fn key(started: Instant) -> Self {
         Self {
             work: KEY_BUDGET,
-            until: Some(Instant::now() + KEY_TIME),
+            until: Some(started + KEY_TIME),
             on_key: true,
         }
     }

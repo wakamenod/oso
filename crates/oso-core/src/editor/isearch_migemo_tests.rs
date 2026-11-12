@@ -1,17 +1,14 @@
 //! Tests of migemo on the editor (ADR 0116): a romaji string's kana in isearch, its line,
 //! `M-m`, the setting, `M-r` and `M-c` with it, the history, cursors from it, the cache
-//! around a secret, a jump's string, and a long line's limit.
+//! and `Debug`, and a jump's string, also around a secret.
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
 use super::test_buffers::secret_buffer;
 use super::{Editor, Status};
 use crate::buffer::Buffer;
-use crate::decode::InvalidBytes;
 use crate::editor::Toward;
 use crate::jump::Kind;
-use crate::rope::Rope;
-use crate::search::Needle;
 use crate::selection::SelectionSet;
 use crate::window::ViewSize;
 
@@ -168,7 +165,7 @@ fn cursors_from_the_search_go_on_migemo_s_matches() {
 }
 
 #[test]
-fn del_and_a_repeat_compile_nothing_and_a_secret_keeps_no_needle() {
+fn del_and_a_repeat_compile_nothing() {
     let mut editor = editor("か ka");
     search(&mut editor, "k");
     editor.isearch_add("a");
@@ -177,14 +174,27 @@ fn del_and_a_repeat_compile_nothing_and_a_secret_keeps_no_needle() {
     editor.isearch_exit();
     search(&mut editor, "ka");
     assert_eq!(editor.migemo.cached(), 2);
+}
 
+/// An editor that shows a buffer that may hold secrets, holding `kana`.
+fn secret_editor() -> Editor {
     let mut buffer = secret_buffer();
     buffer.apply_load(crate::load::decode_all(b"TOKEN=kana", Default::default()));
-    let mut editor = Editor::with_buffer(buffer);
+    Editor::with_buffer(buffer)
+}
+
+#[test]
+fn debug_prints_no_cached_string_and_a_secret_keeps_no_needle() {
+    let mut editor = editor("かな kana");
+    search(&mut editor, "kanaka");
+    editor.isearch_exit();
+    assert!(editor.migemo.cached() > 0);
+    assert!(!format!("{:?}", editor.migemo).contains("kanaka"));
+
+    let mut editor = secret_editor();
     search(&mut editor, "kana");
     assert!(migemo(&editor));
     assert_eq!(editor.migemo.cached(), 0);
-    assert!(!format!("{:?}", editor.migemo).contains("kana"));
 }
 
 #[test]
@@ -204,95 +214,20 @@ fn a_jump_s_string_matches_by_migemo_as_the_setting_says() {
 }
 
 #[test]
-fn a_long_line_reads_no_further_than_the_limit() {
-    let needle = Needle::migemo("ka", false).unwrap();
-    // A match lies far into a line of 8 MiB.
-    let mut text = "x".repeat(8 * 1024 * 1024);
-    text.push_str("か\n");
-    let rope = Rope::from(text.as_str());
-    let started = std::time::Instant::now();
-    let mut out = Vec::new();
-    let whole = 0..rope.len();
-    let spans = std::slice::from_ref(&whole);
-    needle.matches_in(
-        (&rope, &InvalidBytes::new()),
-        spans,
-        (16, 1024 * 1024),
-        &mut out,
-    );
-    assert!(out.is_empty());
-    // A span within the limit is read.
-    let end = rope.len() - 64..rope.len();
-    let spans = std::slice::from_ref(&end);
-    needle.matches_in(
-        (&rope, &InvalidBytes::new()),
-        spans,
-        (16, 1024 * 1024),
-        &mut out,
-    );
-    assert_eq!(out.len(), 1);
-    assert!(started.elapsed() < std::time::Duration::from_millis(100));
-}
-
-/// What a migemo key costs on the UI thread, its highlights with it, for ADR 0116's notes:
-/// run with `cargo test -p oso-core --release --lib migemo_key_costs -- --ignored --nocapture`.
-#[test]
-#[ignore = "a measure, in a release build"]
-#[expect(clippy::disallowed_macros, reason = "the measure prints its timings")]
-fn migemo_key_costs() {
-    use std::time::Instant;
-    let line = "the quick brown fox jumps over the lazy dog 0123456789\n";
-    let lines = line.repeat(20 * 1024 * 1024 / line.len());
-    let japanese = format!(
-        "{}\n",
-        "日本語のテキストとかなカナ ".repeat(20 * 1024 * 1024 / 40)
-    );
-    let long_romaji = "kanjinohenkan".repeat(256 / 13);
-    let all_n = "n".repeat(256);
-    let cases: &[(&str, &str, &str)] = &[
-        ("lines", &lines, "zzq"),
-        ("lines", &lines, "k"),
-        ("lines", &lines, "kanji"),
-        ("lines", &lines, &long_romaji),
-        ("lines", &lines, &all_n),
-        ("japanese", &japanese, "kanji"),
-        ("japanese", &japanese, "zuq"),
-    ];
-    for string in ["k", "kanji", &long_romaji, &all_n] {
-        let mut times = Vec::new();
-        for _ in 0..30 {
-            let started = Instant::now();
-            let pattern = crate::migemo::pattern(string).unwrap_or_default();
-            let built = started.elapsed().as_secs_f64() * 1000.0;
-            let _ = Needle::migemo(string, false);
-            let both = started.elapsed().as_secs_f64() * 1000.0;
-            times.push((both, built, pattern.len()));
-        }
-        times.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let (both, built, bytes) = times[29];
-        println!(
-            "needle len={:4} pattern={bytes:6} B built={built:.3} max={both:.3} ms",
-            string.len()
-        );
-    }
-    for &(what, text, string) in cases {
-        let mut times = Vec::new();
-        for _ in 0..30 {
-            let mut editor = editor(text);
-            editor.set_view_size(ViewSize::new(40, 120));
-            editor.isearch_begin(false, false);
-            let started = Instant::now();
-            editor.isearch_add(string);
-            let mut cells = super::MatchCells::default();
-            editor.isearch_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
-            times.push(started.elapsed().as_secs_f64() * 1000.0);
-        }
-        times.sort_by(f64::total_cmp);
-        let name: String = string.chars().take(20).collect();
-        let (p50, max) = (times[15], times[29]);
-        println!(
-            "{what:8} {name:20} len={:4} p50={p50:.3} max={max:.3} ms",
-            string.len()
-        );
-    }
+fn a_jump_around_a_secret_keeps_no_needle() {
+    let mut editor = secret_editor();
+    assert!(editor.jump_begin(Kind::Char, false));
+    editor.jump_add("ka");
+    assert_eq!(editor.migemo.cached(), 0);
+    // The jump stays around the secret after the window shows another buffer.
+    let notes = editor.add_buffer(Buffer::from_text("notes.txt", "か ka"));
+    editor.show(notes);
+    assert!(!editor.shows_secret());
+    editor.jump_add("n");
+    assert_eq!(editor.migemo.cached(), 0);
+    editor.jump_end();
+    // A jump that began elsewhere keeps its needle.
+    assert!(editor.jump_begin(Kind::Char, false));
+    editor.jump_add("ka");
+    assert_eq!(editor.migemo.cached(), 1);
 }

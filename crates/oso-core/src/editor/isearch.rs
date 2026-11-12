@@ -1,7 +1,8 @@
 //! isearch on the editor (ADR 0082, ADR 0116): starting a search in the selected window,
 //! literal or a regexp's, its keys, and how it ends. What it holds is in [`state`], where
 //! each key searches from in [`find`], its worker in [`worker`], the cells of its matches in
-//! [`cells`], `C-y` and `M-y` in [`yank`], and migemo's setting and needles in [`migemo`].
+//! [`cells`], and `C-y` and `M-y` in [`yank`]. Migemo's setting and needles are in
+//! [`migemo`](super::migemo).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -17,6 +18,7 @@
 //! - Nothing here logs the string, and `Debug` prints none of it (ADR 0044).
 
 use std::ops::Range;
+use std::time::Instant;
 
 use super::Editor;
 use crate::kill::KillEntry;
@@ -27,13 +29,11 @@ use state::{Asked, Step};
 
 mod cells;
 mod find;
-mod migemo;
 mod state;
 mod worker;
 mod yank;
 
 pub use cells::MatchCells;
-pub(super) use migemo::Migemo;
 pub use state::Isearch;
 pub(super) use state::Tally;
 
@@ -116,8 +116,8 @@ impl Editor {
             state.push_step(cursor);
             state.backward = backward;
             state.add(&last);
-            state.rebuild_query(&mut self.migemo);
-            self.isearch_typed();
+            let started = state.rebuild_query(&mut self.migemo);
+            self.isearch_typed(started);
             return;
         }
         // A regexp that does not compile has nothing to repeat.
@@ -135,7 +135,7 @@ impl Editor {
             state.wrapped = true;
         }
         match find {
-            Some(find) => self.isearch_find(find, Asked::Repeat { wrapped: wrap }),
+            Some(find) => self.isearch_find(find, Asked::Repeat { wrapped: wrap }, Instant::now()),
             // An empty match at the start: none before it, as at a failure.
             None => state.failing = true,
         }
@@ -157,8 +157,8 @@ impl Editor {
         }
         debug_assert!(state.string.len() > len);
         state.around_secret |= secret;
-        state.rebuild_query(&mut self.migemo);
-        self.isearch_typed();
+        let started = state.rebuild_query(&mut self.migemo);
+        self.isearch_typed(started);
     }
 
     /// Adds `text` taken from the buffer or a kill, as `C-w` and `C-y` do: as it is to a
@@ -222,8 +222,8 @@ impl Editor {
         state.history = Some(index);
         state.string.clear();
         state.add(&entry);
-        state.rebuild_query(&mut self.migemo);
-        self.isearch_typed();
+        let started = state.rebuild_query(&mut self.migemo);
+        self.isearch_typed(started);
     }
 
     /// `M-c`: turns smart case around for the rest of this search.
@@ -235,8 +235,8 @@ impl Editor {
         };
         state.push_step(cursor);
         state.flipped = !state.flipped;
-        state.rebuild_query(&mut self.migemo);
-        self.isearch_typed();
+        let started = state.rebuild_query(&mut self.migemo);
+        self.isearch_typed(started);
     }
 
     /// `M-r`: turns the string from literal to a regexp or back, for the rest of this search,
@@ -250,8 +250,23 @@ impl Editor {
         state.push_step(cursor);
         state.regexp = !state.regexp;
         state.history = None;
-        state.rebuild_query(&mut self.migemo);
-        self.isearch_typed();
+        let started = state.rebuild_query(&mut self.migemo);
+        self.isearch_typed(started);
+    }
+
+    /// `M-m`: turns migemo off or on for the rest of this search, and searches again from
+    /// the match (ADR 0116). In a regexp's search it shows once `M-r` makes the string
+    /// literal.
+    pub fn isearch_toggle_migemo(&mut self) {
+        self.isearch_follow_text();
+        let cursor = self.primary_cursor();
+        let Some(state) = &mut self.isearch else {
+            return;
+        };
+        state.push_step(cursor);
+        state.use_migemo = !state.use_migemo;
+        let started = state.rebuild_query(&mut self.migemo);
+        self.isearch_typed(started);
     }
 
     /// `DEL`: goes back one step, the string and the place together. Returns false with no
@@ -431,7 +446,7 @@ impl Editor {
         state.backward = step.backward;
         state.flipped = step.flipped;
         state.regexp = step.regexp;
-        state.migemo = step.migemo;
+        state.use_migemo = step.use_migemo;
         state.current = step.current;
         state.failing = step.failing;
         state.too_long = step.too_long;
@@ -442,7 +457,9 @@ impl Editor {
         // A regexp the worker compiles needs its job, whatever count the step kept.
         let recount = match state.pattern {
             state::Pattern::Compiling => true,
-            state::Pattern::Ready(_) => !matches!(state.tally, Some(Tally::Known { .. })),
+            state::Pattern::Ready(_) | state::Pattern::Migemo(_) => {
+                !matches!(state.tally, Some(Tally::Known { .. }))
+            }
             state::Pattern::Empty | state::Pattern::Bad(_) => false,
         };
         let buffer = self.current().1;

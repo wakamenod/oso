@@ -203,8 +203,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   the crate) runs Knuth–Morris–Pratt over the rope's chunks, or a regexp one line at a time
   (`search/regexp`, [ADR 0116](adr/0116-migemo-and-jumps.md)). A romaji string searches for
   `oso_core::migemo`'s pattern of its kana, a regexp the matcher compiles; `migemo` is pure, on
-  the crate's lowest layer, and the editor keeps the last 32 compiled. Each key searches
-  256 KiB, and a regexp's 3 ms, on the UI thread, and one worker thread of the host's
+  the crate's lowest layer, and the editor keeps the last 32 compiled (`editor/migemo.rs`, which
+  jumps share). Each key searches 256 KiB, and a regexp's 3 ms counted from the key's start, a
+  compile on the key included, on the UI thread, and one worker thread of the host's
   (`app/searches.rs`) goes on with a far match, a long line and a regexp too large to compile on
   a key, and counts the matches over an O(1) snapshot, superseded by the next job through a
   generation. A frame searches only the rows in view for the highlights. A search ends when its window shows another
