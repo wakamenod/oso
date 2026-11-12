@@ -734,7 +734,12 @@ fn undoing_a_recovery_returns_the_person_to_where_they_were() {
     recover(&mut fixture);
     assert_eq!(fixture.file_text(), "the copy\n");
     assert_eq!(fixture.editor.window().selections.primary().cursor, 0);
-    assert_eq!(fixture.editor.place_behind_internal(), None);
+    assert_eq!(
+        fixture
+            .editor
+            .place_behind_internal_of(fixture.editor.window().id()),
+        None
+    );
     fixture.editor.undo().unwrap();
     assert_eq!(fixture.editor.window().selections.primary().cursor, 6);
 }

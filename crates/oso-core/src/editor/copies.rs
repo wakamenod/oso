@@ -459,7 +459,7 @@ mod tests {
         let (mut editor, file, _) = with_copy("abc", "x");
         editor.toggle_copies();
         editor.kill_buffer(file);
-        assert_eq!(editor.place_behind_internal(), None);
+        assert_eq!(editor.place_behind_internal_of(editor.window().id()), None);
         editor.toggle_copies();
         assert_eq!(editor.current().1.name(), crate::editor::SCRATCH);
     }
@@ -469,19 +469,19 @@ mod tests {
         let (mut editor, file, _) = with_copy("abcdef", "x");
         editor.current_mut().0.selections = SelectionSet::new(3);
         assert_eq!(
-            editor.place_behind_internal(),
+            editor.place_behind_internal_of(editor.window().id()),
             None,
             "on no internal buffer"
         );
         let cursor = SelectionSet::new(3);
         editor.toggle_copies();
         assert_eq!(
-            editor.place_behind_internal(),
+            editor.place_behind_internal_of(editor.window().id()),
             Some((file, &cursor, Scroll::default()))
         );
         editor.toggle_messages();
         assert_eq!(
-            editor.place_behind_internal(),
+            editor.place_behind_internal_of(editor.window().id()),
             Some((file, &cursor, Scroll::default())),
             "through the list"
         );
@@ -492,7 +492,7 @@ mod tests {
             "back to the list"
         );
         assert_eq!(
-            editor.place_behind_internal(),
+            editor.place_behind_internal_of(editor.window().id()),
             Some((file, &cursor, Scroll::default())),
         );
     }
@@ -510,7 +510,7 @@ mod tests {
         assert_eq!(editor.current().1.mode(), Mode::CopyList);
         editor.toggle_copies();
         assert_eq!(editor.window().buffer(), file);
-        assert_eq!(editor.place_behind_internal(), None);
+        assert_eq!(editor.place_behind_internal_of(editor.window().id()), None);
 
         editor.toggle_messages();
         editor.toggle_copies();
@@ -540,9 +540,11 @@ mod tests {
         let other = editor.add_buffer(Buffer::from_text("other", "y"));
         editor.toggle_copies();
         editor.show(other);
-        assert_eq!(editor.place_behind_internal(), None);
+        assert_eq!(editor.place_behind_internal_of(editor.window().id()), None);
         editor.toggle_copies();
-        let place = editor.place_behind_internal().map(|(buffer, _, _)| buffer);
+        let place = editor
+            .place_behind_internal_of(editor.window().id())
+            .map(|(buffer, _, _)| buffer);
         assert_eq!(place, Some(other), "where it is now, not where it was");
     }
 

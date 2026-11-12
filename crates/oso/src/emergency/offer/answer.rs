@@ -130,7 +130,9 @@ impl Offer {
         if !shows_list {
             return self.free_views(editor);
         }
-        self.cursor_for = editor.place_behind_internal().map(|(buffer, _, _)| buffer);
+        self.cursor_for = editor
+            .place_behind_internal_of(editor.window().id())
+            .map(|(buffer, _, _)| buffer);
         if let Some(list) = &self.list {
             editor.set_copies_text(list.clone(), HEADER_ROWS, None);
         }
@@ -449,7 +451,7 @@ fn refusal(editor: &Editor, row: &Row, view: BufferId) -> Option<String> {
         return Some(format!("{name} is not empty, so nothing goes in it"));
     }
     // The window goes to the target. Until `C-x b`, no key could then reach what it was on.
-    if let Some((behind, _, _)) = editor.place_behind_internal()
+    if let Some((behind, _, _)) = editor.place_behind_internal_of(editor.window().id())
         && Some(behind) != row.target
         && let Some(behind) = editor.buffer(behind)
         && behind.is_modified()

@@ -355,3 +355,28 @@ fn the_agent_segment_goes_to_the_bottom_modeline_too_while_a_float_covers_the_se
     editor.ask("Exit?", "keyboard-quit").unwrap();
     assert!(!says(&editor, bottom), "not while the selected one's shows");
 }
+
+#[test]
+fn a_window_not_selected_shows_a_buffer_and_takes_positions_and_stays_unselected() {
+    let mut editor = editor("scratch", (24, 80));
+    let file = editor.add_buffer(Buffer::from_text("f", &lines(100)));
+    let me = selected(&editor);
+    let other = editor.split_window(Way::Down, false).unwrap();
+    editor.show_in(other, file);
+    let row = "line 000\n".len();
+    let scroll = crate::window::Scroll {
+        start: row * 40,
+        left: 0,
+    };
+    editor.restore_positions_in(other, SelectionSet::new(row * 45), scroll);
+    assert_eq!(selected(&editor), me, "the selection stays");
+    let window = editor.window_by_id(other).unwrap();
+    assert_eq!(window.buffer(), file);
+    assert_eq!(window.selections.primary().cursor, row * 45);
+    assert_eq!(window.scroll().start, row * 40);
+    assert_ne!(
+        editor.window().buffer(),
+        file,
+        "the selected one kept its own"
+    );
+}

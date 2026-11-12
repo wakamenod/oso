@@ -27,7 +27,9 @@ pub fn selections_state(selections: &SelectionSet) -> Value {
     })
 }
 
-pub(super) fn parse_selections(window: &Map<String, Value>) -> Result<SelectionSet, String> {
+pub(in crate::dev::handoff) fn parse_selections(
+    window: &Map<String, Value>,
+) -> Result<SelectionSet, String> {
     let selections = array(window, "selections")?;
     if selections.len() > MAX_SELECTIONS {
         return Err(format!(

@@ -16,13 +16,12 @@ use oso_core::decode::{FileInfo, LineEnding};
 use oso_core::key::{KeyPress, KeySequence};
 use oso_core::kill;
 use oso_core::minibuffer::{HISTORY_LENGTH, MAX_ENTRY_BYTES};
-use oso_core::selection::SelectionSet;
-use oso_core::window::Scroll;
 use serde_json::{Map, Value, json};
 
 use super::carry::MAX_CARRIED;
+use super::layout::{Windows, parse_windows};
 use super::{Frame, STATE_VERSION};
-use selections::parse_selections;
+pub(super) use selections::parse_selections;
 pub use selections::selections_state;
 
 /// The most buffers one state may open, each with a loading thread.
@@ -58,12 +57,8 @@ pub struct State {
     /// The length of each item, in bytes.
     pub items: Vec<usize>,
     pub buffers: Vec<BufferEntry>,
-    /// The position in `buffers` of the buffer the window shows.
-    pub shown: usize,
-    pub selections: SelectionSet,
-    pub scroll: Scroll,
-    /// Whether `scroll`'s start is a logical line, as a state before version 3 kept the top.
-    pub top_is_row: bool,
+    /// The tiled windows in the tree's order, the layout and which is selected (ADR 0112).
+    pub windows: Windows,
     pub pending_keys: Vec<KeyPress>,
     pub frame: Option<Frame>,
     /// The theme the previous instance drew in, if it said.
@@ -79,6 +74,11 @@ pub struct State {
 
 #[cfg(test)]
 impl State {
+    /// The first window, which is the only one before version 4.
+    pub fn window(&self) -> &super::layout::WindowEntry {
+        &self.windows.windows[0]
+    }
+
     /// The path of each buffer, `None` for `*scratch*`.
     pub fn paths(&self) -> Vec<Option<PathBuf>> {
         self.buffers
@@ -170,16 +170,15 @@ fn stamp_state(stamp: FileStamp) -> Value {
     })
 }
 
-/// Reads a state, checking everything before anything changes. There is one
-/// window until splits arrive (M3), so a state with others is refused.
+/// Reads a state, checking everything before anything changes.
 pub fn parse(state: &Value) -> Result<State, String> {
     let state = state.as_object().ok_or("the state is not an object")?;
     let version = match state.get("version").and_then(Value::as_u64) {
-        // Its own version and the one before (ADR 0090).
-        Some(version @ (2 | STATE_VERSION)) => version,
+        // Its own version and those before it, version 3 as one window (ADR 0090, ADR 0112).
+        Some(version @ (2 | 3 | STATE_VERSION)) => version,
         Some(version) => {
             return Err(format!(
-                "the state has version {version}, and this build reads versions 2 and {STATE_VERSION}"
+                "the state has version {version}, and this build reads versions 2 to {STATE_VERSION}"
             ));
         }
         None => return Err("the state has no version".into()),
@@ -210,37 +209,17 @@ pub fn parse(state: &Value) -> Result<State, String> {
     {
         return Err("the state carries the text of two buffers with no file".into());
     }
-    let windows = array(state, "windows")?;
-    let ([window], Some(0)) = (&windows[..], state.get("selected").and_then(Value::as_u64)) else {
-        return Err("the state must have one window, selected".into());
-    };
-    let window = window.as_object().ok_or("a window is not an object")?;
-    let shown = entries
-        .iter()
-        .position(|entry| entry.get("id") == window.get("buffer"))
-        .ok_or("the window shows a buffer the state does not have")?;
-    let scroll = window
-        .get("scroll")
-        .and_then(Value::as_object)
-        .ok_or("a window has no scroll position")?;
-    // Before version 3 the top was a row; one still waiting for its file goes on as a row.
-    let top_is_row = version < 3 || !scroll.contains_key("start");
+    let windows = parse_windows(state, entries, version)?;
     Ok(State {
         export,
         items: items.lengths,
         buffers,
-        shown,
-        selections: parse_selections(window)?,
-        scroll: Scroll {
-            start: size(scroll, if top_is_row { "top" } else { "start" })?,
-            left: size(scroll, "left")?,
-        },
-        top_is_row,
+        windows,
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
-        theme: super::parse_theme(state)?,
-        visual_aids: super::parse_aids(state)?,
-        font_lock: super::parse_font_lock(state)?,
+        theme: super::look::parse_theme(state)?,
+        visual_aids: super::look::parse_aids(state)?,
+        font_lock: super::look::parse_font_lock(state)?,
         kills,
         histories,
     })
@@ -507,7 +486,10 @@ fn parse_frame(state: &Map<String, Value>) -> Result<Option<Frame>, String> {
     }))
 }
 
-fn array<'a>(object: &'a Map<String, Value>, name: &str) -> Result<&'a Vec<Value>, String> {
+pub(super) fn array<'a>(
+    object: &'a Map<String, Value>,
+    name: &str,
+) -> Result<&'a Vec<Value>, String> {
     object
         .get(name)
         .and_then(Value::as_array)
@@ -526,7 +508,7 @@ fn sizes(object: &Map<String, Value>, name: &str) -> Result<Vec<usize>, String> 
         .collect()
 }
 
-fn size(object: &Map<String, Value>, name: &str) -> Result<usize, String> {
+pub(super) fn size(object: &Map<String, Value>, name: &str) -> Result<usize, String> {
     object
         .get(name)
         .and_then(Value::as_u64)
