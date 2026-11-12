@@ -27,7 +27,7 @@ minibuffer
 frame
 window word
 buffer motion search
-undo kill
+undo kill indent
 load selection
 display_map syntax
 complete decode key project rope secret

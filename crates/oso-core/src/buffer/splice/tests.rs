@@ -212,9 +212,26 @@ proptest! {
         let group: Vec<Batch> = applied.iter().rev().cloned().collect();
         let mut rope = Rope::from(text.as_str());
         let mut display = DisplayMap::new(&rope, TabWidth::new(4));
-        let (steps, back, _) = apply_group(&group, &mut rope, &mut display, None);
-        prop_assert_eq!(rope.to_string(), now);
+        // The cluster starts no batch touched, where they are once all have applied.
+        let before = display.snapshot();
+        let starts: Vec<usize> = (0..=text.len())
+            .filter(|&at| text.is_char_boundary(at) && before.cluster_at(at).0 == at)
+            .filter_map(|at| {
+                applied.iter().try_fold(at, |at, batch| moved(batch, at, true))
+            })
+            .collect();
+        let (steps, back, changed) = apply_group(&group, &mut rope, &mut display, None);
+        prop_assert_eq!(rope.to_string(), now.clone());
         prop_assert!(steps.len() <= applied.len());
+        // What the joined batches say changed holds every start that may have moved.
+        let after = display.snapshot();
+        for at in starts {
+            let index = changed.partition_point(|range| range.end < at);
+            if changed.get(index).is_some_and(|range| range.start <= at) {
+                continue;
+            }
+            prop_assert_eq!(after.cluster_at(at).0, at, "changed {:?}", changed);
+        }
         let mut marks: Vec<Range<usize>> = marks.into_iter().map(|at| at..at + 3).collect();
         marks.sort_unstable_by_key(|range| range.start);
         let mut joined = marks.clone();
@@ -237,7 +254,39 @@ proptest! {
         }
         prop_assert_eq!(joined, marks);
         prop_assert_eq!(edited_joined.ranges(), edited.ranges());
-        apply_group(&back, &mut rope, &mut display, None);
+        // Undone and redone, as an undo and a redo cross a group and the one it gives back.
+        let (_, again, _) = apply_group(&back, &mut rope, &mut display, None);
+        prop_assert_eq!(rope.to_string(), text);
+        apply_group(&again, &mut rope, &mut display, None);
+        prop_assert_eq!(rope.to_string(), now);
+    }
+
+    /// Batches that each lie wholly before the last, as undoing answers made forward applies
+    /// them, join into one step, and so do those that each lie wholly after what the last
+    /// became, as redoing them applies them (ADR 0119).
+    #[test]
+    fn batches_each_apart_from_the_last_join_into_one(
+        gaps in prop::collection::vec((1usize..5, 0usize..3, 0usize..3), 2..12),
+    ) {
+        let text = "x".repeat(200);
+        let mut at = 0;
+        let forward: Vec<Batch> = gaps
+            .iter()
+            .map(|&(gap, len, new)| {
+                let splice = Splice { start: at + gap, len, text: (new > 0).then(|| Rope::from("y".repeat(new).as_str())) };
+                at = splice.start + new;
+                vec![splice]
+            })
+            .collect();
+        // Made forward, each a byte or more after what the last became.
+        let group: Vec<Batch> = forward.iter().rev().cloned().collect();
+        let mut rope = Rope::from(text.as_str());
+        let mut display = DisplayMap::new(&rope, TabWidth::new(4));
+        let (steps, back, _) = apply_group(&group, &mut rope, &mut display, None);
+        prop_assert_eq!(steps.len(), 1);
+        // Undoing them applies each before the last.
+        let (steps, _, _) = apply_group(&back, &mut rope, &mut display, None);
+        prop_assert_eq!(steps.len(), 1);
         prop_assert_eq!(rope.to_string(), text);
     }
 

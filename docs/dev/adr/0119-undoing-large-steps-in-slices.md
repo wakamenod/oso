@@ -368,7 +368,7 @@ wait for the coordinator's go.
   in a wrapped window and in two windows; `!` over a highlighted 2 MiB buffer; query-replace
   sessions answered `y` match by match, over 140 KB and far apart over 100 MB; and 20 commands
   joined at 1000 cursors. The three `!` cases of ADR 0113 stay in `-- replace`, and the 89 MB kill
-  in the default run. `indent-region` is not on main yet; its case comes with it. A macro replay
+  in the default run. The `indent-region` command is not on main yet; its case comes with it. A macro replay
   runs in the host, and makes steps like a session answered match by match. The figures for each
   part below came from timers added to the code for a run and taken out again; the part prints
   totals only.
@@ -392,11 +392,14 @@ wait for the coordinator's go.
   the same way wherever a byte separates them, so undoing `!` applies one batch of 434,000
   splices; it costs as before (520–530 ms over 4 million lines, 681 ms highlighted), and 20
   commands joined at 1000 cursors take 29 ms, as before. The text, the content id and every offset
-  come out as before. The redo group holds the joined batches, and `apply_group` returns one step
-  a batch it applied. A single batch is not copied; typing never joins, since one cursor's
+  come out as before. What differs is not visible: the changed ranges are those of the joined
+  batch, the wrap splices come in its order, and the rope's chunks may be cut otherwise. The redo
+  group holds the joined batches, and `apply_group` returns one step a batch it applied. A single batch is not copied; typing never joins, since one cursor's
   batches touch and many cursors' interleave. A property test checks that a group applied this
   way gives the text, moves offsets and edited lines as its batches one after another, also with
-  splices that meet inside a batch, and that what it gives back undoes it.
+  splices that meet inside a batch; that a cluster start outside the changed ranges it returns is
+  still one; and that what it gives back undoes it, and what that gives back redoes it. Another
+  checks that batches each apart from the last join into one step, both ways.
 - **Left for the next steps:**
   - Batches that neither lie before nor after the ones joined, such as a macro that edits two
     places moving the same way, still map each batch over the ranges before it; step 2 counts

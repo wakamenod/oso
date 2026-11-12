@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 39629d4c7294ec932e38c39119e15ff985750aef3d13ca20701b9345d0503f51 # shrinks to text = "{r#\"{{{{{r#\"{{r#\"{{{{fn {{{{{{r#\"日本{fn r#\"{1. {\"\"\"r#\"fn r#\"{{{where {r#\"{{{{r#\"{{{{r#\"{r#\"{", asked = [(true, 95), (false, 1)], sorted = false, bytes = Some(0)
