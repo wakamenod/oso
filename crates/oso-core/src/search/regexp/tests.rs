@@ -39,6 +39,8 @@ fn smart_case_looks_past_escapes() {
     assert!(!smart_case(r"\x41\x{4A}"));
     assert!(smart_case("Foo"));
     assert!(smart_case(r"\dA"));
+    assert!(!smart_case(r"(?P<Name>foo)(?<Other>bar)"));
+    assert!(smart_case(r"(?P<name>Foo)"));
     assert_eq!(all("foo", "x FOO"), [2..5]);
     assert_eq!(all("Foo", "x FOO Foo"), [6..9]);
     assert!(all("(?-i)foo", "FOO").is_empty());
@@ -51,6 +53,9 @@ fn an_invalid_regexp_says_why_once() {
     assert!(!error.contains("error:"), "{error}");
     let long = "a".repeat(MAX_PATTERN_CHARS + 1);
     assert!(compile(&long).unwrap_err().contains("longer than"));
+    // Unicode classes repeated a few dozen times fit.
+    assert!(compile(r"\w{30}").is_ok());
+    assert!(compile(r"[\p{L}\d]{25}").is_ok());
 }
 
 #[test]
@@ -71,9 +76,42 @@ fn empty_matches_go_as_replace_all_takes_them() {
 }
 
 #[test]
-fn a_match_running_past_the_range_does_not_hide_a_later_one_inside() {
-    assert_eq!(within("a.*|c", "ac x", &[0..2]), [1..2]);
-    assert!(within("a.*", "aaa", &[0..2]).is_empty());
+fn a_range_is_its_own_haystack_as_a_narrowed_search() {
+    // A greedy match stops at the range's end.
+    assert_eq!(within("a.*|c", "ac x", &[0..2]), [0..2]);
+    assert_eq!(within("a+", "aaaa", &[0..2]), [0..2]);
+    // Two ranges on one line are each searched.
+    assert_eq!(within("a+", "aaaa", &[0..1, 2..4]), [0..1, 2..4]);
+}
+
+#[test]
+fn a_range_s_end_inside_a_line_is_neither_a_line_s_end_nor_a_word_s() {
+    assert!(within(r"\s+$", "foo bar", &[0..4]).is_empty());
+    assert!(within(r"\w+$", "foo.bar", &[0..3]).is_empty());
+    assert_eq!(within(r"\b", "abc def", &[0..2]), [0..0]);
+    assert!(within("a+$", "aaaa", &[0..2]).is_empty());
+    // Where the text after it makes them hold, they do.
+    assert_eq!(within(r"\w+\b", "foo.bar", &[0..3]), [0..3]);
+    assert_eq!(within(r"\s+$", "foo  ", &[0..5]), [3..5]);
+    // A match that cannot end at the range's end gives way to a shorter one.
+    assert_eq!(within("a+$|a", "aaab", &[0..2]), [0..1, 1..2]);
+    assert_eq!(within(r"\w+\b|\w", "abcd", &[0..2]), [0..1, 1..2]);
+    // An empty match at its end counts.
+    assert_eq!(within(r"x*", "ab", &[1..1]), [1..1]);
+    // A `(?x)` pattern's comment.
+    assert_eq!(within("(?x) a+ # as", "aaa", &[0..2]), [0..2]);
+}
+
+#[test]
+fn a_greedy_match_on_a_long_line_with_a_range_ending_in_it_is_quick() {
+    let text = "a".repeat(200 * 1024);
+    let started = std::time::Instant::now();
+    assert_eq!(within("a+", &text, &[0..100 * 1024]), [0..100 * 1024]);
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(500),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[test]
@@ -92,15 +130,20 @@ fn a_search_on_one_long_line_stops_when_asked() {
     let regexp = compile("a").unwrap();
     let ranges = [0..rope.len()];
     let mut scan = Scan::new(&regexp, &rope, &ranges, (0, false), usize::MAX, None);
+    let asked = std::cell::Cell::new(false);
+    let stop = || asked.get();
+    // The line is read, and then the search is asked to stop while it finds match after match.
+    assert_eq!(scan.next(&stop), Ok(Found::Match(0..1)));
+    asked.set(true);
     let mut found = 0;
     loop {
-        match scan.next(&|| true) {
+        match scan.next(&stop) {
             Ok(Found::Match(_)) => found += 1,
             Ok(Found::Stopped { .. }) => break,
             other => panic!("{other:?}"),
         }
     }
-    assert!(found < 1024 * 1024, "stopped part way, at {found}");
+    assert!(found < 10_000, "stopped soon, at {found}");
 }
 
 #[test]

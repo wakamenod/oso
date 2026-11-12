@@ -64,6 +64,7 @@ mod themes;
 mod trim;
 mod undo_group;
 mod view;
+mod walks;
 mod windows;
 mod wraps;
 mod write;
@@ -92,6 +93,7 @@ pub use themes::NoSuchTheme;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
 pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
+pub use walks::{NotInProject, WalkEnd, WalkRequest};
 pub use windows::{CannotResize, NoWindow, SoleWindow};
 pub use yank_pop::YankPopError;
 
@@ -152,6 +154,8 @@ pub struct Editor {
     write_over_asked: Option<write::WriteOver>,
     /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
     file_list: files::FileList,
+    /// What the prompt that lists a project's files keeps beside its candidates (ADR 0114).
+    project_files: walks::ProjectFiles,
     /// What a prompt that completes waits for from the worker (ADR 0096).
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
@@ -276,6 +280,7 @@ impl Editor {
             mark_list: None,
             kill_list: None,
             file_list: files::FileList::default(),
+            project_files: walks::ProjectFiles::default(),
             completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,

@@ -184,9 +184,17 @@ pub struct Prompt {
     /// Its answer must be a regexp that compiles, or the prompt stays open saying why
     /// (ADR 0113).
     pub(crate) regexp: bool,
+    /// The history its answers go to in place of its kind's, as one for each project of a
+    /// history its kind names (ADR 0114).
+    pub(crate) history_key: Option<String>,
 }
 
 impl Prompt {
+    /// The history its answers go to and `M-p` walks, if any.
+    pub(crate) fn history_name(&self) -> Option<&str> {
+        self.history_key.as_deref().or(self.kind.history())
+    }
+
     /// What it says before the answer.
     pub fn label(&self) -> &str {
         &self.label

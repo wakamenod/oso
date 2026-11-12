@@ -17,6 +17,9 @@ use regex::{Regex, RegexBuilder};
 
 use super::Found;
 use crate::rope::Rope;
+use cut::{AtCut, Ending};
+
+mod cut;
 
 /// The longest line a regexp is matched in: past it, a search stops at the line.
 pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
@@ -24,8 +27,8 @@ pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
 /// The most characters of a regexp, as isearch's string (ADR 0082).
 pub(crate) const MAX_PATTERN_CHARS: usize = 1024;
 
-/// The most memory a compiled regexp takes.
-const SIZE_LIMIT: usize = 1024 * 1024;
+/// The most memory a compiled regexp takes: enough for `\w{30}` and `[\p{L}\d]{25}`.
+const SIZE_LIMIT: usize = 2 * 1024 * 1024;
 
 /// What reading a line costs besides its bytes, as a line's seek and copy take time of
 /// their own.
@@ -48,6 +51,8 @@ pub(crate) struct LineTooLong(pub(crate) usize);
 #[derive(Clone)]
 pub(crate) struct Regexp {
     regex: Regex,
+    /// For a match at a range's end inside a line.
+    at_cut: AtCut,
     /// The longest line it is matched in.
     longest: usize,
 }
@@ -76,6 +81,23 @@ fn escape_tail(letter: char) -> usize {
 pub(crate) fn smart_case(pattern: &str) -> bool {
     let mut chars = pattern.chars().peekable();
     while let Some(c) = chars.next() {
+        // A group's name, `(?P<Name>…)` or `(?<Name>…)`, says nothing of case.
+        if c == '(' && chars.peek() == Some(&'?') {
+            let mut rest = chars.clone();
+            rest.next();
+            if rest.peek() == Some(&'P') {
+                rest.next();
+            }
+            if rest.next() == Some('<') {
+                for c in rest.by_ref() {
+                    if c == '>' {
+                        break;
+                    }
+                }
+                chars = rest;
+            }
+            continue;
+        }
         if c == '\\' {
             let Some(letter) = chars.next() else {
                 break;
@@ -111,14 +133,15 @@ pub(crate) fn compile(pattern: &str) -> Result<Regexp, String> {
             "Invalid regexp: longer than {MAX_PATTERN_CHARS} characters"
         ));
     }
-    RegexBuilder::new(pattern)
-        .case_insensitive(!smart_case(pattern))
-        .multi_line(false)
-        .size_limit(SIZE_LIMIT)
+    let insensitive = !smart_case(pattern);
+    builder(pattern, insensitive)
         .build()
-        .map(|regex| Regexp {
-            regex,
-            longest: MAX_LINE,
+        .and_then(|regex| {
+            Ok(Regexp {
+                regex,
+                at_cut: AtCut::new(pattern, insensitive)?,
+                longest: MAX_LINE,
+            })
         })
         .map_err(|error| {
             let error = error.to_string();
@@ -126,6 +149,16 @@ pub(crate) fn compile(pattern: &str) -> Result<Regexp, String> {
             let last = last.strip_prefix("error:").unwrap_or(last).trim();
             format!("Invalid regexp: {last}")
         })
+}
+
+/// A builder of `pattern` with query-replace's settings.
+fn builder(pattern: &str, insensitive: bool) -> RegexBuilder {
+    let mut builder = RegexBuilder::new(pattern);
+    builder
+        .case_insensitive(insensitive)
+        .multi_line(false)
+        .size_limit(SIZE_LIMIT);
+    builder
 }
 
 /// A line's text, read from a rope, which a search keeps while it is in the line, and which
@@ -199,6 +232,8 @@ pub(crate) struct Scan<'a> {
     /// An empty match here is skipped: a match ended here.
     skip_empty_at: Option<usize>,
     line: Option<Line>,
+    /// Where a match that ends at a range's end inside its line starts, kept.
+    ending: Ending,
     /// The work done, against `limit`.
     work: usize,
     limit: usize,
@@ -229,6 +264,7 @@ impl<'a> Scan<'a> {
             at: from,
             skip_empty_at: after_match.then_some(from),
             line,
+            ending: Ending::default(),
             work: 0,
             limit,
             looked: 0,
@@ -265,6 +301,23 @@ impl<'a> Scan<'a> {
         false
     }
 
+    /// Whether to stop here: past the limit or `until`, or as `stop` says, looked at every
+    /// [`LOOK_EVERY`] of work. The next turn of a search looks before it reads on.
+    fn over(&mut self, stop: &dyn Fn() -> bool) -> bool {
+        if self.work > self.limit
+            || self
+                .until
+                .is_some_and(|until| std::time::Instant::now() >= until)
+        {
+            return true;
+        }
+        if self.work - self.looked > LOOK_EVERY {
+            self.looked = self.work;
+            return stop();
+        }
+        false
+    }
+
     /// The next match: [`Found::Match`], [`Found::None`] past the last range, or
     /// [`Found::Stopped`] where it would go on, past its limit or as `stop` says.
     ///
@@ -276,10 +329,7 @@ impl<'a> Scan<'a> {
             let Some(range) = self.ranges.get(self.range).cloned() else {
                 return Ok(Found::None);
             };
-            let late = self
-                .until
-                .is_some_and(|until| std::time::Instant::now() >= until);
-            if self.work > self.limit || late {
+            if self.over(stop) {
                 return Ok(Found::Stopped { resume: self.at });
             }
             if self.at < range.start {
@@ -303,33 +353,30 @@ impl<'a> Scan<'a> {
             };
             let (start, next) = (line.start, line.next);
             let mut from = self.at - start;
+            // The range is the haystack, as in Emacs's bounded search: a match ends within it,
+            // so a greedy pattern stops at its end, while `$` and `\b` there see what follows.
+            let mut cut = (range.end - start).min(line.text.len());
+            while !line.text.is_char_boundary(cut) {
+                cut -= 1;
+            }
             let found = loop {
-                let found = self.regexp.regex.find_at(&line.text, from);
-                // A look that finds nothing read to the line's end; one that finds a match read
-                // about to its end, and a pattern that reads further is what `until` is for.
-                let cost = found.map_or(line.text.len() - from, |found| found.end() - from);
-                self.work = self.work.saturating_add(cost + PER_MATCH);
-                let Some(found) = found else {
+                let Some(found) = cut::find(
+                    self.regexp,
+                    (&line.text, start, cut),
+                    from,
+                    &mut self.ending,
+                    &mut self.work,
+                ) else {
                     break None;
                 };
-                let matched = start + found.start()..start + found.end();
-                if matched.is_empty() && self.skip_empty_at == Some(matched.start) {
-                    from = char_after(&line.text, found.start());
-                } else if matched.end > range.end && matched.start < range.end {
-                    // The leftmost match runs past the range; one starting later may not.
-                    from = char_after(&line.text, found.start());
-                } else {
+                let matched = start + found.start..start + found.end;
+                if !(matched.is_empty() && self.skip_empty_at == Some(matched.start)) {
                     break Some(matched);
                 }
-                if from > line.text.len() {
-                    break None;
-                }
+                // An empty match right where a match ended is skipped, once.
+                self.skip_empty_at = None;
+                from = char_after(&line.text[..cut], found.start);
             };
-            let over = self.work > self.limit
-                || (self.work - self.looked > LOOK_EVERY && {
-                    self.looked = self.work;
-                    stop()
-                });
             match found {
                 Some(matched) if matched.end <= range.end => {
                     self.at = if !matched.is_empty() {
@@ -345,13 +392,16 @@ impl<'a> Scan<'a> {
                 }
                 // Past the range's end: on to the next range.
                 Some(_) => self.at = range.end + 1,
+                // Nothing more in the range's part of this line: on past the range if it ends
+                // in the line, as another range may start further along it, or to the next.
+                None if cut < line.text.len() => {
+                    self.at = range.end + 1;
+                    self.skip_empty_at = None;
+                }
                 None => {
                     self.at = next;
                     self.skip_empty_at = None;
                 }
-            }
-            if over {
-                return Ok(Found::Stopped { resume: self.at });
             }
         }
     }

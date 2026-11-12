@@ -94,7 +94,10 @@ impl Editor {
             }
             if let Some(revision) = revision {
                 state.revision = revision;
-                state.line_kept = line.map(|line| (line, revision));
+                // Edits that did not go in leave the line as it was read, unlike its copy.
+                state.line_kept = line
+                    .filter(|_| changed || matches.is_empty())
+                    .map(|line| (line, revision));
             }
             state.all_from = match next {
                 Next::From((at, ended)) => Some((at.saturating_add_signed(shift), ended)),

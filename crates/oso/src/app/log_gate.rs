@@ -1,6 +1,8 @@
 //! The log around a buffer that may hold secrets: while one is shown, or was during what the
 //! app is handling, only warnings and errors are written, from every crate (ADR 0078). The app
-//! says when, so nothing that logs has to ask.
+//! says when, so nothing that logs has to ask. The project walker's crates, `ignore` and
+//! `globset`, write only warnings and errors at any time, as below that they name the files
+//! walked and the patterns of ignore files (ADR 0114).
 //!
 //! Must not depend on: the editor, key presses or the window. It holds one flag, which the app
 //! sets.
@@ -16,6 +18,9 @@ pub struct LogGate {
     quiet: Arc<AtomicBool>,
 }
 
+/// The crates whose debug records name the files a walk found and what ignore files say.
+const WALKER_CRATES: [&str; 2] = ["ignore", "globset"];
+
 /// `env_logger`, behind the flag.
 struct Gated {
     inner: env_logger::Logger,
@@ -24,7 +29,10 @@ struct Gated {
 
 impl Log for Gated {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        (metadata.level() <= Level::Warn || !self.quiet.load(Ordering::Relaxed))
+        let names_files = WALKER_CRATES
+            .iter()
+            .any(|name| metadata.target().split("::").next() == Some(*name));
+        (metadata.level() <= Level::Warn || !(names_files || self.quiet.load(Ordering::Relaxed)))
             && self.inner.enabled(metadata)
     }
 
@@ -98,6 +106,23 @@ mod tests {
                 .target("oso_render")
                 .build(),
         )
+    }
+
+    #[test]
+    fn the_walkers_crates_never_pass_below_warnings() {
+        let logger = gated(&LogGate::default());
+        let at = |target: &str, level: Level| {
+            logger.enabled(&Metadata::builder().level(level).target(target).build())
+        };
+        for target in ["ignore::walk", "ignore", "globset"] {
+            assert!(!at(target, Level::Debug), "{target}");
+            assert!(at(target, Level::Warn), "{target}");
+        }
+        assert!(
+            at("ignorable", Level::Debug),
+            "a crate named alike is not one of them"
+        );
+        assert!(at("oso::walk", Level::Debug));
     }
 
     #[test]
