@@ -248,3 +248,19 @@ fn only_a_space_may_take_the_marks_column() {
     assert_eq!(screen.mark(first), None);
     assert_eq!(screen.drawn(first), 0..11, "to the edge");
 }
+
+#[test]
+fn a_preedit_that_makes_a_break_lets_an_earlier_short_row_take_the_rows_after() {
+    // "aa" broke early, as nothing after it could until the line's end; the preedit's "b" may
+    // start a row after the spaces, the last of which hangs, so "aa" takes the row after it.
+    let text = "。aa   あああ。。 \n。\naaあ。。  。";
+    let cursor = text.len() - "。".len();
+    let (window, display) = make(text, (6, 10), true, cursor);
+    let preedit = Preedit::new("b".into(), None);
+    let shown = screen(&window, &display, Some(&preedit));
+    assert_eq!(shape(&shown)[3..], [(2, 0, 10, true), (2, 10, END, false)]);
+    let mut whole = text.to_string();
+    whole.insert(cursor, 'b');
+    let (inserted, display) = make(&whole, (6, 10), true, cursor);
+    assert_eq!(shape(&shown), shape(&screen(&inserted, &display, None)));
+}
