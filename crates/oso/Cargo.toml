@@ -23,6 +23,9 @@ serde_json.workspace = true
 toml.workspace = true
 # The project walker, in `walk` only (ADR 0114).
 ignore.workspace = true
+# The rules that tell a hosted session's state from its screen (ADR 0121), the only engine
+# allowed (ADR 0010). oso-core's version and features, so the tree gains no crate.
+regex = { version = "1.12.4", default-features = false, features = ["std", "unicode-case", "unicode-perl", "unicode-gencat", "perf"] }
 miniz_oxide = { workspace = true, optional = true }
 
 # The window system on Windows and Linux; macOS has oso's own (ADR 0070, stage 3).

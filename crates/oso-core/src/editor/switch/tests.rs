@@ -330,3 +330,23 @@ fn a_new_buffers_name_is_bounded_and_holds_no_control_character() {
     assert_eq!(editor.switch_to_named("fine"), Ok(()));
     assert_eq!(shown(&editor), "fine");
 }
+
+#[test]
+fn a_new_buffer_never_takes_the_name_of_an_internal_one() {
+    let mut editor = Editor::default();
+    let internal =
+        editor.add_internal_buffer("*Session explain*", crate::buffer::Mode::Fundamental);
+    assert_eq!(
+        editor.switch_to_named("*Session explain*"),
+        Err("That name is one of oso's own buffers")
+    );
+    assert_ne!(editor.window().buffer(), internal, "nor is it shown");
+    assert_eq!(
+        editor
+            .buffers()
+            .filter(|(_, buffer)| buffer.name() == "*Session explain*")
+            .count(),
+        0,
+        "no buffer of that name was made"
+    );
+}

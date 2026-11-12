@@ -95,6 +95,12 @@ pub fn is_this_users(metadata: &std::fs::Metadata) -> bool {
     backend::is_this_users(metadata)
 }
 
+/// Whether every user may write the file or directory `metadata` describes, by its mode, as a
+/// file read from a repository must not be (ADR 0115). Windows has no modes, and says no.
+pub fn others_can_write(metadata: &std::fs::Metadata) -> bool {
+    backend::others_can_write(metadata)
+}
+
 /// Whether a file with `metadata` has one name, as a hard link is a name for some other file's
 /// text. Windows has no such simple answer.
 pub fn has_one_name(metadata: &std::fs::Metadata) -> bool {

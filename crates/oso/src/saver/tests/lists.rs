@@ -1,6 +1,5 @@
 //! The tests of what a save does with real access lists and a real quarantine flag. They are set
-//! by the system's own tools, as this crate has no bindings of its own, and the dev feature is what
-//! lets a test start a process (ADR 0067).
+//! by the system's own tools, as this crate has no bindings of its own (ADR 0067).
 //!
 //! Must not depend on: `app`, winit or the GPU.
 
@@ -24,6 +23,8 @@ fn tool(program: &str, args: &[&std::ffi::OsStr]) {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })
     .unwrap();
     assert!(child.wait().unwrap().success(), "{program} {args:?}");

@@ -248,7 +248,7 @@ impl Editor {
         let Some(buffer) = self.buffer(id) else {
             return Trimmed::NOTHING;
         };
-        let ranges = buffer.edited_ranges().to_vec();
+        let ranges = buffer.edited_ranges();
         if !self.trims.on_save || ranges.is_empty() {
             return Trimmed::NOTHING;
         }
@@ -552,11 +552,11 @@ impl Editor {
         };
         let (ranges, markdown) = match then {
             Then::Command => (
-                buffer.tracked(scan.0).unwrap_or_default().to_vec(),
+                buffer.tracked(scan.0).unwrap_or_default(),
                 is_markdown(buffer),
             ),
-            Then::Save { .. } => (buffer.edited_ranges().to_vec(), is_markdown(buffer)),
-            Then::Write { path, .. } => (buffer.edited_ranges().to_vec(), names_markdown(path)),
+            Then::Save { .. } => (buffer.edited_ranges(), is_markdown(buffer)),
+            Then::Write { path, .. } => (buffer.edited_ranges(), names_markdown(path)),
         };
         let keep = if matches!(then, Then::Command) {
             Vec::new()

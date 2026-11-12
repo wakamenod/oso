@@ -451,15 +451,16 @@ Limits for crafted input, each saying what it hides:
 - **`oso_core::review`** (new module, pure, no `unsafe`, no I/O): the model, the commands' state
   changes, shapes and re-anchoring, content keys, the files pane's and filter's state. The LCS that
   re-anchoring needs is handed in as a function by the caller, so `oso-core` takes no new
-  dependency. It sits on `guardrails/layers.txt`'s lowest `oso-core` line with `project`, and
+  dependency. It sits on `guardrails/layers.txt`'s `oso-core` line with `project`, and
   `editor` holds the open reviews.
 - **`crates/oso/src/review/`** (new tip-crate module): the git and `gh` runner, the diff worker
   (`similar`), the seams, persistence, and the channel methods' bodies. A new line entry beside
   `walk` in `[oso]`.
 - **`oso-syntax`** gains documents no buffer owns, for the old side and files not open (new public
   API, this ADR; its items are approved at step 8).
-- **`oso_core::window` and `oso_core::frame`** gain a pair of windows that scroll together (new
-  public API, this ADR; its items are approved at step 10).
+- **`oso_core::window` and `oso_core::editor`** gain a pair of windows that scroll together (new
+  public API, this ADR; its items were approved at step 10). `oso_core::frame` keeps the pair in
+  its tree with nothing public.
 - **`oso-platform::process`** gains a piped standard input and variables set by value.
 - **No new crate, no new crate edge, no new dependency** on the recommended options.
 
@@ -476,7 +477,8 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
 
 1. **The model and re-anchoring** in `oso_core::review`, with property tests ported from the
    previous setup's cases. No UI.
-2. **Git and diffing:** the process module's additions (after ADR 0120 step 2 ships it), the
+2. **Git and diffing:** the process module's additions (after ADR 0120 step 2 ships it; that step
+   already added variables set by value, `Spawn::set`, so only a piped standard input is left), the
    review's thread, the scopes (session, uncommitted, staged, unstaged, branch, commit, range), the
    baseline, `similar` diffs and the limits. Unit tests against temporary repositories.
 3. **The unified view:** the review buffer, its mode and keys, the menu, comments and drafts,
@@ -496,9 +498,9 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
    on-screen first, and reusing an open buffer's highlights.
 10. **A pair of windows that scroll together, in ADR 0112's tree** (Q7): two windows that move by
     a row map their owner gives, closed and resized together. A new public API of
-    `oso_core::window` and `oso_core::frame`; its items (expected: making and breaking a pair, the
-    row map's trait or type, and how a pair is laid out and saved across a restart) are listed for
-    the author's approval when this step starts.
+    `oso_core::window` and `oso_core::editor`, with nothing public in `oso_core::frame`; its items
+    (making and breaking a pair, the row map's type, and how a pair is laid out and saved across
+    a restart) were approved when this step started (see "As built").
 11. **The two-pane view and the automatic layout** (Q6): the filler rows, the 160 and 150 column
     rules, judging the width only on a change of it, and `|`.
 12. **Sending:** the message and its preview, and the Deliver seam's terminal implementation once
@@ -640,7 +642,7 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - Review state is written to the state directory, and holds code text from the reviewed files.
 - Two new public APIs wait for the author's approval at the start of their steps: documents no
   buffer owns in `oso-syntax` (step 8) and a pair of windows in `oso_core::window` and
-  `oso_core::frame` (step 10).
+  `oso_core::editor` (step 10, approved 2026-11-13).
 - Follow-up: the BlockMap if comments move there, ADR 0121's session and turn seams, posting to
   GitHub, and in-process review with `gix`.
 
@@ -661,3 +663,272 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
   untrusted repositories.
 - **A review in the terminal, by running hunk or a similar tool in a PTY:** a second UI with its
   own keys, and its state out of oso's commands and channel.
+
+## As built
+
+### Step 1: the model and re-anchoring
+
+`oso_core::review` (`review.rs`, with `shape`, `map`, `carry`, `comment` and `decision` under
+it), on `project`'s row of `guardrails/layers.txt`. It uses only `std`. The author approved its
+public items as listed in the plan (with `Applied::marks_changed` added later, item 12), and
+answered its questions (a), then those of its reviews:
+
+1. **Paths are bytes** as git gives them with `-z` (`&[u8]`, `/` on every OS), so a name that is
+   not UTF-8 goes through unchanged.
+2. **No per-edit numbering.** The previous setup counted lines that share a number, for diffs made
+   by joining a patch per edit. oso diffs each file against one old side, so a number names one
+   line, and that case is not ported.
+3. **A commented line is compared whole.** This changes the rule in "Comments and re-anchoring":
+   in memory, a comment keeps the reading its line is in (the one it was last placed in), and
+   its line there is compared with the line it is carried to, on the worker. The first 4 KiB, the
+   length and a hash of the rest (`MAX_KEPT_LINE`) are only what a saved review keeps (step 6).
+4. **Removing a comment removes its replies.** The person removes any comment; an agent removes
+   only its own, and is refused when a reply is the person's. Both edit only their own comments.
+   **An agent resolves or reopens** only its own comment, and only while no reply in its thread
+   is the person's.
+5. **`editor` holds no review yet.** It gets one in step 3, when a command first needs it.
+6. **The nearest line that stayed** (where a cursor goes when its line went) waits for step 4.
+7. **Hunks must have an old line between them,** as any diff with no context gives them, and end
+   below the last 32-bit number. `Shape::new` checks the order and the numbering, and refuses the
+   rest.
+8. **A bad matcher result is thrown out** for its stretch: pairs out of range, out of order or of
+   unequal lines match nothing there.
+9. **Hunks with one text keep their own decisions:** the first of them in one reading goes to the
+   first in the next, and so on. A decision stays keyed by content, and stays on the hunk shown.
+10. **A file keeps at most 16 earlier readings** (`MAX_KEPT_READINGS`) for its outdated comments
+    to come back by. Comments on older ones stay outdated for good and let their reading go.
+11. **A file put in against a blob carries nothing.** When one reading's old side is no file and
+    the other's is a blob (a new file once committed, or a file deleted and put back), no line
+    of the one is a line of the other, and lines that read alike are not taken for the same: the
+    comments on them go outdated. Two readings of a file put in share their empty old side.
+12. **Applying says two things apart:** `again`, when comments were added since the snapshot
+    (they are outdated until carried, and not counted), and `marks_changed`, when decisions or
+    viewed marks changed meanwhile and the current ones were carried in their place.
+13. **A hunk comment's lines are checked like a line comment's:** each counts only where its
+    text is its own.
+14. **A line's bytes include its terminator** (`\n`, and a `\r` before it), so a change of line
+    ending or of the newline at the end of the file is a change of the line.
+15. **Later steps add:** `Review::take_released` in step 4, so the host lets go of old readings
+    off the UI thread; and in step 7, a check that an agent's comment names the reading it was
+    read in, and an agent identity (`open-questions.md`). The approved names stay.
+
+What was built:
+
+- **A `Shape`** is a reading's old side (`Base`: a blob, no file, or unknown) and its hunks with no
+  context, checked by `Shape::new`. `line` and `hunk_at` find the lines a diff shows by halving.
+- **The `LineMap`** is the previous setup's algorithm, but it walks the hunks' edges instead of
+  each line. Whether an old line is shared changes only at an edge of a hunk of either reading, or
+  of the hunks between the old sides. So the shared lines come as runs between the sorted edges,
+  and only the lines put in between two runs go to the matcher. The cost follows the hunks and the
+  lines they put in, not the file's length. A property test checks it against a line-by-line
+  reference of the previous setup's algorithm, over same, moved and new old sides.
+- **The LCS is a closure,** `FnMut(&[&[u8]], &[&[u8]]) -> Vec<(usize, usize)>`, given only the
+  lines put in on each side, and it must bound its own work (the tip crate's diff has a deadline).
+  The hunks between two old blobs come in as `BaseHunk`s when `base_pair` names two different
+  blobs, and nothing is carried when the caller has none.
+- **Carrying runs in three parts:** `Review::carry` takes a snapshot on the UI thread (a reference
+  to each comment's reading, and the marks when a hunk is marked). `Carry::run`, on a worker,
+  builds one map per reading carried from, places each anchor once (a thread's replies share it),
+  hashes the new hunks and carries the marks. `Review::apply` writes the result by id. A snapshot
+  taken before another reading was applied changes nothing and says `again`.
+- **Decisions** are a mark per hunk of the current reading, so a lookup is an index. The marks are
+  carried by a hash of each hunk's removed and added lines (the review's `RandomState`), and the
+  text decides. Viewed is kept apart from accepted and rejected. Marks whose text left the reading,
+  or whose file left the review, are counted in `dropped` until `clear_dropped`.
+- **Who calls what:** `decide`, `set_viewed`, `mark_sent`, `mark_read` and `clear_dropped` take no
+  author: they are the host's, at the person's word, and no agent tool reaches them (step 7).
+- **Tests:** the previous setup's cases (lines put in above, look-alike lines, a moved old side
+  and its shift tables, an old side that is the same or appears, matching by text, a new file
+  matched whole), and properties: a reading maps to itself; the map equals the reference; a line
+  carried lands on a line with its own text, in order; a lying matcher never carries a line to
+  another text; a hunk comment is outdated exactly when half its lines went; and no agent command
+  changes or removes the person's comments, nor reuses an id. Unit tests cover identical hunks,
+  snapshots older than a reading, the kept-readings limit, numbers near the last one, a comment
+  on a removed line, and a new file once committed.
+
+### Step 8: documents no buffer owns
+
+The author approved the plan's API and its nine answers, each the recommended one (2026-11-13,
+through the coordinator).
+
+- **The API** is three methods of `oso_syntax::Scheduler<Key>` and one enum (and `Doomed`,
+  below). The key stays generic, and the tip crate keeps buffers and documents apart with a key
+  of its own (step 9):
+  - `open(key, language, verdict, text, shown) -> Result<(), Refused>` opens a text that never
+    changes, to parse and highlight whole, `shown` first. It is O(1), and nothing is parsed or
+    freed in it. A key that has a slot is replaced, as a job in a new language replaces one. A
+    refused open also closes a document open under the key, so a refresh refused as secret
+    leaves nothing of the old text running.
+  - `show(key, shown)` says what windows show of an open document. `close(key)` drops a
+    document at once, as `drop_buffer` drops a buffer: what waited never runs, and a slice
+    running on it gives back nothing. Both leave a buffer's key alone, and a job sent for a
+    document's key replaces it with a buffer.
+  - `Refused` is `MayHoldSecrets`, `TooLarge` (past ADR 0111's 2 MiB) or `Full`. `Full` is the
+    one to try again once another document has closed.
+  - Reports are `Report<Key>`, with epoch 0 and revision 0, since the text never changes. So a
+    report of an earlier text under the same key looks the same as one of the new text, and the
+    caller opens each text under a key it never used before (step 9).
+- **Secrets:** `open` takes the source's `Verdict` and refuses anything but `Ordinary`, the
+  same test `Buffer::is_secret` makes. So a text not judged yet, or whose path could not be
+  resolved, is refused too, as a buffer not judged yet is. No tree, timing or highlight exists
+  for such a text. The caller judges the source: every path a review side names (the old and the
+  new path of a rename), or `Buffer::verdict` for a buffer's snapshot. Once a source turns
+  secret, the caller closes the document. A slice already running on it ends, as a dropped
+  buffer's does, and gives back nothing. Judging a path from outside `oso-core` needs a public
+  form of `secret::judge`, left to step 3 or 9 (`open-questions.md`).
+- **One lane for documents:** a document, shown or not, runs only in the lane that background
+  buffers use, which one thread at a time has. So a shown buffer always has a thread, even
+  while a slice on crafted text runs long. In that lane, shown documents go first, then
+  background buffers, then documents not shown. Among documents, one that holds a tree goes
+  before one that has none, and a paused document keeps its place in the queue rather than
+  going to the back, so that a started tree finishes and is freed.
+- **Bounds:** at most 1024 documents are open. Each slot holds a rope handle and the shown
+  ranges, and every checkout scans the slots under the lock the UI thread takes: with 1023
+  documents and 16 buffers open, a checkout and its give-back cost about 5 µs together, and an
+  open and a close about 0.8 µs (release, the author's Mac). At most 4 documents hold a tree at
+  once, and a document that would start a fifth waits for one to finish or close.
+- **A shown document waiting for room** (the author's choice after the review, Q10 (a)): while
+  a shown document cannot start because 4 hold a tree, hidden documents that hold one go before
+  background buffers, so that one finishes and makes room. Under the plain order, the shown
+  side would wait behind every background buffer, for as long as they had work. Not taken:
+  letting up to 2 shown documents pass the cap, and keeping the plain order as a known limit.
+- **A checkout whose slot went** (closed, replaced or dropped while a thread has it) still holds
+  the lane, and its tree still counts, until it is given back, a slice that panicked too.
+  Otherwise the next document could take the second thread while that slice runs, and a fifth
+  tree could start.
+- **A checkout keeps the lane it was taken in** (the coordinator's review): a background buffer
+  that a window shows during its slice still holds the lane until it is given back, as a shown
+  buffer whose window went already did (ADR 0111, step 4a). Before, it let a document take the
+  second thread meanwhile.
+- **What is freed goes to a thread** (the author's choice after the coordinator's review,
+  Q11 (a)): `Scheduler::take_doomed` returns `Doomed` (new, public: an opaque value with
+  `is_empty`, which frees what it holds when dropped), not `Vec<Document>`. It holds the
+  documents, and the text that waited in a slot that went: closed, replaced, refused or failed
+  before it started. The schedule may have held such a text alone, and freeing 2 MiB of it
+  takes about 55 µs (release, the author's Mac), so it is not freed under the lock. The pool's
+  `open` keeps an O(1) copy of the text, so a refused text is freed after the lock too. Not
+  taken: a second method for the texts beside `take_doomed`, and freeing them under the lock
+  as a known limit.
+- **A finished document gives its tree to the list to free** when it is done, and a thread
+  frees it with nothing locked. Its slot stays until `close`, holding no document, text or
+  shown ranges. The caller keeps the highlights from the last report.
+- **The tip crate's pool is generic over its key** (`Pool<Key>`, `Orders<Key>`), with
+  `open`, `show` and `close`, which lock only for the schedule's bookkeeping. The app keeps
+  `Pool<BufferId>`, so nothing opens a document until step 9. Until then, the three methods
+  are expected to be dead code outside tests. The code is in `oso-syntax`'s private module
+  `worker/unowned.rs`.
+- **What step 9 takes on:**
+  - a key never used before for each text;
+  - closing a document whose source turns secret;
+  - not opening again a text whose document failed or was lost;
+  - calling `show` only when what windows show changed, since each call wakes the threads;
+  - opening many sides in one turn under one lock, or spread over turns;
+  - measuring the 500 ms "whole" budget with documents on one lane.
+- **Tests:**
+  - Refusals: every verdict that is withheld, the size limit and the open cap.
+  - A refused open closes what was open under the key.
+  - The count of open documents through every way a slot goes.
+  - A checkout whose document closed keeps the lane and its tree until it is given back, or
+    until its panic is reported.
+  - A background buffer shown during its slice keeps the lane.
+  - The text of a document that never started goes to `Doomed` when it is closed, replaced,
+    refused or replaced by a job.
+  - Highlights equal a fresh document's.
+  - A finished document frees its tree and keeps an empty slot.
+  - Closing before, during and after a slice.
+  - The lane, its order (a document that holds a tree before one that waited longer) and the
+    tree cap, and a shown document waiting for room letting a started one finish first.
+  - Nothing is made or freed where documents open, show or close.
+  - In the tip crate, two real threads: a crafted document that fails as too slow, beside a
+    shown buffer that is highlighted first, and a second document that waits for it.
+
+### Step 10: a pair of windows that scroll together
+
+A pair is two tiled windows whose buffer lines line up by a row map their owner gives, closed and
+resized together, in ADR 0112's tree. It is generic: nothing in it knows of a review, whose
+two-pane view and filler rows come in step 11. The author approved the public items as listed
+in the plan, and answered its questions (a), on 2026-11-13:
+
+1. **The row map is a type,** `window::RowMap`: aligned runs of lines, `(first's line, second's
+   line, lines)`, in order and apart on both sides (`RowMap::new`, refused with `BadRowMap`), or
+   every line the same line (`RowMap::same`), which a review's filler rows give. `second_of` and
+   `first_of` find a line on the other side by halving the runs. A line only one side has goes
+   line by line into the other side's gap, its last line taking the rest, or to the line after
+   the run before it when the other side has none there.
+2. **It maps buffer lines,** display rows before any wrap, so each window wraps at its own width
+   and the map stays true.
+3. **The other window's cursor follows.** After every command (`Editor::follow_cursor`), when
+   the selected window is in a pair and moved since its windows were last in step, the other
+   window's top goes to the start of the line aligned with the selected one's top, its left
+   column with the selected one's, and its primary cursor, alone, to the line aligned with the
+   selected one's cursor, at the same display column clamped to that line, with the selected
+   one's goal kept. Then it scrolls as little as shows its cursor, which a window a row shorter
+   or wrapped narrower may need. When the other window's top is on the aligned line already, it
+   stays, so a long wrapped line keeps the rows it shows. Not while a prompt is open, as ADR
+   0112's windows follow: a pair made, turned or given a map beneath a prompt moves in step
+   after the first command once it closes.
+   The wheel (`scroll_view`) moves the other window's view with the one it turns, and its
+   cursors into that view as the wheel moves any window's, but those of the window beneath a
+   prompt and of one with a preedit; sideways (`scroll_view_sideways`), its left column alone.
+   **Nothing moves in step while either window shows a buffer that may hold secrets,** checked
+   at each step as a verdict can change after pairing, so no position in one is carried into a
+   window the dev socket and the agent channel describe (ADR 0044, ADR 0079).
+4. **A pair resizes as one,** its windows kept the same, as one child of the run around it,
+   which `balance-windows` balances with the rest.
+5. **`C-x 2` and `C-x 3` in either window split the pair's area:** the new window goes below or
+   at the right of the whole pair, outside it.
+6. **Showing another buffer in either window breaks the pair,** whatever shows it (`C-x b`,
+   killing its buffer, a restart's `show_in`): both windows stay, as windows of their own, merged
+   into the run around them when it runs their way.
+7. **The handoff stays at version 4.** A pair goes over as two windows of their own in the same
+   cells, and its owner pairs as it opens once more: it shows one side, then calls
+   `pair_window`. What becomes of the windows left over when a review is restored is step 6's
+   to decide; pairing two windows that exist already would need a new public item, such as
+   `pair_windows`, for the author's approval then (the coordinator's call, 2026-11-13).
+8. **A frame too small for every window hides both windows of a pair together,** never the
+   selected window's pair. This holds but where the area could keep no window otherwise: in an
+   area smaller than both windows need (a frame of one row, say), one window of the pair shows
+   alone, as a run's first does, since an area always keeps a window: the selected window
+   when the pair holds it, and otherwise the first.
+
+What was built:
+
+- **`Editor::pair_window(way, buffer, map)`** splits the selected tiled window into a pair, the
+  new window at the right or below showing `buffer`, and refuses with `NoPair`: `TooSmall`
+  where a split would be, `Paired` for a window in a pair already, `NoBuffer`. The selected
+  window stays selected and leads at once. `pair_of` names the other window, `set_row_map`
+  gives a new map and moves the windows in step from the selected one, or the first,
+  `turn_pair` lays a pair side by side or stacked (`TooSmall` where either window would be
+  smaller than a split leaves), and `unpair(keep)` closes the other window, `keep` taking the
+  pair's cells, and its selection if the other had it.
+- **`C-x 0` in either window deletes both,** and selects the window selected most recently
+  before them; a pair that is the whole frame stays, as the only window does. `C-x 1` keeps
+  both. `C-x o` and `windmove` go through them as through any window.
+- **The tree** (`frame::Splits`) marks a pair's run, crate-private. A pair is never merged into
+  a run of its way, so a pair side by side sits in a run side by side as one child. Nothing in
+  `frame` is public for it. A pair is a level of the tree of its own, so a layout that holds
+  pairs reaches the handoff's 16 levels (`Tiling::MAX_DEPTH`), past which a restart waits, a
+  level sooner than the same windows unpaired would.
+- **Beneath a prompt, a pair holding the window beneath stays:** `unpair` returns false and
+  `delete_window` is refused, as for the sole window, so that what the prompt acts on keeps its
+  window and buffer. The window commands refuse inside a prompt anyway (ADR 0112); this keeps
+  the API from moving a prompt's window for any other caller.
+- **No change to the app:** the host calls `follow_cursor` and the wheel's methods as before,
+  and draws each window as before, so no end-to-end flow changed in this step.
+- **Cost:** a command's end looks the pair up among the pairs, and a window that did not move
+  since leads nothing. Moving in step is two lookups in the map, a seek for each line and one
+  view set, and the other window's rows are shaped again only when its view moved. A map is
+  built where its owner builds it, off the UI thread for a large one, as `RowMap::new` checks
+  every run; giving one to the editor moves it. In a release build, over two texts of 1 GB and
+  a map of a million runs, the end of a command costs microseconds more with a pair, and so
+  does a character on a 10 MB line both windows wrap.
+- **Tests:** the tree's property test also pairs, turns, breaks and unpairs, and checks that a
+  pair shows together and shares its cells; the map's runs map exactly and back, and keep lines
+  in order; on the editor, moving, scrolling a screen, isearch, the wheel up, down and
+  sideways, a prompt and a preedit, a short line and the end of the text, a wrapped window,
+  closing, splitting, breaking, unpairing, turning, the handoff, and a buffer that may hold
+  secrets in either window, from the start or later; and a property test that, whatever is
+  done to the windows, the editor's pairs are the tree's and show what they were paired with.
+  Two ignored tests time moving in step in a release build: over two texts of 1 GB and a map
+  of a million runs, and on a 10 MB line both windows wrap.
+

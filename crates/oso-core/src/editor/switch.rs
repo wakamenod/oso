@@ -54,11 +54,26 @@ pub enum KillRefused {
 }
 
 impl Editor {
+    /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
+    /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
+    /// that is not tiled or a buffer that does not exist.
+    pub fn show_in(&mut self, id: crate::window::WindowId, buffer: BufferId) {
+        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
+            return;
+        };
+        if self.buffer(buffer).is_some() {
+            self.window_moves_on();
+            self.window_shows(index, buffer);
+        }
+    }
+
     /// Makes the window at `index` show `buffer`, where it was there the last time, clipped to
     /// the text as it is now, with the region hidden, or from its start. Every change of what a
     /// window shows comes through here, so that what was around a buffer that may hold secrets,
     /// before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        // A pair holds while each window shows what it was paired with (ADR 0122).
+        self.leave_pair(index, buffer);
         // A search keeps to the buffer it began in (ADR 0082).
         self.isearch_abandon();
         self.replace_abandon();
@@ -240,7 +255,9 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character.
+    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character,
+    /// or one an internal buffer a person does not go to holds, such as `*Session explain*`:
+    /// a second buffer of that name could pass for oso's own (ADR 0121).
     pub fn switch_to_named(&mut self, name: &str) -> Result<(), &'static str> {
         if name.is_empty() {
             return Ok(());
@@ -250,6 +267,9 @@ impl Editor {
             None if name.len() > MAX_NAME_BYTES => return Err("That name is too long"),
             None if name.chars().any(char::is_control) => {
                 return Err("A buffer's name holds no control characters");
+            }
+            None if self.buffers.iter().any(|(_, buffer)| buffer.name() == name) => {
+                return Err("That name is one of oso's own buffers");
             }
             None => self.add_buffer(Buffer::new(name)),
         };

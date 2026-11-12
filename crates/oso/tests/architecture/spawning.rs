@@ -8,10 +8,12 @@
 
 use crate::lexer::{Token, tokenize};
 
-/// The files that may silence the ban: the process module, and the benchmark
-/// harness, which never ships (ADR 0046). Adding one needs an ADR.
-pub const ALLOWED: [&str; 2] = [
+/// The files that may silence the ban: the process module, its terminals'
+/// child-side hook (ADR 0120), and the benchmark harness, which never ships
+/// (ADR 0046). Adding one needs an ADR.
+pub const ALLOWED: [&str; 3] = [
     "crates/oso-platform/src/process.rs",
+    "crates/oso-platform/src/process/pty/unix.rs",
     "crates/oso/examples/perf/process.rs",
 ];
 

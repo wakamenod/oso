@@ -25,7 +25,7 @@
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, ContentId, EditError, Mode, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{FrameLayout, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -55,6 +55,7 @@ mod macros;
 mod marks;
 mod messages;
 mod migemo;
+mod pairs;
 mod project_search;
 mod projects;
 mod prompts;
@@ -62,6 +63,7 @@ mod reload;
 mod replace;
 mod save;
 mod screen;
+mod sessions;
 mod status;
 mod switch;
 mod tab;
@@ -91,6 +93,7 @@ pub use jump::{Chose, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
+pub use pairs::NoPair;
 pub use project_search::{
     Excerpt, ProjectPreviewRead, ProjectPreviewRequest, ProjectSearchHit, ProjectSearchRequest,
     ProjectSearchRow,
@@ -100,6 +103,7 @@ pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
+pub use sessions::SessionRequest;
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
@@ -154,6 +158,8 @@ pub struct Editor {
     /// The tiled windows other than the selected one whose cursors or tops an edit moved in
     /// the command, which follow their cursors when it ends (ADR 0112).
     moved_windows: Vec<WindowId>,
+    /// The pairs of tiled windows that scroll together (ADR 0122).
+    pairs: Vec<pairs::Pair>,
     undo_scope: Option<UndoScope>,
     /// An undo or a redo under way, a slice at a time (ADR 0119).
     crossing: crossing::Crossings,
@@ -239,6 +245,8 @@ pub struct Editor {
     kills: kill::Kills,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
+    /// What commands asked of the host about agent sessions (ADR 0121).
+    session_requests: Vec<SessionRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// Migemo's setting, and the needles of the last romaji strings (ADR 0116).
@@ -269,7 +277,9 @@ pub struct Editor {
     /// Whether `RET` and typed closers indent (`electric-indent-mode`, ADR 0115).
     electric_indent: bool,
     /// Each mode's indentation, as the configuration gives it (ADR 0115).
-    mode_indents: [(Mode, crate::indent::Settings); 4],
+    mode_indents: indent::ModeIndents,
+    /// Files whose EditorConfig the host should read, after `C-x C-w` named them (ADR 0115).
+    editorconfig_requests: Vec<ProjectRequest>,
     /// The layer of `C-x TAB`, while it is open (ADR 0115).
     rigid: Option<indent::RigidLayer>,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
@@ -301,6 +311,7 @@ impl Editor {
             recent: vec![FIRST_WINDOW],
             wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
             moved_windows: Vec::new(),
+            pairs: Vec::new(),
             undo_scope: None,
             crossing: crossing::Crossings::default(),
             join_ready: false,
@@ -339,6 +350,7 @@ impl Editor {
             save_over_asked: None,
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
+            session_requests: Vec::new(),
             isearch: None,
             migemo: migemo::Migemo::default(),
             jump: None,
@@ -355,8 +367,8 @@ impl Editor {
             aids: VisualAids::default(),
             font_lock: true,
             electric_indent: true,
-            mode_indents: [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
-                .map(|mode| (mode, crate::indent::Settings::default())),
+            mode_indents: indent::compiled_mode_indents(),
+            editorconfig_requests: Vec::new(),
             rigid: None,
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
@@ -404,19 +416,6 @@ impl Editor {
             .iter()
             .filter(|(_, buffer)| !buffer.is_internal())
             .map(|(id, buffer)| (*id, buffer))
-    }
-
-    /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
-    /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
-    /// that is not tiled or a buffer that does not exist.
-    pub fn show_in(&mut self, id: WindowId, buffer: BufferId) {
-        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
-            return;
-        };
-        if self.buffer(buffer).is_some() {
-            self.window_moves_on();
-            self.window_shows(index, buffer);
-        }
     }
 
     /// Shows `buffer` in the selected window, where the window was in it the last time, or from

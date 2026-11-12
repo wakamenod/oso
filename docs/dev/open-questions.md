@@ -114,10 +114,6 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- `file_prompt_type_p99_ms`, typing into `C-x C-f` over 100,000 names, is reported only until a few
-  runs exist. Its first run on the Mac mini, on 2026-11-09, gave 4.1–7.1 ms, against 38.6–39.8 ms
-  for the same scenario before the worker. Set its threshold from those runs
-  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.
@@ -394,6 +390,13 @@ item notes when it must be settled.
   two MCP servers named `oso` wins, and that auto memory is shared by a repository's worktrees.
 - A review in restricted projects, read in-process with `gix` once ADR 0011's check that it skips
   config commands is done ([ADR 0122](adr/0122-agent-review.md)).
+- Agent identity in a review: `Author::Agent` names no session yet, so "its own" comments are any
+  agent's. Settle it with the agent tools (ADR 0122 step 7), when ADR 0121's session id reaches
+  the bridge ([ADR 0122](adr/0122-agent-review.md)).
+- A public form of `oso-core`'s path judgement for secrets (`secret::judge`), so that a review
+  can give `oso_syntax::Scheduler::open` the verdict on every path a side names. Settle it before
+  ADR 0122 step 9 opens review sides, or in step 3 ([ADR 0122](adr/0122-agent-review.md),
+  step 8).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - Terminal engine: `alacritty_terminal` or libghostty-vt, decided by ADR 0120's

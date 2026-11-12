@@ -441,10 +441,12 @@ The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
 on input that changes the view, on resize, when the window becomes visible, and when
 what the modeline or the echo area says has changed, which the app compares after each
 batch of events ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-The surface presents with `Fifo` and a frame latency of 1. Fifo is always
+The surface presents with `Fifo` and a frame latency of 2, which gives it three
+drawables ([ADR 0124](adr/0124-three-drawables.md)). Fifo is always
 supported and never tears, and on-demand drawing means it costs nothing while
-idle. Mailbox or Immediate can be revisited once key-to-photon latency is
-measured ([ADR 0025](adr/0025-latency-measurement.md)). The adapter is
+idle. The third drawable lets a key that draws twice, its own frame and then a
+worker's result, leave the next key's frame a free drawable, where with two that
+frame waited for the compositor on the UI thread. The adapter is
 requested with low power preference, which keeps dual-GPU machines on the
 integrated GPU.
 
@@ -590,7 +592,25 @@ The UI thread never blocks on I/O or parsing:
   if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
   parsed again, with their own grammars, wherever the worker highlights. Buffers that may
   hold secrets and files over 2 MiB are not parsed
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). The same schedule takes documents no
+  buffer owns, texts that never change such as a review's sides, opened with the verdict of
+  where they came from (a text that may hold secrets is refused). They run only where buffers
+  no window shows do, at most 4 hold a tree at once, and a finished one gives its tree to a
+  thread to free ([ADR 0122](adr/0122-agent-review.md), step 8).
+- A hosted agent session's state is read from its screen on `oso-sessions`
+  (`crates/oso/src/sessions/`, glue in `app/sessions.rs`), never on the UI thread
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `sessions::screen::Evidence` is the last 40
+  non-empty rows, the title and the OSC 9;4 progress, cut to fixed sizes; `sessions::rules`
+  compiles the bundled `claude.toml` and the local `agent-rules/claude.toml` over it; and
+  `sessions::engine::evaluate` gives the first rule that holds, highest priority first, within a
+  deadline of 5 ms checked between matchers, past which the state holds. A tracker
+  per session (`sessions::state::Tracker`) turns verdicts into the taxonomy with the debounce and
+  the 3 s grace period, from instants it is given, so its tests need no clock. The thread judges
+  a session's screen only after it changed, at most 10 times a second, and wakes on its own only
+  while a debounce or grace period waits. It sends the UI thread only changes
+  (`UserEvent::Sessions`). The terminal's host API (ADR 0120) feeds it from step 3; step 2 built
+  it against recorded screens, and `session-explain-file` explains a saved one in
+  `*Session explain*`, a buffer the agent channel cannot read.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -603,7 +623,8 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 - One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
   (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
-  without it, and without the record of trusted projects.
+  without it, without the record of trusted projects, and without the local agent rules,
+  so the bundled rules apply.
 - A thread in the tip crate's `config` (`config::Reader`) reads, parses and builds it at
   start and when a `stat` once a second, on focus or after a save sees it change, and the UI
   thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap
@@ -624,13 +645,20 @@ read. See [ADR 0019](adr/0019-configuration.md).
   value of each it leaves out) and applies only those a look changes, so a choice made at run
   time stands. The theme shown last is remembered with the configured default then, in
   `oso/theme`, and wins at start while that default is the file's.
-- Indentation ([ADR 0115](adr/0115-indentation.md); its rules, `TAB`, `RET` and `C-j` are built,
-  the region commands and EditorConfig come in later steps): each buffer has an indentation setting, from the EditorConfig files that apply to it,
-  then the configuration's `[modes.<mode>]`, then the defaults. The loader reads the EditorConfig files from the file's
-  directory up, with project detection's stops, before it builds the display map; parsing and
-  matching are a pure function in `oso_core::editorconfig`. Indentation itself is computed on the UI
-  thread at the key by per-mode rules in `oso_core::indent`, from the text alone, within a budget:
-  no tree and no worker.
+- The local agent rules file, `agent-rules/claude.toml` beside the file, is read on the same
+  thread with the same checks and at most 256 KiB, compiled there over the bundled rules
+  (`config/agent_rules.rs`), and handed to the sessions worker for every session at once; a
+  file that fails to parse keeps the rules in force. Its format is in
+  [agent-rules.md](agent-rules.md) ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
+- Indentation ([ADR 0115](adr/0115-indentation.md)): each buffer has an indentation setting,
+  property by property from the EditorConfig files that apply to it, then the configuration's
+  `[modes.<mode>]`, then the defaults, and knows where each came from (`describe-indentation`).
+  The loader reads the EditorConfig files from the file's directory up, through the stop checks
+  it shares with project detection (`project::upward`), before it builds the display map, and a
+  thread reads them again after `C-x C-w`; parsing and matching are pure functions in
+  `oso_core::editorconfig`. Indentation itself is computed on the UI thread at the key by
+  per-mode rules in `oso_core::indent`, from the text alone, within a budget: no tree and no
+  worker.
 
 ### Persistence
 

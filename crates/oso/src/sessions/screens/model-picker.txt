@@ -1,0 +1,15 @@
+❯ /model
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions.
+
+    1.  Default (recommended)  Model A · For everyday tasks
+  ❯ 2.  Model A ✔              For everyday tasks
+    3.  Model B                For quick answers
+
+  ● High effort ←/→ to adjust
+
+  Enter to set as default · s to use this session only · Esc to cancel
+
+

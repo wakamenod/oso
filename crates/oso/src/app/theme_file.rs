@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(read(&scratch.oso()), None, "a directory");
     }
 
-    #[cfg(all(unix, feature = "dev"))]
+    #[cfg(unix)]
     #[test]
     fn a_pipe_in_its_place_is_refused_without_waiting() {
         use oso_platform::process::{Executable, Sink, Spawn, spawn};
@@ -360,6 +360,8 @@ mod tests {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .and_then(|mut child| child.wait())
         .expect("cannot run mkfifo");

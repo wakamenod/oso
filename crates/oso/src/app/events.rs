@@ -30,6 +30,7 @@ impl App {
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
         self.sync_ime_after_event(event_loop);
         self.sync_agent();
+        self.sync_sessions();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
     }
@@ -61,6 +62,7 @@ impl App {
             UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),
             UserEvent::Projects => self.projects_found(),
+            UserEvent::EditorConfig => self.editorconfigs_read(),
             UserEvent::Walked(walked) => self.walked(event_loop, walked),
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
@@ -69,6 +71,7 @@ impl App {
             UserEvent::Control(request) => self.handle_control(event_loop, request),
             UserEvent::Agent(request) => self.handle_agent(event_loop, request),
             UserEvent::AgentStarted(started) => self.agent_started(started),
+            UserEvent::Sessions(out) => self.sessions_reported(out),
             // `after_event` looks at the deadlines.
             UserEvent::AgentDeadline => {}
         }
@@ -84,6 +87,7 @@ impl App {
         // Before the projects, whose worktrees are checked against the record as it is now.
         self.write_trust();
         self.find_projects();
+        self.read_editorconfigs();
         self.check_disk();
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.

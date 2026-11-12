@@ -151,7 +151,16 @@ network features.
 | Org babel execution (explicit action only) | no | yes |
 
 - Inside repositories, oso reads only EditorConfig. It never reads settings
-  that name commands or executables.
+  that name commands or executables. EditorConfig sets a file's indentation and tab width
+  and nothing else, so it is read in every project, trusted or not. The walk up from the file
+  stops where project detection stops (a link, another user's directory, another file system,
+  after the home directory), and a `.editorconfig` is read only if it is a regular file, no
+  link, this user's or root's, not writable by every user, of at most 64 KiB, opened from its
+  directory once that is the one the walk saw, and never in a directory every user may write.
+  A visit looks in at most 64 directories and reads at most 32 such files and 1 MiB of them. Parsing is bounded: 1000 sections, a
+  glob of 4 KiB with braces 8 deep, 128 bytes for one with a number range, the `regex` crate's
+  size limit, and at most 128 sections and 2 KiB of globs compiled a visit
+  ([ADR 0115](adr/0115-indentation.md)).
 - The user configuration is one per-user file, never searched for elsewhere.
   It names registered commands and values only, is read off the UI thread with
   checks on its owner and modes, and a bad one never stops a start. Its agent
@@ -180,7 +189,8 @@ network features.
 - Only `oso-platform::process` may create processes. It ships in release builds from
   [ADR 0120](adr/0120-the-terminal.md)'s step 2, for the terminal; its PTY is its own. Clippy
   `disallowed_methods` bans `std::process::Command::new` (and its async
-  counterparts) everywhere else, and `cargo-deny` bans process-spawning
+  counterparts), `CommandExt::pre_exec` and libc's `fork`, `exec*`, `posix_spawn*`,
+  `system` and `popen` everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
   Unix domain sockets outside `oso-platform::control`, which carries the dev control
   socket and the agent channel. That transport is in every build, and an architecture
@@ -411,8 +421,29 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     name, but never to one that may hold secrets
     ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
     [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
-- Hooks are installed only by an explicit command that shows the settings
-  change first.
+- oso writes no hook into Claude Code's settings. When the person sets
+  `[sessions] steer_worktrees = true`, a session oso starts gets one `PreToolUse` hook for that
+  session only, passed with `--settings`
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
+- A hosted session's state comes from rules over its screen, which a model wrote: untrusted
+  text ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). No state authorises anything, and
+  needs input is set only by a rule that knows a dialog; an unknown prompt is idle. The rules
+  are oso's, compiled in, and the person's `agent-rules/claude.toml` beside `config.toml`, read
+  with its checks and refused when other users, a group included, can change it; never a
+  project's, never fetched. They use the `regex` crate only, each pattern with a 128 KiB size
+  limit, at most 256 patterns and 128 rules a file, and the screen is cut to 40 rows of 1 KiB,
+  so judging one is linear in at most some 41 KiB.
+  - A look gets 5 ms, checked between patterns, not inside one: past it the state holds and
+    the screen is looked at again later, less and less often.
+  - A local rule that is the slowest of 3 late looks in a row is not used until the rules
+    reload, and `*Messages*` names it. A bundled rule is never dropped.
+  - So a crafted local file can still delay the sessions worker, and its sessions' states, by
+    one pattern's run per look, and it costs memory when it loads. The file is the person's
+    own, and nothing else waits on that thread.
+- `*Session explain*` shows
+  screen text and is withheld from the agent channel, which can neither read it nor switch to
+  it; what the channel's commands say or kill while it is shown stays out of its reach.
+  `session-explain-file`, which reads a file, is `Person`.
 
 ### Denial of service (T8)
 
@@ -471,9 +502,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Processes spawn only through `oso_platform::process`: executables come from
   an absolute path or from `PATH` without relative or missing entries, the
   current directory or the project, children get an allowlisted environment and a closed
-  stdin, and every spawn is logged. It is behind the `dev` feature until a
-  release feature needs it, and only `oso dev` and the end-to-end tests use it.
-  `oso dev` builds offline,
+  stdin, and every spawn is logged. It ships in every build since the terminal
+  needs it ([ADR 0120](adr/0120-the-terminal.md)); a child in a terminal gets the
+  terminal's slave as its streams and controlling terminal, in a session of its own, and
+  neither end of a terminal reaches any other child. `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff never carries a secret buffer's content, and no position in one
@@ -518,6 +550,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved
   its path ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+- A pair of windows that scroll together moves nothing in step while either shows a buffer
+  that may hold secrets, whatever its verdict was when they were paired, so no position in one
+  reaches the other window, which the socket and the agent channel describe
+  ([ADR 0122](adr/0122-agent-review.md), step 10).
 - While a secret-pattern buffer is shown, `get-state` gives no `modified`, `saving` or size of
   such buffers, and `check-handover`, `export-state` and an `exit` with a generation are refused
   for one reason, whatever the buffers hold. `invalid_bytes` is null for such a buffer. Keys in

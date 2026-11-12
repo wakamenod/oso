@@ -325,6 +325,11 @@ impl Editor {
             // What is left goes back to the selected window, for what the command does next.
             self.pass_wrap_budget(self.selected);
         }
+        if self.prompts.is_empty() {
+            // The other window of its pair goes where it is (ADR 0122).
+            moved |= self.follow_pair();
+            self.pass_wrap_budget(self.selected);
+        }
         moved
     }
 
@@ -423,7 +428,12 @@ impl Editor {
             window.set_top(next, &display);
         }
         window.realize_view(&display);
-        window.scroll() != before
+        let moved = window.scroll() != before;
+        // The other window of its pair scrolls with it (ADR 0122).
+        if moved {
+            self.wheel_pair(id, false);
+        }
+        moved
     }
 
     /// Scrolls the selected window by `lines` view rows, the text up, toward the end, if
@@ -511,7 +521,11 @@ impl Editor {
         }
         let left = window::wheel_sideways(scroll.left, size, widest, columns);
         window.set_scroll(Scroll { left, ..scroll });
-        left != scroll.left
+        let moved = left != scroll.left;
+        if moved {
+            self.wheel_pair(id, true);
+        }
+        moved
     }
 }
 

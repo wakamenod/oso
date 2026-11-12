@@ -167,8 +167,9 @@ release-safety:
     # serde_json ships for the agent channel (ADR 0085).
     dev_crates="miniz_oxide"
     # Dev method names too: with serde_json shipping, they show that no dev method got into
-    # the agent channel (ADR 0085).
-    markers="oso-dev-control-socket oso-dev-process-spawn send-keys export-state"
+    # the agent channel (ADR 0085). `oso dev`'s supervisor has a marker of its own, as
+    # spawning ships (ADR 0120).
+    markers="oso-dev-control-socket oso-dev-supervisor send-keys export-state"
     # On macOS, the window layer's dev-only Carbon import, for the dev socket's secure input
     # check (ADR 0070, ADR 0073).
     if [ "$(uname -s)" = Darwin ]; then markers="$markers IsSecureEventInputEnabled"; fi

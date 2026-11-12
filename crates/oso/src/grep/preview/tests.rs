@@ -174,7 +174,7 @@ fn a_link_on_the_way_or_at_the_end_is_not_followed() {
     assert!(is_unreadable(preview(&request)));
 }
 
-#[cfg(all(unix, feature = "dev"))]
+#[cfg(unix)]
 #[test]
 fn a_pipe_is_not_read() {
     use oso_platform::process::{Executable, Sink, Spawn, spawn};
@@ -189,6 +189,8 @@ fn a_pipe_is_not_read() {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run mkfifo");

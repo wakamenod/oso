@@ -6,25 +6,31 @@
 //! - An executable comes from an absolute path, or from `PATH` without the
 //!   current directory, the project and any relative or missing entry, so a
 //!   repository cannot put a program of its own on the search path.
-//! - A child gets an environment built from an allowlist. Anything else,
-//!   such as `LD_PRELOAD`, `DYLD_*` or an API token, stays behind.
-//! - Standard input is closed.
+//! - A child gets an environment built from an allowlist, plus variables the
+//!   caller sets by value. Anything else, such as `LD_PRELOAD`, `DYLD_*` or an
+//!   API token, stays behind.
+//! - Standard input is closed, unless the child runs in a terminal ([`pty`]).
 //! - A caller can ask for a process group of its own, so that Ctrl-C leaves it.
 //! - Every spawn is logged, with the names of the variables but not their
 //!   values.
+//! - [`account_shell`] reads the account's login shell from the user database.
 //!
-//! Behind the `dev` feature until a release feature needs it.
+//! In every build since the terminal ships (ADR 0120).
+
+#[cfg(unix)]
+mod account;
+pub mod pty;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-/// Appears in every binary that can spawn, and in no other.
-/// `just release-safety` looks for it in release binaries.
-const SPAWN_MARKER: &str = "oso-dev-process-spawn";
+/// Starts the log line of every spawn, so that a log can be searched for them.
+const SPAWN_MARKER: &str = "oso-process-spawn";
 
 /// The variables every child gets, if set. `PATH` is added separately.
 const BASE_ENV: [&str; 12] = [
@@ -118,8 +124,8 @@ impl From<Sink> for Stdio {
     }
 }
 
-/// A process to start.
-#[derive(Debug, Clone, Copy)]
+/// A process to start. Its `Debug` shows the names in `set`, never their values.
+#[derive(Clone, Copy)]
 pub struct Spawn<'a> {
     pub executable: &'a Executable,
     pub args: &'a [OsString],
@@ -128,7 +134,8 @@ pub struct Spawn<'a> {
     /// The project the child works on. It and everything under it are left out
     /// of the child's `PATH`.
     pub project: Option<&'a Path>,
-    /// Variables this program needs on top of the base set, by name.
+    /// Variables this program needs on top of the base set, by name. Refused
+    /// as `set`'s names are.
     pub inherit: &'a [&'a str],
     pub stdout: Sink,
     pub stderr: Sink,
@@ -137,21 +144,64 @@ pub struct Spawn<'a> {
     /// this process. Only Unix has this: the one caller needs the control socket,
     /// which is not supported elsewhere (ADR 0032, ADR 0055).
     pub own_process_group: bool,
+    /// Variables set to these values, after the allowlist and over it. Their
+    /// values are not logged. A name that is empty, holds `=` or NUL, or is
+    /// `PATH` (this module's own), `LD_*` or `DYLD_*` (the loader's) is refused.
+    /// Names and values here and in `inherit` come from oso or the person's own
+    /// configuration, never from a project's files, a terminal's output or the
+    /// agent channel: a shell runs what some variables name.
+    pub set: &'a [(&'a str, &'a OsStr)],
+    /// The terminal the child runs in: its standard input, output and error,
+    /// and its controlling terminal, in a session of its own. `stdout` and
+    /// `stderr` must then be [`Sink::Inherit`], and `own_process_group` false.
+    /// Such a spawn forks this whole process, which can take milliseconds, so
+    /// it never runs on the UI thread.
+    pub terminal: Option<&'a pty::Slave>,
+}
+
+impl fmt::Debug for Spawn<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Spawn")
+            .field("executable", self.executable)
+            .field("args", &self.args)
+            .field("cwd", &self.cwd)
+            .field("project", &self.project)
+            .field("inherit", &self.inherit)
+            .field("stdout", &self.stdout)
+            .field("stderr", &self.stderr)
+            .field("own_process_group", &self.own_process_group)
+            .field(
+                "set",
+                &self.set.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+            )
+            .field("terminal", &self.terminal)
+            .finish()
+    }
 }
 
 /// Starts a process.
 pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
+    check(request)?;
     let current = env::current_dir().ok();
     let path = env::var_os("PATH").unwrap_or_default();
     let dirs = search_dirs(&path, current.as_deref(), request.project);
     let path = env::join_paths(dirs).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let variables = allowed_env(env::vars_os(), request.inherit);
     log::info!(
-        "{SPAWN_MARKER}: {} {:?} in {:?} with PATH and {:?}",
+        "{SPAWN_MARKER}: {} {:?} in {:?}{} with PATH and {:?}",
         request.executable.path().display(),
         request.args,
         request.cwd,
-        variables.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+        if request.terminal.is_some() {
+            " in a terminal"
+        } else {
+            ""
+        },
+        variables
+            .iter()
+            .map(|(name, _)| name.as_os_str())
+            .chain(request.set.iter().map(|(name, _)| OsStr::new(name)))
+            .collect::<Vec<_>>(),
     );
     #[expect(
         clippy::disallowed_methods,
@@ -163,6 +213,7 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
         .env_clear()
         .envs(variables)
         .env("PATH", path)
+        .envs(request.set.iter().copied())
         .stdin(Stdio::null())
         .stdout(request.stdout)
         .stderr(request.stderr);
@@ -174,7 +225,58 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    if let Some(terminal) = request.terminal {
+        pty::run_in(terminal, &mut command)?;
+    }
     command.spawn()
+}
+
+/// Refuses what [`Spawn`] says it refuses.
+fn check(request: &Spawn<'_>) -> io::Result<()> {
+    let invalid = |message: String| Err(io::Error::new(io::ErrorKind::InvalidInput, message));
+    if request.terminal.is_some()
+        && (request.stdout != Sink::Inherit
+            || request.stderr != Sink::Inherit
+            || request.own_process_group)
+    {
+        return invalid(
+            "a child in a terminal has the terminal as its streams and its own session".into(),
+        );
+    }
+    let names = request
+        .set
+        .iter()
+        .map(|(name, _)| name)
+        .chain(request.inherit);
+    match names.into_iter().find(|name| !may_pass(name)) {
+        Some(name) => invalid(format!("{name:?} may not be passed to a child")),
+        None => Ok(()),
+    }
+}
+
+/// Whether a caller may pass the variable `name`, by value or by name.
+fn may_pass(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    let name = if cfg!(windows) { upper.as_str() } else { name };
+    !name.is_empty()
+        && !name.contains(['=', '\0'])
+        && name != "PATH"
+        && !name.starts_with("LD_")
+        && !name.starts_with("DYLD_")
+}
+
+/// The shell the user database gives the account oso runs as, if it is an
+/// absolute path. `None` where there is no user database. It may wait on a
+/// directory service, so it never runs on the UI thread.
+pub fn account_shell() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        account::shell()
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }
 
 /// The directories of `path`, a `PATH` value, that may supply a program: only
@@ -278,6 +380,8 @@ mod tests {
                 stdout,
                 stderr: Sink::Null,
                 own_process_group: name == "sleep" && own_process_group,
+                set: &[],
+                terminal: None,
             })
             .unwrap()
         };
@@ -323,6 +427,28 @@ mod tests {
         let error = Executable::absolute(directory.join("nothing")).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_loader_and_path_variables_may_not_be_passed() {
+        use super::may_pass;
+        for name in [
+            "",
+            "A=B",
+            "A\0B",
+            "PATH",
+            "LD_PRELOAD",
+            "DYLD_INSERT_LIBRARIES",
+        ] {
+            assert!(!may_pass(name), "{name:?}");
+        }
+        for name in ["TERM", "OSO_TERMINAL_TOKEN", "SSH_AUTH_SOCK"] {
+            assert!(may_pass(name), "{name:?}");
+        }
+        // Windows reads names in any case; the loaders and shells of Unix do not.
+        for name in ["Path", "ld_preload"] {
+            assert_eq!(may_pass(name), !cfg!(windows), "{name:?}");
+        }
     }
 
     #[test]
@@ -425,6 +551,8 @@ mod tests {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .unwrap();
         let mut output = String::new();

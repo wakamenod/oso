@@ -129,10 +129,12 @@ pub fn oso_core::buffer::Buffer::apply_load(&mut self, oso_core::load::LoadSnaps
 pub fn oso_core::buffer::Buffer::baseline(&self) -> core::option::Option<&oso_core::buffer::Baseline>
 pub fn oso_core::buffer::Buffer::content_id(&self) -> oso_core::buffer::ContentId
 pub fn oso_core::buffer::Buffer::display(&self) -> oso_core::display_map::DisplaySnapshot
+pub fn oso_core::buffer::Buffer::editorconfig(&self) -> core::option::Option<&oso_core::editorconfig::Applied>
 pub fn oso_core::buffer::Buffer::file_info(&self) -> oso_core::decode::FileInfo
 pub fn oso_core::buffer::Buffer::finish_empty(&mut self)
 pub fn oso_core::buffer::Buffer::from_bytes(impl core::convert::Into<alloc::string::String>, &[u8]) -> Self
 pub fn oso_core::buffer::Buffer::from_text(impl core::convert::Into<alloc::string::String>, &str) -> Self
+pub fn oso_core::buffer::Buffer::indent_origins(&self) -> oso_core::indent::Origins
 pub fn oso_core::buffer::Buffer::indent_settings(&self) -> oso_core::indent::Settings
 pub fn oso_core::buffer::Buffer::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::buffer::Buffer::is_modified(&self) -> bool
@@ -153,6 +155,8 @@ pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::verdict(&self) -> oso_core::buffer::Verdict
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
+pub fn oso_core::buffer::Buffer::withheld_from_agents(&self) -> bool
+pub fn oso_core::buffer::Buffer::withhold_from_agents(&mut self)
 pub fn oso_core::buffer::Buffer::wraps(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::begin_loading(&mut self)
@@ -1176,6 +1180,22 @@ pub fn oso_core::editor::MacroEvent::eq(&self, &oso_core::editor::MacroEvent) ->
 impl core::fmt::Debug for oso_core::editor::MacroEvent
 pub fn oso_core::editor::MacroEvent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::MacroEvent
+pub enum oso_core::editor::NoPair
+pub oso_core::editor::NoPair::NoBuffer
+pub oso_core::editor::NoPair::Paired
+pub oso_core::editor::NoPair::TooSmall
+impl core::clone::Clone for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::clone(&self) -> oso_core::editor::NoPair
+impl core::cmp::Eq for oso_core::editor::NoPair
+impl core::cmp::PartialEq for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::eq(&self, &oso_core::editor::NoPair) -> bool
+impl core::error::Error for oso_core::editor::NoPair
+impl core::fmt::Debug for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::NoPair
+impl core::marker::StructuralPartialEq for oso_core::editor::NoPair
 pub enum oso_core::editor::Preview
 pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
@@ -1307,6 +1327,16 @@ impl core::fmt::Display for oso_core::editor::SaveRefused
 pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
+pub enum oso_core::editor::SessionRequest
+pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
+impl core::clone::Clone for oso_core::editor::SessionRequest
+pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest
+impl core::cmp::Eq for oso_core::editor::SessionRequest
+impl core::cmp::PartialEq for oso_core::editor::SessionRequest
+pub fn oso_core::editor::SessionRequest::eq(&self, &oso_core::editor::SessionRequest) -> bool
+impl core::fmt::Debug for oso_core::editor::SessionRequest
+pub fn oso_core::editor::SessionRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SessionRequest
 pub enum oso_core::editor::Shift
 pub oso_core::editor::Shift::Left
 pub oso_core::editor::Shift::Right
@@ -1422,7 +1452,6 @@ pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
-pub fn oso_core::editor::Editor::show_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
@@ -1441,6 +1470,7 @@ pub fn oso_core::editor::Editor::replace_text_from(&mut self, oso_core::buffer::
 pub fn oso_core::editor::Editor::saved_copies_line(&self) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::set_copies_cursor(&mut self, usize)
 pub fn oso_core::editor::Editor::set_copies_text(&mut self, oso_core::load::LoadSnapshot, usize, core::option::Option<usize>)
+pub fn oso_core::editor::Editor::set_internal_text(&mut self, oso_core::buffer::BufferId, &str)
 pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec::Vec<oso_core::editor::RecoveryAction>
 pub fn oso_core::editor::Editor::toggle_copies(&mut self)
 impl oso_core::editor::Editor
@@ -1531,6 +1561,7 @@ pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::kill_by_person(&mut self, oso_core::buffer::BufferId, bool) -> core::result::Result<(), oso_core::editor::KillRefused>
 pub fn oso_core::editor::Editor::preview(&self) -> core::option::Option<oso_core::editor::Preview>
 pub fn oso_core::editor::Editor::set_home(&mut self, core::option::Option<std::path::PathBuf>)
+pub fn oso_core::editor::Editor::show_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str) -> core::result::Result<(), &'static str>
 pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
@@ -1623,12 +1654,18 @@ pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::
 pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::skip_like_this(&mut self, oso_core::editor::Toward) -> core::result::Result<(), oso_core::editor::CursorError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::editorconfig_read(&mut self, &oso_core::editor::ProjectRequest, core::option::Option<oso_core::editorconfig::Applied>) -> bool
+pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
+pub fn oso_core::editor::Editor::request_editorconfig(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::set_buffer_mode(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Mode) -> bool
+pub fn oso_core::editor::Editor::set_editorconfig(&mut self, oso_core::buffer::BufferId, core::option::Option<oso_core::editorconfig::Applied>)
+pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings, oso_core::indent::Origins); 4])
+pub fn oso_core::editor::Editor::take_editorconfig_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::electric_indent(&self) -> bool
 pub fn oso_core::editor::Editor::indent_for_tab(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::indent_typed_closers(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
-pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
 pub fn oso_core::editor::Editor::set_electric_indent(&mut self, bool)
-pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings); 4])
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
@@ -1768,6 +1805,12 @@ pub fn oso_core::editor::Editor::search_highlights(&self, usize, &str, &mut allo
 pub fn oso_core::editor::Editor::take_search_hit(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchHit>
 pub fn oso_core::editor::Editor::take_search_request(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchRequest>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::pair_of(&self, oso_core::window::WindowId) -> core::option::Option<oso_core::window::WindowId>
+pub fn oso_core::editor::Editor::pair_window(&mut self, oso_core::frame::Way, oso_core::buffer::BufferId, oso_core::window::RowMap) -> core::result::Result<oso_core::window::WindowId, oso_core::editor::NoPair>
+pub fn oso_core::editor::Editor::set_row_map(&mut self, oso_core::window::WindowId, oso_core::window::RowMap) -> bool
+pub fn oso_core::editor::Editor::turn_pair(&mut self, oso_core::window::WindowId, oso_core::frame::Way) -> core::result::Result<bool, oso_core::frame::TooSmall>
+pub fn oso_core::editor::Editor::unpair(&mut self, oso_core::window::WindowId) -> bool
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::preview_cells(&self, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
 pub fn oso_core::editor::Editor::preview_excerpt_display(&self) -> core::option::Option<oso_core::display_map::DisplaySnapshot>
 pub fn oso_core::editor::Editor::preview_read(&mut self, u64, oso_core::editor::ProjectPreviewRead)
@@ -1795,6 +1838,9 @@ pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::Rep
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::SessionRequest)
+pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::set_migemo(&mut self, bool)
 impl oso_core::editor::Editor
@@ -2147,6 +2193,120 @@ pub const oso_core::editor::MAX_MACRO_EVENTS: usize
 pub const oso_core::editor::MAX_MACRO_TEXT: usize
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
+pub mod oso_core::editorconfig
+pub enum oso_core::editorconfig::IndentSize
+pub oso_core::editorconfig::IndentSize::Columns(u8)
+pub oso_core::editorconfig::IndentSize::Tab
+impl core::clone::Clone for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::clone(&self) -> oso_core::editorconfig::IndentSize
+impl core::cmp::Eq for oso_core::editorconfig::IndentSize
+impl core::cmp::PartialEq for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::eq(&self, &oso_core::editorconfig::IndentSize) -> bool
+impl core::fmt::Debug for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::editorconfig::IndentSize
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::IndentSize
+pub enum oso_core::editorconfig::IndentStyle
+pub oso_core::editorconfig::IndentStyle::Space
+pub oso_core::editorconfig::IndentStyle::Tab
+impl core::clone::Clone for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::clone(&self) -> oso_core::editorconfig::IndentStyle
+impl core::cmp::Eq for oso_core::editorconfig::IndentStyle
+impl core::cmp::PartialEq for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::eq(&self, &oso_core::editorconfig::IndentStyle) -> bool
+impl core::fmt::Debug for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::editorconfig::IndentStyle
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::IndentStyle
+pub enum oso_core::editorconfig::Problem
+pub oso_core::editorconfig::Problem::GlobTooLong
+pub oso_core::editorconfig::Problem::GlobTooLong::line: usize
+pub oso_core::editorconfig::Problem::NestedTooDeep
+pub oso_core::editorconfig::Problem::NestedTooDeep::line: usize
+pub oso_core::editorconfig::Problem::OverBudget
+pub oso_core::editorconfig::Problem::OverBudget::line: usize
+pub oso_core::editorconfig::Problem::RangeGlobTooLong
+pub oso_core::editorconfig::Problem::RangeGlobTooLong::line: usize
+pub oso_core::editorconfig::Problem::TooComplex
+pub oso_core::editorconfig::Problem::TooComplex::line: usize
+pub oso_core::editorconfig::Problem::TooLarge
+pub oso_core::editorconfig::Problem::TooManySections
+pub oso_core::editorconfig::Problem::TooManySections::line: usize
+impl core::clone::Clone for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::clone(&self) -> oso_core::editorconfig::Problem
+impl core::cmp::Eq for oso_core::editorconfig::Problem
+impl core::cmp::PartialEq for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::eq(&self, &oso_core::editorconfig::Problem) -> bool
+impl core::fmt::Debug for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editorconfig::Problem
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Problem
+pub struct oso_core::editorconfig::Applied
+impl oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::file(&self, usize) -> core::option::Option<&std::path::Path>
+pub fn oso_core::editorconfig::Applied::from_walk(&std::path::Path, alloc::vec::Vec<(std::path::PathBuf, oso_core::editorconfig::File)>) -> Self
+pub fn oso_core::editorconfig::Applied::properties(&self) -> &oso_core::editorconfig::Properties
+impl core::clone::Clone for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::clone(&self) -> oso_core::editorconfig::Applied
+impl core::cmp::Eq for oso_core::editorconfig::Applied
+impl core::cmp::PartialEq for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::eq(&self, &oso_core::editorconfig::Applied) -> bool
+impl core::default::Default for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::default() -> oso_core::editorconfig::Applied
+impl core::fmt::Debug for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Applied
+pub struct oso_core::editorconfig::Budget
+impl oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::is_spent(&self) -> bool
+impl core::clone::Clone for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::clone(&self) -> oso_core::editorconfig::Budget
+impl core::cmp::Eq for oso_core::editorconfig::Budget
+impl core::cmp::PartialEq for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::eq(&self, &oso_core::editorconfig::Budget) -> bool
+impl core::default::Default for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::default() -> Self
+impl core::fmt::Debug for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editorconfig::Budget
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Budget
+pub struct oso_core::editorconfig::File
+impl oso_core::editorconfig::File
+pub fn oso_core::editorconfig::File::is_root(&self) -> bool
+pub fn oso_core::editorconfig::File::parse(&str, &mut oso_core::editorconfig::Budget) -> Self
+pub fn oso_core::editorconfig::File::problems(&self) -> &[oso_core::editorconfig::Problem]
+impl core::default::Default for oso_core::editorconfig::File
+pub fn oso_core::editorconfig::File::default() -> oso_core::editorconfig::File
+impl core::fmt::Debug for oso_core::editorconfig::File
+pub fn oso_core::editorconfig::File::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editorconfig::Properties
+impl oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::indent_size(&self) -> core::option::Option<(oso_core::editorconfig::IndentSize, usize)>
+pub fn oso_core::editorconfig::Properties::indent_style(&self) -> core::option::Option<(oso_core::editorconfig::IndentStyle, usize)>
+pub fn oso_core::editorconfig::Properties::tab_width(&self) -> core::option::Option<(u8, usize)>
+impl core::clone::Clone for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::clone(&self) -> oso_core::editorconfig::Properties
+impl core::cmp::Eq for oso_core::editorconfig::Properties
+impl core::cmp::PartialEq for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::eq(&self, &oso_core::editorconfig::Properties) -> bool
+impl core::default::Default for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::default() -> oso_core::editorconfig::Properties
+impl core::fmt::Debug for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Properties
+pub const oso_core::editorconfig::MAX_FILE: usize
+pub const oso_core::editorconfig::MAX_GLOB: usize
+pub const oso_core::editorconfig::MAX_NESTING: usize
+pub const oso_core::editorconfig::MAX_RANGE_GLOB: usize
+pub const oso_core::editorconfig::MAX_SECTIONS: usize
+pub const oso_core::editorconfig::VISIT_GLOBS: usize
+pub const oso_core::editorconfig::VISIT_SECTIONS: usize
 pub mod oso_core::frame
 pub enum oso_core::frame::BadTiling
 pub oso_core::frame::BadTiling::LonelyRun
@@ -2380,6 +2540,24 @@ impl core::hash::Hash for oso_core::indent::Line
 pub fn oso_core::indent::Line::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::indent::Line
 impl core::marker::StructuralPartialEq for oso_core::indent::Line
+pub enum oso_core::indent::Origin
+pub oso_core::indent::Origin::Configuration
+pub oso_core::indent::Origin::Default
+pub oso_core::indent::Origin::EditorConfig
+pub oso_core::indent::Origin::Visited
+impl core::clone::Clone for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::clone(&self) -> oso_core::indent::Origin
+impl core::cmp::Eq for oso_core::indent::Origin
+impl core::cmp::PartialEq for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::eq(&self, &oso_core::indent::Origin) -> bool
+impl core::default::Default for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::default() -> oso_core::indent::Origin
+impl core::fmt::Debug for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Origin
+impl core::marker::StructuralPartialEq for oso_core::indent::Origin
 pub enum oso_core::indent::Style
 pub oso_core::indent::Style::Spaces
 pub oso_core::indent::Style::Tabs
@@ -2412,6 +2590,23 @@ impl core::fmt::Debug for oso_core::indent::Budget
 pub fn oso_core::indent::Budget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::indent::Budget
 impl core::marker::StructuralPartialEq for oso_core::indent::Budget
+pub struct oso_core::indent::Origins
+pub oso_core::indent::Origins::indent_size: oso_core::indent::Origin
+pub oso_core::indent::Origins::style: oso_core::indent::Origin
+pub oso_core::indent::Origins::tab_width: oso_core::indent::Origin
+impl core::clone::Clone for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::clone(&self) -> oso_core::indent::Origins
+impl core::cmp::Eq for oso_core::indent::Origins
+impl core::cmp::PartialEq for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::eq(&self, &oso_core::indent::Origins) -> bool
+impl core::default::Default for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::default() -> oso_core::indent::Origins
+impl core::fmt::Debug for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Origins
+impl core::marker::StructuralPartialEq for oso_core::indent::Origins
 pub struct oso_core::indent::Settings
 impl oso_core::indent::Settings
 pub const oso_core::indent::Settings::MAX: u32
@@ -2441,6 +2636,7 @@ pub fn oso_core::indent::markdown(&oso_core::rope::Rope, oso_core::indent::Setti
 pub fn oso_core::indent::markdown_stops(&oso_core::rope::Rope, oso_core::indent::Settings, usize, &mut oso_core::indent::Budget) -> alloc::vec::Vec<usize>
 pub fn oso_core::indent::rust(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::toml(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::with_editorconfig(oso_core::indent::Settings, oso_core::indent::Origins, &oso_core::editorconfig::Properties, oso_core::display_map::cell::TabWidth) -> (oso_core::indent::Settings, oso_core::indent::Origins)
 pub mod oso_core::jump
 pub enum oso_core::jump::KeysError
 pub oso_core::jump::KeysError::Action(char)
@@ -3226,6 +3422,254 @@ pub fn oso_core::project::same_place(&std::path::Path, &std::path::Path) -> bool
 pub fn oso_core::project::worktree_backlink(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
 pub fn oso_core::project::worktree_claim(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
 pub fn oso_core::project::worktree_entry(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
+pub mod oso_core::review
+pub enum oso_core::review::Anchor
+pub oso_core::review::Anchor::Hunk
+pub oso_core::review::Anchor::Hunk::index: usize
+pub oso_core::review::Anchor::Line
+pub oso_core::review::Anchor::Line::number: u32
+pub oso_core::review::Anchor::Line::side: oso_core::review::Side
+impl core::clone::Clone for oso_core::review::Anchor
+pub fn oso_core::review::Anchor::clone(&self) -> oso_core::review::Anchor
+impl core::cmp::Eq for oso_core::review::Anchor
+impl core::cmp::PartialEq for oso_core::review::Anchor
+pub fn oso_core::review::Anchor::eq(&self, &oso_core::review::Anchor) -> bool
+impl core::fmt::Debug for oso_core::review::Anchor
+pub fn oso_core::review::Anchor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::Anchor
+impl core::marker::StructuralPartialEq for oso_core::review::Anchor
+pub enum oso_core::review::Author
+pub oso_core::review::Author::Agent
+pub oso_core::review::Author::Person
+impl core::clone::Clone for oso_core::review::Author
+pub fn oso_core::review::Author::clone(&self) -> oso_core::review::Author
+impl core::cmp::Eq for oso_core::review::Author
+impl core::cmp::PartialEq for oso_core::review::Author
+pub fn oso_core::review::Author::eq(&self, &oso_core::review::Author) -> bool
+impl core::fmt::Debug for oso_core::review::Author
+pub fn oso_core::review::Author::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::Author
+pub fn oso_core::review::Author::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::Author
+impl core::marker::StructuralPartialEq for oso_core::review::Author
+pub enum oso_core::review::Base
+pub oso_core::review::Base::Blob(alloc::boxed::Box<[u8]>)
+pub oso_core::review::Base::Empty
+pub oso_core::review::Base::Unknown
+impl core::clone::Clone for oso_core::review::Base
+pub fn oso_core::review::Base::clone(&self) -> oso_core::review::Base
+impl core::cmp::Eq for oso_core::review::Base
+impl core::cmp::PartialEq for oso_core::review::Base
+pub fn oso_core::review::Base::eq(&self, &oso_core::review::Base) -> bool
+impl core::fmt::Debug for oso_core::review::Base
+pub fn oso_core::review::Base::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::Base
+pub enum oso_core::review::CommentError
+pub oso_core::review::CommentError::NoSuchComment
+pub oso_core::review::CommentError::NoSuchFile
+pub oso_core::review::CommentError::NotInDiff
+pub oso_core::review::CommentError::NotYours
+pub oso_core::review::CommentError::RepliesNotYours
+pub oso_core::review::CommentError::TooLong
+pub oso_core::review::CommentError::TooMany
+impl core::clone::Clone for oso_core::review::CommentError
+pub fn oso_core::review::CommentError::clone(&self) -> oso_core::review::CommentError
+impl core::cmp::Eq for oso_core::review::CommentError
+impl core::cmp::PartialEq for oso_core::review::CommentError
+pub fn oso_core::review::CommentError::eq(&self, &oso_core::review::CommentError) -> bool
+impl core::fmt::Debug for oso_core::review::CommentError
+pub fn oso_core::review::CommentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::CommentError
+impl core::marker::StructuralPartialEq for oso_core::review::CommentError
+pub enum oso_core::review::Decision
+pub oso_core::review::Decision::Accepted
+pub oso_core::review::Decision::Rejected
+impl core::clone::Clone for oso_core::review::Decision
+pub fn oso_core::review::Decision::clone(&self) -> oso_core::review::Decision
+impl core::cmp::Eq for oso_core::review::Decision
+impl core::cmp::PartialEq for oso_core::review::Decision
+pub fn oso_core::review::Decision::eq(&self, &oso_core::review::Decision) -> bool
+impl core::fmt::Debug for oso_core::review::Decision
+pub fn oso_core::review::Decision::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::Decision
+pub fn oso_core::review::Decision::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::Decision
+impl core::marker::StructuralPartialEq for oso_core::review::Decision
+pub enum oso_core::review::ShapeError
+pub oso_core::review::ShapeError::Empty
+pub oso_core::review::ShapeError::Empty::hunk: usize
+pub oso_core::review::ShapeError::Misnumbered
+pub oso_core::review::ShapeError::Misnumbered::hunk: usize
+pub oso_core::review::ShapeError::OutOfOrder
+pub oso_core::review::ShapeError::OutOfOrder::hunk: usize
+pub oso_core::review::ShapeError::TooLong
+impl core::clone::Clone for oso_core::review::ShapeError
+pub fn oso_core::review::ShapeError::clone(&self) -> oso_core::review::ShapeError
+impl core::cmp::Eq for oso_core::review::ShapeError
+impl core::cmp::PartialEq for oso_core::review::ShapeError
+pub fn oso_core::review::ShapeError::eq(&self, &oso_core::review::ShapeError) -> bool
+impl core::fmt::Debug for oso_core::review::ShapeError
+pub fn oso_core::review::ShapeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::ShapeError
+impl core::marker::StructuralPartialEq for oso_core::review::ShapeError
+pub enum oso_core::review::Side
+pub oso_core::review::Side::New
+pub oso_core::review::Side::Old
+impl core::clone::Clone for oso_core::review::Side
+pub fn oso_core::review::Side::clone(&self) -> oso_core::review::Side
+impl core::cmp::Eq for oso_core::review::Side
+impl core::cmp::PartialEq for oso_core::review::Side
+pub fn oso_core::review::Side::eq(&self, &oso_core::review::Side) -> bool
+impl core::fmt::Debug for oso_core::review::Side
+pub fn oso_core::review::Side::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::Side
+pub fn oso_core::review::Side::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::Side
+impl core::marker::StructuralPartialEq for oso_core::review::Side
+pub struct oso_core::review::Applied
+pub oso_core::review::Applied::again: bool
+pub oso_core::review::Applied::dropped: usize
+pub oso_core::review::Applied::marks_changed: bool
+pub oso_core::review::Applied::outdated: usize
+pub oso_core::review::Applied::placed: usize
+pub oso_core::review::Applied::returned: usize
+impl core::clone::Clone for oso_core::review::Applied
+pub fn oso_core::review::Applied::clone(&self) -> oso_core::review::Applied
+impl core::cmp::Eq for oso_core::review::Applied
+impl core::cmp::PartialEq for oso_core::review::Applied
+pub fn oso_core::review::Applied::eq(&self, &oso_core::review::Applied) -> bool
+impl core::default::Default for oso_core::review::Applied
+pub fn oso_core::review::Applied::default() -> oso_core::review::Applied
+impl core::fmt::Debug for oso_core::review::Applied
+pub fn oso_core::review::Applied::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::Applied
+impl core::marker::StructuralPartialEq for oso_core::review::Applied
+pub struct oso_core::review::BaseHunk
+pub oso_core::review::BaseHunk::new: core::ops::range::Range<u32>
+pub oso_core::review::BaseHunk::old: core::ops::range::Range<u32>
+impl core::clone::Clone for oso_core::review::BaseHunk
+pub fn oso_core::review::BaseHunk::clone(&self) -> oso_core::review::BaseHunk
+impl core::cmp::Eq for oso_core::review::BaseHunk
+impl core::cmp::PartialEq for oso_core::review::BaseHunk
+pub fn oso_core::review::BaseHunk::eq(&self, &oso_core::review::BaseHunk) -> bool
+impl core::fmt::Debug for oso_core::review::BaseHunk
+pub fn oso_core::review::BaseHunk::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::BaseHunk
+pub struct oso_core::review::Carried
+impl core::clone::Clone for oso_core::review::Carried
+pub fn oso_core::review::Carried::clone(&self) -> oso_core::review::Carried
+impl core::fmt::Debug for oso_core::review::Carried
+pub fn oso_core::review::Carried::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Carry
+impl oso_core::review::Carry
+pub fn oso_core::review::Carry::run<B, F>(self, B, F) -> oso_core::review::Carried where B: core::ops::function::FnMut(&[u8], &[u8]) -> core::option::Option<alloc::vec::Vec<oso_core::review::BaseHunk>>, F: core::ops::function::FnMut(&[&[u8]], &[&[u8]]) -> alloc::vec::Vec<(usize, usize)>
+impl core::clone::Clone for oso_core::review::Carry
+pub fn oso_core::review::Carry::clone(&self) -> oso_core::review::Carry
+impl core::fmt::Debug for oso_core::review::Carry
+pub fn oso_core::review::Carry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Comment
+impl oso_core::review::Comment
+pub fn oso_core::review::Comment::anchor(&self) -> oso_core::review::Anchor
+pub fn oso_core::review::Comment::author(&self) -> oso_core::review::Author
+pub fn oso_core::review::Comment::id(&self) -> oso_core::review::CommentId
+pub fn oso_core::review::Comment::is_outdated(&self) -> bool
+pub fn oso_core::review::Comment::is_read(&self) -> bool
+pub fn oso_core::review::Comment::is_resolved(&self) -> bool
+pub fn oso_core::review::Comment::is_sent(&self) -> bool
+pub fn oso_core::review::Comment::path(&self) -> &[u8]
+pub fn oso_core::review::Comment::reply_to(&self) -> core::option::Option<oso_core::review::CommentId>
+pub fn oso_core::review::Comment::text(&self) -> &str
+impl core::clone::Clone for oso_core::review::Comment
+pub fn oso_core::review::Comment::clone(&self) -> oso_core::review::Comment
+impl core::fmt::Debug for oso_core::review::Comment
+pub fn oso_core::review::Comment::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::CommentId(_)
+impl oso_core::review::CommentId
+pub fn oso_core::review::CommentId::get(self) -> u64
+impl core::clone::Clone for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::clone(&self) -> oso_core::review::CommentId
+impl core::cmp::Eq for oso_core::review::CommentId
+impl core::cmp::Ord for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::cmp(&self, &oso_core::review::CommentId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::eq(&self, &oso_core::review::CommentId) -> bool
+impl core::cmp::PartialOrd for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::partial_cmp(&self, &oso_core::review::CommentId) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::CommentId
+impl core::marker::StructuralPartialEq for oso_core::review::CommentId
+pub struct oso_core::review::Hunk
+pub oso_core::review::Hunk::added: alloc::vec::Vec<alloc::boxed::Box<[u8]>>
+pub oso_core::review::Hunk::new_start: u32
+pub oso_core::review::Hunk::old_start: u32
+pub oso_core::review::Hunk::removed: alloc::vec::Vec<alloc::boxed::Box<[u8]>>
+impl core::clone::Clone for oso_core::review::Hunk
+pub fn oso_core::review::Hunk::clone(&self) -> oso_core::review::Hunk
+impl core::cmp::Eq for oso_core::review::Hunk
+impl core::cmp::PartialEq for oso_core::review::Hunk
+pub fn oso_core::review::Hunk::eq(&self, &oso_core::review::Hunk) -> bool
+impl core::fmt::Debug for oso_core::review::Hunk
+pub fn oso_core::review::Hunk::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::Hunk
+pub struct oso_core::review::LineMap
+impl oso_core::review::LineMap
+pub fn oso_core::review::LineMap::carry(&self, oso_core::review::Side, u32) -> core::option::Option<u32>
+pub fn oso_core::review::LineMap::new<F>(&oso_core::review::Shape, &oso_core::review::Shape, core::option::Option<&[oso_core::review::BaseHunk]>, F) -> oso_core::review::LineMap where F: core::ops::function::FnMut(&[&[u8]], &[&[u8]]) -> alloc::vec::Vec<(usize, usize)>
+impl core::clone::Clone for oso_core::review::LineMap
+pub fn oso_core::review::LineMap::clone(&self) -> oso_core::review::LineMap
+impl core::fmt::Debug for oso_core::review::LineMap
+pub fn oso_core::review::LineMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Review
+impl oso_core::review::Review
+pub fn oso_core::review::Review::add_comment(&mut self, oso_core::review::Author, &[u8], oso_core::review::Anchor, alloc::string::String) -> core::result::Result<oso_core::review::CommentId, oso_core::review::CommentError>
+pub fn oso_core::review::Review::apply(&mut self, oso_core::review::Carried) -> oso_core::review::Applied
+pub fn oso_core::review::Review::carry(&self, &[u8], alloc::sync::Arc<oso_core::review::Shape>) -> oso_core::review::Carry
+pub fn oso_core::review::Review::clear_dropped(&mut self, &[u8])
+pub fn oso_core::review::Review::comment(&self, oso_core::review::CommentId) -> core::option::Option<&oso_core::review::Comment>
+pub fn oso_core::review::Review::comments(&self) -> impl core::iter::traits::iterator::Iterator<Item = &oso_core::review::Comment>
+pub fn oso_core::review::Review::decide(&mut self, &[u8], usize, core::option::Option<oso_core::review::Decision>) -> bool
+pub fn oso_core::review::Review::decision(&self, &[u8], usize) -> core::option::Option<oso_core::review::Decision>
+pub fn oso_core::review::Review::dropped(&self, &[u8]) -> usize
+pub fn oso_core::review::Review::edit_comment(&mut self, oso_core::review::Author, oso_core::review::CommentId, alloc::string::String) -> core::result::Result<(), oso_core::review::CommentError>
+pub fn oso_core::review::Review::file(&self, &[u8]) -> core::option::Option<&alloc::sync::Arc<oso_core::review::Shape>>
+pub fn oso_core::review::Review::files(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&[u8], &alloc::sync::Arc<oso_core::review::Shape>)>
+pub fn oso_core::review::Review::mark_read(&mut self, &[oso_core::review::CommentId])
+pub fn oso_core::review::Review::mark_sent(&mut self, &[oso_core::review::CommentId])
+pub fn oso_core::review::Review::new() -> oso_core::review::Review
+pub fn oso_core::review::Review::remove_comment(&mut self, oso_core::review::Author, oso_core::review::CommentId) -> core::result::Result<usize, oso_core::review::CommentError>
+pub fn oso_core::review::Review::remove_file(&mut self, &[u8])
+pub fn oso_core::review::Review::reply(&mut self, oso_core::review::Author, oso_core::review::CommentId, alloc::string::String) -> core::result::Result<oso_core::review::CommentId, oso_core::review::CommentError>
+pub fn oso_core::review::Review::resolve(&mut self, oso_core::review::Author, oso_core::review::CommentId, bool) -> core::result::Result<(), oso_core::review::CommentError>
+pub fn oso_core::review::Review::set_viewed(&mut self, &[u8], usize, bool) -> bool
+pub fn oso_core::review::Review::viewed(&self, &[u8], usize) -> bool
+impl core::clone::Clone for oso_core::review::Review
+pub fn oso_core::review::Review::clone(&self) -> oso_core::review::Review
+impl core::default::Default for oso_core::review::Review
+pub fn oso_core::review::Review::default() -> oso_core::review::Review
+impl core::fmt::Debug for oso_core::review::Review
+pub fn oso_core::review::Review::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Shape
+impl oso_core::review::Shape
+pub fn oso_core::review::Shape::base(&self) -> &oso_core::review::Base
+pub fn oso_core::review::Shape::hunk_at(&self, oso_core::review::Side, u32) -> core::option::Option<usize>
+pub fn oso_core::review::Shape::hunks(&self) -> &[oso_core::review::Hunk]
+pub fn oso_core::review::Shape::line(&self, oso_core::review::Side, u32) -> core::option::Option<&[u8]>
+pub fn oso_core::review::Shape::new(oso_core::review::Base, alloc::vec::Vec<oso_core::review::Hunk>) -> core::result::Result<oso_core::review::Shape, oso_core::review::ShapeError>
+impl core::clone::Clone for oso_core::review::Shape
+pub fn oso_core::review::Shape::clone(&self) -> oso_core::review::Shape
+impl core::cmp::Eq for oso_core::review::Shape
+impl core::cmp::PartialEq for oso_core::review::Shape
+pub fn oso_core::review::Shape::eq(&self, &oso_core::review::Shape) -> bool
+impl core::fmt::Debug for oso_core::review::Shape
+pub fn oso_core::review::Shape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::Shape
+pub const oso_core::review::MAX_COMMENTS: usize
+pub const oso_core::review::MAX_COMMENT_BYTES: usize
+pub const oso_core::review::MAX_KEPT_LINE: usize
+pub fn oso_core::review::base_pair<'a>(&'a oso_core::review::Shape, &'a oso_core::review::Shape) -> core::option::Option<(&'a [u8], &'a [u8])>
 pub mod oso_core::rope
 pub struct oso_core::rope::Chunks<'a>
 impl<'a> core::iter::traits::iterator::Iterator for oso_core::rope::Chunks<'a>
@@ -3605,6 +4049,19 @@ impl core::fmt::Debug for oso_core::window::Recenter
 pub fn oso_core::window::Recenter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::window::Recenter
 impl core::marker::StructuralPartialEq for oso_core::window::Recenter
+pub struct oso_core::window::BadRowMap
+impl core::clone::Clone for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::clone(&self) -> oso_core::window::BadRowMap
+impl core::cmp::Eq for oso_core::window::BadRowMap
+impl core::cmp::PartialEq for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::eq(&self, &oso_core::window::BadRowMap) -> bool
+impl core::error::Error for oso_core::window::BadRowMap
+impl core::fmt::Debug for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::window::BadRowMap
+impl core::marker::StructuralPartialEq for oso_core::window::BadRowMap
 pub struct oso_core::window::Place
 pub oso_core::window::Place::scroll: oso_core::window::Scroll
 pub oso_core::window::Place::selections: oso_core::selection::SelectionSet
@@ -3616,6 +4073,20 @@ pub fn oso_core::window::Place::eq(&self, &oso_core::window::Place) -> bool
 impl core::fmt::Debug for oso_core::window::Place
 pub fn oso_core::window::Place::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::window::Place
+pub struct oso_core::window::RowMap
+impl oso_core::window::RowMap
+pub fn oso_core::window::RowMap::first_of(&self, usize) -> usize
+pub fn oso_core::window::RowMap::new(alloc::vec::Vec<(usize, usize, usize)>) -> core::result::Result<Self, oso_core::window::BadRowMap>
+pub fn oso_core::window::RowMap::same() -> Self
+pub fn oso_core::window::RowMap::second_of(&self, usize) -> usize
+impl core::clone::Clone for oso_core::window::RowMap
+pub fn oso_core::window::RowMap::clone(&self) -> oso_core::window::RowMap
+impl core::cmp::Eq for oso_core::window::RowMap
+impl core::cmp::PartialEq for oso_core::window::RowMap
+pub fn oso_core::window::RowMap::eq(&self, &oso_core::window::RowMap) -> bool
+impl core::fmt::Debug for oso_core::window::RowMap
+pub fn oso_core::window::RowMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::window::RowMap
 pub struct oso_core::window::Screen
 impl oso_core::window::Screen
 pub fn oso_core::window::Screen::columns(&self) -> usize

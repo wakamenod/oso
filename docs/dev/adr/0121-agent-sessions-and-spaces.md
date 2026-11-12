@@ -749,6 +749,92 @@ Each passage stays in its ADR as written; what holds now follows it.
 - [ADR 0122](0122-agent-review.md), "Turns: … with ADR 0121, the Stop and PostToolUse hooks": a turn's end is the state's
   transition; a write tool's end is not given.
 
+## Step 2, as built
+
+Step 2 was built on 2026-11-13, before step 1 and before ADR 0120's terminal, against screens
+recorded from Claude Code 2.1.322. The coordinator approved these points:
+
+- **`regex` became a dependency of the tip crate.** It is the same version and features as
+  `oso-core`'s, so the tree gains no crate. The dependency line above was wrong: only `toml` and
+  `ignore` were the tip crate's.
+- **The fuzz target is a proptest generator** (`sessions/fuzz_tests.rs`). It makes rules files
+  and screens, and runs in `just ci`. The tip crate has no library target that cargo-fuzz could
+  link; a cargo-fuzz harness can share the generators once `oso-term` has one.
+- **A deadline of 5 ms for each look at a screen.** The rules check it between matchers. A
+  crafted local file can be slow even within the format's limits: past the deadline, the state
+  holds with the reason "rules took too long", and the same screen is judged again after the
+  longer wait. `*Messages*` says so after two late looks in a row at one session's screen,
+  once for each load of the rules, naming the slowest rule; `*Session explain*` shows it. The
+  deadline is the wall clock's, so it is best-effort: a busy machine can pass it once.
+  - The Cost table's 0.2 ms is still the bundled rules' budget; the deadline only bounds a
+    local file.
+  - A session whose looks keep running out of time is judged less often: the wait doubles
+    each time, up to 5 s.
+  - A local rule that is the slowest of 3 late looks in a row is not used until the rules
+    load again, and `*Messages*` names it once. A bundled rule is never dropped: its cost is
+    bounded and tested, and a busy machine must not turn a dialog off.
+  - **Each pattern's size limit is 128 KiB,** not the 1 MiB above, and its lazy DFA's cache
+    the same: the deadline is checked between patterns, not inside one.
+  - The worker takes every queued job before it judges, so screens that queued up are judged
+    once. A wake-up of the debounce gives the last verdict again, without judging the same
+    screen twice.
+- **`hold` is a state a rule gives**, not a flag beside one. `session-explain-file` is
+  `Person`: the sessions worker reads the file, at most 256 KiB.
+- **The format** is in [agent-rules.md](../agent-rules.md). It has the regions listed above,
+  with no `whole_recent`, since `bottom(40)` is the same.
+- **`oso-core` gained `editor::SessionRequest`, `Editor::request_session`,
+  `Editor::take_session_requests`, `Editor::set_internal_text`,
+  `Buffer::withhold_from_agents` and `Buffer::withheld_from_agents`.**
+  - `*Session explain*` is withheld from agents: the channel's state gives neither its text nor
+    its cursors, `text` refuses it, and the channel cannot switch to it. Unlike a secret, it
+    changes nothing else: the channel still acts while it is shown, and secure input, the
+    person's kills, emergency copies and the modeline are as they were.
+  - A command the channel runs while it is shown says what it says only in the echo area,
+    which the channel does not read then, and its kills from it count as secret. So the
+    channel cannot copy the text where it could read it.
+  - The app keeps the buffer by its id, never by its name, and fills only an internal
+    buffer: one of that name that anyone made stays theirs. `C-x b` makes no new buffer of a
+    name an internal buffer holds.
+  - ADR 0120's per-terminal read permission (`terminal-allow-agent-read`) can reuse the same
+    flag.
+- **What the recorded screens showed.** The title stayed `✳ …` throughout the recording. So a
+  turn is told by the `esc to interrupt` footer and the status line; the title's spinner and
+  OSC 9;4 stay as further signs.
+  - The transcript viewer hides a dialog that waits behind it, and its footer then starts
+    with `dialog waiting`. A rule gives needs input (`dialog`) for that footer; the viewer's
+    hold ranks below every needs-input rule.
+  - `after_last_rule` is empty when no rule row is on the screen, as `prompt_box` is: model
+    output with no prompt box below it is never a dialog.
+  - Each view that holds (help, the model and resume pickers, settings) is told by its own
+    footer. A footer that only offers Esc says nothing, since an unknown dialog has one too and
+    must stay idle.
+  - A test keeps every bundled needs-input rule above every hold rule. `*Messages*` warns
+    when a local file ranks a hold rule above a needs-input rule.
+- **`Evidence` has no change timestamps.** The tracker takes the instants it is given, and the
+  worker the instant a look arrives; ADR 0120's host API need not stamp them.
+- **The engine's echo-off hold is its own signal.** Claude Code's TUI runs in raw mode, with
+  ECHO and ICANON both clear. So if the sessions engine held on plain "ECHO clear", every
+  session's state would hold for good. The engine needs a narrower signal, such as a password
+  prompt's shape: ECHO clear while ICANON is set.
+  - What counts as secret in a terminal is ADR 0120's ("while the PTY does not echo", Q17).
+    Raw-mode password prompts depend on it, and its step 4 settles it with the author.
+  - This step does not narrow it. The engine's signal may differ from it, and is chosen with
+    the host API.
+- **The feed for step 3.** Today the app owns the worker's one sender, which is not `Clone`.
+  Step 3 should give each terminal's thread a feed of its own that clones, taking only
+  `Screen` and `Exited` jobs, so that screens never pass through the UI thread.
+  The worker's queue has no bound today, as only the app sends to it. Once terminals send
+  screens, it needs one: a session's newest screen replaces its last, so a bounded queue
+  loses nothing a judgement needs.
+- **Left to step 3, which has live sessions:**
+  - `session-explain` on a running session;
+  - the modeline marks;
+  - `session-next-waiting`;
+  - the 2 s timer that marks a session seen;
+  - the `git diff` call for ready for review.
+
+  The tracker already takes seen and the call's answer.
+
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

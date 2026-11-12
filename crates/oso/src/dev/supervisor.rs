@@ -66,6 +66,11 @@ const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 /// thread takes, and short enough that those that never answer hold up no restart.
 const BRIEF_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// Appears in every binary that has `oso dev`'s supervisor, and in no other.
+/// `just release-safety` looks for it in release binaries, as the spawning it does
+/// ships now and no longer marks a dev build (ADR 0120).
+const SUPERVISOR_MARKER: &str = "oso-dev-supervisor";
+
 /// What cargo may need beyond the base set. Dropping one that a build script
 /// watches would rebuild dependencies, so these follow the user's shell.
 const CARGO_ENV: [&str; 16] = [
@@ -195,7 +200,9 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
     let mut instances = Instances::new(Running::start(&binary, &first_args, &root, &dir, newest)?);
     let later_args = restart_args(&first_args);
     let mut retry = false;
-    log::info!("oso dev: watching the sources; a failed build keeps this instance");
+    log::info!(
+        "oso dev: watching the sources; a failed build keeps this instance ({SUPERVISOR_MARKER})"
+    );
     loop {
         thread::sleep(POLL);
         if let Some(status) = reap(&mut instances, &mut retry, newest) {
@@ -316,6 +323,8 @@ impl Running {
             stdout: Sink::Inherit,
             stderr: Sink::Inherit,
             own_process_group: true,
+            set: &[],
+            terminal: None,
         })?;
         Ok(Self {
             child,
@@ -445,6 +454,8 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         stdout: Sink::Piped,
         stderr: Sink::Inherit,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })?;
     let mut artifact = None;
     let mut errors = Vec::new();
@@ -560,6 +571,8 @@ mod tests {
                 stdout: Sink::Null,
                 stderr: Sink::Null,
                 own_process_group: false,
+                set: &[],
+                terminal: None,
             })
             .unwrap();
             Running {
@@ -673,6 +686,8 @@ mod tests {
                 stdout: Sink::Piped,
                 stderr: Sink::Null,
                 own_process_group: false,
+                set: &[],
+                terminal: None,
             })
             .unwrap();
             let mut group = String::new();

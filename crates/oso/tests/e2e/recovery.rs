@@ -402,6 +402,8 @@ fn a_hostile_directory_costs_nothing_and_changes_nothing() {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .and_then(|mut child| child.wait())
         .expect("cannot run mkfifo");
