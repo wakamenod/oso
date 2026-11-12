@@ -1,8 +1,10 @@
-//! Commands of the project a buffer's file is in (ADR 0114): trusting it to run its code, and
-//! taking that back.
+//! Commands of the project a buffer's file is in (ADR 0114): visiting one of its files, trusting
+//! it to run its code, and taking that back.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
+
+use std::path::PathBuf;
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::TrustRefused;
@@ -14,6 +16,15 @@ const ROOT_CELLS: usize = 60;
 
 /// The commands of projects.
 pub const COMMANDS: &[Command] = &[
+    Command {
+        name: "project-find-file",
+        doc: "Visit a file of the current buffer's project, read with completion over its files.\n\nThe files show as paths from the project's root, and the list grows while the project is walked. Hidden files are listed, less what the project's ignore files leave out, as `rg` reads them; nothing inside `.git`, `.jj`, `.hg` or a project inside this one is. Links are not followed, but a link to a file is listed. Outside a project the buffer's directory stands in for one, but not the home directory. A file that may hold secrets opens as `C-x C-f` opens it.",
+        args: ArgSpec::ProjectFile {
+            history: "project-file",
+        },
+        reach: Reach::Person,
+        run: project_find_file,
+    },
     Command {
         name: "trust-project",
         doc: "Trust the project of the current buffer's file to run its code.\n\nIt asks first, naming the project's root, and trusts it on `y`, if the buffer's project is still the one asked about. A trusted project's code may run through language servers, formatters and git hooks; a restricted one's never does. The record is `trusted-projects` in oso's configuration directory, by the root's path and its device and inode, so a directory made again at the same path is restricted again. A git worktree is trusted while its main repository is.",
@@ -29,6 +40,13 @@ pub const COMMANDS: &[Command] = &[
         run: untrust_project,
     },
 ];
+
+/// Visits the file the prompt gave, its whole path, through the loader's verdict.
+fn project_find_file(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let path = PathBuf::from(ctx.answer().unwrap_or_default());
+    super::files::visit(ctx, path)
+}
 
 /// Trusts the current buffer's project once the person said `y` to a question about it, which
 /// this command asks and its `y` runs again. Only that `y` confirms (ADR 0072): run by a key,

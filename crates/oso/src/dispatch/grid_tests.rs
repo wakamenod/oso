@@ -1151,6 +1151,64 @@ mod scenarios {
     }
 
     #[test]
+    fn c_x_p_f_streams_a_projects_files_and_keeps_the_selected_row() {
+        let path = std::path::PathBuf::from("/w/oso/src/main.rs");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_load(oso_core::load::decode_all(b"", Default::default()));
+        buffer.judge_secret(Some(std::slice::from_ref(&path)));
+        buffer.set_baseline(oso_core::buffer::Baseline {
+            location: path,
+            file: None,
+        });
+        let mut editor = Editor::with_buffer(buffer);
+        aids_off(&mut editor);
+        editor.set_frame_size(FrameSize {
+            rows: 14,
+            columns: 100,
+        });
+        let id = editor.tiled().0.buffer();
+        editor.request_project(id);
+        let request = editor.take_project_requests().pop().unwrap();
+        let found = oso_core::project::Found {
+            root: oso_core::project::RootIdentity {
+                path: std::path::PathBuf::from("/w/oso"),
+                identity: None,
+            },
+            worktree_of: None,
+            checked_main: None,
+        };
+        editor.project_found(&request, Some(found));
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        let mut frame = |editor: &Editor, step: &str| {
+            frames.push(format!("step: {step}\n{}", text_grid(editor)));
+        };
+        let keys = |dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str| {
+            let sequence: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(editor, sequence.0);
+        };
+        keys(&mut dispatcher, &mut editor, "C-x p f");
+        let walk = editor.take_walk_request().unwrap().generation;
+        frame(&editor, "C-x p f, nothing walked yet");
+        let batch = |names: &[&str]| names.iter().map(|&name| name.into()).collect();
+        editor.files_walked(
+            walk,
+            batch(&["src/main.rs", "docs/ui.md", "Cargo.toml"]),
+            None,
+        );
+        frame(&editor, "a batch");
+        keys(&mut dispatcher, &mut editor, "C-n");
+        editor.files_walked(walk, batch(&["a.rs", ".github/ci.yml", "src/lib.rs"]), None);
+        frame(&editor, "C-n, then a batch: the row moved to stays");
+        let end = Some(oso_core::editor::WalkEnd { cut: false });
+        editor.files_walked(walk, batch(&["build.rs"]), end);
+        frame(&editor, "the last batch, and the walk ends");
+        keys(&mut dispatcher, &mut editor, "r s");
+        frame(&editor, "r s");
+        assert_frames("project_find_file_streams", b"", &frames);
+    }
+
+    #[test]
     fn a_secret_buffers_modeline_says_no_position() {
         let path = std::path::PathBuf::from("/tmp/.env");
         let mut buffer = Buffer::visiting(path.clone());

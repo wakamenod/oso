@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::complete::{
-    Build, Candidates, CompletionJob, CompletionReport, Matching, Report, WORKER_PAST,
+    Build, Candidates, CompletionJob, CompletionReport, Matching, Merge, Report, WORKER_PAST,
 };
 use crate::editor::Editor;
 use crate::minibuffer::{Prompt, PromptId};
@@ -48,6 +48,10 @@ enum Kind {
     Match,
     /// A list that is not the prompt's yet, and whether a segment's directories were cut.
     Build { cut: bool },
+    /// The prompt's list with a walk's batches added (ADR 0114), and whether it matches an
+    /// input the list has not matched yet, which `RET` and `TAB` wait for. Adding rows alone
+    /// leaves the selected one as it is, so they need not wait.
+    Merge { awaited: bool },
 }
 
 /// No revision of an answer, so that a prompt with it is matched again.
@@ -66,9 +70,25 @@ impl Editor {
             .waiting
             .as_ref()
             .is_some_and(|waiting| {
-                self.prompts
-                    .last()
-                    .is_some_and(|prompt| prompt.id == waiting.prompt)
+                waiting.kind != Kind::Merge { awaited: false }
+                    && self
+                        .prompts
+                        .last()
+                        .is_some_and(|prompt| prompt.id == waiting.prompt)
+            })
+    }
+
+    /// Whether a job adds a walk's batches to the innermost prompt's list (ADR 0114).
+    pub(in crate::editor) fn merge_job_running(&self) -> bool {
+        self.completion_work
+            .waiting
+            .as_ref()
+            .is_some_and(|waiting| {
+                matches!(waiting.kind, Kind::Merge { .. })
+                    && self
+                        .prompts
+                        .last()
+                        .is_some_and(|prompt| prompt.id == waiting.prompt)
             })
     }
 
@@ -89,6 +109,22 @@ impl Editor {
         self.leave(revision, Kind::Build { cut }, |generation, live| {
             CompletionJob::build(build, generation, live)
         });
+    }
+
+    /// Leaves `merge` for the worker, as the innermost prompt's list with a walk's batches
+    /// added, for its answer at `revision`; `awaited` says it matches an input the list has not.
+    pub(in crate::editor) fn leave_merge(&mut self, merge: Merge, revision: u64, awaited: bool) {
+        self.leave(revision, Kind::Merge { awaited }, |generation, live| {
+            CompletionJob::merge(merge, generation, live)
+        });
+        if !awaited {
+            // The rows shown are the input's own, and stay, so the prompt waits for nothing.
+            if let Some((candidates, _)) = self.completion_mut() {
+                candidates.set_pending(false);
+            }
+        } else if let Some((candidates, _)) = self.completion_mut() {
+            candidates.forget_choice();
+        }
     }
 
     /// Leaves `matching` for the worker, for the innermost prompt's answer at `revision`.
@@ -163,10 +199,25 @@ impl Editor {
     /// Gives up on the result the innermost prompt waits for, as the worker failed: the rows
     /// shown stay, and the prompt says so.
     pub fn completion_failed(&mut self) {
-        if self.completion_pending() {
+        if self.merge_job_running() {
+            // The batches it carried still wait, for one more job (ADR 0114).
+            self.stop_completion_job();
+            self.merge_failed();
+        } else if self.completion_pending() {
             self.stop_completion_job();
             self.prompt_says("Could not match; edit the input to try again");
         }
+    }
+
+    /// Whether a job adding a walk's batches runs for the innermost prompt's answer at
+    /// `revision`, so another for it would only start over.
+    pub(in crate::editor) fn merge_job_for(&self, revision: u64) -> bool {
+        self.merge_job_running()
+            && self
+                .completion_work
+                .waiting
+                .as_ref()
+                .is_some_and(|waiting| waiting.revision == revision)
     }
 
     /// Takes in what a worker built or matched, unless a newer job has taken its place, its
@@ -207,6 +258,26 @@ impl Editor {
                     return false;
                 }
                 candidates.apply(matched, true);
+                self.relayout_prompt();
+            }
+            Report::Merged { merged, .. } => {
+                let Some((candidates, seen)) = self.completion_mut() else {
+                    return false;
+                };
+                candidates.set_pending(false);
+                if !Arc::ptr_eq(&merged.base, candidates.items()) {
+                    self.free_on_the_worker(merged);
+                    self.merge_pending_batches();
+                    return false;
+                }
+                let merged = *merged;
+                let before = candidates.grown(merged.items, merged.order, merged.matched);
+                *seen = waiting.revision;
+                self.free_on_the_worker(Box::new((before, merged.base)));
+                self.drop_merged_batches(merged.carried);
+                // The batches that came meanwhile, and what was typed since.
+                self.merge_pending_batches();
+                self.match_completion();
                 self.relayout_prompt();
             }
         }

@@ -308,3 +308,35 @@ fn the_thread_answers_each_request_and_wakes_once_answers_wait() {
     );
     assert!(detector.take().is_empty());
 }
+
+/// The same places as `walk`'s `a_marker_counts_as_detection_counts_it`, whose copy of the
+/// rule must agree with this one: keep the two alike.
+#[cfg(unix)]
+#[test]
+fn a_marker_is_what_the_walker_counts_as_one() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("walker-markers");
+    let elsewhere = Scratch::new("walker-markers-elsewhere");
+    elsewhere.dir("repo/.git");
+    scratch.dir("a/.git");
+    scratch.file("b/.git", "gitdir: ../.git/worktrees/b\n");
+    scratch.dir("c/.jj");
+    scratch.dir("d/.hg");
+    scratch.dir("e");
+    symlink(elsewhere.0.join("repo/.git"), scratch.0.join("e/.git")).unwrap();
+    scratch.file("f/.hg", "");
+    scratch.file("g/.jj", "");
+    for (dir, marked) in [
+        ("a", true),
+        ("b", true),
+        ("c", true),
+        ("d", true),
+        ("e", false),
+        ("f", false),
+        ("g", false),
+    ] {
+        let found = detect(&scratch.0.join(dir).join("x.rs"), None, &[]);
+        let here = found.is_some_and(|found| found.root.path == scratch.0.join(dir));
+        assert_eq!(here, marked, "{dir}");
+    }
+}

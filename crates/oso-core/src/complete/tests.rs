@@ -387,6 +387,33 @@ proptest! {
         }
     }
 
+    /// Batches merged as a walk sends them show what the whole list made at once shows, in
+    /// its order and with its matches (ADR 0114).
+    #[test]
+    fn merged_batches_give_what_the_whole_list_gives(
+        texts in words(),
+        cuts in prop::collection::vec(0usize..40, 0..5),
+        input in "[a-cA-C !~^]{0,3}",
+    ) {
+        let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let history: Vec<&str> = texts.iter().copied().step_by(3).collect();
+        let mut cuts: Vec<usize> = cuts.into_iter().map(|cut| cut.min(texts.len())).collect();
+        cuts.push(texts.len());
+        cuts.sort_unstable();
+        let mut merged = list(&[], &history);
+        merged.set_input(&input);
+        let mut from = 0;
+        for cut in cuts {
+            merged.merge(texts[from..cut].iter().map(|text| candidate(text)), history.iter().copied());
+            from = cut;
+        }
+        let mut whole = list(&texts, &history);
+        whole.set_input(&input);
+        prop_assert_eq!(shown(&merged), shown(&whole));
+        let order = |candidates: &Candidates| candidates.order().to_vec();
+        prop_assert_eq!(order(&merged), order(&whole));
+    }
+
     #[test]
     fn highlights_are_inside_the_text_on_char_boundaries(
         text in "[a-zA-ZİßK\\- ]{0,12}",
@@ -460,5 +487,51 @@ fn a_row_shown_only_while_nothing_is_typed_is_hidden_here_and_on_the_worker() {
                 .collect();
             assert_eq!(texts, ["alpha"], "{input:?}");
         }
+    }
+}
+
+#[test]
+fn a_merge_on_the_worker_gives_what_merging_here_gives() {
+    use std::sync::atomic::AtomicU64;
+
+    use super::{CompletionJob, Merge, Report};
+    let first: Vec<String> = (0..6000).map(|index| format!("src/{index}.rs")).collect();
+    let more: Vec<Box<str>> = (0..50)
+        .map(|index| format!("a/{index}.md").into())
+        .collect();
+    let history = ["src/42.rs", "a/7.md"];
+    let mut here = list(
+        &first.iter().map(String::as_str).collect::<Vec<_>>(),
+        &history,
+    );
+    here.set_input("4");
+    for input in ["4", "7"] {
+        let job = CompletionJob::merge(
+            Merge {
+                items: Arc::clone(here.items()),
+                order: Arc::clone(here.order()),
+                matched: here.matched(),
+                batches: vec![more.clone().into()],
+                history: history.iter().map(|text| (*text).to_owned()).collect(),
+                input: Some(input.to_owned()),
+            },
+            1,
+            Arc::new(AtomicU64::new(1)),
+        );
+        let Some(super::CompletionReport(Report::Merged { merged, .. })) = job.run() else {
+            panic!("a merge reports what it merged");
+        };
+        let mut there = list(&[], &[]);
+        there.grown(merged.items, merged.order, merged.matched);
+        let mut whole = list(
+            &first
+                .iter()
+                .map(String::as_str)
+                .chain(more.iter().map(|path| &**path))
+                .collect::<Vec<_>>(),
+            &history,
+        );
+        whole.set_input(input);
+        assert_eq!(shown(&there), shown(&whole), "for {input}");
     }
 }

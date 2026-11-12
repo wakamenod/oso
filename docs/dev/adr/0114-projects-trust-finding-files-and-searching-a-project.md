@@ -398,6 +398,59 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 - **`C-u`, which asks for a directory first (Q10), comes with step 4,** shared with
   `project-search` (the author's choice, 2026-11-12). The history of `project-find-file` is per
   project, as decided above.
+- **oso reads the ignore files itself, and the `ignore` crate only matches them.** The walk is a
+  depth-first walk of oso's own (`walk.rs`) with a stack of the crate's gitignore matchers in
+  `rg`'s order: `.rgignore`, `.ignore`, then, inside a git repository, `.gitignore`, the root's
+  `.git/info/exclude` and the person's global excludes. The deepest directory's file decides
+  within each kind. The author chose this on 2026-11-12, after review.
+  - An ignore file is read only if it is a regular file that is not a link, opened without
+    waiting (`oso_platform::file_meta::open_regular_here`), of at most 1 MiB. None above the
+    project's root is read.
+  - A worktree's root, whose `.git` is a file, reads no `info/exclude`.
+  - The global excludes file may be a link, as it is the person's own, but must be a regular
+    file of at most 1 MiB too. Finding it, the crate reads the git configuration files that
+    name it: `$GIT_CONFIG_GLOBAL` or `~/.gitconfig`, `$XDG_CONFIG_HOME/git/config` and
+    `/etc/gitconfig`, the person's or root's own.
+- **A marker counts as detection counts it,** read from the directory's own listing: a `.git`
+  directory or file, a `.jj` or `.hg` directory, never a link, owned by this user or root. The
+  walk keeps a copy of detection's rule, as `walk` and `project` share a layer, with tests on
+  both sides that keep the two alike.
+- **Links are resolved by their words.** Each name on the way is looked at without following
+  it, and a link's target is read and taken by its words, only while every hop stays under the
+  root. A link that leads to a file under the root is listed; one that leaves the root is listed
+  without a look, and the loader judges it when it is opened.
+- **Limits.** A walk lists at most 100,000 files (Q13) and 32 MiB of paths, reads at most 32 MiB
+  of names, 1,000,000 entries, ignored ones and the names looked at for links included, and
+  16 MiB of ignore files in all. Past any of them it stops, and the count says `+`. The author
+  approved the last ones on 2026-11-12.
+- **Outside a project,** the directory is that of the place the file's path leads to. A buffer
+  with no file, the home directory, a directory that holds it (by its words in the editor, and
+  by its real place on the walker's thread) and `/` say `Not in a project`. A root whose path is
+  not UTF-8 is refused, and so is a second listing while one is open.
+- **One thread, `oso-walk`, serves every walk,** and a walk stops at its next entry once its
+  generation is passed, sooner than the next directory said above. A batch goes when the next
+  entry comes, at most every 50 ms; a host timer adds the rows waiting once a walk has sent
+  nothing for 250 ms.
+- **Merging.** A batch is sorted on its own, put in place by binary search and matched alone.
+  Up to 1000 paths into a list of at most 5000 merge on the UI thread; anything else goes to a
+  merge job on `oso-complete`. Past 5000 a job waits until the paths waiting are an eighth of
+  the list, the walk ends or goes quiet. A job that fails is tried once more; if that fails too,
+  the walk stops and the list shows what it has, with `+`. Measured in a release build, the UI
+  thread's share of a batch stayed under 0.75 ms in the worst cases tried.
+- **Changes to accepted ADRs.** [ADR 0076](0076-completion-and-m-x.md) keeps the rows that stay
+  from moving: a list that grows now puts rows above the selected one, which stays selected,
+  and an exact match that comes is selected unless a row was moved to.
+  [ADR 0096](0096-completion-on-a-worker-past-5000-candidates.md) lets a newer job supersede the
+  one running: a walk's batches instead wait for the next merge job, while an edit still
+  supersedes it. A merge job that only adds rows holds no `RET` or `TAB`.
+- **The history key is `<history>:<root>`,** kept on the prompt inside the crate, as
+  `minibuffer::Kind` stays as it is. The `oso dev` restart carries at most 64 histories, each
+  named in at most 64 bytes, those named alone first, so a long-rooted project's history is
+  left out of a restart rather than refusing it.
+- **`files_pending` and `files_cut` cover a project's walk,** so the float and the dev socket's
+  state need nothing new. `ignore` and `globset` log only warnings and errors.
+- **The walk took 0.20 s for 46,234 files,** against 0.09 s for `rg --files --hidden` and 0.19 s
+  for it on one thread, on the author's Mac, warm.
 
 ## Alternatives considered
 
