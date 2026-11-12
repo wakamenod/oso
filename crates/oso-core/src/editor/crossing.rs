@@ -29,6 +29,11 @@ const APPLY_TIME: Duration = Duration::from_millis(1);
 /// stops a slice first, and a slow machine still shows progress.
 const SLICE_WORK: usize = 4 * 1024 * 1024;
 
+/// The work a slice does before its time may stop it: 256 splices, a fraction of a
+/// millisecond, so that a small undo crosses in its command however slow the machine, as ADR
+/// 0119 has small undos unchanged.
+const SURE_WORK: usize = 256 * crate::buffer::SPLICE_WORK;
+
 /// What the editor keeps of undo and redo a slice at a time.
 #[derive(Default)]
 pub(super) struct Crossings {
@@ -40,6 +45,9 @@ pub(super) struct Crossings {
     /// What each slice does in tests: its work and the bytes of a piece.
     #[cfg(test)]
     slices: Option<(usize, usize)>,
+    /// In tests, each slice's time is up as it begins, as on a machine far slower than any.
+    #[cfg(test)]
+    no_time: bool,
 }
 
 /// An undo or a redo under way in the selected window's buffer, a slice at a time
@@ -274,7 +282,13 @@ impl Editor {
         if let Some((work, piece)) = self.crossing.slices {
             return Budget::new(work, None, piece);
         }
-        Budget::new(SLICE_WORK, Some(until), PIECE)
+        #[cfg(test)]
+        let until = if self.crossing.no_time {
+            Instant::now()
+        } else {
+            until
+        };
+        Budget::new(SLICE_WORK, Some(until), PIECE).with_sure(SURE_WORK)
     }
 
     /// Runs a slice of the step, and moves the windows' copies along. Returns whether the step
@@ -426,6 +440,12 @@ impl Editor {
         if crossing.left > 0 {
             let _ = write!(out, " ({} more)", crossing.left);
         }
+    }
+
+    /// Makes each slice's time up as it begins, so that it does only the work it is sure to.
+    #[cfg(test)]
+    pub(crate) fn set_crossing_no_time(&mut self) {
+        self.crossing.no_time = true;
     }
 
     /// Makes each slice do `work`, as [`Budget`] counts it, with no time, and put back a

@@ -49,6 +49,9 @@ pub(crate) struct Budget {
     pub(crate) part: usize,
     /// What following each run that ends costs: the edited lines.
     pub(crate) run: usize,
+    /// Work the slice does before its time may stop it, so that a small step crosses in the
+    /// slice it begins in on any machine.
+    sure: usize,
 }
 
 impl Budget {
@@ -61,16 +64,24 @@ impl Budget {
             piece,
             part: 0,
             run: 0,
+            sure: 0,
         }
+    }
+
+    /// The same, doing `sure` work before its time may stop it.
+    pub(crate) fn with_sure(self, sure: usize) -> Self {
+        Self { sure, ..self }
     }
 
     /// Whether the slice is to stop.
     pub(crate) fn spent(&self) -> bool {
-        self.work == 0 || self.until.is_some_and(|until| Instant::now() >= until)
+        self.work == 0
+            || (self.sure == 0 && self.until.is_some_and(|until| Instant::now() >= until))
     }
 
     pub(crate) fn spend(&mut self, work: usize) {
         self.work = self.work.saturating_sub(work);
+        self.sure = self.sure.saturating_sub(work);
     }
 }
 

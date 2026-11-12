@@ -109,3 +109,27 @@ fn a_batch_larger_than_a_part_is_recorded_in_parts_and_crosses_as_the_whole() {
         }
     }
 }
+
+#[test]
+fn a_small_step_crosses_in_its_first_slice_however_slow_the_machine() {
+    let typed = |splices: usize| {
+        let (mut editor, id) = editor_with(&"ab ".repeat(splices));
+        editor.begin_undo_group();
+        let edits: Vec<_> = (0..splices)
+            .map(|at| edit(at * 3..at * 3 + 1, "c"))
+            .collect();
+        editor.apply_edits(id, &edits).expect("an edit");
+        editor.end_undo_group();
+        editor.set_crossing_no_time();
+        editor.begin_crossing(1).expect("an undo");
+        (editor, id)
+    };
+    let (editor, id) = typed(200);
+    assert!(editor.crossing().is_none(), "200 splices cross at once");
+    assert_eq!(text(&editor, id), "ab ".repeat(200));
+    let (editor, _) = typed(2000);
+    assert!(
+        editor.crossing().is_some(),
+        "2000 do not, once the time is up"
+    );
+}
