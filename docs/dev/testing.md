@@ -288,6 +288,7 @@ what you type goes into their buffers, which can fail a flow.
 | emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit (on oso's own layer a quit Apple event with a logout reason), to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
 | exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. On oso's own macOS layer a person's quit, as another app sends it, asks the same question, `n` stays and `y` goes with nothing written (ADR 0084). What makes it ask again is tested through the `Dispatcher` |
 | prompts | `M-g g` reads a line in a float and goes there, `C-g` runs nothing, the IME off in a prompt and on after it, the exit question on `n` and `y`, a passphrase withheld from `get-state`, screenshots and the log, and a restart held while a prompt is open (ADR 0072) |
+| projects | `C-x p f` walks a scratch project on the walker's thread and `RET` visits a file; `C-u` lists only directories, then one as a project; `M-s r` searches it and previews each row, never a file that may hold secrets; `trust-project`'s `y` writes `trusted-projects` beside the `--config` file, a new instance reads it back, and `untrust-project` removes the line, with the modeline's `restricted` following (`projects.rs`, ADR 0114) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend
@@ -296,7 +297,7 @@ background and the cursor box, so a flow checks the cursor on a file of empty
 lines, which looks the same everywhere, and text pixels only on macOS. Linux
 having no text pixels is asserted too, so the line changes when it gets a backend.
 
-**To add a flow,** add an ignored test to `crates/oso/tests/e2e/main.rs`, and only
+**To add a flow,** add an ignored test under `crates/oso/tests/e2e/`, and only
 if a component boundary or a critical flow has no test yet. Motion, widths,
 decoding and the grid belong in the layers below. Use `Scratch` for files, with
 fake secrets only, and `App`, which addresses its own instance by process ID and
