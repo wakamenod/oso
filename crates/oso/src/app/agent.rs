@@ -151,7 +151,7 @@ fn waits(now: &Now) -> Option<&'static str> {
         return Some("the person is composing text");
     }
     if now.searching {
-        return Some("the person is searching");
+        return Some("the person is searching or replacing");
     }
     if now.since_typed.is_some_and(|since| since < PERSON_TYPING) {
         return Some("the person is typing; try again in a moment");
@@ -462,7 +462,7 @@ impl App {
             persons_prompt: !prompts.is_empty(),
             keys_in_progress: self.dispatcher.keys_in_progress(),
             composing: self.composing(),
-            searching: self.editor.isearch().is_some(),
+            searching: self.editor.isearch().is_some() || self.editor.replace().is_some(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),
         })
     }

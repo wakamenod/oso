@@ -25,6 +25,10 @@ impl Editor {
     /// Takes in what a worker found, unless a newer job has taken its place. Returns whether
     /// what shows changed.
     pub fn isearch_reported(&mut self, report: SearchReport) -> bool {
+        // query-replace shares the worker, and is never on with isearch (ADR 0113).
+        if self.replace().is_some() {
+            return self.replace_reported(report);
+        }
         let report = match report.0 {
             Report::Matches {
                 generation,

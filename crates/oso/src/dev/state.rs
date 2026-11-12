@@ -20,7 +20,7 @@
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::complete::Candidates;
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use oso_core::editor::{Editor, Isearch, Preview, Status};
+use oso_core::editor::{Editor, Isearch, Preview, Replace, Status};
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
@@ -95,6 +95,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
         "isearch": isearch_state(editor),
+        "replace": replace_state(editor),
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
     if !buffer.is_secret() {
@@ -113,8 +114,9 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         let mut status = Status::default();
         editor.status_into(editor.tiled().0.id(), &mut status);
         state["modeline"] = json!(status.modeline());
-        // isearch's line holds its string.
-        let search_withheld = editor.isearch().is_some_and(Isearch::around_secret);
+        // isearch's line holds its string, and query-replace's both of its.
+        let search_withheld = editor.isearch().is_some_and(Isearch::around_secret)
+            || editor.replace().is_some_and(Replace::around_secret);
         if keys_shown && !search_withheld {
             state["echo"] = json!(status.echo);
         }
@@ -146,6 +148,28 @@ fn isearch_state(editor: &Editor) -> Value {
         "case_sensitive": search.case_sensitive(),
         "searching": search.searching(),
         "count": count,
+    })
+}
+
+/// The `replace` field of `get-state`: null, or the query-replace under way, whether it is a
+/// regexp's, whether a worker searches, its count, and how many it replaced (ADR 0113). Around
+/// a buffer that may hold secrets, only that one is under way.
+fn replace_state(editor: &Editor) -> Value {
+    let Some(replace) = editor.replace() else {
+        return Value::Null;
+    };
+    if editor.shows_secret() || replace.around_secret() {
+        return json!({ "active": true });
+    }
+    let count = replace
+        .count()
+        .map(|(index, total)| json!({ "index": index, "total": total }));
+    json!({
+        "active": true,
+        "regexp": replace.regexp(),
+        "searching": replace.searching(),
+        "count": count,
+        "replaced": replace.replaced(),
     })
 }
 
@@ -650,6 +674,7 @@ mod tests {
                 "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
                 "isearch": null,
+                "replace": null,
                 "surface": { "width": 800, "height": 600 },
             })
         );
@@ -833,6 +858,42 @@ mod tests {
         let state = get_state(&editor, &[], None);
         assert!(state.get("modeline").is_none());
         assert!(state.get("echo").is_none());
+    }
+
+    #[test]
+    fn query_replace_reads_back_unless_it_is_around_a_secret() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("plain.txt", "ab ab"));
+        editor.replace_begin("ab", "c", false).unwrap();
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["replace"]["active"], true);
+        assert_eq!(state["replace"]["regexp"], false);
+        assert!(
+            state["echo"]
+                .as_str()
+                .is_some_and(|echo| echo.contains("ab"))
+        );
+        editor.replace_exit();
+
+        // Begun while a buffer that may hold secrets is shown.
+        let path = PathBuf::from("/tmp/.env");
+        let mut key = Buffer::visiting(path.clone());
+        key.judge_secret(Some(&[path]));
+        key.apply_load(oso_core::load::decode_all(
+            b"TOKEN=x TOKEN=y",
+            Default::default(),
+        ));
+        let key = editor.add_buffer(key);
+        editor.show(key);
+        editor.replace_begin("TOKEN", "KEY", false).unwrap();
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["replace"], json!({ "active": true }));
+        assert!(state.get("echo").is_none());
+        editor.replace_exit();
+        assert_eq!(
+            editor.last_replace(false),
+            Some(("ab", "c")),
+            "no pair from around it"
+        );
     }
 
     #[test]

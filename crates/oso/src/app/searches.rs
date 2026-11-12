@@ -15,6 +15,7 @@ use std::thread;
 
 use oso_core::editor::{SearchJob, SearchReport};
 
+use super::shell::Loop;
 use super::{App, UserEvent, Waker};
 
 /// The worker's queue, once its thread has started.
@@ -70,6 +71,22 @@ impl App {
             // The search waits for `C-g`, and the count stays unknown.
             self.searcher = Searcher::default();
             log::warn!("the search thread could not start");
+        }
+    }
+
+    /// Replaces `!`'s next slice, if one is under way, and asks for another turn. Once it has
+    /// ended, the input held meanwhile runs.
+    pub(super) fn replace_slice(&mut self, event_loop: &Loop<'_>) {
+        if !self.editor.replace_works() {
+            return;
+        }
+        self.editor.replace_continue();
+        self.dispatcher.publish_for_emergency(&self.editor);
+        self.start_searches();
+        self.request_redraw();
+        if !self.editor.replace_works() {
+            let effects = self.dispatcher.run_held_during_all(&mut self.editor);
+            self.apply(event_loop, effects);
         }
     }
 

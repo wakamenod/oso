@@ -14,7 +14,7 @@ use super::Editor;
 use super::follow::clip_selections;
 use super::save::{Elsewhere, SaveRefused};
 use crate::buffer::{
-    BufferId, EditError, Reads, Replacement, Tracking, Trim, TrimRules, as_spans,
+    BufferId, EditError, Mode, Reads, Replacement, Tracking, Trim, TrimRules, as_spans,
     trailing_whitespace,
 };
 use crate::rope::Rope;
@@ -169,13 +169,9 @@ impl Trimmed {
     };
 }
 
-/// Whether `path` names a Markdown file, by its name until major modes come.
+/// Whether `path` names a Markdown file: its major mode, as the name decides it (ADR 0111).
 fn is_markdown(path: Option<&Path>) -> bool {
-    path.and_then(Path::extension)
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
-        })
+    path.is_some_and(|path| Mode::for_path(path) == Mode::Markdown)
 }
 
 /// `ranges` moved through `deletions`, both ascending and apart.
@@ -193,6 +189,12 @@ fn after_deletions(mut ranges: Vec<Range<usize>>, deletions: &[Range<usize>]) ->
 }
 
 impl Editor {
+    /// A new id for ranges tracked in a buffer, shared by cleanup commands and query-replace.
+    pub(super) fn next_tracking(&mut self) -> Tracking {
+        self.trims.next_id += 1;
+        self.trims.next_id
+    }
+
     /// Turns whitespace cleanup on save on or off. It applies from the next save.
     pub fn set_trim_whitespace(&mut self, on: bool) {
         self.trims.on_save = on;
@@ -266,11 +268,12 @@ impl Editor {
         markdown: bool,
         then: Then,
     ) -> Trimmed {
+        let scan = TrimId(self.next_tracking());
         let Some(buffer) = self.buffer(id) else {
             return Trimmed::NOTHING;
         };
         let job = TrimJob {
-            id: TrimId(self.trims.next_id),
+            id: scan,
             buffer: id,
             revision: buffer.revision(),
             text: buffer.text().clone(),
@@ -305,7 +308,6 @@ impl Editor {
 
     /// Leaves `job` for the host, with `then` waiting for it.
     fn wait_for(&mut self, job: TrimJob, then: Then) {
-        self.trims.next_id += 1;
         let (id, buffer) = (job.id, job.buffer);
         let for_agent = self.runs_for_agent();
         if for_agent && !matches!(then, Then::Command) {
