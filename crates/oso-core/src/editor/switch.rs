@@ -240,7 +240,9 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character.
+    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character,
+    /// or one an internal buffer a person does not go to holds, such as `*Session explain*`:
+    /// a second buffer of that name could pass for oso's own (ADR 0121).
     pub fn switch_to_named(&mut self, name: &str) -> Result<(), &'static str> {
         if name.is_empty() {
             return Ok(());
@@ -250,6 +252,9 @@ impl Editor {
             None if name.len() > MAX_NAME_BYTES => return Err("That name is too long"),
             None if name.chars().any(char::is_control) => {
                 return Err("A buffer's name holds no control characters");
+            }
+            None if self.buffers.iter().any(|(_, buffer)| buffer.name() == name) => {
+                return Err("That name is one of oso's own buffers");
             }
             None => self.add_buffer(Buffer::new(name)),
         };

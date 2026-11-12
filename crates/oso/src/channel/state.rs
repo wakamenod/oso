@@ -1,6 +1,7 @@
 //! What the agent channel shows an agent (ADR 0085): a small state of its own, with what
 //! `get-state` withholds around a buffer that may hold secrets withheld the same way
-//! (ADR 0044, ADR 0058, ADR 0063, ADR 0079), and the commands it may run.
+//! (ADR 0044, ADR 0058, ADR 0063, ADR 0079), and the commands it may run. A buffer withheld
+//! from agents gives neither its text nor its positions either (ADR 0121).
 //!
 //! Must not depend on: sockets, threads or `app`; these are plain functions of the editor.
 //!
@@ -32,6 +33,12 @@ pub const MAX_SELECTIONS: usize = 256;
 /// always fits a response line.
 pub const MAX_BUFFERS: usize = 100;
 
+/// Whether the channel may not read `buffer`'s text or where its cursors are: it may hold
+/// secrets, or it is withheld from agents (ADR 0121).
+pub fn unreadable(buffer: &Buffer) -> bool {
+    buffer.is_secret() || buffer.withheld_from_agents()
+}
+
 /// The state: every buffer the person has, every tiled window, the selected window's rows,
 /// the echo area and the prompts open, the outermost first.
 pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
@@ -57,7 +64,7 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
             .filter_map(|(id, regions)| Some((editor.window_by_id(*id)?, regions)))
             .map(|(window, regions)| window_state(editor, window, regions))
             .collect::<Vec<_>>(),
-        "text": (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &buffer.display())),
+        "text": (!unreadable(buffer)).then(|| visible_text(window, buffer.text(), &buffer.display())),
         "undoing": undoing_state(editor),
         "prompts": editor.prompts().iter().map(|prompt| {
             let mut state = json!({
@@ -167,7 +174,7 @@ fn window_state(
         "buffer": window.buffer().get(),
         "selected": window.id() == editor.tiled().0.id(),
     });
-    if !shown.is_secret() {
+    if !unreadable(shown) {
         let display = shown.display();
         let point = |offset| {
             let point = display.offset_to_display_point(offset);

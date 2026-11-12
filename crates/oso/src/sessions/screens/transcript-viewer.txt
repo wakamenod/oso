@@ -1,0 +1,26 @@
+ ▐▛███▛█   Claude Code vX.Y.Z
+▝▜██████▀  Model · Plan
+ ▝▝   ▝▝   ~/src/project
+
+❯ /help
+  ⎿  Help dialog dismissed
+
+❯ /model
+  ⎿  Kept model as Model
+
+❯ /resume
+  ⎿  Resume cancelled
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  dialog waiting · Showing detailed transcript · ctrl+o to toggle · ctrl+e to show all      verbose
+
+
+
+
+
+
+
+
+
+
+

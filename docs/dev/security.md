@@ -412,8 +412,29 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     name, but never to one that may hold secrets
     ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
     [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
-- Hooks are installed only by an explicit command that shows the settings
-  change first.
+- oso writes no hook into Claude Code's settings. When the person sets
+  `[sessions] steer_worktrees = true`, a session oso starts gets one `PreToolUse` hook for that
+  session only, passed with `--settings`
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
+- A hosted session's state comes from rules over its screen, which a model wrote: untrusted
+  text ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). No state authorises anything, and
+  needs input is set only by a rule that knows a dialog; an unknown prompt is idle. The rules
+  are oso's, compiled in, and the person's `agent-rules/claude.toml` beside `config.toml`, read
+  with its checks and refused when other users, a group included, can change it; never a
+  project's, never fetched. They use the `regex` crate only, each pattern with a 128 KiB size
+  limit, at most 256 patterns and 128 rules a file, and the screen is cut to 40 rows of 1 KiB,
+  so judging one is linear in at most some 41 KiB.
+  - A look gets 5 ms, checked between patterns, not inside one: past it the state holds and
+    the screen is looked at again later, less and less often.
+  - A local rule that is the slowest of 3 late looks in a row is not used until the rules
+    reload, and `*Messages*` names it. A bundled rule is never dropped.
+  - So a crafted local file can still delay the sessions worker, and its sessions' states, by
+    one pattern's run per look, and it costs memory when it loads. The file is the person's
+    own, and nothing else waits on that thread.
+- `*Session explain*` shows
+  screen text and is withheld from the agent channel, which can neither read it nor switch to
+  it; what the channel's commands say or kill while it is shown stays out of its reach.
+  `session-explain-file`, which reads a file, is `Person`.
 
 ### Denial of service (T8)
 

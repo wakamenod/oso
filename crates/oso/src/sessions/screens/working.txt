@@ -1,0 +1,29 @@
+ ▐▛███▛█   Claude Code vX.Y.Z
+▝▜██████▀  Model · Plan
+ ▝▝   ▝▝   ~/src/project
+
+❯ Run this exact shell command with the Bash tool and nothing else: date > now.txt
+
+✶ Nucleating…
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt                                                          /rc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
