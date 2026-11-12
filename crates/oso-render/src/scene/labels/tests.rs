@@ -10,8 +10,9 @@ use oso_core::window::ViewTop;
 use oso_platform::text::GlyphKey;
 
 use crate::pane::{CursorStyle, Face, PaneContent, Span, TextView};
-use crate::scene::Scene;
 use crate::scene::tests::{FakeAtlas, LIMITS, build, id, pane, rect, screen_of, theme};
+use crate::scene::{Limits, Scene};
+use crate::text::GlyphInstance;
 
 /// A view of `buffer` with `labels` over it, and its cursor at `cursor`.
 fn view<'a>(
@@ -186,20 +187,96 @@ fn labels_are_cut_to_the_pane_and_stay_in_its_layer() {
     let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
     build(&mut scene, &panes, &mut atlas);
     let faces = [Face::JumpLabelNext];
-    let tiled = &scene.layers()[0];
+    let [tiled, over, float] = scene.layers() else {
+        panic!("the text, its labels and the float: {:?}", scene.layers());
+    };
+    let range = |range: &std::ops::Range<u32>| range.start as usize..range.end as usize;
     assert_eq!(
-        quads(&scene)[tiled.quads.start as usize..tiled.quads.end as usize],
+        quads(&scene)[range(&tiled.quads)],
         [
             glyph((1, 0), Face::Text),
             glyph((1, 1), Face::Text),
             glyph((1, 2), Face::Text),
-            glyph((1, 3), Face::JumpLabelNext),
-        ],
+        ]
+    );
+    assert!(
+        tiled.rects.is_empty(),
+        "the label's fill goes over the text"
+    );
+    assert_eq!(
+        quads(&scene)[range(&over.quads)],
+        [glyph((1, 3), Face::JumpLabelNext)],
         "no `x` above the pane, and no `q` past it"
     );
     assert_eq!(
-        rects(&scene, &faces)[tiled.rects.start as usize..tiled.rects.end as usize],
+        rects(&scene, &faces)[range(&over.rects)],
         [([38.0, 28.0], [10.0, 20.0], Some(Face::JumpLabelNext))]
     );
-    assert_eq!(scene.layers()[1].quads.len(), 5, "the float's, in front");
+    assert_eq!(float.quads.len(), 5, "the float's, in front");
+}
+
+#[test]
+fn labels_are_drawn_over_everything_in_their_cells() {
+    // Every glyph reaches a row up, as stacked marks do, which its row's band cuts to 4 px.
+    let buffer = Buffer::from_text("t", "abcd\nx\u{301}\u{301}\u{301}\u{301}y");
+    let labels = [label(rect(0, 0, 1, 2), "xy", Face::JumpLabel)];
+    let panes = [pane(0, rect(0, 0, 2, 6), 0, view(&buffer, AWAY, &labels))];
+    let mut atlas = FakeAtlas::default();
+    atlas.bitmap = Some(([8, 40], 1, 36));
+    let mut scene = Scene::new(LIMITS, theme());
+    build(&mut scene, &panes, &mut atlas);
+    let [text, over] = scene.layers() else {
+        panic!("the text, then its labels: {:?}", scene.layers());
+    };
+    let range = |range: &std::ops::Range<u32>| range.start as usize..range.end as usize;
+    let [fill] = scene.rects()[range(&over.rects)] else {
+        panic!("the label's fill alone over the text");
+    };
+    let (top, bottom) = (fill.position[1], fill.position[1] + fill.size[1]);
+    let (left, right) = (fill.position[0], fill.position[0] + fill.size[0]);
+    let reaches = |quad: &&GlyphInstance| {
+        let ([x, y], [w, h]) = (quad.position(), quad.size());
+        x < right && left < x + w && y < bottom && top < y + h
+    };
+    assert!(
+        scene.quads()[range(&text.quads)]
+            .iter()
+            .any(|quad| reaches(&quad)),
+        "the row below reaches into the label's cells, under it"
+    );
+    let keys = &scene.quads()[range(&over.quads)];
+    assert_eq!(keys.len(), 2);
+    for key in keys {
+        let ([x, y], [w, h]) = (key.position(), key.size());
+        assert!(
+            left <= x && x + w <= right && top <= y && y + h <= bottom,
+            "a key stays in its label's cells: {:?}",
+            (key.position(), key.size())
+        );
+    }
+}
+
+#[test]
+fn a_label_with_no_room_for_its_fill_draws_no_key() {
+    let buffer = Buffer::from_text("t", "abcdef");
+    let labels = [
+        label(rect(0, 0, 1, 1), "x", Face::JumpLabel),
+        label(rect(0, 2, 1, 1), "y", Face::JumpLabel),
+    ];
+    let panes = [pane(0, rect(0, 0, 1, 6), 0, view(&buffer, AWAY, &labels))];
+    let limits = Limits { rects: 1, ..LIMITS };
+    let (mut scene, mut atlas) = (Scene::new(limits, theme()), FakeAtlas::default());
+    build(&mut scene, &panes, &mut atlas);
+    assert_eq!(scene.rects().len(), 1, "the first label's fill");
+    assert_eq!(
+        quads(&scene),
+        [
+            glyph((0, 1), Face::Text),
+            glyph((0, 3), Face::Text),
+            glyph((0, 4), Face::Text),
+            glyph((0, 5), Face::Text),
+            glyph((0, 0), Face::JumpLabel),
+        ],
+        "no `y` on the text it would cover"
+    );
 }

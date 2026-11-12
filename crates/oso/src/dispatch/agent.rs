@@ -75,9 +75,9 @@ impl Dispatcher {
         reach: Reach,
     ) -> Result<(Effects, Result<(), String>), Refused> {
         // An agent's command is no key of the person's, so it ends no flash (ADR 0105).
-        let before = self.jump.take();
+        let before = self.view_jumped.take();
         let ran = self.run_agent_command(editor, name, given, reach);
-        self.jump = if self.jump == Some(true) {
+        self.view_jumped = if self.view_jumped == Some(true) {
             Some(true)
         } else {
             before

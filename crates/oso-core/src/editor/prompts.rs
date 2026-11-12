@@ -54,9 +54,10 @@ impl Editor {
             return Err(PromptError::TooDeep);
         }
         // A prompt over a search ends it, as a key it does not bind does (ADR 0082), and so
-        // it does query-replace (ADR 0113).
+        // it does query-replace (ADR 0113) and a jump, with nothing moved (ADR 0116).
         self.isearch_abandon();
         self.replace_abandon();
+        self.jump_end();
         let depth = self.prompts.len() + 1;
         let from_agent = self.runs_for_agent();
         let mut label = label.into();
@@ -485,8 +486,8 @@ impl Editor {
     }
 
     /// Does what one `C-g` does once a pending prefix is dealt with: the first that applies of
-    /// the steps of ADR 0072: the region, then the innermost prompt, then isearch's two
-    /// steps (ADR 0082). M2-21 (extra cursors) adds its part after them. Closing a question runs nothing and forgets
+    /// the steps of ADR 0072: a jump (ADR 0116), then the region, then the innermost prompt,
+    /// then isearch's two steps (ADR 0082). M2-21 (extra cursors) adds its part after them. Closing a question runs nothing and forgets
     /// a refused exit.
     pub fn quit(&mut self) -> Quit {
         // A jump reads every key while it is on, so one `C-g` ends it first (ADR 0116).

@@ -468,8 +468,11 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   region shown, the jump extends it; otherwise the place left is pushed onto the mark ring.
   `C-u` keeps to the selected window.
 - `C-g` ends a jump with nothing moved, before anything else it would do. A key that is not a
-  label says `No such candidate` and does not run; while the string is read, a key the jump does
-  not bind ends it silently. A change to the text under the labels ends the jump.
+  label, `DEL` and `RET` among them, says `No such candidate` and does not run; while the string
+  is read, a key the jump does not bind ends it silently. A change to the text or a scroll under
+  the labels ends the jump, saying which; while the string is read, its matches are found again.
+- Labels are drawn over everything in their cells, the text of the rows beside them too, and
+  under floats. A keyboard macro replays a jump as it was recorded, labels and all.
 - `[jump] keys` sets the label keys, `asdfghjl` by default: 2 to 32 distinct printable ASCII
   characters, none of `W K Y T c`. `[jump] timeout` sets the wait in seconds, 0.1 to 5, 0.5 by
   default.

@@ -19,10 +19,10 @@
 
 use std::ops::Range;
 
-use super::Editor;
+use super::{Editor, Isearch};
 use crate::buffer::Buffer;
 use crate::display_map::DisplayPoint;
-use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Stage};
+use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
 use crate::search::{self, Needle, Query};
 use crate::sum_tree::Bias;
 use crate::window::{Screen, WindowId};
@@ -68,7 +68,8 @@ struct Near {
 pub(super) struct Scratch {
     found: Vec<Near>,
     ranges: Vec<Range<usize>>,
-    windows: Vec<WindowId>,
+    /// What each window looked at shows now.
+    views: Vec<Shown>,
     /// Each window looked at, by its place among them, and its primary cursor's point.
     cursors: Vec<(WindowId, DisplayPoint)>,
     screen: Screen,
@@ -94,7 +95,9 @@ impl Editor {
         if !self.prompts.is_empty() || (kind == Kind::Isearch && self.isearch.is_none()) {
             return false;
         }
-        let around_secret = self.shows_secret();
+        // `avy-isearch` labels what the isearch found, so it is around what that was around.
+        let around_secret = self.shows_secret()
+            || (kind == Kind::Isearch && self.isearch.as_ref().is_some_and(Isearch::around_secret));
         let selected_only = selected_only || kind == Kind::Isearch;
         let keys = self.jump_keys.clone();
         self.jump = Some(Jump::new(kind, selected_only, keys, around_secret));
@@ -107,7 +110,7 @@ impl Editor {
     /// Adds `text` to the string a jump reads, up to [`MAX_STRING`] characters, and finds its
     /// matches in view again.
     pub fn jump_add(&mut self, text: &str) {
-        self.jump_follow_text();
+        self.jump_follow(false);
         let Some(jump) = self
             .jump
             .as_mut()
@@ -123,30 +126,39 @@ impl Editor {
     /// Takes the last character off the string a jump reads, and finds its matches in view
     /// again. Returns whether there was one.
     pub fn jump_delete(&mut self) -> bool {
-        self.jump_follow_text();
-        let Some(jump) = self
-            .jump
-            .as_mut()
-            .filter(|jump| jump.stage == Stage::Reading)
-        else {
+        let moved = self.jump_follow(false);
+        let Some(jump) = self.jump.as_mut() else {
             return false;
         };
-        if jump.string.pop().is_none() {
+        if jump.stage == Stage::Labels {
+            self.jump_refuse();
             return false;
         }
-        self.find_candidates();
-        true
+        let deleted = jump.string.pop().is_some();
+        if deleted || moved {
+            self.find_candidates();
+        }
+        deleted
     }
 
     /// Shows a jump's labels: when the time after the last key passed, or at `RET`. A string
     /// not begun waits for a key. With nothing to label, the jump ends saying `No candidates`.
     pub fn jump_show_labels(&mut self) {
-        if !self.jump.as_ref().is_some_and(|jump| {
-            jump.stage == Stage::Reading && !(jump.kind == Kind::Char && jump.string.is_empty())
-        }) {
+        let moved = self.jump_follow(false);
+        let Some(jump) = &self.jump else {
+            return;
+        };
+        if jump.stage == Stage::Labels {
+            self.jump_refuse();
             return;
         }
-        self.find_candidates();
+        if jump.kind == Kind::Char && jump.string.is_empty() {
+            return;
+        }
+        // What it found at the last key stands, unless what it looks at moved since.
+        if moved || jump.shown.is_empty() {
+            self.find_candidates();
+        }
         let Some(jump) = &mut self.jump else {
             return;
         };
@@ -177,8 +189,7 @@ impl Editor {
             Some((at, label.len(), index))
         });
         let Some((at, len, index)) = chosen else {
-            self.jump = None;
-            self.echo("No such candidate");
+            self.jump_refuse();
             return Chose::NoSuch;
         };
         if len > jump.typed.len() + 1 {
@@ -203,36 +214,87 @@ impl Editor {
         self.jump_end()
     }
 
+    /// Ends a jump as a key it does not take does: with nothing moved, saying `No such
+    /// candidate` if its labels showed. Returns whether one was under way.
+    pub fn jump_refuse(&mut self) -> bool {
+        let Some(jump) = self.jump.take() else {
+            return false;
+        };
+        if jump.stage == Stage::Labels {
+            self.echo("No such candidate");
+        }
+        true
+    }
+
     /// Keeps a jump true to the windows and the text it looks at: a prompt over it ends it,
     /// a change while its string is read finds the matches again, and a change under its
     /// labels ends it, saying so. Returns whether what shows changed.
     pub(super) fn jump_follow_text(&mut self) -> bool {
-        let Some(jump) = &self.jump else {
-            return false;
-        };
-        if !self.prompts.is_empty() {
+        self.jump_follow(true)
+    }
+
+    /// [`Editor::jump_follow_text`], which leaves a jump reading its string to find its
+    /// matches again itself unless `find`. A change is any to what [`Shown`] holds, such as a
+    /// wheel's scroll.
+    fn jump_follow(&mut self, find: bool) -> bool {
+        if self.jump.is_some() && !self.prompts.is_empty() {
             self.jump = None;
             return true;
         }
-        let same = |&(window, buffer, revision): &(WindowId, _, u64)| {
-            self.window_by_id(window).is_some_and(|shown| {
-                shown.buffer() == buffer
-                    && self
-                        .buffer(buffer)
-                        .is_some_and(|b| b.revision() == revision)
-            })
+        let Some(jump) = self.jump.as_ref().filter(|jump| !jump.shown.is_empty()) else {
+            return false;
         };
-        if jump.shown.iter().all(same) {
+        let mut scratch = std::mem::take(&mut self.jump_scratch);
+        self.jump_views(jump.selected_only, &mut scratch.views);
+        let views = &scratch.views;
+        let moved = *views != jump.shown;
+        let edited = jump.shown.iter().any(|was| {
+            views
+                .iter()
+                .find(|now| now.window == was.window)
+                .is_some_and(|now| (now.buffer, now.revision) != (was.buffer, was.revision))
+        });
+        let stage = jump.stage;
+        self.jump_scratch = scratch;
+        if !moved {
             return false;
         }
-        match jump.stage {
-            Stage::Reading => self.find_candidates(),
+        match stage {
+            Stage::Reading if find => self.find_candidates(),
+            Stage::Reading => {}
             Stage::Labels => {
                 self.jump = None;
-                self.echo("Jump ended: the text changed");
+                self.echo(if edited {
+                    "Jump ended: the text changed"
+                } else {
+                    "Jump ended: the view changed"
+                });
             }
         }
         true
+    }
+
+    /// What each window a jump looks at shows, into `views`: the selected window, then, unless
+    /// `selected_only`, the others with cells, in the tree's order.
+    fn jump_views(&self, selected_only: bool, views: &mut Vec<Shown>) {
+        views.clear();
+        let selected = self.tiled_id();
+        let others = self.frame().windows().iter().filter_map(|(id, regions)| {
+            (!selected_only && regions.has_cells() && *id != selected).then_some(*id)
+        });
+        for id in std::iter::once(selected).chain(others) {
+            let Some((window, buffer, regions)) = self.window_in_tree(id) else {
+                continue;
+            };
+            views.push(Shown {
+                window: id,
+                buffer: window.buffer(),
+                revision: buffer.revision(),
+                scroll: window.scroll(),
+                text: regions.text,
+                cursor: window.selections.primary().cursor,
+            });
+        }
     }
 
     /// Writes what the echo row says of the jump into `out`, if one is under way.
@@ -281,34 +343,25 @@ impl Editor {
         let Scratch {
             found,
             ranges,
-            windows,
+            views,
             cursors,
             screen,
         } = &mut scratch;
         found.clear();
-        windows.clear();
         cursors.clear();
-        let selected = self.tiled_id();
-        windows.push(selected);
-        if !jump.selected_only {
-            let others = self.frame().windows().iter().filter_map(|(id, regions)| {
-                (regions.has_cells() && *id != selected).then_some(*id)
-            });
-            windows.extend(others);
-        }
-        let mut shown = Vec::with_capacity(windows.len());
+        self.jump_views(jump.selected_only, views);
         let mut left = JUMP_BUDGET;
-        for &id in windows.iter() {
-            let Some((window, buffer, regions)) = self.window_in_tree(id) else {
+        for view in views.iter() {
+            let (id, buffer) = (view.window, self.buffer(view.buffer));
+            let Some(buffer) = buffer else {
                 continue;
             };
-            shown.push((id, window.buffer(), buffer.revision()));
             let display = buffer.display();
-            let cursor = display.offset_to_display_point(window.selections.primary().cursor);
+            let cursor = display.offset_to_display_point(view.cursor);
             let rank = cursors.len();
             cursors.push((id, cursor));
             self.screen_of(id, screen);
-            let rows = screen.rows().len().min(regions.text.rows);
+            let rows = screen.rows().len().min(view.text.rows);
             let within = (
                 WINDOW_BUDGET.min(left),
                 MAX_FOUND.saturating_sub(found.len()),
@@ -328,7 +381,10 @@ impl Editor {
         }
         let total = found.len();
         if total > MAX_LABELLED {
-            found.select_nth_unstable_by_key(MAX_LABELLED, |near| near.key);
+            // On the row the cut falls in, the text's order picks, as no column is known yet.
+            found.select_nth_unstable_by_key(MAX_LABELLED, |near| {
+                (near.key, near.candidate.range.start)
+            });
             found.truncate(MAX_LABELLED);
         }
         self.place_kept(found, cursors);
@@ -341,7 +397,7 @@ impl Editor {
         jump.candidates
             .extend(found.drain(..).map(|near| near.candidate));
         jump.found = total;
-        jump.shown = shown;
+        jump.shown.clone_from(views);
         jump.around_secret |= around_secret;
         self.jump_scratch = scratch;
     }
@@ -349,22 +405,24 @@ impl Editor {
 
 impl Editor {
     /// Works out the display points of the candidates `found` kept, and their columns' distance
-    /// from their window's primary cursor's, from `cursors`, each window's by its place.
+    /// from their window's primary cursor's, from `cursors`, each window's by its place. Each
+    /// window's display is taken once: there are few windows, and many candidates.
     fn place_kept(&self, found: &mut [Near], cursors: &[(WindowId, DisplayPoint)]) {
-        for near in found {
-            let (id, cursor) = cursors[near.key.0];
+        for (rank, &(id, cursor)) in cursors.iter().enumerate() {
             let Some(window) = self.window_by_id(id) else {
                 continue;
             };
             let display = self.shown(window).display();
-            let candidate = &mut near.candidate;
-            candidate.start = display.offset_to_display_point(candidate.range.start);
-            candidate.end = if candidate.range.is_empty() {
-                candidate.start
-            } else {
-                display.offset_to_display_point(candidate.range.end)
-            };
-            near.column = candidate.start.column.abs_diff(cursor.column);
+            for near in found.iter_mut().filter(|near| near.key.0 == rank) {
+                let candidate = &mut near.candidate;
+                candidate.start = display.offset_to_display_point(candidate.range.start);
+                candidate.end = if candidate.range.is_empty() {
+                    candidate.start
+                } else {
+                    display.offset_to_display_point(candidate.range.end)
+                };
+                near.column = candidate.start.column.abs_diff(cursor.column);
+            }
         }
     }
 }

@@ -16,10 +16,14 @@ use super::CONNECTION_VERBS;
 use crate::channel;
 
 /// Whether the question about a connection waits: for a prompt to close, for keys `typing`
-/// or a composition, and for a keyboard macro, as a replay never answers it and a recording
-/// would keep the answer.
+/// or a composition, for a jump (ADR 0116), whose keys it would take, and for a keyboard
+/// macro, as a replay never answers it and a recording would keep the answer.
 fn question_waits(editor: &Editor, typing: bool) -> bool {
-    editor.prompt().is_some() || typing || editor.macro_recording() || editor.macro_replaying()
+    editor.prompt().is_some()
+        || typing
+        || editor.jump().is_some()
+        || editor.macro_recording()
+        || editor.macro_replaying()
 }
 
 impl App {
@@ -118,8 +122,8 @@ impl App {
         self.editor.message("Agent channel off");
     }
 
-    /// Asks about the waiting connection once no prompt is open, no keys are in progress and
-    /// no keyboard macro is recorded or replayed, and takes the person's answer once its
+    /// Asks about the waiting connection once no prompt is open, no keys are in progress, no
+    /// jump is under way and no keyboard macro is recorded or replayed, and takes the person's answer once its
     /// question has closed.
     pub(super) fn ask_about_a_connection(&mut self) {
         let Some(asking) = &self.agent.asking else {
@@ -174,6 +178,7 @@ impl App {
 mod tests {
     use oso_core::buffer::Buffer;
     use oso_core::editor::{Editor, MacroEvent};
+    use oso_core::jump::Kind;
 
     use super::question_waits;
 
@@ -193,6 +198,16 @@ mod tests {
         editor.macro_call(None).unwrap();
         assert!(question_waits(&editor, false), "while replaying");
         editor.macro_stop(None);
+        assert!(!question_waits(&editor, false));
+    }
+
+    #[test]
+    fn the_question_about_a_connection_waits_for_a_jump() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", "ab ab"));
+        assert!(editor.jump_begin(Kind::Char, false));
+        assert!(question_waits(&editor, false));
+        editor.quit();
+        assert!(editor.jump().is_none());
         assert!(!question_waits(&editor, false));
     }
 }

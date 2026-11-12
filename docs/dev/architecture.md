@@ -289,7 +289,7 @@ A panicking command is caught at the command boundary
   buffers that show emergency copies and in a prompt, and a layer for the user's keys, which
   the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
-  keymap comes before every other ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+  keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.

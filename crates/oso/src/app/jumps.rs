@@ -7,15 +7,15 @@
 
 use std::time::{Duration, Instant};
 
+use oso_core::editor::{Editor, MacroEvent};
 use oso_core::jump::Stage;
+use oso_core::key::{Key, KeyPress, NamedKey};
 
 use super::App;
+use super::flash::EARLY;
 
 /// How long a jump reads its string after the last key, as avy's `avy-timeout-seconds`.
 pub(super) const DEFAULT_TIMEOUT: Duration = Duration::from_millis(500);
-
-/// How early a wake may come and still count, as the flash's (`flash::EARLY`).
-const EARLY: Duration = Duration::from_millis(1);
 
 /// When a jump reading its string shows its labels, if one does.
 #[derive(Debug)]
@@ -72,18 +72,68 @@ impl App {
     }
 
     /// Shows a jump's labels once its time has passed. A string not begun waits for a key.
+    /// A replay's own time never passes.
     pub(super) fn show_jump_labels_if_due(&mut self) {
-        if self.jump_timer.take_due(Instant::now()) {
-            self.editor.jump_show_labels();
-            self.request_redraw();
+        if !self.jump_timer.take_due(Instant::now()) || self.editor.macro_replaying() {
+            return;
         }
+        show_labels_as_timed(&mut self.editor);
+        self.request_redraw();
+    }
+}
+
+/// Shows a jump's labels as its time passing does. A keyboard macro being recorded keeps that
+/// as the `RET` that does the same, so that its replay shows the labels where they showed,
+/// however fast it runs.
+fn show_labels_as_timed(editor: &mut Editor) {
+    let reading =
+        |editor: &Editor| (editor.jump()).is_some_and(|jump| jump.stage() == Stage::Reading);
+    let was_reading = reading(editor);
+    editor.jump_show_labels();
+    if was_reading && !reading(editor) {
+        editor.macro_record([MacroEvent::Key(KeyPress::plain(Key::Named(
+            NamedKey::Return,
+        )))]);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_TIMEOUT, JumpTimer};
+    use super::{DEFAULT_TIMEOUT, JumpTimer, show_labels_as_timed};
+    use crate::dispatch::Dispatcher;
+    use oso_core::buffer::Buffer;
+    use oso_core::editor::Editor;
+    use oso_core::key::KeySequence;
+    use oso_core::window::ViewSize;
     use std::time::{Duration, Instant};
+
+    fn send(d: &mut Dispatcher, editor: &mut Editor, keys: &str) {
+        let keys: KeySequence = keys.parse().unwrap();
+        d.handle_keys(editor, keys.0);
+    }
+
+    #[test]
+    fn a_macro_keeps_the_time_passing_so_its_replay_jumps_to_the_same_place() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "xab ab\nab\n"));
+        editor.set_view_size(ViewSize::new(10, 20));
+        let mut d = Dispatcher::new();
+        send(&mut d, &mut editor, "C-x ( M-j a b");
+        show_labels_as_timed(&mut editor);
+        // Nearest first: 1 on the cursor's row, then 4.
+        send(&mut d, &mut editor, "s C-x )");
+        let cursor = |editor: &Editor| editor.window().selections.primary().cursor;
+        assert_eq!(cursor(&editor), 4);
+        send(&mut d, &mut editor, "C-a C-x e");
+        let until = Instant::now() + Duration::from_secs(10);
+        while editor.macro_replaying() {
+            d.replay(&mut editor, until);
+        }
+        assert!(
+            editor.jump().is_none(),
+            "the replay showed the labels and took one"
+        );
+        assert_eq!(cursor(&editor), 4);
+    }
 
     #[test]
     fn each_key_while_reading_starts_the_time_again_and_others_stop_it() {

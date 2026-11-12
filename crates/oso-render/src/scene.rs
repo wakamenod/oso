@@ -15,6 +15,10 @@
 //!   budget, which the next frame makes up, the front first again.
 //! - A full atlas clears, which leaves the quads built so far pointing at glyphs
 //!   that are gone, so every pane is built again.
+//! - A jump's labels are drawn over everything in their cells (ADR 0116): what they draw is
+//!   held back while their layer is built, and goes in a layer of its own just in front of it,
+//!   so no glyph of another row, or of a pane beside them, paints over a label. They take their
+//!   room under the caps as they are built, like the rest.
 
 use std::ops::Range;
 
@@ -35,7 +39,7 @@ mod panel;
 mod text_pane;
 
 use highlight::{Plain, RowFaces};
-use labels::{Covered, Keys, draw_labels};
+use labels::{Covered, Keys, Over, draw_labels};
 
 use text_pane::{cursor_cells, draw_text, preedit_lines, underline_preedit};
 
@@ -79,18 +83,34 @@ struct Draws {
     plain: Plain,
     /// The glyphs of a jump's label keys (ADR 0116).
     keys: Keys,
+    /// What the labels of the layer being built draw, held back to go over all of it.
+    over: Over,
 }
 
 impl Draws {
+    /// Whether one more rectangle fits, besides those held back.
+    fn room_for_rect(&self) -> bool {
+        self.rects.len() + self.over.rects.len() + self.held < self.limits.rects
+    }
+
+    /// Whether one more quad fits.
+    fn room_for_quad(&self) -> bool {
+        self.quads.len() + self.over.quads.len() < self.limits.quads
+    }
+
+    /// The rectangle that fills `rect` in `face`'s background.
+    fn filled(&self, rect: PixelRect, face: Face) -> Rect {
+        Rect {
+            position: [rect.x, rect.y],
+            size: [rect.width, rect.height],
+            color: self.theme.background(face),
+        }
+    }
+
     /// Fills `rect`, if it shows and there is room.
     fn fill(&mut self, rect: Option<PixelRect>, face: Face) {
-        let room = self.rects.len() + self.held < self.limits.rects;
-        if let Some(rect) = rect.filter(|_| room) {
-            self.rects.push(Rect {
-                position: [rect.x, rect.y],
-                size: [rect.width, rect.height],
-                color: self.theme.background(face),
-            });
+        if let Some(rect) = rect.filter(|_| self.room_for_rect()) {
+            self.rects.push(self.filled(rect, face));
         }
     }
 
@@ -139,7 +159,7 @@ impl Draws {
             if glyph.column >= columns.end {
                 break;
             }
-            if self.quads.len() >= self.limits.quads {
+            if !self.room_for_quad() {
                 return false;
             }
             let [_, column] = layout.frame_cell(row, glyph.column);
@@ -189,6 +209,7 @@ impl Scene {
                 theme,
                 plain: Plain::default(),
                 keys: Keys::default(),
+                over: Over::default(),
             },
             layers: Vec::new(),
         }
@@ -292,6 +313,7 @@ impl Scene {
             let pane = &panes[index];
             if current != Some(pane.layer) {
                 current = Some(pane.layer);
+                self.draws.end_layer(&mut self.layers);
                 let rects = self.draws.rects.len() as u32;
                 let rounded = self.draws.rounded.len() as u32;
                 let quads = self.draws.quads.len() as u32;
@@ -309,6 +331,7 @@ impl Scene {
                 layer.quads.end = self.draws.quads.len() as u32;
             }
         }
+        self.draws.end_layer(&mut self.layers);
         self.layers.reverse();
     }
 }
@@ -391,7 +414,7 @@ fn draw_pane<G: GlyphSource>(
             if let Some(cells) = cursor {
                 fill_cursor(draws, &layout, cells, hollow, metrics);
             }
-            // Over all of it, the cursor box too (ADR 0116).
+            // Over all of it, the cursor box too, and over the rest of the layer (ADR 0116).
             draw_labels(draws, view.labels, (pane, metrics), system, glyphs);
         }
         PaneContent::Lines(lines) => {
@@ -569,7 +592,7 @@ mod tests {
         /// How many glyphs it has before the rest must wait.
         budget: Option<usize>,
         /// The bitmap's size, left and top, if not the usual one.
-        bitmap: Option<([u32; 2], i32, i32)>,
+        pub(super) bitmap: Option<([u32; 2], i32, i32)>,
     }
 
     impl GlyphSource for FakeAtlas {

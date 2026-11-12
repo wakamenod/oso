@@ -22,7 +22,7 @@ const STEPS: [(Duration, Option<f32>); 3] = [
 /// How early a wake may come and still count as the step's. The timer's date passes
 /// through a float, so it can fire a little before the deadline it was given, and the loop
 /// would then sleep with the same deadline set again.
-const EARLY: Duration = Duration::from_millis(1);
+pub(super) const EARLY: Duration = Duration::from_millis(1);
 
 /// A flash on screen, if one is.
 #[derive(Debug, Default)]
@@ -85,7 +85,7 @@ impl App {
     /// After an input the dispatcher handled: the cursor flashes if the view jumped, and a
     /// flash fading ends if it did not. Returns whether an input came.
     pub(super) fn flash_after_input(&mut self) -> bool {
-        let jumped = self.dispatcher.take_jump();
+        let jumped = self.dispatcher.take_view_jumped();
         let redraw = match jumped {
             Some(true) => {
                 self.flash.begin(Instant::now());

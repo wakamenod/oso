@@ -384,7 +384,8 @@ then chosen points at, as avy's `avy-dispatch-alist` does, and none of them is a
   step 5 was built.) A string's candidates are found with the matcher isearch's
   highlights use, a line's start and end from the display rows.
 - **At most 4096 candidates** are labelled, which eight keys label with four keys or fewer. Past
-  that, the farthest are not labelled, and the echo area says `4096 of 5210 labelled`.
+  that, the farthest are not labelled, and the echo area adds `[4096 of 5210 labelled]` after
+  the string.
 - **While a string is read, its matches are found again at each key,** within the same limits; a
   frame's cost stays bounded by the view, whatever the buffer's size.
 
@@ -450,30 +451,39 @@ at most 1 MiB in all (Q5).
 - **`C-g` (Q2)** ends a jump before anything else in `Editor::quit`, so it never takes the
   region away while a jump is on.
 - **A key the jump's keymap does not bind (Q3)** ends a jump that is still reading its string
-  silently, and does not run. At the labels it says `No such candidate`, as above. The keymap's
-  own commands are `avy-printing-char`, `avy-delete-char` and `avy-show-labels` (`RET`) (Q4).
-  `run-command` of any other command ends a jump first. The jump's keymap comes before every
-  other.
+  silently, and does not run. At the labels it says `No such candidate`, as above, and so do
+  `DEL` and `RET` there (`Editor::jump_refuse`). The keymap's own commands are
+  `avy-printing-char`, `avy-delete-char` and `avy-show-labels` (`RET`) (Q4). `run-command` of
+  any other command ends a jump first, and a prompt opening ends it at once. The jump's keymap
+  comes before every other but a question's, and a digit at `avy-goto-line`'s labels (below) is
+  looked at before any keymap.
 - **The budget (Q5):** 256 KiB of text a window and 1 MiB a jump in all, the selected window
   first, then the tree's order. At most 4096 candidates are labelled; past that the farthest are
   not.
 - **Nearest (Q6)** is the distance on screen: view rows from the window's primary cursor, then
-  columns.
+  columns. On the row the 4096th falls in, the text's order picks, as no column is known yet.
 - **A change to the text (Q7)** under the labels ends the jump with `Jump ended: the text
-  changed`. While the string is still read, its matches are found again.
+  changed`, and a change to a view, such as a wheel's scroll, with `Jump ended: the view
+  changed`. While the string is still read, its matches are found again. `RET`, or the timer,
+  labels what the last key found unless something changed since.
 - **The echo row** says `Jump: <string>`, `Jump to a line`, `Jump to a line's end` or `Jump to
   a match` (`avy-isearch`), and past the limit adds `  [4096 of N labelled]`. It is withheld from
   the socket around a buffer that may hold secrets, as isearch's is.
 - **The timer** starts at the string's first character, and each key while the string is read
   starts it again. A jump with no string waits, so neither `RET` nor the timer does anything
-  until a character is typed.
+  until a character is typed. A keyboard macro being recorded keeps the timer's showing the
+  labels as the `RET` that does the same, so a replay shows them where they showed at any
+  speed; the timer never fires during a replay.
 - **Candidates:** a line's start is labelled on a row that starts its logical line with column 0
   in view, so a view scrolled sideways shows none; a line's end on the line's last row, when its
   end column is in view; and a match whose start is within its row's columns in view.
 - **On screen,** a label is cut at the row's end and at the next label on its row. A target with
-  no cell, such as an empty line's end, is labelled in the first cell after the text. The
-  renderer skips the glyphs under a label and draws labels last in the pane's layer, over the
-  cursor box. The text-grid snapshots show a label's keys on a line between `@`.
+  no cell, such as an empty line's end, is labelled in the first cell after the text. Labels are
+  drawn over everything in their cells: the renderer skips the glyphs under a label, and draws
+  the labels after all of their layer, the cursor box and the text of other rows and panes
+  included, in a layer of their own under the floats. A label's keys stay in its cells, and a
+  label whose fill finds no room under the frame's caps draws no key. The text-grid snapshots
+  show a label's keys on a line between `@`.
 - **`avy-isearch`** labels the selected window's matches only. The cursor goes to the match's
   start, then the search ends as `RET` ends it.
 - **The region and the mark:** with a region shown, nothing is pushed and the jump extends the
@@ -484,8 +494,12 @@ at most 1 MiB in all (Q5).
 - **Settings:** `[jump] keys` is checked by `Keys::new`, and `[jump] timeout` is 0.1 to 5 s,
   0.5 by default.
 - **Around a secret:** `get-state`'s `jump` is `{"active": true}`; elsewhere it gives `active`,
-  `stage` and `count`. The input method is off while a jump is on, and the agent channel and a dev
-  restart wait for it to end.
+  `stage` and `count`. The input method is off while a jump is on, and the agent channel, its
+  question about a connection and a dev restart wait for it to end. `avy-isearch` is around a
+  secret when the search was, and a buffer that may hold secrets shown during a jump marks it.
+- **Left for later,** as a chore: `[jump] timeout`'s default moves into the configuration, so
+  that its value in force needs no exception, and an `Editor::follow_text` keeps every session
+  true to its text in place of jumps going through `isearch_follow_text`.
 
 ## Changes to accepted ADRs
 

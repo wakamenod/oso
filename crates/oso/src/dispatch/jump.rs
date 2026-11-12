@@ -40,13 +40,7 @@ impl Dispatcher {
     /// A key the jump's keymap does not bind: ends the jump with nothing moved, and the key
     /// does not run, as a mistyped label must not type. At the labels it says so.
     pub(super) fn jump_unbound(&mut self, editor: &mut Editor) -> Effects {
-        let labels = editor
-            .jump()
-            .is_some_and(|jump| jump.stage() == Stage::Labels);
-        editor.jump_end();
-        if labels {
-            editor.echo("No such candidate");
-        }
+        editor.jump_refuse();
         self.forget_keys(editor);
         Effects {
             redraw: true,

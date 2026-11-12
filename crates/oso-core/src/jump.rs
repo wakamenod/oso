@@ -15,7 +15,8 @@ use std::ops::Range;
 
 use crate::buffer::BufferId;
 use crate::display_map::DisplayPoint;
-use crate::window::WindowId;
+use crate::frame::CellRect;
+use crate::window::{Scroll, WindowId};
 
 /// The fewest keys labels can be typed with.
 pub const MIN_KEYS: usize = 2;
@@ -252,6 +253,21 @@ pub(crate) struct Candidate {
     pub(crate) end: DisplayPoint,
 }
 
+/// What a window a jump looks at showed when it last found its candidates. A change to any of
+/// it finds them again while the jump reads its string, and ends its labels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Shown {
+    pub(crate) window: WindowId,
+    pub(crate) buffer: BufferId,
+    pub(crate) revision: u64,
+    /// Where its view starts, as a wheel scrolls it.
+    pub(crate) scroll: Scroll,
+    /// The cells of its text area.
+    pub(crate) text: CellRect,
+    /// Its primary cursor, which the nearest candidates are nearest to.
+    pub(crate) cursor: usize,
+}
+
 /// A jump under way. It reads its keys in place of every other keymap, and ends at a label,
 /// at `C-g`, or at any other key.
 pub struct Jump {
@@ -262,16 +278,17 @@ pub struct Jump {
     pub(crate) string: String,
     /// The keys its labels are typed with, as they were when it began.
     pub(crate) keys: Keys,
-    /// What it found, nearest first: every match while it reads, the labelled ones after.
+    /// What it found, nearest first, at most [`MAX_LABELLED`]: the matches while it reads,
+    /// the labelled ones after.
     pub(crate) candidates: Vec<Candidate>,
     /// How many it found in all, of which the first [`MAX_LABELLED`] are kept.
     pub(crate) found: usize,
     pub(crate) labels: Labels,
     /// The keys of a label typed so far, as indices into `keys`.
     pub(crate) typed: Vec<u8>,
-    /// Each window it looks at, the buffer it shows and that buffer's revision, so that a
-    /// change under its labels ends it.
-    pub(crate) shown: Vec<(WindowId, BufferId, u64)>,
+    /// What each window it looks at showed, in the order it looks at them, so that a change
+    /// under its labels ends it. Empty until it first looks.
+    pub(crate) shown: Vec<Shown>,
     /// It began while a buffer that may hold secrets was shown.
     pub(crate) around_secret: bool,
 }

@@ -519,7 +519,7 @@ fn run_steps(
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
         }
         // Whether the step's last key flashes, as the app asks after each input.
-        let flashing = dispatcher.take_jump() == Some(true);
+        let flashing = dispatcher.take_view_jumped() == Some(true);
         // isearch's count, as its worker would give it before the frame.
         while let Some(job) = editor.take_isearch_job() {
             let mut reports = Vec::new();

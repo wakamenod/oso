@@ -1632,6 +1632,7 @@ pub fn oso_core::editor::Editor::jump_begin(&mut self, oso_core::jump::Kind, boo
 pub fn oso_core::editor::Editor::jump_choose(&mut self, char) -> oso_core::editor::Chose
 pub fn oso_core::editor::Editor::jump_delete(&mut self) -> bool
 pub fn oso_core::editor::Editor::jump_end(&mut self) -> bool
+pub fn oso_core::editor::Editor::jump_refuse(&mut self) -> bool
 pub fn oso_core::editor::Editor::jump_show_labels(&mut self)
 pub fn oso_core::editor::Editor::set_jump_keys(&mut self, oso_core::jump::Keys)
 impl oso_core::editor::Editor

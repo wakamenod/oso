@@ -1,5 +1,5 @@
 //! A jump's labels over a text pane (ADR 0116): the text's glyphs they hide, and their fills and
-//! keys, drawn over everything else the pane draws, in its layer, so a float still covers them.
+//! keys, drawn over everything else in the pane's layer, so a float still covers them.
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 //!
@@ -8,17 +8,21 @@
 //! - A label's keys are printable ASCII, one a cell. Each is shaped once, alone, and kept until
 //!   the font changes, so a frame of labels shapes nothing. Anything else in a label's text
 //!   draws no glyph.
+//! - What the labels draw is held back while their layer is built ([`Over`]), and goes in a
+//!   layer of its own just in front of it, so no glyph of another row or pane paints over a
+//!   label.
 
 use std::ops::Range;
 
-use oso_core::frame::CellRect;
+use oso_core::frame::{CellRect, PixelRect};
 use oso_core::window::ViewTop;
 use oso_platform::text::{CellMetrics, ShapedGlyph, TextSystem};
 
-use super::{Draws, GlyphSource};
+use super::{Draws, GlyphSource, LayerDraw};
 use crate::grid::{Grapheme, PlacedGlyph, Placer};
 use crate::pane::{Face, Pane, Span};
-use crate::text::Layout;
+use crate::shape::Rect;
+use crate::text::{GlyphInstance, Layout};
 
 /// The characters a label's key may draw: printable ASCII but the space, which draws nothing.
 const KEYS: Range<u8> = b'!'..b'\x7f';
@@ -57,6 +61,46 @@ impl<'a> Covered<'a> {
         self.0
             .first()
             .is_some_and(|(cells, _)| span(cells).start < columns.end)
+    }
+}
+
+/// What a layer's labels draw, in the order they are drawn.
+#[derive(Default)]
+pub(super) struct Over {
+    pub(super) rects: Vec<Rect>,
+    pub(super) quads: Vec<GlyphInstance>,
+}
+
+impl Draws {
+    /// Fills `rect` over everything else in the layer, as a label is, if there is room.
+    /// Returns whether it did.
+    fn fill_over(&mut self, rect: PixelRect, face: Face) -> bool {
+        let room = self.room_for_rect();
+        if room {
+            self.over.rects.push(self.filled(rect, face));
+        }
+        room
+    }
+
+    /// Ends the layer last begun in `layers`, which are built front to back: what its labels
+    /// drew goes after all of it, in a layer of its own just in front of it.
+    pub(super) fn end_layer(&mut self, layers: &mut Vec<LayerDraw>) {
+        if self.over.rects.is_empty() && self.over.quads.is_empty() {
+            return;
+        }
+        let (rects, rounded, quads) = (
+            self.rects.len() as u32,
+            self.rounded.len() as u32,
+            self.quads.len() as u32,
+        );
+        self.rects.append(&mut self.over.rects);
+        self.quads.append(&mut self.over.quads);
+        let labels = LayerDraw {
+            rects: rects..self.rects.len() as u32,
+            rounded: rounded..rounded,
+            quads: quads..self.quads.len() as u32,
+        };
+        layers.insert(layers.len().saturating_sub(1), labels);
     }
 }
 
@@ -118,9 +162,10 @@ impl Keys {
     }
 }
 
-/// Draws `labels` over the text of `pane`, drawn with `metrics`: each one's cells in its face's
-/// background, cut to the pane like the fills, and its keys in its face's foreground, one a
-/// cell from its first, wherever the pane's view is scrolled and its cursor box is.
+/// Draws `labels` over the text of `pane`, drawn with `metrics`, and over the rest of its layer:
+/// each one's cells in its face's background, cut to the pane like the fills, and its keys in its
+/// face's foreground, one a cell from its first and cut to its cells, wherever the pane's view is
+/// scrolled and its cursor box is. A label whose fill finds no room draws no key.
 pub(super) fn draw_labels<G: GlyphSource>(
     draws: &mut Draws,
     labels: &[(CellRect, Span<'_>)],
@@ -128,14 +173,23 @@ pub(super) fn draw_labels<G: GlyphSource>(
     system: &mut dyn TextSystem,
     glyphs: &mut G,
 ) {
+    debug_assert!(
+        labels.is_sorted_by_key(|(cells, _)| (cells.row, cells.column)),
+        "labels come sorted by row, then column"
+    );
     let region = pane.region;
     let layout = Layout::new(metrics, region, ViewTop::default()).with_bands(pane.bands);
     for (cells, span) in labels {
-        draws.fill(layout.frame_cells(*cells), span.face);
-        // A label on no row of the pane shows no key, nor do its keys past the pane's columns.
+        // A label on no row of the pane shows nothing, nor do its keys past the pane's columns.
+        let Some(fill) = layout.frame_cells(*cells) else {
+            continue;
+        };
         let Some(row) = (cells.row.checked_sub(region.row)).filter(|row| *row < region.rows) else {
             continue;
         };
+        if !draws.fill_over(fill, span.face) {
+            return;
+        }
         let columns = region.column..region.column.saturating_add(region.columns);
         for (index, key) in span.text.chars().take(cells.columns).enumerate() {
             let column = cells.column.saturating_add(index);
@@ -146,7 +200,7 @@ pub(super) fn draw_labels<G: GlyphSource>(
                 continue;
             };
             for at in placed {
-                if draws.quads.len() >= draws.limits.quads {
+                if !draws.room_for_quad() {
                     return;
                 }
                 let glyph = PlacedGlyph {
@@ -157,8 +211,9 @@ pub(super) fn draw_labels<G: GlyphSource>(
                 let Some(entry) = glyphs.get(system, glyph.key) else {
                     continue;
                 };
-                if let Some(quad) = layout.quad(row, &glyph, &entry, &draws.theme) {
-                    draws.quads.push(quad);
+                let quad = layout.quad(row, &glyph, &entry, &draws.theme);
+                if let Some(quad) = quad.and_then(|quad| quad.cut_to(fill)) {
+                    draws.over.quads.push(quad);
                 }
             }
         }

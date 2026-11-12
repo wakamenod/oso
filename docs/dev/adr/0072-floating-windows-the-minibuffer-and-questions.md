@@ -214,8 +214,8 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 7. extra cursors (M2-21);
 8. otherwise nothing more.
 
-Steps 3 to 8 are one function, `Editor::quit`, which returns what it did (`Quit::Region`,
-`Quit::Prompt` or `Quit::Nothing`). `keyboard-quit` is a thin
+Steps 3 to 8 are one function, `Editor::quit`, which returns what it did (`Quit::Jump`,
+`Quit::Region`, `Quit::Prompt` or `Quit::Nothing`). `keyboard-quit` is a thin
 call into it in every keymap, the prompt's too, so M2-13, M2-20 and M2-21 add their step there and
 nowhere else.
 

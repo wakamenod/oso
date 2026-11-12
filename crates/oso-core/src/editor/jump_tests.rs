@@ -122,6 +122,22 @@ fn a_key_no_label_goes_on_with_ends_the_jump_with_nothing_moved() {
 }
 
 #[test]
+fn del_and_ret_at_the_labels_end_the_jump_as_any_other_key() {
+    let mut editor = editor("a a\n");
+    jump_for(&mut editor, "a");
+    assert!(!editor.jump_delete());
+    assert!(editor.jump().is_none());
+    assert_eq!(line(&editor), "No such candidate");
+
+    jump_for(&mut editor, "a");
+    editor.jump_show_labels();
+    assert!(editor.jump().is_none());
+    assert_eq!(line(&editor), "No such candidate");
+    assert_eq!(cursor(&editor), 0);
+    assert!(!editor.jump_refuse(), "none under way");
+}
+
+#[test]
 fn nothing_to_label_ends_the_jump() {
     let mut editor = editor("abc\n");
     jump_for(&mut editor, "zz");
@@ -239,8 +255,7 @@ fn a_jump_does_not_work_in_a_prompt_and_a_prompt_ends_one() {
     let mut editor = self::editor("a\n");
     jump_for(&mut editor, "a");
     editor.open_prompt("Go to line: ", number).unwrap();
-    assert!(editor.isearch_follow_text());
-    assert!(editor.jump().is_none());
+    assert!(editor.jump().is_none(), "at once");
 }
 
 #[test]
@@ -288,6 +303,28 @@ fn a_change_under_the_labels_ends_the_jump_saying_so() {
 }
 
 #[test]
+fn a_scroll_finds_the_matches_again_while_reading_and_ends_the_labels() {
+    let text = "a\n".repeat(100);
+    let mut editor = editor(&text);
+    let id = editor.tiled().0.id();
+    assert!(editor.jump_begin(Kind::Char, false));
+    editor.jump_add("a");
+    assert_eq!(targets(&editor)[0], 0);
+    assert!(editor.scroll_view(id, 20));
+    assert!(editor.isearch_follow_text(), "found again");
+    let top = editor.top_row() * 2;
+    assert!(targets(&editor).iter().all(|&at| at >= top), "in view");
+    assert!(!editor.isearch_follow_text(), "nothing moved since");
+
+    editor.jump_show_labels();
+    assert_eq!(editor.jump().unwrap().stage(), Stage::Labels);
+    assert!(editor.scroll_view(id, -5));
+    assert!(editor.isearch_follow_text());
+    assert!(editor.jump().is_none());
+    assert_eq!(line(&editor), "Jump ended: the view changed");
+}
+
+#[test]
 fn past_the_most_labelled_the_farthest_have_none_and_the_line_says_so() {
     let text = format!("{}\n", "a".repeat(99)).repeat(60);
     let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", &text));
@@ -305,6 +342,13 @@ fn past_the_most_labelled_the_farthest_have_none_and_the_line_says_so() {
             .all(|&at| at < 4096 / 99 * 100 + 100),
         "the nearest"
     );
+    // 41 rows of 99, then 37 of the row the cut falls in: its first, in the text's order.
+    let mut cut: Vec<_> = targets(&editor)
+        .into_iter()
+        .filter(|&at| at >= 4100)
+        .collect();
+    cut.sort_unstable();
+    assert_eq!(cut, (4100..4137).collect::<Vec<_>>());
 }
 
 #[test]
@@ -337,6 +381,27 @@ fn around_a_secret_the_jump_says_so_and_debug_holds_no_string() {
     let jump = editor.jump().unwrap();
     assert!(jump.around_secret());
     assert!(!format!("{jump:?}").contains("hunter2"));
+}
+
+#[test]
+fn a_jump_is_around_a_secret_as_long_as_what_it_labels_or_follows_was() {
+    // `avy-isearch` labels what a search around a secret found.
+    let mut searched = editor("foo bar foo\n");
+    searched.isearch_begin(false);
+    searched.isearch_add("foo");
+    searched.isearch.as_mut().unwrap().note_secret();
+    assert!(searched.jump_begin(Kind::Isearch, false));
+    assert!(searched.jump().unwrap().around_secret());
+    assert!(searched.around_secret());
+
+    // A secret buffer shown while a jump reads marks it, and the editor with it.
+    let mut reading = editor("foo bar foo\n");
+    assert!(reading.jump_begin(Kind::Char, false));
+    assert!(!reading.around_secret());
+    let secret = reading.add_buffer(secret_buffer());
+    reading.show(secret);
+    assert!(reading.jump().is_some_and(|jump| jump.around_secret()));
+    assert!(reading.around_secret());
 }
 
 #[test]

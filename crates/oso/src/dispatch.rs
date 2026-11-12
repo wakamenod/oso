@@ -95,7 +95,7 @@ pub struct Dispatcher {
     /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
     completion_held: Option<held::HeldTake>,
     /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
-    jump: Option<bool>,
+    view_jumped: Option<bool>,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -160,7 +160,7 @@ impl Dispatcher {
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             completion_held: None,
-            jump: None,
+            view_jumped: None,
             ran_for_agent: false,
             #[cfg(test)]
             m_x_only: None,
@@ -241,7 +241,7 @@ impl Dispatcher {
         let out = work(self, editor);
         // Before the view is sampled: another digit of line numbers narrows the text area.
         editor.fit_gutter();
-        self.jump = Some(editor.flashes(&before, &editor.view_sample()));
+        self.view_jumped = Some(editor.flashes(&before, &editor.view_sample()));
         self.take_waiting_user();
         self.show_keys_in_progress(editor);
         out
@@ -286,8 +286,8 @@ impl Dispatcher {
     /// Whether the last input since this was last asked made the view jump, so the cursor
     /// flashes, or none came. An input that did not jump ends a flash; an agent's never
     /// does, so after one only a jump is reported.
-    pub fn take_jump(&mut self) -> Option<bool> {
-        self.jump.take()
+    pub fn take_view_jumped(&mut self) -> Option<bool> {
+        self.view_jumped.take()
     }
 
     /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.
