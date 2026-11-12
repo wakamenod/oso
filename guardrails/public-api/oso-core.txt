@@ -2228,6 +2228,96 @@ pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> o
 pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, &oso_core::window::Screen, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::other_cursor_cells(oso_core::frame::CellRect, &oso_core::window::Screen, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, &oso_core::window::Screen, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub mod oso_core::indent
+pub enum oso_core::indent::Answer
+pub oso_core::indent::Answer::Column(usize)
+pub oso_core::indent::Answer::Keep
+impl core::clone::Clone for oso_core::indent::Answer
+pub fn oso_core::indent::Answer::clone(&self) -> oso_core::indent::Answer
+impl core::cmp::Eq for oso_core::indent::Answer
+impl core::cmp::PartialEq for oso_core::indent::Answer
+pub fn oso_core::indent::Answer::eq(&self, &oso_core::indent::Answer) -> bool
+impl core::fmt::Debug for oso_core::indent::Answer
+pub fn oso_core::indent::Answer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Answer
+pub fn oso_core::indent::Answer::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Answer
+impl core::marker::StructuralPartialEq for oso_core::indent::Answer
+pub enum oso_core::indent::Line
+pub oso_core::indent::Line::New(usize)
+pub oso_core::indent::Line::Row(usize)
+impl core::clone::Clone for oso_core::indent::Line
+pub fn oso_core::indent::Line::clone(&self) -> oso_core::indent::Line
+impl core::cmp::Eq for oso_core::indent::Line
+impl core::cmp::PartialEq for oso_core::indent::Line
+pub fn oso_core::indent::Line::eq(&self, &oso_core::indent::Line) -> bool
+impl core::fmt::Debug for oso_core::indent::Line
+pub fn oso_core::indent::Line::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Line
+pub fn oso_core::indent::Line::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Line
+impl core::marker::StructuralPartialEq for oso_core::indent::Line
+pub enum oso_core::indent::Style
+pub oso_core::indent::Style::Spaces
+pub oso_core::indent::Style::Tabs
+impl core::clone::Clone for oso_core::indent::Style
+pub fn oso_core::indent::Style::clone(&self) -> oso_core::indent::Style
+impl core::cmp::Eq for oso_core::indent::Style
+impl core::cmp::PartialEq for oso_core::indent::Style
+pub fn oso_core::indent::Style::eq(&self, &oso_core::indent::Style) -> bool
+impl core::default::Default for oso_core::indent::Style
+pub fn oso_core::indent::Style::default() -> oso_core::indent::Style
+impl core::fmt::Debug for oso_core::indent::Style
+pub fn oso_core::indent::Style::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Style
+pub fn oso_core::indent::Style::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Style
+impl core::marker::StructuralPartialEq for oso_core::indent::Style
+pub struct oso_core::indent::Budget
+impl oso_core::indent::Budget
+pub const fn oso_core::indent::Budget::is_spent(self) -> bool
+pub const fn oso_core::indent::Budget::new() -> Self
+pub const fn oso_core::indent::Budget::with_limit(usize) -> Self
+impl core::clone::Clone for oso_core::indent::Budget
+pub fn oso_core::indent::Budget::clone(&self) -> oso_core::indent::Budget
+impl core::cmp::Eq for oso_core::indent::Budget
+impl core::cmp::PartialEq for oso_core::indent::Budget
+pub fn oso_core::indent::Budget::eq(&self, &oso_core::indent::Budget) -> bool
+impl core::default::Default for oso_core::indent::Budget
+pub fn oso_core::indent::Budget::default() -> Self
+impl core::fmt::Debug for oso_core::indent::Budget
+pub fn oso_core::indent::Budget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::indent::Budget
+impl core::marker::StructuralPartialEq for oso_core::indent::Budget
+pub struct oso_core::indent::Settings
+impl oso_core::indent::Settings
+pub const oso_core::indent::Settings::MAX: u32
+pub fn oso_core::indent::Settings::indent_size(self) -> usize
+pub fn oso_core::indent::Settings::indentation(self, usize) -> alloc::string::String
+pub fn oso_core::indent::Settings::new(u32, oso_core::indent::Style, u32) -> core::option::Option<Self>
+pub fn oso_core::indent::Settings::style(self) -> oso_core::indent::Style
+pub fn oso_core::indent::Settings::tab_width(self) -> oso_core::display_map::cell::TabWidth
+impl core::clone::Clone for oso_core::indent::Settings
+pub fn oso_core::indent::Settings::clone(&self) -> oso_core::indent::Settings
+impl core::cmp::Eq for oso_core::indent::Settings
+impl core::cmp::PartialEq for oso_core::indent::Settings
+pub fn oso_core::indent::Settings::eq(&self, &oso_core::indent::Settings) -> bool
+impl core::default::Default for oso_core::indent::Settings
+pub fn oso_core::indent::Settings::default() -> Self
+impl core::fmt::Debug for oso_core::indent::Settings
+pub fn oso_core::indent::Settings::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Settings
+pub fn oso_core::indent::Settings::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Settings
+impl core::marker::StructuralPartialEq for oso_core::indent::Settings
+pub const oso_core::indent::COMMAND_READ: usize
+pub const oso_core::indent::LINE_COST: usize
+pub const oso_core::indent::LINE_LOOKBACK: usize
+pub fn oso_core::indent::fundamental(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::markdown(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::markdown_stops(&oso_core::rope::Rope, oso_core::indent::Settings, usize, &mut oso_core::indent::Budget) -> alloc::vec::Vec<usize>
+pub fn oso_core::indent::rust(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::toml(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub mod oso_core::key
 pub enum oso_core::key::Key
 pub oso_core::key::Key::Char(char)
