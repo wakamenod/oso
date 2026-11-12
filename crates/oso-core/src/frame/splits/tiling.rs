@@ -158,20 +158,28 @@ fn merged(way: Way, children: Vec<Child>) -> Result<Vec<Child>, BadTiling> {
     if !children.iter().any(same) {
         return Ok(children);
     }
-    let total = |run: &Run| run.children.iter().map(|child| child.weight).sum::<usize>();
+    // Each weight is at least 1, so a total that does not overflow is at least 1 too.
+    let total = |run: &Run| {
+        run.children
+            .iter()
+            .try_fold(0usize, |total, child| total.checked_add(child.weight))
+            .ok_or(BadTiling::TooHeavy)
+    };
     let mut product: usize = 1;
     for child in &children {
         if let Node::Run(run) = &child.node
             && run.way == way
         {
-            product = product.checked_mul(total(run)).ok_or(BadTiling::TooHeavy)?;
+            product = product
+                .checked_mul(total(run)?)
+                .ok_or(BadTiling::TooHeavy)?;
         }
     }
     let mut flat = Vec::new();
     for child in children {
         match child.node {
             Node::Run(run) if run.way == way => {
-                let scale = product / total(&run);
+                let scale = product / total(&run)?;
                 for inner in run.children {
                     let weight = child
                         .weight
@@ -247,6 +255,12 @@ mod tests {
             vec![(usize::MAX, W), (1, run(Way::Down, vec![(2, W), (2, W)]))],
         );
         assert_eq!(from(&heavy).unwrap_err(), BadTiling::TooHeavy);
+        // A merged run whose weights overflow when added up is refused, not a panic.
+        let overflowing = run(
+            Way::Across,
+            vec![(1, W), (1, run(Way::Across, vec![(usize::MAX, W), (1, W)]))],
+        );
+        assert_eq!(from(&overflowing).unwrap_err(), BadTiling::TooHeavy);
         // Runs that alternate their way nest as deep as they are written.
         let nest = |depth: usize| {
             (0..depth).fold(W, |inner, level| {

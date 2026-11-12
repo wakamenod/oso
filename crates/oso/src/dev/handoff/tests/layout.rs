@@ -63,3 +63,40 @@ fn bad_layouts_are_refused() {
         assert!(message.contains(expected), "{expected}: {message}");
     }
 }
+
+#[test]
+fn a_run_written_inline_is_refused_so_none_nests_past_the_limit() {
+    let state = with(|s| {
+        s["layout"] = json!({ "across": [
+            { "weight": 1, "window": 0 },
+            { "weight": 1, "down": [
+                { "weight": 1, "window": 1 },
+                { "weight": 1, "window": 2 },
+            ] },
+        ] });
+    });
+    let message = parse(&state).unwrap_err();
+    assert!(message.contains("neither a window nor a run"), "{message}");
+}
+
+#[test]
+fn a_layout_too_heavy_to_take_is_refused_by_the_editor_and_nothing_panics() {
+    let state = with(|s| {
+        let window = s["windows"][0].clone();
+        s["windows"] = json!([window, window, window]);
+        s["layout"] = json!({ "across": [
+            { "weight": 1, "window": 0 },
+            { "weight": 1, "run": { "across": [
+                { "weight": u64::MAX, "window": 1 },
+                { "weight": 1, "window": 2 },
+            ] } },
+        ] });
+    });
+    let parsed = parse(&state).unwrap();
+    let mut editor = oso_core::editor::Editor::default();
+    assert_eq!(
+        editor.set_tiling(&parsed.windows.layout),
+        Err(oso_core::frame::BadTiling::TooHeavy)
+    );
+    assert_eq!(editor.frame().windows().len(), 1, "one window, as before");
+}

@@ -128,22 +128,33 @@ fn parse_window(window: &Value, buffers: &[Value], version: u64) -> Result<Windo
     })
 }
 
-/// Reads a layout `depth` runs deep, whose windows must come numbered in the tree's order from
-/// `next` on. A run needs two children or more, each with a weight of at least 1.
+/// Reads a layout: `{"window": 0}` for one window, or a run.
 fn parse_layout(layout: &Value, next: &mut usize, depth: usize) -> Result<Tiling, String> {
     let layout = layout.as_object().ok_or("a layout is not an object")?;
     if layout.contains_key("window") {
-        let window = size(layout, "window")?;
-        if window != *next {
-            return Err("the layout's windows are not in the tree's order".into());
-        }
-        *next += 1;
-        return Ok(Tiling::Window);
+        return parse_leaf(layout, next);
     }
+    parse_run(layout, next, depth)
+}
+
+/// Reads the window of a layout, which must be the next in the tree's order.
+fn parse_leaf(leaf: &Map<String, Value>, next: &mut usize) -> Result<Tiling, String> {
+    if size(leaf, "window")? != *next {
+        return Err("the layout's windows are not in the tree's order".into());
+    }
+    *next += 1;
+    Ok(Tiling::Window)
+}
+
+/// Reads a run `depth` runs deep, whose windows must come numbered in the tree's order from
+/// `next` on. A run holds two children or more, each `{"weight": n, "window": i}` or
+/// `{"weight": n, "run": {...}}` with a weight of at least 1, and runs nest at most
+/// [`MAX_DEPTH`] deep.
+fn parse_run(run: &Map<String, Value>, next: &mut usize, depth: usize) -> Result<Tiling, String> {
     if depth >= MAX_DEPTH {
         return Err(format!("the layout nests deeper than {MAX_DEPTH} runs"));
     }
-    let (way, children) = match (layout.get("across"), layout.get("down")) {
+    let (way, children) = match (run.get("across"), run.get("down")) {
         (Some(children), None) => (Way::Across, children),
         (None, Some(children)) => (Way::Down, children),
         _ => return Err("a run of the layout is neither across nor down".into()),
@@ -151,8 +162,13 @@ fn parse_layout(layout: &Value, next: &mut usize, depth: usize) -> Result<Tiling
     let children = children
         .as_array()
         .ok_or("a run's children are not a list")?;
-    if children.len() < 2 || children.len() > MAX_WINDOWS {
+    if children.len() < 2 {
         return Err("a run of the layout has fewer than two children".into());
+    }
+    if children.len() > MAX_WINDOWS {
+        return Err(format!(
+            "a run of the layout has more than {MAX_WINDOWS} children"
+        ));
     }
     let children = children
         .iter()
@@ -164,9 +180,13 @@ fn parse_layout(layout: &Value, next: &mut usize, depth: usize) -> Result<Tiling
             if weight == 0 {
                 return Err("a child of a run has no weight".to_owned());
             }
-            let node = match child.get("run") {
-                Some(run) => parse_layout(run, next, depth + 1)?,
-                None => parse_layout(&Value::Object(child.clone()), next, depth)?,
+            let node = match (child.contains_key("window"), child.get("run")) {
+                (true, None) => parse_leaf(child, next)?,
+                (false, Some(run)) => {
+                    let run = run.as_object().ok_or("a run is not an object")?;
+                    parse_run(run, next, depth + 1)?
+                }
+                _ => return Err("a child of a run is neither a window nor a run".to_owned()),
             };
             Ok((weight, node))
         })
