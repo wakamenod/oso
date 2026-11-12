@@ -494,7 +494,8 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   `=` or `!`. `^`, `$` and the rest are an expression's, so `^use` is a line's start. The author
   chose this on 2026-11-12. A component that holds a character an expression reads matches where
   either the expression or the literal does, compiled into one `regex::bytes` expression with
-  completion's limits, multi-line and CRLF-aware.
+  completion's limits, multi-line and CRLF-aware. As in completion, one that is no expression on
+  its own, as `a)|(b`, matches as a literal only, though joined to its literal it would compile.
 - **Matching a block.** The longest component that is not excluded is looked for through the
   whole block: some match of it ends at a place, and the leftmost match that starts and ends by
   then starts on the first line that can hold one, which alone is matched against every
