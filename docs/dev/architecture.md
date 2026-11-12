@@ -482,9 +482,12 @@ The UI thread never blocks on I/O or parsing:
 - A file's project is found on a thread of its own once the loader knows where its path leads
   (`crates/oso/src/project.rs`): the metadata of `.git`, `.jj` and `.hg` from its directory up,
   following no link and stopping at the home directory, another user's directory and a change
-  of file system. A worktree's `.git` file is read, and what it names is kept by its words. The
-  editor keeps a table of projects that buffers point into (`oso_core::project`,
-  [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+  of file system. A worktree's `.git` file is read, and what it names is kept by its words;
+  only when those words name a trusted root is the main repository's record of the worktree
+  read, by the record's spelling of that root, to check the claim. The editor keeps a table of
+  projects that buffers point into (`oso_core::project`), and each request carries the trusted
+  roots of its moment, so the thread never reads the record itself
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
@@ -518,11 +521,17 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 - One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
   (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
-  without it.
+  without it, and without the record of trusted projects.
 - A thread in the tip crate's `config` (`config::Reader`) reads, parses and builds it at
   start and when a `stat` once a second, on focus or after a save sees it change, and the UI
   thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap
   on another thread. A bad file leaves the last good one, with messages.
+- The record of trusted projects, `trusted-projects` beside the file, has a thread of its own
+  (`config::TrustFile`, `oso-trust`): it reads the record with the file's checks, refusing a
+  group too, and makes what `trust-project` and `untrust-project` changed in the file as it is
+  then, through a part file renamed over it, and reads it back. The editor holds the record
+  (`Editor::set_trust_list`) and asks it in `Editor::project_trusted`
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - `config::parse` is a pure function from the file's text to the user keymap, the settings
   and the problems, with their lines. A syntax error rejects the file; a bad entry is skipped
   and the rest applies. See [ADR 0110](adr/0110-adr-0108-as-built.md).

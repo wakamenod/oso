@@ -47,9 +47,16 @@ fn japanese_names<I: PartialEq>(prompt: Option<(I, Kind)>, noted: Option<I>, sec
 }
 
 /// Whether `kind` is the prompt for a file's name, which takes Japanese once the person
-/// chooses it, and has the input source type ASCII while it is open (ADR 0106).
+/// chooses it, and has the input source type ASCII while it is open (ADR 0106). So are
+/// query-replace's two prompts (ADR 0113).
 fn names_a_file(kind: Kind) -> bool {
-    matches!(kind, Kind::Complete { history: "file" })
+    matches!(
+        kind,
+        Kind::Complete { history: "file" }
+            | Kind::Text {
+                history: Some("query-replace" | "query-replace-regexp")
+            }
+    )
 }
 
 /// The prompt a choice of `source` marks as taking Japanese: the selected one, for a
@@ -235,7 +242,9 @@ impl App {
         if japanese_names(prompt, self.ime.japanese_prompt, self.editor.shows_secret()) {
             return wants_ime(self.editor.current().1, self.dispatcher.reads_keys(), false);
         }
-        let reads_input = self.editor.prompt().is_some() || self.editor.isearch().is_some();
+        let reads_input = self.editor.prompt().is_some()
+            || self.editor.isearch().is_some()
+            || self.editor.replace().is_some();
         wants_ime(
             self.editor.current().1,
             self.dispatcher.reads_keys(),

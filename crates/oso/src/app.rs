@@ -94,6 +94,8 @@ pub enum UserEvent {
     Listed,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
+    /// The record of trusted projects was read, or written and read back (ADR 0114).
+    Trust,
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -172,6 +174,8 @@ pub struct App {
     lister: crate::lister::Lister,
     /// The thread that finds each file's project (ADR 0114).
     projects: crate::project::Detector,
+    /// The thread that reads and writes the record of trusted projects, if there is one.
+    trust_file: Option<crate::config::TrustFile>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -223,6 +227,16 @@ impl Freer {
     }
 }
 
+/// The home directory as the environment names it: `HOME`, and `USERPROFILE` on Windows. It is
+/// what `~` stands for, and never a project (ADR 0114).
+fn home() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    let name = "USERPROFILE";
+    #[cfg(not(windows))]
+    let name = "HOME";
+    std::env::var_os(name).map(std::path::PathBuf::from)
+}
+
 impl App {
     /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
     /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
@@ -247,7 +261,7 @@ impl App {
         let projects = projects::detector(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
-        editor.set_home(std::env::var_os("HOME").map(std::path::PathBuf::from));
+        editor.set_home(home());
         if let Ok(directory) = std::env::current_dir() {
             editor.set_start_directory(directory);
         }
@@ -288,6 +302,7 @@ impl App {
             remembered_theme,
             lister,
             projects,
+            trust_file: None,
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),

@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{Count, Found, Query, count, find_backward, find_forward};
+use super::{Count, Found, Query, count, find_backward, find_forward, find_in};
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
 
@@ -81,6 +81,94 @@ enum Work {
     },
     /// The keys that add cursors': matches by rules of their own.
     Matches(MatchWork),
+    /// query-replace's (ADR 0113): within its ranges, the next match from `find`, then a
+    /// count of the scope as `count` holds it, if given.
+    Scoped {
+        text: Rope,
+        invalid: InvalidBytes,
+        query: Query,
+        ranges: Vec<Range<usize>>,
+        find: Option<usize>,
+        count: Option<Counting>,
+    },
+}
+
+/// The scope a query-replace counts: its text and ranges when the session began, so that a
+/// count started after replacements counts what was there to replace (ADR 0113).
+#[derive(Clone)]
+pub(crate) struct Counting {
+    pub(crate) text: Rope,
+    pub(crate) invalid: InvalidBytes,
+    pub(crate) ranges: Vec<Range<usize>>,
+}
+
+/// Where a search goes on after `found`: its end, or past an empty match, the next
+/// character's start.
+pub(crate) fn after(text: &Rope, found: &Range<usize>) -> usize {
+    if found.is_empty() {
+        text.clip_offset(found.end + 1, crate::sum_tree::Bias::Right)
+    } else {
+        found.end
+    }
+}
+
+/// Does a scoped job's work, and reports each part as it ends, unless `stop` says so first.
+fn run_scoped(
+    snapshot: (&Rope, &InvalidBytes),
+    query: &Query,
+    ranges: &[Range<usize>],
+    (find, count): (Option<usize>, Option<&Counting>),
+    stop: &dyn Fn() -> bool,
+    generation: u64,
+    report: &mut dyn FnMut(Report),
+) {
+    if let Some(from) = find {
+        let Ok(at) = find_scoped(snapshot, query, ranges, from, stop) else {
+            return;
+        };
+        report(Report::Found { generation, at });
+    }
+    let Some(counting) = count else {
+        return;
+    };
+    let snapshot = (&counting.text, &counting.invalid);
+    let mut total = 0;
+    let mut from = 0;
+    loop {
+        match find_scoped(snapshot, query, &counting.ranges, from, stop) {
+            Ok(Some(next)) => {
+                total += 1;
+                from = after(&counting.text, &next);
+            }
+            Ok(None) => break,
+            Err(()) => return,
+        }
+    }
+    report(Report::Counted {
+        generation,
+        count: Count { total, before: 0 },
+        at: None,
+    });
+}
+
+/// The first match within `ranges`, ascending and apart, that starts at `from` or after, or
+/// `Err(())` if `stop` said so first.
+fn find_scoped(
+    (text, invalid): (&Rope, &InvalidBytes),
+    query: &Query,
+    ranges: &[Range<usize>],
+    from: usize,
+    stop: &dyn Fn() -> bool,
+) -> Result<Option<Range<usize>>, ()> {
+    for range in ranges.iter().filter(|range| range.end > from) {
+        let start = range.start.max(from);
+        match find_in(text, invalid, query, start..range.end, usize::MAX, stop) {
+            Found::Match(found) => return Ok(Some(found)),
+            Found::None => {}
+            Found::Stopped { .. } => return Err(()),
+        }
+    }
+    Ok(None)
 }
 
 /// Work for a thread, over an O(1) snapshot of a buffer's text: a search to go on with, if
@@ -132,6 +220,29 @@ impl SearchJob {
         }
     }
 
+    /// A job of `generation` for query-replace, over `ranges` of the snapshot: the next match
+    /// from `find`, then a count of `count`, while `live` holds it.
+    pub(crate) fn scoped(
+        (text, invalid): (Rope, InvalidBytes),
+        query: Query,
+        ranges: Vec<Range<usize>>,
+        (find, count): (Option<usize>, Option<Counting>),
+        (generation, live): (u64, Arc<AtomicU64>),
+    ) -> Self {
+        Self {
+            work: Work::Scoped {
+                text,
+                invalid,
+                query,
+                ranges,
+                find,
+                count,
+            },
+            generation,
+            live,
+        }
+    }
+
     /// The job's generation, which its reports carry.
     #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 {
@@ -160,6 +271,20 @@ impl SearchJob {
                         matched,
                     }));
                 }
+                return;
+            }
+            Work::Scoped {
+                text,
+                invalid,
+                query,
+                ranges,
+                find,
+                count,
+            } => {
+                let done = &mut |done| report(SearchReport(done));
+                let snapshot = (&text, &invalid);
+                let what = (find, count.as_ref());
+                run_scoped(snapshot, &query, &ranges, what, &stop, generation, done);
                 return;
             }
             Work::Isearch {

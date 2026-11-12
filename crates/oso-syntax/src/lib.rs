@@ -1,6 +1,6 @@
-//! Syntax highlighting with tree-sitter: which grammar a mode uses, and documents that
-//! follow a buffer's edits and parse in bounded slices (ADR 0012, ADR 0111). The tip crate's
-//! worker drives it; nothing here runs on the UI thread.
+//! Syntax highlighting with tree-sitter: which grammar a mode uses, oso's queries, and
+//! documents that follow a buffer's edits, parse and highlight in bounded slices (ADR 0012,
+//! ADR 0111). The tip crate's worker drives it; nothing here runs on the UI thread.
 //!
 //! Must not depend on: `oso` or `oso-render`, and it never runs on the UI thread.
 
@@ -12,6 +12,10 @@
 mod document;
 mod edit;
 mod language;
+mod paint;
+mod pending;
+mod queries;
 
-pub use document::{Document, Failure, MAX_BYTES, Parsed};
+pub use document::{Document, Failure, Highlighted, MAX_BYTES, Parsed};
 pub use language::Language;
+pub use queries::Queries;

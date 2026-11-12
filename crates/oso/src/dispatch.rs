@@ -30,6 +30,7 @@ pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
 mod held;
+mod hold_all;
 mod keymaps;
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
@@ -56,6 +57,10 @@ pub struct Dispatcher {
     /// The commands that run in a search rather than end it, for `run-command` (ADR 0082).
     #[cfg(any(test, feature = "dev"))]
     isearch_commands: Vec<CommandId>,
+    /// The commands that run in a query-replace rather than end it, for `run-command`
+    /// (ADR 0113).
+    #[cfg(any(test, feature = "dev"))]
+    replace_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -75,6 +80,8 @@ pub struct Dispatcher {
     publisher: Option<Publisher>,
     /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
     waiting: Option<clipboard::Waiting>,
+    /// Input held while query-replace's `!` runs (ADR 0113).
+    held_during_all: hold_all::HeldDuringAll,
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
@@ -101,8 +108,11 @@ impl Dispatcher {
         let (list, copy) = bindings::recovery_keymaps(&registry);
         let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
         let isearch = bindings::isearch_keymap(&registry);
+        let replace = bindings::replace_keymap(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let replace_commands = bindings::replace_commands(&registry);
         Self {
             keymaps: Keymaps {
                 global,
@@ -113,9 +123,12 @@ impl Dispatcher {
                 question,
                 completing,
                 isearch,
+                replace,
             },
             #[cfg(any(test, feature = "dev"))]
             isearch_commands,
+            #[cfg(any(test, feature = "dev"))]
+            replace_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -126,6 +139,7 @@ impl Dispatcher {
             last: None,
             publisher: None,
             waiting: None,
+            held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             completion_held: None,
             jump: None,
@@ -310,6 +324,13 @@ impl Dispatcher {
     /// and one undo step. A pending prefix makes it an undefined key sequence.
     /// A key that types several characters comes through here.
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        let held = hold_all::Held::Text {
+            text: text.to_owned(),
+            commit: false,
+        };
+        if let Some(done) = self.hold_during_all(editor, held) {
+            return done;
+        }
         if self.hold_text(text, false) {
             return Effects::default();
         }
@@ -330,6 +351,13 @@ impl Dispatcher {
     /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
     /// always as an undo step of its own, even of one character (ADR 0069).
     pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        let held = hold_all::Held::Text {
+            text: text.to_owned(),
+            commit: true,
+        };
+        if let Some(done) = self.hold_during_all(editor, held) {
+            return done;
+        }
         if self.hold_text(text, true) {
             return Effects::default();
         }
@@ -468,6 +496,9 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
+            return done;
+        }
         if self.hold_key(key) {
             return Effects::default();
         }
@@ -498,11 +529,15 @@ impl Dispatcher {
                 log::debug!("{}-", masked(self.resolver.pending(), true));
                 return Effects::default();
             }
-            Resolution::Unbound(keys) if editor.isearch().is_some() => {
+            Resolution::Unbound(keys)
+                if editor.isearch().is_some() || editor.replace().is_some() =>
+            {
                 // It ends the search, and the key, or a sequence under isearch's `C-c`, does
-                // what it would have (ADR 0082, ADR 0091).
+                // what it would have (ADR 0082, ADR 0091). So it ends query-replace
+                // (ADR 0113).
                 let keys = keys.to_vec();
                 editor.isearch_exit();
+                editor.replace_exit();
                 let mut ran = Effects {
                     redraw: true,
                     ..Effects::default()
@@ -588,9 +623,13 @@ mod motion_tests;
 #[cfg(test)]
 mod prefix_tests;
 #[cfg(test)]
+mod project_tests;
+#[cfg(test)]
 mod prompt_tests;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod replace_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

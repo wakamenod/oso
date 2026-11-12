@@ -423,3 +423,23 @@ fn a_buffer_with_no_file_written_as_markdown_follows_its_rule() {
     editor.end_undo_group();
     assert_eq!(text(&editor), "a  \nb\n");
 }
+
+#[test]
+fn a_write_under_a_new_name_that_lands_forgets_the_lines_it_took() {
+    let mut editor = visiting("notes.txt", "a\nb\n");
+    editor.set_trim_whitespace(false);
+    edit(&mut editor, 1..1, "  ");
+    put_cursor(&mut editor, 0);
+    let to = PathBuf::from("/nowhere/other.txt");
+    editor.begin_undo_group();
+    editor.start_write(to.clone(), false).unwrap();
+    editor.end_undo_group();
+    let job = editor.take_save_jobs().pop().unwrap();
+    let id = editor.window().buffer();
+    editor.written_elsewhere(id, to.clone(), job.content, to, stamp(), |_| {});
+    // A later save cleans only what was edited after the write.
+    editor.set_trim_whitespace(true);
+    edit(&mut editor, 5..5, "c ");
+    save(&mut editor).unwrap();
+    assert_eq!(text(&editor), "a  \nbc\n");
+}
