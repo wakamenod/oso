@@ -398,6 +398,8 @@ fn a_fifo_is_not_waited_on() {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run mkfifo");
