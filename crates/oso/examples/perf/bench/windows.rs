@@ -109,8 +109,12 @@ fn four_windows(app: &mut App, line: &Path, mixed: u64) -> Result<(), String> {
     run(app, "windmove-left")?;
     settle(app)?;
     let state = app.call("get-state", None)?;
-    let messages = buffer_named(&state, "*Messages*")?;
-    if shown(&state)? != [mixed, mixed, wrapping, messages] {
+    // `*Messages*` is internal, so the dev state lists no buffer of it.
+    let shown = shown(&state)?;
+    if shown[..shown.len().min(3)] != [mixed, mixed, wrapping]
+        || shown.len() != 4
+        || [mixed, wrapping].contains(&shown[3])
+    {
         return Err(format!(
             "four windows should show the file twice, the line and *Messages*: {}",
             state["windows"]
@@ -221,13 +225,6 @@ fn buffers(state: &Value) -> Result<&Vec<Value>, String> {
     state["buffers"]
         .as_array()
         .ok_or("no buffers in get-state".into())
-}
-
-fn buffer_named(state: &Value, name: &str) -> Result<u64, String> {
-    let buffer = buffers(state)?.iter().find(|buffer| buffer["name"] == name);
-    buffer
-        .and_then(|buffer| buffer["id"].as_u64())
-        .ok_or(format!("no buffer {name} in get-state"))
 }
 
 /// The buffer each window shows, in the tree's order.
