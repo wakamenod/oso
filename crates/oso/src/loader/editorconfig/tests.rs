@@ -149,7 +149,9 @@ fn a_link_is_not_read_and_said() {
     assert!(found.applied.is_none());
     assert_eq!(found.notes.len(), 1);
     assert!(
-        found.notes[0].ends_with("is not read: it is a link, or not a regular file here"),
+        found.notes[0].ends_with(
+            "is not read: it is a link, or not a regular file here; none farther up is read"
+        ),
         "{:?}",
         found.notes
     );
@@ -183,7 +185,9 @@ fn a_file_every_user_may_write_is_not_read() {
     fs::set_permissions(&file, fs::Permissions::from_mode(0o666)).unwrap();
     let found = scratch.read("x.rs");
     assert!(found.applied.is_none());
-    assert!(found.notes[0].ends_with("another user owns it or can change it"));
+    assert!(
+        found.notes[0].ends_with("another user owns it or can change it; none farther up is read")
+    );
     fs::set_permissions(&file, fs::Permissions::from_mode(0o664)).unwrap();
     assert!(
         scratch.read("x.rs").applied.is_some(),
@@ -199,7 +203,7 @@ fn a_file_too_large_or_not_utf8_is_not_read() {
     scratch.file(".editorconfig", &text);
     let found = scratch.read("x.rs");
     assert!(found.applied.is_none());
-    assert!(found.notes[0].ends_with("it is larger than 64 KiB"));
+    assert!(found.notes[0].ends_with("it is larger than 64 KiB; none farther up is read"));
     text.pop();
     scratch.file(".editorconfig", &text);
     assert!(scratch.read("x.rs").applied.is_some());
@@ -210,7 +214,7 @@ fn a_file_too_large_or_not_utf8_is_not_read() {
     .unwrap();
     let found = scratch.read("x.rs");
     assert!(found.applied.is_none());
-    assert!(found.notes[0].ends_with("it is not UTF-8 text"));
+    assert!(found.notes[0].ends_with("it is not UTF-8 text; none farther up is read"));
 }
 
 #[test]
@@ -238,10 +242,17 @@ fn the_files_of_a_visit_share_one_budget() {
         Some((4, 1)),
         "the far file's first section"
     );
-    // Once the near file spends it all, the walk reads nothing above.
+    // Once the near file spends it all, the walk reads nothing above, and says so.
     scratch.file("a/.editorconfig", &sections(VISIT_SECTIONS));
     let found = scratch.read("a/x.rs");
-    assert!(found.notes.is_empty());
+    assert_eq!(
+        found.notes,
+        [format!(
+            "EditorConfig {} is not read: a visit compiles at most 128 sections and 2 KiB of \
+             globs",
+            scratch.0.join(".editorconfig").display()
+        )]
+    );
     let applied = found.applied.unwrap();
     assert_eq!(applied.file(1), None);
     assert_eq!(
@@ -254,25 +265,40 @@ fn the_files_of_a_visit_share_one_budget() {
 #[test]
 fn a_visit_reads_at_most_its_files_and_says_at_most_its_notes() {
     let scratch = Scratch::new("files");
+    // Each file a note, for a glob too long, and a section that applies.
+    let long = "a".repeat(oso_core::editorconfig::MAX_GLOB + 1);
     let mut dir = String::new();
-    for level in 0..40 {
+    for _ in 0..40 {
         scratch.file(
             &format!("{dir}.editorconfig"),
-            &format!("[x{level}]\nindent_size = 2\n[*]\nindent_style = sideways\n"),
+            &format!("[{long}]\nindent_size = 2\n[*]\nindent_size = 3\n"),
         );
-        // Each one not UTF-8 too, for a note at each level.
-        if level % 2 == 1 {
-            std::fs::write(scratch.0.join(format!("{dir}.editorconfig")), b"\xff").unwrap();
-        }
         dir.push_str("d/");
     }
     let found = scratch.read(&format!("{dir}x.rs"));
     let applied = found.applied.unwrap();
-    // Half of those seen were read.
-    assert!(applied.file(VISIT_FILES / 2 - 1).is_some());
-    assert!(applied.file(VISIT_FILES / 2).is_none());
+    assert!(applied.file(VISIT_FILES - 1).is_some());
+    assert!(applied.file(VISIT_FILES).is_none());
     assert_eq!(found.notes.len(), VISIT_NOTES + 1);
-    assert!(found.notes[VISIT_NOTES].ends_with("more notes of this visit left out"));
+    assert_eq!(
+        found.notes[VISIT_NOTES],
+        format!(
+            "EditorConfig: {} more notes of this visit left out",
+            VISIT_FILES + 1 - VISIT_NOTES
+        )
+    );
+}
+
+#[test]
+fn a_file_not_read_ends_the_walk_as_it_could_have_been_the_root() {
+    let scratch = Scratch::new("refused-ends");
+    scratch.file(".editorconfig", "[*]\nindent_style = tab\n");
+    fs::create_dir_all(scratch.0.join("a")).unwrap();
+    fs::write(scratch.0.join("a/.editorconfig"), b"root = true\n\xff").unwrap();
+    let found = scratch.read("a/x.rs");
+    assert!(found.applied.is_none(), "the top file is not read either");
+    assert_eq!(found.notes.len(), 1);
+    assert!(found.notes[0].ends_with("it is not UTF-8 text; none farther up is read"));
 }
 
 #[test]
@@ -394,7 +420,10 @@ fn nothing_is_read_in_a_directory_every_user_may_write() {
     }
     let found = scratch.read("a/x.rs");
     assert!(found.applied.is_none());
-    assert!(found.notes[0].ends_with("is not read: every user may write its directory"));
+    assert!(
+        found.notes[0]
+            .ends_with("is not read: every user may write its directory; none farther up is read")
+    );
     assert!(
         scratch.read("b/x.rs").notes.is_empty(),
         "nothing there, nothing said"

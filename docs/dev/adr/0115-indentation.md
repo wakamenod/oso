@@ -874,7 +874,8 @@ step 4's plan and its reviews put:
 - **What a visit reads:** it looks in at most **64 directories**, from the file's own up, and
   reads at most **32 `.editorconfig` files and 1 MiB** of them, nearest first, read or
   refused; the walk stops there, and once the compile budget is spent, as no file above
-  could then add anything, and when the load is cancelled. At most **8 notes** go to
+  could then add anything, and when the load is cancelled. Stopped by a bound, it notes the
+  first file it does not read. At most **8 notes** go to
   `*Messages*` a visit, then one that says how many more there were.
 - **A glob that holds a number range** is at most **128 bytes**; a longer one is skipped with a
   note. Its range is checked on the match's captures, which cost more the longer the glob.
@@ -884,6 +885,9 @@ step 4's plan and its reviews put:
   keeps elsewhere is not fetched.
 - **No `.editorconfig` is read in a directory every user may write,** such as `/tmp`; a note
   says so when one is there.
+- **A file not read ends the walk** (the author's choice, on the coordinator's review): a link,
+  a file too large, not UTF-8, or one another user may change could have said `root = true`, so
+  no file farther up counts either, and its note says so.
 - **The combining is in `oso-core`:** `Applied::from_walk(location, files)` takes the files a
   walk found, nearest first, and applies them farthest first, each with its globs read from its
   own directory. So is the check that a read after `C-x C-w` is still for the buffer's file:
@@ -905,10 +909,13 @@ As built:
 
 - **The parser** follows the specification 0.17.2, and editorconfig-core-test where the two
   differ: a set takes ranges (`[a-c]`), a `-` first or last in it is itself, and `\]` escapes;
-  a `[` whose set would hold a `/` is itself. `{a}` and `{}` are themselves, so are braces with
+  a `[` whose set would hold a `/` is itself, and no set matches a `/`, even through a range
+  (`[.-0]`) or an escape. `{a}` and `{}` are themselves, so are braces with
   no `}`, and so is `{3..1}`; a number range takes no `+` and no leading zero, as `{3..120}` does
   not match `060`. Comments are whole lines (`#` or `;`); a `;` or `#` in a value is part of it.
-  Keys are taken in any case, and the values of the three properties too. A line that is no
+  A comment after a section's header, a `;` or `#` after a space, is passed over, as
+  editorconfig-core-c's reader does. Keys are taken in any case, and the values of the three
+  properties too. A line that is no
   comment, section or pair is passed over; a pair before the first section counts only for
   `root`. A UTF-8 BOM and CRLF lines are read.
 - **A glob of 2 to 4 KiB** is within the Decision's bound for a glob but larger than what a
@@ -922,7 +929,8 @@ As built:
 - **A number range in a choice** (`{a,b{1..3}}`) is checked on the match the `regex` crate
   chooses; when that match took a number out of range, another way through the choices is not
   tried, as in editorconfig-core-c. Real globs do not put a range beside an alternative that
-  matches the same text.
+  matches the same text. Likewise a `*` before a range takes as many characters as it can, so
+  `*{10..13}` does not match `x13`: the `*` takes `x1` and leaves `3`, as in editorconfig-core-c.
 - **The walk** is `project::upward`, which project detection now calls too; it stayed in
   `project.rs`, beside detection, rather than in a module of its own. From the file's real
   place up, directories missing below the first one there are passed over (a new file's), and
@@ -940,7 +948,8 @@ As built:
 - **What `*Messages*` gets:** a note for each file not read and each section skipped, naming the
   file and the line, with nothing of the file's text; nothing goes to the echo area.
 - **A visit** reads the files right after it opens the file and resolves its place, before it
-  reads the file, for a file not there yet too, so a new file indents as the project says. The
+  reads the file, for a file not there yet too, so a new file indents as the project says: it
+  is shown with EditorConfig's tab width, or the mode's configured one, from the start. The
   display map is built with EditorConfig's tab width, or the mode's configured one. The buffer
   takes the rest when its first text, or its emptiness, is in, so that the tab width it is
   shown with is the one the origins are judged against. A file read again keeps its visit's

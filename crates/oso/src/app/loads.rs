@@ -326,25 +326,28 @@ impl App {
         self.editor.message(message);
     }
 
-    /// What EditorConfig gave the file of the load at `index`, if `update` shows it with the
-    /// tab width the display map was built with, or makes it a new file (ADR 0115).
-    fn editorconfig_for(
-        &mut self,
-        index: usize,
-        update: &LoadUpdate,
-    ) -> Option<loader::EditorConfigFound> {
+    /// What the update of the load at `index` gives its buffer of its indentation, if it shows
+    /// the file with the tab width the display map was built with, or makes it a new file
+    /// (ADR 0115).
+    fn editorconfig_for(&mut self, index: usize, update: &LoadUpdate) -> Option<Indentation> {
         match update {
-            LoadUpdate::Snapshot(_) | LoadUpdate::Failed(LoadError::NotFound) => {
-                self.loads[index].editorconfig.take()
+            LoadUpdate::Snapshot(_) => self.loads[index]
+                .editorconfig
+                .take()
+                .map(Indentation::Shown),
+            LoadUpdate::Failed(LoadError::NotFound) => {
+                Some(Indentation::NewFile(self.loads[index].editorconfig.take()))
             }
             _ => None,
         }
     }
 
-    /// Gives `id` what EditorConfig gave its file, once the update that shows it is in.
-    fn give_editorconfig(&mut self, id: BufferId, found: Option<loader::EditorConfigFound>) {
-        if let Some(found) = found {
-            self.editor.set_editorconfig(id, found.applied);
+    /// Gives `id` its indentation, once the update that shows it is in.
+    fn give_editorconfig(&mut self, id: BufferId, given: Option<Indentation>) {
+        match given {
+            Some(Indentation::Shown(found)) => self.editor.set_editorconfig(id, found.applied),
+            Some(Indentation::NewFile(found)) => show_new_file(&mut self.editor, id, found),
+            None => {}
         }
     }
 
@@ -452,6 +455,36 @@ impl App {
     }
 }
 
+/// What a load's update gives its buffer of its indentation (ADR 0115).
+enum Indentation {
+    /// What EditorConfig gave the file, which is shown with its tab width now.
+    Shown(loader::EditorConfigFound),
+    /// A new file, with what EditorConfig gave where it will be, if it was read.
+    NewFile(Option<loader::EditorConfigFound>),
+}
+
+/// Shows `id`, a new file with no text, with the tab width a visit builds its display map with,
+/// EditorConfig's or its mode's configured one, and gives it what EditorConfig gave (ADR 0115).
+/// An empty display map costs nothing to build.
+fn show_new_file(editor: &mut Editor, id: BufferId, found: Option<loader::EditorConfigFound>) {
+    let Some(buffer) = editor.buffer(id) else {
+        return;
+    };
+    let configured = editor.mode_indent(buffer.mode());
+    let tab_width = found
+        .as_ref()
+        .map_or(configured.tab_width(), |found| found.tab_width(configured));
+    if let Some(buffer) = editor.buffer_mut(id)
+        && buffer.text().is_empty()
+        && buffer.tab_width() != tab_width
+    {
+        buffer.apply_load(oso_core::load::decode_all(b"", tab_width));
+        editor.loaded(id);
+    }
+    let applied = found.and_then(|found| found.applied);
+    editor.set_editorconfig(id, applied);
+}
+
 /// Which of a buffer's reads a wake from the loading threads may be for: its load, its read
 /// again, or both. A load stays listed until a frame shows its file (`note_first_screens`),
 /// while a read again can already have started, as a revert or a file changed on disk before
@@ -512,7 +545,10 @@ fn reaches_offset(editor: &Editor, id: BufferId, offset: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Wake, reaches_offset, shown_end, shown_in_a_window, wake_for, windows_showing};
+    use super::{
+        Wake, reaches_offset, show_new_file, shown_end, shown_in_a_window, wake_for,
+        windows_showing,
+    };
     use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
     use oso_core::frame::{FrameSize, Way};
@@ -568,6 +604,67 @@ mod tests {
             wake_for(false, false),
             reload,
             "a read that has ended takes nothing"
+        );
+    }
+
+    /// A new `/p/src/new.rs`, as a visit leaves it before its file is found missing.
+    fn new_file() -> (Editor, oso_core::buffer::BufferId) {
+        let buffer = Buffer::visiting(std::path::PathBuf::from("/p/src/new.rs"));
+        let editor = Editor::with_buffer(buffer);
+        let id = editor.window().buffer();
+        (editor, id)
+    }
+
+    #[test]
+    fn a_new_file_is_shown_with_editorconfigs_tab_width_and_indents_by_it() {
+        use oso_core::editorconfig::{Applied, Budget, File};
+        use oso_core::indent::{Origin, Style};
+
+        let (mut editor, id) = new_file();
+        let file = File::parse(
+            "[*]\nindent_style = tab\nindent_size = 4\n",
+            &mut Budget::default(),
+        );
+        let files = vec![(std::path::PathBuf::from("/p/.editorconfig"), file)];
+        let applied = Applied::from_walk(std::path::Path::new("/p/src/new.rs"), files);
+        let found = crate::loader::EditorConfigFound {
+            applied: Some(applied),
+            notes: Vec::new(),
+        };
+        show_new_file(&mut editor, id, Some(found));
+        let buffer = editor.buffer(id).unwrap();
+        assert_eq!(
+            buffer.tab_width().get(),
+            4,
+            "indent_size = 4 makes the tab width 4"
+        );
+        let settings = buffer.indent_settings();
+        assert_eq!((settings.style(), settings.indent_size()), (Style::Tabs, 4));
+        assert_eq!(buffer.indent_origins().tab_width, Origin::EditorConfig);
+        assert!(buffer.loading().is_none());
+    }
+
+    #[test]
+    fn a_new_file_with_no_editorconfig_takes_the_configured_tab_width() {
+        use oso_core::buffer::Mode;
+        use oso_core::indent::{Origin, Origins, Settings, Style};
+
+        let (mut editor, id) = new_file();
+        let three = Settings::new(3, Style::Tabs, 3).unwrap();
+        let origins = Origins {
+            indent_size: Origin::Configuration,
+            style: Origin::Configuration,
+            tab_width: Origin::Configuration,
+        };
+        let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+        editor.set_mode_indents(modes.map(|mode| (mode, three, origins)));
+        show_new_file(&mut editor, id, None);
+        let buffer = editor.buffer(id).unwrap();
+        assert_eq!(buffer.tab_width().get(), 3);
+        assert_eq!(
+            buffer.indent_origins(),
+            origins,
+            "nothing kept from the visit"
         );
     }
 }

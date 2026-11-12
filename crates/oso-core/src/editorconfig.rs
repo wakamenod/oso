@@ -209,7 +209,7 @@ impl File {
             if line.starts_with(['#', ';']) {
                 continue;
             }
-            if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            if let Some(name) = line.strip_prefix('[').and_then(section_name) {
                 file.finish(section.take(), budget);
                 sections += 1;
                 if sections > MAX_SECTIONS {
@@ -273,6 +273,21 @@ impl File {
             }),
         }
     }
+}
+
+/// The name of a section whose header is `[` then `rest`: up to the last `]`, which ends the
+/// line or comes before a comment, a `;` or `#` after a space, as editorconfig-core-c's reader
+/// takes it.
+fn section_name(rest: &str) -> Option<&str> {
+    if let Some(name) = rest.strip_suffix(']') {
+        return Some(name);
+    }
+    let comment = rest
+        .char_indices()
+        .zip(rest.chars().skip(1))
+        .find(|((_, before), mark)| before.is_whitespace() && matches!(mark, ';' | '#'))
+        .map(|((at, _), _)| at)?;
+    rest[..comment].trim_end().strip_suffix(']')
 }
 
 /// The pair `key = value`, if it is one of those kept. `value` is taken in any case.

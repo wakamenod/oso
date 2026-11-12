@@ -260,3 +260,9 @@ fn a_glob_with_a_number_range_is_at_most_its_bound() {
         "no range, no bound"
     );
 }
+
+#[test]
+fn a_set_never_matches_a_slash() {
+    check("a[.-0]b", &["a.b", "a0b"], &["a/b"]);
+    check(r"a[\/]b", &[], &["a/b"]);
+}

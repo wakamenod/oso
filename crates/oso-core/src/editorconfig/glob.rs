@@ -220,7 +220,10 @@ impl Translation {
         }
         match (negated, members.is_empty()) {
             (false, true) => self.regex.push_str("[a&&b]"),
-            (false, false) => self.regex.push_str(&format!("[{}]", members.concat())),
+            // Never a `/`, as `[/]` is no set either.
+            (false, false) => self
+                .regex
+                .push_str(&format!("[{}&&[^/]]", members.concat())),
             // One character but `/`, as `?`.
             (true, _) => self.regex.push_str(&format!("[^/{}]", members.concat())),
         }

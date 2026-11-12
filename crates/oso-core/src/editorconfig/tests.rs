@@ -71,6 +71,15 @@ fn whitespace_comments_and_case() {
 }
 
 #[test]
+fn a_comment_after_a_section_header_is_passed_over() {
+    let text = "[*.rs] ; rust\nindent_size = 2\n[*.md]   # docs\nindent_size = 3\n";
+    assert_eq!(three(text, "a.rs").1, Some(IndentSize::Columns(2)));
+    assert_eq!(three(text, "a.md").1, Some(IndentSize::Columns(3)));
+    // With no space before it, a `;` is part of the name, as `[test\;.c]` is.
+    assert_eq!(three("[a.rs];x\nindent_size = 2\n", "a.rs").1, None);
+}
+
+#[test]
 fn root_counts_only_in_the_preamble() {
     assert!(!parse("[*]\nroot = true\n").is_root());
     assert!(!parse("root = false\n").is_root());

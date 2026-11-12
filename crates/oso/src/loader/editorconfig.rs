@@ -20,7 +20,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use oso_core::display_map::TabWidth;
-use oso_core::editorconfig::{Applied, Budget, File, MAX_FILE};
+use oso_core::editorconfig::{Applied, Budget, File, MAX_FILE, VISIT_GLOBS, VISIT_SECTIONS};
 use oso_core::indent::Settings;
 
 use oso_platform::file_meta::Directory;
@@ -173,8 +173,7 @@ pub fn read(location: &Path, home: &Home, cancelled: &dyn Fn() -> bool) -> Edito
     let (mut seen, mut bytes) = (0, 0);
     let home = home.real();
     for (walked, Above { dir, metadata, .. }) in upward(location, home.as_deref()).enumerate() {
-        // Once nothing more can be compiled, no file above adds anything.
-        if cancelled() || budget.is_spent() {
+        if cancelled() {
             break;
         }
         if walked == VISIT_DIRECTORIES {
@@ -187,22 +186,34 @@ pub fn read(location: &Path, home: &Home, cancelled: &dyn Fn() -> bool) -> Edito
         }
         let path = dir.join(NAME);
         let here = read_here(dir, &metadata, VISIT_BYTES.saturating_sub(bytes));
-        if matches!(here, Here::Text(_) | Here::Refused(_)) && seen == VISIT_FILES {
-            notes.push(format!(
-                "EditorConfig {} is not read: a visit reads at most {VISIT_FILES} of them",
-                path.display()
-            ));
-            break;
-        }
-        let text = match here {
-            Here::Nothing => continue,
-            Here::Refused(why) => {
-                seen += 1;
+        if matches!(here, Here::Text(_) | Here::Refused(_)) {
+            // A file past what a visit takes, said when there is one.
+            let past = if budget.is_spent() {
+                Some(format!(
+                    "a visit compiles at most {VISIT_SECTIONS} sections and {} KiB of globs",
+                    VISIT_GLOBS >> 10
+                ))
+            } else {
+                (seen == VISIT_FILES)
+                    .then(|| format!("a visit reads at most {VISIT_FILES} of them"))
+            };
+            if let Some(why) = past {
                 notes.push(format!(
                     "EditorConfig {} is not read: {why}",
                     path.display()
                 ));
-                continue;
+                break;
+            }
+        }
+        let text = match here {
+            Here::Nothing => continue,
+            // It could have said `root = true`, so none farther up counts.
+            Here::Refused(why) => {
+                notes.push(format!(
+                    "EditorConfig {} is not read: {why}; none farther up is read",
+                    path.display()
+                ));
+                break;
             }
             Here::Text(text) => text,
             Here::PastBudget => {
