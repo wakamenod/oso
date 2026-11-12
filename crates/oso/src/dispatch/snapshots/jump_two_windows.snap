@@ -1,0 +1,74 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: one two\\ntwo one\\n"
+---
+keys: C-x 3
+WindowId(0) at row 0, column 0: 7 x 21
+│one two             │┃
+:o                   :
+│two one             │┃
+│                    │┃
+│                    │┃
+│                    │┃
+│                    │┃
+--- test  1:0  Fundam-┃
+WindowId(1) at row 0, column 21: 7 x 20, selected
+│one two             │
+:^                   :
+│two one             │
+│                    │
+│                    │
+│                    │
+│                    │
+=-- test  1:0  Fundam=
+"                                         "
+
+keys: M-j o RET
+WindowId(0) at row 0, column 0: 7 x 21
+│one two             │┃
+:o                   :
++J     J             +
+@g     h             @
+│two one             │┃
++  J J               +
+@  j l               @
+│                    │┃
+│                    │┃
+│                    │┃
+│                    │┃
+--- test  1:0  Fundam-┃
+WindowId(1) at row 0, column 21: 7 x 20, selected
+│one two             │
+:^                   :
++J     J             +
+@a     s             @
+│two one             │
++  J J               +
+@  d f               @
+│                    │
+│                    │
+│                    │
+│                    │
+=-- test  1:0  Fundam=
+"Jump: o                                  "
+
+keys: h
+WindowId(0) at row 0, column 0: 7 x 21, selected
+│one two             │┃
+:      ^             :
+│two one             │┃
+│                    │┃
+│                    │┃
+│                    │┃
+│                    │┃
+=-- test  1:6  Fundam=┃
+WindowId(1) at row 0, column 21: 7 x 20
+│one two             │
+:o                   :
+│two one             │
+│                    │
+│                    │
+│                    │
+│                    │
+--- test  1:0  Fundam-
+"                                         "

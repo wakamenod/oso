@@ -1,0 +1,27 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: aaa a\\nxxxxxxxxxa\\naa\\n"
+---
+keys: M-j a RET
+│aaa a     │
+:^         :
++JJJjJj    +
+@qwwwwe    @
+│xxxxxxxxxa│
++         J+
+@         e@
+│aa        │
++JJj       +
+@eee       @
+=-- test  1=
+"Jump: a   "
+
+keys: w
+│aaa a     │
+:^         :
++ JJ J     +
+@ qw e     @
+│xxxxxxxxxa│
+│aa        │
+=-- test  1=
+"Jump: a   "

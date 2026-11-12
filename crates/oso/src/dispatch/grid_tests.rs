@@ -22,7 +22,10 @@
 //! (ADR 0071), and with `#` and `~` the current isearch match and the others in view,
 //! from `Editor::isearch_cells` (ADR 0082), and with `l`, `t` and `f` the current line's
 //! band, trailing whitespace and the cursor flash after a step whose last key flashes
-//! (ADR 0097). On the line between `:`, `.` marks the cells
+//! (ADR 0097). A jump's matches are `~` too, and its labels, from `Editor::jump_cells`, are
+//! `J` under each one's first key and `j` under the keys after it, over every other mark, with
+//! a line between `@` below that gives the keys at their cells (ADR 0116). On the line between
+//! `:`, `.` marks the cells
 //! of the boxes of the cursors other than the primary, drawn as dim outlines, from
 //! `Editor::other_cursor_cells` (ADR 0091).
 //!
@@ -30,7 +33,8 @@
 //! is and whether it is selected; a divider at a window's right ends its rows and modeline with
 //! `┃`, and the modeline of a window that is not selected, as every window beneath a prompt,
 //! is between `-`. Only the selected window, or the one a prompt came from, has a region, a
-//! band, a flash and isearch's matches, and the others' cursors are `o` (ADR 0112).
+//! band, a flash and isearch's matches, and the others' cursors are `o` (ADR 0112). A jump's
+//! matches and labels show in every window.
 //!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
@@ -49,6 +53,8 @@ use oso_core::window::{Screen, ViewSize};
 
 use super::Dispatcher;
 
+#[cfg(test)]
+mod jumps;
 mod preview;
 mod rows;
 mod text_area;

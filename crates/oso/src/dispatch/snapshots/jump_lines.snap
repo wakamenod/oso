@@ -1,0 +1,46 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: one\\n\\n  three\\n"
+---
+keys: M-g f
+│one       │
+:^         :
++J         +
+@a         @
+│          │
++J         +
+@s         @
+│  three   │
++J         +
+@d         @
+│          │
++J         +
+@f         @
+=-- test  1=
+"Jump to a "
+
+keys: C-g
+│one       │
+:^         :
+│          │
+│  three   │
+│          │
+=-- test  1=
+"Quit      "
+
+keys: run:avy-goto-end-of-line
+│one       │
+:^         :
++   J      +
+@   a      @
+│          │
++J         +
+@s         @
+│  three   │
++       J  +
+@       d  @
+│          │
++J         +
+@f         @
+=-- test  1=
+"Jump to a "

@@ -325,7 +325,9 @@ builds kana itself, and reads for kanji only a file the person names.
 - **A single candidate is labelled too (Q14),** so an action can apply to it.
 - **A key that is neither a label nor an action ends the jump** with `No such candidate`, and does
   not run, as in avy, so a mistyped label inserts nothing. `C-g` ends it with nothing moved, as
-  `Quit::Jump` in `Editor::quit`, after isearch's steps and query-replace's.
+  `Quit::Jump`, the first step of `Editor::quit`, before the region's, so one `C-g` always ends
+  a jump. (This ADR first put it after isearch's steps and query-replace's; the author chose the
+  first place while step 5 was built.)
 - **The primary cursor jumps; the other cursors stay (Q17).** The place it left is pushed onto
   its mark ring without a message. A region shown stays shown, so a jump extends it. The flash of
   ADR 0097 follows its rule for a large move.
@@ -377,7 +379,9 @@ then chosen points at, as avy's `avy-dispatch-alist` does, and none of them is a
 #### What candidates cost (Q19)
 
 - **Only the text in view is looked at:** each window's visible rows, within 256 KiB of text a
-  window, as isearch's highlights. A string's candidates are found with the matcher isearch's
+  window and 1 MiB a jump in all, the selected window first and then the others in the tree's
+  order. (This ADR first gave 256 KiB a window alone; the author added the jump's limit while
+  step 5 was built.) A string's candidates are found with the matcher isearch's
   highlights use, a line's start and end from the display rows.
 - **At most 4096 candidates** are labelled, which eight keys label with four keys or fewer. Past
   that, the farthest are not labelled, and the echo area says `4096 of 5210 labelled`.
@@ -431,6 +435,58 @@ One pull request a step, each with its own "As built" notes here.
 Step 5 needs none of steps 1 to 4, and can be built beside them; a jump's string goes through
 migemo once step 2 is in.
 
+#### As built (step 5, 2026-11-12)
+
+The author answered seven questions on 2026-11-12, through the coordinator. Two depart from the
+text above, which now says what was chosen: one `C-g` ends a jump first (Q2), and a jump reads
+at most 1 MiB in all (Q5).
+
+- **The API,** as the snapshots show: `oso_core::jump` with `Kind`, `Stage`, `Jump`, `Keys` and
+  `KeysError`, `Labels` and the limits `MIN_KEYS`, `MAX_KEYS`, `MAX_LABELLED` (4096) and
+  `MAX_STRING` (64); in `oso_core::editor`, `JumpCells`, `LabelCells`, `Chose`, the
+  `Editor::jump*` methods and `Quit::Jump`; in `oso-render`, `Face::JumpLabel`,
+  `Face::JumpLabelNext` and `TextView::labels`. `guardrails/layers.txt`'s `minibuffer` line
+  became `minibuffer jump`.
+- **`C-g` (Q2)** ends a jump before anything else in `Editor::quit`, so it never takes the
+  region away while a jump is on.
+- **A key the jump's keymap does not bind (Q3)** ends a jump that is still reading its string
+  silently, and does not run. At the labels it says `No such candidate`, as above. The keymap's
+  own commands are `avy-printing-char`, `avy-delete-char` and `avy-show-labels` (`RET`) (Q4).
+  `run-command` of any other command ends a jump first. The jump's keymap comes before every
+  other.
+- **The budget (Q5):** 256 KiB of text a window and 1 MiB a jump in all, the selected window
+  first, then the tree's order. At most 4096 candidates are labelled; past that the farthest are
+  not.
+- **Nearest (Q6)** is the distance on screen: view rows from the window's primary cursor, then
+  columns.
+- **A change to the text (Q7)** under the labels ends the jump with `Jump ended: the text
+  changed`. While the string is still read, its matches are found again.
+- **The echo row** says `Jump: <string>`, `Jump to a line`, `Jump to a line's end` or `Jump to
+  a match` (`avy-isearch`), and past the limit adds `  [4096 of N labelled]`. It is withheld from
+  the socket around a buffer that may hold secrets, as isearch's is.
+- **The timer** starts at the string's first character, and each key while the string is read
+  starts it again. A jump with no string waits, so neither `RET` nor the timer does anything
+  until a character is typed.
+- **Candidates:** a line's start is labelled on a row that starts its logical line with column 0
+  in view, so a view scrolled sideways shows none; a line's end on the line's last row, when its
+  end column is in view; and a match whose start is within its row's columns in view.
+- **On screen,** a label is cut at the row's end and at the next label on its row. A target with
+  no cell, such as an empty line's end, is labelled in the first cell after the text. The
+  renderer skips the glyphs under a label and draws labels last in the pane's layer, over the
+  cursor box. The text-grid snapshots show a label's keys on a line between `@`.
+- **`avy-isearch`** labels the selected window's matches only. The cursor goes to the match's
+  start, then the search ends as `RET` ends it.
+- **The region and the mark:** with a region shown, nothing is pushed and the jump extends the
+  region; otherwise the place the cursor left is pushed onto the mark ring without a message.
+- **Windows:** a jump into another window selects it, and its flash comes from the dispatcher's
+  sample, as for any key that moves far.
+- **`M-g f`** with a digit at the labels opens `goto-line` with the digit typed.
+- **Settings:** `[jump] keys` is checked by `Keys::new`, and `[jump] timeout` is 0.1 to 5 s,
+  0.5 by default.
+- **Around a secret:** `get-state`'s `jump` is `{"active": true}`; elsewhere it gives `active`,
+  `stage` and `count`. The input method is off while a jump is on, and the agent channel and a dev
+  restart wait for it to end.
+
 ## Changes to accepted ADRs
 
 - **[ADR 0082](0082-isearch.md):** "`C-s` and `C-r` search for the literal string" becomes: for the
@@ -443,6 +499,8 @@ migemo once step 2 is in.
 - **[ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md):** a component that is
   romaji matches as its migemo pattern; `=` keeps it literal.
 - **[ADR 0085](0085-agent-channel-and-oso-mcp.md):** the channel also waits while a jump is on.
+- **[ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md):** the `C-g` chain gains a jump, ended before the
+  region (`Quit::Jump`).
 - **[`open-questions.md`](../open-questions.md):** the migemo dictionary item, and avy in "UI of
   each later feature", are settled here and leave the list.
 - **`guardrails/layers.txt`:** `migemo` on `oso-core`'s lowest line, and `jump` beside
