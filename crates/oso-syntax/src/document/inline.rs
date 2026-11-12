@@ -65,7 +65,7 @@ pub(super) fn widen<'tree>(
         piece,
         deadline,
         |node, _, _| {
-            if let Some(fence) = fence::injected(text, node) {
+            if let Some(fence) = fence::injectable(text, node) {
                 if nested.fences.last() == Some(&fence) {
                     return;
                 }

@@ -97,8 +97,9 @@ pub struct Document {
     /// Markdown's parsers of nested text, each made at its grammar's first text: the inline
     /// grammar's and fenced code's.
     nested: Vec<(Language, Parser)>,
-    /// The fences a fence's grammar painted last, mapped through edits since.
-    injected: Pending,
+    /// The blocks of the fences a fence's grammar painted last, mapped through edits since;
+    /// fences that follow each other stay apart.
+    fences: Pending,
     /// How many bytes a piece of highlighting may take; less after a piece outlasted a slice.
     max_piece: usize,
 }
@@ -127,7 +128,7 @@ impl Document {
             changes: 0,
             pending: Pending::default(),
             nested: Vec::new(),
-            injected: Pending::default(),
+            fences: Pending::apart(),
             max_piece: highlight::PIECE,
         }
     }
@@ -152,13 +153,13 @@ impl Document {
         self.highlights.splice(splices);
         if self.highlights.len() == after.len() {
             self.pending.map(splices);
-            self.injected.map(splices);
+            self.fences.map(splices);
             self.pending
                 .add(highlight::edited(after, splices, self.max_piece));
         } else {
             self.highlights = Highlights::new(after.len());
             self.pending.all(after.len());
-            self.injected.clear();
+            self.fences.clear();
         }
         self.follow(splices, after);
     }
@@ -287,7 +288,7 @@ impl Document {
         self.running = None;
         self.parser.reset();
         self.nested.clear();
-        self.injected.clear();
+        self.fences.clear();
         self.highlights = Highlights::new(self.highlights.len());
         self.changes += 1;
         self.pending.clear();

@@ -44,14 +44,15 @@ fn plain(text: &str, part: &str) -> bool {
 #[test]
 fn rust_and_toml_fences_take_their_grammars() {
     let text = "Some text.\n\n```rust\nfn main() {} // c\n```\n\n~~~toml\na = 1 # c\n~~~\n\n\
-                ```RS\nlet x = 1;\n```\n\n```rust,ignore\nfn g() {}\n```\n";
+                ```RS\nlet x = 7;\n```\n\n```rust,ignore\nfn g() {}\n```\n\n```rust{.x}\nfn h() {}\n```\n";
     for (part, highlight) in [
         ("main", Function),
         ("// c", Comment),
         ("a", Property),
         ("# c", Comment),
         ("let", Keyword),
-        ("1", Constant),
+        ("7", Constant),
+        ("h", Function),
         ("g", Function),
     ] {
         assert!(has(text, part, highlight), "{part:?} as {highlight:?}");
@@ -78,6 +79,8 @@ fn other_fences_and_indented_code_stay_plain() {
     ] {
         assert!(plain(text, "fn f() {}"), "{text:?}");
     }
+    // TOML front matter too.
+    assert!(plain("+++\na = 1\n+++\n\nText.\n", "a = 1"));
 }
 
 #[test]
@@ -103,7 +106,8 @@ fn a_fence_past_the_cap_stays_plain() {
             line.repeat(lines)
         )
     };
-    let under = fence(MAX_FENCE_BYTES / line.len());
+    // The cap counts the delimiter lines too.
+    let under = fence((MAX_FENCE_BYTES - 16) / line.len());
     assert!(has(&under, "f", Function));
     let over = fence(MAX_FENCE_BYTES / line.len() + 1);
     assert!(plain(&over, "fn f() {}"), "past the cap");
@@ -186,5 +190,66 @@ fn crafted_and_many_fences_stay_within_the_limits() {
         // The total limits, with room for a debug build.
         assert!(took < Duration::from_secs(10), "{took:?}");
         assert_eq!(document.highlights().len(), text.len());
+    }
+}
+
+/// Fences that follow each other stay apart in what the document keeps of them, through
+/// edits too, so that a fence painted again leaves its neighbours alone.
+#[test]
+fn fences_that_follow_each_other_stay_apart() {
+    let fence = "```rust\nfn f() {}\n```\n";
+    let text = fence.repeat(4);
+    let mut document = highlighted(Language::Markdown, &text);
+    // A key in the second fence's content.
+    let at = fence.len() + "```rust\nfn f".len();
+    let after = format!("{}x{}", &text[..at], &text[at..]);
+    let splice = Splice {
+        start: at,
+        old_len: 0,
+        new_len: 1,
+    };
+    document.edit(&[splice], &Rope::from(after.as_str()));
+    // Mapped through the edit, they still touch, and stay four.
+    assert_eq!(
+        document.fences.ranges().len(),
+        4,
+        "{:?}",
+        document.fences.ranges()
+    );
+    let done = document.highlight(&mut Queries::new(), &[], LONG);
+    assert_eq!(done, Highlighted::Done);
+    let fences = document.fences.ranges().to_vec();
+    assert_eq!(fences.len(), 4, "{fences:?}");
+    document.repainted(&fences[1], &fences[1..2]);
+    assert!(
+        document.pending.ranges().is_empty(),
+        "{:?}",
+        document.pending.ranges()
+    );
+}
+
+/// Inside a quote or a list item, a fence ends after the next line's continuation, where the
+/// next fence starts. A key in the middle one of five, each too large for its neighbours to
+/// share a piece, is highlighted to the end, as a fresh document is, and soon.
+#[test]
+fn a_key_among_fences_in_a_container_ends() {
+    let code = "let x = 1;\n".repeat(900);
+    for prefix in ["> ", "  "] {
+        let fence = || {
+            let body: String = code
+                .lines()
+                .map(|line| format!("{prefix}{line}\n"))
+                .collect();
+            format!("{prefix}```rust\n{body}{prefix}```\n")
+        };
+        let lead = if prefix == "> " { "" } else { "- item\n\n" };
+        let text = format!("{lead}{}", (0..5).map(|_| fence()).collect::<String>());
+        // The first statement past the middle, in the middle fence.
+        let at = text.len() / 2;
+        let at = at + text[at..].find("let").unwrap();
+        let started = Instant::now();
+        edit_matches_fresh(&text, at, 3, "fn ");
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{prefix:?}: {took:?}");
     }
 }

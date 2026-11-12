@@ -2,7 +2,8 @@
 //!
 //! Must not depend on: `document` or `queries`, nor tree-sitter's types; it sees offsets only.
 //!
-//! - The ranges are ascending, apart and never empty.
+//! - The ranges are ascending, apart and never empty. Ranges that touch join, unless the set
+//!   keeps them apart ([`Pending::apart`]), as it does for fences that follow each other.
 //! - Mapping through a batch and adding a batch's ranges each take one pass, so a command at a
 //!   thousand cursors costs no more than its splices; taking a range out is a binary search.
 
@@ -10,13 +11,23 @@ use std::ops::Range;
 
 use oso_core::syntax::Splice;
 
-/// Ranges still to highlight.
+/// Ranges still to highlight, or another set of ranges that follows edits.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Pending {
     ranges: Vec<Range<usize>>,
+    /// Whether ranges that only touch stay apart.
+    apart: bool,
 }
 
 impl Pending {
+    /// No ranges, and ranges added or mapped later that only touch stay apart.
+    pub(crate) fn apart() -> Self {
+        Self {
+            ranges: Vec::new(),
+            apart: true,
+        }
+    }
+
     /// Whether nothing is left.
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
@@ -83,6 +94,29 @@ impl Pending {
         );
     }
 
+    /// Puts `ranges`, ascending, apart and inside `within`, in place of the ranges that meet
+    /// `within`, and gives `within` widened to those it replaced: a binary search, and a move of
+    /// the ranges after them.
+    pub(crate) fn swap(&mut self, within: Range<usize>, ranges: &[Range<usize>]) -> Range<usize> {
+        let first = self
+            .ranges
+            .partition_point(|range| range.end <= within.start);
+        let last = self
+            .ranges
+            .partition_point(|range| range.start < within.end);
+        let mut span = within;
+        if first < last {
+            span.start = span.start.min(self.ranges[first].start);
+            span.end = span.end.max(self.ranges[last - 1].end);
+        }
+        let new = ranges
+            .iter()
+            .filter(|range| range.start < range.end)
+            .cloned();
+        self.ranges.splice(first..last.max(first), new);
+        span
+    }
+
     /// Follows a batch of edits, as [`Splice`] says. A range that a splice cuts keeps the text
     /// around it, and one the splice took in whole goes: the splice's own range is added apart.
     pub(crate) fn map(&mut self, splices: &[Splice]) {
@@ -100,10 +134,14 @@ impl Pending {
         }
     }
 
-    /// Appends `range`, which starts at or after the last one's start, joining it if they meet.
+    /// Appends `range`, which starts at or after the last one's start, joining it if they
+    /// overlap, or touch where ranges join.
     fn push(&mut self, range: Range<usize>) {
+        let apart = self.apart;
         match self.ranges.last_mut() {
-            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            Some(last) if range.start < last.end || (!apart && range.start == last.end) => {
+                last.end = last.end.max(range.end);
+            }
             _ => self.ranges.push(range),
         }
     }

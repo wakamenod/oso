@@ -6,7 +6,8 @@
 //!
 //! - A piece is whole lines of at most [`PIECE`] bytes; a longer line is cut at a character,
 //!   so a window on a long line waits only for the part it shows. In Markdown, a piece widens
-//!   to the inline nodes it meets: an edit can change a paragraph's inline text past its line.
+//!   to the inline nodes and the fences with a language it meets: an edit can change a
+//!   paragraph's inline text, or a fence's code, past its line.
 //! - A query that passes its match limit leaves its piece plain. One stopped by the slice's
 //!   end stays to do, unless it had most of a slice: then pieces halve, back up to [`PIECE`]
 //!   after a few fit in a row. The document fails as too slow, as after a slow parse, if a
