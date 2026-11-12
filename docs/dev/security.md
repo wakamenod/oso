@@ -89,7 +89,8 @@ network features.
   through, as the loader finds them, is searched, but its rows carry no text
   and are never previewed: nothing of it is read for a preview. A root that
   cannot be resolved counts as one that may hold secrets, and the root opened
-  must be, by device and inode, the place judged, or nothing under it is read.
+  must be, by device and inode, the place judged, reached again from `/` a name
+  at a time following no link, or nothing under it is read.
   A preview reads a row's file on `oso-preview` as the search reached it: the
   root by its path with the same home checks, then each directory and the file
   from the one before, following no link and waiting for nothing, a regular

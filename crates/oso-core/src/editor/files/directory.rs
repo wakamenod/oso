@@ -91,3 +91,6 @@ impl Editor {
         (link && !list.looks.contains_key(&path)).then_some(path)
     }
 }
+
+#[cfg(test)]
+mod tests;

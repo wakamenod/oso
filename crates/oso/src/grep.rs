@@ -103,17 +103,41 @@ pub(crate) fn may_hold_secrets(root: &Path, leads: Option<&[PathBuf]>, path: &Pa
 }
 
 /// Whether `opened`, a root opened by its path, is the directory `leads` says the path leads to,
-/// by device and inode, so that what was judged is what is read. One that cannot be told is not.
+/// by device and inode, so that what was judged is what is read. The place judged is reached
+/// again from `/` a name at a time, following no link, so that a link put in its way since is
+/// not followed to another place. One that cannot be told is not.
 #[cfg(unix)]
 pub(crate) fn opened_as_judged(opened: &Directory, leads: Option<&[PathBuf]>) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Some(real) = leads.and_then(<[PathBuf]>::last) else {
+    let Some(judged) = leads
+        .and_then(<[PathBuf]>::last)
+        .and_then(|real| reached(real))
+    else {
         return false;
     };
-    match (opened.metadata(), std::fs::metadata(real)) {
-        (Ok(opened), Ok(real)) => (opened.dev(), opened.ino()) == (real.dev(), real.ino()),
+    match (opened.metadata(), judged.metadata()) {
+        (Ok(opened), Ok(judged)) => (opened.dev(), opened.ino()) == (judged.dev(), judged.ino()),
         _ => false,
     }
+}
+
+/// The directory at `real`, a whole path with no link in it, opened from `/` a name at a time,
+/// following no link: none if any step is a link, no directory or gone.
+#[cfg(unix)]
+fn reached(real: &Path) -> Option<Directory> {
+    use std::path::Component;
+    let mut components = real.components();
+    if components.next() != Some(Component::RootDir) {
+        return None;
+    }
+    let mut directory = Directory::open(Path::new("/")).ok()?;
+    for component in components {
+        let Component::Normal(name) = component else {
+            return None;
+        };
+        directory = directory.open_directory(name).ok()??;
+    }
+    Some(directory)
 }
 
 /// On Windows directories are reached by their paths, so there is nothing to compare.

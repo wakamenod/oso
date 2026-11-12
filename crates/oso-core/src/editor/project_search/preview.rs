@@ -33,8 +33,8 @@ use crate::sum_tree::Bias;
 use crate::window::Screen;
 
 /// The most bytes of a line an excerpt keeps, cut at characters. The host's reader reads no
-/// more than this and a line break of each line after the row's (`PER_ROW` in the tip's
-/// `grep/preview.rs`); the two must change together.
+/// more than this and a line break of each line after the row's (`PER_ROW` in the `oso`
+/// crate's `grep/preview.rs`); the two must change together.
 pub(crate) const EXCERPT_LINE: usize = 4096;
 
 /// The most lines an excerpt keeps.
@@ -213,6 +213,8 @@ pub(super) struct SearchPreview {
     live: Arc<AtomicU64>,
     /// The row asked for last, by its search's generation and its item.
     asked: Option<(u64, usize)>,
+    /// An open buffer showed the row asked for, so nothing was read: once it goes, it is.
+    covered: bool,
     /// What came for the row asked for, and the revision the frame draws it at.
     read: Option<(ProjectPreviewRead, u64)>,
     /// The revision the last excerpt was given, so that each is shaped as its own.
@@ -224,6 +226,7 @@ impl SearchPreview {
     pub(super) fn reset(&mut self) {
         self.live.fetch_add(1, Ordering::Relaxed);
         self.asked = None;
+        self.covered = false;
         self.read = None;
     }
 }
@@ -265,10 +268,17 @@ impl Editor {
 
     /// The read the host should start for the selected row's preview, once per row selected:
     /// none for a row of a file that may hold secrets, one an open buffer shows, or while the
-    /// float has no room for a preview.
+    /// float has no room for a preview. A row an open buffer showed is read once that buffer
+    /// has gone.
     pub fn take_preview_request(&mut self) -> Option<ProjectPreviewRequest> {
         let key = self.selected_search_row()?;
-        if self.project_search.preview.asked == Some(key) {
+        let preview = &self.project_search.preview;
+        if preview.asked == Some(key)
+            && !(preview.covered
+                && self
+                    .selected_search_place()
+                    .is_some_and(|(path, _)| self.find_open_buffer_at(path).is_none()))
+        {
             return None;
         }
         let rows = self
@@ -283,6 +293,7 @@ impl Editor {
         let preview = &mut self.project_search.preview;
         preview.reset();
         preview.asked = Some(key);
+        preview.covered = open && !secret;
         if secret || open {
             return None;
         }
@@ -301,10 +312,18 @@ impl Editor {
     /// Takes in what the host read for the preview `generation`: dropped unless it is the
     /// newest.
     pub fn preview_read(&mut self, generation: u64, read: ProjectPreviewRead) {
-        let preview = &mut self.project_search.preview;
+        let preview = &self.project_search.preview;
         if preview.asked.is_none() || preview.live.load(Ordering::Relaxed) != generation {
             return;
         }
+        // The very file of an open buffer that withholds keeps nothing of what was read.
+        let read = match read {
+            ProjectPreviewRead::Text(excerpt) if self.withheld_file(excerpt.identity) => {
+                ProjectPreviewRead::Withheld
+            }
+            read => read,
+        };
+        let preview = &mut self.project_search.preview;
         preview.revision += 1;
         preview.read = Some((read, preview.revision));
     }
@@ -365,11 +384,26 @@ impl Editor {
     }
 
     /// The display model of the excerpt read for the selected row, which
-    /// [`Preview::Excerpt`] shows. Only for a preview that is [`Preview::Excerpt`]: it gives the
-    /// read also where an open buffer of the same file shows, or withholds, in its place.
+    /// [`Preview::Excerpt`] shows: none while the preview is anything else, as where an open
+    /// buffer of the same file shows, or withholds, in its place.
     pub fn preview_excerpt_display(&self) -> Option<DisplaySnapshot> {
+        if !matches!(self.search_preview(), Some(Preview::Excerpt { .. })) {
+            return None;
+        }
         self.read_excerpt()
             .map(|excerpt| excerpt.display.snapshot())
+    }
+
+    /// Whether an open buffer of the file whose device and inode are `identity` withholds what it
+    /// holds, as one that may hold secrets.
+    fn withheld_file(&self, identity: Option<(u64, u64)>) -> bool {
+        let Some(identity) = identity else {
+            return false;
+        };
+        self.find_open_buffer(|_, buffer| {
+            file_identity(buffer) == Some(identity) && buffer.verdict().is_withheld()
+        })
+        .is_some()
     }
 
     /// The excerpt read for the selected row, its text and its display model, and where the

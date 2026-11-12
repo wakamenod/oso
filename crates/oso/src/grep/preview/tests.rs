@@ -255,3 +255,20 @@ fn a_root_opened_that_is_not_where_its_path_was_judged_to_lead_is_not_read() {
     let leads = leads(&scratch.0);
     assert!(open((&scratch.0, leads.as_deref()), path, None, &|| true).is_some());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_place_judged_that_a_link_now_stands_in_the_way_of_is_not_read() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("judged-link");
+    scratch.file("real/a.rs", b"one\n");
+    symlink(scratch.0.join("real"), scratch.0.join("now-a-link")).unwrap();
+    let root = scratch.0.join("now-a-link");
+    let path = std::path::Path::new("a.rs");
+    // The place was judged as a directory of that name, which a link has taken the place of:
+    // the root opens through the link, but the place judged is not reached through it.
+    let judged = vec![root.clone()];
+    assert!(open((&root, Some(&judged)), path, None, &|| true).is_none());
+    let judged = vec![scratch.0.join("real")];
+    assert!(open((&root, Some(&judged)), path, None, &|| true).is_some());
+}

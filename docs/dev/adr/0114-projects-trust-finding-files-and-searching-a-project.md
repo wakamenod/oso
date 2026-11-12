@@ -585,11 +585,13 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   is read; an open buffer whose path is the root joined with the row's, from memory, unsaved edits
   and all, or `may hold secrets` if that buffer withholds; otherwise what the host read. A read
   that names the file's device and inode gives way to an open buffer of that very file, as one
-  opened through another spelling or a link, as `RET` would show it. Until a read comes the pane
+  opened through another spelling or a link, as `RET` would show it; if that buffer withholds,
+  nothing of the read is kept. Until a read comes the pane
   is empty; a file that is gone, no longer a regular file or reached through a link shows
   nothing.
 - **Reading.** The editor asks once per row selected (`Editor::take_preview_request`), never for
-  a secret row or one an open buffer shows, nor while the float has no room for a preview.
+  a secret row or one an open buffer shows, nor while the float has no room for a preview; a row
+  an open buffer showed is asked for once that buffer is killed.
   `oso-preview`, one more thread of the `grep` module, started with the first read
   (`grep/preview.rs`), takes the newest request waiting and reads it:
   - the root is opened by its path and refused if it is or holds the home directory, by the real
@@ -601,8 +603,8 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
     place, as the loader finds them, and one that may hold secrets is not read. A root that
     cannot be resolved counts as one that may hold secrets. The app hands the loader's resolver
     to `grep`, which may not name `loader`, and the search's rows are judged the same way;
-  - the root opened must be, by device and inode, the place judged; the search's walk goes on
-    only then too;
+  - the root opened must be, by device and inode, the place judged, reached again from `/` a
+    name at a time following no link; the search's walk goes on only then too;
   - each row now carries the offset of its line's start in its file
     (`ProjectSearchRow::offset`), kept with the lines a narrowing search looks through. The read
     starts there: at most 64 KiB before it, whole lines only, for about half the preview's rows,
@@ -639,7 +641,7 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   - as typed where no listing tells, as for a directory the prompt started in.
 
   While the listings its plan needs, or a look at the link selected or at a link typed whole
-  (asked for on its own), have not come, `Editor::directory_answer_waits` says so and the
+  (each asked for on its own, also when the float shows no rows), have not come, `Editor::directory_answer_waits` says so and the
   dispatcher holds `RET` and `M-RET` until they have (`dispatch/held.rs`), as it holds `RET` for a
   worker. A command from the dev socket is
   refused then, and `get-state`'s `pending` covers the wait. A key the dev socket sends
@@ -657,7 +659,8 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   system, as on FUSE or NFS, leaves later previews empty until it returns; the UI and the search
   go on.
 - **Left for later.** The preview is worked out a few times a frame, each looking through the
-  open buffers for one of the row's file; caching it would change the API. `editor/files.rs` is
+  open buffers for one of the row's file: about 213 µs a frame with 1000 buffers open. Caching it
+  would change the API. `editor/files.rs` is
   near its size limit, so the directory prompt grows in `files/directory.rs`. `grep/preview.rs`
   repeats the loader's device and inode of a file, as `grep` may not name `loader`; one function
   in `oso_platform::file_meta` could serve both, as a later chore. An excerpt is not parsed, so

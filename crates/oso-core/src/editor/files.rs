@@ -495,13 +495,20 @@ impl Editor {
             }
             paths.push(found.path.clone());
         }
-        // The link typed whole, which decides a directory's answer though no row may show it, in
-        // a look of its own, as one look covers at most the rows shown.
-        if let Some(path) = self.typed_link_unlooked()
-            && !list.looking.contains(&path)
-            && !paths.contains(&path)
-            && let (Some(directory), Some(name)) = (path.parent(), path.file_name())
-        {
+        // The row selected and the link typed whole, which decide an answer though no row may
+        // show them, as when the float has no room, each in a look of its own, as one look
+        // covers at most the rows shown.
+        let selected = self.selected_found().map(|found| found.path.clone());
+        for path in [selected, self.typed_link_unlooked()].into_iter().flatten() {
+            if list.looks.contains_key(&path)
+                || list.looking.contains(&path)
+                || paths.contains(&path)
+            {
+                continue;
+            }
+            let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
+                continue;
+            };
             let name = name.to_string_lossy().into_owned();
             asked.push((directory.to_path_buf(), vec![name]));
             paths.push(path);

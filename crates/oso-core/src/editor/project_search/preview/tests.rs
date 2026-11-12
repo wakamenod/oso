@@ -227,6 +227,23 @@ fn an_open_buffer_of_the_file_is_shown_from_memory() {
 }
 
 #[test]
+fn a_row_an_open_buffer_showed_is_read_once_that_buffer_is_killed() {
+    let mut editor = searching(vec![row("a.rs", 2, 6)]);
+    let id = editor.add_buffer(visiting("/w/oso/a.rs", "first\none needle\n", None));
+    assert!(editor.take_preview_request().is_none());
+    assert!(
+        editor.take_preview_request().is_none(),
+        "nothing while it shows"
+    );
+    editor.kill_buffer(id);
+    let request = editor
+        .take_preview_request()
+        .expect("a read once it has gone");
+    assert_eq!(&*request.path, "a.rs");
+    assert!(editor.take_preview_request().is_none(), "once");
+}
+
+#[test]
 fn a_buffer_the_agent_channel_is_still_opening_is_not_previewed() {
     let mut editor = searching(vec![row("a.rs", 2, 6)]);
     let mut by_path = visiting("/w/oso/a.rs", "first\none needle\n", None);
@@ -297,6 +314,11 @@ fn an_excerpt_of_a_file_open_in_a_buffer_that_may_hold_secrets_is_withheld() {
     let excerpt = Excerpt::new(b"one needle\n", 1, (1, 4), Some((7, 8)));
     editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
     assert_eq!(editor.preview(), Some(Preview::Withheld));
+    assert!(
+        editor.read_excerpt().is_none(),
+        "nothing of the read is kept"
+    );
+    assert!(editor.preview_excerpt_display().is_none());
     let mut screen = Screen::default();
     editor.preview_screen(&mut screen);
     assert!(screen.rows().is_empty(), "nothing of it is laid out");

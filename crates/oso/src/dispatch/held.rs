@@ -6,12 +6,12 @@
 //!
 //! `RET` and `TAB` take the selected candidate, which is an older input's while a list past
 //! 5000 candidates waits for the worker. `RET` and `M-RET` in a prompt for a directory give a
-//! directory only once a listing says it is one, or a look says a link leads to one. Their command is held here instead of run, and
-//! runs once the result comes, through the same `execute`, so a directory is gone into and an
-//! answer given as it would have been. Any other key drops it, as it comes, before it is
-//! resolved: an edit asks for a new result, a move changes the candidate it was to take, a
-//! prefix begins another command, and `C-g` drops it and does nothing more, as `C-g` does one
-//! thing at a time (ADR 0072). Text typed drops it too.
+//! directory only once a listing says it is one, or a look says a link leads to one. Their
+//! command is held here instead of run, and runs once the result comes, through the same
+//! `execute`, so a directory is gone into and an answer given as it would have been. Any other
+//! key drops it, as it comes, before it is resolved: an edit asks for a new result, a move
+//! changes the candidate it was to take, a prefix begins another command, and `C-g` drops it and
+//! does nothing more, as `C-g` does one thing at a time (ADR 0072). Text typed drops it too.
 //!
 //! A key from the dev socket is never held: it runs on the rows shown, and a client that wants
 //! the newest waits until `get-state` says nothing is pending. A held key replayed later would
