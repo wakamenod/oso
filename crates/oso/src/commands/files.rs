@@ -53,6 +53,12 @@ pub const COMMANDS: &[Command] = &[
 fn find_file(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let path = PathBuf::from(ctx.answer().unwrap_or_default());
+    visit(ctx, path)
+}
+
+/// Asks the host to visit `path`, through the loader's verdict, or asks first about a file a
+/// look or a load found to be 2 GiB or more (ADR 0087).
+pub(super) fn visit(ctx: &mut Ctx<'_>, path: PathBuf) -> Result<(), CommandError> {
     if let Some(bytes) = ctx.editor.large_file(&path) {
         let name = path
             .file_name()

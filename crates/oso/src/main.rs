@@ -20,6 +20,7 @@ mod loader;
 mod project;
 mod saver;
 mod text;
+mod walk;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

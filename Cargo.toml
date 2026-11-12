@@ -56,6 +56,11 @@ serde_json = "1"
 # no serde, no derive macros. The default recursion limit stays on.
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse"] }
 
+# The project walker for project-find-file and project-search (ADR 0114): ripgrep's gitignore
+# matchers, over ignore files oso reads itself, as patterns only. Its globs use regex-automata,
+# the `regex` crate's engine.
+ignore = "0.4.34"
+
 # Tree-sitter and its grammars for highlighting (ADR 0012, ADR 0111), used only by oso-syntax.
 # The grammars are C that parses untrusted files, so every version is exact, and each build.rs
 # and external scanner is read before a bump. No `wasm` (wasmtime) and no `bindgen`; `std`

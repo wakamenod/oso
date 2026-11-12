@@ -51,8 +51,8 @@ use carry::{Exported, Item, MAX_CARRIED};
 
 #[cfg(test)]
 use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
+use format::{MAX_HISTORIES, MAX_HISTORY_NAME, MAX_KILL_PIECES, facts_state, selections_state};
 pub use format::{MAX_ITEMS, State, parse};
-use format::{MAX_KILL_PIECES, facts_state, selections_state};
 pub use layout::Windows;
 pub use restore::Restore;
 
@@ -334,10 +334,20 @@ fn carried_bytes(editor: &Editor) -> Result<usize, String> {
     }
 }
 
-/// The histories, each as one item of its answers, the newest first.
+/// The histories, each as one item of its answers, the newest first. Only as many as a state
+/// carries go, each with a name it carries: a project's own history, named after its root
+/// after a `:` (ADR 0114), may be too long, and there may be too many, so those named alone
+/// go first and the rest is left out.
 fn histories_state(editor: &Editor, items: &mut Vec<Item>) -> Vec<Value> {
-    editor
+    let mut histories: Vec<_> = editor
         .histories()
+        .filter(|(name, _)| !name.is_empty() && name.len() <= MAX_HISTORY_NAME)
+        .collect();
+    // Stable: each kind keeps its order.
+    histories.sort_by_key(|(name, _)| name.contains(':'));
+    histories.truncate(MAX_HISTORIES);
+    histories
+        .into_iter()
         .map(|(name, entries)| {
             let entries: Vec<&str> = entries.collect();
             items.push(Item(vec![Rope::from(entries.concat().as_str())]));

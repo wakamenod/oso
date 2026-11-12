@@ -37,7 +37,7 @@ pub const MAX_KILL_PIECES: usize = MAX_SELECTIONS;
 pub const MAX_HISTORIES: usize = 64;
 
 /// The longest name of a history.
-const MAX_HISTORY_NAME: usize = 64;
+pub const MAX_HISTORY_NAME: usize = 64;
 
 /// The most items one state may carry: each buffer's text, kill entry and history.
 pub const MAX_ITEMS: usize = MAX_BUFFERS + kill::MAX_ENTRIES + MAX_HISTORIES;

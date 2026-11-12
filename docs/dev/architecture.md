@@ -488,6 +488,20 @@ The UI thread never blocks on I/O or parsing:
   projects that buffers point into (`oso_core::project`), and each request carries the trusted
   roots of its moment, so the thread never reads the record itself
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- A project's files for `C-x p f` are walked on a thread of their own, `oso-walk`
+  (`crates/oso/src/walk.rs`, glue in `app/walks.rs`): a depth-first walk of its own, matching
+  with a stack of the `ignore` crate's gitignore matchers in ripgrep's order, built from ignore
+  files it reads itself (regular, no link, no wait, at most 1 MiB, none above the root). Hidden
+  files are in, the markers and nested projects out, links are not followed, at most 100,000
+  files and 32 MiB of paths listed, 1,000,000 entries and 16 MiB of ignore files read. A host
+  timer adds what waits once a walk has been quiet for 250 ms. Paths come back in batches every 50 ms with the listing's
+  generation (`UserEvent::Walked`), and a newer listing or the prompt closing moves a shared
+  generation on, which stops the walk. The editor merges each batch into the list
+  (`editor/walks.rs`, `complete/merge.rs`): sorted on its own and put in place by binary search,
+  and only its paths matched. Up to 5000 rows that runs on the UI thread, moving the list rather
+  than copying it; past that a merge job on `oso-complete` does, and batches that come while it
+  runs wait for the next, so a slow job is never started over
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest

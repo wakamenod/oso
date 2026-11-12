@@ -60,6 +60,21 @@ network features.
   root, by path and identity, is still the one asked about; run any other way,
   the command asks. `M-x untrust-project` takes the line out without asking.
   Both are `Person`, so the agent channel never runs them.
+- `C-x p f` walks a project's files in-process on its own thread, `oso-walk`,
+  and runs nothing. It reads no directory above the project's root. Links are
+  never followed: a link is resolved by its words and looked at only while
+  every hop stays under the root, and one that leaves it is listed without a
+  look. Opening any row goes through the loader's verdict, so a file that may
+  hold secrets opens as such a buffer.
+- The walk reads the project's ignore files itself, as patterns only: only a
+  regular file that is not a link, opened without waiting, of at most 1 MiB.
+  The person's global excludes may be a link but must be such a file too. They
+  can only hide files. The markers' directories and nested projects, counted
+  as detection counts them, are never entered. At most 100,000 files and
+  32 MiB of paths are listed, and at most 1,000,000 entries, 32 MiB of names
+  and 16 MiB of ignore files read. Nothing of the list reaches a log: the
+  walker's crates write only warnings
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Trust is stored in `trusted-projects` in oso's configuration directory, by
   the root's path, device and inode (the path alone on Windows), never inside
   the repository. A dev build given `--config FILE` uses the one beside that
@@ -310,7 +325,7 @@ and below the row, and a label's glyphs keep their own cells
   - Screenshots, the restart handoff, timings and hot reload stay dev-only.
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits the files oso has open. Any save of a buffer the person did not visit asks the person.
-    `C-x C-f`, `C-x C-w` and `kill-buffer` are the person's only. The channel switches buffers by
+    `C-x C-f`, `C-x C-w`, `C-x p f` and `kill-buffer` are the person's only. The channel switches buffers by
     name, but never to one that may hold secrets
     ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
     [ADR 0088](adr/0088-switching-and-killing-buffers.md)).

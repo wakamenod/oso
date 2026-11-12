@@ -394,3 +394,27 @@ fn a_file_the_agent_is_still_opening_is_not_handed_over() {
     assert!(!paths.contains(&&json!(path)), "{paths:?}");
     assert!(paths.contains(&&json!(absolute("/p/notes.txt"))));
 }
+
+#[test]
+fn histories_past_what_a_state_carries_are_left_out_and_those_named_alone_kept() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    editor.carry_history("line", ["12".to_owned()]);
+    let long = format!("project-file:/{}", "deep/".repeat(20));
+    editor.carry_history(&long, ["src/main.rs".to_owned()]);
+    for index in 0..70 {
+        editor.carry_history(&format!("project-file:/w/{index}"), ["a.rs".to_owned()]);
+    }
+    editor.carry_history("command", ["undo".to_owned()]);
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    let names: Vec<&str> = state
+        .histories
+        .iter()
+        .map(|history| history.name.as_str())
+        .collect();
+    assert_eq!(names.len(), 64);
+    assert_eq!(names[..3], ["line", "command", "project-file:/w/0"]);
+    assert!(
+        !names.contains(&long.as_str()),
+        "a name too long is left out"
+    );
+}
