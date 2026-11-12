@@ -33,6 +33,14 @@ impl Source {
         }
     }
 
+    /// The record of trusted projects to read and write (ADR 0114): `trusted-projects` beside
+    /// the file, so that a dev build given another never touches the person's. None with
+    /// `--no-config`, which trusts nothing.
+    pub fn trust_file(&self) -> Option<PathBuf> {
+        let file = self.file()?;
+        Some(file.parent()?.join(super::TRUST_FILE_NAME))
+    }
+
     /// The configuration directories the agent channel never saves into (ADR 0108): the
     /// person's, whatever the command line says, as the next start reads it, and the one
     /// holding the file `--config` names.
@@ -67,5 +75,19 @@ mod tests {
         let persons: Vec<PathBuf> = config_home().into_iter().collect();
         assert_eq!(Source::Nothing.directories(), persons);
         assert_eq!(Source::Home.directories(), persons);
+    }
+
+    #[test]
+    fn the_record_of_trusted_projects_is_beside_the_file() {
+        let file = PathBuf::from("/tmp/e2e/config/config.toml");
+        assert_eq!(
+            Source::File(file).trust_file(),
+            Some(PathBuf::from("/tmp/e2e/config/trusted-projects"))
+        );
+        assert_eq!(
+            Source::Home.trust_file(),
+            config_home().map(|home| home.join("trusted-projects"))
+        );
+        assert_eq!(Source::Nothing.trust_file(), None);
     }
 }

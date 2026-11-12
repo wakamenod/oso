@@ -52,6 +52,7 @@ pub enum Highlight {
     Heading,
     /// A link or a reference in Markdown.
     Link,
-    /// Emphasis, strong text and the markers of lists and quotes in Markdown.
+    /// Emphasis and strong text in Markdown, and its markers: of headings, lists and quotes,
+    /// and thematic breaks.
     Markup,
 }

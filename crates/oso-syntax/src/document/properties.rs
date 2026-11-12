@@ -14,14 +14,15 @@ use oso_core::syntax::Splice;
 use proptest::prelude::*;
 use tree_sitter::{Parser, Tree};
 
-use super::tests::{LONG, apply, nodes, parsed};
+use super::tests::{LONG, apply, cases, nodes, parsed};
 use super::{Document, Parsed};
 use crate::edit::input_edits;
 use crate::language::Language;
 
 /// Pieces that edits insert: tokens of each language, line breaks, text of several bytes a
-/// character, so that points count bytes, and a long one, so that an edit spans chunks.
-const PIECES: [&str; 17] = [
+/// character, so that points count bytes, a capital, which makes a Rust name a type with the
+/// same tree, and a long one, so that an edit spans chunks.
+const PIECES: [&str; 18] = [
     "fn ",
     "{",
     "}",
@@ -30,6 +31,7 @@ const PIECES: [&str; 17] = [
     "//",
     " ",
     "x",
+    "Q",
     "日本",
     "# ",
     "*",
@@ -43,10 +45,10 @@ const PIECES: [&str; 17] = [
 
 /// One edit as drawn: where it starts, as a fraction of the text in ten-thousandths, how many
 /// bytes it replaces, and the pieces of its new text.
-type Drawn = (u32, usize, Vec<usize>);
+pub(super) type Drawn = (u32, usize, Vec<usize>);
 
 /// Texts of a few kilobytes, so that the rope's chunks of 1008 bytes split them.
-const SEEDS: [(Language, &str, usize); 3] = [
+pub(super) const SEEDS: [(Language, &str, usize); 3] = [
     (
         Language::Rust,
         "fn main() {\n    let s = \"日本\"; // note\n    if s.is_empty() { return; }\n}\n",
@@ -66,7 +68,7 @@ const SEEDS: [(Language, &str, usize); 3] = [
 
 /// A batch drawn as fractions, made into splices of `text`: ascending, apart, and on character
 /// boundaries, as the editor's are.
-fn splices_of(text: &str, drawn: &[Drawn]) -> Vec<(Splice, String)> {
+pub(super) fn splices_of(text: &str, drawn: &[Drawn]) -> Vec<(Splice, String)> {
     let floor = |mut at: usize| {
         at = at.min(text.len());
         while !text.is_char_boundary(at) {
@@ -101,7 +103,7 @@ fn splices_of(text: &str, drawn: &[Drawn]) -> Vec<(Splice, String)> {
     out
 }
 
-fn batches() -> impl Strategy<Value = Vec<Vec<Drawn>>> {
+pub(super) fn batches() -> impl Strategy<Value = Vec<Vec<Drawn>>> {
     let edit = (
         0u32..=10_000,
         0usize..80,
@@ -150,7 +152,7 @@ fn matches_fresh_where_clean(
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(48))]
+    #![proptest_config(cases(48))]
 
     /// Parsed after each batch, a document has the tree of the same history fed one string.
     #[test]

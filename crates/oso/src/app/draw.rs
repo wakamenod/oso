@@ -83,6 +83,8 @@ pub(super) fn with_panes<R>(
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], Face::Modeline),
         span(&status.project[..], Face::Modeline),
+        // Dim, as `Agent` is: what the trust record says, never a name (ADR 0114).
+        span(status.restricted, Face::Prompt),
         span(&status.state[..], Face::Modeline),
     ];
     let echo = [
@@ -93,14 +95,15 @@ pub(super) fn with_panes<R>(
     editor.prompt_screen(&mut cells.answer);
     editor.preview_screen(&mut cells.preview);
     let screen = &cells.screen;
-    editor.region_cells(editor.tiled().0.id(), screen, &mut cells.region);
-    editor.other_cursor_cells(editor.tiled().0.id(), screen, &mut cells.others);
-    editor.isearch_cells(editor.tiled().0.id(), screen, &mut cells.matches);
-    editor.replace_cells(editor.tiled().0.id(), screen, &mut cells.matches);
-    editor.trailing_cells(editor.tiled().0.id(), screen, &mut cells.trailing);
-    editor.gutter_into(editor.tiled().0.id(), screen, &mut cells.gutter);
+    let tiled = editor.tiled().0.id();
+    editor.region_cells(tiled, screen, &mut cells.region);
+    editor.other_cursor_cells(tiled, screen, &mut cells.others);
+    editor.isearch_cells(tiled, screen, &mut cells.matches);
+    editor.replace_cells(tiled, screen, &mut cells.matches);
+    editor.trailing_cells(tiled, screen, &mut cells.trailing);
+    editor.gutter_into(tiled, screen, &mut cells.gutter);
     let flash = (cells.flash).and_then(|strength| {
-        let cells = editor.flash_cells(editor.tiled().0.id(), screen)?;
+        let cells = editor.flash_cells(tiled, screen)?;
         Some(FlashFill { cells, strength })
     });
     // Built each frame, only with line numbers on, in room kept from the last (ADR 0097).
@@ -116,9 +119,7 @@ pub(super) fn with_panes<R>(
     let mut gutter: Vec<&[Span<'_>]> = reuse(std::mem::take(&mut cells.rows));
     gutter.extend(numbers.iter().map(|row| &row[..]));
     cells.band.clear();
-    cells
-        .band
-        .extend(editor.current_line_cells(editor.tiled().0.id(), screen));
+    cells.band.extend(editor.current_line_cells(tiled, screen));
     // From the back: the current line's band, trailing whitespace, then the current match
     // first, so that it always has room, and the regions over the matches.
     let fills = [
