@@ -1,7 +1,8 @@
 //! Visiting files: the visits commands ask the host for, the file a load stopped as too large,
 //! which the next visit of it asks about (ADR 0087), and a visit at a place (ADR 0114): once the
 //! file's buffer shows with that line, the selected window goes to it, with the place before on
-//! the mark ring.
+//! the mark ring. Also finding the open buffer that visits a file, by its path or its device and
+//! inode, for a visit and a preview.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads or I/O; the host loads the
 //! file and says when text came.
@@ -21,7 +22,7 @@ impl Editor {
     /// once instead, unless the agent channel is still opening it.
     pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
         self.visit_place = None;
-        match self.open_buffer(|_, buffer| buffer.path() == Some(path.as_path())) {
+        match self.find_open_buffer(|_, buffer| buffer.path() == Some(path.as_path())) {
             Some(id) => self.show(id),
             None => self.visits.push((path, limit)),
         }
@@ -30,7 +31,7 @@ impl Editor {
     /// The first open buffer that `wanted` picks, by its id and itself, of those that show what
     /// they hold: none that the agent channel is still opening, as the channel checks what it
     /// may show before it shows anything (ADR 0085). Once shown, it is like any other.
-    pub(super) fn open_buffer(
+    pub(super) fn find_open_buffer(
         &self,
         mut wanted: impl FnMut(BufferId, &Buffer) -> bool,
     ) -> Option<BufferId> {
@@ -116,13 +117,13 @@ impl Editor {
     }
 }
 
-/// The offset of `column`, in characters from 0, on the line `row`, from 0, each as far as the
-/// text goes. O(log n), as the line may be 16 MiB long.
 /// The device and inode of the file `buffer` last loaded or saved, where the system gave them.
 pub(super) fn file_identity(buffer: &Buffer) -> Option<(u64, u64)> {
     buffer.baseline()?.file?.identity
 }
 
+/// The offset of `column`, in characters from 0, on the line `row`, from 0, each as far as the
+/// text goes. O(log n), as the line may be 16 MiB long.
 pub(super) fn place_offset(text: &Rope, row: usize, column: usize) -> usize {
     let row = row.min(text.line_count().saturating_sub(1));
     let (start, end) = (text.line_start(row), text.line_end(row));

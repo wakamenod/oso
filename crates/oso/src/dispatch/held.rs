@@ -1,12 +1,12 @@
 //! A key that takes the selected candidate, held while a worker matches the input or builds
-//! the list (ADR 0096), or that answers a prompt for a directory before the listing that decides
-//! it has come (ADR 0114).
+//! the list (ADR 0096), or that answers a prompt for a directory before the listing or the look
+//! at a link that decides it has come (ADR 0114).
 //!
 //! Must not depend on: `app` or the worker; the host says when the result has come.
 //!
 //! `RET` and `TAB` take the selected candidate, which is an older input's while a list past
 //! 5000 candidates waits for the worker. `RET` and `M-RET` in a prompt for a directory give a
-//! directory only once a listing says it is one. Their command is held here instead of run, and
+//! directory only once a listing says it is one, or a look says a link leads to one. Their command is held here instead of run, and
 //! runs once the result comes, through the same `execute`, so a directory is gone into and an
 //! answer given as it would have been. Any other key drops it, as it comes, before it is
 //! resolved: an edit asks for a new result, a move changes the candidate it was to take, a
@@ -110,7 +110,6 @@ impl Dispatcher {
     }
 
     /// Whether a key is held for a result.
-    #[cfg(test)]
     pub fn holds_for_completion(&self) -> bool {
         self.completion_held.is_some()
     }

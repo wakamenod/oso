@@ -96,10 +96,27 @@ fn it_reads_at_most_its_bound() {
     );
     assert_eq!(first, 2);
     assert!(lines.len() <= MAX_LINE);
+    // Past the row's line, what an excerpt keeps of each of the 9 rows after it and a break.
     assert!(
-        lines.len() <= 2 * 64 * 1024,
-        "past the line, a part read and what its rows can show"
+        lines.len() <= "hit\n".len() + 9 * (4096 + 1),
+        "past the line, only what its rows can show"
     );
+}
+
+#[test]
+fn long_lines_after_the_rows_each_keep_what_an_excerpt_shows() {
+    let scratch = Scratch::new("long-after");
+    let mut bytes = b"hit\n".to_vec();
+    for _ in 0..20 {
+        bytes.extend(std::iter::repeat_n(b'c', 5000));
+        bytes.push(b'\n');
+    }
+    scratch.file("long.txt", &bytes);
+    let request = read_of(&scratch, "long.txt", (0, 1), 18);
+    let (lines, _) = read(&scratch, &request).unwrap();
+    let lines: Vec<&str> = lines.lines().collect();
+    assert_eq!(lines.len(), 9, "the row's line and the 8 after it");
+    assert!(lines[1..].iter().all(|line| line.len() == 4096 + 1));
 }
 
 #[test]

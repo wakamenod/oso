@@ -227,6 +227,22 @@ fn an_open_buffer_of_the_file_is_shown_from_memory() {
 }
 
 #[test]
+fn a_buffer_the_agent_channel_is_still_opening_is_not_previewed() {
+    let mut editor = searching(vec![row("a.rs", 2, 6)]);
+    let mut by_path = visiting("/w/oso/a.rs", "first\none needle\n", None);
+    by_path.set_agent_pending(true);
+    editor.add_buffer(by_path);
+    let mut by_identity = visiting("/w/oso/b.rs", "first\none needle\n", Some((1, 2)));
+    by_identity.set_agent_pending(true);
+    editor.add_buffer(by_identity);
+    // The file is read as if no buffer had it, and the read shows.
+    let request = editor.take_preview_request().expect("a read");
+    let excerpt = Excerpt::new(b"first\none needle\n", 1, (2, 4), Some((1, 2)));
+    editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
+    assert!(matches!(editor.preview(), Some(Preview::Excerpt { .. })));
+}
+
+#[test]
 fn an_open_buffer_of_the_same_file_by_its_identity_replaces_the_excerpt() {
     let mut editor = searching(vec![row("a.rs", 1, 0)]);
     let request = editor.take_preview_request().unwrap();

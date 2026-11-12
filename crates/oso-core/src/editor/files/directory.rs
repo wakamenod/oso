@@ -4,7 +4,7 @@
 //! Must not depend on: `command` or `keymap`, or the host's window, threads or I/O; the host
 //! lists directories and says what it found.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::complete::path::{self, NameKind};
 use crate::editor::Editor;
@@ -48,9 +48,9 @@ impl Editor {
     }
 
     /// Whether `RET` or `M-RET` in the innermost prompt, if it reads a directory, waits for what
-    /// decides its answer: a listing its plan needs, or a look at the link selected, asked for
-    /// or about to be, as [`Editor::take_file_looks`] asks for each row shown. The host holds
-    /// them until it has come, as it holds `RET` for a worker (ADR 0096, ADR 0114).
+    /// decides its answer: a listing its plan needs, or a look at the link selected or the link
+    /// typed, asked for or about to be, as [`Editor::take_file_looks`] asks for each. The host
+    /// holds them until it has come, as it holds `RET` for a worker (ADR 0096, ADR 0114).
     pub fn directory_answer_waits(&self) -> bool {
         if !self.reads_path() || !self.file_list.wants_directory {
             return false;
@@ -60,7 +60,34 @@ impl Editor {
             return true;
         }
         // Its rows are directories and links: a link is decided by its look.
-        self.selected_file()
-            .is_some_and(|(found, _)| !found.directory && !list.looks.contains_key(&found.path))
+        self.selected_found()
+            .is_some_and(|found| !found.directory && !list.looks.contains_key(&found.path))
+            || self.typed_link_unlooked().is_some()
+    }
+
+    /// The link that what is typed names whole, without `/` at its end, in a prompt that reads a
+    /// directory, if its directory's listing names it as a link and no look at it has come:
+    /// what decides `M-RET`'s answer, or `RET`'s on the input.
+    pub(super) fn typed_link_unlooked(&self) -> Option<PathBuf> {
+        let list = &self.file_list;
+        if !self.reads_path() || !list.wants_directory {
+            return None;
+        }
+        let prompt = self.prompts.last()?;
+        if self
+            .buffer(prompt.buffer)?
+            .text()
+            .to_string()
+            .ends_with('/')
+        {
+            return None;
+        }
+        let path = self.typed_file()?;
+        let (parent, name) = (path.parent()?, path.file_name()?);
+        let names = list.listings.get(parent)?.as_ref()?;
+        let link = names
+            .iter()
+            .any(|listed| *listed.name == *name && listed.kind == NameKind::Link);
+        (link && !list.looks.contains_key(&path)).then_some(path)
     }
 }

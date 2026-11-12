@@ -362,15 +362,21 @@ impl Editor {
         }
     }
 
-    /// The path the innermost prompt's selected candidate stands for, with whether it is a
-    /// directory, if it reads a path and a candidate is selected.
-    pub(super) fn selected_file(&self) -> Option<(&Found, String)> {
+    /// What the innermost prompt's selected candidate found, if it reads a path and a candidate
+    /// is selected.
+    pub(super) fn selected_found(&self) -> Option<&Found> {
         if !self.reads_path() {
             return None;
         }
         let candidates = self.prompts.last()?.candidates()?;
         let index = candidates.item_at(candidates.selected()?)?;
-        let found = self.file_list.found.get(index)?;
+        self.file_list.found.get(index)
+    }
+
+    /// The path the innermost prompt's selected candidate stands for, with whether it is a
+    /// directory, if it reads a path and a candidate is selected.
+    pub(super) fn selected_file(&self) -> Option<(&Found, String)> {
+        let found = self.selected_found()?;
         let looked = self.file_list.looks.get(&found.path);
         let directory = found.directory || looked.is_some_and(|looked| looked.directory);
         let typed = path::typed_form(&found.path, directory, self.home.as_deref());
@@ -489,6 +495,17 @@ impl Editor {
             }
             paths.push(found.path.clone());
         }
+        // The link typed whole, which decides a directory's answer though no row may show it, in
+        // a look of its own, as one look covers at most the rows shown.
+        if let Some(path) = self.typed_link_unlooked()
+            && !list.looking.contains(&path)
+            && !paths.contains(&path)
+            && let (Some(directory), Some(name)) = (path.parent(), path.file_name())
+        {
+            let name = name.to_string_lossy().into_owned();
+            asked.push((directory.to_path_buf(), vec![name]));
+            paths.push(path);
+        }
         self.file_list.looking.extend(paths);
         asked
     }
@@ -513,7 +530,9 @@ impl Editor {
     pub fn visiting_same_file(&self, id: BufferId) -> Option<BufferId> {
         let buffer = self.buffer(id).filter(|buffer| !buffer.agent_pending())?;
         let identity = file_identity(buffer)?;
-        self.open_buffer(|other, buffer| other != id && file_identity(buffer) == Some(identity))
+        self.find_open_buffer(|other, buffer| {
+            other != id && file_identity(buffer) == Some(identity)
+        })
     }
 
     /// Forgets the prompt that read a path, once it has closed.

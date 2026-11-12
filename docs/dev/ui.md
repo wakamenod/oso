@@ -255,7 +255,7 @@ are rounded.
   as Emacs's `read-directory-name` does. `RET` on a row goes into it. What is typed is given only
   once a listing says it is a directory, or a look says a link leads to one: otherwise the prompt
   stays open and says `Not a directory`, `No such directory` or `Cannot read directory`. `RET` and
-  `M-RET` typed before that listing has come wait for it.
+  `M-RET` typed before that listing or look has come wait for it.
 - The history, `project-search`, keeps what was typed, not the row, and a search beside a buffer
   that may hold secrets keeps none.
 

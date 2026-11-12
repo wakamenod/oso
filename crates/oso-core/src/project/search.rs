@@ -401,14 +401,17 @@ fn ceil_boundary(text: &str, at: usize) -> usize {
     at
 }
 
-/// The bytes of `line` as text, as a buffer reads them: each invalid byte one U+FFFD.
-pub(crate) fn decoded(line: &[u8]) -> String {
-    let mut text = String::with_capacity(line.len());
-    push_decoded(&mut text, line);
-    text
+/// How long the bytes of `line` are as text, as [`push_decoded`] gives them.
+pub(crate) fn decoded_len(line: &[u8]) -> usize {
+    line.utf8_chunks()
+        .map(|chunk| {
+            chunk.valid().len() + chunk.invalid().len() * char::REPLACEMENT_CHARACTER.len_utf8()
+        })
+        .sum()
 }
 
-/// Pushes the bytes of `line` onto `text` as [`decoded`] reads them.
+/// Pushes the bytes of `line` onto `text` as text, as a buffer reads them: each invalid byte one
+/// U+FFFD.
 fn push_decoded(text: &mut String, line: &[u8]) {
     for chunk in line.utf8_chunks() {
         text.push_str(chunk.valid());
@@ -433,7 +436,7 @@ pub(crate) fn cut_bounds(line: &[u8], mut start: usize, mut end: usize) -> (usiz
     (start, end.max(start))
 }
 
-/// Pushes `line[start..end]` onto `text` as [`decoded`] reads it, with [`CUT`] where part of the
+/// Pushes `line[start..end]` onto `text` as [`push_decoded`] reads it, with [`CUT`] where part of the
 /// line is left out; `start` and `end` as [`cut_bounds`] gives them.
 pub(crate) fn push_cut(text: &mut String, line: &[u8], (start, end): (usize, usize)) {
     if start > 0 {
@@ -451,7 +454,7 @@ pub(crate) fn push_cut(text: &mut String, line: &[u8], (start, end): (usize, usi
 /// from the line's start, as a buffer of the file counts them.
 pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
     let first_start = first.start.min(line.len());
-    // Each invalid byte is one character, as `decoded` reads it.
+    // Each invalid byte is one character, as `push_decoded` reads it.
     let column = line[..first_start]
         .utf8_chunks()
         .map(|chunk| chunk.valid().chars().count() + chunk.invalid().len())

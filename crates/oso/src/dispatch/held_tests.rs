@@ -1,6 +1,7 @@
 //! Scenario tests of `RET` and `TAB` held while the completion worker matches (ADR 0096), in a
 //! directory past 5000 names, each job run on the test's thread, and of `RET` and `M-RET` held
-//! in a prompt for a directory until the listing that decides its answer has come (ADR 0114).
+//! in a prompt for a directory until the listing or the look at a link that decides its answer
+//! has come (ADR 0114).
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU.
 
@@ -178,10 +179,10 @@ fn a_directory_prompts_answer_from_the_socket_is_refused_while_it_waits() {
         );
         assert_eq!(editor.prompt().unwrap().label(), "Search in directory:");
     }
-    // Once listed, it waits no more; the buffer beneath, not judged yet, refuses it for itself.
+    // Once listed, it waits no more, whatever else may refuse it.
     list_directories(&mut editor);
     let (_, result) = d.run_command(&mut editor, "exit-minibuffer", None);
-    assert!(result.is_err_and(|error| !error.contains("still on its way")));
+    assert!(!matches!(&result, Err(error) if error.contains("still on its way")));
 }
 
 #[test]
@@ -197,4 +198,39 @@ fn m_ret_for_a_file_is_not_held_while_its_directory_is_listed() {
     assert!(!d.holds_for_completion());
     assert!(editor.prompt().is_none());
     assert_eq!(editor.take_visits()[0].0, PathBuf::from("/big/new"));
+}
+
+#[test]
+fn ret_on_a_link_in_a_directory_prompt_waits_for_its_look_past_other_results() {
+    use oso_core::editor::Looked;
+    let (mut d, mut editor) = in_oso(None);
+    send(&mut d, &mut editor, "C-u M-s r");
+    for directory in editor.take_file_requests() {
+        let names = [Name {
+            name: "ln".to_owned(),
+            kind: NameKind::Link,
+        }];
+        editor.file_listed(directory, Some(names.into()), false);
+    }
+    send(&mut d, &mut editor, "l n RET");
+    assert!(d.holds_for_completion());
+    // A result that is not the look ends no wait.
+    d.run_held_completion(&mut editor);
+    assert!(d.holds_for_completion(), "the look has not come");
+    editor.take_file_looks();
+    let looked = Looked {
+        annotation: String::new(),
+        bytes: 0,
+        directory: true,
+    };
+    editor.file_looked(
+        std::path::Path::new("/home/me/src/oso"),
+        vec![("ln".to_owned(), looked)],
+    );
+    d.run_held_completion(&mut editor);
+    assert!(!d.holds_for_completion());
+    let prompt = editor.prompt().unwrap();
+    assert_eq!(prompt.label(), "Search in directory:", "gone into");
+    let text = editor.buffer(prompt.buffer()).unwrap().text().to_string();
+    assert_eq!(text, "~/src/oso/ln/");
 }

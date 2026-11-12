@@ -1,6 +1,7 @@
 //! Which buffer a window shows: going to one and back to where the window was in it, walking
 //! the buffers with `M-,` and `M-/`, killing one, and the names that tell files with one name
-//! apart (ADR 0088).
+//! apart (ADR 0088). Also what a prompt's preview shows and where a buffer's preview starts
+//! (ADR 0088, ADR 0114), and the home directory a path is shown from.
 //!
 //! Must not depend on: the host's window, threads or I/O; the host frees killed buffers
 //! and stops their loads.

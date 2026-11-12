@@ -1,6 +1,6 @@
 //! Searching a project's files for `project-search` (ADR 0114): a thread of its own, `oso-grep`,
 //! walks the files `project-find-file` lists and hands each to searching threads, which read it
-//! and match its lines.
+//! and match its lines. The selected row's preview is read in `grep/preview.rs`.
 //!
 //! Must not depend on: `app`, winit or the UI thread; this reads the file system, and the caller
 //! supplies the wake-up.

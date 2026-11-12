@@ -258,6 +258,8 @@ fn read_around(
     let hit_most = request.column.saturating_mul(4).saturating_add(PER_ROW + 4);
     let mut breaks = 0;
     let mut line_end = None;
+    // Past the row's line: what was read and what is kept of the line being read.
+    let (mut line_read, mut in_line) = (0, 0);
     let limit = MAX_LINE.saturating_sub(bytes.len());
     let mut read = 0;
     let mut part = vec![0; PART];
@@ -265,9 +267,10 @@ fn read_around(
         if !live() {
             return None;
         }
-        // Past the row's line, an excerpt keeps no more of each line than [`PER_ROW`].
-        let room = line_end.map_or(usize::MAX, |end| {
-            ((after - breaks + 1) * PER_ROW).saturating_sub(bytes.len() - end)
+        // Past the row's line, no more is read than an excerpt can keep of the rows left: a line
+        // longer than that ends the read.
+        let room = line_end.map_or(usize::MAX, |_| {
+            ((after - breaks + 1) * PER_ROW).saturating_sub(line_read)
         });
         let wanted = PART.min(limit - read).min(room);
         if wanted == 0 {
@@ -294,16 +297,23 @@ fn read_around(
             }
             rest = &rest[at + 1..];
         }
-        for (at, &byte) in rest.iter().enumerate() {
-            if byte == b'\n' {
+        // Of each line after the row's, an excerpt keeps no more than [`PER_ROW`].
+        for piece in rest.split_inclusive(|&byte| byte == b'\n') {
+            let ends = piece.last() == Some(&b'\n');
+            let text = &piece[..piece.len() - usize::from(ends)];
+            let keep = text.len().min(PER_ROW.saturating_sub(in_line));
+            bytes.extend_from_slice(&text[..keep]);
+            in_line += keep;
+            line_read += text.len();
+            if ends {
+                bytes.push(b'\n');
+                (line_read, in_line) = (0, 0);
                 breaks += 1;
                 if breaks == after {
-                    bytes.extend_from_slice(&rest[..=at]);
                     return Some((bytes, first_line));
                 }
             }
         }
-        bytes.extend_from_slice(rest);
     }
     if read == 0 && request.offset > 0 && bytes.is_empty() {
         return None;

@@ -97,11 +97,12 @@ pub enum Answer {
         partial: bool,
     },
     /// What a look at some of a directory's names found; a name that could not be looked at is
-    /// left out.
+    /// left out of `looks` and named in `missed`, so that nothing waits for it.
     Looked {
         directory: PathBuf,
         generation: u64,
         looks: Vec<Look>,
+        missed: Vec<OsString>,
     },
 }
 
@@ -296,14 +297,22 @@ fn answer(request: Request) -> Answer {
             }
         }
         Request::Look(directory, names, generation) => {
+            let mut missed = Vec::new();
             let looks = names
                 .into_iter()
-                .filter_map(|name| look(&directory, name))
+                .filter_map(|name| {
+                    let found = look(&directory, &name);
+                    if found.is_none() {
+                        missed.push(name);
+                    }
+                    found
+                })
                 .collect();
             Answer::Looked {
                 directory,
                 generation,
                 looks,
+                missed,
             }
         }
     }
@@ -350,8 +359,8 @@ fn list(directory: &Path, limit: usize) -> io::Result<Listed> {
 }
 
 /// A look at `name` in `directory`, which opens nothing.
-fn look(directory: &Path, name: OsString) -> Option<Look> {
-    let path = directory.join(&name);
+fn look(directory: &Path, name: &OsString) -> Option<Look> {
+    let path = directory.join(name);
     let own = fs::symlink_metadata(&path).ok()?;
     let link = own.file_type().is_symlink();
     // Following a link can reach another file system, which may be slow to answer; this thread
@@ -369,7 +378,7 @@ fn look(directory: &Path, name: OsString) -> Option<Look> {
         others: !oso_platform::privacy::is_this_users(&own),
         target: link.then(|| fs::read_link(&path).ok()).flatten(),
         leads_to,
-        name,
+        name: name.clone(),
     })
 }
 

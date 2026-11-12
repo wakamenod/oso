@@ -530,3 +530,32 @@ fn a_directory_prompt_takes_a_link_a_look_found_leads_to_a_directory() {
     editor.submit_typed().unwrap();
     assert!(editor.prompt().is_none());
 }
+
+#[test]
+fn a_link_typed_whole_waits_for_a_look_of_its_own() {
+    let mut editor = directory_prompt();
+    // `M-RET` answers `~/ln` as typed, which its look decides, whatever row is selected.
+    typing(&mut editor, "ln");
+    assert_eq!(
+        editor.typed_link_unlooked(),
+        Some(PathBuf::from("/home/me/ln"))
+    );
+    assert!(editor.directory_answer_waits());
+    let looks = editor.take_file_looks();
+    assert!(
+        looks.contains(&(PathBuf::from("/home/me"), vec!["ln".to_owned()])),
+        "{looks:?}"
+    );
+    assert!(editor.take_file_looks().is_empty(), "asked once");
+    editor.file_looked(
+        Path::new("/home/me"),
+        vec![("ln".to_owned(), looked("l", 0, false))],
+    );
+    assert!(!editor.directory_answer_waits());
+    assert!(editor.submit_typed().is_err());
+    assert_eq!(message(&editor), Some("Not a directory: ~/ln"));
+    // Typed with `/` at its end, its own listing decides instead.
+    let mut editor = directory_prompt();
+    typing(&mut editor, "ln/");
+    assert!(editor.typed_link_unlooked().is_none());
+}

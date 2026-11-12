@@ -27,7 +27,7 @@ use crate::display_map::{DisplayMap, DisplayPoint, DisplaySnapshot, TabWidth};
 use crate::editor::visits::{file_identity, place_offset};
 use crate::editor::{Editor, MatchCells, Preview};
 use crate::frame::{self, CellRect};
-use crate::project::{CUT, LineQuery, cut_bounds, decoded, push_cut};
+use crate::project::{CUT, LineQuery, cut_bounds, decoded_len, push_cut};
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
 use crate::window::Screen;
@@ -131,7 +131,7 @@ impl Excerpt {
     ) -> Self {
         let hit = line.checked_sub(first_line);
         let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-        let mut text = String::new();
+        let mut text = String::with_capacity(bytes.len().min(EXCERPT_LINES * EXCERPT_LINE));
         let mut cursor = None;
         for (index, line) in bytes
             .split(|&byte| byte == b'\n')
@@ -178,7 +178,7 @@ fn push_around(text: &mut String, line: &[u8], column: usize) -> usize {
     let before = text.len();
     push_cut(text, line, (start, end));
     let mut cursor = before + if start > 0 { CUT.len_utf8() } else { 0 };
-    cursor += decoded(&line[start..at.clamp(start, end)]).len();
+    cursor += decoded_len(&line[start..at.clamp(start, end)]);
     cursor
 }
 
@@ -250,13 +250,16 @@ impl Editor {
 
     /// An open buffer of the file at `path` from the root, as it is spelled, that shows what it
     /// holds.
-    fn open_buffer_at(&self, path: &Path) -> Option<BufferId> {
+    fn find_open_buffer_at(&self, path: &Path) -> Option<BufferId> {
         let root = &self.project_search.root;
-        self.open_buffer(|_, buffer| {
-            buffer
-                .path()
-                .and_then(|whole| whole.strip_prefix(root).ok())
-                .is_some_and(|relative| relative == path)
+        // The name first, which rules out most buffers without walking their paths.
+        self.find_open_buffer(|_, buffer| {
+            buffer.path().is_some_and(|whole| {
+                whole.file_name() == path.file_name()
+                    && whole
+                        .strip_prefix(root)
+                        .is_ok_and(|relative| relative == path)
+            })
         })
     }
 
@@ -275,7 +278,7 @@ impl Editor {
             .rows;
         let (path, place) = self.selected_search_place()?;
         let (line, column, offset, secret) = (place.line, place.column, place.offset, place.secret);
-        let open = self.open_buffer_at(path).is_some();
+        let open = self.find_open_buffer_at(path).is_some();
         let path: Box<str> = path.to_str()?.into();
         let preview = &mut self.project_search.preview;
         preview.reset();
@@ -313,7 +316,7 @@ impl Editor {
             return Some(Preview::Withheld);
         }
         let (line, column) = (place.line, place.column);
-        if let Some(id) = self.open_buffer_at(path) {
+        if let Some(id) = self.find_open_buffer_at(path) {
             return self.buffer_preview(id, line, column);
         }
         let preview = &self.project_search.preview;
@@ -327,7 +330,7 @@ impl Editor {
                         .identity
                         .is_some_and(|identity| file_identity(buffer) == Some(identity))
                 };
-                match self.open_buffer(same) {
+                match self.find_open_buffer(same) {
                     Some(id) => self.buffer_preview(id, line, column),
                     None => Some(Preview::Excerpt {
                         revision: *revision,
@@ -362,7 +365,8 @@ impl Editor {
     }
 
     /// The display model of the excerpt read for the selected row, which
-    /// [`Preview::Excerpt`] shows.
+    /// [`Preview::Excerpt`] shows. Only for a preview that is [`Preview::Excerpt`]: it gives the
+    /// read also where an open buffer of the same file shows, or withholds, in its place.
     pub fn preview_excerpt_display(&self) -> Option<DisplaySnapshot> {
         self.read_excerpt()
             .map(|excerpt| excerpt.display.snapshot())
