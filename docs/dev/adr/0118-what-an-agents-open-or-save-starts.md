@@ -1,6 +1,6 @@
 # 0118. What an agent's open or save starts
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -63,7 +63,12 @@ keyboard.
 
 ## Decision
 
-Draft, assuming the recommended option (a) of each question under [Questions](#questions).
+The author chose on 2026-11-12, through the coordinator, the first option (a) of every question
+under [Questions](#questions), which the text below describes. The steps are under [Steps](#steps).
+
+**M3 has nothing to hold.** Nothing that opening or saving starts in M3 runs a process or a
+project's code, and the release build cannot spawn. This ADR settles the rule now, and its code
+comes with M4's first `Program` kind, before that kind spawns.
 
 ### What runs, and what waits (Q1)
 
@@ -161,17 +166,18 @@ Draft, assuming the recommended option (a) of each question under [Questions](#q
 
 ### When it is built (Q10)
 
-- **Now: this ADR and the rule in `security.md` and `architecture.md`.** M3 has nothing to hold, and
-  its release build cannot spawn.
+- **Now: this ADR and the rule in `security.md`, `architecture.md` and the roadmap.** M3 has
+  nothing to hold, and its release build cannot spawn.
 - **The code is the first step of M4's first `Program` kind,** format on save or language servers,
-  before that step spawns: the enum and its guard test, the marks, their release, the modeline
-  segment, the reply, the state field, the `*Agent*` lines and the restart entry.
+  before that step spawns (see [Steps](#steps)).
 - **Tests:** unit tests for each rule above as plain functions of `Editor`; end-to-end flows over
   the channel's socket for an agent's save that holds a format and the person's `C-x C-s` that lets
   it go, for an open that holds a server and the first key that lets it go, and for a restricted
   project that holds nothing.
 
 ## Questions
+
+Put to the author on 2026-11-12, the recommended option first; each answer was the first, (a).
 
 ### What waits
 
@@ -260,16 +266,34 @@ Draft, assuming the recommended option (a) of each question under [Questions](#q
     (b) Hold it like a format, so the agent's save writes exactly what it sent. Predictable for the
     agent, but the person's next save then cleans lines they did not touch.
 
+## Steps
+
+1. **Now, in M3 (this pull request):** this ADR, ADR 0085's status and the passage below, the rule in
+   `security.md` and `architecture.md`, and the roadmap's M3 line pointing at M4. No code: M3 has
+   nothing to hold.
+2. **In M4, the first step of the first `Program` kind** (format on save or language servers),
+   before it spawns anything:
+   - `oso-core`: the enum of what opening or saving starts with its `Runs`, `Editor::starts_on_open`
+     and `starts_on_save`, the two marks with their kinds, their release by the person's command
+     and save, clearing on untrust, and `C-x C-s` saving an unmodified buffer with a save waiting;
+   - `oso`: the release check in the dispatcher for commands from the window, the `waits` modeline
+     segment, the replies to `open` and to a save, `state`'s `waits` and its schema version, the
+     `*Agent*` lines, the `oso dev` handoff entry, and the `oso mcp` tool descriptions;
+   - a guard test listing the `Program` kinds, and the tests under [When it is built](#when-it-is-built-q10).
+3. Each later `Program` kind declares its `Runs` and joins the guard test's list in its own step.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. The status of each ADR named
 gains `amended by 0118`.
 
-- [ADR 0085](0085-agent-channel-and-oso-mcp.md), "waits in a buffer the channel opened or saved
-  until the person acts in that buffer from the window": what an agent's open starts waits for the
-  person's first command from the window in that buffer; what an agent's save starts waits for the
-  person's next save of it. oso's own work in its process runs at once, and the agent's reply and
-  `state` say what waits.
+- [ADR 0085](0085-agent-channel-and-oso-mcp.md), "A channel action never starts a process by
+  itself (M3 onward). What opening or saving a file would start, such as a language server or a
+  format on save, waits in a buffer the channel opened or saved until the person acts in that
+  buffer from the window": from M4, when the first program that opening or saving starts lands.
+  What an agent's open starts waits for the person's first command from the window in that
+  buffer; what an agent's save starts waits for the person's next save of it. oso's own work in
+  its process runs at once, and the agent's reply and `state` say what waits.
 
 ## Consequences
 
