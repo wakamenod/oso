@@ -37,6 +37,9 @@ crates/
 ├── oso-render/     wgpu pipeline, glyph atlas
 ├── oso-syntax/     tree-sitter, its grammars and oso's queries; the only C
 │                   parsers, and only the tip crate uses it
+├── oso-term/       the terminal: engine, escape-sequence policy, key encoder,
+│                   a thread per terminal, snapshots and search; only the tip
+│                   crate uses it (ADR 0120, from its step 3)
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
                     clipboard, filesystem and paths, process spawning, PTY
@@ -62,7 +65,9 @@ Dependencies point one way: `oso` depends on the libraries, `oso-render`
 depends on `oso-core` and `oso-platform`, `oso-syntax` on `oso-core`, and neither of
 those two depends on another workspace crate. Only `oso-render` uses wgpu, only
 `oso-platform` uses OS bindings, and only `oso-syntax` uses tree-sitter
-([ADR 0111](adr/0111-tree-sitter-highlighting.md)). These rules, and the allowed layers of
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). From
+[ADR 0120](adr/0120-the-terminal.md)'s step 3, `oso-term` depends on `oso-core` and
+`oso-platform`, and only the tip crate uses it. These rules, and the allowed layers of
 modules inside each crate, are listed in
 [`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
 `crates/oso/tests/architecture`
@@ -285,8 +290,10 @@ A panicking command is caught at the command boundary
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, the user's, global. The first keymap that binds the
   whole key sequence, or leaves it undefined, decides. So far the global layer exists, a
-  minor mode layer of digits while a prefix argument is typed, a major mode layer in the
-  buffers that show emergency copies and in a prompt, and a layer for the user's keys, which
+  minor mode layer of digits while a prefix argument is typed, another while the layer of
+  `C-x TAB` is open, whose arrows shift the region until another key closes it
+  ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
+  copies, in a prompt and in a Markdown buffer (`M-RET`), and a layer for the user's keys, which
   the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
@@ -447,12 +454,16 @@ loop. Render errors are logged and are never fatal.
 | File | rope loaded from disk | source files, notes |
 | Generated | rope produced by a mode, read-only by default | git status, directory listings, compile output, help |
 | Internal | rope the editor keeps for itself, not the user's work | `*Messages*`, `*Emergency Copies*` and a copy being looked at |
-| Terminal | `alacritty_terminal` grid | shell sessions |
+| Terminal | `oso-term` cell grid, owned by the terminal's thread | shells, project terminals, the floating terminal, compile output |
 
 A window shows a view. A text view renders a buffer through the display model.
-A terminal view renders a cell grid and exposes its content as searchable
-text, so isearch, line search and copy work as in text buffers. See
-[ADR 0015](adr/0015-terminal.md).
+A terminal view renders a cell grid that the terminal's thread publishes as
+snapshots, at most one in flight, so the UI thread never parses, searches or
+touches the PTY. `C-s` searches the screen and scrollback on that thread, and
+copy mode (`C-c C-j`) freezes them into a read-only buffer for every other
+text command. The PTY is `oso-platform::process::pty`, spawned through the
+process module's rules ([ADR 0015](adr/0015-terminal.md),
+[ADR 0120](adr/0120-the-terminal.md)).
 
 The minibuffer, menus (hydra/transient-style), completion popups and hover
 documentation are buffers shown in floating windows. Editing commands work

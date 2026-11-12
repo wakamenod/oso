@@ -114,12 +114,7 @@ impl Dispatcher {
 
     /// A dispatcher over `registry`, with `global` as the global keymap.
     pub fn with(registry: Registry, global: Keymap) -> Self {
-        let (digits, minus) = bindings::prefix_keymaps(&registry);
-        let (list, copy) = bindings::recovery_keymaps(&registry);
-        let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
-        let isearch = bindings::isearch_keymap(&registry);
-        let jump = bindings::jump_keymap(&registry);
-        let replace = bindings::replace_keymap(&registry);
+        let keymaps = Keymaps::new(&registry, global);
         let macros = macros::MacroInput::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
@@ -128,18 +123,7 @@ impl Dispatcher {
         #[cfg(any(test, feature = "dev"))]
         let jump_commands = bindings::jump_commands(&registry);
         Self {
-            keymaps: Keymaps {
-                global,
-                user: Keymap::new(),
-                prefix: [digits, minus],
-                copy: [list, copy],
-                minibuffer,
-                question,
-                completing,
-                isearch,
-                jump,
-                replace,
-            },
+            keymaps,
             #[cfg(any(test, feature = "dev"))]
             isearch_commands,
             #[cfg(any(test, feature = "dev"))]
@@ -400,6 +384,7 @@ impl Dispatcher {
     fn forget_keys(&mut self, editor: &mut Editor) {
         self.prefix = None;
         self.last = None;
+        editor.set_indent_rigidly_layer(false);
         editor.forget_kills();
     }
 
@@ -425,6 +410,11 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
+        // Any command but the person's of the layer of `C-x TAB` closes it first, joining its
+        // keys' edits.
+        if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
+            editor.set_indent_rigidly_layer(false);
+        }
         editor.begin_command();
         if std::mem::take(&mut self.passphrase_next) {
             editor.command_reads_passphrase();

@@ -1,8 +1,9 @@
 //! Undoing large steps (ADR 0119): a large `!` with what else follows a crossing turned on, a
-//! soft wrap, a second window and highlights, a session answered match by match, and typing at
-//! 1000 cursors joined into one step.
-//! Each case prints the undo and the redo, so that what grows with the step shows. Run with
-//! `-- undo`.
+//! soft wrap, a second window and highlights, a session answered match by match, typing at
+//! 1000 cursors joined into one step, a large kill, and many runs that meet with much to follow.
+//! Each case prints the undo and the redo at once, so that what grows with the step shows, and
+//! then crossed a slice at a time as the host runs them: the slices, p50, p99 and the longest
+//! of them, the last, which commits, and the whole. Run with `-- undo`.
 //!
 //! Must not depend on: crate internals; it uses only the public API, and the text and timing
 //! helpers of `text_perf`.
@@ -15,7 +16,7 @@ use oso_core::frame::Way;
 use oso_core::syntax::{Highlight, Highlights};
 use oso_core::window::ViewSize;
 
-use super::{MB, editor_with_cursors, file_text};
+use super::{MB, editor_with_cursors, file_text, floor_boundary};
 
 /// What else a crossing follows in a case.
 #[derive(Clone, Copy)]
@@ -39,14 +40,123 @@ fn highlights(len: usize) -> Highlights {
     highlights
 }
 
-/// The undo and the redo of the editor's newest step.
-fn cross(editor: &mut Editor) -> (Duration, Duration) {
+/// The undo and the redo of the editor's newest step, at once, and then a slice at a time as
+/// two lines to print.
+fn cross(editor: &mut Editor) -> (Duration, Duration, String) {
     let started = Instant::now();
     editor.undo().expect("a step to undo");
     let undone = started.elapsed();
     let started = Instant::now();
     editor.redo().expect("a step to redo");
-    (undone, started.elapsed())
+    let redone = started.elapsed();
+    let undo = sliced(editor, 1);
+    let redo = sliced(editor, -1);
+    let slices = format!("  undo in slices: {undo}\n  redo in slices: {redo}");
+    (undone, redone, slices)
+}
+
+/// A crossing a slice at a time, as the host runs one at each turn.
+struct Sliced {
+    times: Vec<Duration>,
+    whole: Duration,
+}
+
+impl std::fmt::Display for Sliced {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let last = self.times.last().copied().unwrap_or_default();
+        let mut times = self.times.clone();
+        times.sort();
+        let at = |share: usize| times[(times.len() - 1) * share / 100];
+        write!(
+            f,
+            "{:>5} slices p50 {:>9.2?} p99 {:>9.2?} max {:>9.2?}  last {last:>9.2?}  whole {:>9.2?}",
+            times.len(),
+            at(50),
+            at(99),
+            at(100),
+            self.whole,
+        )
+    }
+}
+
+/// Crosses `count` steps a slice at a time.
+fn sliced(editor: &mut Editor, count: isize) -> Sliced {
+    let started = Instant::now();
+    let slice = Instant::now();
+    editor.begin_crossing(count).expect("a step to cross");
+    let mut times = vec![slice.elapsed()];
+    while editor.crossing().is_some() {
+        let slice = Instant::now();
+        let ended = editor.go_on_crossing();
+        times.push(slice.elapsed());
+        if let Some(result) = ended {
+            result.expect("the step crosses");
+        }
+    }
+    Sliced {
+        times,
+        whole: started.elapsed(),
+    }
+}
+
+/// A step of `answers` runs that meet, as a replay typing forward makes: a session answered
+/// `y` at each of a first line of `a`, after one command that left `edited` lines edited, with
+/// `cursors` cursors in a second window. Each run that ends follows them all.
+fn meeting_runs(label: &str, lines: usize, answers: usize, edited: usize, cursors: usize) {
+    let text = "a".repeat(answers) + "\n" + &"line\n".repeat(lines);
+    let mut editor = editor_with_cursors(&text, cursors);
+    editor
+        .split_window(Way::Down, true)
+        .expect("the window splits");
+    let id = editor.window().buffer();
+    let (first, every) = (answers + 1, lines / edited * 5);
+    let edits: Vec<_> = (0..edited)
+        .map(|line| Replacement {
+            range: first + line * every..first + line * every,
+            text: "y",
+        })
+        .collect();
+    editor.begin_undo_group();
+    editor
+        .apply_edits(id, &edits)
+        .expect("the buffer is editable");
+    editor.end_undo_group();
+    editor.begin_undo_group();
+    editor
+        .replace_begin("a", "b", false)
+        .expect("the buffer takes edits");
+    editor.end_undo_group();
+    // The last answer ends the session there, whose next match a worker would look for.
+    for _ in 1..answers {
+        editor.replace_answer(ReplaceAnswer::Replace);
+    }
+    editor.replace_answer(ReplaceAnswer::ReplaceAndExit);
+    assert!(editor.replace().is_none(), "the session ended");
+    let (undone, redone, in_slices) = cross(&mut editor);
+    println!("{label:<34}       undo {undone:>9.2?}  redo {redone:>9.2?}");
+    println!("{in_slices}");
+}
+
+/// Killing `killed` bytes from the middle of `text`, then its undo.
+fn kill(label: &str, text: &str, killed: usize) {
+    let start = floor_boundary(text, (text.len() - killed) / 2);
+    let end = floor_boundary(text, start + killed);
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", text));
+    let id = editor.window().buffer();
+    editor.begin_undo_group();
+    editor
+        .apply_edits(
+            id,
+            &[Replacement {
+                range: start..end,
+                text: "",
+            }],
+        )
+        .expect("the buffer is editable");
+    editor.end_undo_group();
+    let (undone, redone, in_slices) = cross(&mut editor);
+    println!("{label:<34}       undo {undone:>9.2?}  redo {redone:>9.2?}");
+    println!("{in_slices}");
 }
 
 /// `!` replacing `from` with `to` over `text`, with `with` turned on first, then its undo.
@@ -85,8 +195,9 @@ fn bang(label: &str, text: &str, from: &str, to: &str, with: With) {
         editor.replace_continue();
         slices += 1;
     }
-    let (undone, redone) = cross(&mut editor);
+    let (undone, redone, in_slices) = cross(&mut editor);
     println!("{label:<34} {slices:>5} slices: undo {undone:>9.2?}  redo {redone:>9.2?}");
+    println!("{in_slices}");
 }
 
 /// A query-replace session over `text` answered `y` at each match, which makes one step of a
@@ -103,8 +214,9 @@ fn answered(label: &str, text: &str, from: &str, to: &str) {
         editor.replace_answer(ReplaceAnswer::Replace);
         answers += 1;
     }
-    let (undone, redone) = cross(&mut editor);
+    let (undone, redone, in_slices) = cross(&mut editor);
     println!("{label:<34} {answers:>5} answers: undo {undone:>9.2?}  redo {redone:>9.2?}");
+    println!("{in_slices}");
 }
 
 /// `commands` commands typing "x" at each of 1000 cursors over `text`, joined into one step as
@@ -129,8 +241,9 @@ fn joined_typing(label: &str, text: &str, commands: usize) {
             .expect("the buffer is editable");
         editor.end_undo_group();
     }
-    let (undone, redone) = cross(&mut editor);
+    let (undone, redone, in_slices) = cross(&mut editor);
     println!("{label:<34}       undo {undone:>9.2?}  redo {redone:>9.2?}");
+    println!("{in_slices}");
 }
 
 pub(crate) fn undo_costs() {
@@ -175,4 +288,21 @@ pub(crate) fn undo_costs() {
     }
     let source = "fn main() {}\n".repeat(8 * MB / 13);
     joined_typing("8 MB, 1000 cursors, 20 joined", &source, 20);
+    let source = file_text(100 * MB);
+    kill("89 MB killed of 100 MB", &source, 89 * MB);
+    drop(source);
+    meeting_runs(
+        "2000 runs that meet, 200k edited",
+        400_000,
+        2000,
+        200_000,
+        1,
+    );
+    meeting_runs(
+        "  and 100k cursors in a window",
+        400_000,
+        2000,
+        200_000,
+        100_000,
+    );
 }

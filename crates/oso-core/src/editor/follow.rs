@@ -15,11 +15,9 @@ use crate::sum_tree::Bias;
 
 /// What the selected window's cursors do when a buffer it shows changes.
 #[derive(Clone, Copy)]
-pub(super) enum Selected<'a> {
+pub(super) enum Selected {
     /// It made the edit: a cursor after new text stays after it.
     Edited,
-    /// An undo or a redo returns it to these cursors, if the group has them.
-    Restored(Option<&'a SelectionSet>),
     /// A message went to `*Messages*`: as an edit, but what a person set there stays.
     Logged,
 }
@@ -88,8 +86,7 @@ pub(super) fn clip_selections(
 impl Editor {
     /// The cursors of every window showing `id` once a change is in, by window
     /// position. They follow `steps`, as markers except in the selected window,
-    /// which does as `selected` says, but for its ring of marks, which follows.
-    /// Each ends where a cursor can be. A change hides every region of the buffer
+    /// which does as `selected` says. Each ends where a cursor can be. A change hides every region of the buffer
     /// (ADR 0071), but a message logged to `*Messages*`.
     pub(super) fn moved_selections(
         &self,
@@ -97,22 +94,11 @@ impl Editor {
         display: &DisplaySnapshot,
         steps: &[Vec<OffsetEdit>],
         changed: &[Range<usize>],
-        selected: Selected<'_>,
+        selected: Selected,
     ) -> Vec<(usize, SelectionSet)> {
         let mut moved = Vec::new();
         for (index, window) in self.windows.iter().enumerate() {
             if window.buffer() != id {
-                continue;
-            }
-            if let Selected::Restored(Some(restored)) = selected
-                && index == self.selected
-            {
-                let mut ring = *window.selections.mark_ring();
-                steps.iter().for_each(|edits| ring.follow_edits(edits));
-                let mut set = restored.with_ring(ring);
-                set.set_mark_active(MarkActive::Inactive);
-                clip_selections(&mut set, display, &[], true, Some(changed));
-                moved.push((index, set));
                 continue;
             }
             let mut set = window.selections.clone();

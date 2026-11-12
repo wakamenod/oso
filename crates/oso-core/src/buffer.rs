@@ -30,6 +30,7 @@ use crate::undo::History;
 mod agent;
 mod baseline;
 mod carried;
+mod crossing;
 mod edit;
 mod edited;
 mod highlighting;
@@ -40,6 +41,7 @@ mod naming;
 mod recovery;
 mod reload;
 pub(crate) use reload::Noticed;
+mod sliced;
 mod splice;
 mod trim;
 pub(crate) use trim::{Reads, TooLong, Trim, TrimRules, as_spans, trailing_whitespace};
@@ -47,10 +49,14 @@ pub(crate) use trim::{Reads, TooLong, Trim, TrimRules, as_spans, trailing_whites
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, DiskState, FileStamp};
 pub use carried::FileFacts;
+#[cfg(test)]
+pub(crate) use crossing::SeenGroup;
+pub(crate) use crossing::StagedCrossing;
 pub(crate) use edit::{Rewrap, StagedEdit};
 pub(crate) use edited::{EditedLines, Tracking};
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
+pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE};
 use splice::normalized;
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
@@ -112,6 +118,9 @@ pub enum EditError {
     NoUndo,
     /// The history has nothing more to redo.
     NoRedo,
+    /// An undo or a redo staged over several turns found the buffer changed under it, and
+    /// changed nothing (ADR 0119).
+    Abandoned,
 }
 
 impl fmt::Display for EditError {
@@ -122,6 +131,7 @@ impl fmt::Display for EditError {
             Self::NoSuchBuffer => "No such buffer",
             Self::NoUndo => "No further undo information",
             Self::NoRedo => "No further redo information",
+            Self::Abandoned => "Undo or redo abandoned",
         })
     }
 }
