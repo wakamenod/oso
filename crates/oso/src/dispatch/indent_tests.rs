@@ -187,3 +187,213 @@ fn a_line_break_in_a_search_string_goes_in_its_history_and_comes_back() {
         "the string recalled finds the next one"
     );
 }
+
+fn echo(editor: &Editor) -> String {
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    status.echo
+}
+
+fn region_shown(editor: &Editor) -> bool {
+    editor.window().selections.mark_active().is_active()
+}
+
+#[test]
+fn c_m_backslash_reindents_the_region_as_one_step() {
+    let start = "|fn f() {\nx;\n      y;\n   \n}";
+    let (mut dispatcher, mut editor) = at(Mode::Rust, start);
+    send(&mut dispatcher, &mut editor, "C-SPC M-> C-M-\\");
+    assert_eq!(marked(&editor), "fn f() {\n    x;\n    y;\n\n}|");
+    assert!(!region_shown(&editor));
+    send(&mut dispatcher, &mut editor, "C-z");
+    assert_eq!(
+        editor.current().1.text().to_string(),
+        start.replace('|', "")
+    );
+    // With a count, every line goes to that column.
+    send(&mut dispatcher, &mut editor, "M-< C-SPC M-> C-u 2 C-M-\\");
+    assert_eq!(
+        editor.current().1.text().to_string(),
+        "  fn f() {\n  x;\n  y;\n\n  }"
+    );
+}
+
+#[test]
+fn indent_region_signals_with_no_mark_or_no_rules() {
+    let (mut dispatcher, mut editor) = at(Mode::Rust, "|a");
+    send(&mut dispatcher, &mut editor, "C-M-\\");
+    assert_eq!(echo(&editor), "The mark is not set now");
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\n b");
+    send(&mut dispatcher, &mut editor, "C-SPC M-> C-M-\\");
+    assert_eq!(echo(&editor), "No indentation rules in this mode");
+}
+
+#[test]
+fn tab_with_a_region_shown_indents_it_in_a_language_mode_only() {
+    let (mut dispatcher, mut editor) = at(Mode::Rust, "|fn f() {\nx;\ny;\n}");
+    send(&mut dispatcher, &mut editor, "C-SPC M-> TAB");
+    assert_eq!(marked(&editor), "fn f() {\n    x;\n    y;\n}|");
+    // Markdown cycles the cursor's line; Fundamental inserts spaces at it.
+    let (mut dispatcher, mut editor) = at(Mode::Markdown, "- a\n|b");
+    send(&mut dispatcher, &mut editor, "C-SPC C-e TAB");
+    assert_eq!(marked(&editor), "- a\n  b|");
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|ab");
+    send(&mut dispatcher, &mut editor, "C-SPC C-f TAB");
+    assert_eq!(marked(&editor), "a       |b");
+}
+
+#[test]
+fn c_x_tab_opens_a_layer_whose_arrows_shift_the_region_as_one_step() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "x\n|a\n b\n");
+    send(&mut dispatcher, &mut editor, "C-SPC M-> C-x TAB");
+    assert!(editor.indent_rigidly_layer());
+    assert_eq!(
+        echo(&editor),
+        "Indent region with <left>, <right>, S-<left>, or S-<right>."
+    );
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "<right> <right> <left> S-<right>",
+    );
+    assert_eq!(editor.current().1.text().to_string(), "x\n    a\n     b\n");
+    assert!(region_shown(&editor), "the region stays shown");
+    send(&mut dispatcher, &mut editor, "S-<left> S-<left>");
+    assert_eq!(editor.current().1.text().to_string(), "x\na\n b\n");
+    send(&mut dispatcher, &mut editor, "<right>");
+    // Another key closes the layer and does what it always does.
+    send(&mut dispatcher, &mut editor, "C-g");
+    assert!(!editor.indent_rigidly_layer());
+    assert!(!region_shown(&editor));
+    send(&mut dispatcher, &mut editor, "<right>");
+    assert_eq!(editor.current().1.text().to_string(), "x\n a\n  b\n");
+    send(&mut dispatcher, &mut editor, "C-z");
+    assert_eq!(
+        editor.current().1.text().to_string(),
+        "x\na\n b\n",
+        "the layer's keys undo as one step"
+    );
+}
+
+#[test]
+fn a_key_outside_the_layer_runs_as_usual() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|ab\ncd");
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "C-SPC C-n C-x TAB <right> C-a",
+    );
+    assert!(!editor.indent_rigidly_layer());
+    // Leaving the layer hides the region, so typing then replaces nothing.
+    assert!(!region_shown(&editor));
+    // The region ends at the second line's start, so only the first shifted.
+    assert_eq!(marked(&editor), " ab\n|cd");
+    send(&mut dispatcher, &mut editor, "<right>");
+    assert_eq!(marked(&editor), " ab\nc|d");
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|ab\ncd\nef");
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "C-SPC C-n C-n C-x TAB <right> C-e x",
+    );
+    assert_eq!(marked(&editor), " ab\n cd\nefx|");
+}
+
+#[test]
+fn c_x_tab_with_a_count_shifts_by_it() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|  a\n    b");
+    send(&mut dispatcher, &mut editor, "C-SPC M-> C-u 3 C-x TAB");
+    assert!(!editor.indent_rigidly_layer());
+    assert_eq!(editor.current().1.text().to_string(), "     a\n       b");
+    send(&mut dispatcher, &mut editor, "C-x C-x M-- 6 C-x TAB");
+    assert_eq!(editor.current().1.text().to_string(), "a\n b");
+}
+
+#[test]
+fn the_agent_channels_indent_rigidly_shifts_by_the_indent_size() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\nb");
+    send(&mut dispatcher, &mut editor, "C-SPC M->");
+    let ran =
+        dispatcher.run_for_agent(&mut editor, "indent-rigidly", Given::Nothing, Reach::Change);
+    assert_eq!(ran.unwrap().1, Ok(()));
+    assert!(!editor.indent_rigidly_layer());
+    assert_eq!(editor.current().1.text().to_string(), "    a\n    b");
+}
+
+#[test]
+fn the_named_shifts_run_as_commands() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|  a\n b");
+    send(&mut dispatcher, &mut editor, "C-SPC M->");
+    let steps = [
+        ("indent-rigidly-right", "   a\n  b"),
+        ("indent-rigidly-left", "  a\n b"),
+        ("indent-rigidly-right-to-tab-stop", "     a\n    b"),
+        ("indent-rigidly-left-to-tab-stop", " a\nb"),
+    ];
+    for (name, expected) in steps {
+        run(&mut dispatcher, &mut editor, name, None);
+        assert_eq!(editor.current().1.text().to_string(), expected, "{name}");
+    }
+}
+
+#[test]
+fn m_m_m_i_and_m_caret() {
+    let (mut dispatcher, mut editor) = at(Mode::Rust, "  \tab|c");
+    send(&mut dispatcher, &mut editor, "M-m");
+    assert_eq!(marked(&editor), "  \t|abc");
+    send(&mut dispatcher, &mut editor, "M-i");
+    assert_eq!(marked(&editor), "  \t        |abc");
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "a\n  |b\nc");
+    send(&mut dispatcher, &mut editor, "M-^");
+    assert_eq!(marked(&editor), "a| b\nc");
+    send(&mut dispatcher, &mut editor, "C-u M-^");
+    assert_eq!(marked(&editor), "a b| c");
+}
+
+#[test]
+fn m_ret_starts_a_list_item_in_markdown_only() {
+    let (mut dispatcher, mut editor) = at(Mode::Markdown, "1. a|");
+    send(&mut dispatcher, &mut editor, "M-RET");
+    assert_eq!(marked(&editor), "1. a\n2. |");
+    let (mut dispatcher, mut editor) = at(Mode::Markdown, "a|");
+    send(&mut dispatcher, &mut editor, "M-RET");
+    assert_eq!(echo(&editor), "Not in a list");
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "- a|");
+    send(&mut dispatcher, &mut editor, "M-RET");
+    assert_eq!(echo(&editor), "M-RET is undefined");
+}
+
+#[test]
+fn a_prefix_argument_before_an_arrow_still_moves() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|abcdef\nx");
+    send(&mut dispatcher, &mut editor, "C-SPC C-n C-p C-u <right>");
+    assert_eq!(marked(&editor), "abcd|ef\nx");
+    send(&mut dispatcher, &mut editor, "M-- <right> C-u S-<left>");
+    assert_eq!(marked(&editor), "|abcdef\nx");
+    // With the layer open too: the prefix argument closes it, and the arrow moves.
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "C-SPC C-n C-x TAB C-u <right>",
+    );
+    assert!(!editor.indent_rigidly_layer());
+    assert_eq!(marked(&editor), "abcdef\nx|");
+    assert_eq!(editor.current().1.text().to_string(), "abcdef\nx");
+}
+
+#[test]
+fn a_layer_left_in_another_buffer_shifts_nothing_there() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\nb");
+    let other = editor.add_buffer(Buffer::from_text("other", "c\nd"));
+    send(&mut dispatcher, &mut editor, "C-SPC M-> C-x TAB <right>");
+    assert_eq!(editor.current().1.text().to_string(), " a\n b");
+    // Another buffer is shown, as the agent's `switch-to-buffer` or a load does, outside any
+    // command, while the person's layer is open.
+    editor.show(other);
+    assert!(!editor.indent_rigidly_layer());
+    send(&mut dispatcher, &mut editor, "<right>");
+    assert_eq!(editor.current().1.text().to_string(), "c\nd");
+}

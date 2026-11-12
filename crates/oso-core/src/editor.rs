@@ -84,6 +84,7 @@ pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
 pub use gutter::Gutter;
+pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
 pub use jump::{Chose, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
@@ -266,6 +267,8 @@ pub struct Editor {
     electric_indent: bool,
     /// Each mode's indentation, as the configuration gives it (ADR 0115).
     mode_indents: [(Mode, crate::indent::Settings); 4],
+    /// The layer of `C-x TAB`, while it is open (ADR 0115).
+    rigid: Option<indent::RigidLayer>,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
     trims: trim::Trims,
     /// query-replace's session, and the last pairs given (ADR 0113).
@@ -350,6 +353,7 @@ impl Editor {
             electric_indent: true,
             mode_indents: [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
                 .map(|mode| (mode, crate::indent::Settings::default())),
+            rigid: None,
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
             macros: macros::Macros::default(),

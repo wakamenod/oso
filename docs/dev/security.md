@@ -18,7 +18,7 @@ threats:
 | T4 | Secrets leaking to disk | auto-save and backup files, session data, crash dumps, persisted undo, clipboard |
 | T5 | Unsafe file writes | following symlinks, partial writes, wrong permissions |
 | T6 | Process launching | PATH hijacking (on Windows the current directory comes first), URL handlers |
-| T7 | Terminal escape sequences | clipboard reads (OSC 52), title or report sequences that echo input back, spoofed hyperlinks (OSC 8) |
+| T7 | Terminal escape sequences | clipboard reads (OSC 52), title or report sequences that echo input back, spoofed hyperlinks (OSC 8), output that asks the editor to run a command |
 | T8 | Denial of service | huge files, very long lines, regex backtracking |
 | T9 | Agentic development | prompt injection through read content, casually added dependencies or `unsafe`, dev-only entry points leaking into release |
 | T10 | Untrusted parsers | image and PDF decoding (later milestones) |
@@ -177,7 +177,8 @@ network features.
 
 ### Process spawning (T1, T6)
 
-- Only `oso-platform::process` may create processes. Clippy
+- Only `oso-platform::process` may create processes. It ships in release builds from
+  [ADR 0120](adr/0120-the-terminal.md)'s step 2, for the terminal; its PTY is its own. Clippy
   `disallowed_methods` bans `std::process::Command::new` (and its async
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
@@ -331,9 +332,34 @@ shown, boxed or escaped.
 
 ### Terminal (T7)
 
-- OSC 52 clipboard reads are disabled.
-- Sequences that echo data back, such as title reporting, are disabled.
-- OSC 8 hyperlinks show the real target before opening.
+Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote host over `ssh`
+([ADR 0120](adr/0120-the-terminal.md)).
+
+- Each sequence is allowed, denied or answered from oso's own state, by one policy function per
+  effect in `oso-term`, each with a test. A denied one is dropped without a reply. Text a sequence
+  carries for oso to show has control, bidi and invisible characters dropped and is cut at 256 bytes.
+- OSC 52 clipboard reads are disabled. A write goes to the kill ring, and to the OS clipboard only
+  within 2 s of the person's key in that terminal.
+- Sequences that echo data back, such as title reporting, OSC 50 and `DECRQSS`, are disabled. Window
+  moves and resizes are denied.
+- OSC 8 hyperlinks, URLs and `path:line` show the real target before opening: `http` and `https` with
+  the OS's opener, `file:` and `path:line` in oso, any other scheme asks.
+- Kitty graphics: direct transmission only, never from a file or shared memory; PNG decoded in pure
+  Rust on a worker, at most 16 MiB and 4096 × 4096 pixels an image and 64 MiB a terminal. Sixel and
+  iTerm2 images are denied.
+- A shell runs an oso command only through oso's own sequence, and only when it carries the
+  terminal's random token, the shell is in the foreground, the command is listed in `[terminal]
+  commands-from-shell` (empty by default, and never one that changes trust, the agent channel or a
+  terminal's reading or input), its one argument is a checked string, and the terminal is selected.
+  vterm's OSC 51 is denied.
+- The floating terminal's `cd` is the person's typing: the path is quoted, a path with a control
+  character is refused, and nothing is typed unless the shell is in the foreground and its prompt is
+  empty.
+- An agent never types into a terminal, and reads or searches one only where the person allowed it
+  for that terminal. While echo is off, the terminal is treated as secret. Terminal text never
+  reaches the disk.
+- A terminal parses on its own thread, reads at most 64 KiB at a time and queues at most 16 MiB of
+  writes, so neither bulk output nor a large paste reaches the UI thread.
 
 ### Agent integration (T7, T9)
 
@@ -411,7 +437,10 @@ shown, boxed or escaped.
 ### Untrusted parsers (T10)
 
 - Image and PDF support (M4 and later) will use pure-Rust decoders, or isolate
-  parsing in a separate process.
+  parsing in a separate process. The terminal's Kitty images use a pure-Rust PNG decoder on a
+  worker ([ADR 0120](adr/0120-the-terminal.md)).
+- The terminal engine parses untrusted output in `oso-term`, which has a fuzz target. Which engine
+  is decided by ADR 0120's step 1; libghostty-vt would be memory-unsafe parsing in oso's process.
 - Tree-sitter's grammars are the exception: generated and hand-written C that runs in the oso
   process on untrusted files ([ADR 0012](adr/0012-tree-sitter.md)). They are few, pinned to exact
   versions, with each `build.rs` and scanner read before a bump, and never run on a buffer that

@@ -4,7 +4,7 @@
 //! Must not depend on: `command` or `keymap`; the command calls this.
 
 use super::Editor;
-use crate::buffer::{EditError, Replacement};
+use crate::buffer::{Buffer, EditError, Replacement};
 
 impl Editor {
     /// Inserts spaces at every cursor of the selected window up to the next tab stop, as
@@ -13,33 +13,47 @@ impl Editor {
     /// in O(log n) (ADR 0101). A read-only buffer refuses it and nothing changes.
     pub fn tab_to_tab_stop(&mut self) -> Result<(), EditError> {
         let (window, buffer) = self.current();
-        let display = buffer.display();
-        let tab_width = buffer.tab_width();
-        let spaces = " ".repeat(tab_width.get() as usize);
-        let mut edits = Vec::with_capacity(window.selections.len());
-        // The cursor before this one, its line, and the column it ends at.
-        let mut earlier: Option<(usize, usize, usize)> = None;
-        for selection in window.selections.iter() {
-            let line = buffer.text().offset_to_point(selection.cursor).row;
-            // What lies between keeps its cells, but a tab reaches the next stop from where it
-            // now starts, which TabMap tells without reading what lies between, counting from
-            // the line's start (ADR 0101).
-            let column = match earlier {
-                Some((from, row, column)) if row == line => {
-                    display.column_after(from, column, selection.cursor)
-                }
-                _ => display.offset_to_display_point(selection.cursor).column,
-            };
-            let stop = tab_width.next_stop(column);
-            edits.push(Replacement {
-                range: selection.cursor..selection.cursor,
-                text: &spaces[..stop - column],
-            });
-            earlier = Some((selection.cursor, line, stop));
-        }
+        let spaces = " ".repeat(buffer.tab_width().get() as usize);
+        let cursors = window.selections.iter().map(|selection| selection.cursor);
+        let edits: Vec<_> = to_tab_stops(buffer, cursors)
+            .into_iter()
+            .map(|(at, count)| Replacement {
+                range: at..at,
+                text: &spaces[..count],
+            })
+            .collect();
         let id = window.buffer();
         self.apply_edits(id, &edits)
     }
+}
+
+/// How many spaces each of `cursors`, ascending, of `buffer` inserts to reach the next tab stop,
+/// with where it is. A cursor on the line of the one before takes its column from where the one
+/// before now ends, which the display map tells without reading what lies between, in
+/// O(log n) (ADR 0101).
+pub(super) fn to_tab_stops(
+    buffer: &Buffer,
+    cursors: impl IntoIterator<Item = usize>,
+) -> Vec<(usize, usize)> {
+    let display = buffer.display();
+    let tab_width = buffer.tab_width();
+    let mut spaces = Vec::new();
+    // The cursor before this one, its line, and the column it ends at.
+    let mut earlier: Option<(usize, usize, usize)> = None;
+    for at in cursors {
+        let line = buffer.text().offset_to_point(at).row;
+        // What lies between keeps its cells, but a tab reaches the next stop from where it
+        // now starts, which TabMap tells without reading what lies between, counting from
+        // the line's start (ADR 0101).
+        let column = match earlier {
+            Some((from, row, column)) if row == line => display.column_after(from, column, at),
+            _ => display.offset_to_display_point(at).column,
+        };
+        let stop = tab_width.next_stop(column);
+        spaces.push((at, stop - column));
+        earlier = Some((at, line, stop));
+    }
+    spaces
 }
 
 #[cfg(test)]

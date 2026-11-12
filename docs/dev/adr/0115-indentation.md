@@ -717,3 +717,131 @@ As built:
 - **A bracket opened on a line a string goes on to** takes that line's own indentation, as its
   opener's line: `g("a \⏎     b", vec![⏎1,⏎]);` gives 11 and 7. rustfmt never writes this shape,
   so it stays a limit of the rules.
+
+### Step 3: the region and the small commands
+
+The author chose, on 2026-11-12 through the coordinator, the recommended option of each question
+step 3's plan put:
+
+- **`indent-region` with no count in Markdown, Fundamental mode and internal buffers** signals "No
+  indentation rules in this mode" and changes nothing; with a count it works in every mode. `TAB`
+  with a region shown runs `indent-region` in Rust and TOML only; in Markdown it cycles the
+  cursors' lines and in Fundamental mode inserts spaces, as with no region.
+- **A line of only spaces and tabs** in a region becomes empty, whether reindented, put at a
+  column or shifted; an empty line stays empty, so no command leaves trailing whitespace. Inside a
+  string the rules keep it, as they keep any line there (the review of step 3).
+- **`indent-rigidly` and `indent-region` with a count** take the same bounds as `indent-region`
+  (below), and the 16 MiB limit on what one command inserts, checked before anything changes.
+- **Markdown's `TAB` in a fenced code block** inserts spaces to the next tab stop at the cursor,
+  as `RET` there copies the line above as Fundamental mode does.
+- **`M-RET` outside a list item, or in a fenced code block,** signals "Not in a list" and
+  changes nothing; one such cursor stops them all.
+- **`M-^`** is Emacs 27's: with a prefix argument it joins the next line to this one, and with a
+  region shown it joins every line of the region.
+- **`C-g` and any other key** close the layer of `C-x TAB` and run as usual. Closing the layer, for
+  whatever reason, hides the region, as Emacs's `indent-rigidly-map` deactivates the mark, so a
+  character typed after it replaces nothing.
+- **The public items:** `IndentError` (`NoMark`, `TooLarge`, `NoRules`, `NotInList`,
+  `TooMuchText`, `Edit`), `Shift` (`Left`, `Right`), and on `Editor` `indent_region`,
+  `indent_rigidly`, `indent_rigidly_to_tab_stop`, `indent_rigidly_layer`,
+  `set_indent_rigidly_layer`, `back_to_indentation` (which returns whether a cursor moved;
+  Shift selects in the command, as for the other motions), `delete_indentation` and
+  `markdown_insert_list_item`. The region commands take the most bytes they may insert, as
+  `newline` does.
+
+As built:
+
+- **Two bounds, not one budget of 4 MiB** (the author's choice): `indent-region` reads at about
+  2.7 ms a MiB of the rules' budget, and each changed line is a splice of the edit, about 1 µs
+  (ADR 0092), so a byte budget alone could not keep the command under 50 ms. A command takes at
+  most **6 MiB of the rules' budget** (`bytes + lines * LINE_COST`, plus one `LINE_LOOKBACK`),
+  checked before anything is read, and changes at most **30,000 lines**, checked before the edit;
+  past either it signals "Region too large to indent" and changes nothing. A 2 MiB Rust file
+  needs about 4.6 MiB of the budget.
+- **Corrected:** "A 2 MiB source file reindents in one command" under `indent-region` (Q11) holds
+  only when at most 30,000 of its lines change. A whole 2 MiB file pasted at the margin, 84,000
+  lines, is refused, and is reindented in parts. A batched splice for large edits would lift
+  this; it is a later ADR (`open-questions.md`).
+- **`M-^` over a region** joins at most **15,000 lines** and reads at most **2 MiB** (`bytes +
+  lines * LINE_COST`) a command (the author's choice): a join removes a line break, a splice of
+  about 2 µs. Past either it signals "Region too large to indent" and changes nothing.
+- **The region commands insert at most 4 MiB** a command, under the 16 MiB any command may (the
+  author's choice): a deep column over many lines costs the edit about 3 ms a MiB on top of its
+  splices, so `C-u 559 C-M-\` over 29,000 lines took 93 ms without it. Past it they signal "Too
+  much text to insert" and change nothing.
+- **Corrected:** "The keys of one `C-x TAB` session join into one undo step" (Commands and keys)
+  holds while they change at most 30,000 lines in all; the key that would take them past it starts
+  a new step (the author's choice), so that undoing one replays no more than about that many
+  splices. A session over a small region stays one step.
+- **The region's lines are read in one pass** (`editor/indent/leads.rs`): each line's
+  indentation, what it is made of, whether it is blank, and where its text ends, for
+  `indent-region`, `indent-rigidly` and `M-^` over a region. A seek to each line cost about
+  600 ns a line, 50 ms of a 2 MiB file's 61. A line already right is told from what the pass
+  noted, with no second read, in either style. All the regions' lines, blank ones too, share one
+  call to the rules and one budget, so the pass reads on from each line to the next; a pass that
+  runs out of the budget refuses the command, "Region too large to indent", rather than leave
+  part of the regions reindented. A line whose indentation is longer than 4 KiB is left as it is.
+- **A blank a combining mark is on** stays as the mark's base, in a region's commands and in
+  `M-^`, as `RET` keeps it (step 2): the indentation ends before it.
+- **Regions that overlap** count their lines once; regions that only touch stay apart, so a shift
+  to a tab stop takes each one's own least indented line.
+- **A region's lines** are Emacs's: every line that starts before its end, from its start's line
+  for the rules (`indent-region-line-by-line`), and from the first line that starts in it for a
+  column or a shift (`indent-rigidly`, `indent-region` with a count), so a region that starts
+  inside a line leaves that line to them. An empty region has none.
+- **The layer of `C-x TAB`** is the editor's, as isearch is, and belongs to the window and buffer
+  it opened in: `Keymaps::active` puts its keymap first among the minor layers while it is open
+  there and no prefix argument reads. Another buffer shown in that window, by the agent channel
+  or a load, leaves the layer behind, and the next command closes it. A file read again waits
+  while the layer is open, as it does for isearch, and an edit that no key of the layer made is
+  never joined into its step. The dispatcher closes it before any command but the layer's four
+  shifts that the person runs, before every command of the agent channel, and on an undefined key
+  or `C-g` under a prefix. Closing it joins the edits since it opened into one undo step
+  (`Buffer::join_undo_since`, as query-replace does), which goes back to the cursors before it,
+  with no limit of keys but the lines they change (below). While it is open, each shift leaves
+  the region as shown as it was. `C-x TAB` with no mark signals "The mark is not set now", as
+  Emacs's `r` does.
+  A dev restart does not hand the layer over.
+- **To a tab stop** moves each region's least indented non-blank line to the next or previous
+  multiple of `indent_size`, and the region's other lines by as much. Shifting right takes no line
+  past column 4096 unless it is there already.
+- **Markdown's `TAB`** keeps no state between keys: a line at one of its stops goes to the next,
+  wrapping, and a line at none goes to the first, so a keyboard macro replays the same. Every
+  cursor's line is read in one pass from the buffer's start (`indent::markdown_lists`,
+  crate-private), so past `COMMAND_READ` a line is left as it is, not moved to column 0.
+- **`M-RET`** breaks the line at each cursor, the blanks around it gone, and starts the new item
+  with the innermost open item's indentation, marker and spaces, the number one higher, `.` or `)`
+  kept; when the number grows a digit, one space fewer follows it if one can go, as markdown-mode
+  does. On a blank line the item goes on it; with the cursor before an item's marker, the new item
+  goes on a line before it, with that item's number. Later items are not renumbered, as in Emacs;
+  `M-RET` takes no count yet (`open-questions.md`). It is bound in a Markdown keymap above the
+  global one, so in other modes `M-RET` is undefined.
+- **`M-^` with an empty region shown** joins the line to the one before, as with none: Emacs's
+  `use-region-p` is false for an empty region.
+- **`M-RET` with several cursors on one row** that is blank, or before its marker, starts one item
+  there, and the cursors go to its text.
+- **The agent channel waits** while the layer of `C-x TAB` is open, as it does during isearch.
+- **A single `M-^`** reads only the ends of its two lines, at most 4 KiB at each, so it works
+  beside a line of any length; joins over a region read their lines in one pass.
+- **`M-^`'s space** follows `fixup-whitespace`: none when either side is a line's edge (a blank
+  line joined, or the joined line blank), after `(`, `[` or `{`, or before `)`, `]` or `}`; a
+  full-width space is text. Each cursor goes to its first join, before the space.
+- **`M-m`** reads at most 4 KiB of a line's indentation, as `TAB` does.
+- **Measured** with `text_perf -- indent`, release, the author's Mac, the whole command:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | `indent-region`, 2 MiB Rust already right (reads only) | 12.5 ms | 12.7 ms |
+  | `indent-region`, 30,000 short lines that change | 27.8 ms | 28.0 ms |
+  | `indent-region`, 2 MiB right then 30,000 lines that change (the most it takes) | 43.5 ms | 43.6 ms |
+  | `indent-region`, 2 MiB at the margin (refused after reading) | 10.8 ms | 11.0 ms |
+  | `indent-region`, 2 MiB of tab indentation already right | 10.2 ms | 10.3 ms |
+  | `indent-region`, 70,000 lines each before a blank line | 9.9 ms | 10.4 ms |
+  | `indent-region`, 1000 regions of 30 lines apart in 5 MiB | 7.5 ms | 7.7 ms |
+  | `indent-region` to column 144 over 29,000 lines (4 MiB inserted, the most it takes) | 38.3 ms | 38.7 ms |
+  | `indent-rigidly` over 29,000 lines | 30.9 ms | 31.6 ms |
+  | `indent-rigidly`, 1000 regions of 30 lines | 38.2 ms | 38.7 ms |
+  | `M-^` over 10,000 lines of 14 bytes | 20.2 ms | 21.1 ms |
+  | `M-^` over 15,000 lines of 105 bytes, 2 MiB read (the most it takes) | 40.5 ms | 41.1 ms |
+  | Markdown `TAB` at 1000 cursors in a 2 MiB document | 1.7 ms | 1.8 ms |
+  | `M-RET` at 1000 cursors | 1.3 ms | 1.3 ms |

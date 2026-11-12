@@ -1,7 +1,8 @@
 //! Indentation in the running app (ADR 0115): in a visited Rust file, `RET` indents the new
 //! line and opens one between brackets, `TAB` reindents, `C-j` breaks with no indentation, a
 //! typed `}` goes under its opener, and a keyboard macro that types code replays with the same
-//! indentation.
+//! indentation; `C-M-\` reindents a region, `C-x TAB`'s arrows shift one as one undo step, and
+//! `M-m` goes past a line's indentation.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The rules and
 //! each command's cases have their own tests.
@@ -58,5 +59,52 @@ fn a_macro_that_types_code_replays_with_the_same_indentation() {
     assert_eq!(
         rows(&mut app, 6),
         json!(["fn a() {", "    x;", "}", "fn b() {", "    x;", "}"])
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_region_keys_and_m_m_indent_a_rust_file() {
+    let scratch = Scratch::new("indent-region");
+    let file = scratch.write("lib.rs", b"fn f() {\nlet x = 1;\n  if x {\ny();\n}\n}\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    let reindented = json!([
+        "fn f() {",
+        "    let x = 1;",
+        "    if x {",
+        "        y();",
+        "    }",
+        "}"
+    ]);
+
+    app.send_keys("C-x h C-M-\\");
+    assert_eq!(rows(&mut app, 6), reindented);
+
+    // The arrows of C-x TAB shift the region's lines while it stays shown.
+    app.send_keys("M-< C-n C-SPC C-n C-n C-x TAB <right> <right> S-<right>");
+    assert_eq!(
+        rows(&mut app, 4),
+        json!([
+            "fn f() {",
+            "        let x = 1;",
+            "        if x {",
+            "        y();"
+        ])
+    );
+    assert!(
+        !app.state()["cursor"]["mark"].is_null(),
+        "the region has its mark"
+    );
+    // Another key closes the layer and runs as usual; the shifts undo as one step.
+    app.send_keys("C-g C-z");
+    assert_eq!(rows(&mut app, 6), reindented);
+
+    // M-m goes past the indentation.
+    app.send_keys("M-< C-n C-e M-m");
+    let cursor = app.state()["cursor"].clone();
+    assert_eq!(
+        (cursor["row"].clone(), cursor["column"].clone()),
+        (json!(1), json!(4))
     );
 }

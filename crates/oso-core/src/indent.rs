@@ -262,6 +262,19 @@ pub(crate) fn markdown_fenced(rope: &Rope, settings: Settings, offsets: &[usize]
     markdown::fenced(rope, settings, offsets, &mut Budget::new())
 }
 
+pub(crate) use markdown::{Item, Lists, Marker};
+
+/// The list items open at each of `offsets`, ascending line starts of a Markdown buffer, and
+/// whether each is inside a fenced code block, in one pass; none past the budget.
+pub(crate) fn markdown_lists(
+    rope: &Rope,
+    settings: Settings,
+    offsets: &[usize],
+    budget: &mut Budget,
+) -> Vec<Option<Lists>> {
+    markdown::lists(rope, settings, offsets, budget)
+}
+
 /// The indentation that `pieces`, a line's text from its start in order, starts with: its
 /// length in bytes and the display column it reaches. Spaces and tabs only, never U+3000, a
 /// tab reaching the next stop of `tab_width`; the rules count indentation the same way.
