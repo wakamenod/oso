@@ -67,6 +67,9 @@ const VIEW_REACH: usize = 256;
 /// beside a key's search.
 pub(crate) const FRAME_TIME: std::time::Duration = std::time::Duration::from_millis(2);
 
+/// How many matches a frame's or a key's look finds between looks at the time.
+const TIME_EVERY: usize = 256;
+
 /// A line too long to match a regexp in, which starts at this offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LineTooLong(pub(crate) usize);
@@ -88,6 +91,9 @@ pub(crate) struct Regexp {
     /// A key compiled it quickly, so a key may build the regexps for a cut, which take about
     /// twice as long.
     quick: bool,
+    /// It has no assertion, as migemo's pattern has none, so a match that ends at a cut is one
+    /// as it is, and it needs no regexps for a cut.
+    plain: bool,
     /// The longest line it is matched in.
     longest: usize,
 }
@@ -391,6 +397,17 @@ impl<'a> Scan<'a> {
     }
 }
 
+/// Room for a line's text that a caller keeps from call to call, so a frame or a key allocates
+/// nothing once it has grown. `Debug` prints none of the text (ADR 0044).
+#[derive(Default)]
+pub(crate) struct LineRoom(String);
+
+impl fmt::Debug for LineRoom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LineRoom")
+    }
+}
+
 impl Regexp {
     /// The replacement for the match at `range`: `to` with its `$1`, `${name}`, `$0` and `$$`
     /// expanded from the match's groups, as `Regex::replace` expands them. It reads the
@@ -418,17 +435,17 @@ impl Regexp {
     /// after, from one character before that, so `^` and `\b` see what is there, reading at
     /// most `limit` bytes in all and until `until`, so a frame or a key costs as much as its
     /// view. A match the window cuts at its end is left out, as it may be longer or none.
-    /// `line` is room the caller keeps for a line's text, so a frame allocates nothing once
-    /// it has grown.
+    /// `room` is where each line's text is read.
     pub(crate) fn matches_in(
         &self,
         text: &Rope,
         spans: &[Range<usize>],
         (most, limit): (usize, usize),
-        (until, line): (Instant, &mut String),
+        (until, room): (Instant, &mut LineRoom),
         out: &mut Vec<Range<usize>>,
     ) {
-        let mut left = limit;
+        let (mut left, line) = (limit, &mut room.0);
+        let mut looks = 0_usize;
         for shown in spans {
             let (_, start, end) = span(text, shown.start);
             if shown.start > end || Instant::now() >= until {
@@ -448,6 +465,11 @@ impl Regexp {
             let mut at = look - read_from;
             let mut last_end = None;
             while at <= cut {
+                // A line full of matches looks at the time now and then, too.
+                looks += 1;
+                if looks.is_multiple_of(TIME_EVERY) && Instant::now() >= until {
+                    return;
+                }
                 let Some(found) = self.regex.find_at(line, at) else {
                     break;
                 };

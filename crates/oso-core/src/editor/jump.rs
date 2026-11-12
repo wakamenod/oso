@@ -6,8 +6,10 @@
 //! Must not depend on: `command` or `keymap`, or the host's window, threads or clock: the host
 //! keeps the time a string is read for, and calls [`Editor::jump_show_labels`] when it passes.
 //!
+//! The only time read here is a key's, for its matches (`search::KEY_TIME`).
+//!
 //! - Only the text in view is looked at: each window's rows in view, within [`WINDOW_BUDGET`]
-//!   of text a window and [`JUMP_BUDGET`] in all, and a regexp's matches within a key's time
+//!   of text a window and [`JUMP_BUDGET`] in all, and a string's matches within a key's time
 //!   (`search::KEY_TIME`), the selected window first, then the others in the tree's order,
 //!   and each window's rows from its cursor's outward, so a budget that runs out leaves out
 //!   the farthest. A key costs as much as the view, not the buffer, and
@@ -75,7 +77,7 @@ pub(super) struct Scratch {
     found: Vec<Near>,
     ranges: Vec<Range<usize>>,
     /// A line's text, for a regexp's matches.
-    line: String,
+    line: search::LineRoom,
     /// What each window looked at shows now.
     views: Vec<Shown>,
     /// Each window looked at, by its place among them, and its primary cursor's point.
@@ -404,7 +406,7 @@ impl Editor {
             };
             let room = (&mut *ranges, &mut *line);
             left -= candidates_in(&place, (kind, needle.as_ref()), within, found, room);
-            if left == 0 || found.len() >= MAX_FOUND {
+            if left == 0 || found.len() >= MAX_FOUND || Instant::now() >= until {
                 break;
             }
         }

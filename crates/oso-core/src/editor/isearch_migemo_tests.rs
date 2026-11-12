@@ -219,6 +219,27 @@ fn a_secret_kill_of_romaji_yanked_into_the_string_keeps_no_needle() {
 }
 
 #[test]
+fn a_secret_shown_while_searching_keeps_the_next_needles_out() {
+    let mut editor = editor("かな kana");
+    let first = editor.window().id();
+    let other = editor.split_window(crate::frame::Way::Down, false).unwrap();
+    let plain = editor.add_buffer(Buffer::from_text("other.txt", "TOKEN=x"));
+    editor.select_window(other);
+    editor.show(plain);
+    editor.select_window(first);
+    search(&mut editor, "ka");
+    let cached = editor.migemo.cached();
+    assert!(cached > 0);
+    // The other window's buffer turns out to hold secrets while the search goes on.
+    assert!(editor.buffer_mut(plain).unwrap().treat_as_secret());
+    editor.isearch_add("n");
+    drain(&mut editor);
+    assert!(migemo(&editor));
+    assert!(editor.isearch().unwrap().around_secret());
+    assert_eq!(editor.migemo.cached(), cached);
+}
+
+#[test]
 fn a_jump_s_string_matches_by_migemo_as_the_setting_says() {
     let mut editor = editor("か x ka x");
     let targets = |editor: &mut Editor| {

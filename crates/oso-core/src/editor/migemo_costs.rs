@@ -266,7 +266,7 @@ fn fill_cache(count: usize) {
         assert!(
             editor
                 .migemo
-                .string_needle(&string, false, (true, Cache::Keep))
+                .string_needle(&string, false, true, Cache::Keep)
                 .is_some()
         );
     }

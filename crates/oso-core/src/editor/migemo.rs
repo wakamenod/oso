@@ -6,8 +6,9 @@
 //!
 //! The cache holds strings as the history does, so a string typed around a buffer that may
 //! hold secrets stays out of it, and `Debug` prints none of them (ADR 0044). A cached needle
-//! is a clone, whose regexps for a cut a backward search may still build on a key, as for
-//! any regexp a key compiled quickly.
+//! is a clone, which needs no regexps for a cut. A string looked up around a secret leaves
+//! the cache's order as it was. Its entries are of the romaji table alone: the dictionary of
+//! step 3 must empty it when it loads.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -22,7 +23,7 @@ const CACHED: usize = 32;
 /// The setting and the cache.
 pub(super) struct Migemo {
     /// Whether a search starts with migemo on.
-    on: bool,
+    starts_on: bool,
     /// The strings' needles, the newest last.
     cache: VecDeque<Entry>,
 }
@@ -31,19 +32,18 @@ pub(super) struct Migemo {
 struct Entry {
     string: String,
     case_sensitive: bool,
-    /// Migemo's needle, `None` if the string gives no kana.
-    needle: Option<Needle>,
+    needle: Needle,
 }
 
 /// What a string looks for.
-pub(super) enum Looked {
+pub(super) enum Sought {
     /// Migemo's needle, for romaji that gives kana.
     Migemo(Needle),
     /// The string as it is.
     Literal(Needle),
 }
 
-impl Looked {
+impl Sought {
     /// The needle, whichever it is.
     pub(super) fn into_needle(self) -> Needle {
         match self {
@@ -74,7 +74,7 @@ impl Cache {
 impl Default for Migemo {
     fn default() -> Self {
         Self {
-            on: true,
+            starts_on: true,
             cache: VecDeque::new(),
         }
     }
@@ -83,25 +83,26 @@ impl Default for Migemo {
 impl fmt::Debug for Migemo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Migemo")
-            .field("on", &self.on)
+            .field("starts_on", &self.starts_on)
             .finish_non_exhaustive()
     }
 }
 
 impl Migemo {
     /// What `string` looks for with the case `case_sensitive` says: migemo's needle if
-    /// `migemo_on` and the string is romaji that gives kana, else the literal string. `None`
+    /// `use_migemo` and the string is romaji that gives kana, else the literal string. `None`
     /// for an empty string. A migemo needle built goes in the cache as `cache` says.
     pub(super) fn string_needle(
         &mut self,
         string: &str,
         case_sensitive: bool,
-        (migemo_on, cache): (bool, Cache),
-    ) -> Option<Looked> {
-        if migemo_on && let Some(needle) = self.needle(string, case_sensitive, cache) {
-            return Some(Looked::Migemo(needle));
+        use_migemo: bool,
+        cache: Cache,
+    ) -> Option<Sought> {
+        if use_migemo && let Some(needle) = self.needle(string, case_sensitive, cache) {
+            return Some(Sought::Migemo(needle));
         }
-        Query::new(string, case_sensitive).map(|query| Looked::Literal(Needle::Literal(query)))
+        Query::new(string, case_sensitive).map(|query| Sought::Literal(Needle::Literal(query)))
     }
 
     /// Migemo's needle for `string`, `None` if it is not romaji that gives kana, from the
@@ -112,12 +113,18 @@ impl Migemo {
         }
         let at = (self.cache.iter())
             .position(|entry| entry.string == string && entry.case_sensitive == case_sensitive);
-        if let Some(entry) = at.and_then(|at| self.cache.remove(at)) {
+        if let Some(at) = at {
+            // Around a secret, the order stays as it was, so it says nothing of the string.
+            if cache == Cache::Skip {
+                return Some(self.cache[at].needle.clone());
+            }
+            let entry = self.cache.remove(at)?;
             let needle = entry.needle.clone();
             self.cache.push_back(entry);
-            return needle;
+            return Some(needle);
         }
-        let needle = Needle::migemo(string, case_sensitive);
+        // A string that gives no kana costs little to look at again, so it pushes no needle out.
+        let needle = Needle::migemo(string, case_sensitive)?;
         if cache == Cache::Keep {
             if self.cache.len() == CACHED {
                 self.cache.pop_front();
@@ -128,7 +135,7 @@ impl Migemo {
                 needle: needle.clone(),
             });
         }
-        needle
+        Some(needle)
     }
 
     /// How many strings' needles it keeps.
@@ -142,12 +149,12 @@ impl Editor {
     /// Whether a search starts with migemo on, as `[search] migemo` says (ADR 0116). A search
     /// under way keeps what it has.
     pub fn set_migemo(&mut self, on: bool) {
-        self.migemo.on = on;
+        self.migemo.starts_on = on;
     }
 
     /// Whether a search starts with migemo on.
-    pub(super) fn migemo_on(&self) -> bool {
-        self.migemo.on
+    pub(super) fn migemo_starts_on(&self) -> bool {
+        self.migemo.starts_on
     }
 
     /// What a jump's `string` looks for (ADR 0116): migemo's needle if the setting is on and
@@ -157,9 +164,9 @@ impl Editor {
     pub(super) fn jump_needle(&mut self, string: &str, around_secret: bool) -> Option<Needle> {
         let case_sensitive = search::smart_case(string);
         let cache = Cache::unless(around_secret || self.shows_secret());
-        let on = self.migemo.on;
+        let on = self.migemo.starts_on;
         (self.migemo)
-            .string_needle(string, case_sensitive, (on, cache))
-            .map(Looked::into_needle)
+            .string_needle(string, case_sensitive, on, cache)
+            .map(Sought::into_needle)
     }
 }

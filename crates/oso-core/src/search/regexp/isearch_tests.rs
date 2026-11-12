@@ -379,7 +379,7 @@ fn highlights_read_around_the_view_and_within_their_budget() {
     let text = format!("{} ab ab", "x".repeat(1000));
     let rope = Rope::from(text.as_str());
     let shown = std::slice::from_ref(&(1001..1006));
-    let (mut out, mut line) = (Vec::new(), String::new());
+    let (mut out, mut line) = (Vec::new(), super::LineRoom::default());
     let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
     // `^` holds only at the line's start, though what is read starts near the view.
     regexp("^ab").matches_in(&rope, shown, (100, 1 << 20), (later, &mut line), &mut out);

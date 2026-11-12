@@ -525,7 +525,9 @@ coordinator; the notes below are those choices as built.
 #### As built (step 2, 2026-11-13)
 
 The author chose the first option of each of six questions on 2026-11-12, through the
-coordinator; the notes below are those choices as built. Two depart from the Decision's text:
+coordinator; the notes below are those choices as built. Besides the strings that search
+literally (a letter that starts no spelling, over 256 characters, or a pattern over a key's
+limit, where the Decision kept the kana), two depart from the Decision's text:
 `oso_core::migemo` stays private until step 4, and the cache holds compiled needles, in the
 editor.
 
@@ -561,8 +563,10 @@ editor.
   the worker wait for the dictionary (step 3). Searching keeps step 1's limits.
 - **The cache** holds the last 32 compiled needles, by string and case, in the editor
   (`editor/migemo.rs`, beside isearch and jumps), so `DEL`, a repeat and `C-s C-s` compile no
-  pattern again. A needle from it is a clone, whose regexps for a cut a backward search may
-  still build on a key, as for any regexp a key compiled quickly. A string typed around a
+  pattern again; a string that gives no kana is not kept, as it costs little to look at
+  again. Migemo's pattern has no assertion, as every character is escaped, so a match that ends
+  where a range is cut is one as it is, and its needle never builds step 1's regexps for a cut,
+  on a key, for cursors or on the worker. A string typed around a
   buffer that may hold secrets stays out of it, as does a jump's string while the jump is
   around one, and `Debug` prints none of them. At worst, 32 needles of 256 characters take
   about 8.6 MB (the ignored tests `migemo_cache_memory_1` and `_32` under `/usr/bin/time -l`).
@@ -576,7 +580,9 @@ editor.
   it searched, and counts anew. Migemo is then off for that search, as after `M-m`: the
   `[migemo]` tag drops, `M-m` turns it on again and `DEL` goes back to the step before. The
   author chose this on 2026-11-13 over failing there and over a literal look in that line
-  alone.
+  alone. Cursors from the search (`C->`, `C-<`, `C-c C-<`) take its needle as it is: once it
+  went on literally, the literal string, and before, migemo's regexp, which, as step 1's
+  regexp cursors, finds none past such a line.
 - **A key's cost**, the highlights included, in a release build on a loaded machine (the ignored
   test `migemo_key_costs`): over 20 MB of short lines with no match, 1.0 ms p50 for a literal
   string, 0.3 ms for `k`, 1.4 to 2.0 ms for `kanji`, and 2.0 to 2.3 ms for 256 characters of

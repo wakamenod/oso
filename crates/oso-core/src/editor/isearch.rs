@@ -89,7 +89,7 @@ impl Editor {
             window.buffer(),
             begin,
             buffer.revision(),
-            (backward, regexp, self.migemo_on()),
+            (backward, regexp, self.migemo_starts_on()),
             around_secret,
         );
         self.isearch = Some(search);

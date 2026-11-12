@@ -195,7 +195,7 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
     let text = format!("{}a1 a2 a3", "z".repeat(1000));
     let rope = Rope::from(text.as_str());
     let regexp = compile(r"a\d").unwrap();
-    let (mut out, mut line) = (Vec::new(), String::new());
+    let (mut out, mut line) = (Vec::new(), super::LineRoom::default());
     // The view shows the end of the line.
     regexp.matches_in(
         &rope,
@@ -223,7 +223,7 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
 fn highlights_past_their_time_find_nothing_more() {
     let rope = Rope::from("a1 a2\na3\n");
     let regexp = compile(r"a\d").unwrap();
-    let (mut out, mut line) = (Vec::new(), String::new());
+    let (mut out, mut line) = (Vec::new(), super::LineRoom::default());
     let gone = std::time::Instant::now();
     regexp.matches_in(
         &rope,
@@ -252,7 +252,7 @@ fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
     let rope = Rope::from(text.as_str());
     let snapshot = (&rope, &InvalidBytes::new());
     let started = std::time::Instant::now();
-    let (mut out, mut line) = (Vec::new(), String::new());
+    let (mut out, mut line) = (Vec::new(), super::LineRoom::default());
     let room = (later(), &mut line);
     needle.matches_in(
         snapshot,
@@ -272,6 +272,21 @@ fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
     );
     assert_eq!(out.len(), 1);
     assert!(started.elapsed() < std::time::Duration::from_millis(100));
+}
+
+#[test]
+fn a_migemo_match_at_a_cut_needs_no_regexps_for_a_cut() {
+    let Some(Needle::Regexp(regexp)) = Needle::migemo("ka", false) else {
+        panic!("ka gives kana");
+    };
+    // The range ends inside the line, just after a match.
+    let rope = Rope::from("かか\n");
+    let ranges = [0..3];
+    let mut scan = Scan::new(&regexp, &rope, &ranges, (0, false), usize::MAX, None);
+    scan.on_key();
+    assert!(matches!(scan.next(&|| false), Ok(Found::Match(range)) if range == (0..3)));
+    regexp.build_cut();
+    assert!(!regexp.cut_built());
 }
 
 /// A romaji string of `spellings` from the table, joined, cut to [`migemo::MAX_CHARS`] at

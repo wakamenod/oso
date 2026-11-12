@@ -215,6 +215,8 @@ pub(crate) fn compile_migemo(pattern: &str, insensitive: bool) -> Option<Regexp>
         .ok()?;
     let mut regexp = Regexp::new(regex, pattern, insensitive);
     regexp.quick = started.elapsed() <= QUICK;
+    // Every character is escaped, so there is no `$`, `\b` or `^` to see past a cut.
+    regexp.plain = true;
     Some(regexp)
 }
 
@@ -259,14 +261,23 @@ impl Regexp {
             at_cut: std::sync::OnceLock::new(),
             source: Arc::new((pattern.to_owned(), insensitive)),
             quick: false,
+            plain: false,
             longest: MAX_LINE,
         }
     }
 
     /// Builds the regexps for a match at a cut, if they are not built yet, where there is
-    /// time: on the worker, or once as the keys that add cursors begin.
+    /// time: on the worker, or once as the keys that add cursors begin. One with no
+    /// assertion needs none.
     pub(crate) fn build_cut(&self) {
-        self.at_cut();
+        if !self.plain {
+            self.at_cut();
+        }
+    }
+
+    /// Whether a match that ends at a cut is one as it is: it has no assertion.
+    pub(super) fn plain(&self) -> bool {
+        self.plain
     }
 
     /// Whether the regexps for a cut are built, or found not to compile.

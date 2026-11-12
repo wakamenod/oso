@@ -17,7 +17,7 @@ use crate::search::{self, CompileError, Find, MAX_QUERY_CHARS, Needle, On, Prepa
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
 
-use crate::editor::migemo::{Cache, Looked, Migemo};
+use crate::editor::migemo::{Cache, Migemo, Sought};
 
 /// The most steps `DEL` can go back. The oldest go first.
 const MAX_STEPS: usize = 4096;
@@ -46,7 +46,7 @@ pub(super) enum Asked {
 pub(super) enum Pattern {
     /// Nothing: the string is empty.
     Empty,
-    /// A literal query, or a regexp a key compiled.
+    /// A literal query, or a compiled regexp, the key's or the worker's.
     Ready(Needle),
     /// Migemo's needle for a romaji string (ADR 0116), which a worker takes as it is.
     Migemo(Needle),
@@ -349,10 +349,11 @@ impl Isearch {
         self.pattern = if self.string.is_empty() {
             Pattern::Empty
         } else if !self.regexp {
-            let on = (self.use_migemo, Cache::unless(self.around_secret));
-            match migemo.string_needle(&self.string, self.case_sensitive(), on) {
-                Some(Looked::Migemo(needle)) => Pattern::Migemo(needle),
-                Some(Looked::Literal(needle)) => Pattern::Ready(needle),
+            let cache = Cache::unless(self.around_secret);
+            let case_sensitive = self.case_sensitive();
+            match migemo.string_needle(&self.string, case_sensitive, self.use_migemo, cache) {
+                Some(Sought::Migemo(needle)) => Pattern::Migemo(needle),
+                Some(Sought::Literal(needle)) => Pattern::Ready(needle),
                 None => Pattern::Empty,
             }
         } else {

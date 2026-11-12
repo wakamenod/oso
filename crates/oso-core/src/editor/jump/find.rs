@@ -11,7 +11,7 @@ use super::Near;
 use crate::buffer::Buffer;
 use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Kind};
-use crate::search::Needle;
+use crate::search::{LineRoom, Needle};
 use crate::sum_tree::Bias;
 use crate::window::{Screen, WindowId};
 
@@ -40,15 +40,15 @@ pub(in crate::editor) fn outward(at: usize, count: usize) -> impl Iterator<Item 
 }
 
 /// Adds the candidates of `kind` in a window's rows in view to `found`, reading at most
-/// `budget` bytes, adding at most `most` and, for a regexp, looking until `until`, from the
-/// cursor's row outward. Returns about how many bytes it read. `room` is room to work in: a
+/// `budget` bytes, adding at most `most` and looking until `until`, from the cursor's row
+/// outward. Returns about how many bytes it read. `room` is room to work in: a
 /// match's ranges and a line's text.
 pub(super) fn candidates_in(
     place: &Place<'_>,
     (kind, needle): (Kind, Option<&Needle>),
     (budget, most, until): (usize, usize, Instant),
     found: &mut Vec<Near>,
-    room: (&mut Vec<Range<usize>>, &mut String),
+    room: (&mut Vec<Range<usize>>, &mut LineRoom),
 ) -> usize {
     let display = place.buffer.display();
     let (screen, text) = (place.screen, place.buffer.text());
@@ -89,7 +89,7 @@ pub(super) fn candidates_in(
             // a match running into the next row hides the one it overlaps there.
             let mut done = 0..0;
             for index in outward(cursor_row, shown.len()) {
-                if left == 0 || found.len() >= limit {
+                if left == 0 || found.len() >= limit || Instant::now() >= until {
                     break;
                 }
                 if done.contains(&index) {
@@ -152,7 +152,7 @@ fn run_matches(
     run: &Run<'_>,
     (budget, most, until): (usize, usize, Instant),
     found: &mut Vec<Near>,
-    (ranges, line): (&mut Vec<Range<usize>>, &mut String),
+    (ranges, line): (&mut Vec<Range<usize>>, &mut LineRoom),
 ) -> usize {
     let display = place.buffer.display();
     let (screen, text) = (place.screen, place.buffer.text());

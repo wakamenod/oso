@@ -213,7 +213,7 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 - **Jumps by label** (`Editor::jump`, `oso_core::jump`,
   [ADR 0116](adr/0116-migemo-and-jumps.md)) are a mode of the selected window too, with their own
   keymap. A key finds the candidates in every tiled window's rows in view, within 256 KiB a window
-  and 1 MiB a jump, nearest the window's primary cursor first, and labels them with avy's tree; a
+  and 1 MiB a jump, its matches within a key's 3 ms, nearest the window's primary cursor first, and labels them with avy's tree; a
   frame draws only those found. The tip crate runs the timer that shows the labels
   (`app/jumps.rs`).
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns

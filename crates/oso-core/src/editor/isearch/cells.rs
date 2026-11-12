@@ -37,7 +37,7 @@ pub struct MatchCells {
     pub(in crate::editor) spans: Vec<Range<usize>>,
     pub(in crate::editor) found: Vec<Range<usize>>,
     /// A line's text, for a regexp's matches.
-    pub(in crate::editor) line: String,
+    pub(in crate::editor) line: search::LineRoom,
     /// What a project search's preview cells were worked out for, so that a frame that shows
     /// the same works out nothing (ADR 0114).
     pub(in crate::editor) preview_key: Option<crate::editor::project_search::PreviewCellsKey>,
