@@ -220,7 +220,7 @@ fn a_query_replace_holds_the_handover_and_an_exit_for_a_generation() {
 fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
     let mut editor = Editor::default();
     let before = generation(&editor);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     assert_eq!(
         check(&editor),
         Err("cannot hand over: a search is under way".into())
@@ -441,6 +441,22 @@ fn positions_wait_behind_another_buffer_only_while_the_place_kept_there_is_untou
     assert!(restore.try_apply(&mut editor), "over: dropped");
     editor.toggle_messages();
     assert_eq!(editor.window().selections.primary().cursor, 5);
+}
+
+#[test]
+fn an_undo_under_way_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = Editor::default();
+    crate::channel::state::begin_a_large_undo(&mut editor);
+    let before = generation(&editor);
+    let held = Err("cannot hand over: an undo or a redo is under way".into());
+    assert_eq!(check(&editor), held);
+    let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+    assert!(
+        refused.ends_with("an undo or a redo is under way"),
+        "{refused}"
+    );
+    editor.cancel_crossing();
+    assert!(check(&editor).is_ok());
 }
 
 #[test]

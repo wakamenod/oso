@@ -90,9 +90,9 @@ impl App {
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.
         self.start_searches();
-        // `!` replaces a slice a turn, and a keyboard macro replays a little (ADR 0113).
-        self.replace_slice(event_loop);
-        self.replay_macro(event_loop);
+        // `!` replaces a slice a turn, an undo of a large step goes on (ADR 0119), and a
+        // keyboard macro replays a little (ADR 0113).
+        self.run_slices(event_loop);
         // Commands, a resize or a load may have left rows to wrap.
         self.start_wraps();
         // And text to highlight, or buffers to drop.
@@ -184,6 +184,7 @@ impl App {
             self.jump_timer.next_wake(),
             self.reload_deadline(),
             self.quiet_walk_deadline(),
+            self.slice_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),

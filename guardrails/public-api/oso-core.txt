@@ -1534,6 +1534,7 @@ pub fn oso_core::editor::Editor::begin_crossing(&mut self, isize) -> core::resul
 pub fn oso_core::editor::Editor::cancel_crossing(&mut self) -> bool
 pub fn oso_core::editor::Editor::crossing(&self) -> core::option::Option<&oso_core::editor::Crossing>
 pub fn oso_core::editor::Editor::go_on_crossing(&mut self) -> core::option::Option<core::result::Result<(), oso_core::buffer::EditError>>
+pub fn oso_core::editor::Editor::take_crossing_freed(&mut self) -> core::option::Option<alloc::boxed::Box<dyn core::marker::Send>>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::buffers_by_recency(&self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
@@ -1689,12 +1690,13 @@ pub fn oso_core::editor::Editor::set_indent_rigidly_layer(&mut self, bool)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch(&self) -> core::option::Option<&oso_core::editor::Isearch>
 pub fn oso_core::editor::Editor::isearch_add(&mut self, &str)
-pub fn oso_core::editor::Editor::isearch_begin(&mut self, bool) -> bool
+pub fn oso_core::editor::Editor::isearch_begin(&mut self, bool, bool) -> bool
 pub fn oso_core::editor::Editor::isearch_delete(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_exit(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_history(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_repeat(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
+pub fn oso_core::editor::Editor::isearch_toggle_regexp(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
@@ -1747,6 +1749,7 @@ pub fn oso_core::editor::Editor::theme_name(&self) -> core::option::Option<&'sta
 pub fn oso_core::editor::Editor::toggle_theme(&mut self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::loaded(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::refill_wraps(&mut self)
 pub fn oso_core::editor::Editor::set_wraps(&mut self, oso_core::buffer::BufferId, bool) -> bool
 pub fn oso_core::editor::Editor::take_wrap_jobs(&mut self) -> alloc::vec::Vec<oso_core::display_map::wrap_map::WrapJob>
 pub fn oso_core::editor::Editor::take_wrap_report(&mut self, oso_core::display_map::wrap_map::WrapReport) -> bool
@@ -1858,6 +1861,7 @@ pub fn oso_core::editor::Isearch::backward(&self) -> bool
 pub fn oso_core::editor::Isearch::case_sensitive(&self) -> bool
 pub fn oso_core::editor::Isearch::count(&self) -> core::option::Option<(usize, usize)>
 pub fn oso_core::editor::Isearch::failing(&self) -> bool
+pub fn oso_core::editor::Isearch::regexp(&self) -> bool
 pub fn oso_core::editor::Isearch::searching(&self) -> bool
 pub fn oso_core::editor::Isearch::string(&self) -> &str
 pub fn oso_core::editor::Isearch::wrapped(&self) -> bool
@@ -3234,6 +3238,254 @@ pub fn oso_core::project::same_place(&std::path::Path, &std::path::Path) -> bool
 pub fn oso_core::project::worktree_backlink(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
 pub fn oso_core::project::worktree_claim(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
 pub fn oso_core::project::worktree_entry(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
+pub mod oso_core::review
+pub enum oso_core::review::Anchor
+pub oso_core::review::Anchor::Hunk
+pub oso_core::review::Anchor::Hunk::index: usize
+pub oso_core::review::Anchor::Line
+pub oso_core::review::Anchor::Line::number: u32
+pub oso_core::review::Anchor::Line::side: oso_core::review::Side
+impl core::clone::Clone for oso_core::review::Anchor
+pub fn oso_core::review::Anchor::clone(&self) -> oso_core::review::Anchor
+impl core::cmp::Eq for oso_core::review::Anchor
+impl core::cmp::PartialEq for oso_core::review::Anchor
+pub fn oso_core::review::Anchor::eq(&self, &oso_core::review::Anchor) -> bool
+impl core::fmt::Debug for oso_core::review::Anchor
+pub fn oso_core::review::Anchor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::Anchor
+impl core::marker::StructuralPartialEq for oso_core::review::Anchor
+pub enum oso_core::review::Author
+pub oso_core::review::Author::Agent
+pub oso_core::review::Author::Person
+impl core::clone::Clone for oso_core::review::Author
+pub fn oso_core::review::Author::clone(&self) -> oso_core::review::Author
+impl core::cmp::Eq for oso_core::review::Author
+impl core::cmp::PartialEq for oso_core::review::Author
+pub fn oso_core::review::Author::eq(&self, &oso_core::review::Author) -> bool
+impl core::fmt::Debug for oso_core::review::Author
+pub fn oso_core::review::Author::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::Author
+pub fn oso_core::review::Author::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::Author
+impl core::marker::StructuralPartialEq for oso_core::review::Author
+pub enum oso_core::review::Base
+pub oso_core::review::Base::Blob(alloc::boxed::Box<[u8]>)
+pub oso_core::review::Base::Empty
+pub oso_core::review::Base::Unknown
+impl core::clone::Clone for oso_core::review::Base
+pub fn oso_core::review::Base::clone(&self) -> oso_core::review::Base
+impl core::cmp::Eq for oso_core::review::Base
+impl core::cmp::PartialEq for oso_core::review::Base
+pub fn oso_core::review::Base::eq(&self, &oso_core::review::Base) -> bool
+impl core::fmt::Debug for oso_core::review::Base
+pub fn oso_core::review::Base::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::Base
+pub enum oso_core::review::CommentError
+pub oso_core::review::CommentError::NoSuchComment
+pub oso_core::review::CommentError::NoSuchFile
+pub oso_core::review::CommentError::NotInDiff
+pub oso_core::review::CommentError::NotYours
+pub oso_core::review::CommentError::RepliesNotYours
+pub oso_core::review::CommentError::TooLong
+pub oso_core::review::CommentError::TooMany
+impl core::clone::Clone for oso_core::review::CommentError
+pub fn oso_core::review::CommentError::clone(&self) -> oso_core::review::CommentError
+impl core::cmp::Eq for oso_core::review::CommentError
+impl core::cmp::PartialEq for oso_core::review::CommentError
+pub fn oso_core::review::CommentError::eq(&self, &oso_core::review::CommentError) -> bool
+impl core::fmt::Debug for oso_core::review::CommentError
+pub fn oso_core::review::CommentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::CommentError
+impl core::marker::StructuralPartialEq for oso_core::review::CommentError
+pub enum oso_core::review::Decision
+pub oso_core::review::Decision::Accepted
+pub oso_core::review::Decision::Rejected
+impl core::clone::Clone for oso_core::review::Decision
+pub fn oso_core::review::Decision::clone(&self) -> oso_core::review::Decision
+impl core::cmp::Eq for oso_core::review::Decision
+impl core::cmp::PartialEq for oso_core::review::Decision
+pub fn oso_core::review::Decision::eq(&self, &oso_core::review::Decision) -> bool
+impl core::fmt::Debug for oso_core::review::Decision
+pub fn oso_core::review::Decision::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::Decision
+pub fn oso_core::review::Decision::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::Decision
+impl core::marker::StructuralPartialEq for oso_core::review::Decision
+pub enum oso_core::review::ShapeError
+pub oso_core::review::ShapeError::Empty
+pub oso_core::review::ShapeError::Empty::hunk: usize
+pub oso_core::review::ShapeError::Misnumbered
+pub oso_core::review::ShapeError::Misnumbered::hunk: usize
+pub oso_core::review::ShapeError::OutOfOrder
+pub oso_core::review::ShapeError::OutOfOrder::hunk: usize
+pub oso_core::review::ShapeError::TooLong
+impl core::clone::Clone for oso_core::review::ShapeError
+pub fn oso_core::review::ShapeError::clone(&self) -> oso_core::review::ShapeError
+impl core::cmp::Eq for oso_core::review::ShapeError
+impl core::cmp::PartialEq for oso_core::review::ShapeError
+pub fn oso_core::review::ShapeError::eq(&self, &oso_core::review::ShapeError) -> bool
+impl core::fmt::Debug for oso_core::review::ShapeError
+pub fn oso_core::review::ShapeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::ShapeError
+impl core::marker::StructuralPartialEq for oso_core::review::ShapeError
+pub enum oso_core::review::Side
+pub oso_core::review::Side::New
+pub oso_core::review::Side::Old
+impl core::clone::Clone for oso_core::review::Side
+pub fn oso_core::review::Side::clone(&self) -> oso_core::review::Side
+impl core::cmp::Eq for oso_core::review::Side
+impl core::cmp::PartialEq for oso_core::review::Side
+pub fn oso_core::review::Side::eq(&self, &oso_core::review::Side) -> bool
+impl core::fmt::Debug for oso_core::review::Side
+pub fn oso_core::review::Side::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::Side
+pub fn oso_core::review::Side::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::Side
+impl core::marker::StructuralPartialEq for oso_core::review::Side
+pub struct oso_core::review::Applied
+pub oso_core::review::Applied::again: bool
+pub oso_core::review::Applied::dropped: usize
+pub oso_core::review::Applied::marks_changed: bool
+pub oso_core::review::Applied::outdated: usize
+pub oso_core::review::Applied::placed: usize
+pub oso_core::review::Applied::returned: usize
+impl core::clone::Clone for oso_core::review::Applied
+pub fn oso_core::review::Applied::clone(&self) -> oso_core::review::Applied
+impl core::cmp::Eq for oso_core::review::Applied
+impl core::cmp::PartialEq for oso_core::review::Applied
+pub fn oso_core::review::Applied::eq(&self, &oso_core::review::Applied) -> bool
+impl core::default::Default for oso_core::review::Applied
+pub fn oso_core::review::Applied::default() -> oso_core::review::Applied
+impl core::fmt::Debug for oso_core::review::Applied
+pub fn oso_core::review::Applied::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::Applied
+impl core::marker::StructuralPartialEq for oso_core::review::Applied
+pub struct oso_core::review::BaseHunk
+pub oso_core::review::BaseHunk::new: core::ops::range::Range<u32>
+pub oso_core::review::BaseHunk::old: core::ops::range::Range<u32>
+impl core::clone::Clone for oso_core::review::BaseHunk
+pub fn oso_core::review::BaseHunk::clone(&self) -> oso_core::review::BaseHunk
+impl core::cmp::Eq for oso_core::review::BaseHunk
+impl core::cmp::PartialEq for oso_core::review::BaseHunk
+pub fn oso_core::review::BaseHunk::eq(&self, &oso_core::review::BaseHunk) -> bool
+impl core::fmt::Debug for oso_core::review::BaseHunk
+pub fn oso_core::review::BaseHunk::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::BaseHunk
+pub struct oso_core::review::Carried
+impl core::clone::Clone for oso_core::review::Carried
+pub fn oso_core::review::Carried::clone(&self) -> oso_core::review::Carried
+impl core::fmt::Debug for oso_core::review::Carried
+pub fn oso_core::review::Carried::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Carry
+impl oso_core::review::Carry
+pub fn oso_core::review::Carry::run<B, F>(self, B, F) -> oso_core::review::Carried where B: core::ops::function::FnMut(&[u8], &[u8]) -> core::option::Option<alloc::vec::Vec<oso_core::review::BaseHunk>>, F: core::ops::function::FnMut(&[&[u8]], &[&[u8]]) -> alloc::vec::Vec<(usize, usize)>
+impl core::clone::Clone for oso_core::review::Carry
+pub fn oso_core::review::Carry::clone(&self) -> oso_core::review::Carry
+impl core::fmt::Debug for oso_core::review::Carry
+pub fn oso_core::review::Carry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Comment
+impl oso_core::review::Comment
+pub fn oso_core::review::Comment::anchor(&self) -> oso_core::review::Anchor
+pub fn oso_core::review::Comment::author(&self) -> oso_core::review::Author
+pub fn oso_core::review::Comment::id(&self) -> oso_core::review::CommentId
+pub fn oso_core::review::Comment::is_outdated(&self) -> bool
+pub fn oso_core::review::Comment::is_read(&self) -> bool
+pub fn oso_core::review::Comment::is_resolved(&self) -> bool
+pub fn oso_core::review::Comment::is_sent(&self) -> bool
+pub fn oso_core::review::Comment::path(&self) -> &[u8]
+pub fn oso_core::review::Comment::reply_to(&self) -> core::option::Option<oso_core::review::CommentId>
+pub fn oso_core::review::Comment::text(&self) -> &str
+impl core::clone::Clone for oso_core::review::Comment
+pub fn oso_core::review::Comment::clone(&self) -> oso_core::review::Comment
+impl core::fmt::Debug for oso_core::review::Comment
+pub fn oso_core::review::Comment::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::CommentId(_)
+impl oso_core::review::CommentId
+pub fn oso_core::review::CommentId::get(self) -> u64
+impl core::clone::Clone for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::clone(&self) -> oso_core::review::CommentId
+impl core::cmp::Eq for oso_core::review::CommentId
+impl core::cmp::Ord for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::cmp(&self, &oso_core::review::CommentId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::eq(&self, &oso_core::review::CommentId) -> bool
+impl core::cmp::PartialOrd for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::partial_cmp(&self, &oso_core::review::CommentId) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::review::CommentId
+pub fn oso_core::review::CommentId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::review::CommentId
+impl core::marker::StructuralPartialEq for oso_core::review::CommentId
+pub struct oso_core::review::Hunk
+pub oso_core::review::Hunk::added: alloc::vec::Vec<alloc::boxed::Box<[u8]>>
+pub oso_core::review::Hunk::new_start: u32
+pub oso_core::review::Hunk::old_start: u32
+pub oso_core::review::Hunk::removed: alloc::vec::Vec<alloc::boxed::Box<[u8]>>
+impl core::clone::Clone for oso_core::review::Hunk
+pub fn oso_core::review::Hunk::clone(&self) -> oso_core::review::Hunk
+impl core::cmp::Eq for oso_core::review::Hunk
+impl core::cmp::PartialEq for oso_core::review::Hunk
+pub fn oso_core::review::Hunk::eq(&self, &oso_core::review::Hunk) -> bool
+impl core::fmt::Debug for oso_core::review::Hunk
+pub fn oso_core::review::Hunk::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::Hunk
+pub struct oso_core::review::LineMap
+impl oso_core::review::LineMap
+pub fn oso_core::review::LineMap::carry(&self, oso_core::review::Side, u32) -> core::option::Option<u32>
+pub fn oso_core::review::LineMap::new<F>(&oso_core::review::Shape, &oso_core::review::Shape, core::option::Option<&[oso_core::review::BaseHunk]>, F) -> oso_core::review::LineMap where F: core::ops::function::FnMut(&[&[u8]], &[&[u8]]) -> alloc::vec::Vec<(usize, usize)>
+impl core::clone::Clone for oso_core::review::LineMap
+pub fn oso_core::review::LineMap::clone(&self) -> oso_core::review::LineMap
+impl core::fmt::Debug for oso_core::review::LineMap
+pub fn oso_core::review::LineMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Review
+impl oso_core::review::Review
+pub fn oso_core::review::Review::add_comment(&mut self, oso_core::review::Author, &[u8], oso_core::review::Anchor, alloc::string::String) -> core::result::Result<oso_core::review::CommentId, oso_core::review::CommentError>
+pub fn oso_core::review::Review::apply(&mut self, oso_core::review::Carried) -> oso_core::review::Applied
+pub fn oso_core::review::Review::carry(&self, &[u8], alloc::sync::Arc<oso_core::review::Shape>) -> oso_core::review::Carry
+pub fn oso_core::review::Review::clear_dropped(&mut self, &[u8])
+pub fn oso_core::review::Review::comment(&self, oso_core::review::CommentId) -> core::option::Option<&oso_core::review::Comment>
+pub fn oso_core::review::Review::comments(&self) -> impl core::iter::traits::iterator::Iterator<Item = &oso_core::review::Comment>
+pub fn oso_core::review::Review::decide(&mut self, &[u8], usize, core::option::Option<oso_core::review::Decision>) -> bool
+pub fn oso_core::review::Review::decision(&self, &[u8], usize) -> core::option::Option<oso_core::review::Decision>
+pub fn oso_core::review::Review::dropped(&self, &[u8]) -> usize
+pub fn oso_core::review::Review::edit_comment(&mut self, oso_core::review::Author, oso_core::review::CommentId, alloc::string::String) -> core::result::Result<(), oso_core::review::CommentError>
+pub fn oso_core::review::Review::file(&self, &[u8]) -> core::option::Option<&alloc::sync::Arc<oso_core::review::Shape>>
+pub fn oso_core::review::Review::files(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&[u8], &alloc::sync::Arc<oso_core::review::Shape>)>
+pub fn oso_core::review::Review::mark_read(&mut self, &[oso_core::review::CommentId])
+pub fn oso_core::review::Review::mark_sent(&mut self, &[oso_core::review::CommentId])
+pub fn oso_core::review::Review::new() -> oso_core::review::Review
+pub fn oso_core::review::Review::remove_comment(&mut self, oso_core::review::Author, oso_core::review::CommentId) -> core::result::Result<usize, oso_core::review::CommentError>
+pub fn oso_core::review::Review::remove_file(&mut self, &[u8])
+pub fn oso_core::review::Review::reply(&mut self, oso_core::review::Author, oso_core::review::CommentId, alloc::string::String) -> core::result::Result<oso_core::review::CommentId, oso_core::review::CommentError>
+pub fn oso_core::review::Review::resolve(&mut self, oso_core::review::Author, oso_core::review::CommentId, bool) -> core::result::Result<(), oso_core::review::CommentError>
+pub fn oso_core::review::Review::set_viewed(&mut self, &[u8], usize, bool) -> bool
+pub fn oso_core::review::Review::viewed(&self, &[u8], usize) -> bool
+impl core::clone::Clone for oso_core::review::Review
+pub fn oso_core::review::Review::clone(&self) -> oso_core::review::Review
+impl core::default::Default for oso_core::review::Review
+pub fn oso_core::review::Review::default() -> oso_core::review::Review
+impl core::fmt::Debug for oso_core::review::Review
+pub fn oso_core::review::Review::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Shape
+impl oso_core::review::Shape
+pub fn oso_core::review::Shape::base(&self) -> &oso_core::review::Base
+pub fn oso_core::review::Shape::hunk_at(&self, oso_core::review::Side, u32) -> core::option::Option<usize>
+pub fn oso_core::review::Shape::hunks(&self) -> &[oso_core::review::Hunk]
+pub fn oso_core::review::Shape::line(&self, oso_core::review::Side, u32) -> core::option::Option<&[u8]>
+pub fn oso_core::review::Shape::new(oso_core::review::Base, alloc::vec::Vec<oso_core::review::Hunk>) -> core::result::Result<oso_core::review::Shape, oso_core::review::ShapeError>
+impl core::clone::Clone for oso_core::review::Shape
+pub fn oso_core::review::Shape::clone(&self) -> oso_core::review::Shape
+impl core::cmp::Eq for oso_core::review::Shape
+impl core::cmp::PartialEq for oso_core::review::Shape
+pub fn oso_core::review::Shape::eq(&self, &oso_core::review::Shape) -> bool
+impl core::fmt::Debug for oso_core::review::Shape
+pub fn oso_core::review::Shape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::Shape
+pub const oso_core::review::MAX_COMMENTS: usize
+pub const oso_core::review::MAX_COMMENT_BYTES: usize
+pub const oso_core::review::MAX_KEPT_LINE: usize
+pub fn oso_core::review::base_pair<'a>(&'a oso_core::review::Shape, &'a oso_core::review::Shape) -> core::option::Option<(&'a [u8], &'a [u8])>
 pub mod oso_core::rope
 pub struct oso_core::rope::Chunks<'a>
 impl<'a> core::iter::traits::iterator::Iterator for oso_core::rope::Chunks<'a>

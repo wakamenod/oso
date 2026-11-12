@@ -557,15 +557,184 @@ first, (a).
   - The commit's wrap edit and the clip read every splice's wrap edit and every window's cursors
     once; both are inside the 1.3 to 1.7 ms above.
 
+### Step 3 decisions
+
+Put to the author with step 3's plan on 2026-11-12, the recommended option first; each answer was
+the first, (a).
+
+1. **The wraps' budget before a slice outside a command.** (a) `Editor::refill_wraps` becomes
+   public, and the host calls it before each slice and `Editor::follow_cursor` after, as the
+   dispatcher does around a command. (b) The host opens and closes an undo group around each
+   slice. (c) A public wrapper doing all three.
+2. **What frees what a crossing lets go.** (a) `Editor::take_crossing_freed`, giving
+   `Option<Box<dyn Send>>` with everything since the last call. (b) `Editor::take_freed` gives
+   killed buffers and crossings together, changing its signature. (c) A new public type.
+3. **The wheel meanwhile.** (a) Summed for each window and scrolled once the keys held with it
+   have run, while `!` replaces too. (b) Dropped. (c) Held event by event with the keys.
+4. **"Count too large" when the steps cross after the command.** (a) Said at once, and the
+   progress line comes first in the echo row while the crossing goes on, so the message shows
+   once it ends. (b) Said at once, hiding the progress. (c) A count over 256 is refused before
+   any step crosses.
+5. **What `C-g` says.** (a) "Undo cancelled" or "Redo cancelled". (b) "Undo cancelled" either way.
+6. **The agent's reply when the person cancels.** (a) The error "Undo cancelled by the person"
+   (or "Redo"). (b) A result with `"cancelled": true`.
+7. **A batch too large to follow in one slice.** (a) The history records a batch of more than
+   4096 splices as several of at most 4096. (b) Following such a batch over later slices. (c)
+   Leaving it bounded by what the commands make today.
+8. **The pace of slices** (Q8, put after measuring the app: one slice a turn, each turn waiting
+   for a frame, took 4.5 s to undo a step whose slices took 0.4 s). (a) Keep one slice a frame.
+   (b) Run slices back to back up to about 8 ms a turn. (c) Do not wait for a frame between
+   slices: wake the loop at once for the next, and draw only when the share shown changes, a
+   step commits or the work ends; the same for `!`. The author chose (c).
+
+### As built (step 3, 2026-11-12)
+
+- **The commands.** `undo` and `undo-redo` call `Editor::begin_crossing` with a count of at most
+  256, and say "Count too large" at once past it (decision 4). They ask for a frame only if a step
+  crossed or one goes on, as before. query-replace's `u` still undoes at once.
+- **Each turn.** `app/slices.rs` runs, before the loop waits, `!`'s slice, then the undo's, then
+  a replay's. Through `Dispatcher::go_on_crossing` the undo's gives the wraps their budget, runs
+  a slice and makes the windows follow their cursors; the emergency copy then reads the buffer.
+  When the crossing ends, an error is said and stops a keyboard macro's replay, as a failing
+  command does, and the input held meanwhile runs, then the wheel's.
+- **The pace (decision 8).** While `!`, an undo or a replay goes on, the loop wakes again at once
+  rather than waiting for a frame, and still takes input between turns. A frame is drawn only
+  when the whole percent shown changes (an undo's share done, or `!`'s replacements over its
+  count once counted), a step of a count commits, a view moved, the work ends, or 100 ms have
+  passed, as for `!` before its count comes (`slices::Pace`). The check that draws when the
+  modeline or the echo area changed waits meanwhile, as `!`'s count changes every slice. Step 2
+  asked for a redraw at each slice, and the redraw brought the next turn, so a window hidden from
+  view, which draws no frame, held `!`, an undo or a replay until something else woke the loop;
+  waking at once ends that too.
+- **A slice does 256 splices' work before its time may stop it** (`SURE_WORK`), a fraction of a
+  millisecond, so that a small undo crosses in its command on any machine, as decision Q1 has
+  small undos unchanged. On a slow runner a small undo had stayed under way past its first slice,
+  and the next `C-z` was held.
+- **A panic in a later slice** is caught there, inside the emergency publisher's command scope,
+  as `Registry::execute` catches a command's: the editor holds no crossing while a slice runs,
+  so it drops the crossing and nothing else, and the echo area says "Undo or redo panicked".
+- **Held input** (`dispatch/hold_all.rs`) is held while `!` replaces or a crossing goes on, in one
+  queue of at most 256. `C-g` cancels the crossing, says "Undo cancelled" or "Redo cancelled",
+  and drops the keys and the wheel held with it. The window's close button is held with the
+  keys, past the 256 too, survives a `C-g`, and asks its question after them; so does it now
+  while `!` replaces. The wheel is summed for each window and scrolls after the keys, while `!`
+  replaces too; a window gone meanwhile scrolls nothing. A prompt that opened while keys were
+  held, as a question, takes none of them: they are dropped, and the echo area says "Keys typed
+  meanwhile dropped: a prompt opened"; this holds for `!` too. During a replay, a first `C-g`
+  stops the macro, as ADR 0113 has it, and a second cancels the undo.
+- **The echo row** shows the progress line first while a crossing goes on; what a command said
+  shows once it ends.
+- **What waits.** The channel refuses `run`, `open` and `insert` with "an undo or a redo goes on;
+  try again in a moment". A restart, and an `exit` with a generation, are refused with "cannot
+  hand over: an undo or a redo is under way", which `oso dev` waits out as it does a macro.
+  `Editor::reload_waits` holds a reload, and a replay waits. The question about a connection to
+  the channel waits too, as a prompt opening would abandon the undo. A whitespace scan that
+  reports while an undo goes on in its buffer is set aside, and scans again once the undo has
+  ended, as its cleanup would abandon it. While a replay waits for something else, as a load
+  or a search, the loop does not turn at once for it: what it waits for wakes the loop.
+- **`get-state`'s `undoing`,** in the channel's state and the dev socket's: `null`,
+  `{"redo": false, "done": 0.42}`, or `{"active": true}` while a buffer that may hold secrets is
+  shown or is the one undone.
+- **The channel's own undo.** If the command leaves a crossing under way, the reply waits
+  (`app/agent/undoing.rs`): once it ends, the command's own reply, or the error that ended it;
+  "Undo cancelled by the person" (or "Redo") after the person's `C-g`, and with a count, how
+  many steps crossed before it ("after 2 of 5 steps"). Past 8 s, under the
+  channel's 10 s wait for a reply, it replies that the undo goes on and `state`'s `undoing` says
+  how far; the reply to a save waits as long, from the same constant
+  (`channel::server::ANSWER_WITHIN`). A connection that goes, or a channel turned off, forgets
+  the reply; the undo goes on. The `state` tool of `oso mcp` names `undoing`.
+- **Freeing.** The editor keeps what each commit lets go, now with the groups the history's
+  limit drops at that commit, and what a crossing cancelled, abandoned or replaced held, until
+  the host takes it with `Editor::take_crossing_freed`. `App::apply` hands it to the thread that
+  frees a reloaded file's text. The windows' old wraps are still dropped at the commit, and an
+  edit still frees the groups the limit drops where it is.
+- **Large batches are recorded in parts of at most 4096 splices** (`undo::BATCH_SPLICES`), the
+  lowest first, so that they apply from the highest back as the whole did. The text, the content
+  id and every offset come out as before, and a crossing at once and in slices cross the same
+  group. What may differ is where another window's cursor lands when it sits exactly where two
+  parts meet, as it follows the parts one after the other rather than the batch whole. A batch
+  that fits is recorded as before, with nothing allocated beside it.
+- **A slice hands out what cursors follow up to where it may last be cut.** Step 2 handed out
+  the part of a run applied in a slice only when the slice stopped where it could be cut, and
+  otherwise kept all of it for the next. Now a slice keeps only what it applied after the last
+  place it could be cut.
+- **A run joins at most 65,536 splices** (`RUN_SPLICES` in `buffer/sliced.rs`). What ends with a
+  run, as the edited lines it follows, reads all of it at once, which step 2 left for this step;
+  a large step's batches that lie apart now make several runs, each ending in a slice of its own.
+- **Measured** with `text_perf -- undo`, release build, with what a commit lets go dropped
+  outside the times as the host frees it:
+
+  | Case | Slices | p50 | p99 | Max | Last | Whole |
+  |---|---|---|---|---|---|---|
+  | `!` over 4M short lines | 172 | 3.00 ms | 3.16 ms | 3.17 ms | 1.10 ms | 514 ms |
+  | the same, wrapped | 169 | 3.00 ms | 3.16 ms | 5.09 ms | 5.09 ms | 509 ms |
+  | the same, two windows | 176 | 3.00 ms | 3.16 ms | 3.16 ms | 0.71 ms | 526 ms |
+  | `!` over 2 MiB, highlighted | 233 | 3.00 ms | 3.23 ms | 4.13 ms | 0.80 ms | 698 ms |
+  | 20,000 answers far apart in 100 MB | 14 | 3.00 ms | 3.01 ms | 3.01 ms | 1.90 ms | 41 ms |
+  | 20 commands joined at 1000 cursors | 10 | 3.00 ms | 3.01 ms | 3.01 ms | 2.63 ms | 30 ms |
+  | an 89 MB kill | 21 | 2.36 ms | 2.94 ms | 3.01 ms | 1.78 ms | 52 ms |
+  | 200k splices in one edit, highlighted, 1000 cursors in a second window | 201 | 3.00 ms | 4.12 ms | 4.18 ms | 3.79 ms | 604 ms |
+  | `!` deleting 2M bytes, 1000 a line, highlighted | 280 | 3.00 ms | 4.09 ms | 9.30 ms | 2.35 ms | 844 ms |
+
+  Redo's slices take about what undo's do. The last slice, which commits, took 15.8 to 23.5 ms in step 2, almost
+  all of it freeing; in a wrapped window it still takes about 5 to 6 ms, rewrapping the rows in
+  view with the command's budget. A run that ends follows the edited lines, which puts p99 at
+  3.16 ms where runs end often. The longest slice of the last case was 4.3 to 5.0 ms in most
+  runs, and 8.6 to 9.3 ms in about one run in three or four. Before the cut and run changes above, the "200k splices"
+  case's longest slice took 47 ms with the batch kept whole, and the last case's 17 ms.
+
+- **In the running app** (release build with the dev socket, the window open but not focused,
+  reading `get-state` every 200 ms), on a 100 MB file of 3.6 million lines:
+
+  | From the keys to the end | One slice a frame | Back to back (decision 8) |
+  |---|---|---|
+  | `!` replacing a match on every line | 49 s | 6.2 s, 6.4 s with keys held |
+  | undoing it | 4.5 to 4.7 s | 1.1 s, the same with keys held |
+  | redoing it | 4.5 s | 1.1 s |
+
+  At one slice a frame, the slices took about 0.4 s of an undo: the loop ran about 22 turns a
+  second, and the UI thread waited for the next event about 80% of the time. Back to back, a
+  redo's 1.1 s held about 0.45 s of slices and 0.2 s of waiting for the paced frames' drawables.
+  Keys held meanwhile ran in order after it. The echo area said `Undoing… 46%` midway while the
+  text stayed as before.
+- **Tests (the coordinator's review).** Keys held before a question opened do not answer it; a
+  close request held with keys survives `C-g` and asks after it; a replay that waits for an
+  undo does not count as going on; a whitespace scan that reports during an undo is set aside
+  and scans again once it ends; the question about a connection waits for an undo; and the
+  agent's reply after a cancelled count says how many steps crossed.
+- **Tests (decision 8 and the sure work).** A dispatcher test drives an undo's turns with no
+  frame: each asks for none until the commit, which asks for one. The pace's own test: a frame is
+  due when the share moves on, a step of a count commits, or 100 ms pass. In `oso-core`, with
+  each slice's time up as it begins, 200 splices cross in the first slice and 2000 do not.
+- **Tests.** Unit tests in `oso-core`: what a commit, a cancel, a replaced and an abandoned
+  crossing let go waits to be taken; the progress comes before a message until the end; a
+  reload waits; a batch of more than two parts, of replacements that meet and of deletions apart,
+  crosses back and forth at once and in slices; a batch is cut into parts each no larger than one,
+  lowest first; slices that stop where cursors may not be cut hand out no step longer than a
+  batch (it handed out three batches' worth before); and batches past a run's splices make
+  several runs that give the text one batch after another gives. Through the `Dispatcher`: keys and a close request
+  wait and run in order, `C-g` cancels an undo and a redo and drops the keys, a replay waits for
+  an undo its own key began, and the count limit. In the app: the channel's wait, `get-state`'s
+  `undoing` beside a secret buffer, and the restart's and the exit's refusals. End to end
+  (`e2e/undo.rs`, `e2e/agent.rs`): over 100,000 lines replaced by `!`, keys typed after `C-z`
+  run after it, the progress shows, a restart waits for it, `C-g` cancels an undo and a redo, and
+  an agent's undo replies when it ends and hears the person's `C-g`.
+- **Left:** the windows' old wraps are dropped at the commit; query-replace's `u` undoes at once,
+  as its step is one replacement; `!`'s later slices still run outside a panic boundary; the
+  input held meanwhile runs in the turn that commits, as after `!`.
+
 ## Changes to accepted ADRs
 
 - [ADR 0113](0113-query-replace-keyboard-macros-and-whitespace-cleanup.md): the exception for
-  undoing a large `!` ends once step 3 lands; its "As built" gains a pointer here.
+  undoing a large `!` ended with step 3; its "As built" points here. The window's close button
+  and the wheel now wait while `!` replaces, as keys do, and `!`'s slices go on back to back,
+  drawn as its share moves on (decision 8).
 - [ADR 0053](0053-edit-core.md): a crossing may be staged over several turns, still on clones and
   committed once.
-- [ADR 0090](0090-oso-dev-carries-unsaved-text.md): a restart also waits for a crossing.
-- [ADR 0085](0085-agent-channel-and-oso-mcp.md): the channel also waits for a crossing, and
-  `get-state` gains `undoing`.
+- [ADR 0090](0090-oso-dev-carries-unsaved-text.md): a restart also waits for a crossing, and so
+  does an `exit` with a generation.
+- [ADR 0085](0085-agent-channel-and-oso-mcp.md): the channel also waits for a crossing,
+  `get-state` gains `undoing`, and the reply to its own `undo` waits for the crossing to end.
 - [ADR 0083](0083-reloading-files-changed-on-disk.md): `Editor::reload_waits` also waits for a
   crossing.
 - [ADR 0053](0053-edit-core.md)'s "undo cannot return part of a group" stays true: a cancelled
@@ -575,12 +744,13 @@ first, (a).
 
 - No undo or redo blocks the UI thread past its slice, whatever made the step.
 - A large undo still takes as long in all, a little longer for the frames between slices, and the
-  person waits with keys held, as for `!`.
+  person waits with keys held, as for `!`. As built, with slices back to back (step 3 decision
+  8), undoing `!` over a 100 MB file takes about twice its slices' time.
 - The buffer is never half undone, so saving, crashing and restarting need no new rule.
 - A large crossing holds about twice the step's memory while it runs.
 - A caller that begins a crossing must allow one still going on when it returns. `Editor::undo`
   and `Editor::redo` still cross a whole step (step 2 decision 1), as query-replace's `u` needs;
-  the `undo` and `undo-redo` commands switch to `Editor::begin_crossing` in step 3.
+  the `undo` and `undo-redo` commands use `Editor::begin_crossing` since step 3.
 
 ## Alternatives considered
 

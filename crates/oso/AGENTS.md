@@ -15,7 +15,7 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `walks`, `greps`, `wraps`, `flash` and `jumps` do the work, `control`
+  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `slices`, `walks`, `greps`, `wraps`, `flash` and `jumps` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing

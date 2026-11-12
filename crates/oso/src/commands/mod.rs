@@ -16,6 +16,7 @@ mod cursors;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+pub use edit::MAX_CROSSINGS;
 mod files;
 mod indent;
 mod isearch;
@@ -282,9 +283,11 @@ mod tests {
         "yank-pop",
         // isearch, which reads keys (ADR 0082).
         "isearch-backward",
+        "isearch-backward-regexp",
         "isearch-delete-char",
         "isearch-exit",
         "isearch-forward",
+        "isearch-forward-regexp",
         "isearch-mark-all",
         "isearch-mark-next",
         "isearch-mark-previous",
@@ -295,6 +298,7 @@ mod tests {
         "isearch-ring-advance",
         "isearch-ring-retreat",
         "isearch-toggle-case-fold",
+        "isearch-toggle-regexp",
         "isearch-yank-pop",
         "isearch-yank-kill",
         "isearch-yank-word-or-char",

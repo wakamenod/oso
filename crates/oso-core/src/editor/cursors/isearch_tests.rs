@@ -11,7 +11,7 @@ use crate::selection::MAX_CURSORS;
 
 /// Starts a forward search for `string`, and lets the worker count.
 fn search(editor: &mut Editor, string: &str) {
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add(string);
     drain(editor);
 }
@@ -68,7 +68,7 @@ fn every_match_of_a_search_gets_a_cursor_unless_it_counted_too_many() {
 fn a_match_from_a_search_is_taken_on_whole_clusters_in_the_searchs_direction() {
     // `e` matches the start of `e` + U+0301, which is one cluster.
     let mut editor = editor("x e\u{301} e");
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("e");
     drain(&mut editor);
     editor.isearch_mark(Some(Toward::Next)).unwrap();
@@ -76,7 +76,7 @@ fn a_match_from_a_search_is_taken_on_whole_clusters_in_the_searchs_direction() {
 
     let mut editor = self::editor("ab x ab x ab");
     at(&mut editor, &[12]);
-    editor.isearch_begin(true);
+    editor.isearch_begin(true, false);
     editor.isearch_add("ab");
     drain(&mut editor);
     editor.isearch_mark(Some(Toward::Previous)).unwrap();
@@ -90,7 +90,7 @@ fn a_match_from_a_search_is_taken_on_whole_clusters_in_the_searchs_direction() {
 #[test]
 fn every_match_waits_for_the_search_to_count_them() {
     let mut editor = editor("ab ab");
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("ab");
     assert_eq!(editor.isearch_mark(None), Err(CursorError::Counting));
     assert!(editor.isearch().is_some(), "the search goes on");
@@ -104,9 +104,28 @@ fn every_match_keeps_the_searchs_own_inside_a_cluster_as_the_primary() {
     // `e` matches the start of `e` + U+0301, which is no occurrence of its own: the search's
     // match, widened to the cluster, stays the primary.
     let mut editor = editor("x e\u{301} e");
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("e");
     drain(&mut editor);
     editor.isearch_mark(None).unwrap();
     assert_eq!(regions(&editor), (vec![(2, 5), (6, 7)], 0));
+}
+
+#[test]
+fn a_regexp_search_adds_cursors_on_its_matches_and_never_an_empty_one() {
+    let mut editor = editor("a1 b a22 a3");
+    editor.isearch_begin(false, true);
+    editor.isearch_add(r"a\d+");
+    drain(&mut editor);
+    editor.isearch_mark(Some(Toward::Next)).unwrap();
+    assert_eq!(regions(&editor), (vec![(0, 2), (5, 8)], 1));
+    editor.mark_like_this(Toward::Next, 1).unwrap();
+    assert_eq!(regions(&editor).0, [(0, 2), (5, 8), (9, 11)]);
+    // `b*` matches empty almost everywhere, and a cursor goes only on `b`.
+    let mut editor = self::editor("b xb");
+    editor.isearch_begin(false, true);
+    editor.isearch_add("b*");
+    drain(&mut editor);
+    editor.isearch_mark(Some(Toward::Next)).unwrap();
+    assert_eq!(regions(&editor), (vec![(0, 1), (3, 4)], 1));
 }

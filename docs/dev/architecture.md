@@ -186,7 +186,12 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   path. Consecutive self-inserts join one group, up to 20. Removed text is kept as
   rope slices, so killing a huge region copies nothing. History is bounded in
   bytes, 64 MiB per buffer, not counting the group last recorded or crossed, which
-  always stays. It is not persisted to disk.
+  always stays. It is not persisted to disk. A batch of more than 4096 splices is
+  kept in parts. An undo or a redo crosses a slice a turn on clones and commits each
+  step once ([ADR 0119](adr/0119-undoing-large-steps-in-slices.md)): the command runs
+  the first slice, `app/slices.rs` the rest, back to back and drawn as the share moves
+  on, keys and the wheel wait as for `!` and `C-g` cancels it, and what each commit lets
+  go is freed off the UI thread.
 - **The kill ring** (`oso_core::kill`, [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md))
   is owned by `Editor`. A kill takes one piece per cursor as rope slices, merging ranges
   that overlap, so it copies nothing on the UI thread, and appends to the newest entry
@@ -195,9 +200,11 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   and yanking it makes the target buffer secret (`Verdict::Yanked`).
 - **isearch** (`Editor::isearch`, [ADR 0082](adr/0082-isearch.md)) is a mode of the selected
   window, with its own keymap in place of the others. The matcher (`oso_core::search`, private to
-  the crate) runs Knuth–Morris–Pratt over the rope's chunks. Each key searches 256 KiB on the UI
-  thread, and one worker thread of the host's (`app/searches.rs`) goes on with a far match and counts
-  the matches over an O(1) snapshot, superseded by the next job through a generation. A frame
+  the crate) runs Knuth–Morris–Pratt over the rope's chunks, or a regexp one line at a time
+  (`search/regexp`, [ADR 0116](adr/0116-migemo-and-jumps.md)). Each key searches 256 KiB, and a
+  regexp's 3 ms, on the UI thread, and one worker thread of the host's (`app/searches.rs`) goes on
+  with a far match, a long line and a regexp too large to compile on a key, and counts the matches
+  over an O(1) snapshot, superseded by the next job through a generation. A frame
   searches only the rows in view for the highlights. A search ends when its window shows another
   buffer or a prompt opens.
 - **Jumps by label** (`Editor::jump`, `oso_core::jump`,
