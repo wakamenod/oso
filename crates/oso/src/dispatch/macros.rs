@@ -88,6 +88,7 @@ impl Dispatcher {
         let held = super::hold_all::Held::Text {
             text: text.to_owned(),
             commit,
+            from_socket: self.from_socket,
         };
         if let Some(done) = self.hold_during_all(editor, held) {
             return done;
@@ -186,14 +187,22 @@ impl Dispatcher {
         editor.macro_record(group);
     }
 
+    /// Whether a replay runs and can feed its next event now, rather than waiting for what an
+    /// earlier one started: the host turns again at once only then (ADR 0119).
+    pub fn replay_goes_on(&self, editor: &Editor) -> bool {
+        editor.macro_replaying() && !self.replay_waits(editor)
+    }
+
     /// Whether what an earlier event started still runs, so the next must wait: a clipboard
-    /// read, a key held for a completion, a search on a worker, `!`'s slices, or a file loading.
+    /// read, a key held for a completion, a search on a worker, `!`'s slices, an undo of a
+    /// large step (ADR 0119), or a file loading.
     fn replay_waits(&self, editor: &Editor) -> bool {
         self.waiting.is_some()
             || self.completion_held.is_some()
             || editor.isearch().is_some_and(|search| search.searching())
             || editor.replace().is_some_and(|replace| replace.searching())
             || editor.replace_works()
+            || editor.crossing().is_some()
             || editor.cursor_search_waits()
             || editor.current().1.loading().is_some()
     }

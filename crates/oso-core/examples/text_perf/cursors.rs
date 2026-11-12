@@ -86,6 +86,8 @@ fn marked_typing_costs(label: &str, text: &str, cursors: usize, shown: bool) {
         let start = Instant::now();
         editor.undo().expect("a command to undo");
         undone.push(start.elapsed());
+        // The app frees what an undo lets go off the UI thread (ADR 0119).
+        drop(editor.take_crossing_freed());
     }
     let (typed_50, typed_99) = percentiles(&mut typed);
     let (undone_50, undone_99) = percentiles(&mut undone);

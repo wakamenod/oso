@@ -86,6 +86,8 @@ impl Editor {
     /// Undoes the newest undo group of the selected window's buffer. The window
     /// gets the cursors from before the group, and other windows' cursors follow
     /// the text. The buffer's content id returns to the one before the group.
+    /// It crosses the whole step at once, dropping a crossing under way, and what it lets go
+    /// waits for [`Editor::take_crossing_freed`] (ADR 0119).
     ///
     /// # Errors
     ///
@@ -95,7 +97,8 @@ impl Editor {
     }
 
     /// Redoes the group the last undo crossed, if no edit came since (ADR
-    /// 0030). The selected window gets the cursors from after the group.
+    /// 0030). The selected window gets the cursors from after the group. As
+    /// [`Editor::undo`], it crosses at once.
     ///
     /// # Errors
     ///

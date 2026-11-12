@@ -124,8 +124,10 @@ impl Editor {
     /// Gives the wraps their budget for what comes next: a command, a wheel scroll, a resize or
     /// a report. All windows share one (ADR 0112): the selected tiled window holds it first,
     /// and each window that wraps or follows its cursor after it takes what is left
-    /// ([`Editor::pass_wrap_budget`]). Between them it waits in the editor's pool.
-    pub(super) fn refill_wraps(&mut self) {
+    /// ([`Editor::pass_wrap_budget`]). Between them it waits in the editor's pool. The host
+    /// calls it before each slice of an undo or a redo that goes on over turns, as the
+    /// dispatcher's [`Editor::begin_undo_group`] does before a command (ADR 0119).
+    pub fn refill_wraps(&mut self) {
         self.gather_wrap_budget();
         self.wrap_pool = COMMAND_BUDGET;
         self.pass_wrap_budget(self.tiled_index());
