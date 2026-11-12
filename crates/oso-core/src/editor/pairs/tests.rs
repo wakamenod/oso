@@ -381,6 +381,29 @@ fn nothing_moves_in_step_out_of_or_into_a_buffer_that_may_hold_secrets() {
 }
 
 #[test]
+fn beneath_a_prompt_a_pair_holding_its_window_stays() {
+    let (mut editor, first, second) = pair("x\n", RowMap::same());
+    let third = editor.split_window(Way::Down, false).unwrap();
+    editor.select_window(second);
+    editor
+        .open_prompt(
+            "Go to line: ",
+            Kind::Number {
+                history: Some("line"),
+            },
+        )
+        .unwrap();
+    assert!(!editor.unpair(first), "the window beneath keeps its place");
+    assert_eq!(editor.delete_window(), Err(SoleWindow));
+    assert_eq!(ids(&editor), [first, second, third]);
+    assert_eq!(editor.pair_of(first), Some(second));
+    editor.quit();
+    assert_eq!(selected(&editor), second);
+    assert!(editor.unpair(first));
+    assert_eq!(selected(&editor), first);
+}
+
+#[test]
 fn unpairing_selects_the_kept_window_whatever_was_selected_before() {
     let (mut editor, first, second) = pair("x\n", RowMap::same());
     let third = editor.split_window(Way::Down, false).unwrap();

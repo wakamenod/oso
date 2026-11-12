@@ -141,15 +141,17 @@ impl Editor {
 
     /// Deletes the selected tiled window, and selects the window selected most recently before
     /// it. Its cells go to its neighbour, as [`Splits::remove`] says. A window of a pair goes
-    /// with the other, and a pair that is the whole frame stays (ADR 0122). Ends isearch.
+    /// with the other, and a pair that is the whole frame stays (ADR 0122), as does a pair
+    /// beneath an open prompt, so that what the prompt acts on keeps its window. Ends isearch.
     ///
     /// # Errors
     ///
-    /// [`SoleWindow`] for the only window. Nothing changes.
+    /// [`SoleWindow`] for the only window, a pair that is the whole frame, or a pair beneath an
+    /// open prompt. Nothing changes.
     pub fn delete_window(&mut self) -> Result<(), SoleWindow> {
         let id = self.tiled_id();
         let mut splits = self.splits.clone();
-        if !splits.remove(id, &self.frame) {
+        if self.pair_beneath_prompt(id) || !splits.remove(id, &self.frame) {
             return Err(SoleWindow);
         }
         self.isearch_exit();

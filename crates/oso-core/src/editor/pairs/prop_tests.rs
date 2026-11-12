@@ -20,6 +20,25 @@ enum Op {
     Unpair,
     Turn(bool),
     Resize(bool, isize),
+    Frame(usize, usize),
+    Balance,
+    Wheel(usize, isize),
+    Sideways(usize, isize),
+    Map(usize),
+}
+
+/// Maps at the edges: the same lines, gaps on both sides, no runs, runs ending at the last
+/// number, and a run that starts past line 0.
+fn edge_map(n: usize) -> RowMap {
+    let runs = match n % 6 {
+        0 => return RowMap::same(),
+        1 => vec![(2, 5, 10), (20, 15, 5)],
+        2 => Vec::new(),
+        3 => vec![(0, usize::MAX - 5, 5)],
+        4 => vec![(usize::MAX - 5, 0, 5)],
+        _ => vec![(7, 3, 20)],
+    };
+    RowMap::new(runs).unwrap()
 }
 
 fn op() -> impl proptest::strategy::Strategy<Value = Op> {
@@ -35,6 +54,11 @@ fn op() -> impl proptest::strategy::Strategy<Value = Op> {
         Just(Op::Unpair),
         any::<bool>().prop_map(Op::Turn),
         (any::<bool>(), -20isize..20).prop_map(|(a, c)| Op::Resize(a, c)),
+        (0usize..80, 0usize..260).prop_map(|(r, c)| Op::Frame(r, c)),
+        Just(Op::Balance),
+        (0usize..8, -40isize..40).prop_map(|(w, r)| Op::Wheel(w, r)),
+        (0usize..8, -40isize..40).prop_map(|(w, c)| Op::Sideways(w, c)),
+        (0usize..6).prop_map(Op::Map),
     ]
 }
 
@@ -69,6 +93,23 @@ fn apply(editor: &mut Editor, op: Op, others: [BufferId; 2]) {
         }
         Op::Resize(across, cells) => {
             let _ = editor.resize_window(way(across), cells);
+        }
+        Op::Frame(rows, columns) => {
+            editor.set_frame_size(crate::frame::FrameSize { rows, columns });
+        }
+        Op::Balance => {
+            editor.balance_windows();
+        }
+        Op::Wheel(n, rows) => {
+            let windows = ids(editor);
+            editor.scroll_view(windows[n % windows.len()], rows);
+        }
+        Op::Sideways(n, columns) => {
+            let windows = ids(editor);
+            editor.scroll_view_sideways(windows[n % windows.len()], columns);
+        }
+        Op::Map(n) => {
+            editor.set_row_map(selected(editor), edge_map(n));
         }
     }
 }

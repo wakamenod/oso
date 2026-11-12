@@ -163,7 +163,13 @@ impl Editor {
 
     /// Closes the window paired with `keep`, which takes the pair's cells as a window of its
     /// own, selected if the other was. Returns whether `keep` was in a pair.
+    ///
+    /// Beneath an open prompt, a pair that holds the window beneath it stays, and this returns
+    /// false, so that what the prompt acts on keeps its window (ADR 0072).
     pub fn unpair(&mut self, keep: WindowId) -> bool {
+        if self.pair_beneath_prompt(keep) {
+            return false;
+        }
         let Some(other) = self.splits.unpair(keep) else {
             return false;
         };
@@ -175,6 +181,14 @@ impl Editor {
         self.drop_window(other);
         self.lay_out(self.frame.size());
         true
+    }
+
+    /// Whether a prompt is open over a window of the pair `id` is in.
+    pub(super) fn pair_beneath_prompt(&self, id: WindowId) -> bool {
+        !self.prompts.is_empty()
+            && self
+                .pair_at(id)
+                .is_some_and(|at| self.pairs[at].windows.contains(&self.tiled_id()))
     }
 
     /// The index of the pair `id` is in.

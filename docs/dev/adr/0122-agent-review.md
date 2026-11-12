@@ -458,8 +458,9 @@ Limits for crafted input, each saying what it hides:
   `walk` in `[oso]`.
 - **`oso-syntax`** gains documents no buffer owns, for the old side and files not open (new public
   API, this ADR; its items are approved at step 8).
-- **`oso_core::window` and `oso_core::frame`** gain a pair of windows that scroll together (new
-  public API, this ADR; its items are approved at step 10).
+- **`oso_core::window` and `oso_core::editor`** gain a pair of windows that scroll together (new
+  public API, this ADR; its items were approved at step 10). `oso_core::frame` keeps the pair in
+  its tree with nothing public.
 - **`oso-platform::process`** gains a piped standard input and variables set by value.
 - **No new crate, no new crate edge, no new dependency** on the recommended options.
 
@@ -497,9 +498,9 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
    on-screen first, and reusing an open buffer's highlights.
 10. **A pair of windows that scroll together, in ADR 0112's tree** (Q7): two windows that move by
     a row map their owner gives, closed and resized together. A new public API of
-    `oso_core::window` and `oso_core::frame`; its items (expected: making and breaking a pair, the
-    row map's trait or type, and how a pair is laid out and saved across a restart) are listed for
-    the author's approval when this step starts.
+    `oso_core::window` and `oso_core::editor`, with nothing public in `oso_core::frame`; its items
+    (making and breaking a pair, the row map's type, and how a pair is laid out and saved across
+    a restart) were approved when this step started (see "As built").
 11. **The two-pane view and the automatic layout** (Q6): the filler rows, the 160 and 150 column
     rules, judging the width only on a change of it, and `|`.
 12. **Sending:** the message and its preview, and the Deliver seam's terminal implementation once
@@ -641,7 +642,7 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - Review state is written to the state directory, and holds code text from the reviewed files.
 - Two new public APIs wait for the author's approval at the start of their steps: documents no
   buffer owns in `oso-syntax` (step 8) and a pair of windows in `oso_core::window` and
-  `oso_core::frame` (step 10).
+  `oso_core::editor` (step 10, approved 2026-11-13).
 - Follow-up: the BlockMap if comments move there, ADR 0121's session and turn seams, posting to
   GitHub, and in-process review with `gix`.
 
@@ -809,7 +810,13 @@ What was built:
   both. `C-x o` and `windmove` go through them as through any window.
 - **The tree** (`frame::Splits`) marks a pair's run, crate-private. A pair is never merged into
   a run of its way, so a pair side by side sits in a run side by side as one child. Nothing in
-  `frame` is public for it.
+  `frame` is public for it. A pair is a level of the tree of its own, so a layout that holds
+  pairs reaches the handoff's 16 levels (`Tiling::MAX_DEPTH`), past which a restart waits, a
+  level sooner than the same windows unpaired would.
+- **Beneath a prompt, a pair holding the window beneath stays:** `unpair` returns false and
+  `delete_window` is refused, as for the sole window, so that what the prompt acts on keeps its
+  window and buffer. The window commands refuse inside a prompt anyway (ADR 0112); this keeps
+  the API from moving a prompt's window for any other caller.
 - **No change to the app:** the host calls `follow_cursor` and the wheel's methods as before,
   and draws each window as before, so no end-to-end flow changed in this step.
 - **Cost:** a command's end looks the pair up among the pairs, and a window that did not move
