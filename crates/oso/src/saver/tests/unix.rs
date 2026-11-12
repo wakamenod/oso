@@ -443,7 +443,7 @@ fn a_name_that_is_not_utf8_saves_where_the_system_allows_one() {
 
 #[test]
 fn another_file_of_the_same_time_and_size_renamed_in_is_a_conflict() {
-    let scratch = Scratch::new("swapped");
+    let scratch = Scratch::new("renamed-in");
     let path = scratch.file("notes.txt", b"old\n");
     let job = job(&path, "new\n");
     let modified = fs::metadata(&path).unwrap().modified().unwrap();
