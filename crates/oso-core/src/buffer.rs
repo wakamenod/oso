@@ -196,6 +196,8 @@ pub struct Buffer {
     /// A kill that counts as secret was yanked into it (ADR 0074). Nothing that judges the
     /// text clears this: [`Buffer::verdict`] combines the two.
     yanked_secret: bool,
+    /// The agent channel may not read it, though it holds no secret (ADR 0121).
+    withheld_from_agents: bool,
     /// The agent channel opened it (ADR 0085).
     opened_by_agent: bool,
     /// The agent channel is opening it and has not shown it yet.
@@ -252,6 +254,7 @@ impl Buffer {
             wraps: false,
             verdict: Verdict::Ordinary,
             yanked_secret: false,
+            withheld_from_agents: false,
             opened_by_agent: false,
             agent_pending: false,
             content: ContentId(0),
@@ -336,6 +339,20 @@ impl Buffer {
         self.yanked_secret = true;
         self.recheck_highlighting();
         !was_withheld
+    }
+
+    /// Keeps the text from the agent channel from now on: for a buffer that shows what only the
+    /// person may read, such as a hosted session's screen in `*Session explain*` (ADR 0121).
+    /// Unlike a secret, it changes nothing else: the channel still acts while it is shown, and
+    /// the person's kills, emergency copies, secure input and the modeline are as they were.
+    pub fn withhold_from_agents(&mut self) {
+        self.withheld_from_agents = true;
+    }
+
+    /// Whether the agent channel may not read the text, though it may hold no secret: see
+    /// [`Self::withhold_from_agents`]. The channel checks [`Self::is_secret`] as well.
+    pub fn withheld_from_agents(&self) -> bool {
+        self.withheld_from_agents
     }
 
     /// Whether the text may hold secrets, and why.

@@ -1,0 +1,23 @@
+ ▐▛███▛█   Claude Code vX.Y.Z
+▝▜██████▀  Model · Plan
+ ▝▝   ▝▝   ~/src/project
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ /help
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ❯ /help                             Show help and available commands
+    /review                           Review a pull request
+    /init                             Initialize a new CLAUDE.md file with codebase documentation
+    /clear                            Clear conversation history and free up context
+    /compact                          Clear history but keep a summary
+
+
+
+
+
+
+
+
+
+
+

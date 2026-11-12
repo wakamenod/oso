@@ -62,6 +62,7 @@ mod reload;
 mod replace;
 mod save;
 mod screen;
+mod sessions;
 mod status;
 mod switch;
 mod tab;
@@ -101,6 +102,7 @@ pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
+pub use sessions::SessionRequest;
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
@@ -242,6 +244,8 @@ pub struct Editor {
     kills: kill::Kills,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
+    /// What commands asked of the host about agent sessions (ADR 0121).
+    session_requests: Vec<SessionRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// The jump under way, and the keys its labels are typed with (ADR 0116).
@@ -341,6 +345,7 @@ impl Editor {
             save_over_asked: None,
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
+            session_requests: Vec::new(),
             isearch: None,
             jump: None,
             jump_keys: crate::jump::Keys::default(),

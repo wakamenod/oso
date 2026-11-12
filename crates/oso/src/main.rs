@@ -20,6 +20,7 @@ mod lister;
 mod loader;
 mod project;
 mod saver;
+mod sessions;
 mod text;
 mod walk;
 
