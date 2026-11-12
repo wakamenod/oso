@@ -272,3 +272,16 @@ fn a_place_judged_that_a_link_now_stands_in_the_way_of_is_not_read() {
     let judged = vec![scratch.0.join("real")];
     assert!(open((&root, Some(&judged)), path, None, &|| true).is_some());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_root_spelled_through_the_systems_links_is_read() {
+    let scratch = Scratch::new("spelled");
+    scratch.file("a.rs", b"one\n");
+    // The temporary directory as the system spells it, through `/var` on macOS; the place
+    // judged is its real one, which has no link in it.
+    let root = std::env::temp_dir().join(scratch.0.file_name().unwrap());
+    let leads = leads(&root);
+    let path = std::path::Path::new("a.rs");
+    assert!(open((&root, leads.as_deref()), path, None, &|| true).is_some());
+}
