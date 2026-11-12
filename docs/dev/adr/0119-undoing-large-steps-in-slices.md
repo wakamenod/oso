@@ -678,7 +678,7 @@ the first, (a).
   wait and run in order, `C-g` cancels an undo and a redo and drops the keys, a replay waits for
   an undo its own key began, and the count limit. In the app: the channel's wait, `get-state`'s
   `undoing` beside a secret buffer, and the restart's and the exit's refusals. End to end
-  (`e2e/undo.rs`, `e2e/agent.rs`): over 20,000 lines replaced by `!`, keys typed after `C-z`
+  (`e2e/undo.rs`, `e2e/agent.rs`): over 100,000 lines replaced by `!`, keys typed after `C-z`
   run after it, the progress shows, a restart waits for it, `C-g` cancels an undo and a redo, and
   an agent's undo replies when it ends and hears the person's `C-g`.
 - **Left:** the windows' old wraps are dropped at the commit; query-replace's `u` undoes at once,

@@ -116,7 +116,8 @@ impl Dispatcher {
     /// their budget first and the windows follow their cursors after, as around a command.
     /// Once it has ended, an error is said, and stops a keyboard macro's replay, as a failing
     /// command does, and the input held meanwhile runs. Returns what the host should do, and
-    /// how it ended, if it did (ADR 0119).
+    /// how it ended, if it did (ADR 0119). It asks for a frame only when the text or a view
+    /// moved, or the crossing ended.
     pub fn go_on_crossing(
         &mut self,
         editor: &mut Editor,
@@ -124,6 +125,7 @@ impl Dispatcher {
         if editor.crossing().is_none() {
             return (Effects::default(), None);
         }
+        let left = editor.crossing().map(oso_core::editor::Crossing::left);
         editor.refill_wraps();
         // A panic in a slice drops the crossing and nothing else, as the editor holds none
         // while a slice runs; outside a command, this is its boundary (ADR 0014, ADR 0119).
@@ -140,9 +142,11 @@ impl Dispatcher {
                 publisher.command_panicked(editor);
             }
         }
-        editor.follow_cursor();
+        let moved = editor.follow_cursor();
+        // The text changes only as a step commits; the host's pace draws the progress.
+        let committed = editor.crossing().map(oso_core::editor::Crossing::left) != left;
         let mut effects = Effects {
-            redraw: true,
+            redraw: moved || committed || ended.is_some(),
             ..Effects::default()
         };
         if let Some(result) = &ended {

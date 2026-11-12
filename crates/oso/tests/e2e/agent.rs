@@ -885,7 +885,7 @@ fn an_agents_save_that_waits_for_a_whitespace_scan_replies_once_written() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn an_agents_undo_of_a_large_step_replies_once_it_ends_or_the_person_cancels_it() {
     let scratch = Scratch::new("agent-undo");
-    let lines = 20_000;
+    let lines = 100_000;
     let file = scratch.write("lines.txt", "x\n".repeat(lines).as_bytes());
     let mut app = App::start(Some(&file), scratch.path());
     app.wait_until_ready();
@@ -900,13 +900,19 @@ fn an_agents_undo_of_a_large_step_replies_once_it_ends_or_the_person_cancels_it(
     });
     app.wait_for("the undo", |state| !state["undoing"].is_null());
     let (agent, result) = undo.join().unwrap();
-    assert_eq!(
-        result.unwrap()["command"],
-        "undo",
-        "it replied once it ended"
-    );
-    let state = app.state();
-    assert_eq!(state["undoing"], json!(null));
+    let result = result.unwrap();
+    // It replies once the undo ended, or, on a machine slow enough that it goes on past the
+    // channel's wait, says so; `undoing` then says when it ends.
+    match result.get("waiting").and_then(Value::as_str) {
+        Some(waiting) => {
+            assert!(waiting.contains("goes on"), "{waiting}");
+            app.wait_for("the undo to end", |state| state["undoing"].is_null());
+        }
+        None => {
+            assert_eq!(result["command"], "undo", "it replied once it ended");
+            assert_eq!(app.state()["undoing"], json!(null));
+        }
+    }
     let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1 })));
     assert_eq!(rows["rows"], json!(["x"]));
 

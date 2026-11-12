@@ -11,7 +11,7 @@ use super::harness::{App, Scratch};
 
 /// Lines of `x`, each replaced by `!`: enough splices that undoing them takes several turns
 /// whatever the machine, as a slice applies at most 4096.
-const LINES: usize = 20_000;
+const LINES: usize = 100_000;
 
 /// Starts the app on a file of [`LINES`] lines of `x`, and replaces each with `y` by `!`.
 fn replaced(test: &str) -> (Scratch, App) {

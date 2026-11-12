@@ -163,6 +163,8 @@ pub struct App {
     /// Wheel and trackpad scrolling held while `!` or an undo goes on, in rows and columns, a
     /// sum for each window, which scrolls after the keys held with it (ADR 0119).
     held_wheel: Vec<(WindowId, isize, isize)>,
+    /// When work over turns last drew a frame (ADR 0119).
+    pace: slices::Pace,
     /// What each tiled window's modeline and the echo area said when a frame was last drawn
     /// or asked for, and room to compare it with what they would say now (ADR 0112).
     statuses: Vec<(WindowId, Status)>,
@@ -321,6 +323,7 @@ impl App {
             started: Some(started),
             wheel: input::Wheeling::default(),
             held_wheel: Vec::new(),
+            pace: slices::Pace::default(),
             statuses: Vec::new(),
             next_statuses: Vec::new(),
             ime: ime::ImeState::default(),

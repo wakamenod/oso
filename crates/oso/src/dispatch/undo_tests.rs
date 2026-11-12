@@ -113,3 +113,21 @@ fn a_replay_waits_for_an_undo_its_key_began() {
     }
     assert_eq!(text(&editor), done);
 }
+
+#[test]
+fn turns_go_on_with_no_frame_until_the_text_changes() {
+    let (mut d, mut editor) = replaced();
+    send(&mut d, &mut editor, "C-z");
+    let mut turns = 0;
+    loop {
+        let (effects, ended) = d.go_on_crossing(&mut editor);
+        turns += 1;
+        if ended.is_some() {
+            assert!(effects.redraw, "the commit is drawn");
+            break;
+        }
+        assert!(!effects.redraw, "turn {turns} asks for no frame");
+    }
+    assert!(turns > 1, "{turns} turns");
+    assert_eq!(text(&editor), "ab ".repeat(10_000));
+}
