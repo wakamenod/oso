@@ -455,8 +455,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   matches in view as isearch's other matches. `DEL` takes a character away. Half a second after
   the last key, or at `RET`, each match shows a label; with no string yet, it waits
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
-- `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit there opens
-  `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key. `M-j` in
+- `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit that no label
+  takes, typed before any of a label, opens `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key. `M-j` in
   isearch (`avy-isearch`) labels the search's matches in the selected window, and ends the search
   at the one chosen, as `RET` does.
 - Labels show in every tiled window, nearest the window's cursor first, over the first cells of
@@ -470,7 +470,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - `C-g` ends a jump with nothing moved, before anything else it would do. A key that is not a
   label, `DEL` and `RET` among them, says `No such candidate` and does not run; while the string
   is read, a key the jump does not bind ends it silently. A change to the text or a scroll under
-  the labels ends the jump, saying which; while the string is read, its matches are found again.
+  the labels ends the jump, saying which, and the next key types nothing; while the string is
+  read, its matches are found again.
 - Labels are drawn over everything in their cells, the text of the rows beside them too, and
   under floats. A keyboard macro replays a jump as it was recorded, labels and all.
 - `[jump] keys` sets the label keys, `asdfghjl` by default: 2 to 32 distinct printable ASCII

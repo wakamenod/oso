@@ -29,8 +29,8 @@ pub struct JumpCells {
 }
 
 /// A label in view: its cells, one row and one cell a key, from its target's first cell and
-/// cut at the row's end or at the next label, and the keys left to type of it, the first the
-/// one to type next.
+/// cut where its row's text stops, before a wrapped row's mark, or at the next label, and the
+/// keys left to type of it, the first the one to type next.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LabelCells {
     pub cells: CellRect,
@@ -52,7 +52,8 @@ impl Editor {
         labels.clear();
         text.clear();
         ranges.clear();
-        let Some(jump) = &self.jump else {
+        // A jump a change ended draws nothing while it waits for the key it takes.
+        let Some(jump) = self.jump.as_ref().filter(|jump| jump.ended.is_none()) else {
             return;
         };
         let Some((_, buffer, regions)) = self.window_in_tree(id) else {
@@ -77,9 +78,13 @@ impl Editor {
                         continue;
                     }
                     let point = candidate.start;
-                    let Some(rect) = frame::cursor_rect(area, screen, point, rest.len()) else {
+                    let Some(mut rect) = frame::cursor_rect(area, screen, point, rest.len()) else {
                         continue;
                     };
+                    // Cut where its row's text stops, so that it leaves a wrapped row's mark.
+                    let row = &screen.rows()[rect.row - area.row];
+                    let room = screen.drawn(row).end.saturating_sub(point.column);
+                    rect.columns = rect.columns.min(room.max(1));
                     let start = text.len();
                     let shown = &rest[..rect.columns.min(rest.len())];
                     text.extend(shown.iter().map(|&key| char::from(jump.keys.byte(key))));

@@ -288,7 +288,7 @@ fn a_shown_region_is_extended_and_the_other_cursors_stay() {
 }
 
 #[test]
-fn a_change_under_the_labels_ends_the_jump_saying_so() {
+fn a_change_under_the_labels_ends_the_jump_saying_so_and_takes_the_next_key() {
     let mut editor = editor("a a\n");
     jump_for(&mut editor, "a");
     let id = editor.window().buffer();
@@ -298,8 +298,38 @@ fn a_change_under_the_labels_ends_the_jump_saying_so() {
     };
     editor.apply_edits(id, &[edit]).unwrap();
     assert!(editor.isearch_follow_text());
-    assert!(editor.jump().is_none());
     assert_eq!(line(&editor), "Jump ended: the text changed");
+    // The person did not end it: the key meant for a label goes nowhere, and says why.
+    let jump = editor.jump().unwrap();
+    assert_eq!((jump.labelled(), jump.takes('a')), (0, false));
+    let drawn = cells(&editor);
+    assert!(
+        drawn.labels.is_empty() && drawn.matches.is_empty(),
+        "it draws nothing"
+    );
+    assert!(!editor.isearch_follow_text(), "nothing more to follow");
+    editor.clear_echo();
+    let before = cursor(&editor);
+    assert_eq!(editor.jump_choose('a'), Chose::NoSuch);
+    assert!(editor.jump().is_none());
+    assert_eq!(cursor(&editor), before, "nothing moved");
+    assert_eq!(line(&editor), "Jump ended: the text changed");
+}
+
+#[test]
+fn a_line_jumps_digits_go_to_goto_line_only_before_a_label_is_begun() {
+    let mut editor = editor(&"x\n".repeat(20));
+    editor.set_jump_keys(Keys::new("12").unwrap());
+    assert!(editor.jump_begin(Kind::LineStart, false));
+    let jump = editor.jump().unwrap();
+    assert!(!jump.gives_goto_line('1'), "a label's key");
+    assert!(jump.gives_goto_line('7'));
+    assert!(!jump.gives_goto_line('x'));
+    assert_eq!(editor.jump_choose('1'), Chose::Narrowed);
+    assert!(
+        !editor.jump().unwrap().gives_goto_line('7'),
+        "a label is begun"
+    );
 }
 
 #[test]
@@ -320,8 +350,41 @@ fn a_scroll_finds_the_matches_again_while_reading_and_ends_the_labels() {
     assert_eq!(editor.jump().unwrap().stage(), Stage::Labels);
     assert!(editor.scroll_view(id, -5));
     assert!(editor.isearch_follow_text());
-    assert!(editor.jump().is_none());
     assert_eq!(line(&editor), "Jump ended: the view changed");
+    assert_eq!(editor.jump_choose('a'), Chose::NoSuch);
+    assert!(editor.jump().is_none());
+}
+
+#[test]
+fn a_wrapped_lines_rows_are_matched_as_one_and_labels_leave_the_mark() {
+    let mut editor = editor(&format!("{}\n", "a".repeat(25)));
+    editor.set_frame_size(FrameSize {
+        rows: 12,
+        columns: 11,
+    });
+    let id = editor.window().buffer();
+    assert!(editor.set_wraps(id, true));
+    super::wrap_tests::settle(&mut editor);
+    jump_for(&mut editor, "aa");
+    let starts = targets(&editor);
+    assert_eq!(
+        starts.len(),
+        12,
+        "as isearch: none overlaps another across rows"
+    );
+    let mut sorted = starts.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, (0..12).map(|at| at * 2).collect::<Vec<_>>());
+    let mut screen = Screen::default();
+    editor.screen_of(editor.window().id(), &mut screen);
+    let width = screen.drawn(&screen.rows()[0]).len();
+    assert!(width < 11, "the row draws the mark");
+    for label in &cells(&editor).labels {
+        assert!(
+            label.cells.column + label.cells.columns <= width,
+            "{label:?}"
+        );
+    }
 }
 
 #[test]

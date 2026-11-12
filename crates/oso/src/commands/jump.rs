@@ -128,9 +128,11 @@ fn avy_printing_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn avy_delete_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // At the labels it ends the jump as any other key there does, which says so itself.
+    let labels = ctx.editor.jump().map(|jump| jump.stage()) == Some(Stage::Labels);
     let mut went_back = false;
     jumping(ctx, |ctx| went_back = ctx.editor.jump_delete())?;
-    if went_back {
+    if went_back || labels {
         Ok(())
     } else {
         Err(CommandError::new("Nothing to delete"))

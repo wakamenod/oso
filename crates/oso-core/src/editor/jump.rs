@@ -1,6 +1,7 @@
 //! Jumps on the editor (ADR 0116): starting one, the string it reads, its candidates in every
 //! tiled window, its labels' keys, and where it goes. What it holds is `crate::jump`'s
-//! [`Jump`], and the cells it draws are in [`cells`].
+//! [`Jump`], the cells it draws are in [`cells`], and finding its candidates in a window
+//! in [`find`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window, threads or clock: the host
 //! keeps the time a string is read for, and calls [`Editor::jump_show_labels`] when it passes.
@@ -20,14 +21,17 @@
 use std::ops::Range;
 
 use super::{Editor, Isearch};
-use crate::buffer::Buffer;
 use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
 use crate::search::{self, Needle, Query};
-use crate::sum_tree::Bias;
 use crate::window::{Screen, WindowId};
 
 mod cells;
+mod find;
+
+#[cfg(test)]
+pub(super) use find::outward;
+use find::{Place, candidates_in};
 
 pub use cells::{JumpCells, LabelCells};
 
@@ -177,13 +181,13 @@ impl Editor {
         if self.jump_follow_text() && self.jump.is_none() {
             return Chose::NoSuch;
         }
-        let Some(jump) = self
-            .jump
-            .as_mut()
-            .filter(|jump| jump.stage == Stage::Labels)
-        else {
+        let Some(jump) = (self.jump.as_mut()).filter(|jump| jump.stage == Stage::Labels) else {
             return Chose::NoSuch;
         };
+        if jump.ended.is_some() {
+            self.jump_refuse();
+            return Chose::NoSuch;
+        }
         let chosen = jump.keys.index_of(key).and_then(|index| {
             let (at, label) = jump.labels_after(index).next()?;
             Some((at, label.len(), index))
@@ -220,7 +224,9 @@ impl Editor {
         let Some(jump) = self.jump.take() else {
             return false;
         };
-        if jump.stage == Stage::Labels {
+        if let Some(why) = jump.ended {
+            self.echo(why);
+        } else if jump.stage == Stage::Labels {
             self.echo("No such candidate");
         }
         true
@@ -241,7 +247,9 @@ impl Editor {
             self.jump = None;
             return true;
         }
-        let Some(jump) = self.jump.as_ref().filter(|jump| !jump.shown.is_empty()) else {
+        let Some(jump) =
+            (self.jump.as_ref()).filter(|jump| !jump.shown.is_empty() && jump.ended.is_none())
+        else {
             return false;
         };
         let mut scratch = std::mem::take(&mut self.jump_scratch);
@@ -263,12 +271,16 @@ impl Editor {
             Stage::Reading if find => self.find_candidates(),
             Stage::Reading => {}
             Stage::Labels => {
-                self.jump = None;
-                self.echo(if edited {
+                // The person did not end it, so the key they type next was meant for a label.
+                let why = if edited {
                     "Jump ended: the text changed"
                 } else {
                     "Jump ended: the view changed"
-                });
+                };
+                if let Some(jump) = &mut self.jump {
+                    jump.ended = Some(why);
+                }
+                self.echo(why);
             }
         }
         true
@@ -297,9 +309,10 @@ impl Editor {
         }
     }
 
-    /// Writes what the echo row says of the jump into `out`, if one is under way.
+    /// Writes what the echo row says of the jump into `out`, if one is under way and no change
+    /// ended its labels.
     pub(super) fn write_jump_line(&self, out: &mut String) {
-        if let Some(jump) = &self.jump {
+        if let Some(jump) = self.jump.as_ref().filter(|jump| jump.ended.is_none()) {
             jump.write_line(out);
         }
     }
@@ -431,117 +444,4 @@ impl Editor {
 /// pattern takes its place for a romaji string once ADR 0116's step 2 is in.
 fn string_needle(string: &str) -> Option<Needle> {
     Query::new(string, search::smart_case(string)).map(Needle::Literal)
-}
-
-/// Where [`candidates_in`] looks: the window's place among those looked at, the window, its
-/// buffer, its rows in view, how many of them its text area shows, and its primary cursor's
-/// point.
-struct Place<'a> {
-    rank: usize,
-    id: WindowId,
-    buffer: &'a Buffer,
-    screen: &'a Screen,
-    rows: usize,
-    cursor: DisplayPoint,
-}
-
-/// The rows of `count` from the cursor's row `at` outward: it, then one below and one above,
-/// and so on, so that a budget that runs out leaves out the farthest rows.
-pub(super) fn outward(at: usize, count: usize) -> impl Iterator<Item = usize> {
-    let first = (count > 0).then_some(at.min(count.saturating_sub(1)));
-    let at = first.unwrap_or(0);
-    let rest = (1..count).flat_map(move |step| {
-        let below = Some(at + step).filter(|&row| row < count);
-        [below, at.checked_sub(step)]
-    });
-    first.into_iter().chain(rest.flatten())
-}
-
-/// Adds the candidates of `kind` in a window's rows in view to `found`, reading at most
-/// `budget` bytes and adding at most `most`, from the cursor's row outward. Returns about how
-/// many bytes it read. `ranges` is room to work in.
-fn candidates_in(
-    place: &Place<'_>,
-    (kind, needle): (Kind, Option<&Needle>),
-    (budget, most): (usize, usize),
-    found: &mut Vec<Near>,
-    ranges: &mut Vec<Range<usize>>,
-) -> usize {
-    let display = place.buffer.display();
-    let (screen, text) = (place.screen, place.buffer.text());
-    let shown = &screen.rows()[..place.rows];
-    let cursor_row = screen.row_of(place.cursor).unwrap_or(0);
-    let limit = found.len().saturating_add(most);
-    let push = |found: &mut Vec<Near>, range: Range<usize>, index: usize| {
-        found.push(Near {
-            key: (place.rank, index.abs_diff(cursor_row)),
-            column: 0,
-            candidate: Candidate {
-                window: place.id,
-                range,
-                start: DisplayPoint::default(),
-                end: DisplayPoint::default(),
-            },
-        });
-    };
-    match (kind, needle) {
-        (Kind::LineStart, _) => {
-            for (index, row) in shown.iter().enumerate().take(most) {
-                // A line's first row, with its first column in view.
-                if row.starts_line() && screen.origin(row) == 0 {
-                    push(found, row.start..row.start, index);
-                }
-            }
-            0
-        }
-        (Kind::LineEnd, _) => {
-            for (index, row) in shown.iter().enumerate().take(most) {
-                // A line's last row, with its end, or the cell after its text, in view.
-                if row.end_column != usize::MAX {
-                    continue;
-                }
-                let end = text.line_end(row.line);
-                let column = display.offset_to_display_point(end).column;
-                if screen.drawn(row).contains(&column) {
-                    push(found, end..end, index);
-                }
-            }
-            0
-        }
-        (_, Some(needle)) => {
-            let (reach, invalid) = (needle.reach(), place.buffer.invalid_bytes());
-            let mut left = budget;
-            for index in outward(cursor_row, shown.len()) {
-                if left == 0 || found.len() >= limit {
-                    break;
-                }
-                let row = &shown[index];
-                let offset = |column| {
-                    display.display_point_to_offset(DisplayPoint::new(row.line, column), Bias::Left)
-                };
-                let drawn = screen.drawn(row);
-                // A match must start within the row's columns in view, though it may reach
-                // past them.
-                let (start, end) = (offset(drawn.start), offset(drawn.end));
-                let span = start..end.saturating_add(reach).min(text.len());
-                let len = span.len();
-                ranges.clear();
-                let most = limit - found.len();
-                needle.matches_in(
-                    (text, invalid),
-                    std::slice::from_ref(&span),
-                    (most, left),
-                    ranges,
-                );
-                for range in ranges.drain(..) {
-                    if range.start < end {
-                        push(found, range, index);
-                    }
-                }
-                left = left.saturating_sub(len.max(1));
-            }
-            budget - left
-        }
-        (_, None) => 0,
-    }
 }

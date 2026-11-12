@@ -2409,10 +2409,10 @@ pub struct oso_core::jump::Jump
 impl oso_core::jump::Jump
 pub fn oso_core::jump::Jump::around_secret(&self) -> bool
 pub fn oso_core::jump::Jump::count(&self) -> usize
+pub fn oso_core::jump::Jump::gives_goto_line(&self, char) -> bool
 pub fn oso_core::jump::Jump::kind(&self) -> oso_core::jump::Kind
 pub fn oso_core::jump::Jump::labelled(&self) -> usize
 pub fn oso_core::jump::Jump::stage(&self) -> oso_core::jump::Stage
-pub fn oso_core::jump::Jump::takes(&self, char) -> bool
 impl core::fmt::Debug for oso_core::jump::Jump
 pub fn oso_core::jump::Jump::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::jump::Keys(_)

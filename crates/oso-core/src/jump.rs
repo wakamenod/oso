@@ -291,6 +291,9 @@ pub struct Jump {
     pub(crate) shown: Vec<Shown>,
     /// It began while a buffer that may hold secrets was shown.
     pub(crate) around_secret: bool,
+    /// A change under its labels ended it, saying this: it draws nothing, and takes the next key
+    /// only to say it again, so that a key meant for a label never types.
+    pub(crate) ended: Option<&'static str>,
 }
 
 impl fmt::Debug for Jump {
@@ -319,6 +322,7 @@ impl Jump {
             typed: Vec::new(),
             shown: Vec::new(),
             around_secret,
+            ended: None,
         }
     }
 
@@ -338,8 +342,12 @@ impl Jump {
         self.found
     }
 
-    /// How many candidates have a label: at most [`MAX_LABELLED`], none while it reads.
+    /// How many candidates have a label: at most [`MAX_LABELLED`], none while it reads or once
+    /// a change ended its labels.
     pub fn labelled(&self) -> usize {
+        if self.ended.is_some() {
+            return 0;
+        }
         self.labels.len()
     }
 
@@ -349,12 +357,24 @@ impl Jump {
     }
 
     /// Whether `key` continues a label now: a label's key after what is typed of it.
-    pub fn takes(&self, key: char) -> bool {
+    pub(crate) fn takes(&self, key: char) -> bool {
         self.stage == Stage::Labels
+            && self.ended.is_none()
             && self
                 .keys
                 .index_of(key)
                 .is_some_and(|index| self.labels_after(index).next().is_some())
+    }
+
+    /// Whether `key` is a digit that `avy-goto-line`'s labels hand to `goto-line`: its labels
+    /// show, none of a label is typed yet, and no label takes it.
+    pub fn gives_goto_line(&self, key: char) -> bool {
+        key.is_ascii_digit()
+            && self.kind == Kind::LineStart
+            && self.stage == Stage::Labels
+            && self.ended.is_none()
+            && self.typed.is_empty()
+            && !self.takes(key)
     }
 
     /// The candidates whose labels start with what is typed and then the key `index`.

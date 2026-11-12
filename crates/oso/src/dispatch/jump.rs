@@ -6,7 +6,6 @@
 
 use oso_core::command::{Args, Effects, Invocation};
 use oso_core::editor::Editor;
-use oso_core::jump::{Kind, Stage};
 use oso_core::key::KeyPress;
 
 use super::Dispatcher;
@@ -15,13 +14,12 @@ use super::Dispatcher;
 const GOTO_LINE: &str = "goto-line";
 
 impl Dispatcher {
-    /// A digit typed at `avy-goto-line`'s labels that no label takes: ends the jump and
-    /// opens `goto-line`'s prompt with the digit in it. `None` for any other key.
+    /// A digit typed at `avy-goto-line`'s labels, before any of a label, that no label takes:
+    /// ends the jump and opens `goto-line`'s prompt with the digit in it. `None` for any other
+    /// key.
     pub(super) fn jump_digit(&mut self, editor: &mut Editor, key: KeyPress) -> Option<Effects> {
-        let digit = key.text().filter(char::is_ascii_digit)?;
-        let jump = editor.jump()?;
-        let labels = jump.kind() == Kind::LineStart && jump.stage() == Stage::Labels;
-        if !labels || jump.takes(digit) {
+        let digit = key.text()?;
+        if !editor.jump()?.gives_goto_line(digit) {
             return None;
         }
         editor.jump_end();

@@ -122,3 +122,42 @@ fn run_command_of_another_command_ends_a_jump() {
     assert_eq!(result, Ok(()));
     assert_eq!(stage(&editor), Some(Stage::Labels));
 }
+
+#[test]
+fn a_key_after_a_change_ended_the_labels_types_nothing_and_says_why() {
+    let (mut d, mut editor) = at("ab abx\n", &[0]);
+    send(&mut d, &mut editor, "M-j a RET");
+    // Something the person did not do, such as a file still loading, changes the text.
+    let id = editor.window().buffer();
+    let edit = oso_core::buffer::Replacement {
+        range: 6..6,
+        text: "y",
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
+    assert!(editor.isearch_follow_text());
+    send(&mut d, &mut editor, "s");
+    assert!(editor.jump().is_none());
+    assert_eq!(text(&editor), "ab abxy\n", "the label's key typed nothing");
+    assert_eq!(echo(&editor), "Jump ended: the text changed");
+}
+
+#[test]
+fn del_at_the_labels_ends_the_jump_as_any_other_key_there() {
+    let (mut d, mut editor) = at("ab ab\n", &[0]);
+    send(&mut d, &mut editor, "M-j a RET DEL");
+    assert!(editor.jump().is_none());
+    assert_eq!(echo(&editor), "No such candidate");
+    assert_eq!(text(&editor), "ab ab\n");
+}
+
+#[test]
+fn a_digit_after_a_labels_first_key_does_not_read_a_line_number() {
+    let (mut d, mut editor) = at(&"x\n".repeat(20), &[0]);
+    editor.set_jump_keys(Keys::new("12").unwrap());
+    send(&mut d, &mut editor, "M-g f 1");
+    assert_eq!(stage(&editor), Some(Stage::Labels), "narrowed");
+    send(&mut d, &mut editor, "7");
+    assert!(editor.prompt().is_none(), "no goto-line");
+    assert!(editor.jump().is_none());
+    assert_eq!(echo(&editor), "No such candidate");
+}

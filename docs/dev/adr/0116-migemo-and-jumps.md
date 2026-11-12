@@ -445,7 +445,7 @@ at most 1 MiB in all (Q5).
 - **The API,** as the snapshots show: `oso_core::jump` with `Kind`, `Stage`, `Jump`, `Keys` and
   `KeysError`, `Labels` and the limits `MIN_KEYS`, `MAX_KEYS`, `MAX_LABELLED` (4096) and
   `MAX_STRING` (64); in `oso_core::editor`, `JumpCells`, `LabelCells`, `Chose`, the
-  `Editor::jump*` methods and `Quit::Jump`; in `oso-render`, `Face::JumpLabel`,
+  `Editor::jump*` methods (`Editor::jump_refuse` among them) and `Quit::Jump`; in `oso-render`, `Face::JumpLabel`,
   `Face::JumpLabelNext` and `TextView::labels`. `guardrails/layers.txt`'s `minibuffer` line
   became `minibuffer jump`.
 - **`C-g` (Q2)** ends a jump before anything else in `Editor::quit`, so it never takes the
@@ -464,7 +464,8 @@ at most 1 MiB in all (Q5).
   columns. On the row the 4096th falls in, the text's order picks, as no column is known yet.
 - **A change to the text (Q7)** under the labels ends the jump with `Jump ended: the text
   changed`, and a change to a view, such as a wheel's scroll, with `Jump ended: the view
-  changed`. While the string is still read, its matches are found again. `RET`, or the timer,
+  changed`. As the person did not end it, the labels go, and the next key, meant for one, types
+  nothing and says it again. While the string is still read, its matches are found again. `RET`, or the timer,
   labels what the last key found unless something changed since.
 - **The echo row** says `Jump: <string>`, `Jump to a line`, `Jump to a line's end` or `Jump to
   a match` (`avy-isearch`), and past the limit adds `  [4096 of N labelled]`. It is withheld from
@@ -476,8 +477,11 @@ at most 1 MiB in all (Q5).
   speed; the timer never fires during a replay.
 - **Candidates:** a line's start is labelled on a row that starts its logical line with column 0
   in view, so a view scrolled sideways shows none; a line's end on the line's last row, when its
-  end column is in view; and a match whose start is within its row's columns in view.
-- **On screen,** a label is cut at the row's end and at the next label on its row. A target with
+  end column is in view; and a match whose start is within its row's columns in view. A wrapped
+  line's rows in view are matched as one, as isearch's highlights are, so no two matches
+  overlap.
+- **On screen,** a label is cut where its row's text stops, before a wrapped row's mark, and at
+  the next label on its row. A target with
   no cell, such as an empty line's end, is labelled in the first cell after the text. Labels are
   drawn over everything in their cells: the renderer skips the glyphs under a label, and draws
   the labels after all of their layer, the cursor box and the text of other rows and panes
@@ -490,7 +494,8 @@ at most 1 MiB in all (Q5).
   region; otherwise the place the cursor left is pushed onto the mark ring without a message.
 - **Windows:** a jump into another window selects it, and its flash comes from the dispatcher's
   sample, as for any key that moves far.
-- **`M-g f`** with a digit at the labels opens `goto-line` with the digit typed.
+- **`M-g f`** with a digit at the labels, before any of a label is typed and when no label
+  takes it, opens `goto-line` with the digit typed (`Jump::gives_goto_line`).
 - **Settings:** `[jump] keys` is checked by `Keys::new`, and `[jump] timeout` is 0.1 to 5 s,
   0.5 by default.
 - **Around a secret:** `get-state`'s `jump` is `{"active": true}`; elsewhere it gives `active`,
