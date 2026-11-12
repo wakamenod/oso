@@ -279,8 +279,10 @@ A panicking command is caught at the command boundary
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, the user's, global. The first keymap that binds the
   whole key sequence, or leaves it undefined, decides. So far the global layer exists, a
-  minor mode layer of digits while a prefix argument is typed, a major mode layer in the
-  buffers that show emergency copies and in a prompt, and a layer for the user's keys, which
+  minor mode layer of digits while a prefix argument is typed, another while the layer of
+  `C-x TAB` is open, whose arrows shift the region until another key closes it
+  ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
+  copies, in a prompt and in a Markdown buffer (`M-RET`), and a layer for the user's keys, which
   the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command.
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,

@@ -69,6 +69,8 @@ pub struct Dispatcher {
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
+    /// The key just read runs a command of the layer of `C-x TAB`, which stays open for it.
+    rigid_key: bool,
     /// The user's keymap given while a prefix key was pending, which goes in once none is
     /// (ADR 0108).
     user_waiting: Option<Keymap>,
@@ -115,6 +117,11 @@ impl Dispatcher {
         let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
         let isearch = bindings::isearch_keymap(&registry);
         let replace = bindings::replace_keymap(&registry);
+        let (rigid, markdown) = (
+            bindings::rigid_keymap(&registry),
+            bindings::markdown_keymap(&registry),
+        );
+        let rigid_commands = bindings::rigid_commands(&registry);
         let macros = macros::MacroInput::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
@@ -131,6 +138,9 @@ impl Dispatcher {
                 completing,
                 isearch,
                 replace,
+                rigid,
+                rigid_commands,
+                markdown,
             },
             #[cfg(any(test, feature = "dev"))]
             isearch_commands,
@@ -141,6 +151,7 @@ impl Dispatcher {
             registry,
             resolver: KeyResolver::new(),
             prefix: None,
+            rigid_key: false,
             user_waiting: None,
             replaced: Vec::new(),
             last: None,
@@ -390,6 +401,7 @@ impl Dispatcher {
     fn forget_keys(&mut self, editor: &mut Editor) {
         self.prefix = None;
         self.last = None;
+        editor.set_indent_rigidly_layer(false);
         editor.forget_kills();
     }
 
@@ -415,6 +427,10 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
+        // Any other command closes the layer of `C-x TAB` first, joining its keys' edits.
+        if !std::mem::take(&mut self.rigid_key) {
+            editor.set_indent_rigidly_layer(false);
+        }
         editor.begin_command();
         if std::mem::take(&mut self.passphrase_next) {
             editor.command_reads_passphrase();
@@ -567,6 +583,7 @@ impl Dispatcher {
         if self.hold_for_completion(editor, id, args, dropped) {
             return Effects::default();
         }
+        self.rigid_key = self.keymaps.rigid_commands.contains(&id);
         let invocation = Invocation {
             input,
             key_char,
