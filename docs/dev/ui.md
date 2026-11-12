@@ -39,13 +39,14 @@ in the background color, so no partly shown row or column is drawn
 
 ## Windows
 
-- A frame splits into windows stacked (`C-x 2`) or side by side (`C-x 3`); `C-x 0` deletes the
-  selected one, `C-x 1` the others, and `C-x o` selects the next. `C-x +` balances them, and
+- A frame splits into windows stacked (`C-x 2`) or side by side (`C-x 3`), and the new window
+  below or at the right is selected; `C-x 0` deletes the selected one, `C-x 1` the others, and `C-x o` selects the next. `C-x +` balances them, and
   `C-x ^`, `C-x }` and `C-x {` resize ([ADR 0112](adr/0112-window-splits.md)).
 - Each window has its text area, its gutter and its modeline. Side by side windows are parted
   by a column with a thin line in its middle.
 - A window that is not selected shows its cursors hollow, and no region, current-line band,
-  isearch matches or flash. Its modeline is in the inactive face.
+  isearch matches or flash. Its modeline is in the inactive face. Beneath a prompt, the window
+  it came from keeps its region and band, its cursor hollow and its modeline inactive.
 - The minibuffer and completion float over the whole tiled area, whatever the layout.
 - The wheel scrolls the window under the pointer without selecting it.
 

@@ -327,7 +327,7 @@ fn draw_pane<G: GlyphSource>(
     let cursor = match &pane.content {
         PaneContent::Text(view) => cursor_cells(view, pane.region),
         PaneContent::Masked(masked) => masked_cursor(masked, pane.region),
-        PaneContent::Lines(_) => None,
+        PaneContent::Lines(_) | PaneContent::Divider => None,
     };
     let hollow = matches!(&pane.content, PaneContent::Text(view) if view.cursor_style == CursorStyle::Hollow);
     // So are a preedit's two underlines, and a hollow box's four sides.
@@ -379,6 +379,7 @@ fn draw_pane<G: GlyphSource>(
             };
             draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
+        PaneContent::Divider => draw_divider(draws, &unscrolled, pane.region),
         PaneContent::Masked(masked) => {
             let mut layout = unscrolled.with_bands(pane.bands);
             if let Some(cells) = cursor {
@@ -403,6 +404,20 @@ fn draw_pane<G: GlyphSource>(
                 fill_cursor(draws, &layout, cells, false, metrics);
             }
         }
+    }
+}
+
+/// The line between side by side windows: one pixel, on a whole pixel, down the middle of
+/// `region`'s column (ADR 0112).
+fn draw_divider(draws: &mut Draws, layout: &Layout, region: CellRect) {
+    if let Some(rect) = layout.frame_cells(region) {
+        let x = (rect.x + (rect.width - 1.0) / 2.0).round();
+        let line = PixelRect {
+            x,
+            width: 1.0,
+            ..rect
+        };
+        draws.fill(Some(line), Face::Divider);
     }
 }
 
@@ -742,6 +757,21 @@ mod tests {
             assert_eq!(system.shaped.len(), area.rows, "a frame of {frame_rows}");
             assert_eq!(scene.quads().len(), area.rows, "a frame of {frame_rows}");
         }
+    }
+
+    #[test]
+    fn a_divider_is_one_pixel_down_the_middle_of_its_column_and_shapes_nothing() {
+        let panes = [pane(0, rect(0, 5, 3, 1), 0, PaneContent::Divider)];
+        let mut scene = Scene::new(LIMITS, theme());
+        let system = build(&mut scene, &panes, &mut FakeAtlas::default());
+        assert!(system.shaped.is_empty() && scene.quads().is_empty());
+        let [line] = scene.rects() else {
+            panic!("one line: {:?}", scene.rects().len());
+        };
+        // Column 5 of the 10 x 20 px grid, past its margin of 8 px, is x 58 to 68.
+        assert_eq!(line.position, [63.0, 8.0], "the middle, on a whole pixel");
+        assert_eq!(line.size, [1.0, 60.0], "its 3 rows");
+        assert_eq!(line.color, theme().background(Face::Divider));
     }
 
     #[test]
