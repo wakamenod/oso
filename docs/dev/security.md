@@ -189,7 +189,8 @@ network features.
 - Only `oso-platform::process` may create processes. It ships in release builds from
   [ADR 0120](adr/0120-the-terminal.md)'s step 2, for the terminal; its PTY is its own. Clippy
   `disallowed_methods` bans `std::process::Command::new` (and its async
-  counterparts) everywhere else, and `cargo-deny` bans process-spawning
+  counterparts), `CommandExt::pre_exec` and libc's `fork`, `exec*`, `posix_spawn*`,
+  `system` and `popen` everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
   Unix domain sockets outside `oso-platform::control`, which carries the dev control
   socket and the agent channel. That transport is in every build, and an architecture
@@ -480,9 +481,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Processes spawn only through `oso_platform::process`: executables come from
   an absolute path or from `PATH` without relative or missing entries, the
   current directory or the project, children get an allowlisted environment and a closed
-  stdin, and every spawn is logged. It is behind the `dev` feature until a
-  release feature needs it, and only `oso dev` and the end-to-end tests use it.
-  `oso dev` builds offline,
+  stdin, and every spawn is logged. It ships in every build since the terminal
+  needs it ([ADR 0120](adr/0120-the-terminal.md)); a child in a terminal gets the
+  terminal's slave as its streams and controlling terminal, in a session of its own, and
+  neither end of a terminal reaches any other child. `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff never carries a secret buffer's content, and no position in one

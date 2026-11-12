@@ -1,15 +1,16 @@
 # oso-platform
 
 OS abstractions: the text system backends, the clipboard (ADR 0074), and later
-IME, filesystem and the PTY (ADR 0003, ADR 0004). `clipboard` runs on threads of
+IME and filesystem (ADR 0003, ADR 0004). `clipboard` runs on threads of
 its own, as reading it can wait on another process. `privacy` holds what keeps text
 private to its user: no core dumps, and private directories (ADR 0062), where oso's
 state and configuration live, and who else can change a file by its mode (ADR 0108), and
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065). The
 control sockets' transport lives in `control`, in every build, for the dev socket
 and the agent channel (ADR 0085); only the dev tooling and the agent channel
-listen. Process spawning lives in `process`, behind the `dev` feature. `window` holds the window layer's events, which the tip crate's
-winit adapter builds too, and on macOS the window system itself, in `window/appkit/`
+listen. Process spawning lives in `process`, and pseudo-terminals in
+`process::pty`, in every build (ADR 0120). `window` holds the window layer's
+events, which the tip crate's winit adapter builds too, and on macOS the window system itself, in `window/appkit/`
 (ADR 0070).
 
 - Depends on no workspace crate. It is the only crate that may use OS
@@ -18,7 +19,7 @@ winit adapter builds too, and on macOS the window system itself, in `window/appk
   types in its public API.
 - Every `unsafe` block needs a `// SAFETY:` comment.
 - Processes are spawned only through `oso-platform::process` (ADR 0010,
-  ADR 0047), behind the `dev` feature until a release feature needs it.
+  ADR 0047, ADR 0120), in every build.
   There is no network code.
 - Each OS backend sits in its own `cfg`-gated module. Linux and Windows
   must keep building and passing tests in CI (Tier 2).

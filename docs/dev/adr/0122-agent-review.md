@@ -476,7 +476,8 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
 
 1. **The model and re-anchoring** in `oso_core::review`, with property tests ported from the
    previous setup's cases. No UI.
-2. **Git and diffing:** the process module's additions (after ADR 0120 step 2 ships it), the
+2. **Git and diffing:** the process module's additions (after ADR 0120 step 2 ships it; that step
+   already added variables set by value, `Spawn::set`, so only a piped standard input is left), the
    review's thread, the scopes (session, uncommitted, staged, unstaged, branch, commit, range), the
    baseline, `similar` diffs and the limits. Unit tests against temporary repositories.
 3. **The unified view:** the review buffer, its mode and keys, the menu, comments and drafts,
