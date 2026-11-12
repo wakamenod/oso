@@ -30,6 +30,7 @@ mod greps;
 mod handover;
 mod ime;
 mod input;
+mod jumps;
 mod loads;
 mod log_gate;
 mod projects;
@@ -204,6 +205,8 @@ pub struct App {
     agent: agent::Agent,
     /// The cursor flash fading after a large jump (ADR 0097).
     flash: flash::Flash,
+    /// When a jump reading its string shows its labels (ADR 0116).
+    jump_timer: jumps::JumpTimer,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -335,6 +338,7 @@ impl App {
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),
+            jump_timer: jumps::JumpTimer::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]
@@ -402,7 +406,8 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
-        self.flash_after_input();
+        let input = self.flash_after_input();
+        self.time_jump(input);
         self.forget_killed();
         self.serve_files();
         self.forget_listings();

@@ -107,6 +107,11 @@ pub enum Face {
     SyntaxLink,
     /// Emphasis, strong text and the markers of Markdown.
     SyntaxMarkup,
+    /// The first key of a jump's label (ADR 0116): a strong fill no other face uses, with its
+    /// text at 7:1, so a label is never taken for an escape, a match or text.
+    JumpLabel,
+    /// The keys of a jump's label after its first, in a fill of their own, as strong.
+    JumpLabelNext,
 }
 
 impl Face {
@@ -216,6 +221,11 @@ pub struct TextView<'a> {
     /// marks and cursors (ADR 0071), as `Editor::isearch_cells` and `frame::region_cells`
     /// give them.
     pub fills: &'a [(Face, &'a [CellRect])],
+    /// Text drawn over the frame's cells after the text, as a jump's labels (ADR 0116): each
+    /// its cells, one row and one cell a character, and its text and face, the face's
+    /// background filling the cells. The text's glyphs under them are not drawn. The caller sorts
+    /// them by row, then column, which drawing relies on: a row finds its own with a search.
+    pub labels: &'a [(CellRect, Span<'a>)],
     /// Whether whitespace is marked (ADR 0097). A change shapes the rows in view again.
     pub whitespace: bool,
     /// The cursor flash, filled over the fills and under the text (ADR 0097).
