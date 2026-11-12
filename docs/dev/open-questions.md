@@ -191,6 +191,8 @@ item notes when it must be settled.
   Redoing takes 1.4 ms. Sharing the slice's chunks with the rope, and keeping display items
   with the undo group, would make it O(log n). Decide before M2-14. `rope.rs` is at its
   size limit, so sharing needs room there.
+  [ADR 0119](adr/0119-undoing-large-steps-in-slices.md) puts such text back in 1 MiB slices
+  over turns of the loop, so it no longer blocks; the copy itself stays.
 - Typing at 1000 cursors, which took 17 to 26 ms a key at p99, takes about 3 ms on 100 MB and
   3.3 to 4.7 ms on a 10 MB line of minified JSON since M2-21 edits a leaf in place and clips only
   what is near an edit, in every window (`text_perf -- cursors`,
