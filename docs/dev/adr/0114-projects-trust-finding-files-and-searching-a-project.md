@@ -422,7 +422,9 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 - **Limits.** A walk lists at most 100,000 files (Q13) and 32 MiB of paths, reads at most 32 MiB
   of names, 1,000,000 entries, ignored ones and the names looked at for links included, and
   16 MiB of ignore files in all. Past any of them it stops, and the count says `+`. The author
-  approved the last ones on 2026-11-12.
+  approved the last ones on 2026-11-12. Of the ignore files, only a directory's own end the walk
+  there: the root's `info/exclude` and the global excludes, read before the walk starts, give no
+  patterns when they are longer than what is left, and the walk goes on (corrected in step 4).
 - **Outside a project,** the directory is that of the place the file's path leads to. A buffer
   with no file, the home directory, a directory that holds it (by its words in the editor, and
   by its real place on the walker's thread) and `/` say `Not in a project`. A root whose path is
@@ -451,6 +453,72 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   state need nothing new. `ignore` and `globset` log only warnings and errors.
 - **The walk took 0.20 s for 46,234 files,** against 0.09 s for `rg --files --hidden` and 0.19 s
   for it on one thread, on the author's Mac, warm.
+
+### Step 4: searching a project
+
+- **`C-u` asks for a directory first,** for `project-find-file` and `project-search`, with
+  `C-x C-f`'s completion from the buffer's directory: `Find file in directory:` and
+  `Search in directory:`. The directory named stands for the project, named after its last
+  component. The home directory, one that holds it and `/` are refused, as outside a project
+  (`Editor::listable_root`).
+- **The walk lists each directory from its parent.** A directory below the root is opened from the
+  one it is in by its name, following no link, and listed and read from what was opened, never by
+  its path again (`oso_platform::file_meta::Directory`: `openat` with `O_NOFOLLOW`, then
+  `fdopendir`; the root is opened by its path). A process may hold only a few hundred
+  descriptors, so at most 32 directories stay open, the root and the deepest. One let go is opened
+  again from the nearest held, name by name in the same way, only if it is still the directory it
+  was by device and inode, and each name counts as an entry read; otherwise the rest of its
+  entries are left. Ignore files, the root's `.git/info/exclude` and the markers' owners are read
+  from the directory that holds them in the same way, and a link's hops are looked at from the
+  directory before each. Windows still reaches directories by their paths.
+  - A marker this user cannot open, such as a `.git` of mode `000`, is no marker to the walk,
+    though detection, which only looks at it, counts it. Git cannot use such a repository either.
+- **Components.** Only `!` and `=` are affixes, and only at a component's start: code often ends in
+  `=` or `!`. `^`, `$` and the rest are an expression's, so `^use` is a line's start. This differs
+  from ADR 0076, whose `,`, `~`, `^` and `&` mean initialism, flex, prefix and annotation, which
+  mean nothing for a line; the author chose it on 2026-11-12. A component that holds a character
+  an expression reads matches where either the expression or the literal does, compiled into one
+  `regex::bytes` expression with completion's limits, multi-line and CRLF-aware.
+- **Matching a block.** The first component that is not excluded is looked for through the whole
+  block, and only a line it is found on is matched against every component, so a block costs one
+  pass of its most likely component. The match that starts first is the row's.
+- **The search's own copy of the split.** `project` and `complete` share a layer, so
+  `project::LineQuery` keeps its own copy of completion's split at spaces and its limits:
+  1024 bytes of input and 32 components.
+- **Threads.** One `oso-grep` thread serves every search in turn and walks with `walk::walk_files`,
+  the walk `project-find-file` uses. It hands each file that is not a link, with its directory
+  held open, over a queue of at most 32 to `min(cores - 1, 8)` searching threads, at least one,
+  started with the first search and kept. A file's rows go into the search's batch together, and
+  `oso-grep` sends the batch at most every 30 ms, at the walk's next entry, then every 30 ms while
+  the files handed out finish. With no searching thread, `oso-grep` reads each file itself.
+- **Reading.** A file is opened from its directory, following no link and waiting for nothing,
+  and read only if it is a regular file. A block holds at most 16 MiB, the longest line read, so a
+  longer line skips the rest of its file. Each block is looked at once for a NUL and a line break.
+- **Rows.** A row's text is at most 512 bytes around its first match, from the line's start when
+  the match is within them and from 64 bytes before it otherwise, cut at characters, with `…`
+  where the line goes on. Each invalid byte is one U+FFFD, as a buffer reads it, and the column
+  `RET` goes to counts characters the same way. A file that may hold secrets is judged by
+  `Buffer::name_may_hold_secrets` on the root joined with the path walked.
+- **Narrowing.** A search that ended without a limit leaves the lines it found on `oso-grep`, at
+  most 16 MiB of them, secret ones too, which never leave it but as rows. The editor keeps the
+  generation and the query of the last such search, and a request whose input narrows that one,
+  by ADR 0076's rule, names it; `oso-grep` then matches only those lines, if they are the ones it
+  kept, and walks otherwise. A narrowing search that is superseded leaves them kept.
+- **The list.** The search's prompt is a completion prompt in the given order, whose input never
+  filters its rows: each changed input empties the list and starts a search, and rows are put
+  after those shown, so the selected row stays. The editor also stops a search at 10,000 rows.
+  `files_pending` and `files_cut` cover the search too, and the count is one cell wider while a
+  list is cut, so its `+` always shows.
+- **`RET`** gives the file's whole path and keeps the place for the command
+  (`Editor::take_search_hit`), which visits it with `Editor::request_visit_at`: once the buffer
+  has the line, or the whole file, the window showing it pushes its old place on the mark ring
+  and goes to the line and column, each as far as the text goes. A visit that asks the large-file
+  question first loses the place. The history, `project-search`, is one for every search and
+  keeps the input.
+- **Public items beyond the plan:** `project::LineHit` and
+  `LineQuery::matches_line`, `file_meta::{Entries, Entry}` and `Directory::kind_of`, and
+  `Editor::search_highlights`, through which the float draws a row's path and matches.
+- **The preview is step 5.**
 
 ## Alternatives considered
 
