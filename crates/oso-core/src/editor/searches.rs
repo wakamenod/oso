@@ -15,13 +15,12 @@
 
 use std::fmt;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{CompletionStyle, Editor, NotInProject, WalkEnd};
-use crate::buffer::BufferId;
-use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES};
+use super::{CompletionStyle, Editor, WalkEnd};
+use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
 use crate::minibuffer::{PromptError, PromptId};
 use crate::project::{LineQuery, MAX_ROWS};
 
@@ -115,8 +114,8 @@ pub(super) struct ProjectSearch {
     running: bool,
     /// It stopped at a limit.
     cut: bool,
-    /// The input searched for last.
-    input: Option<String>,
+    /// The input searched for last, once one was: `None` for one too long to search for.
+    input: Option<Option<String>>,
     query: Option<Arc<LineQuery>>,
     /// The last search that ended without a limit, which an input that narrows its own looks
     /// through again.
@@ -127,32 +126,7 @@ pub(super) struct ProjectSearch {
     hit: Option<SearchHit>,
 }
 
-/// A file to go to a place in once a visit shows it, with the line and column.
-pub(super) type VisitPlace = (PathBuf, usize, usize);
-
 impl Editor {
-    /// The root and the name `dir`, a directory the person named, is searched or listed as:
-    /// itself, named after its last component.
-    ///
-    /// # Errors
-    ///
-    /// [`NotInProject`] for the home directory, one that holds it, or the root of the file
-    /// system, which no one lists whole (ADR 0114).
-    pub fn listable_root(&self, dir: &Path) -> Result<(PathBuf, String), NotInProject> {
-        let holds_home = self
-            .home
-            .as_deref()
-            .is_some_and(|home| home.starts_with(dir));
-        if dir.parent().is_none() || holds_home {
-            return Err(NotInProject);
-        }
-        let name = dir.file_name().map_or_else(
-            || dir.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        );
-        Ok((dir.to_path_buf(), name))
-    }
-
     /// Opens a prompt that searches the files of the project at `root`, named `name`, whose
     /// input is kept in the history `history`. It opens empty; each input that changes asks the
     /// host for a search ([`Editor::take_search_request`]), whose rows come to
@@ -198,12 +172,15 @@ impl Editor {
     /// the newest, or whose prompt has closed, are dropped.
     pub fn rows_found(&mut self, generation: u64, rows: Vec<SearchRow>, end: Option<WalkEnd>) {
         let search = &mut self.project_search;
-        let Some(id) = search.prompt.filter(|_| generation == search.generation) else {
+        let Some(id) = search
+            .prompt
+            .filter(|_| generation == search.generation && search.running)
+        else {
+            if rows.len() > WORKER_PAST {
+                self.free_on_the_worker(Box::new(rows));
+            }
             return;
         };
-        if !search.running {
-            return;
-        }
         let room = MAX_ROWS.saturating_sub(search.places.len());
         let cut_here = rows.len() > room;
         let mut added = Vec::with_capacity(rows.len().min(room));
@@ -211,11 +188,11 @@ impl Editor {
             let shown = format!("{}:{}", row.path, row.line);
             let (candidate, prefix) = if row.secret {
                 let prefix = shown.len();
-                (Candidate::new(shown, "", WITHHELD), prefix)
+                (Candidate::unmatched(shown, WITHHELD), prefix)
             } else {
                 let prefix = shown.len() + 2;
                 (
-                    Candidate::new(format!("{shown}: {}", row.text), "", ""),
+                    Candidate::unmatched(format!("{shown}: {}", row.text), ""),
                     prefix,
                 )
             };
@@ -281,18 +258,19 @@ impl Editor {
             .buffer(prompt.buffer)
             .map(|buffer| buffer.text())
             .filter(|text| text.len() <= MAX_INPUT_BYTES)
-            .map_or_else(
-                || "\u{0}".repeat(MAX_INPUT_BYTES + 1),
-                |text| text.to_string(),
-            );
+            .map(|text| text.to_string());
         let search = &mut self.project_search;
-        if search.input.as_deref() == Some(text.as_str()) {
+        if search.input.as_ref() == Some(&text) {
             return;
         }
-        let query = Arc::new(LineQuery::parse(&text));
+        let query = Arc::new(
+            text.as_deref()
+                .map_or_else(LineQuery::too_long, LineQuery::parse),
+        );
         search.input = Some(text);
         search.generation = search.live.fetch_add(1, Ordering::Relaxed) + 1;
-        search.places.clear();
+        // A list of thousands is dropped on the worker (ADR 0096).
+        let places = std::mem::take(&mut search.places);
         search.cut = false;
         search.running = query.starts();
         search.request = search.running.then(|| SearchRequest {
@@ -307,10 +285,12 @@ impl Editor {
                 .map(|(generation, _)| *generation),
         });
         search.query = Some(query);
+        if places.len() > WORKER_PAST {
+            self.free_on_the_worker(Box::new(places));
+        }
         if let Some((candidates, _)) = self.prompts.last_mut().and_then(|p| p.completion.as_mut()) {
-            let mut rows = Candidates::in_given_order(Arc::from([]));
-            std::mem::swap(candidates, &mut rows);
-            drop(rows);
+            let rows = std::mem::replace(candidates, Candidates::in_given_order(Arc::from([])));
+            self.free_candidates(rows);
         }
     }
 
@@ -332,7 +312,7 @@ impl Editor {
             line: place.line,
             column: place.column,
         });
-        let input = search.input.clone().unwrap_or_default();
+        let input = search.input.clone().flatten().unwrap_or_default();
         Some((answer, input.trim().to_owned()))
     }
 
@@ -383,65 +363,6 @@ impl Editor {
                 ..ProjectSearch::default()
             };
         }
-    }
-
-    /// Asks the host to visit `path` in the selected window, as [`Editor::request_visit`]
-    /// does, and once it shows, to go to `line`, from 1, and `column`, in characters from 0,
-    /// each as far as the text goes, with the place before on the mark ring.
-    pub fn request_visit_at(&mut self, path: PathBuf, limit: u64, line: usize, column: usize) {
-        self.request_visit(path.clone(), limit);
-        self.visit_place = Some((path, line, column));
-        let (_, buffer) = self.current();
-        let shown = buffer.path() == Some(self.visit_place_path()) && buffer.loading().is_none();
-        if shown {
-            let id = self.windows[self.selected].buffer();
-            self.go_to_visit_place(id);
-        }
-    }
-
-    fn visit_place_path(&self) -> &Path {
-        self.visit_place
-            .as_ref()
-            .map_or(Path::new(""), |(path, _, _)| path)
-    }
-
-    /// Goes to the place a visit asked for, in the window showing `id`, if `id` visits its file
-    /// and has loaded, or has loaded as far as the line.
-    pub(super) fn go_to_visit_place(&mut self, id: BufferId) {
-        let Some((path, line, column)) = &self.visit_place else {
-            return;
-        };
-        let Some(buffer) = self.buffer(id) else {
-            return;
-        };
-        if buffer.path() != Some(path.as_path()) {
-            return;
-        }
-        let text = buffer.text();
-        let row = line.saturating_sub(1);
-        // The whole line has come, or the file has.
-        if buffer.loading().is_some() && row + 1 >= text.line_count() {
-            return;
-        }
-        let row = row.min(text.line_count() - 1);
-        let (start, end) = (text.line_start(row), text.line_end(row));
-        let line_text = text.slice(start..end).to_string();
-        let offset = start
-            + line_text
-                .char_indices()
-                .nth(*column)
-                .map_or(line_text.len(), |(at, _)| at);
-        self.visit_place = None;
-        let Some(index) = (0..self.tiled_count())
-            .find(|&index| index == self.selected && self.windows[index].buffer() == id)
-        else {
-            return;
-        };
-        let selections = &mut self.windows[index].selections;
-        selections.keep_primary();
-        selections.push_marks();
-        selections.move_primary(offset);
-        self.follow_window(index);
     }
 }
 

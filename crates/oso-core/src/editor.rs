@@ -64,6 +64,7 @@ mod themes;
 mod trim;
 mod undo_group;
 mod view;
+mod visits;
 mod walks;
 mod windows;
 mod wraps;
@@ -159,7 +160,7 @@ pub struct Editor {
     /// What the prompt that searches a project keeps beside its rows (ADR 0114).
     project_search: searches::ProjectSearch,
     /// Where a visit a search's row asked for goes once it shows (ADR 0114).
-    visit_place: Option<searches::VisitPlace>,
+    visit_place: Option<visits::VisitPlace>,
     /// What a prompt that completes waits for from the worker (ADR 0096).
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.

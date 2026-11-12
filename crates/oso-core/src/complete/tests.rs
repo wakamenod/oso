@@ -234,6 +234,9 @@ fn narrowing_needs_every_component_kept_or_longer_at_its_end() {
     assert!(!narrows("sav~", "sav"));
     assert!(!narrows("a|b", "a"));
     assert!(!narrows("a.", "a"));
+    // A literal read as an expression too finds more, and the other way fewer.
+    assert!(!narrows("a.c", "=a.c"));
+    assert!(!narrows("=a.c", "a.c"));
 }
 
 #[test]

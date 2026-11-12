@@ -30,7 +30,9 @@
 //! - A path that is not UTF-8 is left out, as an answer naming it would name another file.
 //! - At most [`MAX_WALKED`] files are listed, and at most [`MAX_PATH_BYTES`] of their paths.
 //!   At most [`MAX_ENTRIES`] entries are read, ignored ones too, and [`MAX_IGNORE_BYTES`] of
-//!   ignore files. Past any of them the walk stops and says it was cut.
+//!   ignore files, and no directory deeper than [`MAX_DEPTH`] or [`MAX_PATH`] bytes is entered.
+//!   Past any of them the walk stops and says it was cut, and so it does when a directory cannot
+//!   be opened or listed for a reason other than its being gone, refused or no directory.
 //!
 //! What it finds goes to the editor in batches, one at most every [`BATCH_EVERY`]. A newer
 //! listing, `C-g` or closing the prompt moves the request's live generation on, and the walk
@@ -66,6 +68,13 @@ pub const MAX_ENTRIES: usize = 1_000_000;
 
 /// The most bytes of ignore files a walk reads, all of them together.
 pub const MAX_IGNORE_BYTES: u64 = 16 * 1024 * 1024;
+
+/// The most directories deep a walk goes, as each one it is in holds its path and its ignore
+/// files are asked of each entry below it.
+pub const MAX_DEPTH: usize = 256;
+
+/// The most bytes of a directory's path a walk enters, the longest path the system opens.
+pub const MAX_PATH: usize = 4096;
 
 /// How much a walk lists and reads at most.
 #[derive(Clone, Copy, Debug)]
@@ -191,6 +200,13 @@ impl Walker {
     }
 }
 
+/// Whether the directory `root` holds `home`, the home directory's real place, by its own real
+/// place: the editor refuses such a root by its words, which a link can hide.
+pub(crate) fn holds_home(root: &Path, home: Option<&Path>) -> bool {
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    home.is_some_and(|home| home.starts_with(&root))
+}
+
 /// Walks each request that comes, in turn, until the walker is dropped or the event loop has
 /// gone.
 fn serve(
@@ -205,8 +221,7 @@ fn serve(
         if !live() {
             continue;
         }
-        let root = fs::canonicalize(&request.root).unwrap_or_else(|_| request.root.clone());
-        if home.as_deref().is_some_and(|home| home.starts_with(&root)) {
+        if holds_home(&request.root, home.as_deref()) {
             // Nothing is listed, and the prompt stops waiting.
             let ended = send(Walked {
                 generation,
@@ -250,7 +265,7 @@ fn serve(
 
 /// A file a walk found: the directory it is in, open, its name there, its path from the root,
 /// and whether it is a link, which is listed but never read.
-pub(crate) struct Found<'a> {
+pub(crate) struct File<'a> {
     pub(crate) directory: &'a Arc<Directory>,
     pub(crate) name: &'a OsStr,
     pub(crate) path: Box<str>,
@@ -260,10 +275,16 @@ pub(crate) struct Found<'a> {
 /// What a walk hands what it finds to.
 pub(crate) trait Visit {
     /// A file found, within the limits.
-    fn file(&mut self, found: Found<'_>);
+    fn file(&mut self, file: File<'_>);
 
     /// An entry was read, listed or not, so that what waits can be sent in time.
     fn entry(&mut self) {}
+
+    /// Whether links are handed over, which are then resolved by their words; a search, which
+    /// never reads one, needs none.
+    fn lists_links(&self) -> bool {
+        true
+    }
 }
 
 /// Walks the files under `root` as the module says, listing at most `limits`, and hands them to
@@ -281,8 +302,8 @@ pub fn walk(
         batch: &'a mut dyn FnMut(Vec<Box<str>>, Option<WalkEnd>),
     }
     impl Visit for Batches<'_> {
-        fn file(&mut self, found: Found<'_>) {
-            self.found.push(found.path);
+        fn file(&mut self, file: File<'_>) {
+            self.found.push(file.path);
         }
 
         fn entry(&mut self) {
@@ -350,7 +371,8 @@ pub(crate) fn walk_files(
         if project.ignores(stack.listed(), &path, is_dir) {
             continue;
         }
-        if kind != EntryKind::Directory && kind != EntryKind::File && kind != EntryKind::Link {
+        let link = kind == EntryKind::Link;
+        if !(is_dir || kind == EntryKind::File || link && visit.lists_links()) {
             continue;
         }
         // The directory it is in, open again if it was let go.
@@ -358,9 +380,17 @@ pub(crate) fn walk_files(
             continue;
         };
         if is_dir {
-            // One that cannot be opened, or that is no directory now, is left out.
-            let Ok(Some(opened)) = here.open_directory(&name) else {
-                continue;
+            // Deeper than any path the system takes, a walk stops, as each level holds the path.
+            if stack.listed().len() > MAX_DEPTH || path.as_os_str().len() > MAX_PATH {
+                return Err(Ended::Cut);
+            }
+            // One that is gone, refused or no directory now is left out; one that could not be
+            // opened for another reason, as when no descriptor is left, ends the walk cut.
+            let opened = match here.open_directory(&name) {
+                Ok(Some(opened)) => opened,
+                Ok(None) => continue,
+                Err(error) if tree::expected(&error) => continue,
+                Err(_) => return Err(Ended::Cut),
             };
             let opened = Arc::new(opened);
             if let Some(listed) = Listed::below(opened, path, name, &project, &mut spent, stop)? {
@@ -368,7 +398,6 @@ pub(crate) fn walk_files(
             }
             continue;
         }
-        let link = kind == EntryKind::Link;
         let Some(relative) = listed(root, stack.root(), &path, link, &mut spent)? else {
             continue;
         };
@@ -377,7 +406,7 @@ pub(crate) fn walk_files(
         }
         bytes += relative.len();
         count += 1;
-        visit.file(Found {
+        visit.file(File {
             directory: &here,
             name: &name,
             path: relative,

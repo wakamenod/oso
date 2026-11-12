@@ -102,7 +102,7 @@ pub(super) struct Listed {
     pub(super) path: PathBuf,
     /// Its name in its parent, which it is opened again by.
     name: OsString,
-    /// Its device and inode as it was listed, where the system has them.
+    /// Its device and inode, where the system has them, taken as it is let go.
     identity: Option<(u64, u64)>,
     /// It, open, unless it was let go.
     opened: Option<Arc<Directory>>,
@@ -149,8 +149,10 @@ impl Listed {
         stop: &dyn Fn() -> bool,
     ) -> Result<Option<Self>, Ended> {
         let mut entries = VecDeque::new();
-        let Ok(listing) = opened.entries() else {
-            return Ok(None);
+        let listing = match opened.entries() {
+            Ok(listing) => listing,
+            Err(error) if expected(&error) => return Ok(None),
+            Err(_) => return Err(Ended::Cut),
         };
         for entry in listing {
             if spent.entries == spent.limits.entries {
@@ -184,12 +186,23 @@ impl Listed {
         Ok(Some(Self {
             path,
             name,
-            identity: identity(&opened),
+            identity: None,
             opened: Some(opened),
             entries,
             ignores,
         }))
     }
+}
+
+/// Whether `error`, opening or listing a directory, says only that it is not there to walk:
+/// gone, refused, or no directory. Any other, as running out of descriptors, ends a walk cut,
+/// so that it never says it walked everything.
+pub(super) fn expected(error: &io::Error) -> bool {
+    // A link or no directory at the name opens as none already.
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied | io::ErrorKind::NotADirectory
+    )
 }
 
 /// The device and inode of `directory`, where the system has them.
@@ -227,7 +240,8 @@ impl Stack {
             if held <= MAX_HELD {
                 break;
             }
-            if listed.opened.take().is_some() {
+            if let Some(opened) = listed.opened.take() {
+                listed.identity = identity(&opened);
                 held -= 1;
             }
         }
@@ -276,11 +290,13 @@ impl Stack {
                 return Err(Ended::Cut);
             }
             spent.entries += 1;
-            let again = at
-                .open_directory(&listed.name)
-                .ok()
-                .flatten()
-                .filter(|again| identity(again) == listed.identity);
+            let again = match at.open_directory(&listed.name) {
+                Ok(again) => again,
+                Err(error) if expected(&error) => None,
+                Err(_) => return Err(Ended::Cut),
+            };
+            // Each one on the way was let go, so its identity was taken then.
+            let again = again.filter(|again| identity(again) == listed.identity);
             match again {
                 Some(again) => at = Arc::new(again),
                 None => {

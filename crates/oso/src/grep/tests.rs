@@ -9,16 +9,20 @@ use std::sync::atomic::AtomicU64;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use super::read::search_file;
 use super::*;
+use oso_core::project::{BLOCK, LineQuery, MAX_LINE, MAX_ROWS};
+use std::sync::{Mutex, PoisonError};
 
 /// The lines `query` finds in `text`, read as a file: each line's number and text.
 fn lines_in(query: &str, text: &[u8]) -> Vec<(usize, String)> {
     let query = LineQuery::parse(query);
     let mut found = Vec::new();
-    search_file(text, &query, &|| true, &mut |line, bytes, _| {
+    let mut hit = |line, bytes: &[u8], _| {
         found.push((line, String::from_utf8_lossy(bytes).into_owned()));
         true
-    });
+    };
+    search_file(text, &query, &|| true, &mut hit, &mut Vec::new());
     found
 }
 
@@ -83,6 +87,7 @@ fn a_search_that_is_over_reads_no_more_blocks() {
             reads.get() < 2
         },
         &mut |_, _, _| true,
+        &mut Vec::new(),
     );
     assert_eq!(reads.get(), 2, "one block, then it stops");
 }
@@ -123,7 +128,7 @@ impl Harness {
     fn new() -> Self {
         let (send, found) = mpsc::channel();
         let send = Mutex::new(send);
-        let grep = Grep::new(move |found| {
+        let grep = Grep::new(None, move |found| {
             send.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .send(found)
@@ -280,4 +285,96 @@ fn debug_of_a_batch_names_no_row() {
     };
     let debug = format!("{found:?}");
     assert!(!debug.contains("hunter2") && !debug.contains("secret/path"));
+}
+
+#[test]
+#[ignore = "a timing: run by hand in a release build, with OSO_WALK_TREE set to a tree"]
+fn a_search_of_a_large_tree_takes_about_as_long_as_rg() {
+    let Some(tree) = std::env::var_os("OSO_WALK_TREE") else {
+        return;
+    };
+    let tree = PathBuf::from(tree);
+    let fastest = (0..3)
+        .map(|run| {
+            let mut harness = Harness::new();
+            let started = std::time::Instant::now();
+            harness.live.store(run + 1, Ordering::Relaxed);
+            harness.grep.search(SearchRequest {
+                generation: run + 1,
+                root: tree.clone(),
+                query: Arc::new(LineQuery::parse("AKIA[0-9A-Z]{16}")),
+                live: Arc::clone(&harness.live),
+                narrow: None,
+            });
+            let (rows, cut) = harness.rows(run + 1);
+            (started.elapsed(), rows.len(), cut)
+        })
+        .min();
+    let (took, rows, cut) = fastest.unwrap();
+    assert!(
+        took < Duration::from_secs(2),
+        "{rows} rows (cut: {cut}) in {took:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_that_holds_home_by_its_real_place_is_never_searched() {
+    let scratch = Scratch::new("search-home");
+    scratch.file("home/me/notes.txt", "needle\n");
+    std::os::unix::fs::symlink(scratch.0.join("home"), scratch.0.join("to-home")).unwrap();
+    let (send, found) = mpsc::channel();
+    let send = Mutex::new(send);
+    let mut grep = Grep::new(Some(scratch.0.join("home/me")), move |found| {
+        send.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(found)
+            .is_ok()
+    });
+    let live = Arc::new(AtomicU64::new(1));
+    grep.search(SearchRequest {
+        generation: 1,
+        root: scratch.0.join("to-home"),
+        query: Arc::new(LineQuery::parse("needle")),
+        live: Arc::clone(&live),
+        narrow: None,
+    });
+    let ended = found.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(ended.rows.is_empty());
+    assert_eq!(ended.end, Some(WalkEnd { cut: false }));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_given_through_a_link_judges_its_files_where_they_lead_too() {
+    let scratch = Scratch::new("search-real-root");
+    scratch.file("keys/.aws/config", "key = needle\n");
+    std::os::unix::fs::symlink(scratch.0.join("keys/.aws"), scratch.0.join("plain")).unwrap();
+    let mut harness = Harness::new();
+    harness.live.store(1, Ordering::Relaxed);
+    harness.grep.search(SearchRequest {
+        generation: 1,
+        root: scratch.0.join("plain"),
+        query: Arc::new(LineQuery::parse("needle")),
+        live: Arc::clone(&harness.live),
+        narrow: None,
+    });
+    assert_eq!(harness.rows(1).0, ["config:1:6: (secret)"]);
+}
+
+#[test]
+fn the_lines_kept_never_pass_their_bound_while_a_file_is_read() {
+    let request = SearchRequest {
+        generation: 1,
+        root: PathBuf::from("/"),
+        query: Arc::new(LineQuery::parse("x")),
+        live: Arc::new(AtomicU64::new(1)),
+        narrow: None,
+    };
+    let search = files::Search::new(request);
+    assert!(search.may_keep(files::MAX_KEPT - 10));
+    assert!(search.may_keep(10));
+    assert!(!search.may_keep(1), "past the bound");
+    assert!(!search.may_keep(0), "and nothing after it");
+    assert!(search.kept_over.load(Ordering::Relaxed));
 }

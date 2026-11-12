@@ -235,7 +235,14 @@ fn a_named_directory_stands_for_a_project_but_not_home_or_what_holds_it() {
         editor.listable_root(std::path::Path::new("/Users/me/src/oso")),
         Ok((PathBuf::from("/Users/me/src/oso"), "oso".to_owned()))
     );
-    for refused in ["/Users/me", "/Users", "/"] {
+    for refused in [
+        "/Users/me",
+        "/Users",
+        "/",
+        "/Users/me/..",
+        "/..",
+        "/Users/me/src/../..",
+    ] {
         assert_eq!(
             editor.listable_root(std::path::Path::new(refused)),
             Err(NotInProject),
@@ -244,42 +251,18 @@ fn a_named_directory_stands_for_a_project_but_not_home_or_what_holds_it() {
     }
 }
 
-/// An editor showing `/w/oso/a.rs`, loaded with `text`.
-fn showing(text: &[u8]) -> Editor {
-    let mut buffer = Buffer::visiting(PathBuf::from("/w/oso/a.rs"));
-    buffer.apply_load(crate::load::decode_all(text, Default::default()));
-    Editor::with_buffer(buffer)
-}
-
 #[test]
-fn a_visit_at_a_place_goes_there_with_the_place_before_on_the_mark_ring() {
-    let mut editor = showing("one\ntwo ünïcode needle\nthree\n".as_bytes());
-    editor.windows[0].selections.move_primary(2);
-    editor.request_visit_at(PathBuf::from("/w/oso/a.rs"), 1 << 20, 2, 12);
-    assert!(editor.take_visits().is_empty(), "it is open already");
-    let selections = &editor.windows[0].selections;
-    let line = "two ünïcode needle";
-    let column_12 = line.char_indices().nth(12).unwrap().0;
-    assert_eq!(selections.primary().cursor, 4 + column_12);
-    assert_eq!(selections.primary().mark, Some(2), "the place before");
-    // A line past the end goes to the last, and a column past the line to its end.
-    editor.request_visit_at(PathBuf::from("/w/oso/a.rs"), 1 << 20, 99, 99);
-    assert_eq!(editor.windows[0].selections.primary().cursor, 31);
-}
-
-#[test]
-fn a_visit_at_a_place_waits_for_its_file_to_show() {
-    let mut editor = Editor::with_buffer(Buffer::from_text("t", ""));
-    editor.request_visit_at(PathBuf::from("/w/oso/a.rs"), 1 << 20, 2, 1);
-    assert_eq!(editor.take_visits().len(), 1);
-    let mut buffer = Buffer::visiting(PathBuf::from("/w/oso/a.rs"));
-    buffer.apply_load(crate::load::decode_all(b"ab\ncd\n", Default::default()));
-    let id = editor.add_buffer(buffer);
-    editor.show(id);
-    editor.loaded(id);
-    assert_eq!(editor.windows[0].selections.primary().cursor, 4);
-    // A visit with no place after it forgets the place.
-    editor.request_visit_at(PathBuf::from("/w/oso/b.rs"), 1 << 20, 2, 1);
-    editor.request_visit(PathBuf::from("/w/oso/c.rs"), 1 << 20);
-    assert!(editor.visit_place.is_none());
+fn the_search_splits_its_input_as_completion_does() {
+    use crate::complete::{Candidate, Query};
+    // `project` keeps its own copy of completion's split, as the two share a layer.
+    let texts = ["a b", "ab", "b a", "x a b y", "a\\b", "日本 語"];
+    for input in ["a b", "a\\ b", "ab", "  a  ", "b a", "日本 語", "a !b"] {
+        for text in texts {
+            let completes = Query::parse(input).matches(&Candidate::new(text, "", ""));
+            let searches = crate::project::LineQuery::parse(input).matches_line(text.as_bytes());
+            assert_eq!(completes, searches.is_some(), "{input:?} over {text:?}");
+        }
+    }
+    let long = "a".repeat(crate::complete::MAX_INPUT_BYTES + 1);
+    assert!(!crate::project::LineQuery::parse(&long).starts());
 }

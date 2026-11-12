@@ -114,15 +114,19 @@ fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Option<Regex> 
 }
 
 impl LineQuery {
-    /// `input` read as components, as the module says.
-    pub fn parse(input: &str) -> Self {
-        let too_long = Self {
+    /// The query of an input too long to search for: nothing matches it.
+    pub(crate) fn too_long() -> Self {
+        Self {
             components: Vec::new(),
             ignore_case: true,
             too_long: true,
-        };
+        }
+    }
+
+    /// `input` read as components, as the module says.
+    pub fn parse(input: &str) -> Self {
         if input.len() > MAX_INPUT_BYTES {
-            return too_long;
+            return Self::too_long();
         }
         let ignore_case = !input.chars().any(char::is_uppercase);
         let mut raw = Vec::new();
@@ -141,7 +145,7 @@ impl LineQuery {
         raw.push(current);
         raw.retain(|component| !component.is_empty());
         if raw.len() > MAX_COMPONENTS {
-            return too_long;
+            return Self::too_long();
         }
         let components = raw
             .iter()
@@ -207,7 +211,10 @@ impl LineQuery {
                     return false;
                 }
                 if new.not || new.expression || old.expression {
-                    return new.pattern == old.pattern && self.ignore_case == before.ignore_case;
+                    // A literal read as an expression too matches more, and the other way less.
+                    return new.expression == old.expression
+                        && new.pattern == old.pattern
+                        && self.ignore_case == before.ignore_case;
                 }
                 if self.ignore_case == before.ignore_case {
                     new.pattern.starts_with(&*old.pattern)
@@ -243,31 +250,37 @@ impl LineQuery {
         first
     }
 
-    /// The lines of `block` that match, in order, each handed to `hit`. A `\r` before a line's
-    /// end is not part of it. The first component that is not excluded is looked for through
-    /// the whole block, and only a line it is found on is matched whole.
-    pub fn find_in_block(&self, block: &[u8], mut hit: impl FnMut(LineHit)) {
-        let Some(driver) = self.components.iter().find(|component| !component.not) else {
-            return;
+    /// The lines of `block` that match, in order, each handed to `hit`, and how many line
+    /// breaks the block holds. A `\r` before a line's end is not part of it. The longest
+    /// component that is not excluded is looked for through the whole block, and only the line
+    /// its earliest end is on is matched whole, so a block costs time linear in its length
+    /// however its expression crosses lines.
+    pub fn find_in_block(&self, block: &[u8], mut hit: impl FnMut(LineHit)) -> usize {
+        let driver = self
+            .components
+            .iter()
+            .filter(|component| !component.not)
+            .max_by_key(|component| (component.pattern.chars().count(), !component.expression));
+        let Some(driver) = driver.filter(|_| !self.too_long) else {
+            return newlines(block);
         };
-        if self.too_long {
-            return;
-        }
         // `at` is always a line's start, and `line` that line's number.
         let (mut at, mut line) = (0, 0);
         while at < block.len() {
-            let Some(found) = driver.regex.find_at(block, at) else {
+            // No line before the one the earliest match ends on holds a match.
+            let Some(ends) = driver.regex.shortest_match_at(block, at) else {
                 break;
             };
-            let start = block[at..found.start()]
+            let probe = ends.saturating_sub(1).max(at);
+            let start = block[at..probe]
                 .iter()
                 .rposition(|&byte| byte == b'\n')
                 .map_or(at, |offset| at + offset + 1);
             line += newlines(&block[at..start]);
-            let end = block[found.start()..]
+            let end = block[probe..]
                 .iter()
                 .position(|&byte| byte == b'\n')
-                .map_or(block.len(), |offset| found.start() + offset);
+                .map_or(block.len(), |offset| probe + offset);
             let text_end = if block[start..end].ends_with(b"\r") {
                 end - 1
             } else {
@@ -281,11 +294,12 @@ impl LineQuery {
                 });
             }
             if end == block.len() {
-                break;
+                return line;
             }
             at = end + 1;
             line += 1;
         }
+        line + newlines(&block[at.min(block.len())..])
     }
 
     /// Where the components that are not excluded match `text`, a row's, sorted and joined
@@ -371,7 +385,11 @@ fn decoded(line: &[u8]) -> String {
 /// from the line's start, as a buffer of the file counts them.
 pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
     let first_start = first.start.min(line.len());
-    let column = decoded(&line[..first_start]).chars().count();
+    // Each invalid byte is one character, as `decoded` reads it.
+    let column = line[..first_start]
+        .utf8_chunks()
+        .map(|chunk| chunk.valid().chars().count() + chunk.invalid().len())
+        .sum();
     let mut start = if first.end.min(line.len()) <= MAX_ROW_BYTES {
         0
     } else {

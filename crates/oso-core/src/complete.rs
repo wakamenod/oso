@@ -73,6 +73,24 @@ impl Candidate {
         }
     }
 
+    /// A candidate that reads `text`, with `annotation` at the end of its row, which no input is
+    /// ever matched against, as a project's search's rows are not (ADR 0114): its case is not
+    /// folded, which would cost each row as it comes.
+    pub(crate) fn unmatched(text: impl Into<Box<str>>, annotation: impl Into<Box<str>>) -> Self {
+        let unfolded = || Folded {
+            text: None,
+            from: None,
+        };
+        Self {
+            text: text.into(),
+            binding: "".into(),
+            annotation: annotation.into(),
+            folded: unfolded(),
+            folded_annotation: unfolded(),
+            hidden_by_input: false,
+        }
+    }
+
     /// The same, shown only while nothing is typed: any input hides it, whatever it asks,
     /// so that what it stands for is never matched against (ADR 0091).
     pub fn hidden_by_input(self) -> Self {

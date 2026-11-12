@@ -25,6 +25,7 @@ mod draw;
 mod events;
 mod files;
 mod flash;
+mod greps;
 #[cfg(feature = "dev")]
 mod handover;
 mod ime;
@@ -276,7 +277,7 @@ impl App {
         let lister = files::lister(&waker);
         let projects = projects::detector(&waker);
         let walker = walks::walker(&waker);
-        let grep = walks::grep(&waker);
+        let grep = greps::grep(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
         editor.set_home(home());

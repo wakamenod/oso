@@ -117,3 +117,14 @@ fn a_directory_let_go_and_replaced_since_is_not_walked_again() {
     symlink(&outside.0, &a2).unwrap();
     assert!(stack.open_top(&mut spent).unwrap().is_none(), "a link");
 }
+
+#[test]
+fn a_walk_deeper_than_its_bound_stops_and_says_it_was_cut() {
+    let scratch = Scratch::new("too-deep");
+    let deep = "d/".repeat(super::super::MAX_DEPTH + 2);
+    scratch.file(&format!("{deep}f"), "");
+    scratch.file("top", "");
+    let (listed, cut) = scratch.walked(Limits::PROJECT);
+    assert!(cut);
+    assert!(!listed.iter().any(|path| path.ends_with("/f")));
+}

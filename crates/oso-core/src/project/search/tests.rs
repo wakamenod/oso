@@ -118,6 +118,10 @@ fn a_longer_literal_narrows_and_a_changed_expression_does_not() {
         "an exclusion that takes less keeps more"
     );
     assert!(!narrows("a.*bc", "a.*b"));
+    // A literal read as an expression too finds more, and the other way fewer.
+    assert!(!narrows("a.c", "=a.c"));
+    assert!(!narrows("=a.c", "a.c"));
+    assert!(!narrows("!=a.c", "!a.c"));
     assert!(narrows("a.*b x", "a.*b"));
 }
 
@@ -167,4 +171,27 @@ fn a_row_cuts_at_characters_and_reads_invalid_bytes_as_a_buffer_does() {
 fn debug_says_nothing_of_the_input() {
     let debug = format!("{:?}", LineQuery::parse("hunter2 secret"));
     assert!(!debug.contains("hunter2") && !debug.contains("secret"));
+}
+
+#[test]
+fn a_block_tells_its_line_breaks_and_a_pattern_across_lines_costs_one_pass() {
+    let query = LineQuery::parse("ee");
+    assert_eq!(query.find_in_block(b"aa\nneedle\nx\n", |_| {}), 3);
+    assert_eq!(query.find_in_block(b"no match\nhere", |_| {}), 1);
+    assert_eq!(LineQuery::parse("!x").find_in_block(b"a\nb\n", |_| {}), 2);
+    // A greedy expression that would run to the block's end from each line: lines of spaces.
+    let block = " \n".repeat(200_000);
+    let started = std::time::Instant::now();
+    let mut found = 0;
+    LineQuery::parse("\\s+x").find_in_block(block.as_bytes(), |_| found += 1);
+    assert_eq!(found, 0);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "linear"
+    );
+    // The longest component drives, and the others are matched on its lines.
+    assert_eq!(
+        hits("in needle", "in a\nneedle in\n"),
+        [(1, "needle in".to_owned())]
+    );
 }
