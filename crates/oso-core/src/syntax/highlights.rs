@@ -87,6 +87,16 @@ impl Highlights {
         }
     }
 
+    /// The whole run that holds the byte at `offset`, with what it is, or `None` past the end.
+    /// O(log n). Neighbouring runs never have the same highlight, so it is all the text around
+    /// `offset` that is what that byte is, such as a whole comment.
+    pub fn run_at(&self, offset: usize) -> Option<(Range<usize>, Option<Highlight>)> {
+        let mut cursor = self.runs.cursor::<usize>();
+        cursor.seek(&offset, Bias::Right);
+        let run = cursor.item()?;
+        Some((*cursor.start()..cursor.end(), run.highlight))
+    }
+
     /// What the byte at `offset` is, or `None` past the end.
     pub fn at(&self, offset: usize) -> Option<Highlight> {
         self.runs(offset..offset.saturating_add(1))

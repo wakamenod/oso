@@ -16,6 +16,9 @@
 use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot, Preedit};
 use crate::selection::{Goal, Selection};
 use crate::sum_tree::Bias;
+use crate::syntax::Highlights;
+
+mod code_end;
 
 /// A motion reached the start or the end of the buffer before it was done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -486,17 +489,18 @@ pub fn toggle_line_start(
     });
 }
 
-/// Moves `selection` as `C-e` does (mwim, ADR 0030): to the end of its line before
-/// trailing blanks, or from there to the line's end. With `n` other than 1 it moves
-/// `n - 1` lines down first, and goes to the end before the blanks.
+/// Moves `selection` as `C-e` does (mwim, ADR 0030): to the end of its line's code, before
+/// trailing blanks and before a comment that `highlights` say ends the line (ADR 0111), or
+/// from there to the line's end. With `n` other than 1 it moves `n - 1` lines down first, and
+/// goes to the end of the code.
 pub fn toggle_line_end(
     display: &DisplaySnapshot,
     selection: &mut Selection,
-    n: isize,
+    (n, highlights): (isize, Option<&Highlights>),
     budget: &mut WalkBudget,
 ) {
     let row = target_row(display, selection.cursor, n);
-    let code = end_before_blanks(display, row, budget);
+    let code = code_end::code_end(display, row, highlights, budget);
     let end = line_end(display, row);
     if code == end || (n == 1 && selection.cursor == code) {
         to_line_end(selection, end);
@@ -532,11 +536,15 @@ fn first_non_blank(display: &DisplaySnapshot, row: usize, budget: &mut WalkBudge
     end
 }
 
-/// Where `row` ends before its trailing blanks, or its start if it has nothing
-/// else. A run of blanks past what a stop reads ends the search where it got to.
-fn end_before_blanks(display: &DisplaySnapshot, row: usize, budget: &mut WalkBudget) -> usize {
+/// Where the text of `row` up to `end` ends before the blanks it ends with, or the row's start
+/// if it has nothing else. A run of blanks past what a stop reads ends the search where it got
+/// to.
+fn end_before_blanks(
+    display: &DisplaySnapshot,
+    (row, end): (usize, usize),
+    budget: &mut WalkBudget,
+) -> usize {
     let mut walk = budget.stop();
-    let end = line_end(display, row);
     let mut point = display.offset_to_display_point(end);
     let mut earliest = end;
     while point.column > 0 {

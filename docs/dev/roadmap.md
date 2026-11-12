@@ -250,7 +250,7 @@ alongside the steps above, after M2-16:
 - The menu component, porting the author's hydra menus.
 - query-replace (`M-%`), keyboard macros, whitespace cleanup on save.
 - Comment-aware `C-e` using tree-sitter's highlights
-  ([ADR 0030](adr/0030-m2-editing-commands.md)).
+  ([ADR 0030](adr/0030-m2-editing-commands.md), [ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 
 ### M4 — Self-hosting (develop oso in oso)
 
