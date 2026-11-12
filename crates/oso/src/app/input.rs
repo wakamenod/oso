@@ -175,6 +175,20 @@ impl App {
             };
         }
         let (rows, columns) = wheeling.remainder.add(rows, columns);
+        if crate::dispatch::holds_input(&self.editor) {
+            match self
+                .held_wheel
+                .iter_mut()
+                .find(|(held, ..)| *held == window)
+            {
+                Some((_, held_rows, held_columns)) => {
+                    *held_rows = held_rows.saturating_add(rows);
+                    *held_columns = held_columns.saturating_add(columns);
+                }
+                None => self.held_wheel.push((window, rows, columns)),
+            }
+            return Some((window, false));
+        }
         let moved_rows = rows != 0 && self.editor.scroll_view(window, rows);
         let moved_columns = columns != 0 && self.editor.scroll_view_sideways(window, columns);
         let moved = moved_rows || moved_columns;
@@ -182,6 +196,22 @@ impl App {
             self.request_redraw();
         }
         Some((window, moved))
+    }
+
+    /// Scrolls as the wheel did while `!` or an undo went on, once it has ended and the keys
+    /// held with it have run (ADR 0119). A window gone meanwhile scrolls nothing.
+    pub(super) fn run_held_wheel(&mut self) {
+        if crate::dispatch::holds_input(&self.editor) {
+            return;
+        }
+        let mut moved = false;
+        for (window, rows, columns) in std::mem::take(&mut self.held_wheel) {
+            moved |= rows != 0 && self.editor.scroll_view(window, rows);
+            moved |= columns != 0 && self.editor.scroll_view_sideways(window, columns);
+        }
+        if moved {
+            self.request_redraw();
+        }
     }
 }
 

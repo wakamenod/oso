@@ -28,6 +28,7 @@ mod admit;
 mod open;
 pub(super) use open::TOO_LARGE_FOR_THE_AGENT;
 mod questions;
+mod undoing;
 
 use super::App;
 use super::shell::Loop;
@@ -92,6 +93,8 @@ pub(super) struct Agent {
     inserted: HashMap<Connection, (Instant, usize)>,
     /// Requests whose reply waits for the save their command started (ADR 0108).
     saving: Vec<Saving>,
+    /// The request whose reply waits for the undo or the redo its command began (ADR 0119).
+    undoing: Option<undoing::Waiting>,
 }
 
 /// A request whose reply waits until the save its command started has ended: whether it
@@ -131,6 +134,8 @@ struct Now {
     searching: bool,
     /// A keyboard macro is being recorded or replayed (ADR 0113).
     macro_running: bool,
+    /// An undo or a redo of a large step goes on (ADR 0119).
+    undoing: bool,
     /// How long since the person last typed, if they have.
     since_typed: Option<Duration>,
 }
@@ -157,6 +162,9 @@ fn waits(now: &Now) -> Option<&'static str> {
     }
     if now.macro_running {
         return Some("the person is recording or running a keyboard macro");
+    }
+    if now.undoing {
+        return Some("an undo or a redo goes on; try again in a moment");
     }
     if now.since_typed.is_some_and(|since| since < PERSON_TYPING) {
         return Some("the person is typing; try again in a moment");
@@ -218,30 +226,57 @@ impl App {
                         }
                     }
                     Op::Open { path, line } => self.agent_open(connection, path, line, reply),
-                    // This replies once the save its command started has ended, if it started one.
+                    // This replies once the save its command started has ended, if it started
+                    // one, or the undo it began (ADR 0119).
                     Op::Run { name, arg, reach } => {
-                        let (ran, saves) =
-                            self.agent_run(event_loop, connection, &name, arg, reach);
-                        match (ran, saves.as_slice()) {
-                            (Ok(done), [buffer, ..]) => {
-                                self.agent.saving.push(Saving {
-                                    connection,
-                                    buffer: *buffer,
-                                    reply,
-                                    done,
-                                    started: Instant::now(),
-                                });
-                                self.wake_after(SAVE_WITHIN);
-                            }
-                            (ran, _) => {
-                                let _ = reply.send(ran);
-                            }
-                        }
+                        self.agent_run_and_reply(
+                            event_loop,
+                            connection,
+                            (&name, arg, reach),
+                            reply,
+                        );
                     }
                     op => {
                         let _ = reply.send(self.agent_op(connection, op));
                     }
                 }
+            }
+        }
+    }
+
+    /// Runs a command for the channel and replies: at once, or once the save its command
+    /// started has ended, or the undo it began (ADR 0108, ADR 0119).
+    fn agent_run_and_reply(
+        &mut self,
+        event_loop: &Loop<'_>,
+        connection: Connection,
+        (name, arg, reach): (&str, Option<Arg>, Reach),
+        reply: std::sync::mpsc::Sender<Reply>,
+    ) {
+        let undoing = self.editor.crossing().is_some();
+        let (ran, saves) = self.agent_run(event_loop, connection, name, arg, reach);
+        // An undo that goes on replies once it has ended. One under way before was not this
+        // command's: the channel waited for it.
+        let Some((reply, ran)) = (if undoing {
+            Some((reply, ran))
+        } else {
+            self.wait_for_undo(connection, reply, ran)
+        }) else {
+            return;
+        };
+        match (ran, saves.as_slice()) {
+            (Ok(done), [buffer, ..]) => {
+                self.agent.saving.push(Saving {
+                    connection,
+                    buffer: *buffer,
+                    reply,
+                    done,
+                    started: Instant::now(),
+                });
+                self.wake_after(SAVE_WITHIN);
+            }
+            (ran, _) => {
+                let _ = reply.send(ran);
             }
         }
     }
@@ -312,6 +347,7 @@ impl App {
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
         forget_saves_of(&mut self.agent.saving, connection);
+        self.forget_undo_of(Some(connection));
         self.orphan_questions(Some(connection));
         self.drop_agent_opens(Some(connection));
         if self
@@ -471,6 +507,7 @@ impl App {
                 || self.editor.jump().is_some()
                 || self.editor.replace().is_some(),
             macro_running: self.editor.macro_recording() || self.editor.macro_replaying(),
+            undoing: self.editor.crossing().is_some(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),
         })
     }
@@ -611,6 +648,13 @@ mod tests {
                     ..Now::default()
                 },
                 "keyboard macro",
+            ),
+            (
+                Now {
+                    undoing: true,
+                    ..Now::default()
+                },
+                "undo or a redo",
             ),
             (
                 Now {

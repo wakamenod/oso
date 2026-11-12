@@ -159,6 +159,9 @@ pub struct App {
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
     wheel: input::Wheeling,
+    /// Wheel and trackpad scrolling held while `!` or an undo goes on, in rows and columns, a
+    /// sum for each window, which scrolls after the keys held with it (ADR 0119).
+    held_wheel: Vec<(WindowId, isize, isize)>,
     /// What each tiled window's modeline and the echo area said when a frame was last drawn
     /// or asked for, and room to compare it with what they would say now (ADR 0112).
     statuses: Vec<(WindowId, Status)>,
@@ -316,6 +319,7 @@ impl App {
             scan_for_copies: false,
             started: Some(started),
             wheel: input::Wheeling::default(),
+            held_wheel: Vec::new(),
             statuses: Vec::new(),
             next_statuses: Vec::new(),
             ime: ime::ImeState::default(),
@@ -409,6 +413,9 @@ impl App {
         let input = self.flash_after_input();
         self.time_jump(input);
         self.forget_killed();
+        if let Some(freed) = self.editor.take_crossing_freed() {
+            self.freer.free(freed);
+        }
         self.serve_files();
         self.forget_listings();
         self.start_walks();

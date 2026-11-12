@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use super::Editor;
 use super::follow::clip_selections;
+use super::wraps::MovedViews;
 use crate::buffer::{Budget, BufferId, EditError, FOLLOW_WORK, PIECE, StagedCrossing};
 use crate::selection::{MarkActive, SelectionSet, follow_offset};
 use crate::sum_tree::Bias;
@@ -33,6 +34,9 @@ const SLICE_WORK: usize = 4 * 1024 * 1024;
 pub(super) struct Crossings {
     /// The crossing under way.
     under_way: Option<Crossing>,
+    /// What each commit let go, and each crossing dropped, until the host takes it to free
+    /// off the UI thread (ADR 0119).
+    freed: Vec<Box<dyn Send>>,
     /// What each slice does in tests: its work and the bytes of a piece.
     #[cfg(test)]
     slices: Option<(usize, usize)>,
@@ -132,8 +136,9 @@ impl Editor {
 
     /// The next slice, for the host at each turn: `None` while it goes on, `Some(result)` when
     /// it ended, and `Some(Ok(()))` with none under way. Each step commits as it ends. Outside
-    /// a command, the host is then to give the wraps their budget and make the windows follow
-    /// their cursors, as the dispatcher does after a command.
+    /// a command, the host gives the wraps their budget first ([`Editor::refill_wraps`]) and
+    /// makes the windows follow their cursors after ([`Editor::follow_cursor`]), as the
+    /// dispatcher does around a command, and frees what [`Editor::take_crossing_freed`] gives.
     ///
     /// # Errors
     ///
@@ -158,7 +163,10 @@ impl Editor {
                     self.crossing.under_way = Some(crossing);
                     return None;
                 }
-                Err(error) => return Some(Err(error)),
+                Err(error) => {
+                    self.crossing.freed.push(Box::new(crossing));
+                    return Some(Err(error));
+                }
             }
             let (id, direction, left, slices) = (
                 crossing.buffer,
@@ -188,7 +196,21 @@ impl Editor {
     /// Drops the crossing under way, which changes nothing; steps of a count already crossed
     /// stay crossed. Returns whether one was under way.
     pub fn cancel_crossing(&mut self) -> bool {
-        self.crossing.under_way.take().is_some()
+        let Some(crossing) = self.crossing.under_way.take() else {
+            return false;
+        };
+        self.crossing.freed.push(Box::new(crossing));
+        true
+    }
+
+    /// What the crossings since the last call let go: the groups crossed, the text and display
+    /// they replaced, and what a crossing cancelled or abandoned held. Dropping it may take
+    /// milliseconds, so the host drops it off the UI thread (ADR 0119).
+    pub fn take_crossing_freed(&mut self) -> Option<Box<dyn Send>> {
+        if self.crossing.freed.is_empty() {
+            return None;
+        }
+        Some(Box::new(std::mem::take(&mut self.crossing.freed)))
     }
 
     /// Crosses `count` steps at once, as [`Editor::undo`] and [`Editor::redo`] do: the slices
@@ -295,6 +317,7 @@ impl Editor {
 
     /// Commits a step that has all applied: the selected window gets the cursors of the side
     /// it returns to, and every other window showing the buffer keeps those that followed.
+    /// What it lets go, or the step if it cannot commit, waits for the host to free.
     fn commit_step(&mut self, crossing: Crossing) -> Result<(), EditError> {
         let Crossing {
             buffer: id,
@@ -302,9 +325,51 @@ impl Editor {
             windows,
             ..
         } = crossing;
+        let (moved, views) = match self.committed_windows(id, &staged, windows) {
+            Ok(committed) => committed,
+            Err(error) => {
+                self.crossing.freed.push(Box::new(staged));
+                return Err(error);
+            }
+        };
+
+        // Nothing past this point can panic part way.
+        let Some(buffer) = self.buffer_mut(id) else {
+            self.crossing.freed.push(Box::new(staged));
+            return Err(EditError::Abandoned);
+        };
+        match buffer.commit_crossing(staged) {
+            Ok(freed) => self.crossing.freed.push(Box::new(freed)),
+            Err(staged) => {
+                self.crossing.freed.push(staged);
+                return Err(EditError::Abandoned);
+            }
+        }
+        for (index, set) in moved {
+            self.windows[index].selections = set;
+        }
+        self.commit_views(id, views);
+        // Crossing a recovery takes its verdict along.
+        self.note_secret_shown();
+        if let Some(scope) = &mut self.undo_scope {
+            scope.before = (id, self.windows[self.selected].selections.clone());
+            scope.crossed = true;
+        }
+        self.join_ready = false;
+        Ok(())
+    }
+
+    /// Each window's cursors, by its index, and the views once `staged` is in, for
+    /// [`Editor::commit_step`]. Fails if a window went or its cursors changed.
+    fn committed_windows(
+        &self,
+        id: BufferId,
+        staged: &StagedCrossing,
+        windows: Vec<Followed>,
+    ) -> Result<(Vec<(usize, SelectionSet)>, MovedViews), EditError> {
         let buffer = self.buffer(id).ok_or(EditError::Abandoned)?;
         let display = staged.display();
-        let restored = buffer.crossing_selections(&staged).cloned();
+        let restored = buffer.crossing_selections(staged).cloned();
         let mut moved = Vec::with_capacity(windows.len());
         let mut tops = Vec::with_capacity(windows.len());
         for followed in windows {
@@ -333,27 +398,7 @@ impl Editor {
                 .find(|(other, _)| *other == window.id())
                 .map_or(window.scroll().start, |(_, top)| *top)
         });
-
-        // Nothing past this point can panic part way.
-        let freed = self
-            .buffer_mut(id)
-            .and_then(|buffer| buffer.commit_crossing(staged))
-            .ok_or(EditError::Abandoned)?;
-        for (index, set) in moved {
-            self.windows[index].selections = set;
-        }
-        self.commit_views(id, views);
-        // Crossing a recovery takes its verdict along.
-        self.note_secret_shown();
-        if let Some(scope) = &mut self.undo_scope {
-            scope.before = (id, self.windows[self.selected].selections.clone());
-            scope.crossed = true;
-        }
-        self.join_ready = false;
-        // What the step let go is freed here for now; the host is to free it off the UI
-        // thread (ADR 0119).
-        drop(freed);
-        Ok(())
+        Ok((moved, views))
     }
 
     /// The echo line while a crossing goes on, from its second slice: `Undoing… 42%`, with
@@ -391,5 +436,7 @@ impl Editor {
     }
 }
 
+#[cfg(test)]
+mod host_tests;
 #[cfg(test)]
 mod tests;

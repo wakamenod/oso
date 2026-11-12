@@ -183,6 +183,8 @@ fn undo_stops_after_what_a_command_crosses() {
         send(&mut d, &mut editor, "RET");
     }
     send(&mut d, &mut editor, "C-u 9 9 9 C-z");
+    // The steps cross over turns (ADR 0119), and the error waits behind their progress.
+    super::undo_tests::finish(&mut d, &mut editor);
     assert_eq!(text(&editor), "\n", "all but one");
     assert_eq!(
         kept_messages(&editor).last().map(String::as_str),

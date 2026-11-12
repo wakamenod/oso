@@ -880,3 +880,44 @@ fn an_agents_save_that_waits_for_a_whitespace_scan_replies_once_written() {
         "written as cleaned"
     );
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agents_undo_of_a_large_step_replies_once_it_ends_or_the_person_cancels_it() {
+    let scratch = Scratch::new("agent-undo");
+    let lines = 200_000;
+    let file = scratch.write("lines.txt", "x\n".repeat(lines).as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    app.send_keys("M-% x RET y RET !");
+    app.wait_for("`!` to end", |state| state["replace"].is_null());
+    let agent = let_in(&mut app);
+
+    let undo = thread::spawn(move || {
+        let mut agent = agent;
+        let result = agent.run("undo", None, "change");
+        (agent, result)
+    });
+    app.wait_for("the undo", |state| !state["undoing"].is_null());
+    let (agent, result) = undo.join().unwrap();
+    assert_eq!(
+        result.unwrap()["command"],
+        "undo",
+        "it replied once it ended"
+    );
+    let state = app.state();
+    assert_eq!(state["undoing"], json!(null));
+    let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1 })));
+    assert_eq!(rows["rows"], json!(["x"]));
+
+    let redo = thread::spawn(move || {
+        let mut agent = agent;
+        agent.run("undo-redo", None, "change")
+    });
+    app.wait_for("the redo", |state| state["undoing"]["redo"] == true);
+    app.send_keys("C-g");
+    let refused = redo.join().unwrap().unwrap_err();
+    assert_eq!(refused, "Redo cancelled by the person");
+    let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1 })));
+    assert_eq!(rows["rows"], json!(["x"]), "nothing redone");
+}

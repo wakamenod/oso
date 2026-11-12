@@ -1,5 +1,7 @@
 //! isearch's worker (ADR 0082): one thread that runs the newest job a search left, and
-//! taking in what it found and counted.
+//! taking in what it found and counted. And the work that goes on a slice a turn beside it:
+//! `!`'s replacing and a keyboard macro's replay (ADR 0113), and undoing or redoing a large
+//! step (ADR 0119).
 //!
 //! Must not depend on: key presses or how a frame is drawn. The search and the count run on
 //! the worker's thread over a snapshot, never here.
@@ -90,6 +92,27 @@ impl App {
         if !self.editor.replace_works() {
             let effects = self.dispatcher.run_held_during_all(&mut self.editor);
             self.apply(event_loop, effects);
+            self.run_held_wheel();
+        }
+    }
+
+    /// Undoes or redoes the next slice of a large step, if one is under way, and asks for
+    /// another turn. Once it has ended, the input held meanwhile runs, and the agent whose
+    /// command began it hears how it ended (ADR 0119).
+    pub(super) fn undo_slice(&mut self, event_loop: &Loop<'_>) {
+        if self.editor.crossing().is_none() {
+            // `C-g` may have cancelled it since the last turn.
+            self.agent_undo_turn(None);
+            self.run_held_wheel();
+            return;
+        }
+        let (effects, ended) = self.dispatcher.go_on_crossing(&mut self.editor);
+        self.dispatcher.publish_for_emergency(&self.editor);
+        self.apply(event_loop, effects);
+        let over = ended.is_some();
+        self.agent_undo_turn(ended);
+        if over {
+            self.run_held_wheel();
         }
     }
 

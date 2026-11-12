@@ -30,6 +30,10 @@ const DEFAULT_LIMIT: usize = 64 * 1024 * 1024;
 /// `amalgamating-undo-limit`, so that undoing long typing takes a few steps.
 const JOIN_LIMIT: usize = 20;
 
+/// The most splices a batch holds: a larger one is recorded in parts, which an undo or a
+/// redo applies one after another, as it would the whole (ADR 0119).
+pub(crate) const BATCH_SPLICES: usize = 4096;
+
 /// Identifies a state of a buffer's content. Each edit gets a new id, and undo
 /// and redo restore the id of the state they return to. Ids are never reused,
 /// so two states with one id have the same text.
@@ -146,6 +150,22 @@ fn batch_cost(batch: &Batch) -> usize {
     Counts::of(batch).cost
 }
 
+/// `batch` as batches of at most [`BATCH_SPLICES`] splices, the lowest first, so that they
+/// apply from the highest back, as the batch does: the splices of each lie below those of the
+/// next, so their offsets hold. O(splices) when it is cut, O(1) otherwise.
+fn parts(mut batch: Batch) -> Vec<Batch> {
+    if batch.len() <= BATCH_SPLICES {
+        return vec![batch];
+    }
+    let mut parts = Vec::with_capacity(batch.len().div_ceil(BATCH_SPLICES));
+    while batch.len() > BATCH_SPLICES {
+        let rest = batch.split_off(BATCH_SPLICES);
+        parts.push(mem::replace(&mut batch, rest));
+    }
+    parts.push(batch);
+    parts
+}
+
 impl Group {
     /// A group of `batches`, which `counts` count. O(batches).
     fn counted(batches: Vec<Batch>, mut counts: Vec<Counts>, target: Side, source: Side) -> Self {
@@ -256,15 +276,17 @@ impl History {
         self.bytes -= self.redo.iter().map(|group| group.bytes).sum::<usize>();
         self.redo.clear();
         self.changes += 1;
-        let counts = Counts::of(&batch);
+        let batches = parts(batch);
+        let counts: Vec<Counts> = batches.iter().map(Counts::of).collect();
+        let cost = counts.iter().map(|counts| counts.cost).sum::<usize>();
         let newest = match opening {
             Opening::New(_) => None,
             Opening::Continue | Opening::Join => self.undo.back_mut(),
         };
         if let Some(group) = newest {
-            let (old, new) = (group.source.cost(), after.cost() + counts.cost);
-            group.batches.push(batch);
-            group.counts.push(counts);
+            let (old, new) = (group.source.cost(), after.cost() + cost);
+            group.batches.extend(batches);
+            group.counts.extend(counts);
             group.source = after;
             group.bytes = group.bytes + new - old;
             group.joined += usize::from(matches!(opening, Opening::Join));
@@ -278,11 +300,12 @@ impl History {
                 content,
                 selections,
             };
-            let group = Group::counted(vec![batch], vec![counts], target, after);
+            let group = Group::counted(batches, counts, target, after);
             self.bytes += group.bytes;
             self.undo.push_back(group);
         }
-        self.evict(Direction::Undo);
+        // An edit frees what it drops itself, as it frees what it replaced.
+        drop(self.evict(Direction::Undo));
     }
 
     /// Joins the groups made since the state `before` into one, newest last, so that one
@@ -374,7 +397,11 @@ impl History {
 
     /// Moves the group crossed to the other stack, as `crossed`, and returns the one it
     /// replaces, for the caller to free.
-    pub(crate) fn cross(&mut self, direction: Direction, crossed: Group) -> Option<Group> {
+    pub(crate) fn cross(
+        &mut self,
+        direction: Direction,
+        crossed: Group,
+    ) -> (Option<Group>, Vec<Group>) {
         let left = match direction {
             Direction::Undo => self.undo.pop_back(),
             Direction::Redo => self.redo.pop_back(),
@@ -393,16 +420,18 @@ impl History {
                 Direction::Undo
             }
         };
-        self.evict(newest);
-        left
+        let evicted = self.evict(newest);
+        (left, evicted)
     }
 
     /// Drops the redo groups furthest away, then the oldest undo groups, until
-    /// all but the newest group, last on the `newest` stack, fit the limit.
-    fn evict(&mut self, newest: Direction) {
+    /// all but the newest group, last on the `newest` stack, fit the limit. Returns them, for
+    /// the caller to free.
+    fn evict(&mut self, newest: Direction) -> Vec<Group> {
         // A newest undo group is safe: while it alone is left, nothing is over.
         let redo_kept = usize::from(newest == Direction::Redo);
         let newest_bytes = self.next(newest).map_or(0, |group| group.bytes);
+        let mut evicted = Vec::new();
         while self.bytes - newest_bytes > self.limit {
             let dropped = if self.redo.len() > redo_kept {
                 self.redo.pop_front()
@@ -414,7 +443,9 @@ impl History {
                 break;
             };
             self.bytes -= dropped.bytes;
+            evicted.push(dropped);
         }
+        evicted
     }
 
     /// The undo groups, oldest first, and the redo groups, the next to redo last.

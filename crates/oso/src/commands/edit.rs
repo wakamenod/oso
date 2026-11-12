@@ -19,9 +19,8 @@ use oso_core::motion::{self, Edge, WalkBudget};
 
 use super::{MAX_INSERT, budget_left};
 
-/// The most undo steps one command crosses. A step of joined typing has 20 small
-/// edits at about 9 µs each, so this takes about 50 ms, and more for text it puts
-/// back. The history is bounded in bytes, but it can hold many small steps.
+/// The most undo steps one command crosses (ADR 0058). The history is bounded in bytes, but it
+/// can hold many small steps. They cross a slice a turn, the first in the command (ADR 0119).
 const MAX_CROSSINGS: usize = 256;
 
 /// The editing commands.
@@ -73,14 +72,14 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "undo",
-        doc: "Undo the last N changes to the buffer (redo them if N is negative).\n\nThe cursors go back to where they were. With nothing more to undo, signal \"No further undo information\". After 256 changes, stop and signal \"Count too large\".",
+        doc: "Undo the last N changes to the buffer (redo them if N is negative).\n\nThe cursors go back to where they were. With nothing more to undo, signal \"No further undo information\". After 256 changes, stop and signal \"Count too large\".\n\nA large change undoes a slice at a time, saying how far it is: keys wait meanwhile and run after, and `C-g` cancels it, leaving it as it was (ADR 0119).",
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: undo,
     },
     Command {
         name: "undo-redo",
-        doc: "Redo the last N undone changes (undo if N is negative).\n\nAny edit after an undo discards what could be redone (ADR 0030). With nothing more to redo, signal \"No further redo information\".",
+        doc: "Redo the last N undone changes (undo if N is negative).\n\nAny edit after an undo discards what could be redone (ADR 0030). With nothing more to redo, signal \"No further redo information\". A large change redoes a slice at a time, as `undo` does.",
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: undo_redo,
@@ -259,17 +258,20 @@ fn tab_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Undoes `n` steps, or redoes them if `n` is negative, stopping at the first
-/// that fails, or signaling after [`MAX_CROSSINGS`].
+/// Begins undoing `n` steps, or redoing them if `n` is negative, stopping at the first that
+/// fails, or signaling after [`MAX_CROSSINGS`]. What the first slice leaves goes on at the
+/// host's next turns (ADR 0119); a count's error at a later step comes then.
 fn cross(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
-    for _ in 0..n.unsigned_abs().min(MAX_CROSSINGS) {
-        if n < 0 {
-            ctx.editor.redo()?;
-        } else {
-            ctx.editor.undo()?;
-        }
+    let steps = n.unsigned_abs().min(MAX_CROSSINGS).cast_signed();
+    let before = ctx.editor.current().1.content_id();
+    let begun = ctx
+        .editor
+        .begin_crossing(if n < 0 { -steps } else { steps });
+    // What crossed, or goes on, is drawn; a first step that could not begin changed nothing.
+    if ctx.editor.crossing().is_some() || ctx.editor.current().1.content_id() != before {
         ctx.request_redraw();
     }
+    begun?;
     if n.unsigned_abs() > MAX_CROSSINGS {
         return Err(CommandError::new(motion::TOO_MUCH));
     }

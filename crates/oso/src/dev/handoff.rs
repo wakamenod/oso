@@ -469,10 +469,13 @@ const SEARCHING: &str = "cannot hand over: a search is under way";
 /// Why a restart waits for a jump to end, as for a search (ADR 0116).
 const JUMPING: &str = "cannot hand over: a jump is under way";
 
-/// Why a handover waits for what the person is doing: a search, a jump or a query-replace, or
-/// a keyboard macro being recorded or run (ADR 0082, ADR 0113, ADR 0116).
+/// Why a handover waits for what the person is doing: a search, a jump or a query-replace, a
+/// keyboard macro being recorded or run, or an undo or a redo of a large step (ADR 0082,
+/// ADR 0113, ADR 0116, ADR 0119).
 fn under_way(editor: &Editor) -> Option<&'static str> {
-    if editor.jump().is_some() {
+    if editor.crossing().is_some() {
+        Some(UNDOING)
+    } else if editor.jump().is_some() {
         Some(JUMPING)
     } else if editor.isearch().is_some() || editor.replace().is_some() {
         Some(SEARCHING)
@@ -482,6 +485,10 @@ fn under_way(editor: &Editor) -> Option<&'static str> {
         None
     }
 }
+
+/// Why a restart waits for an undo or a redo to end: the handoff carries no history, so the
+/// person could not make that undo after it (ADR 0119).
+const UNDOING: &str = "cannot hand over: an undo or a redo is under way";
 
 /// Why a restart waits for a keyboard macro: a new instance would lose the recording, or
 /// stop the replay part way (ADR 0113).
@@ -545,6 +552,9 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
             "{EXIT_REFUSED}: a keyboard macro is being recorded or run"
         )),
         Some(_) if editor.jump().is_some() => Err(format!("{EXIT_REFUSED}: a jump is under way")),
+        Some(_) if editor.crossing().is_some() => {
+            Err(format!("{EXIT_REFUSED}: an undo or a redo is under way"))
+        }
         Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
             Err(format!("{EXIT_REFUSED}: a search is under way"))
         }

@@ -99,6 +99,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "isearch": isearch_state(editor),
         "jump": jump_state(editor),
         "replace": replace_state(editor),
+        "undoing": crate::channel::state::undoing_state(editor),
         "macro": { "recording": editor.macro_recording(), "replaying": editor.macro_replaying() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
@@ -789,6 +790,7 @@ mod tests {
                 "isearch": null,
                 "jump": null,
                 "replace": null,
+                "undoing": null,
                 "macro": { "recording": false, "replaying": false },
                 "surface": { "width": 800, "height": 600 },
             })

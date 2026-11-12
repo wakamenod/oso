@@ -187,13 +187,15 @@ impl Dispatcher {
     }
 
     /// Whether what an earlier event started still runs, so the next must wait: a clipboard
-    /// read, a key held for a completion, a search on a worker, `!`'s slices, or a file loading.
+    /// read, a key held for a completion, a search on a worker, `!`'s slices, an undo of a
+    /// large step (ADR 0119), or a file loading.
     fn replay_waits(&self, editor: &Editor) -> bool {
         self.waiting.is_some()
             || self.completion_held.is_some()
             || editor.isearch().is_some_and(|search| search.searching())
             || editor.replace().is_some_and(|replace| replace.searching())
             || editor.replace_works()
+            || editor.crossing().is_some()
             || editor.cursor_search_waits()
             || editor.current().1.loading().is_some()
     }

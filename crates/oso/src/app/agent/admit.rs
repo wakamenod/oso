@@ -115,6 +115,7 @@ impl App {
             }
         }
         self.agent.connected.clear();
+        self.forget_undo_of(None);
         self.orphan_questions(None);
         self.drop_agent_opens(None);
         self.agent.opened.clear();

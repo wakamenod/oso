@@ -1,9 +1,10 @@
 //! Undoing large steps (ADR 0119): a large `!` with what else follows a crossing turned on, a
 //! soft wrap, a second window and highlights, a session answered match by match, typing at
-//! 1000 cursors joined into one step, a large kill, and many runs that meet with much to follow.
-//! Each case prints the undo and the redo at once, so that what grows with the step shows, and
-//! then crossed a slice at a time as the host runs them: the slices, p50, p99 and the longest
-//! of them, the last, which commits, and the whole. Run with `-- undo`.
+//! 1000 cursors joined into one step, a large kill, many runs that meet with much to follow, and
+//! one batch of many splices. Each case prints the undo and the redo at once, so that what grows
+//! with the step shows, and then crossed a slice at a time as the host runs them: the slices,
+//! p50, p99 and the longest of them, the last, which commits, and the whole. What a commit lets
+//! go is dropped outside the times, as the host frees it off the UI thread. Run with `-- undo`.
 //!
 //! Must not depend on: crate internals; it uses only the public API, and the text and timing
 //! helpers of `text_perf`.
@@ -46,9 +47,11 @@ fn cross(editor: &mut Editor) -> (Duration, Duration, String) {
     let started = Instant::now();
     editor.undo().expect("a step to undo");
     let undone = started.elapsed();
+    drop(editor.take_crossing_freed());
     let started = Instant::now();
     editor.redo().expect("a step to redo");
     let redone = started.elapsed();
+    drop(editor.take_crossing_freed());
     let undo = sliced(editor, 1);
     let redo = sliced(editor, -1);
     let slices = format!("  undo in slices: {undo}\n  redo in slices: {redo}");
@@ -79,23 +82,24 @@ impl std::fmt::Display for Sliced {
     }
 }
 
-/// Crosses `count` steps a slice at a time.
+/// Crosses `count` steps a slice at a time. The whole leaves out the frees.
 fn sliced(editor: &mut Editor, count: isize) -> Sliced {
-    let started = Instant::now();
     let slice = Instant::now();
     editor.begin_crossing(count).expect("a step to cross");
     let mut times = vec![slice.elapsed()];
+    drop(editor.take_crossing_freed());
     while editor.crossing().is_some() {
         let slice = Instant::now();
         let ended = editor.go_on_crossing();
         times.push(slice.elapsed());
+        drop(editor.take_crossing_freed());
         if let Some(result) = ended {
             result.expect("the step crosses");
         }
     }
     Sliced {
+        whole: times.iter().sum(),
         times,
-        whole: started.elapsed(),
     }
 }
 
@@ -132,6 +136,47 @@ fn meeting_runs(label: &str, lines: usize, answers: usize, edited: usize, cursor
     }
     editor.replace_answer(ReplaceAnswer::ReplaceAndExit);
     assert!(editor.replace().is_none(), "the session ended");
+    let (undone, redone, in_slices) = cross(&mut editor);
+    println!("{label:<34}       undo {undone:>9.2?}  redo {redone:>9.2?}");
+    println!("{in_slices}");
+}
+
+/// One edit of `pairs` pairs of splices, each deleting a byte and replacing the next, over a
+/// highlighted buffer with 1000 cursors in a second window, then its undo. The history keeps it
+/// in parts of at most 4096 splices (ADR 0119).
+fn one_batch(label: &str, pairs: usize) {
+    let text = "ab".repeat(pairs);
+    let mut editor = editor_with_cursors(&text, 1000);
+    editor
+        .split_window(Way::Down, true)
+        .expect("the window splits");
+    let id = editor.window().buffer();
+    let buffer = editor.buffer_mut(id).expect("the buffer");
+    buffer.set_mode(Mode::Rust);
+    let revision = buffer.revision();
+    assert!(
+        buffer.take_highlights(revision, highlights(text.len())),
+        "the buffer takes highlights"
+    );
+    let edits: Vec<_> = (0..pairs)
+        .flat_map(|pair| {
+            [
+                Replacement {
+                    range: pair * 2..pair * 2 + 1,
+                    text: "",
+                },
+                Replacement {
+                    range: pair * 2 + 1..pair * 2 + 2,
+                    text: "c",
+                },
+            ]
+        })
+        .collect();
+    editor.begin_undo_group();
+    editor
+        .apply_edits(id, &edits)
+        .expect("the buffer is editable");
+    editor.end_undo_group();
     let (undone, redone, in_slices) = cross(&mut editor);
     println!("{label:<34}       undo {undone:>9.2?}  redo {redone:>9.2?}");
     println!("{in_slices}");
@@ -305,4 +350,5 @@ pub(crate) fn undo_costs() {
         200_000,
         100_000,
     );
+    one_batch("200k splices in one edit", 100_000);
 }
