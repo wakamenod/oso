@@ -292,15 +292,6 @@ impl Editor {
         self.messages_buffer
     }
 
-    /// Where the selected window goes back to through the internal buffers it has gone to, if
-    /// it is on one and that buffer still exists, for a state handoff.
-    pub fn place_behind_internal(&self) -> Option<(BufferId, &SelectionSet, Scroll)> {
-        if !self.current().1.is_internal() {
-            return None;
-        }
-        self.place_behind_internal_of(self.tiled_id())
-    }
-
     /// Where the window `id` goes back to through the internal buffers it has gone to, if it is
     /// on one and that buffer still exists, for a state handoff of every window (ADR 0112).
     pub fn place_behind_internal_of(
@@ -330,7 +321,20 @@ impl Editor {
         selections: SelectionSet,
         scroll: Scroll,
     ) -> bool {
-        let index = self.tiled_index();
+        self.restore_kept_place_in(self.tiled_id(), buffer, selections, scroll)
+    }
+
+    /// [`Editor::restore_kept_place`] for the window `id`, selected or not (ADR 0112).
+    pub fn restore_kept_place_in(
+        &mut self,
+        id: WindowId,
+        buffer: BufferId,
+        selections: SelectionSet,
+        scroll: Scroll,
+    ) -> bool {
+        let Some(index) = self.window_index(id) else {
+            return false;
+        };
         match self.windows[index].places_mut().get_mut(buffer) {
             Some(place) => {
                 place.selections = selections;
@@ -857,7 +861,7 @@ mod tests {
         let id = editor.window().buffer();
         editor.toggle_messages();
         editor.kill_buffer(id);
-        assert_eq!(editor.place_behind_internal(), None);
+        assert_eq!(editor.place_behind_internal_of(editor.window().id()), None);
         editor.toggle_messages();
         assert_eq!(editor.current().1.name(), crate::editor::SCRATCH);
     }
@@ -867,11 +871,11 @@ mod tests {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", "abcdef"));
         let id = editor.window().buffer();
         editor.current_mut().0.selections = SelectionSet::new(3);
-        assert_eq!(editor.place_behind_internal(), None);
+        assert_eq!(editor.place_behind_internal_of(editor.window().id()), None);
         editor.toggle_messages();
         let selections = SelectionSet::new(3);
         assert_eq!(
-            editor.place_behind_internal(),
+            editor.place_behind_internal_of(editor.window().id()),
             Some((id, &selections, Scroll::default()))
         );
     }

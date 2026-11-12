@@ -100,3 +100,32 @@ fn a_layout_too_heavy_to_take_is_refused_by_the_editor_and_nothing_panics() {
     );
     assert_eq!(editor.frame().windows().len(), 1, "one window, as before");
 }
+
+#[test]
+fn a_layout_of_mixed_shapes_is_refused() {
+    let window_and_run = with(|s| {
+        s["layout"] = json!({ "window": 0, "across": [] });
+    });
+    let message = parse(&window_and_run).unwrap_err();
+    assert!(message.contains("says more than its number"), "{message}");
+    let both_ways = with(|s| {
+        let window = s["windows"][0].clone();
+        s["windows"] = json!([window, window]);
+        s["layout"] = json!({
+            "across": [{ "weight": 1, "window": 0 }, { "weight": 1, "window": 1 }],
+            "down": [],
+        });
+    });
+    let message = parse(&both_ways).unwrap_err();
+    assert!(message.contains("neither across nor down"), "{message}");
+    let child_and_run = with(|s| {
+        let window = s["windows"][0].clone();
+        s["windows"] = json!([window, window]);
+        s["layout"] = json!({ "across": [
+            { "weight": 1, "window": 0, "run": { "down": [] } },
+            { "weight": 1, "window": 1 },
+        ] });
+    });
+    let message = parse(&child_and_run).unwrap_err();
+    assert!(message.contains("neither a window nor a run"), "{message}");
+}

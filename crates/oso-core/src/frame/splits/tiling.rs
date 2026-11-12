@@ -9,9 +9,6 @@ use std::fmt;
 use super::{Child, Node, Run, Splits, Way};
 use crate::window::WindowId;
 
-/// The most runs one inside another a tiling may hold, as a restart takes it (ADR 0112).
-pub(crate) const MAX_DEPTH: usize = 16;
-
 /// A frame's tiled windows as data: windows, and runs of two or more children laid out the same
 /// way, each child with its weight. The windows are in the tree's order, left to right, top to
 /// bottom, so a leaf names none.
@@ -27,6 +24,23 @@ pub enum Tiling {
 }
 
 impl Tiling {
+    /// The most runs one inside another a tiling may hold, as a restart takes it (ADR 0112).
+    pub const MAX_DEPTH: usize = 16;
+
+    /// How many runs it holds one inside another: 0 for a window.
+    pub fn depth(&self) -> usize {
+        match self {
+            Self::Window => 0,
+            Self::Run { children, .. } => {
+                1 + children
+                    .iter()
+                    .map(|(_, child)| child.depth())
+                    .max()
+                    .unwrap_or(0)
+            }
+        }
+    }
+
     /// How many windows it holds.
     pub fn windows(&self) -> usize {
         match self {
@@ -45,7 +59,7 @@ pub enum BadTiling {
     LonelyRun,
     /// A child has a weight of 0.
     NoWeight,
-    /// Runs nest deeper than [`MAX_DEPTH`].
+    /// Runs nest deeper than [`Tiling::MAX_DEPTH`].
     TooDeep,
     /// Weights too large to merge a run into another of the same way.
     TooHeavy,
@@ -79,13 +93,14 @@ impl Splits {
     /// # Errors
     ///
     /// [`BadTiling`] for a run of fewer than two children, a weight of 0, runs deeper than
-    /// [`MAX_DEPTH`], or weights too large to merge.
+    /// [`Tiling::MAX_DEPTH`], or weights too large to merge.
     pub(crate) fn from_tiling(
         tiling: &Tiling,
         first: WindowId,
         next: &mut u64,
     ) -> Result<(Self, Vec<WindowId>), BadTiling> {
-        let mut ids = Vec::with_capacity(tiling.windows());
+        // Counted as they are named: a tiling is checked as it is walked, depth first.
+        let mut ids = Vec::new();
         let mut name = || {
             let id = if ids.is_empty() {
                 first
@@ -128,7 +143,7 @@ fn build(
         Tiling::Window => return Ok(Node::Window(name())),
         Tiling::Run { way, children } => (*way, children),
     };
-    if depth >= MAX_DEPTH {
+    if depth >= Tiling::MAX_DEPTH {
         return Err(BadTiling::TooDeep);
     }
     if children.len() < 2 {
@@ -272,7 +287,11 @@ mod tests {
                 run(way, vec![(1, W), (1, inner)])
             })
         };
-        assert!(from(&nest(MAX_DEPTH)).is_ok());
-        assert_eq!(from(&nest(MAX_DEPTH + 1)).unwrap_err(), BadTiling::TooDeep);
+        assert!(from(&nest(Tiling::MAX_DEPTH)).is_ok());
+        assert_eq!(nest(Tiling::MAX_DEPTH).depth(), Tiling::MAX_DEPTH);
+        assert_eq!(
+            from(&nest(Tiling::MAX_DEPTH + 1)).unwrap_err(),
+            BadTiling::TooDeep
+        );
     }
 }

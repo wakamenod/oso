@@ -359,6 +359,7 @@ fn restore(cursor: usize, top: usize, editor: &Editor) -> Restore {
             left: 0,
         },
         top_is_row: false,
+        untouched: None,
     }
 }
 

@@ -141,6 +141,7 @@ fn marks_the_region_and_the_mark_ring_round_trip_and_are_put_back() {
         selections: state.window().selections.clone(),
         scroll: state.window().scroll,
         top_is_row: false,
+        untouched: None,
     };
     assert!(restore.try_apply(&mut new));
     assert_eq!(
@@ -169,6 +170,7 @@ fn marks_and_the_ring_move_to_what_exists_and_wait_for_the_file() {
             .with_ring(MarkRing::from_newest([1, 99])),
         scroll: Scroll::default(),
         top_is_row: false,
+        untouched: None,
     };
     let buffer = editor.buffer_mut(id).unwrap();
     let mut builder = oso_core::load::Builder::new(None, TabWidth::default());

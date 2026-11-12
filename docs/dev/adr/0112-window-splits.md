@@ -321,17 +321,24 @@ file or a 10 MB line.
   modeline inactive, as every window's beneath a prompt.
 - **As built, step 4:**
   - `frame::Tiling` is the tree as data, each child with its weight, its windows in the tree's
-    order. `Editor::tiling()` gives it, and `Editor::set_tiling()` lays a frame of one window
-    out as one says, refusing what the tree cannot keep (`BadTiling`): a run of fewer than two
-    children, a weight of 0, runs deeper than 16. A run inside one of the same way is merged,
-    its weights scaled so every share stays.
+    order, with `windows()`, `depth()` and `Tiling::MAX_DEPTH` (16). `Editor::tiling()` gives
+    it, and `Editor::set_tiling()` lays a frame of one window out as one says, refusing with
+    `BadTiling`: `Split` (a frame split already, or a prompt open), `LonelyRun` (a run of fewer
+    than two children), `NoWeight`, `TooDeep` (runs deeper than 16) and `TooHeavy` (weights that
+    overflow when merged). A run inside one of the same way is merged, its weights scaled so
+    every share stays.
   - The dev socket's `get-state` and the agent channel's `state` list the tiled windows in the
     tree's order, each with `id` and `area`, its gutter, text and modeline together; `selected`
     is the selected tiled window, also beneath a prompt. The channel's state stays version 1.
-  - The handoff is version 4: every window, `layout` and `selected`. A window waiting for its
-    file to load takes its positions when it does, as the one window did; one that is not
-    selected waits while isearch runs or a prompt is open, as selecting it would end them.
-    `Editor::place_behind_internal_of()` gives each window's way back.
+  - The handoff is version 4: every window, `layout` and `selected`. A layout of more windows
+    than the new instance's frame can show comes back as one window. Each window is shown and
+    its positions put back where it is (`Editor::show_in`, `restore_positions_in`,
+    `restore_kept_place_in`), none selected but the selected one, also once its file has
+    loaded; positions still waiting are dropped once a person moves that window.
+    `Editor::place_behind_internal_of()` gives each window's way back, in place of the
+    selected window's alone.
+  - A restart waits while windows are split more than 16 deep, which a state cannot say, with
+    that reason.
 - **The modelines' colours (the author's choice, 2026-11-12):** the selected window's
   modeline is blue, far apart from the others', as Emacs's mode-line is from
   mode-line-inactive. Dark: `#2c3f6e` with white text, the others `#15171e` with `#8e95ad`;

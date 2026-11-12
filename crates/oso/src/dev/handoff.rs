@@ -31,6 +31,7 @@ use std::hash::{Hash, Hasher};
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
 use oso_core::editor::{Editor, SCRATCH, VisualAids};
+use oso_core::frame::Tiling;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::kill::KillEntry;
@@ -99,9 +100,16 @@ pub fn export(
     }
     // Internal buffers are not handed over (ADR 0051). A window on one with nothing to go
     // back to comes back on `*scratch*`, which this entry stands for.
+    // Once each, however many windows show it.
+    let mut stand_ins = Vec::new();
     for window in editor.windows() {
-        if editor.shown(window).is_internal() && behind_internal(editor, window).is_none() {
-            buffers.push(json!({ "id": window.buffer().get(), "path": null }));
+        let id = window.buffer();
+        if editor.shown(window).is_internal()
+            && behind_internal(editor, window).is_none()
+            && !stand_ins.contains(&id)
+        {
+            stand_ins.push(id);
+            buffers.push(json!({ "id": id.get(), "path": null }));
         }
     }
     let histories = histories_state(editor, &mut items);
@@ -165,7 +173,7 @@ fn windows_state(editor: &Editor, restores: &[Restore]) -> (Vec<Value>, usize) {
             // of the text, even while a file counts as secret until it is judged.
             let waiting = restores
                 .iter()
-                .find(|r| r.window == window.id() && r.buffer == buffer);
+                .find(|r| r.window == window.id() && r.buffer == buffer && r.stands(editor));
             let withheld = editor
                 .buffer(buffer)
                 .is_none_or(|shown| shown.is_secret() || shown.is_internal());
@@ -402,7 +410,8 @@ pub fn check(editor: &Editor) -> Reply {
     Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
 }
 
-/// What holds a handover back whatever the buffers hold: a prompt or a search.
+/// What holds a handover back whatever the buffers hold: a prompt, a search, or windows
+/// split deeper than a state may say.
 fn held(editor: &Editor) -> Result<(), String> {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
@@ -410,8 +419,15 @@ fn held(editor: &Editor) -> Result<(), String> {
     if editor.isearch().is_some() || editor.replace().is_some() {
         return Err(SEARCHING.into());
     }
+    if editor.tiling().depth() > Tiling::MAX_DEPTH {
+        return Err(NESTED.into());
+    }
     Ok(())
 }
+
+/// Why a restart waits while windows are split inside each other deeper than a state keeps:
+/// deleting some lets it go (ADR 0112).
+const NESTED: &str = "cannot hand over: the windows are split more than 16 deep";
 
 /// Why a restart waits for a composition to end: its text is in no buffer, so a new
 /// instance would lose it (ADR 0069).

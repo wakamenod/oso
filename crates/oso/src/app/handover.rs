@@ -8,7 +8,7 @@
 use std::sync::mpsc;
 
 use oso_core::buffer::{BufferId, Verdict};
-use oso_core::frame::Tiling;
+use oso_core::frame::{FrameSize, Tiling};
 use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
 use serde_json::{Value, json};
@@ -281,44 +281,55 @@ impl App {
     }
 
     /// Splits the frame as the state's layout says, shows each window's buffer, keeps each
-    /// window's positions to restore, and selects the window that was selected. A layout this
-    /// editor cannot take leaves one window, the state's first.
+    /// window's positions to restore, and selects the window that was selected. Each window is
+    /// shown and restored where it is, none selected but the last, so that taking many costs
+    /// one layout each. A layout this editor cannot take, or one of more windows than its frame
+    /// can show, leaves one window, the state's first (ADR 0112).
     fn take_windows(&mut self, named: &[BufferId], windows: handoff::Windows) {
         let first = self.editor.tiled().0.id();
+        let room = room_for_windows(self.editor.frame().size());
         let ids = match windows.layout {
-            Tiling::Window => vec![first],
-            ref layout => self
+            ref layout @ Tiling::Run { .. } if layout.windows() <= room => self
                 .editor
                 .set_tiling(layout)
                 .unwrap_or_else(|_| vec![first]),
+            _ => vec![first],
         };
         self.handover.restore.clear();
         for (id, entry) in ids.iter().zip(windows.windows) {
             let Some(&buffer) = named.get(entry.shown) else {
                 continue;
             };
-            self.editor.select_window(*id);
-            self.editor.show(buffer);
+            self.editor.show_in(*id, buffer);
+            let untouched = self
+                .editor
+                .window_by_id(*id)
+                .map(|window| (window.selections.clone(), window.scroll()));
             self.handover.restore.push(handoff::Restore {
                 window: *id,
                 buffer,
                 selections: entry.selections,
                 scroll: entry.scroll,
                 top_is_row: entry.top_is_row,
+                untouched,
             });
         }
         let selected = ids.get(windows.selected).copied().unwrap_or(first);
         self.editor.select_window(selected);
     }
 
-    /// Applies positions from a handoff if their files have loaded far enough.
-    /// Returns whether this is over: every window restored, or moved on.
+    /// Applies positions from a handoff if their files have loaded far enough, and forgets
+    /// those that no longer stand. Returns whether any window moved, so a frame is drawn.
     pub(super) fn try_restore_positions(&mut self) -> bool {
         let editor = &mut self.editor;
-        self.handover
-            .restore
-            .retain(|restore| !restore.try_apply(editor));
-        self.handover.restore.is_empty()
+        let mut moved = false;
+        self.handover.restore.retain(|restore| {
+            let stands = restore.stands(editor);
+            let over = restore.try_apply(editor);
+            moved |= over && stands;
+            !over
+        });
+        moved
     }
 
     /// `dev-message`: what `oso dev` has to say, in the echo area and `*Messages*`.
@@ -327,6 +338,14 @@ impl App {
         self.request_redraw();
         Ok(Value::Null)
     }
+}
+
+/// The most windows a frame of `size` can show, each with a row of text, a modeline and a
+/// column of text beside a divider (ADR 0112): a state's layout of more is not taken.
+fn room_for_windows(size: FrameSize) -> usize {
+    let rows = size.rows.saturating_sub(1) / 2;
+    let columns = size.columns.div_ceil(2);
+    rows.max(1).saturating_mul(columns.max(1))
 }
 
 /// `text` cut into parts of `lengths`, each on a character boundary. O(the parts × log n).
@@ -344,4 +363,19 @@ fn split(text: &Rope, lengths: &[usize]) -> Result<Vec<Rope>, String> {
             Ok(part)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::room_for_windows;
+    use oso_core::frame::FrameSize;
+
+    #[test]
+    fn a_frame_takes_no_more_windows_than_it_can_show() {
+        let room = |rows, columns| room_for_windows(FrameSize { rows, columns });
+        // 23 rows above the echo area: 11 windows a column; 80 columns: 40 a row.
+        assert_eq!(room(24, 80), 440);
+        assert_eq!(room(0, 0), 1, "one, always");
+        assert_eq!(room(3, 1), 1);
+    }
 }

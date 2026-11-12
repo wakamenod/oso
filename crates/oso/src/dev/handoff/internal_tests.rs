@@ -162,6 +162,7 @@ fn positions_still_waiting_behind_messages_are_the_imported_ones() {
         selections: SelectionSet::new(2),
         scroll: Scroll::default(),
         top_is_row: false,
+        untouched: None,
     };
     let state = export(&editor, &[], None, Some(&restore)).unwrap();
     assert_eq!(state["windows"][0]["selections"][0]["cursor"], 2);
@@ -290,4 +291,68 @@ fn a_state_of_version_3_reads_as_one_window() {
     assert_eq!(parsed.windows.windows.len(), 1);
     state["windows"] = json!([state["windows"][0], state["windows"][0]]);
     assert!(parse(&state).unwrap_err().contains("one window"));
+}
+
+#[test]
+fn windows_split_deeper_than_a_state_keeps_hold_the_handover_with_a_reason() {
+    let mut editor = scratch_with("deep\n");
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 2000,
+        columns: 4000,
+    });
+    for split in 0..=oso_core::frame::Tiling::MAX_DEPTH {
+        let way = if split % 2 == 0 {
+            oso_core::frame::Way::Down
+        } else {
+            oso_core::frame::Way::Across
+        };
+        editor.split_window(way, true).unwrap();
+    }
+    assert!(editor.tiling().depth() > oso_core::frame::Tiling::MAX_DEPTH);
+    let refused = "cannot hand over: the windows are split more than 16 deep";
+    assert_eq!(check(&editor), Err(refused.into()));
+    assert_eq!(export(&editor, &[], None, None), Err(refused.into()));
+    editor.delete_other_windows();
+    assert!(check(&editor).is_ok());
+}
+
+#[test]
+fn positions_wait_in_a_window_not_selected_without_selecting_it_and_go_once_it_moves() {
+    let mut editor = scratch_with(&"line\n".repeat(50));
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 24,
+        columns: 80,
+    });
+    let me = editor.window().id();
+    let other = editor
+        .split_window(oso_core::frame::Way::Down, false)
+        .unwrap();
+    let buffer = editor.window().buffer();
+    let untouched = editor
+        .window_by_id(other)
+        .map(|window| (window.selections.clone(), window.scroll()));
+    let restore = Restore {
+        window: other,
+        buffer,
+        selections: SelectionSet::new(25),
+        scroll: Scroll { start: 10, left: 0 },
+        top_is_row: false,
+        untouched: untouched.clone(),
+    };
+    assert!(restore.stands(&editor));
+    assert!(restore.try_apply(&mut editor));
+    assert_eq!(editor.window().id(), me, "not selected for it");
+    let window = editor.window_by_id(other).unwrap();
+    assert_eq!(window.selections.primary().cursor, 25);
+
+    // Moved meanwhile, it keeps where the person put it.
+    let late = Restore {
+        selections: SelectionSet::new(40),
+        untouched,
+        ..restore
+    };
+    assert!(!late.stands(&editor));
+    assert!(late.try_apply(&mut editor), "over: dropped");
+    let window = editor.window_by_id(other).unwrap();
+    assert_eq!(window.selections.primary().cursor, 25);
 }

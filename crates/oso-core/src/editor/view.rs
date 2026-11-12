@@ -360,10 +360,18 @@ impl Editor {
     /// Puts back the selected window's cursors and view, saved together as a
     /// state handoff does, then scrolls as little as shows its primary cursor.
     pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
+        // The tiled window, also beneath a prompt, whose own window shows only its buffer.
+        self.restore_positions_in(self.tiled_id(), selections, scroll);
+    }
+
+    /// [`Editor::restore_positions`] for the tiled window `id`, selected or not, as a restart
+    /// puts back each window's (ADR 0112). Does nothing for a window that is not tiled.
+    pub fn restore_positions_in(&mut self, id: WindowId, selections: SelectionSet, scroll: Scroll) {
+        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
+            return;
+        };
         // Against the gutter the text loaded so far needs (ADR 0097).
         self.fit_gutter();
-        // The tiled window, also beneath a prompt, whose own window shows only its buffer.
-        let index = self.tiled_index();
         self.sync_wrap(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();

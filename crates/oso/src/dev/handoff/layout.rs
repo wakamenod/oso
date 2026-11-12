@@ -16,9 +16,6 @@ use super::format::{array, parse_selections, size};
 /// smallest window, with room to spare (ADR 0112).
 pub const MAX_WINDOWS: usize = 4096;
 
-/// The most runs one inside another a layout may hold (ADR 0112).
-const MAX_DEPTH: usize = 16;
-
 /// A window the state hands over.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowEntry {
@@ -132,6 +129,9 @@ fn parse_window(window: &Value, buffers: &[Value], version: u64) -> Result<Windo
 fn parse_layout(layout: &Value, next: &mut usize, depth: usize) -> Result<Tiling, String> {
     let layout = layout.as_object().ok_or("a layout is not an object")?;
     if layout.contains_key("window") {
+        if layout.len() != 1 {
+            return Err("a layout's window says more than its number".into());
+        }
         return parse_leaf(layout, next);
     }
     parse_run(layout, next, depth)
@@ -149,10 +149,16 @@ fn parse_leaf(leaf: &Map<String, Value>, next: &mut usize) -> Result<Tiling, Str
 /// Reads a run `depth` runs deep, whose windows must come numbered in the tree's order from
 /// `next` on. A run holds two children or more, each `{"weight": n, "window": i}` or
 /// `{"weight": n, "run": {...}}` with a weight of at least 1, and runs nest at most
-/// [`MAX_DEPTH`] deep.
+/// [`Tiling::MAX_DEPTH`] deep. Nothing else may stand beside them.
 fn parse_run(run: &Map<String, Value>, next: &mut usize, depth: usize) -> Result<Tiling, String> {
-    if depth >= MAX_DEPTH {
-        return Err(format!("the layout nests deeper than {MAX_DEPTH} runs"));
+    if depth >= Tiling::MAX_DEPTH {
+        return Err(format!(
+            "the layout nests deeper than {} runs",
+            Tiling::MAX_DEPTH
+        ));
+    }
+    if run.len() != 1 {
+        return Err("a run of the layout is neither across nor down".into());
     }
     let (way, children) = match (run.get("across"), run.get("down")) {
         (Some(children), None) => (Way::Across, children),
@@ -179,6 +185,9 @@ fn parse_run(run: &Map<String, Value>, next: &mut usize, depth: usize) -> Result
             let weight = size(child, "weight")?;
             if weight == 0 {
                 return Err("a child of a run has no weight".to_owned());
+            }
+            if child.len() != 2 {
+                return Err("a child of a run is neither a window nor a run".to_owned());
             }
             let node = match (child.contains_key("window"), child.get("run")) {
                 (true, None) => parse_leaf(child, next)?,

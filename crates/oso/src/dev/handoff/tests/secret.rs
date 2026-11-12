@@ -129,6 +129,7 @@ fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
         selections: SelectionSet::new(600),
         scroll: Scroll { start: 40, left: 0 },
         top_is_row: false,
+        untouched: None,
     };
     editor.toggle_messages();
     let state = parse(&export(&editor, &[], None, Some(&waiting)).unwrap()).unwrap();

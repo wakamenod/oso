@@ -26,6 +26,9 @@ pub struct Restore {
     /// Whether the scroll's start is a logical line, from a state before version 3, which
     /// kept the top as a row.
     pub top_is_row: bool,
+    /// Where the window was when the positions began to wait, if they are to be dropped once
+    /// a person moves it: a later load must not take it from where it was taken (ADR 0112).
+    pub untouched: Option<(SelectionSet, Scroll)>,
 }
 
 /// `offset` moved to the start of the display cluster it is in, or the end.
@@ -35,13 +38,27 @@ fn clip(display: &DisplaySnapshot, offset: usize) -> usize {
 }
 
 impl Restore {
+    /// Whether the window still is where it was when the positions began to wait, or shows
+    /// another buffer, whose place it keeps for this one: whether the positions still stand.
+    pub fn stands(&self, editor: &Editor) -> bool {
+        let Some(window) = editor.window_by_id(self.window) else {
+            return false;
+        };
+        window.buffer() != self.buffer
+            || self.untouched.as_ref().is_none_or(|(selections, scroll)| {
+                window.selections == *selections && window.scroll() == *scroll
+            })
+    }
+
     /// Moves the window to the positions if the buffer holds them by now, or, if the
     /// window has gone to another buffer meanwhile, the place it keeps for this one, which
-    /// showing it again gives back (ADR 0090). Returns whether this is over: restored, or the
-    /// window is gone or keeps no place for the buffer. A window that is not selected is
-    /// selected for it and the selection put back, but not while isearch runs, which ends when
-    /// another window is selected: it waits (ADR 0112).
+    /// showing it again gives back (ADR 0090). The window need not be selected (ADR 0112).
+    /// Returns whether this is over: restored, or the window is gone, keeps no place for the
+    /// buffer, or was moved meanwhile, when they no longer stand.
     pub fn try_apply(&self, editor: &mut Editor) -> bool {
+        if !self.stands(editor) {
+            return true;
+        }
         let Some(window) = editor.window_by_id(self.window) else {
             return true;
         };
@@ -71,21 +88,10 @@ impl Restore {
         } else {
             clip(&display, scroll.start)
         };
-        let selected = editor.tiled().0.id();
-        let elsewhere = selected != self.window;
-        if elsewhere && (editor.isearch().is_some() || editor.prompt().is_some()) {
-            return false;
-        }
-        if elsewhere {
-            editor.select_window(self.window);
-        }
         if shown {
-            editor.restore_positions(selections, scroll);
+            editor.restore_positions_in(self.window, selections, scroll);
         } else {
-            editor.restore_kept_place(self.buffer, selections, scroll);
-        }
-        if elsewhere {
-            editor.select_window(selected);
+            editor.restore_kept_place_in(self.window, self.buffer, selections, scroll);
         }
         true
     }
