@@ -182,6 +182,7 @@ impl App {
             self.jump_timer.next_wake(),
             self.reload_deadline(),
             self.quiet_walk_deadline(),
+            self.slice_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),

@@ -1,6 +1,7 @@
 //! Work that goes on a slice a turn of the loop, and the input held while it does:
 //! query-replace's `!` and a keyboard macro's replay (ADR 0113), and an undo or a redo of a
-//! large step (ADR 0119). Each slice asks for a redraw, and the redraw brings the next turn.
+//! large step (ADR 0119). Each slice asks for a redraw, and the redraw brings the next turn;
+//! a window hidden from view draws no frame, so the loop also wakes on its own meanwhile.
 //!
 //! Must not depend on: winit. The slices' own logic stays in the editor and the dispatcher;
 //! this only runs them and hands on what they leave.
@@ -12,6 +13,10 @@ use super::shell::Loop;
 
 /// How long a keyboard macro's replay runs at each turn of the loop (ADR 0113).
 const REPLAY_TURN: Duration = Duration::from_millis(4);
+
+/// The longest the next slice waits for a frame, about one at 60 Hz: a window hidden from view
+/// draws none, and work over turns would stop with it.
+const SLICE_EVERY: Duration = Duration::from_millis(16);
 
 impl App {
     /// Runs a slice of whatever goes on over turns, before the loop waits. `C-g` since the last
@@ -27,6 +32,12 @@ impl App {
         self.agent_undo_turn(ended, cancelled);
         self.run_held_wheel();
         self.replay_macro(event_loop);
+    }
+
+    /// When the loop wakes for the next slice with no frame, while work goes on over turns.
+    pub(super) fn slice_deadline(&self) -> Option<Instant> {
+        (crate::dispatch::holds_input(&self.editor) || self.editor.macro_replaying())
+            .then(|| Instant::now() + SLICE_EVERY)
     }
 
     /// Replaces `!`'s next slice, if one is under way, and asks for another turn. Once it has

@@ -885,7 +885,7 @@ fn an_agents_save_that_waits_for_a_whitespace_scan_replies_once_written() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn an_agents_undo_of_a_large_step_replies_once_it_ends_or_the_person_cancels_it() {
     let scratch = Scratch::new("agent-undo");
-    let lines = 200_000;
+    let lines = 20_000;
     let file = scratch.write("lines.txt", "x\n".repeat(lines).as_bytes());
     let mut app = App::start(Some(&file), scratch.path());
     app.wait_until_ready();

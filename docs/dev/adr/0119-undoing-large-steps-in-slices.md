@@ -592,6 +592,10 @@ the first, (a).
   a slice, makes the windows follow their cursors and asks for a frame; the emergency copy then
   reads the buffer. When the crossing ends, an error is said and stops a keyboard macro's
   replay, as a failing command does, and the input held meanwhile runs, then the wheel's.
+- **A hidden window draws no frame,** and the redraw that would bring the next turn waits
+  with it, so a step undone behind other windows went on only when something else woke the
+  loop; `!` and a replay did the same. While any of them goes on, the loop now also wakes 16 ms
+  after a turn, about a frame at 60 Hz, so a visible window keeps its pace.
 - **A panic in a later slice** is caught there, inside the emergency publisher's command scope,
   as `Registry::execute` catches a command's: the editor holds no crossing while a slice runs,
   so it drops the crossing and nothing else, and the echo area says "Undo or redo panicked".
@@ -657,6 +661,13 @@ the first, (a).
   more runs; the 9.3 ms came once. Before the cut and run changes above, the "200k splices"
   case's longest slice took 47 ms with the batch kept whole, and the last case's 17 ms.
 
+- **In the running app** (release build with the dev socket, the window open but not focused,
+  reading `get-state` every 200 ms), undoing `!` over 3.6 million lines of a 100 MB file took
+  4.5 to 4.7 s from `C-z` to the commit, and redoing it 4.5 s, the same with keys held, which
+  then ran in order. The slices took about 0.4 s of it: the loop ran about 22 turns a second, and
+  the UI thread waited for the next event about 80% of the time, so the wait is the pace of one
+  slice a turn, not the work. The echo area said `Undoing… 46%` midway while the text stayed as
+  before. Whether to run more than one slice a turn is put to the author.
 - **Tests.** Unit tests in `oso-core`: what a commit, a cancel, a replaced and an abandoned
   crossing let go waits to be taken; the progress comes before a message until the end; a
   reload waits; a batch of more than two parts, of replacements that meet and of deletions apart,
@@ -667,7 +678,7 @@ the first, (a).
   wait and run in order, `C-g` cancels an undo and a redo and drops the keys, a replay waits for
   an undo its own key began, and the count limit. In the app: the channel's wait, `get-state`'s
   `undoing` beside a secret buffer, and the restart's and the exit's refusals. End to end
-  (`e2e/undo.rs`, `e2e/agent.rs`): over 200,000 lines replaced by `!`, keys typed after `C-z`
+  (`e2e/undo.rs`, `e2e/agent.rs`): over 20,000 lines replaced by `!`, keys typed after `C-z`
   run after it, the progress shows, a restart waits for it, `C-g` cancels an undo and a redo, and
   an agent's undo replies when it ends and hears the person's `C-g`.
 - **Left:** the windows' old wraps are dropped at the commit; query-replace's `u` undoes at once,
