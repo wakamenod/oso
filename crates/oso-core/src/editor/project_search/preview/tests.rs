@@ -254,3 +254,18 @@ fn a_match_past_the_previews_width_scrolls_it_into_view() {
     editor.preview_cells(&screen, &mut cells);
     assert_eq!(cells.current.len(), 1, "the match shows");
 }
+
+#[test]
+fn an_excerpt_of_a_file_open_in_a_buffer_that_may_hold_secrets_is_withheld() {
+    let mut editor = searching(vec![row("a.rs", 1, 0)]);
+    let request = editor.take_preview_request().unwrap();
+    let mut buffer = visiting("/elsewhere/.env", "one needle\n", Some((7, 8)));
+    buffer.treat_as_secret();
+    editor.add_buffer(buffer);
+    let excerpt = Excerpt::new(b"one needle\n", 1, (1, 4), Some((7, 8)));
+    editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
+    assert_eq!(editor.preview(), Some(Preview::Withheld));
+    let mut screen = Screen::default();
+    editor.preview_screen(&mut screen);
+    assert!(screen.rows().is_empty(), "nothing of it is laid out");
+}

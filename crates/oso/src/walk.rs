@@ -315,6 +315,12 @@ pub(crate) trait Visit {
     fn lists_links(&self) -> bool {
         true
     }
+
+    /// Whether the root opened is the one to walk; a search compares it with the place it
+    /// judged (ADR 0114).
+    fn root_opened(&mut self, _root: &Directory) -> bool {
+        true
+    }
 }
 
 /// Walks the files under `root` as the module says, listing at most `limits` and nothing of a
@@ -379,7 +385,7 @@ pub(crate) fn walk_files(
     let Ok(opened) = Directory::open(root) else {
         return Ok(());
     };
-    if opened_holds_home(&opened, home) {
+    if opened_holds_home(&opened, home) || !visit.root_opened(&opened) {
         return Ok(());
     }
     let opened = Arc::new(opened);

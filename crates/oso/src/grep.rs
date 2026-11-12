@@ -36,6 +36,8 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::Buffer;
 use oso_core::editor::{ProjectSearchRequest, ProjectSearchRow, WalkEnd};
 
+use oso_platform::file_meta::Directory;
+
 use crate::walk::{self, Ended, File, Limits, Visit};
 use files::{Kept, Search, Searcher, Task, filter, searchers};
 
@@ -87,25 +89,62 @@ impl fmt::Debug for Found {
 /// Hands a batch to the event loop; `false` once it is gone.
 type SendRows = Arc<dyn Fn(Found) -> bool + Send + Sync>;
 
+/// Where a root leads, as the loader finds it: each link's target on the way, then its real
+/// place; `None` if nobody can tell. The app hands over the loader's own, which this module, on
+/// the loader's layer, does not name.
+pub type Leads = fn(&Path) -> Option<Vec<PathBuf>>;
+
+/// Whether the file at `path` from `root` may hold secrets, as the loader would judge it: by its
+/// name from the root as given or from any place `leads` says the root leads through. A root
+/// nobody could resolve, `None`, is taken to, as the loader takes a path it cannot resolve.
+pub(crate) fn may_hold_secrets(root: &Path, leads: Option<&[PathBuf]>, path: &Path) -> bool {
+    let named = |root: &Path| Buffer::name_may_hold_secrets(&root.join(path));
+    named(root) || leads.is_none_or(|leads| leads.iter().any(|lead| named(lead)))
+}
+
+/// Whether `opened`, a root opened by its path, is the directory `leads` says the path leads to,
+/// by device and inode, so that what was judged is what is read. One that cannot be told is not.
+#[cfg(unix)]
+pub(crate) fn opened_as_judged(opened: &Directory, leads: Option<&[PathBuf]>) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Some(real) = leads.and_then(<[PathBuf]>::last) else {
+        return false;
+    };
+    match (opened.metadata(), std::fs::metadata(real)) {
+        (Ok(opened), Ok(real)) => (opened.dev(), opened.ino()) == (real.dev(), real.ino()),
+        _ => false,
+    }
+}
+
+/// On Windows directories are reached by their paths, so there is nothing to compare.
+#[cfg(not(unix))]
+pub(crate) fn opened_as_judged(_: &Directory, _: Option<&[PathBuf]>) -> bool {
+    true
+}
+
 /// The searching thread and its searchers, started with the first request.
 pub struct Grep {
     requests: Option<Sender<ProjectSearchRequest>>,
     send: SendRows,
+    leads: Leads,
     /// The home directory as the person's environment spells it, which the thread finds the
     /// real place of once.
     home: Option<PathBuf>,
 }
 
 impl Grep {
-    /// A searcher that hands each batch to `send`, and never searches a root that holds `home`,
-    /// by the real place of either, as the walker never lists one.
+    /// A searcher that hands each batch to `send`, finds where a root leads with `leads`, and
+    /// never searches a root that holds `home`, by the real place of either, as the walker never
+    /// lists one.
     pub fn new(
         home: Option<PathBuf>,
+        leads: Leads,
         send: impl Fn(Found) -> bool + Send + Sync + 'static,
     ) -> Self {
         Self {
             requests: None,
             send: Arc::new(send),
+            leads,
             home,
         }
     }
@@ -117,10 +156,10 @@ impl Grep {
         if self.requests.is_none() {
             let (requests, queue) = mpsc::channel::<ProjectSearchRequest>();
             let send = Arc::clone(&self.send);
-            let home = self.home.clone();
+            let (home, leads) = (self.home.clone(), self.leads);
             let spawned = thread::Builder::new()
                 .name("oso-grep".into())
-                .spawn(move || serve(&queue, &*send, home.as_deref()));
+                .spawn(move || serve(&queue, &*send, home.as_deref(), leads));
             if spawned.is_ok() {
                 self.requests = Some(requests);
             } else {
@@ -145,6 +184,7 @@ fn serve(
     queue: &Receiver<ProjectSearchRequest>,
     send: &(dyn Fn(Found) -> bool + Send + Sync),
     home: Option<&Path>,
+    leads: Leads,
 ) {
     let home = walk::real_home(home);
     let mut tasks = None;
@@ -186,7 +226,7 @@ fn serve(
         let lines = kept.as_ref().filter(|_| narrowed).map(|(_, lines)| lines);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match lines {
             Some(lines) => narrow(&search, lines, send),
-            None => walk_and_search(&search, home.as_deref(), tasks.as_ref(), send),
+            None => walk_and_search(&search, (home.as_deref(), leads), tasks.as_ref(), send),
         }));
         let Ok(outcome) = outcome else {
             log::warn!("a search panicked");
@@ -258,8 +298,8 @@ fn send_rows(
 struct Handing<'a> {
     search: &'a Arc<Search>,
     tasks: Option<&'a SyncSender<Task>>,
-    /// The root as it leads, if that is another spelling, whose files' names are judged too.
-    real_root: Option<PathBuf>,
+    /// Where the root leads, whose files' names are judged too.
+    leads: Option<Vec<PathBuf>>,
     /// Reads the files here, with no searcher.
     here: Searcher,
     sent: Instant,
@@ -272,9 +312,8 @@ impl Visit for Handing<'_> {
         if file.link {
             return;
         }
-        let secret = |root: &Path| Buffer::name_may_hold_secrets(&root.join(&*file.path));
-        let secret =
-            secret(&self.search.request.root) || self.real_root.as_deref().is_some_and(secret);
+        let root = &self.search.request.root;
+        let secret = may_hold_secrets(root, self.leads.as_deref(), Path::new(&*file.path));
         let task = Task {
             search: Arc::clone(self.search),
             directory: Arc::clone(file.directory),
@@ -303,22 +342,26 @@ impl Visit for Handing<'_> {
     fn lists_links(&self) -> bool {
         false
     }
+
+    fn root_opened(&mut self, root: &Directory) -> bool {
+        opened_as_judged(root, self.leads.as_deref())
+    }
 }
 
 /// Walks the project and hands each file to a searcher, then sends what they found.
 fn walk_and_search(
     search: &Arc<Search>,
-    home: Option<&Path>,
+    (home, leads): (Option<&Path>, Leads),
     tasks: Option<&SyncSender<Task>>,
     send: &dyn Fn(Found) -> bool,
 ) -> Outcome {
     let root = &search.request.root;
-    let real_root = std::fs::canonicalize(root).ok().filter(|real| real != root);
+    let leads = leads(root);
     let gone = Cell::new(false);
     let mut handing = Handing {
         search,
         tasks,
-        real_root,
+        leads,
         here: Searcher::default(),
         sent: Instant::now(),
         send,

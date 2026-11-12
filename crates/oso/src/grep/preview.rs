@@ -8,8 +8,9 @@
 //!   that is or holds the home directory, by the real place of either and by device and inode,
 //!   then each directory on the way and the file are opened from the one before by name,
 //!   following no link and waiting for nothing. Only a regular file is read.
-//! - A file that may hold secrets, by the name of its path from the root as given or as it
-//!   leads, is never read; the editor never asks for one whose row says so either.
+//! - A file that may hold secrets, by the name of its path from the root as given or from any
+//!   place the root leads through, as the search judges it, is never read; the editor never
+//!   asks for one whose row says so either. The root opened must be the place judged.
 //! - The read starts at the row's line, as far as the search found it, and goes back for about
 //!   half the preview's rows: at most [`BACK`] before the line and [`MAX_LINE`] in all.
 //! - Each request has a generation, read before the file is opened, at each step on the way
@@ -26,11 +27,11 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use oso_core::buffer::Buffer;
 use oso_core::editor::{Excerpt, ProjectPreviewRead, ProjectPreviewRequest};
 use oso_core::project::MAX_LINE;
 use oso_platform::file_meta::Directory;
 
+use super::{Leads, may_hold_secrets, opened_as_judged};
 use crate::walk::{self, MAX_DEPTH, MAX_PATH};
 
 /// The most bytes read before the row's line, for the lines above it.
@@ -64,21 +65,25 @@ type SendRead = Arc<dyn Fn(Previewed) -> bool + Send + Sync>;
 pub struct Previewer {
     requests: Option<Sender<ProjectPreviewRequest>>,
     send: SendRead,
+    leads: Leads,
     /// The home directory as the person's environment spells it, which the thread finds the
     /// real place of once.
     home: Option<PathBuf>,
 }
 
 impl Previewer {
-    /// A reader that hands each read to `send`, and never reads under a root that holds `home`,
-    /// as the search never searches one.
+    /// A reader that hands each read to `send`, finds where a root leads with `leads`, as the
+    /// search does, and never reads under a root that holds `home`, as the search never searches
+    /// one.
     pub fn new(
         home: Option<PathBuf>,
+        leads: Leads,
         send: impl Fn(Previewed) -> bool + Send + Sync + 'static,
     ) -> Self {
         Self {
             requests: None,
             send: Arc::new(send),
+            leads,
             home,
         }
     }
@@ -89,10 +94,10 @@ impl Previewer {
         if self.requests.is_none() {
             let (requests, queue) = mpsc::channel::<ProjectPreviewRequest>();
             let send = Arc::clone(&self.send);
-            let home = self.home.clone();
+            let (home, leads) = (self.home.clone(), self.leads);
             let spawned = thread::Builder::new()
                 .name("oso-preview".into())
-                .spawn(move || serve(&queue, &*send, home.as_deref()));
+                .spawn(move || serve(&queue, &*send, home.as_deref(), leads));
             if spawned.is_ok() {
                 self.requests = Some(requests);
             } else {
@@ -113,6 +118,7 @@ fn serve(
     queue: &Receiver<ProjectPreviewRequest>,
     send: &(dyn Fn(Previewed) -> bool + Send + Sync),
     home: Option<&Path>,
+    leads: Leads,
 ) {
     let home = walk::real_home(home);
     while let Ok(mut request) = queue.recv() {
@@ -122,7 +128,7 @@ fn serve(
         }
         let generation = request.generation;
         let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            read_preview(&request, home.as_deref())
+            read_preview(&request, (home.as_deref(), leads))
         }));
         let read = match read {
             Ok(Some(read)) => read,
@@ -141,7 +147,7 @@ fn serve(
 /// What `request` finds, or `None` once a newer request has stopped it.
 pub(crate) fn read_preview(
     request: &ProjectPreviewRequest,
-    home: Option<&Path>,
+    (home, leads): (Option<&Path>, Leads),
 ) -> Option<ProjectPreviewRead> {
     let live = || request.live.load(Ordering::Relaxed) == request.generation;
     if !live() {
@@ -149,15 +155,14 @@ pub(crate) fn read_preview(
     }
     let root = &request.root;
     let path = Path::new(&*request.path);
-    let secret = |root: &Path| Buffer::name_may_hold_secrets(&root.join(path));
-    let real_root = std::fs::canonicalize(root).ok();
-    if secret(root) || real_root.as_deref().is_some_and(secret) {
+    let leads = leads(root);
+    if may_hold_secrets(root, leads.as_deref(), path) {
         return Some(ProjectPreviewRead::Withheld);
     }
     if walk::holds_home(root, home) {
         return Some(ProjectPreviewRead::Unreadable);
     }
-    let Some((file, identity)) = open(root, path, home, &live) else {
+    let Some((file, identity)) = open((root, leads.as_deref()), path, home, &live) else {
         return live().then_some(ProjectPreviewRead::Unreadable);
     };
     let Some((bytes, first_line)) = read_around(file, request, &live) else {
@@ -171,10 +176,10 @@ pub(crate) fn read_preview(
 
 /// The file at `path` under `root`, opened from the root a directory at a time, following no
 /// link, with its device and inode where the system has them: none if any step is no directory,
-/// a link or gone, if the path leaves the root or goes deeper than a walk, if the root is or
-/// holds `home`, or once `live` says the read is stale.
+/// a link or gone, if the path leaves the root or goes deeper than a walk, if the root opened is
+/// or holds `home` or is not where `leads` says it leads, or once `live` says the read is stale.
 fn open(
-    root: &Path,
+    (root, leads): (&Path, Option<&[PathBuf]>),
     path: &Path,
     home: Option<&Path>,
     live: &dyn Fn() -> bool,
@@ -195,7 +200,8 @@ fn open(
         return None;
     }
     let mut directory = Directory::open(root).ok()?;
-    if walk::opened_holds_home(&directory, home) {
+    // The root opened must be the place judged, whatever its path leads to by now.
+    if walk::opened_holds_home(&directory, home) || !opened_as_judged(&directory, leads) {
         return None;
     }
     for name in directories {

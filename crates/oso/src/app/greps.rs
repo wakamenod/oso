@@ -5,15 +5,24 @@
 //! Must not depend on: key presses or how a frame is drawn. The project is searched on the
 //! searching threads, never here, and nothing here logs what they found.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use super::{App, Loop, UserEvent, Waker};
 use crate::grep::{Found, Grep, Previewed, Previewer};
 
+/// Where a root leads, as the loader resolves a path: a root nobody can resolve is none.
+fn leads(root: &Path) -> Option<Vec<PathBuf>> {
+    match crate::loader::resolve(root) {
+        crate::loader::Resolved::Paths(paths) => Some(paths),
+        crate::loader::Resolved::Unknown(_) => None,
+    }
+}
+
 /// The searcher for the app, waking the event loop with [`UserEvent::Grepped`].
 pub(super) fn grep(waker: &Waker) -> Grep {
     let waker = Mutex::new(waker.clone());
-    Grep::new(super::home(), move |found| {
+    Grep::new(super::home(), leads, move |found| {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -24,7 +33,7 @@ pub(super) fn grep(waker: &Waker) -> Grep {
 /// The preview's reader for the app, waking the event loop with [`UserEvent::Previewed`].
 pub(super) fn previewer(waker: &Waker) -> Previewer {
     let waker = Mutex::new(waker.clone());
-    Previewer::new(super::home(), move |read| {
+    Previewer::new(super::home(), leads, move |read| {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
