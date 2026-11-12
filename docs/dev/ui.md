@@ -48,7 +48,9 @@ in the background color, so no partly shown row or column is drawn
   isearch matches or flash. Its modeline is in the inactive face. Beneath a prompt, the window
   it came from keeps its region and band, its cursor hollow and its modeline inactive.
 - The minibuffer and completion float over the whole tiled area, whatever the layout.
-- The wheel scrolls the window under the pointer without selecting it.
+- The wheel scrolls the window under the pointer without selecting it, its gutter and
+  modeline included. Over a divider, the echo area or the margins it scrolls the selected
+  window, and over a float the window under it.
 
 ## Minibuffer and completion
 

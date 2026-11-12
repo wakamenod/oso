@@ -299,3 +299,5 @@ impl Editor {
 mod buffer_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wheel_tests;

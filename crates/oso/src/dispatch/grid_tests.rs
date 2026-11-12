@@ -719,9 +719,9 @@ mod scenarios {
         let text = "日本語日本語日本語\n";
         let mut editor = open(text.as_bytes(), (1, 10));
         let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
-        editor.scroll_view_sideways(1);
+        editor.scroll_view_sideways(editor.tiled().0.id(), 1);
         frames.push(format!("sideways: 1\n{}", text_grid(&editor)));
-        editor.scroll_view_sideways(1);
+        editor.scroll_view_sideways(editor.tiled().0.id(), 1);
         frames.push(format!("sideways: 1, out of view\n{}", text_grid(&editor)));
         assert_frames("cursor_cut_at_the_left_edge", text.as_bytes(), &frames);
     }
@@ -962,7 +962,7 @@ mod scenarios {
         let mut editor = open(text.as_bytes(), (3, 8));
         let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
         for rows in [2, 100, -1, -100] {
-            editor.scroll_view(rows);
+            editor.scroll_view(editor.tiled().0.id(), rows);
             frames.push(format!("wheel: {rows}\n{}", text_grid(&editor)));
         }
         assert_frames("wheel", text.as_bytes(), &frames);
@@ -978,12 +978,12 @@ mod scenarios {
         let keys: KeySequence = "C-n C-e".parse().unwrap();
         dispatcher.handle_keys(&mut editor, keys.0);
         let mut frames = vec![format!("keys: C-n C-e\n{}", text_grid(&editor))];
-        editor.scroll_view(1);
+        editor.scroll_view(editor.tiled().0.id(), 1);
         frames.push(format!(
             "wheel: 1, the cursor stays\n{}",
             text_grid(&editor)
         ));
-        editor.scroll_view(1);
+        editor.scroll_view(editor.tiled().0.id(), 1);
         frames.push(format!("wheel: 1, it moves\n{}", text_grid(&editor)));
         assert_frames("wheel_with_the_view_sideways", text.as_bytes(), &frames);
     }
@@ -995,7 +995,7 @@ mod scenarios {
         let mut editor = open(text.as_bytes(), (3, 12));
         let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
         for columns in [5, 100, -3] {
-            editor.scroll_view_sideways(columns);
+            editor.scroll_view_sideways(editor.tiled().0.id(), columns);
             frames.push(format!("sideways: {columns}\n{}", text_grid(&editor)));
         }
         let keys: KeySequence = "C-f".parse().unwrap();

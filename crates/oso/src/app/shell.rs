@@ -7,6 +7,7 @@
 //! Must not depend on: what an event does. Each one goes to the app's handler for it, and
 //! nothing here reads the editor.
 
+use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -20,7 +21,9 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{self, ModifiersState};
 use winit::window::{UserAttentionType, WindowId};
 
-use oso_platform::window::{Event, Held, ImeEvent, KeyInput, SystemKey, SystemNamed, Wheel};
+use oso_platform::window::{
+    Event, Held, ImeEvent, KeyInput, Position, SystemKey, SystemNamed, Wheel,
+};
 
 use super::{App, UserEvent};
 
@@ -96,12 +99,16 @@ impl Loop<'_> {
     /// Opens the window.
     pub(super) fn open_window(&self) -> Window {
         let attributes = winit::window::Window::default_attributes().with_title("oso Editor");
-        Window(Arc::new(self.0.create_window(attributes).unwrap()))
+        Window(
+            Arc::new(self.0.create_window(attributes).unwrap()),
+            Cell::new(None),
+        )
     }
 }
 
-/// The OS window. Sizes and places are physical pixels.
-pub(super) struct Window(Arc<winit::window::Window>);
+/// The OS window, and where the pointer last was over it, which winit's wheel events do not
+/// say (ADR 0112). Sizes and places are physical pixels.
+pub(super) struct Window(Arc<winit::window::Window>, Cell<Option<Position>>);
 
 impl Window {
     /// Sets up the renderer for this window, `width` x `height` pixels, drawing text
@@ -249,6 +256,9 @@ impl ApplicationHandler<UserEvent> for App {
         event: WindowEvent,
     ) {
         let event_loop = Loop(event_loop);
+        if let Some(view) = &self.view {
+            note_pointer(&view.window.1, &event);
+        }
         match &event {
             // Keys borrow from the event, so they are built here, and only for a real
             // press: releases, lone modifiers' and made-up presses go no further than
@@ -266,8 +276,26 @@ impl ApplicationHandler<UserEvent> for App {
                 };
                 self.handle_window_event(&event_loop, Event::Key(input));
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let at = self.view.as_ref().and_then(|view| view.window.1.get());
+                let delta = wheel(*delta);
+                self.handle_window_event(&event_loop, Event::Wheel { delta, at });
+            }
             _ => self.handle_window_event(&event_loop, translate(event)),
         }
+    }
+}
+
+/// Keeps in `pointer` where winit last saw the pointer over the window, and none once it
+/// left, for the wheel to scroll the window under it (ADR 0112).
+fn note_pointer(pointer: &Cell<Option<Position>>, event: &WindowEvent) {
+    match event {
+        WindowEvent::CursorMoved { position, .. } => pointer.set(Some(Position {
+            x: position.x,
+            y: position.y,
+        })),
+        WindowEvent::CursorLeft { .. } => pointer.set(None),
+        _ => {}
     }
 }
 
@@ -294,7 +322,6 @@ fn translate(event: WindowEvent) -> Event<'static> {
         WindowEvent::Occluded(occluded) => Event::Occluded(occluded),
         WindowEvent::Focused(true) => Event::Focused,
         WindowEvent::RedrawRequested => Event::RedrawRequested,
-        WindowEvent::MouseWheel { delta, .. } => Event::Wheel(wheel(delta)),
         WindowEvent::ModifiersChanged(modifiers) => {
             Event::ModifiersChanged(held(modifiers.state()))
         }
@@ -424,9 +451,11 @@ fn function_number(key: keyboard::NamedKey) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{held, is_real_press, key, translate, translate_ime, wheel};
-    use oso_platform::window::{Event, Held, ImeEvent, SystemKey, SystemNamed, Wheel};
+    use super::{held, is_real_press, key, note_pointer, translate, translate_ime, wheel};
+    use oso_platform::window::{Event, Held, ImeEvent, Position, SystemKey, SystemNamed, Wheel};
+    use std::cell::Cell;
     use winit::dpi::{PhysicalPosition, PhysicalSize};
+    use winit::event::DeviceId;
     use winit::event::{Ime, MouseScrollDelta, WindowEvent};
     use winit::keyboard::{self, ModifiersState, NamedKey, NativeKey};
 
@@ -465,6 +494,23 @@ mod tests {
             held(ModifiersState::ALT | ModifiersState::CONTROL),
             Held::ALT | Held::CONTROL
         );
+    }
+
+    #[test]
+    fn the_wheel_is_where_the_pointer_last_moved_until_it_leaves() {
+        let pointer = Cell::new(None);
+        let device_id = DeviceId::dummy();
+        let moved = |x, y| WindowEvent::CursorMoved {
+            device_id,
+            position: PhysicalPosition::new(x, y),
+        };
+        note_pointer(&pointer, &moved(12.5, 40.0));
+        note_pointer(&pointer, &WindowEvent::Focused(true));
+        assert_eq!(pointer.get(), Some(Position { x: 12.5, y: 40.0 }));
+        note_pointer(&pointer, &moved(3.0, 4.0));
+        assert_eq!(pointer.get(), Some(Position { x: 3.0, y: 4.0 }));
+        note_pointer(&pointer, &WindowEvent::CursorLeft { device_id });
+        assert_eq!(pointer.get(), None, "left the window");
     }
 
     #[test]

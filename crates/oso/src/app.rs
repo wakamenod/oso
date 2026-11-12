@@ -148,8 +148,9 @@ pub struct App {
     scan_for_copies: bool,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
-    /// Wheel and trackpad scrolling not yet worth a whole row or column.
-    wheel: WheelRemainder,
+    /// Wheel and trackpad scrolling not yet worth a whole row or column, and the window it
+    /// is for: a wheel over another window starts anew (ADR 0112).
+    wheel: (Option<WindowId>, WheelRemainder),
     /// What each tiled window's modeline and the echo area said when a frame was last drawn
     /// or asked for, and room to compare it with what they would say now (ADR 0112).
     statuses: Vec<(WindowId, Status)>,
@@ -293,7 +294,7 @@ impl App {
             answering: None,
             scan_for_copies: false,
             started: Some(started),
-            wheel: WheelRemainder::default(),
+            wheel: (None, WheelRemainder::default()),
             statuses: Vec::new(),
             next_statuses: Vec::new(),
             ime: ime::ImeState::default(),

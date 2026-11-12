@@ -448,7 +448,9 @@ pub oso_platform::window::Event::Resized
 pub oso_platform::window::Event::Resized::height: u32
 pub oso_platform::window::Event::Resized::width: u32
 pub oso_platform::window::Event::ScaleFactorChanged(f64)
-pub oso_platform::window::Event::Wheel(oso_platform::window::Wheel)
+pub oso_platform::window::Event::Wheel
+pub oso_platform::window::Event::Wheel::at: core::option::Option<oso_platform::window::Position>
+pub oso_platform::window::Event::Wheel::delta: oso_platform::window::Wheel
 pub enum oso_platform::window::ImeEvent
 pub oso_platform::window::ImeEvent::Commit(alloc::string::String)
 pub oso_platform::window::ImeEvent::Disabled
@@ -586,3 +588,14 @@ pub oso_platform::window::KeyInput::repeat: bool
 impl<'a> core::clone::Clone for oso_platform::window::KeyInput<'a>
 pub fn oso_platform::window::KeyInput<'a>::clone(&self) -> oso_platform::window::KeyInput<'a>
 impl<'a> core::marker::Copy for oso_platform::window::KeyInput<'a>
+pub struct oso_platform::window::Position
+pub oso_platform::window::Position::x: f64
+pub oso_platform::window::Position::y: f64
+impl core::clone::Clone for oso_platform::window::Position
+pub fn oso_platform::window::Position::clone(&self) -> oso_platform::window::Position
+impl core::cmp::PartialEq for oso_platform::window::Position
+pub fn oso_platform::window::Position::eq(&self, &oso_platform::window::Position) -> bool
+impl core::fmt::Debug for oso_platform::window::Position
+pub fn oso_platform::window::Position::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::Position
+impl core::marker::StructuralPartialEq for oso_platform::window::Position

@@ -8,7 +8,8 @@ use std::time::Instant;
 
 use oso_core::buffer::Mode;
 use oso_core::key::KeyPress;
-use oso_platform::window::{Held, KeyInput, Wheel};
+use oso_core::window::{WheelRemainder, WindowId};
+use oso_platform::window::{Held, KeyInput, Position, Wheel};
 
 use super::App;
 use super::shell::Loop;
@@ -134,16 +135,23 @@ impl App {
         self.apply(event_loop, effects);
     }
 
-    /// Scrolls the view for the mouse wheel or the trackpad.
-    pub(super) fn handle_wheel(&mut self, delta: Wheel) {
+    /// Scrolls the view for the mouse wheel or the trackpad: of the window under the pointer
+    /// `at`, without selecting it, or of the selected one where no window is (ADR 0112).
+    /// Returns the window and whether its view moved, or `None` before the window opens.
+    pub(super) fn handle_wheel(
+        &mut self,
+        delta: Wheel,
+        at: Option<Position>,
+    ) -> Option<(WindowId, bool)> {
+        let view = self.view.as_ref()?;
+        let grid = view.render_state.pixel_grid();
+        let cell = at.and_then(|at| grid.cell_at(at.x, at.y));
+        let window = self.editor.wheel_window(cell);
         // Positive deltas move the content down and right: the view moves the other
         // way.
         let (rows, columns) = match delta {
             Wheel::Lines { x, y } => (-f64::from(y) * WHEEL_ROWS, -f64::from(x) * WHEEL_COLUMNS),
             Wheel::Pixels { x, y } => {
-                let Some(view) = &self.view else {
-                    return;
-                };
                 let metrics = view.render_state.cell_metrics();
                 (
                     -y / f64::from(metrics.height).max(1.0),
@@ -151,12 +159,19 @@ impl App {
                 )
             }
         };
-        let (rows, columns) = self.wheel.add(rows, columns);
-        let moved_rows = rows != 0 && self.editor.scroll_view(rows);
-        let moved_columns = columns != 0 && self.editor.scroll_view_sideways(columns);
-        if moved_rows || moved_columns {
+        let (wheel_window, remainder) = &mut self.wheel;
+        if *wheel_window != Some(window) {
+            *wheel_window = Some(window);
+            *remainder = WheelRemainder::default();
+        }
+        let (rows, columns) = remainder.add(rows, columns);
+        let moved_rows = rows != 0 && self.editor.scroll_view(window, rows);
+        let moved_columns = columns != 0 && self.editor.scroll_view_sideways(window, columns);
+        let moved = moved_rows || moved_columns;
+        if moved {
             self.request_redraw();
         }
+        Some((window, moved))
     }
 }
 

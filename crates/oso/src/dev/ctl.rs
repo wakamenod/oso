@@ -45,6 +45,9 @@ methods:
   clipboard [JSON]  reads the clipboard in memory, or sets it as another app would,
                     with '{\"text\": \"copied\"}' or '{\"text\": \"pw\", \"concealed\": true}';
                     only in an instance started with --clipboard memory
+  wheel JSON        scrolls as the wheel or the trackpad would, with the pointer
+                    at a pixel or a cell, such as '{\"lines\": [0, -1]}' or
+                    '{\"pixels\": [0, -40], \"at\": {\"row\": 3, \"column\": 10}}'
 
 Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
 and screenshot fails while one is shown.
@@ -167,6 +170,11 @@ fn parse_params(
             let report = positional.next().ok_or("ime needs JSON")?;
             let report: Value = serde_json::from_str(&report).map_err(|e| format!("ime: {e}"))?;
             Some(report)
+        }
+        "wheel" => {
+            let wheel = positional.next().ok_or("wheel needs JSON")?;
+            let wheel: Value = serde_json::from_str(&wheel).map_err(|e| format!("wheel: {e}"))?;
+            Some(wheel)
         }
         "clipboard" => positional
             .next()
@@ -413,6 +421,9 @@ mod tests {
         assert_eq!(parsed.params, Some(json!({ "commit": "日本" })));
         assert_eq!(parse(&["ime"]), Err("ime needs JSON".into()));
         assert!(parse(&["ime", "{nope"]).unwrap_err().starts_with("ime:"));
+        let parsed = parse(&["wheel", r#"{"lines":[0,-1]}"#]).unwrap().unwrap();
+        assert_eq!(parsed.params, Some(json!({ "lines": [0, -1] })));
+        assert_eq!(parse(&["wheel"]), Err("wheel needs JSON".into()));
     }
 
     #[test]
