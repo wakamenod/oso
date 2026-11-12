@@ -156,6 +156,8 @@ pub struct Buffer {
     no_history: bool,
     /// Which keys it takes.
     mode: Mode,
+    /// Counts the times a mode was set, the same one too (ADR 0111).
+    mode_revision: u64,
     /// An emergency copy of its file waits for an answer.
     copy_waits: bool,
     /// The file's own spelling, if something else may have been typed.
@@ -224,6 +226,7 @@ impl Buffer {
             takes_typing: false,
             no_history: false,
             mode: Mode::Fundamental,
+            mode_revision: 0,
             copy_waits: false,
             own_spelling: None,
             project: None,

@@ -48,8 +48,10 @@ mod follow;
 mod gutter;
 mod isearch;
 mod kill;
+mod macros;
 mod marks;
 mod messages;
+mod project_search;
 mod projects;
 mod prompts;
 mod reload;
@@ -63,6 +65,7 @@ mod themes;
 mod trim;
 mod undo_group;
 mod view;
+mod visits;
 mod walks;
 mod windows;
 mod wraps;
@@ -79,7 +82,9 @@ pub use files::Looked;
 pub use gutter::Gutter;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
+pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
+pub use project_search::{ProjectSearchHit, ProjectSearchRequest, ProjectSearchRow};
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
@@ -154,6 +159,10 @@ pub struct Editor {
     file_list: files::FileList,
     /// What the prompt that lists a project's files keeps beside its candidates (ADR 0114).
     project_files: walks::ProjectFiles,
+    /// What the prompt that searches a project keeps beside its rows (ADR 0114).
+    project_search: project_search::ProjectSearch,
+    /// Where a visit a search's row asked for goes once it shows (ADR 0114).
+    visit_place: Option<visits::VisitPlace>,
     /// What a prompt that completes waits for from the worker (ADR 0096).
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
@@ -236,10 +245,14 @@ pub struct Editor {
     trust: projects::Trust,
     themes: themes::Themes,
     aids: VisualAids,
+    /// Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
+    font_lock: bool,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
     trims: trim::Trims,
     /// query-replace's session, and the last pairs given (ADR 0113).
     replacing: replace::Replacing,
+    /// Keyboard macros: the recording, the last one and a replay (ADR 0113).
+    macros: macros::Macros,
 }
 
 impl Default for Editor {
@@ -277,6 +290,8 @@ impl Editor {
             kill_list: None,
             file_list: files::FileList::default(),
             project_files: walks::ProjectFiles::default(),
+            project_search: project_search::ProjectSearch::default(),
+            visit_place: None,
             completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,
@@ -313,8 +328,10 @@ impl Editor {
             trust: projects::Trust::default(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
+            font_lock: true,
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
+            macros: macros::Macros::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));

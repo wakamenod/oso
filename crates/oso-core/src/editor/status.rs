@@ -43,6 +43,8 @@ const MIN_NAME_CELLS: usize = 20;
 const GAP: &str = "  ";
 /// Says that the agent channel is on (ADR 0085).
 const AGENT: &str = "Agent  ";
+/// Says that a keyboard macro is being recorded (ADR 0113).
+const DEFINING: &str = "  Def";
 /// The most cells a project's name takes (ADR 0114).
 const PROJECT_CELLS: usize = 24;
 /// Says that the buffer's project is not trusted to run its code (ADR 0114).
@@ -229,6 +231,10 @@ impl Editor {
         }
         status.state.clear();
         push_state(&mut status.state, window, buffer);
+        // `Def` while a keyboard macro is recorded, as Emacs's (ADR 0113).
+        if id == tiled && self.macro_recording() {
+            status.state.push_str(DEFINING);
+        }
         status.project.clear();
         status.restricted = "";
         if let Some(id) = buffer.project()

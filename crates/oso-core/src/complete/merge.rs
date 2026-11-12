@@ -134,6 +134,22 @@ impl Candidates {
         self.reselect(kept);
     }
 
+    /// Adds `added` after the rows there, every one matching, as a project's search sends its
+    /// rows in the order it finds them (ADR 0114). The list is moved, not copied, when nothing
+    /// else holds it, and the selected row stays selected, as nothing comes before it.
+    pub(crate) fn append(&mut self, added: impl IntoIterator<Item = Candidate>) {
+        let start = self.items.len();
+        let mut items: Vec<Candidate> = match Arc::get_mut(&mut self.items) {
+            Some(items) => items.iter_mut().map(Candidate::take).collect(),
+            None => self.items.iter().map(Candidate::duplicate).collect(),
+        };
+        items.extend(added);
+        let new = (start..items.len()).map(super::offset_u32);
+        self.order = self.order.iter().copied().chain(new.clone()).collect();
+        self.matches = self.matches.iter().copied().chain(new).collect();
+        self.items = items.into();
+    }
+
     /// Takes in a list that grew on a worker: `items` hold the ones before at the same
     /// indexes, then those added, in `order`, and `matched` is what an input came to over
     /// them. For the input matched last, the selected row stays selected; for another, a row

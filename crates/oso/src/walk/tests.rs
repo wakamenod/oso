@@ -41,7 +41,7 @@ impl Scratch {
     fn walked(&self, limits: Limits) -> (Vec<String>, bool) {
         let mut all = Vec::new();
         let mut cut = None;
-        walk(&self.0, limits, &|| false, &mut |paths, end| {
+        walk(&self.0, None, limits, &|| false, &mut |paths, end| {
             all.extend(paths.into_iter().map(String::from));
             if let Some(end) = end {
                 cut = Some(end.cut);
@@ -347,7 +347,9 @@ fn a_stopped_walk_ends_at_its_next_entry_with_no_last_batch() {
         looked.get() > 3
     };
     let mut batches = 0;
-    walk(&scratch.0, Limits::PROJECT, &stop, &mut |_, _| batches += 1);
+    walk(&scratch.0, None, Limits::PROJECT, &stop, &mut |_, _| {
+        batches += 1
+    });
     assert_eq!(batches, 0);
     assert_eq!(looked.get(), 4, "stopped as soon as it looked");
 }
@@ -385,12 +387,14 @@ fn a_walk_of_a_large_tree_takes_about_as_long_as_rg() {
     };
     let tree = PathBuf::from(tree);
     // The fastest of three, warm, against a second: `rg --files --hidden` took 0.09 s for
-    // 46,234 files on the author's Mac, and 0.19 s on one thread; this walk took 0.20 s.
+    // 46,234 files on the author's Mac, and 0.19 s on one thread; this walk took 0.20 s. Listing
+    // each directory from its parent (step 4), it took 0.139 s, against 0.114 s for step 3's on
+    // the same day.
     let fastest = (0..3)
         .map(|_| {
             let started = std::time::Instant::now();
             let mut count = 0;
-            walk(&tree, Limits::PROJECT, &|| false, &mut |paths, _| {
+            walk(&tree, None, Limits::PROJECT, &|| false, &mut |paths, _| {
                 count += paths.len()
             });
             (started.elapsed(), count)
@@ -510,4 +514,43 @@ fn an_ignore_file_longer_than_what_is_left_ends_the_walk_before_it_is_read() {
         (3, false),
         "exactly what is left is read"
     );
+}
+
+mod deep;
+
+#[cfg(unix)]
+#[test]
+fn a_root_that_is_home_by_its_device_and_inode_lists_nothing_however_it_is_spelled() {
+    let scratch = Scratch::new("home-identity");
+    scratch.file("home/me/notes.txt", "");
+    std::os::unix::fs::symlink(scratch.0.join("home"), scratch.0.join("also-home")).unwrap();
+    let home = scratch.0.join("home/me");
+    for root in [
+        scratch.0.join("also-home/me"),
+        scratch.0.join("also-home"),
+        home.clone(),
+    ] {
+        let mut listed = Vec::new();
+        walk(
+            &root,
+            Some(&home),
+            Limits::PROJECT,
+            &|| false,
+            &mut |paths, _| {
+                listed.extend(paths);
+            },
+        );
+        assert!(listed.is_empty(), "{}", root.display());
+    }
+    let mut listed = Vec::new();
+    walk(
+        &home,
+        Some(&scratch.0.join("elsewhere")),
+        Limits::PROJECT,
+        &|| false,
+        &mut |paths, _| {
+            listed.extend(paths);
+        },
+    );
+    assert_eq!(listed.len(), 1);
 }

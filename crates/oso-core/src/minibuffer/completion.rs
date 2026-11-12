@@ -11,14 +11,15 @@ use crate::frame::{CellRect, FrameLayout, completion_regions};
 /// The cells between the count, the label and the answer.
 const GAP: usize = 1;
 
-/// The cells a list's count takes at most, `total/total`.
-fn count_cells(total: usize) -> usize {
-    2 * total.max(1).to_string().len() + 1
+/// The cells a list's count takes at most, `total/total`, and `+` after it for a list that left
+/// some out.
+fn count_cells(total: usize, cut: bool) -> usize {
+    2 * total.max(1).to_string().len() + 1 + usize::from(cut)
 }
 
 /// Where a prompt that says `label` and completes over `total` candidates goes in a frame laid
-/// out as `frame`, with `message` at the end of its answer. The answer's row holds the count
-/// first, kept as wide as the widest count, then the label, cut with `…` to a third of the row
+/// out as `frame`, with `message` at the end of its answer, `cut` if the list left some out. The
+/// answer's row holds the count first, kept as wide as the widest count, then the label, cut with `…` to a third of the row
 /// at most, then the answer with a message at its end, which leaves it at least 8 columns.
 /// There is no field around the answer. The float has [`ROWS`] candidate rows below, however
 /// many match.
@@ -26,7 +27,7 @@ pub(crate) fn completion_layout(
     frame: &FrameLayout,
     label: &str,
     message: Option<&str>,
-    total: usize,
+    (total, cut): (usize, bool),
     previews: bool,
 ) -> PromptLayout {
     let regions = completion_regions(frame, ROWS, previews);
@@ -44,7 +45,7 @@ pub(crate) fn completion_layout(
             columns,
         }
     };
-    let count = count_cells(total).min(inner.columns.saturating_sub(MIN_INPUT_COLUMNS));
+    let count = count_cells(total, cut).min(inner.columns.saturating_sub(MIN_INPUT_COLUMNS));
     let at_label = (count + GAP).min(inner.columns);
     let (shown, cut) = cut_to(label, inner.columns / 3);
     let label_columns = cells_of(shown) + cells_of(cut);
@@ -102,7 +103,7 @@ mod tests {
             },
             0,
         );
-        let layout = completion_layout(&frame, "M-x", Some("No match"), 340, false);
+        let layout = completion_layout(&frame, "M-x", Some("No match"), (340, false), false);
         let inner = layout.regions.inner;
         assert_eq!(
             layout.count,
@@ -131,7 +132,7 @@ mod tests {
             0,
         );
         let label = "a label much longer than half of the float's row, by far and away";
-        let layout = completion_layout(&frame, label, None, 3, false);
+        let layout = completion_layout(&frame, label, None, (3, false), false);
         assert!(layout.label_cut);
         assert_eq!(layout.label_cells.columns, layout.regions.inner.columns / 3);
     }
@@ -147,7 +148,7 @@ mod tests {
             message in proptest::option::of("[a-z]{0,30}"),
         ) {
             let frame = frame_layout(FrameSize { rows, columns }, 0);
-            let layout = completion_layout(&frame, &label, message.as_deref(), total, false);
+            let layout = completion_layout(&frame, &label, message.as_deref(), (total, false), false);
             let outer = layout.regions.outer;
             let parts = [
                 layout.count,

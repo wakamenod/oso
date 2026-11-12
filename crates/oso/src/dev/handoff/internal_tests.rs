@@ -294,6 +294,18 @@ fn a_state_of_version_3_reads_as_one_window() {
 }
 
 #[test]
+fn a_state_of_version_3_without_font_lock_keeps_it_on_and_one_with_it_hands_it_over() {
+    let mut editor = scratch_with("one\n");
+    editor.set_font_lock(false);
+    let mut state = export(&editor, &[], None, None).unwrap();
+    state["version"] = json!(3);
+    state.as_object_mut().unwrap().remove("layout");
+    assert_eq!(parse(&state).unwrap().font_lock, Some(false));
+    state.as_object_mut().unwrap().remove("font_lock");
+    assert_eq!(parse(&state).unwrap().font_lock, None, "kept on");
+}
+
+#[test]
 fn windows_split_deeper_than_a_state_keeps_hold_the_handover_with_a_reason() {
     let mut editor = scratch_with("deep\n");
     editor.set_frame_size(oso_core::frame::FrameSize {
@@ -405,4 +417,28 @@ fn positions_wait_behind_another_buffer_only_while_the_place_kept_there_is_untou
     assert!(restore.try_apply(&mut editor), "over: dropped");
     editor.toggle_messages();
     assert_eq!(editor.window().selections.primary().cursor, 5);
+}
+
+#[test]
+fn a_keyboard_macro_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = Editor::default();
+    let before = generation(&editor);
+    editor.macro_start().unwrap();
+    let held = Err("cannot hand over: a keyboard macro is being recorded or run".into());
+    assert_eq!(check(&editor), held);
+    let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+    assert!(
+        refused.ends_with("a keyboard macro is being recorded or run"),
+        "{refused}"
+    );
+    editor.macro_record([oso_core::editor::MacroEvent::Text {
+        text: "x".into(),
+        commit: false,
+    }]);
+    editor.macro_end().unwrap();
+    assert!(check(&editor).is_ok());
+    editor.macro_call(None).unwrap();
+    assert_eq!(check(&editor), held);
+    editor.macro_stop(None);
+    assert!(check(&editor).is_ok());
 }

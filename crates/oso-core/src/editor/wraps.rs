@@ -56,6 +56,8 @@ impl Editor {
     /// Brings the windows showing `id` along with text that a load put in, which no splice
     /// led to: a wrap starts over, its top in the text as before.
     pub fn loaded(&mut self, id: BufferId) {
+        // A search's row asked to go to its line once it has come (ADR 0114).
+        self.go_to_visit_place(id);
         self.refill_wraps();
         // A previewed buffer's part too.
         self.fit_preview();

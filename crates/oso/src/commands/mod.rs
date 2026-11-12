@@ -18,9 +18,11 @@ mod edit;
 mod files;
 mod isearch;
 mod kill;
+mod macros;
 mod mark;
 mod messages;
 mod minibuffer;
+mod modes;
 mod motion;
 mod prefix;
 mod projects;
@@ -55,10 +57,12 @@ const TABLES: &[&[Command]] = &[
     files::COMMANDS,
     isearch::COMMANDS,
     kill::COMMANDS,
+    macros::COMMANDS,
     mark::COMMANDS,
     buffers::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,
+    modes::COMMANDS,
     motion::COMMANDS,
     prefix::COMMANDS,
     projects::COMMANDS,
@@ -213,6 +217,7 @@ mod tests {
             "next-history-element",
             "previous-history-element",
             "project-find-file",
+            "project-search",
             // Emergency copies.
             "emergency-copies-back",
             "emergency-copies-refresh",
@@ -273,6 +278,10 @@ mod tests {
             "isearch-yank-pop",
             "isearch-yank-kill",
             "isearch-yank-word-or-char",
+            // Keyboard macros, whose replay types keys (ADR 0113).
+            "kmacro-end-and-call-macro",
+            "kmacro-end-macro",
+            "kmacro-start-macro",
         ];
         expected.extend(QUERY_REPLACE);
         #[cfg(feature = "dev")]
