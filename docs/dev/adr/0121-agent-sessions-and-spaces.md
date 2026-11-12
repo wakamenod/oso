@@ -1,6 +1,6 @@
 # 0121. Agent sessions and spaces
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -9,7 +9,7 @@ M4 is "develop oso in oso" ([roadmap](../roadmap.md)). The author runs every Cla
 through their previous Emacs setup today, and wants oso to host that whole workflow. oso hosts the
 official interactive `claude` TUI in an oso terminal ([ADR 0031](0031-claude-code-integration.md)):
 no `-p`, no Agent SDK. This ADR is the second of three M4 ADRs:
-ADR 0120 (on PR #198) is the terminal, ADR 0122 (agent review, on PR #203) is reviewing
+[ADR 0120](0120-the-terminal.md) is the terminal, [ADR 0122](0122-agent-review.md) is reviewing
 what an agent changed, and this one is everything around a hosted session.
 
 What the author wants, in their words summarised:
@@ -27,7 +27,7 @@ What the author wants, in their words summarised:
 
 What is decided already:
 
-- **ADR 0120** (Proposed on PR #198, being accepted): a terminal is an oso buffer with its own
+- **[ADR 0120](0120-the-terminal.md):** a terminal is an oso buffer with its own
   thread. Only a person types into a PTY; the agent channel never writes to one. An agent reads a
   terminal's text only where the person allowed it, per terminal. Echo off is a secret. OSC 9,
   777, 9;4 and the bell show inside oso only. It gives this ADR an in-process host API: rows by
@@ -35,7 +35,7 @@ What is decided already:
   notification events, whether the terminal is shown and selected, the foreground process group
   and its program, and extra environment for a child. The `claude` command, its MCP
   configuration, starting the agent channel, hooks and `--resume` were left to this ADR.
-- **ADR 0122** (Accepted on PR #203) leaves three seams to this ADR: deliver a message to a
+- **[ADR 0122](0122-agent-review.md)** leaves three seams to this ADR: deliver a message to a
   session, learn that a turn ended, and say which review the calling agent's tools act on.
 - **[ADR 0085](0085-agent-channel-and-oso-mcp.md):** the agent channel, off by default, each command
   `Look`, `Change` or `Person`; anything that spawns a process is `Person`; each connection asks
@@ -122,8 +122,8 @@ Read from its documentation and from what a running CLI writes (2.1.29x–2.1.32
 
 ## Decision
 
-Proposed. The text below takes the first option (a) of each question under
-[Questions](#questions); the author's answers may change it.
+The author accepted this on 2026-11-13, through the coordinator: the first option (a) of each
+question under [Questions](#questions), but Q14 (see [The author's choices](#the-authors-choices)).
 
 ### A session (Q1, Q20, Q22)
 
@@ -367,8 +367,10 @@ fetched.
      is not enough, refuses.
 
   Then it stops the idle sessions in it, closes its space, and runs `git worktree remove PATH`,
-  never `--force`. **It never deletes the branch.** The question names what git ignores and will be
-  deleted with it (`target/`, `node_modules/`, `.claude/settings.local.json`).
+  never `--force`. **It never deletes the branch.** The person's command asks first; the question
+  names what git ignores and will be deleted with it (`target/`, `node_modules/`,
+  `.claude/settings.local.json`). An agent's `worktree_remove` does not ask (Q14), and its reply
+  names the same.
 - **Steering Claude away from its own worktree tools (Q15):** Claude's `EnterWorktree` and a `Bash`
   `git worktree add` bypass oso's sessions and spaces. oso cannot intercept a tool call of the
   hosted TUI. When the person turns on `[sessions] steer_worktrees = true`, a session oso starts
@@ -434,7 +436,7 @@ fetched.
 | `session_start` | Change, asks | a new session in this project, or `start_worktree_session` below |
 | `start_worktree_session` | Change, asks | a branch, an optional base and a brief: as `session-worktree`, nested under the caller |
 | `worktree_list` | Look, read-only | as `worktree-list` |
-| `worktree_remove` | Change, asks (Q14) | as `worktree-remove`, after every check |
+| `worktree_remove` | Change (Q14) | as `worktree-remove`: no question once every check holds; refused with the failing check otherwise |
 | `session_stop` | Change, asks | `SIGTERM` to the session's `claude`, `SIGHUP` to its group after 5 s |
 | `session_archive` | Change, asks | stops it if running, hides it from the list; its worktree is kept |
 | `merge_branch` | Change, asks | `git merge --no-edit BRANCH` into the caller's worktree, which must be clean; on conflict, leaves the conflict and lists the files |
@@ -452,7 +454,7 @@ fetched.
   Code's settings files; read the registry's `*.key` files. A tool acts only on sessions and
   worktrees of the caller's repository, and never stops or archives the caller itself.
 - **The loop guard:** a session may cause at most 20 effectful tool calls (every "asks" and
-  `Change` tool above) since the person last typed in its terminal; past that, each is refused with
+  `Change` tool above, `worktree_remove` included) since the person last typed in its terminal; past that, each is refused with
   "waits for the person to type in this session". A `n` or `C-g` refuses the same tool with the same
   target from that session for 60 s, without asking again, and the reply says the person refused it.
 - **Never route around a denial:** the MCP server's instructions say that a refused tool is the
@@ -709,6 +711,26 @@ For the author, the recommended option first. Each is answered on its own.
 - Nothing else: `toml`, `regex` and `ignore` are already dependencies of the tip crate, and the
   UUID comes from `/dev/urandom`.
 
+## The author's choices
+
+The author answered every question on 2026-11-13, through the coordinator: (a) for each, but Q14.
+
+- **Q14: (b).** An agent's `worktree_remove` asks no question once every check holds, as in the
+  previous setup. The checks themselves are unchanged: clean, nothing unsaved or unsent, no busy
+  session, the branch merged, never `--force`, never the branch. The reply names the ignored files
+  deleted with the worktree. The person's own `worktree-remove` still asks.
+- The rest, as recommended: oso's own id with `--session-id` and `--name` (Q1); restore stopped,
+  refuse a live resume, offer a fork (Q2); state from screen rules (Q3) with a local override and
+  `session-explain` (Q4); ready for review from the baseline (Q5); the side window and the float
+  (Q6); `C-x a` (Q7); a window tree per space and zoom (Q8); Dock bounce and urgency now, banners
+  with an app bundle (Q9); notifying only for sessions not shown, after 1 s (Q10); `⚠ N` and `● N`
+  (Q11); recaps from the screen and title (Q12); `<repo>/.claude/worktrees/<slug>` (Q13); the
+  per-session steering hook behind `[sessions] steer_worktrees` (Q15); `.worktreeinclude`
+  honoured (Q16); a bracketed paste, not submitted (Q17); the CLI's `SendMessage` (Q18); no
+  question for a bridge of a `claude` oso started (Q19); `claude` turns the channel on (Q20);
+  transcripts asked once per connection (Q21); the login shell (Q22); the light projects (Q23); a
+  `sessions` module and `oso-platform::notify`, no new crate (Q24).
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.
@@ -721,8 +743,10 @@ Each passage stays in its ADR as written; what holds now follows it.
   steer_worktrees`; nothing writes Claude Code's settings files.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "Each new connection asks the person": except a
   bridge whose parent is a `claude` oso started. "anything that spawns a process" is `Person`: a
-  session tool may ask the person, and the process starts on the person's `y`.
-- ADR 0122, "Turns: … with ADR 0121, the Stop and PostToolUse hooks": a turn's end is the state's
+  session tool may ask the person, and the process starts on the person's `y`. "A channel action
+  never starts a process by itself": except an agent's `worktree_remove`, which runs `git worktree
+  remove` without a question once every check above holds (Q14).
+- [ADR 0122](0122-agent-review.md), "Turns: … with ADR 0121, the Stop and PostToolUse hooks": a turn's end is the state's
   transition; a write tool's end is not given.
 
 ## Consequences
@@ -733,13 +757,14 @@ Each passage stays in its ADR as written; what holds now follows it.
   `session-explain` and the local file make that fix the person's to do. A wrong state never
   authorises anything.
 - Nothing about sessions runs on the UI thread, and nothing runs while nothing changes.
-- Agents can start, stop and clean up sessions and worktrees only through a question the person
-  answers; they cannot type, answer prompts, push or delete branches.
+- Agents can start, stop and archive sessions only through a question the person answers. They
+  remove a finished worktree without one, but only when every check holds, never with `--force`,
+  and never deleting its branch; its ignored files go with it. They cannot type, answer prompts,
+  push or delete branches.
 - External sessions are visible but read-only to oso.
 - Follow-up: banners when oso is an app bundle; preset layouts; Desktop's coordinator routing;
-  Windows (registry paths, named pipes, ConPTY). On acceptance, `open-questions.md`'s M4 items on
-  hooks and on which worktree tools join `oso mcp` are answered here, and the roadmap's M4 line
-  "hooks for session identity and state" changes.
+  Windows (registry paths, named pipes, ConPTY). `open-questions.md`'s M4 items on hooks and on
+  which worktree tools join `oso mcp` are answered here, and the roadmap's M4 line follows.
 
 ## Alternatives considered
 
