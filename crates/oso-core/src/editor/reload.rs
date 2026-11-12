@@ -81,13 +81,15 @@ impl Editor {
 
     /// Whether a file read again must wait: while a prompt is open, as what it acts on must
     /// not change under it (ADR 0072), while an isearch or a query-replace is on, which would
-    /// have to search it again from where it stands (ADR 0082, ADR 0113), and while the layer of
-    /// `C-x TAB` is open, whose keys undo as one step (ADR 0115).
+    /// have to search it again from where it stands (ADR 0082, ADR 0113), while the layer of
+    /// `C-x TAB` is open, whose keys undo as one step (ADR 0115), and while an undo or a redo
+    /// goes on, which the new text would abandon (ADR 0119).
     pub fn reload_waits(&self) -> bool {
         !self.prompts.is_empty()
             || self.isearch().is_some()
             || self.replace().is_some()
             || self.rigid.is_some()
+            || self.crossing().is_some()
     }
 
     /// Judges the file of `id` again, as it is being read again: from where its path leads now

@@ -494,7 +494,7 @@ fn a_search_begun_after_the_ask_drops_the_answer() {
     at(&mut editor, &[0]);
     editor.mark_like_this(Toward::Next, 1).unwrap();
     let job = editor.take_isearch_job().unwrap();
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     let mut reports = Vec::new();
     job.run(|report| reports.push(report));
     for report in reports {
@@ -552,7 +552,7 @@ fn quit_ends_a_search_before_it_takes_the_cursors_away() {
     region(&mut editor, 0, 2);
     editor.mark_like_this(Toward::Next, 1).unwrap();
     editor.deactivate_mark();
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("ab");
     drain(&mut editor);
     assert_eq!(editor.quit(), Quit::Search);

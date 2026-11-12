@@ -175,6 +175,20 @@ impl App {
             };
         }
         let (rows, columns) = wheeling.remainder.add(rows, columns);
+        if crate::dispatch::holds_input(&self.editor) {
+            match self
+                .held_wheel
+                .iter_mut()
+                .find(|(held, ..)| *held == window)
+            {
+                Some((_, held_rows, held_columns)) => {
+                    *held_rows = held_rows.saturating_add(rows);
+                    *held_columns = held_columns.saturating_add(columns);
+                }
+                None => self.held_wheel.push((window, rows, columns)),
+            }
+            return Some((window, false));
+        }
         let moved_rows = rows != 0 && self.editor.scroll_view(window, rows);
         let moved_columns = columns != 0 && self.editor.scroll_view_sideways(window, columns);
         let moved = moved_rows || moved_columns;

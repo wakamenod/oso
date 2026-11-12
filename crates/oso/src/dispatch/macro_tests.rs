@@ -212,6 +212,7 @@ fn c_g_during_bang_in_a_replay_stops_the_replay_first() {
     }
     d.run_held_during_all(&mut editor);
     send(&mut d, &mut editor, "C-x ) C-z M-<");
+    super::undo_tests::finish(&mut d, &mut editor);
     assert_eq!(text(&editor), "a ".repeat(3000));
     send(&mut d, &mut editor, "C-x e");
     d.replay(&mut editor, Instant::now() + Duration::from_secs(1));

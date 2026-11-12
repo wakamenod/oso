@@ -61,7 +61,7 @@ impl Editor {
             }
         }
         let before = self.isearch.as_ref().map(|state| state.steps.len());
-        self.isearch_add(&text);
+        self.isearch_add_taken(&text);
         // Only a step it added can be taken back for the next.
         if let Some(state) = &mut self.isearch {
             let added = Some(state.steps.len()) > before;

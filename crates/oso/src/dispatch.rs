@@ -31,6 +31,7 @@ mod clipboard;
 mod extended;
 mod held;
 mod hold_all;
+pub use hold_all::{Cancelled, holds_input};
 mod jump;
 mod keymaps;
 mod macros;
@@ -87,7 +88,8 @@ pub struct Dispatcher {
     waiting: Option<clipboard::Waiting>,
     /// Keyboard macros: what a recording takes, and a replay's state here (ADR 0113).
     macros: macros::MacroInput,
-    /// Input held while query-replace's `!` runs (ADR 0113).
+    /// Input held while query-replace's `!` runs (ADR 0113), or an undo or a redo of a large
+    /// step (ADR 0119).
     held_during_all: hold_all::HeldDuringAll,
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
@@ -477,7 +479,8 @@ impl Dispatcher {
         if let Some(done) = self.macro_before(editor, (Some(key), || MacroEvent::Key(key))) {
             return done;
         }
-        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
+        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key, self.from_socket))
+        {
             return done;
         }
         if self.hold_key(key) {
@@ -647,6 +650,8 @@ mod replace_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod undo_tests;
 #[cfg(test)]
 mod user_tests;
 #[cfg(test)]

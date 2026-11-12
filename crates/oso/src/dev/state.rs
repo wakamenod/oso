@@ -99,6 +99,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "isearch": isearch_state(editor),
         "jump": jump_state(editor),
         "replace": replace_state(editor),
+        "undoing": crate::channel::state::undoing_state(editor),
         "macro": { "recording": editor.macro_recording(), "replaying": editor.macro_replaying() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
@@ -148,9 +149,9 @@ fn jump_state(editor: &Editor) -> Value {
 }
 
 /// The `isearch` field of `get-state`: null, or the search under way, its string, where it
-/// has got to and its count, `null` while counting (ADR 0082). While a buffer that may hold
-/// secrets is shown, or for a search around one, only that one is under way, as its string
-/// and its count can say something of the text.
+/// has got to, whether it is a regexp's (ADR 0116) and its count, `null` while counting
+/// (ADR 0082). While a buffer that may hold secrets is shown, or for a search around one,
+/// only that one is under way, as its string and its count can say something of the text.
 fn isearch_state(editor: &Editor) -> Value {
     let Some(search) = editor.isearch() else {
         return Value::Null;
@@ -164,6 +165,7 @@ fn isearch_state(editor: &Editor) -> Value {
     json!({
         "active": true,
         "string": search.string(),
+        "regexp": search.regexp(),
         "backward": search.backward(),
         "failing": search.failing(),
         "wrapped": search.wrapped(),
@@ -789,6 +791,7 @@ mod tests {
                 "isearch": null,
                 "jump": null,
                 "replace": null,
+                "undoing": null,
                 "macro": { "recording": false, "replaying": false },
                 "surface": { "width": 800, "height": 600 },
             })
@@ -1042,7 +1045,7 @@ mod tests {
     #[test]
     fn isearch_reads_back_unless_it_is_around_a_secret() {
         let mut editor = Editor::with_buffer(Buffer::from_text("plain.txt", "ab ab"));
-        editor.isearch_begin(false);
+        editor.isearch_begin(false, false);
         editor.isearch_add("ab");
         let state = get_state(&editor, &[], None);
         assert_eq!(
@@ -1050,6 +1053,7 @@ mod tests {
             json!({
                 "active": true,
                 "string": "ab",
+                "regexp": false,
                 "backward": false,
                 "failing": false,
                 "wrapped": false,
@@ -1059,6 +1063,9 @@ mod tests {
             })
         );
         assert_eq!(state["echo"], "I-search: ab [?/…]");
+        editor.isearch_toggle_regexp();
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"]["regexp"], true);
 
         // A kill from a buffer that may hold secrets, yanked into the string.
         editor.isearch_exit();
@@ -1077,7 +1084,7 @@ mod tests {
             )
             .unwrap();
         editor.show(plain);
-        editor.isearch_begin(false);
+        editor.isearch_begin(false, false);
         editor.isearch_yank_kill();
         let state = get_state(&editor, &[], None);
         assert_eq!(state["isearch"], json!({ "active": true }));
@@ -1086,7 +1093,13 @@ mod tests {
         let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
         editor.isearch_exit();
         editor.show(secret);
-        editor.isearch_begin(false);
+        editor.isearch_begin(false, false);
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"], json!({ "active": true }));
+        // A regexp's search says no more, not even that it is one.
+        editor.isearch_exit();
+        editor.isearch_begin(false, true);
+        editor.isearch_add("a.c");
         let state = get_state(&editor, &[], None);
         assert_eq!(state["isearch"], json!({ "active": true }));
     }

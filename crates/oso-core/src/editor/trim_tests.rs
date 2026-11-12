@@ -465,3 +465,45 @@ fn a_write_under_a_new_name_that_lands_forgets_the_lines_it_took() {
     save(&mut editor).unwrap();
     assert_eq!(text(&editor), "a  \nbc\n");
 }
+
+#[test]
+fn a_scan_that_reports_while_an_undo_goes_on_scans_again_once_it_ends() {
+    let mut editor = visiting("notes.txt", "");
+    put_cursor(&mut editor, 0);
+    let pasted = large();
+    edit(&mut editor, 0..0, &pasted);
+    // A step of a splice a line, which undoes a splice a slice.
+    let id = editor.window().buffer();
+    let starts: Vec<usize> = pasted.match_indices('\n').map(|(at, _)| at + 1).collect();
+    let upper: Vec<_> = starts[..starts.len() - 1]
+        .iter()
+        .map(|&at| Replacement {
+            range: at..at + 1,
+            text: "L",
+        })
+        .collect();
+    editor.begin_undo_group();
+    editor.apply_edits(id, &upper).unwrap();
+    editor.end_undo_group();
+    save(&mut editor).unwrap();
+    let report = editor.take_trim_jobs().pop().unwrap().run();
+    editor.set_crossing_slices(1, 4);
+    editor.begin_crossing(1).unwrap();
+    assert!(editor.crossing().is_some());
+    assert_eq!(editor.trim_reported(report), None, "set aside");
+    assert!(editor.crossing().is_some(), "the undo goes on");
+    assert!(editor.take_trim_jobs().is_empty(), "no scan while it does");
+    while editor.crossing().is_some() {
+        if let Some(ended) = editor.go_on_crossing() {
+            ended.unwrap();
+        }
+    }
+    assert_eq!(text(&editor), pasted, "undone");
+    let report = editor.take_trim_jobs().pop().expect("a scan again").run();
+    assert!(
+        editor
+            .trim_reported(report)
+            .is_some_and(|went| went.refused.is_none())
+    );
+    assert_eq!(text(&editor), pasted.replace(" \n", "\n"));
+}

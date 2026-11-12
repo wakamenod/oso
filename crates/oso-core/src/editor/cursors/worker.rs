@@ -109,6 +109,11 @@ impl Editor {
     /// Leaves the rest of a search for cursors to the worker, from `from`.
     pub(super) fn ask_worker(&mut self, ask: Ask, from: usize, (text, wanted): (Text, Wanted)) {
         let generation = self.supersede_search();
+        // The worker has no time to keep to.
+        let text = Text {
+            until: None,
+            ..text
+        };
         let loading = self.current().1.loading().map(|_| text.rope.len());
         let work: MatchWork = match ask {
             Ask::All => Box::new(move |stop| {

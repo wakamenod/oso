@@ -227,7 +227,8 @@ impl App {
     /// to get wrong, and a load's progress asks only when its number changes. What was
     /// asked for counts as drawn, so a window that draws nothing is not asked again.
     pub(super) fn ask_for_a_frame_if_status_changed(&mut self) {
-        if self.view.is_none() {
+        // While work goes on over turns, its pace asks for frames (ADR 0119).
+        if self.view.is_none() || self.slices_go_on() {
             return;
         }
         statuses_into(&self.editor, &mut self.next_statuses);

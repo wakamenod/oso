@@ -217,7 +217,7 @@ fn seen(editor: &mut Editor) -> Seen {
 
 /// Runs the crossing under way to its end, checking that its share done never goes back
 /// within a step and that the steps left only go down. Returns its result.
-fn finish(editor: &mut Editor, begun: Result<(), EditError>) -> Result<(), EditError> {
+pub(super) fn finish(editor: &mut Editor, begun: Result<(), EditError>) -> Result<(), EditError> {
     let mut last = (usize::MAX, 0.0);
     let mut result = begun;
     while let Some(crossing) = editor.crossing() {
@@ -345,7 +345,7 @@ fn a_count_stops_at_the_first_step_it_cannot_cross_and_keeps_those_before() {
 }
 
 /// A slice's work in the tests that cut a step between splices: one splice.
-const SPLICE_WORK_IN_TESTS: usize = 1;
+pub(super) const SPLICE_WORK_IN_TESTS: usize = 1;
 
 #[test]
 fn a_buffer_changed_under_a_crossing_abandons_it_and_nothing_crosses() {
@@ -412,7 +412,7 @@ fn a_crossing_drops_itself_if_its_window_is_no_longer_selected() {
     assert_eq!(text(&editor, id), "1 2 3");
 }
 
-fn echo(editor: &Editor) -> String {
+pub(super) fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
     editor.status_into(editor.window().id(), &mut status);
     status.echo
