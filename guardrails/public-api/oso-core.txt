@@ -1104,6 +1104,7 @@ impl core::marker::Copy for oso_core::editor::KillRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::KillRefused
 pub enum oso_core::editor::MacroError
 pub oso_core::editor::MacroError::AlreadyRecording
+pub oso_core::editor::MacroError::Asking
 pub oso_core::editor::MacroError::NoMacro
 pub oso_core::editor::MacroError::NotRecording
 pub oso_core::editor::MacroError::Replaying
@@ -1630,9 +1631,9 @@ pub fn oso_core::editor::Editor::macro_next(&mut self) -> core::option::Option<o
 pub fn oso_core::editor::Editor::macro_record(&mut self, impl core::iter::traits::collect::IntoIterator<Item = oso_core::editor::MacroEvent>)
 pub fn oso_core::editor::Editor::macro_recording(&self) -> bool
 pub fn oso_core::editor::Editor::macro_replaying(&self) -> bool
-pub fn oso_core::editor::Editor::macro_secret(&self) -> bool
 pub fn oso_core::editor::Editor::macro_start(&mut self) -> core::result::Result<(), oso_core::editor::MacroError>
 pub fn oso_core::editor::Editor::macro_stop(&mut self, core::option::Option<&str>)
+pub fn oso_core::editor::Editor::macro_takes_text(&mut self, usize) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::FileStamp, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
