@@ -27,6 +27,10 @@ pub enum Base {
 /// One hunk of a diff with no context lines. Line numbers count from 1. `removed` are the old
 /// side's lines from `old_start`, `added` the new side's from `new_start`; a hunk that removes
 /// nothing goes in front of old line `old_start`.
+///
+/// A line's bytes include the `\n` that ends it, and a `\r` before it, so a change of line
+/// ending or of the newline at the end of the file is a change of the line. The last line of a
+/// side that does not end in a newline has none.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hunk {
     pub old_start: u32,

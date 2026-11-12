@@ -74,6 +74,8 @@ fn a_comment_added_after_the_snapshot_asks_for_another_carry() {
         .unwrap();
     let applied = review.apply(carry.run(|_, _| None, |a: &[&[u8]], b: &[&[u8]]| lcs(a, b)));
     assert!(applied.again);
+    assert!(!applied.marks_changed);
+    assert_eq!(applied.outdated, 0);
     // Its anchor is in the reading before: outdated until it is carried.
     assert_eq!(anchor_of(&review, id), (new_line(1), true));
     let applied = read(
@@ -161,7 +163,9 @@ fn a_decision_made_after_the_snapshot_is_carried_too() {
     let carry = review.carry(FILE, Arc::new(next.unwrap()));
     review.decide(FILE, 0, Some(Decision::Rejected));
     let applied = review.apply(carry.run(|_, _| None, |a: &[&[u8]], b: &[&[u8]]| lcs(a, b)));
-    assert!(applied.again);
+    // The current marks were carried in place of the snapshot's: no carrying again.
+    assert!(applied.marks_changed);
+    assert!(!applied.again);
     assert_eq!(review.decision(FILE, 1), Some(Decision::Rejected));
 }
 

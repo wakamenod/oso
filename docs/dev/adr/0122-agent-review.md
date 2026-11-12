@@ -668,7 +668,8 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 
 `oso_core::review` (`review.rs`, with `shape`, `map`, `carry`, `comment` and `decision` under
 it), on `project`'s row of `guardrails/layers.txt`. It uses only `std`. The author approved its
-public items as listed in the plan, and answered its questions (a), then those of its review:
+public items as listed in the plan (with `Applied::marks_changed` added later, item 12), and
+answered its questions (a), then those of its reviews:
 
 1. **Paths are bytes** as git gives them with `-z` (`&[u8]`, `/` on every OS), so a name that is
    not UTF-8 goes through unchanged.
@@ -694,7 +695,18 @@ public items as listed in the plan, and answered its questions (a), then those o
    first in the next, and so on. A decision stays keyed by content, and stays on the hunk shown.
 10. **A file keeps at most 16 earlier readings** (`MAX_KEPT_READINGS`) for its outdated comments
     to come back by. Comments on older ones stay outdated for good and let their reading go.
-11. **Later steps add:** `Review::take_released` in step 4, so the host lets go of old readings
+11. **A file put in against a blob carries nothing.** When one reading's old side is no file and
+    the other's is a blob (a new file once committed, or a file deleted and put back), no line
+    of the one is a line of the other, and lines that read alike are not taken for the same: the
+    comments on them go outdated. Two readings of a file put in share their empty old side.
+12. **Applying says two things apart:** `again`, when comments were added since the snapshot
+    (they are outdated until carried, and not counted), and `marks_changed`, when decisions or
+    viewed marks changed meanwhile and the current ones were carried in their place.
+13. **A hunk comment's lines are checked like a line comment's:** each counts only where its
+    text is its own.
+14. **A line's bytes include its terminator** (`\n`, and a `\r` before it), so a change of line
+    ending or of the newline at the end of the file is a change of the line.
+15. **Later steps add:** `Review::take_released` in step 4, so the host lets go of old readings
     off the UI thread; and in step 7, a check that an agent's comment names the reading it was
     read in, and an agent identity (`open-questions.md`). The approved names stay.
 
@@ -716,8 +728,7 @@ What was built:
   to each comment's reading, and the marks when a hunk is marked). `Carry::run`, on a worker,
   builds one map per reading carried from, places each anchor once (a thread's replies share it),
   hashes the new hunks and carries the marks. `Review::apply` writes the result by id. A snapshot
-  taken before another reading was applied changes nothing; one that missed a comment or a mark
-  says `again`, and the comment is outdated until it is carried.
+  taken before another reading was applied changes nothing and says `again`.
 - **Decisions** are a mark per hunk of the current reading, so a lookup is an index. The marks are
   carried by a hash of each hunk's removed and added lines (the review's `RandomState`), and the
   text decides. Viewed is kept apart from accepted and rejected. Marks whose text left the reading,
@@ -730,4 +741,5 @@ What was built:
   carried lands on a line with its own text, in order; a lying matcher never carries a line to
   another text; a hunk comment is outdated exactly when half its lines went; and no agent command
   changes or removes the person's comments, nor reuses an id. Unit tests cover identical hunks,
-  snapshots older than a reading, the kept-readings limit and numbers near the last one.
+  snapshots older than a reading, the kept-readings limit, numbers near the last one, a comment
+  on a removed line, and a new file once committed.

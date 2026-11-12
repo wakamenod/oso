@@ -3327,6 +3327,7 @@ impl core::marker::StructuralPartialEq for oso_core::review::Side
 pub struct oso_core::review::Applied
 pub oso_core::review::Applied::again: bool
 pub oso_core::review::Applied::dropped: usize
+pub oso_core::review::Applied::marks_changed: bool
 pub oso_core::review::Applied::outdated: usize
 pub oso_core::review::Applied::placed: usize
 pub oso_core::review::Applied::returned: usize

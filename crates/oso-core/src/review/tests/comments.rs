@@ -98,7 +98,7 @@ fn a_review_holds_at_most_its_limit_of_comments() {
 }
 
 #[test]
-fn a_long_line_is_known_by_its_kept_text_length_and_hash() {
+fn a_long_line_is_compared_whole() {
     let long = "x".repeat(MAX_KEPT_LINE + 10);
     let other = format!("{}y", &long[..long.len() - 1]);
     let base = blob("1");
@@ -369,4 +369,61 @@ fn an_agent_resolves_its_own_only_while_the_person_has_not_replied() {
         Err(CommentError::RepliesNotYours)
     );
     assert!(review.comment(agent).unwrap().is_resolved());
+}
+
+#[test]
+fn a_comment_on_a_removed_line_follows_it() {
+    let base = blob("1");
+    let old_line = |number| Anchor::Line {
+        side: Side::Old,
+        number,
+    };
+    let mut review = review_of(Shape::new(base.clone(), vec![hunk(4, &["gone"], 4, &[])]).unwrap());
+    let id = review
+        .add_comment(Author::Person, FILE, old_line(4), "why?".into())
+        .unwrap();
+    // Still taken out, with more taken out above it.
+    read(
+        &mut review,
+        Shape::new(
+            base.clone(),
+            vec![hunk(1, &["a"], 1, &[]), hunk(4, &["gone"], 3, &[])],
+        )
+        .unwrap(),
+    );
+    assert_eq!(anchor_of(&review, id), (old_line(4), false));
+    // Kept after all: outdated, and back when it is taken out again.
+    read(
+        &mut review,
+        Shape::new(base.clone(), vec![hunk(1, &["a"], 1, &[])]).unwrap(),
+    );
+    assert!(review.comment(id).unwrap().is_outdated());
+    read(
+        &mut review,
+        Shape::new(base, vec![hunk(4, &["gone"], 4, &["new"])]).unwrap(),
+    );
+    assert_eq!(anchor_of(&review, id), (old_line(4), false));
+}
+
+#[test]
+fn a_comment_on_a_new_file_goes_outdated_once_the_file_is_committed() {
+    let file = ["fn a() {", "}", "fn b() {", "}"];
+    let mut review = review_of(Shape::new(Base::Empty, vec![hunk(1, &[], 1, &file)]).unwrap());
+    let line = review
+        .add_comment(Author::Person, FILE, new_line(4), "brace".into())
+        .unwrap();
+    let whole = review
+        .add_comment(
+            Author::Person,
+            FILE,
+            Anchor::Hunk { index: 0 },
+            "all".into(),
+        )
+        .unwrap();
+    read(
+        &mut review,
+        Shape::new(blob("1"), vec![hunk(5, &[], 5, &["fn c() {", "}"])]).unwrap(),
+    );
+    assert_eq!(anchor_of(&review, line), (new_line(4), true));
+    assert_eq!(anchor_of(&review, whole), (Anchor::Hunk { index: 0 }, true));
 }

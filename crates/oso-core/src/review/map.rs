@@ -12,8 +12,8 @@
 //! side share every old line neither took out, and those match by number; only the lines put in
 //! between two shared lines are matched by text, and only with each other. When the old side
 //! changed, its numbers are carried through the hunks between the two old sides first; when the
-//! old sides are not known, lines match by text and order alone; when nothing can be said,
-//! nothing matches.
+//! old sides are not known, lines match by text and order alone; when nothing can be said, or
+//! one old side is no file and the other a blob, nothing matches.
 //!
 //! The work follows the hunks, not the length of the file: the shared lines are found as runs
 //! between the hunks' edges, and only the lines put in are handed to the matcher.
@@ -100,7 +100,13 @@ impl LineMap {
                 };
             }
             (a, b) if a == b => Through::Same,
-            (Base::Empty, _) | (_, Base::Empty) => Through::Nothing,
+            // A file put in against one read from a blob: no line of the one old side is in the
+            // other, and lines put in alike are not the same lines.
+            (Base::Empty, _) | (_, Base::Empty) => {
+                return LineMap {
+                    kind: Kind::Nothing,
+                };
+            }
             _ => match base.and_then(Shifter::pair) {
                 Some((forward, backward)) => Through::Hunks { forward, backward },
                 None => {
@@ -158,19 +164,13 @@ fn look_up(pairs: &[(u32, u32)], number: u32) -> Option<u32> {
 #[derive(Clone, Debug)]
 enum Through {
     Same,
-    /// No line of the one is in the other: a file put in, or one that went.
-    Nothing,
-    Hunks {
-        forward: Shifter,
-        backward: Shifter,
-    },
+    Hunks { forward: Shifter, backward: Shifter },
 }
 
 impl Through {
     fn forward(&self, number: u32) -> Option<u32> {
         match self {
             Through::Same => Some(number),
-            Through::Nothing => None,
             Through::Hunks { forward, .. } => forward.shift(number),
         }
     }
@@ -178,7 +178,6 @@ impl Through {
     fn backward(&self, number: u32) -> Option<u32> {
         match self {
             Through::Same => Some(number),
-            Through::Nothing => None,
             Through::Hunks { backward, .. } => backward.shift(number),
         }
     }
@@ -370,9 +369,6 @@ struct Run {
 /// line is shared changes only at an edge of a hunk of either reading or between the old
 /// sides, so each stretch between two edges is shared whole or not at all.
 fn shared_runs(from: &Spans, to: &Spans, through: &Through) -> Vec<Run> {
-    if matches!(through, Through::Nothing) {
-        return Vec::new();
-    }
     let mut edges = vec![1];
     for span in &from.spans {
         edges.extend([span.old, span.old.saturating_add(span.removed)]);

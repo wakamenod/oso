@@ -6,10 +6,10 @@
 //! Must not depend on: `editor`, `buffer` or anything outside the review, or I/O.
 //!
 //! A line comment moves only to a line whose text is its own, compared whole with its line in
-//! the reading it keeps. A hunk comment carries each line of its hunk; if half or more went, it
-//! is outdated, else the hunk most of them are in wins, the first of those on a tie. An outdated
-//! comment keeps the reading it was last placed in and is carried from it each time, so it comes
-//! back when its line does. Comments with one anchor in one reading, a thread's replies among
+//! the reading it keeps. A hunk comment carries each line of its hunk, each checked the same
+//! way; if half or more went, it is outdated, else the hunk most of them are in wins, the first
+//! of those on a tie. An outdated comment keeps the reading it was last placed in and is carried
+//! from it each time, so it comes back when its line does. Comments with one anchor in one reading, a thread's replies among
 //! them, are placed once.
 
 use std::collections::HashMap;
@@ -31,7 +31,8 @@ pub struct Carry {
     pub(super) marked: Option<MarkedReading>,
     pub(super) hasher: RandomState,
     pub(super) readings: u64,
-    pub(super) edits: u64,
+    pub(super) added: u64,
+    pub(super) remarked: u64,
 }
 
 /// One comment to carry: where it is, and in which reading.
@@ -52,7 +53,8 @@ pub struct Carried {
     pub(super) marks: Vec<Mark>,
     pub(super) dropped: usize,
     pub(super) readings: u64,
-    pub(super) edits: u64,
+    pub(super) added: u64,
+    pub(super) remarked: u64,
 }
 
 /// A reading, its hunks' hashes and their marks.
@@ -79,9 +81,13 @@ pub struct Applied {
     pub returned: usize,
     /// Decisions and viewed marks dropped because their hunk's text went.
     pub dropped: usize,
-    /// Whether the file changed in the review since the snapshot was taken, so it must be
-    /// carried again.
+    /// Whether comments were added to the file since the snapshot was taken, or another
+    /// reading applied, so it must be carried again. Comments added meanwhile are outdated
+    /// until then, and not counted in `outdated`.
     pub again: bool,
+    /// Whether decisions or viewed marks changed since the snapshot was taken. The current
+    /// ones were carried in its place: nothing needs carrying again.
+    pub marks_changed: bool,
 }
 
 impl Carry {
@@ -146,7 +152,8 @@ impl Carry {
             marks,
             dropped,
             readings: self.readings,
-            edits: self.edits,
+            added: self.added,
+            remarked: self.remarked,
         }
     }
 }
@@ -177,10 +184,14 @@ fn place(from: &Shape, anchor: Anchor, map: &LineMap, to: &Shape) -> Option<Anch
             let mut votes: HashMap<usize, (usize, usize)> = HashMap::new();
             let mut stayed = 0;
             for (side, number) in lines {
-                let Some(there) = map
-                    .carry(side, number)
-                    .and_then(|there| to.hunk_at(side, there))
-                else {
+                // As for a line comment, a line counts only where its text is its own.
+                let Some(there) = map.carry(side, number).filter(|&there| {
+                    from.line(side, number)
+                        .is_some_and(|line| to.line(side, there) == Some(line))
+                }) else {
+                    continue;
+                };
+                let Some(there) = to.hunk_at(side, there) else {
                     continue;
                 };
                 stayed += 1;

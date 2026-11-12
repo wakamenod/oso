@@ -64,8 +64,10 @@ struct PathState {
     comments: BTreeSet<CommentId>,
     /// Counts readings applied, so a snapshot taken before one is not applied after it.
     readings: u64,
-    /// Counts comments added and marks changed, so a snapshot that missed one is redone.
-    edits: u64,
+    /// Counts comments added, so a snapshot that missed one is carried again.
+    added: u64,
+    /// Counts changes to the marks, so marks changed since a snapshot are carried in its place.
+    remarked: u64,
 }
 
 /// A file's current reading, its hunks' hashes and the person's mark on each hunk.
@@ -141,7 +143,8 @@ impl Review {
             marked,
             hasher: self.hasher.clone(),
             readings: state.map_or(0, |state| state.readings),
-            edits: state.map_or(0, |state| state.edits),
+            added: state.map_or(0, |state| state.added),
+            remarked: state.map_or(0, |state| state.remarked),
         }
     }
 
@@ -158,11 +161,12 @@ impl Review {
             };
         }
         let mut applied = Applied {
-            again: carried.edits != state.edits,
+            again: carried.added != state.added,
+            marks_changed: carried.remarked != state.remarked,
             ..Applied::default()
         };
         let to = carried.to;
-        let (marks, dropped) = match (&state.reading, applied.again) {
+        let (marks, dropped) = match (&state.reading, applied.marks_changed) {
             // The marks changed since the snapshot: carry the current ones.
             (Some(reading), true) => {
                 let from = Marked {
@@ -202,7 +206,7 @@ impl Review {
                     .as_ref()
                     .is_some_and(|shape| !Arc::ptr_eq(shape, &to))
             {
-                applied.outdated += 1;
+                // Added since the snapshot: outdated until it is carried again.
                 comment.outdated = true;
             }
         }
@@ -421,7 +425,7 @@ impl Review {
         comment.id = id;
         let state = self.files.entry(comment.path.clone()).or_default();
         state.comments.insert(id);
-        state.edits += 1;
+        state.added += 1;
         self.comments.insert(id, comment);
         id
     }
@@ -498,7 +502,7 @@ impl Review {
             return false;
         };
         change(mark);
-        state.edits += 1;
+        state.remarked += 1;
         true
     }
 }
