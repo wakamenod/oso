@@ -62,6 +62,7 @@ impl App {
             UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),
             UserEvent::Projects => self.projects_found(),
+            UserEvent::EditorConfig => self.editorconfigs_read(),
             UserEvent::Walked(walked) => self.walked(event_loop, walked),
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
@@ -86,6 +87,7 @@ impl App {
         // Before the projects, whose worktrees are checked against the record as it is now.
         self.write_trust();
         self.find_projects();
+        self.read_editorconfigs();
         self.check_disk();
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.

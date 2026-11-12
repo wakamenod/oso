@@ -102,6 +102,8 @@ pub enum UserEvent {
     Listed,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
+    /// A thread read the EditorConfig of a file `C-x C-w` named (ADR 0115).
+    EditorConfig,
     /// The walker found a project's files, or ended (ADR 0114).
     Walked(crate::walk::Walked),
     /// A project's search found rows, or ended (ADR 0114).
@@ -197,6 +199,10 @@ pub struct App {
     lister: crate::lister::Lister,
     /// The thread that finds each file's project (ADR 0114).
     projects: crate::project::Detector,
+    /// The home directory, after which no EditorConfig is read (ADR 0115).
+    home: crate::loader::Home,
+    /// The thread that reads EditorConfig after `C-x C-w` (ADR 0115).
+    editorconfigs: crate::loader::EditorConfigReader,
     /// The thread that walks a project's files for `project-find-file` (ADR 0114).
     walker: crate::walk::Walker,
     /// When the rows a walk sent are added if it sends nothing more.
@@ -297,6 +303,7 @@ impl App {
         let disk = reloads::Disk::start(waker.clone());
         let lister = files::lister(&waker);
         let projects = projects::detector(&waker);
+        let (home_dir, editorconfigs) = projects::editorconfig_reader(&waker);
         let walker = walks::walker(&waker);
         let grep = greps::grep(&waker);
         let previewer = greps::previewer(&waker);
@@ -330,6 +337,8 @@ impl App {
             answering: None,
             scan_for_copies: false,
             started: Some(started),
+            home: home_dir,
+            editorconfigs,
             wheel: input::Wheeling::default(),
             held_wheel: Vec::new(),
             pace: slices::Pace::default(),

@@ -4,7 +4,8 @@
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`: per-query costs do not grow
 //! with file size or line length. CI's budgets are in `crates/oso/examples/perf`. A part's name
-//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap`, `screen`, `indent` or `undo`)
+//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap`, `screen`, `indent`, `undo` or
+//! `editorconfig`)
 //! runs only that part.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
@@ -22,6 +23,8 @@ use oso_core::sum_tree::Bias;
 
 #[path = "text_perf/cursors.rs"]
 mod cursors;
+#[path = "text_perf/editorconfig.rs"]
+mod editorconfig;
 #[path = "text_perf/highlights.rs"]
 mod highlights;
 #[path = "text_perf/indent.rs"]
@@ -294,7 +297,8 @@ fn old_map_slot(map: &mut DisplayMap) -> DisplayMap {
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
-    let parts: [(&str, fn()); 9] = [
+    let parts: [(&str, fn()); 10] = [
+        ("editorconfig", editorconfig::editorconfig_costs),
         ("words", words::word_motion_costs),
         ("trim", trim::trim_costs),
         ("replace", replace::replace_costs),
