@@ -84,6 +84,13 @@ enum Name {
     FgLineNumberCurrent,
     /// The wrap mark: dim, as whitespace's marks, in a hue of its own.
     FgWrapMark,
+    /// The selected window's modeline text.
+    FgMode,
+    /// A modeline of a window that is not selected: dimmer than the selected one's.
+    FgModeInactive,
+    BgModeInactive,
+    /// The line between side by side windows.
+    Divider,
 }
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
@@ -225,7 +232,7 @@ impl Theme {
 }
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 29] = [
+const FACES: [Face; 31] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -255,6 +262,8 @@ const FACES: [Face; 29] = [
     Face::LineNumber,
     Face::LineNumberCurrent,
     Face::WrapMark,
+    Face::ModelineInactive,
+    Face::Divider,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -290,6 +299,8 @@ const fn index(face: Face) -> usize {
         Face::LineNumber => 26,
         Face::LineNumberCurrent => 27,
         Face::WrapMark => 28,
+        Face::ModelineInactive => 29,
+        Face::Divider => 30,
     }
 }
 
@@ -302,7 +313,7 @@ fn faces(face: Face) -> (Name, Name) {
         Face::Boxed => (Escape, BgEscape),
         // The glyphs on the cursor take the background's colour, on a box of the text's.
         Face::Cursor => (BgMain, FgMain),
-        Face::Modeline => (FgMain, BgMode),
+        Face::Modeline => (FgMode, BgMode),
         Face::Warning => (Warning, BgMain),
         Face::Preedit => (FgMain, FgMain),
         Face::Float => (FgMain, BgFloat),
@@ -329,6 +340,9 @@ fn faces(face: Face) -> (Name, Name) {
         Face::LineNumber => (FgLineNumber, BgMain),
         Face::LineNumberCurrent => (FgLineNumberCurrent, BgMain),
         Face::WrapMark => (FgWrapMark, BgMain),
+        Face::ModelineInactive => (FgModeInactive, BgModeInactive),
+        // A line, drawn as a fill.
+        Face::Divider => (Divider, Divider),
     }
 }
 
@@ -339,7 +353,8 @@ fn dark(name: Name) -> Color {
         BgMain => rgb(0x0d0e12),
         BgFloat => rgb(0x181a22),
         BgKey => rgb(0x2b2e3b),
-        BgMode => rgb(0x262938),
+        // The selected window's modeline in blue, far apart from the others' (ADR 0112).
+        BgMode => rgb(0x2c3f6e),
         BgRegion => rgb(0x26365c),
         BgEscape => rgb(0x3a2718),
         BgMatch => rgb(0x3a2e10),
@@ -364,6 +379,10 @@ fn dark(name: Name) -> Color {
         FgLineNumber => rgb(0x767c93),
         FgLineNumberCurrent => rgb(0xd8dbe6),
         FgWrapMark => rgb(0x6aa6c4),
+        FgMode => rgb(0xffffff),
+        FgModeInactive => rgb(0x8e95ad),
+        BgModeInactive => rgb(0x15171e),
+        Divider => rgb(0x60667e),
         Hairline => rgba(0xffffff, 0.05),
         Border => rgb(0x30344a),
         Shadow => rgba(0x000000, 0.6),
@@ -377,7 +396,7 @@ fn light(name: Name) -> Color {
         BgMain => rgb(0xfbfbf8),
         BgFloat => rgb(0xeff0f5),
         BgKey => rgb(0xdadeea),
-        BgMode => rgb(0xd9dce8),
+        BgMode => rgb(0xb8cdf2),
         BgRegion => rgb(0xc8d6f5),
         BgEscape => rgb(0xf7e2cf),
         BgMatch => rgb(0xf6e6b4),
@@ -401,6 +420,10 @@ fn light(name: Name) -> Color {
         FgLineNumber => rgb(0x6e7385),
         FgLineNumberCurrent => rgb(0x272a33),
         FgWrapMark => rgb(0x2f6684),
+        FgMode => rgb(0x0b0c10),
+        FgModeInactive => rgb(0x5a6178),
+        BgModeInactive => rgb(0xeef0f4),
+        Divider => rgb(0x858a9b),
         Hairline => rgba(0x000000, 0.08),
         Border => rgb(0xc2c6d4),
         Shadow => rgba(0x1a1f33, 0.18),
@@ -415,7 +438,7 @@ fn dusk(name: Name) -> Color {
         BgMain => rgb(0x3f3f4b),
         BgFloat => rgb(0x474959),
         BgKey => rgb(0x555769),
-        BgMode => rgb(0x51515f),
+        BgMode => rgb(0x44507a),
         BgRegion => rgb(0x3f5375),
         BgEscape => rgb(0x6b452b),
         BgMatch => rgb(0x613f10),
@@ -440,6 +463,10 @@ fn dusk(name: Name) -> Color {
         FgLineNumber => rgb(0xb0b3c4),
         FgLineNumberCurrent => rgb(0xf3f3f6),
         FgWrapMark => rgb(0x94cde6),
+        FgMode => rgb(0xf3f3f6),
+        FgModeInactive => rgb(0xb8bccc),
+        BgModeInactive => rgb(0x35353f),
+        Divider => rgb(0x8c8fa3),
         Hairline => rgba(0xffffff, 0.035),
         Border => rgb(0x505265),
         Shadow => rgba(0x08090e, 0.55),
@@ -561,9 +588,16 @@ pub(crate) mod tests {
             ],
             Face::Cursor => &[(Face::Cursor, READ)],
             Face::Modeline => &[(Face::Modeline, READ)],
+            Face::ModelineInactive => &[(Face::ModelineInactive, LABEL)],
+            // A line to notice on the text's background (ADR 0112).
+            Face::Divider => &[(Face::Text, MARK)],
             Face::Float => &[(Face::Float, READ)],
             Face::Question => &[(Face::Float, READ)],
-            Face::Warning => &[(Face::Text, READ), (Face::Modeline, LABEL)],
+            Face::Warning => &[
+                (Face::Text, READ),
+                (Face::Modeline, LABEL),
+                (Face::ModelineInactive, LABEL),
+            ],
             Face::CompletionMatch => &[(LIST[0], READ), (LIST[1], READ)],
             // An escape's label sits wherever text can: on every fill behind buffer text, in a
             // modeline's name and on a float.
@@ -576,10 +610,16 @@ pub(crate) mod tests {
                 (Face::SearchCurrent, LABEL),
                 (Face::CompletionSelected, LABEL),
                 (Face::Modeline, LABEL),
+                (Face::ModelineInactive, LABEL),
                 (Face::Float, LABEL),
             ],
             Face::Boxed => &[(Face::Boxed, LABEL)],
-            Face::Prompt => &[(Face::Float, LABEL)],
+            // A prompt's label, and the dim `Agent` on a modeline (ADR 0085, ADR 0112).
+            Face::Prompt => &[
+                (Face::Float, LABEL),
+                (Face::Modeline, LABEL),
+                (Face::ModelineInactive, LABEL),
+            ],
             Face::Key => &[(Face::Key, LABEL)],
             Face::CompletionAnnotation | Face::CompletionBinding => {
                 &[(LIST[0], LABEL), (LIST[1], LABEL)]
@@ -692,18 +732,21 @@ pub(crate) mod tests {
 
     /// Every pair below its floor in every theme, as `theme: face on behind (ratio < floor)`.
     fn short_pairs() -> Vec<String> {
+        themes().iter().flat_map(short_pairs_of).collect()
+    }
+
+    /// Each pair of `theme` short of its floor.
+    fn short_pairs_of(theme: &Theme) -> Vec<String> {
         let mut short = Vec::new();
-        for theme in &themes() {
-            for face in FACES {
-                for &(behind, floor) in pairs(face) {
-                    let ink = over(theme.foreground(face), theme.background(behind));
-                    let ratio = contrast(ink, theme.background(behind));
-                    if ratio < floor {
-                        short.push(format!(
-                            "{}: {face:?} on {behind:?} ({ratio:.2} < {floor})",
-                            theme.name()
-                        ));
-                    }
+        for face in FACES {
+            for &(behind, floor) in pairs(face) {
+                let ink = over(theme.foreground(face), theme.background(behind));
+                let ratio = contrast(ink, theme.background(behind));
+                if ratio < floor {
+                    short.push(format!(
+                        "{}: {face:?} on {behind:?} ({ratio:.2} < {floor})",
+                        theme.name()
+                    ));
                 }
             }
         }
@@ -742,6 +785,7 @@ pub(crate) mod tests {
                 (Face::SearchCurrent, behind_text),
                 (Face::CompletionSelected, behind_text),
                 (Face::Modeline, behind_text),
+                (Face::ModelineInactive, behind_text),
                 (Face::Float, behind_text),
                 (Face::Boxed, behind_text),
                 // A key's chip and an input field sit on a float's fill.

@@ -13,10 +13,10 @@ keys: C-x x t
 =-- test  1:0  Fundamental  UTF-8 LF            =
 "Truncate long lines disabled                   "
 
-keys: run:split-window-right
-WindowId(0) at row 0, column 0: 7 x 24, selected
+keys: C-x 3
+WindowId(0) at row 0, column 0: 7 x 24
 │The quick brown fox   ↩│┃
-:^                     m:
+:o                     m:
 │jumps over the lazy   ↩│┃
 :                      m:
 │dog and keeps on      ↩│┃
@@ -24,10 +24,10 @@ WindowId(0) at row 0, column 0: 7 x 24, selected
 │running.               │┃
 │next                   │┃
 │                       │┃
-=-- test  1:0  Fundament=┃
-WindowId(1) at row 0, column 24: 7 x 23
+--- test  1:0  Fundament-┃
+WindowId(1) at row 0, column 24: 7 x 23, selected
 │The quick brown fox   ↩│
-:o                     m:
+:^                     m:
 │jumps over the lazy   ↩│
 :                      m:
 │dog and keeps on      ↩│
@@ -35,30 +35,30 @@ WindowId(1) at row 0, column 24: 7 x 23
 │running.               │
 │next                   │
 │                       │
---- test  1:0  Fundament-
+=-- test  1:0  Fundament=
 "                                               "
 
-keys: run:enlarge-window-horizontally 6
-WindowId(0) at row 0, column 0: 7 x 30, selected
-│The quick brown fox jumps   ↩│┃
-:^                           m:
-│over the lazy dog and keeps ↩│┃
-:                            m:
-│on running.                  │┃
-│next                         │┃
-│                             │┃
-│                             │┃
-=-- test  1:0  Fundamental  UT=┃
-WindowId(1) at row 0, column 30: 7 x 17
-│The quick brown ↩│
+keys: C-u 6 C-x }
+WindowId(0) at row 0, column 0: 7 x 18
+│The quick brown ↩│┃
 :o               m:
-│fox jumps over  ↩│
+│fox jumps over  ↩│┃
 :                m:
-│the lazy dog and↩│
+│the lazy dog and↩│┃
 :                m:
-│keeps on        ↩│
+│keeps on        ↩│┃
 :                m:
-│running.         │
-│next             │
---- test  1:0  Fun-
+│running.         │┃
+│next             │┃
+--- test  1:0  Fun-┃
+WindowId(1) at row 0, column 18: 7 x 29, selected
+│The quick brown fox jumps   ↩│
+:^                           m:
+│over the lazy dog and keeps ↩│
+:                            m:
+│on running.                  │
+│next                         │
+│                             │
+│                             │
+=-- test  1:0  Fundamental  UT=
 "                                               "

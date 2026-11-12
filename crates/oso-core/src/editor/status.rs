@@ -22,6 +22,7 @@ use super::messages::CUT;
 use crate::buffer::{Buffer, Verdict};
 use crate::decode::{FileInfo, LineEnding};
 use crate::display_map::text_clusters;
+use crate::frame::CellRect;
 use crate::window::{Window, WindowId};
 
 /// Says that the buffer holds bidirectional controls (`ui.md`, Trojan Source).
@@ -207,12 +208,13 @@ impl Editor {
         };
         let agent = self.agent_channel();
         status.selected = id == tiled && self.prompts.is_empty();
-        status.agent = if agent == super::AgentChannel::Off || id != tiled {
+        let frame_segments = self.shows_frame_segments(id, tiled);
+        status.agent = if agent == super::AgentChannel::Off || !frame_segments {
             ""
         } else {
             AGENT
         };
-        status.agent_connected = id == tiled && agent == super::AgentChannel::Connected;
+        status.agent_connected = frame_segments && agent == super::AgentChannel::Connected;
         status.warnings.clear();
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
@@ -262,6 +264,38 @@ impl Editor {
         status.warnings_on_echo_row = regions.modeline.rows == 0;
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
+    }
+
+    /// Whether the modeline of the window `id` says what is about the frame, as `Agent`: the
+    /// selected tiled window's, `tiled`, and while a prompt's float covers that one, the
+    /// bottom-most window's too, the left-most of those on the bottom row, so that it stays in
+    /// sight (ADR 0085, ADR 0112).
+    fn shows_frame_segments(&self, id: WindowId, tiled: WindowId) -> bool {
+        if id == tiled {
+            return true;
+        }
+        let Some(float) = self.prompt_layout().map(|layout| layout.regions.outer) else {
+            return false;
+        };
+        let meets = |a: CellRect, b: CellRect| {
+            a.row < b.row + b.rows
+                && b.row < a.row + a.rows
+                && a.column < b.column + b.columns
+                && b.column < a.column + a.columns
+        };
+        let covered = self
+            .regions(tiled)
+            .is_some_and(|regions| meets(regions.modeline, float));
+        let bottom = self
+            .frame
+            .windows()
+            .iter()
+            .filter(|(_, regions)| regions.modeline.rows > 0 && regions.modeline.columns > 0)
+            .min_by_key(|(_, regions)| {
+                let modeline = regions.modeline;
+                (std::cmp::Reverse(modeline.row), modeline.column)
+            });
+        covered && bottom.is_some_and(|(bottom, _)| *bottom == id)
     }
 
     /// What the echo area says: a message, or isearch's line until a message takes its place
@@ -351,7 +385,7 @@ mod tests {
         in_project(&mut editor, "/w/oso");
         assert_eq!(
             status(&editor).modeline(),
-            "%% notes.md  oso  restricted  Loading 0 MiB  1:0  Fundamental  UTF-8 LF"
+            "%% notes.md  oso  restricted  Loading 0 MiB  1:0  Markdown  UTF-8 LF"
         );
         in_project(&mut editor, "/w/a-very-long-project-name-that-goes-on");
         let long = status(&editor).project;

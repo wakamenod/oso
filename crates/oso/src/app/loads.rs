@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
+use oso_core::editor::Editor;
 use oso_core::window;
 
 use super::{App, UserEvent};
@@ -206,32 +207,12 @@ impl App {
         }
     }
 
-    /// Where the text of `id` ends, if the tiled window, also beneath a prompt, shows it: what a
-    /// load's next part comes after.
-    fn shown_end(&self, id: BufferId) -> Option<usize> {
-        let (window, buffer) = self.editor.tiled();
-        (window.buffer() == id).then(|| buffer.text().len())
-    }
-
-    /// Whether the tiled window's view reaches the view row that holds `offset`, or those
-    /// after it. Both are its rows as they are now: a load's part starts a wrap over, so a row
-    /// counted before it means nothing after (ADR 0103).
-    fn reaches_offset(&self, offset: usize) -> bool {
-        let (window, buffer) = self.editor.tiled();
-        let display = buffer.display();
-        let row = match window.wrap_of(&display) {
-            Some(wrap) => wrap.row_of(&display, offset),
-            None => display.offset_to_display_point(offset).row,
-        };
-        window::reaches(window.top_row(&display), window.size(), row)
-    }
-
     /// Applies one update of `self.loads[index]`. Returns whether a frame
     /// is needed: only if the window shows the buffer and reaches the part
     /// that changed, or the buffer was replaced.
     fn apply_load(&mut self, index: usize, update: LoadUpdate) -> bool {
         let id = self.loads[index].handle.buffer();
-        let old_end = self.shown_end(id);
+        let old_end = shown_end(&self.editor, id);
         let shown = old_end.is_some();
         if self.take_what_was_found(index, id) {
             return true;
@@ -270,7 +251,7 @@ impl App {
                 }
                 // The windows showing it wrap the text that came, if it wraps (ADR 0103).
                 self.editor.loaded(id);
-                old_end.is_some_and(|end| self.reaches_offset(end))
+                old_end.is_some_and(|end| reaches_offset(&self.editor, id, end))
             }
             // The buffer holds carried text, and only its verdict was missing.
             #[cfg(feature = "dev")]
@@ -437,9 +418,77 @@ fn wake_for(load_listed: bool, reload_running: bool) -> Wake {
     }
 }
 
+/// The tiled windows that show `id`, also beneath a prompt, selected or not (ADR 0112).
+fn windows_showing(editor: &Editor, id: BufferId) -> impl Iterator<Item = &window::Window> {
+    editor
+        .frame()
+        .windows()
+        .iter()
+        .filter_map(|(window, _)| editor.window_by_id(*window))
+        .filter(move |window| window.buffer() == id)
+}
+
+/// Whether a tiled window shows `id`, selected or not (ADR 0112).
+pub(super) fn shown_in_a_window(editor: &Editor, id: BufferId) -> bool {
+    windows_showing(editor, id).next().is_some()
+}
+
+/// Where the text of `id` ends, if a tiled window shows it: what a load's next part comes
+/// after.
+fn shown_end(editor: &Editor, id: BufferId) -> Option<usize> {
+    windows_showing(editor, id).next()?;
+    editor.buffer(id).map(|buffer| buffer.text().len())
+}
+
+/// Whether the view of a tiled window showing `id` reaches the view row that holds `offset`,
+/// or those after it. Both are its rows as they are now: a load's part starts a wrap over, so
+/// a row counted before it means nothing after (ADR 0103).
+fn reaches_offset(editor: &Editor, id: BufferId, offset: usize) -> bool {
+    let Some(buffer) = editor.buffer(id) else {
+        return false;
+    };
+    let display = buffer.display();
+    windows_showing(editor, id).any(|window| {
+        let row = match window.wrap_of(&display) {
+            Some(wrap) => wrap.row_of(&display, offset),
+            None => display.offset_to_display_point(offset).row,
+        };
+        window::reaches(window.top_row(&display), window.size(), row)
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Wake, wake_for};
+    use super::{Wake, reaches_offset, shown_end, shown_in_a_window, wake_for, windows_showing};
+    use oso_core::buffer::Buffer;
+    use oso_core::editor::Editor;
+    use oso_core::frame::{FrameSize, Way};
+
+    #[test]
+    fn a_buffer_in_a_window_not_selected_counts_as_shown_and_reached() {
+        let lines: String = (0..100).map(|i| format!("line {i}\n")).collect();
+        let mut editor = Editor::with_buffer(Buffer::from_text("log", &lines));
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 80,
+        });
+        let log = editor.window().buffer();
+        editor.split_window(Way::Down, true).unwrap();
+        let notes = editor.add_buffer(Buffer::from_text("notes", "agenda\n"));
+        editor.show(notes);
+        assert_ne!(
+            editor.window().buffer(),
+            log,
+            "the log is in the other window"
+        );
+        assert_eq!(windows_showing(&editor, log).count(), 1);
+        assert!(shown_in_a_window(&editor, log));
+        assert_eq!(shown_end(&editor, log), Some(lines.len()));
+        assert!(reaches_offset(&editor, log, 0), "its top is in view");
+        assert!(!reaches_offset(&editor, log, lines.len()), "its end is not");
+        let gone = editor.add_buffer(Buffer::from_text("gone", ""));
+        assert_eq!(shown_end(&editor, gone), None, "shown nowhere");
+    }
 
     #[test]
     fn a_reload_running_before_the_loads_first_frame_still_gets_its_wake() {

@@ -105,7 +105,7 @@ impl Editor {
     /// The cells of the band on the primary cursor's line of the tiled window `id`, as `screen`
     /// shows it ([`Editor::screen_of`]), if the current line is shown and some of it is in
     /// view: every view row the line takes, so a wrapped line has the band on each of its rows
-    /// (ADR 0097). Only the selected window has one, and none beneath a prompt (ADR 0112).
+    /// (ADR 0097). Only the selected window has one, also beneath a prompt (ADR 0112).
     pub fn current_line_cells(&self, id: WindowId, screen: &Screen) -> Option<CellRect> {
         if !self.aids.current_line {
             return None;
@@ -174,7 +174,7 @@ impl Editor {
 
     /// The cells the flash covers in the tiled window `id`: from the primary cursor to the text
     /// area's right edge, on its view row, if that row is in view as `screen` shows it
-    /// ([`Editor::screen_of`]). Only the selected window flashes, and none beneath a prompt
+    /// ([`Editor::screen_of`]). Only the selected window flashes, also beneath a prompt
     /// (ADR 0112).
     pub fn flash_cells(&self, id: WindowId, screen: &Screen) -> Option<CellRect> {
         let (window, buffer, regions) = self.selected_in_tree(id)?;

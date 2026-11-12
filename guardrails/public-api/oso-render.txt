@@ -56,6 +56,7 @@ pub oso_render::Face::CompletionPrompt
 pub oso_render::Face::CompletionSelected
 pub oso_render::Face::CurrentLine
 pub oso_render::Face::Cursor
+pub oso_render::Face::Divider
 pub oso_render::Face::Escape
 pub oso_render::Face::Field
 pub oso_render::Face::Flash
@@ -65,6 +66,7 @@ pub oso_render::Face::Key
 pub oso_render::Face::LineNumber
 pub oso_render::Face::LineNumberCurrent
 pub oso_render::Face::Modeline
+pub oso_render::Face::ModelineInactive
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
 pub oso_render::Face::Question
@@ -87,6 +89,7 @@ pub fn oso_render::Face::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt:
 impl core::marker::Copy for oso_render::Face
 impl core::marker::StructuralPartialEq for oso_render::Face
 pub enum oso_render::PaneContent<'a>
+pub oso_render::PaneContent::Divider
 pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
 pub oso_render::PaneContent::Masked(oso_render::Masked<'a>)
 pub oso_render::PaneContent::Text(oso_render::TextView<'a>)
