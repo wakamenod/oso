@@ -885,7 +885,10 @@ step 4's plan and its reviews put:
   says so when one is there.
 - **The combining is in `oso-core`:** `Applied::from_walk(location, files)` takes the files a
   walk found, nearest first, and applies them farthest first, each with its globs read from its
-  own directory.
+  own directory. So is the check that a read after `C-x C-w` is still for the buffer's file:
+  `Editor::editorconfig_read(&request, applied)` applies it only then, as `project_found` does,
+  and `Editor::request_editorconfig` asks for one, as `C-x C-w` and a carried buffer do. The
+  request is a `ProjectRequest`, a buffer and the place its path leads, whose name stays.
 - **The public items:** the module `editorconfig` (`File` with `parse`, `is_root` and
   `problems`; `Problem`; `Budget` with `is_spent`; `Properties` with `indent_style`,
   `indent_size` and `tab_width`, each with the index of the file that gave it; `IndentStyle`,
@@ -893,7 +896,8 @@ step 4's plan and its reviews put:
   `MAX_SECTIONS`, `MAX_GLOB`, `MAX_NESTING`, `MAX_RANGE_GLOB`, `VISIT_SECTIONS`,
   `VISIT_GLOBS`), in `indent` `Origin`, `Origins` and `with_editorconfig(configured, given,
   properties, shown)`, `Buffer::editorconfig` and `indent_origins`, on `Editor`
-  `set_editorconfig`, `set_buffer_mode` and `take_editorconfig_requests`, and
+  `set_editorconfig`, `set_buffer_mode`, `request_editorconfig`, `take_editorconfig_requests`
+  and `editorconfig_read`, and
   `oso_platform::privacy::others_can_write`.
 
 As built:
@@ -906,6 +910,9 @@ As built:
   Keys are taken in any case, and the values of the three properties too. A line that is no
   comment, section or pair is passed over; a pair before the first section counts only for
   `root`. A UTF-8 BOM and CRLF lines are read.
+- **A glob of 2 to 4 KiB** is within the Decision's bound for a glob but larger than what a
+  visit compiles, so it, and every section after it, is skipped as past the visit's budget; one
+  over 4 KiB is skipped alone.
 - **Only sections that set an indentation property are compiled;** the others are passed over
   whatever their glob, so `[*.md] trim_trailing_whitespace = false` costs nothing.
 - **A value a property does not take** (`indent_size = 0`, `33`, `abc`) hides the farther files'
@@ -923,7 +930,10 @@ As built:
   EditorConfig reads home's own `.editorconfig`, then stops; it also stops after a file with
   `root = true`. The home's real place is found once, by the first read, off the UI thread. A
   `.editorconfig` is read only if it is a regular file, this user's or root's, that every user
-  may not write (a group may, as for the configuration file), of at most 64 KiB of UTF-8 text.
+  may not write (a group may, as for the configuration file), of at most 64 KiB of UTF-8 text,
+  and no more of it than it held when opened. Its directory's owner and mode are taken from the
+  directory opened. A load that will not read its file (one too large, or not a file) reads no
+  EditorConfig; a new file's does.
   A link to one, as a dotfiles setup makes, is not read, and `*Messages*` says so. A directory
   that cannot be listed holds nothing to read.
 - **What `*Messages*` gets:** a note for each file not read and each section skipped, naming the

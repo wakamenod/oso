@@ -16,14 +16,14 @@ use super::{EditorConfigFound, Home, read};
 type Answer = (ProjectRequest, EditorConfigFound);
 
 /// The thread that reads EditorConfig after `C-x C-w`.
-pub struct Reader {
+pub struct EditorConfigReader {
     home: Home,
     wake: Arc<dyn Fn() -> bool + Send + Sync>,
     requests: Option<Sender<ProjectRequest>>,
     answers: Arc<Mutex<Vec<Answer>>>,
 }
 
-impl Reader {
+impl EditorConfigReader {
     /// A reader whose walks end after `home`, and which calls `wake` when answers wait after
     /// none did. `wake` returns false once the UI is gone, which ends the thread.
     pub fn new(home: Home, wake: impl Fn() -> bool + Send + Sync + 'static) -> Self {

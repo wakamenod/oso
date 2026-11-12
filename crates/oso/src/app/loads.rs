@@ -113,15 +113,7 @@ impl App {
         let buffer = self.editor.add_buffer(buffer);
         self.editor.request_project(buffer);
         // Its EditorConfig, as after `C-x C-w`: the tab width stays the default (ADR 0115).
-        if let Some(location) = self
-            .editor
-            .buffer(buffer)
-            .and_then(Buffer::baseline)
-            .map(|baseline| baseline.location.clone())
-        {
-            let request = oso_core::editor::ProjectRequest { buffer, location };
-            self.editorconfigs.read(request);
-        }
+        self.editor.request_editorconfig(buffer);
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();

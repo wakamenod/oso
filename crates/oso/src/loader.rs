@@ -56,7 +56,7 @@ mod identity;
 mod resolve;
 mod watch;
 
-pub use editorconfig::{EditorConfigFound, Home, Reader, Visit};
+pub use editorconfig::{EditorConfigFound, EditorConfigReader, Home, Visit};
 pub use error::LoadError;
 #[cfg(test)]
 use identity::same_stamp;
@@ -485,8 +485,8 @@ fn load_around(
     one_name: bool,
 ) -> Result<(), LoadError> {
     let opened = open_and_record(path, shared, after_open);
-    // Before anything else, a new file too, so that the UI has it with the first update.
-    let tab_width = shared.tab_width_for_visit();
+    // Before reading, a new file too, so that the UI has it with the first update.
+    let tab_width = shared.tab_width_for_load(&opened, limit);
     let (file, metadata) = opened?;
     if metadata.len() > limit {
         return Err(LoadError::TooLarge(metadata.len()));

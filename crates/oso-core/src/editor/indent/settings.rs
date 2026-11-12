@@ -81,8 +81,9 @@ impl Editor {
         set
     }
 
-    /// Asks the host to read the EditorConfig of `id`'s file again, as `C-x C-w` named it.
-    pub(crate) fn request_editorconfig(&mut self, id: BufferId) {
+    /// Asks the host to read the EditorConfig of `id`'s file again, as `C-x C-w` named it, or
+    /// as a buffer carried over a dev restart needs, once where its path leads is known.
+    pub fn request_editorconfig(&mut self, id: BufferId) {
         let internal = self.buffer(id).is_none_or(Buffer::is_internal);
         if let Some(request) = self.file_request(id).filter(|_| !internal) {
             super::super::projects::ask(&mut self.editorconfig_requests, request);
@@ -90,9 +91,26 @@ impl Editor {
     }
 
     /// The files whose EditorConfig the host should read again, the oldest first. What it
-    /// reads applies with [`Editor::set_editorconfig`], if the buffer's file is still there.
+    /// reads comes back through [`Editor::editorconfig_read`].
     pub fn take_editorconfig_requests(&mut self) -> Vec<ProjectRequest> {
         std::mem::take(&mut self.editorconfig_requests)
+    }
+
+    /// The host read `applied` for `request`'s file. It applies only if the buffer's path still
+    /// leads where it did when asked, as a project's answer does. Returns whether it applied.
+    pub fn editorconfig_read(
+        &mut self,
+        request: &ProjectRequest,
+        applied: Option<Applied>,
+    ) -> bool {
+        let current = self
+            .buffer(request.buffer)
+            .and_then(Buffer::baseline)
+            .is_some_and(|baseline| baseline.location == request.location);
+        if current {
+            self.set_editorconfig(request.buffer, applied);
+        }
+        current
     }
 }
 

@@ -6,7 +6,7 @@ use std::fs;
 
 use oso_core::editorconfig::{IndentSize, IndentStyle, VISIT_SECTIONS};
 
-use super::{VISIT_FILES, VISIT_NOTES};
+use super::{Here, VISIT_BYTES, VISIT_FILES, VISIT_NOTES, read_here};
 use oso_core::indent::Style;
 
 use super::*;
@@ -399,4 +399,70 @@ fn nothing_is_read_in_a_directory_every_user_may_write() {
         scratch.read("b/x.rs").notes.is_empty(),
         "nothing there, nothing said"
     );
+}
+
+#[test]
+fn a_visit_reads_at_most_its_bytes() {
+    let scratch = Scratch::new("bytes");
+    // Each file 60 KiB, 17 of them on the way up, more than 1 MiB.
+    let padding = "#".repeat(60 << 10);
+    let mut dir = String::new();
+    for _ in 0..17 {
+        dir.push_str("d/");
+    }
+    for level in 0..=17 {
+        let at = &dir[..dir.len() - 2 * level.min(17)];
+        scratch.file(
+            &format!("{at}.editorconfig"),
+            &format!("[*]\nindent_size = 2\n{padding}"),
+        );
+    }
+    let found = scratch.read(&format!("{dir}x.rs"));
+    let applied = found.applied.unwrap();
+    assert!(
+        applied.file(16).is_some(),
+        "17 files of 60 KiB fit in 1 MiB"
+    );
+    assert!(applied.file(17).is_none());
+    assert_eq!(found.notes.len(), 1);
+    assert!(found.notes[0].ends_with("is not read: a visit reads at most 1024 KiB of them"));
+}
+
+#[test]
+fn a_cancelled_visit_reads_nothing_more() {
+    let scratch = Scratch::new("cancel");
+    scratch.file(".editorconfig", "[*]\nindent_style = tab\n");
+    scratch.file("a/.editorconfig", "[*]\nindent_size = 2\n");
+    let asked = std::cell::Cell::new(0);
+    let cancelled = || {
+        asked.set(asked.get() + 1);
+        asked.get() > 1
+    };
+    let found = read(
+        &scratch.0.join("a/x.rs"),
+        &Home::new(Some(scratch.0.clone())),
+        &cancelled,
+    );
+    let applied = found.applied.unwrap();
+    assert_eq!(applied.file(1), None, "only the first directory's");
+    assert_eq!(applied.properties().indent_style(), None);
+}
+
+#[test]
+fn a_directory_other_than_the_one_walked_is_not_read() {
+    let scratch = Scratch::new("identity");
+    scratch.file("a/.editorconfig", "[*]\nindent_size = 2\n");
+    scratch.file("b/.editorconfig", "[*]\nindent_size = 3\n");
+    let walked_b = fs::symlink_metadata(scratch.0.join("b")).unwrap();
+    let here = read_here(&scratch.0.join("a"), &walked_b, VISIT_BYTES);
+    if cfg!(unix) {
+        assert!(
+            matches!(here, Here::Refused(why) if why == "its directory changed as it was read")
+        );
+    }
+    let walked_a = fs::symlink_metadata(scratch.0.join("a")).unwrap();
+    assert!(matches!(
+        read_here(&scratch.0.join("a"), &walked_a, VISIT_BYTES),
+        Here::Text(_)
+    ));
 }

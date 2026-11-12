@@ -161,3 +161,16 @@ fn a_mode_set_keeps_what_editorconfig_gives() {
     let internal = editor.add_buffer(Buffer::internal("*x*"));
     assert!(!editor.set_buffer_mode(internal, Mode::Rust));
 }
+
+#[test]
+fn what_is_read_applies_only_while_the_file_is_where_it_was_asked_about() {
+    let (mut editor, id) = visiting(8);
+    editor.request_editorconfig(id);
+    let request = editor.take_editorconfig_requests().pop().unwrap();
+    let mut moved = request.clone();
+    moved.location = PathBuf::from("/q/a.rs");
+    assert!(!editor.editorconfig_read(&moved, Some(applied("[*]\nindent_size = 3\n"))));
+    assert_eq!(editor.buffer(id).unwrap().editorconfig(), None);
+    assert!(editor.editorconfig_read(&request, Some(applied("[*]\nindent_size = 3\n"))));
+    assert_eq!(of(&editor, id).0.indent_size(), 3);
+}

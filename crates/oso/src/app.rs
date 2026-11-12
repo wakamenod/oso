@@ -193,7 +193,7 @@ pub struct App {
     /// The home directory, after which no EditorConfig is read (ADR 0115).
     home: crate::loader::Home,
     /// The thread that reads EditorConfig after `C-x C-w` (ADR 0115).
-    editorconfigs: crate::loader::Reader,
+    editorconfigs: crate::loader::EditorConfigReader,
     /// The thread that walks a project's files for `project-find-file` (ADR 0114).
     walker: crate::walk::Walker,
     /// When the rows a walk sent are added if it sends nothing more.

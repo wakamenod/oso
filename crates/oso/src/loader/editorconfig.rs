@@ -13,7 +13,7 @@
 //! not, as EditorConfig can run nothing (security.md, T1).
 
 use std::ffi::OsStr;
-use std::fs::Metadata;
+use std::fs::{self, Metadata};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -26,7 +26,7 @@ use oso_core::indent::Settings;
 use oso_platform::file_meta::Directory;
 use oso_platform::privacy;
 
-use super::Shared;
+use super::{LoadError, Shared};
 use crate::project::{Above, ours, upward};
 use crate::walk::real_home;
 
@@ -38,7 +38,8 @@ const NAME: &str = ".editorconfig";
 pub struct Visit {
     /// The mode's indentation, as the configuration gives it.
     pub configured: Settings,
-    /// Whether to read the EditorConfig files that apply to the file first.
+    /// Whether to read the EditorConfig files that apply to the file first: always for a
+    /// visit; a test of loading may leave them out.
     pub editorconfig: bool,
     /// The home directory, after which no EditorConfig file is read.
     pub home: Home,
@@ -89,9 +90,28 @@ impl Shared {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// The tab width to build the display map with, given how opening the file went and the
+    /// most it may hold: for a visit that goes on to read the file, or makes a new one, after
+    /// reading the EditorConfig files that apply to where the file is, which it keeps for the UI.
+    pub(super) fn tab_width_for_load(
+        &self,
+        opened: &Result<(fs::File, Metadata), LoadError>,
+        limit: u64,
+    ) -> TabWidth {
+        let goes_on = match opened {
+            Ok((_, metadata)) => metadata.len() <= limit,
+            Err(error) => matches!(error, LoadError::NotFound),
+        };
+        if goes_on {
+            self.tab_width_for_visit()
+        } else {
+            self.tab_width
+        }
+    }
+
     /// The tab width to build the display map with: for a visit, after reading the
     /// EditorConfig files that apply to where the file is, which it keeps for the UI.
-    pub(super) fn tab_width_for_visit(&self) -> TabWidth {
+    fn tab_width_for_visit(&self) -> TabWidth {
         let Some(visit) = &self.visit else {
             return self.tab_width;
         };
@@ -154,15 +174,16 @@ pub fn read(location: &Path, home: &Home, cancelled: &dyn Fn() -> bool) -> Edito
         if cancelled() || budget.is_spent() {
             break;
         }
-        if seen == VISIT_FILES {
+        let path = dir.join(NAME);
+        let here = read_here(dir, &metadata, VISIT_BYTES.saturating_sub(bytes));
+        if matches!(here, Here::Text(_) | Here::Refused(_)) && seen == VISIT_FILES {
             notes.push(format!(
-                "EditorConfig: a visit reads at most {VISIT_FILES} files; none from {} up",
-                dir.display()
+                "EditorConfig {} is not read: a visit reads at most {VISIT_FILES} of them",
+                path.display()
             ));
             break;
         }
-        let path = dir.join(NAME);
-        let text = match read_here(dir, &metadata, VISIT_BYTES - bytes) {
+        let text = match here {
             Here::Nothing => continue,
             Here::Refused(why) => {
                 seen += 1;
@@ -244,10 +265,11 @@ fn read_here(dir: &Path, walked: &Metadata, left: u64) -> Here {
     let Ok(directory) = Directory::open(dir) else {
         return Here::Nothing;
     };
-    if !same_directory(&directory, walked) {
+    // Its owner and mode as opened, once it is the directory the walk saw.
+    let Some(opened) = opened_as_walked(&directory, walked) else {
         return Here::Refused("its directory changed as it was read".into());
-    }
-    if privacy::others_can_write(walked) {
+    };
+    if privacy::others_can_write(&opened) {
         return match directory.kind_of(name) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Here::Nothing,
             _ => Here::Refused("every user may write its directory".into()),
@@ -262,23 +284,23 @@ fn read_here(dir: &Path, walked: &Metadata, left: u64) -> Here {
     if !ours(&metadata) || privacy::others_can_write(&metadata) {
         return Here::Refused("another user owns it or can change it".into());
     }
-    let too_large = || Here::Refused(format!("it is larger than {} KiB", MAX_FILE >> 10));
     if metadata.len() > MAX_FILE as u64 {
-        return too_large();
+        return Here::Refused(format!("it is larger than {} KiB", MAX_FILE >> 10));
     }
     if metadata.len() > left {
         return Here::PastBudget;
     }
+    // No more than it held when opened, so what a visit reads stays within its bound.
     let mut bytes = Vec::new();
     if file
-        .take(MAX_FILE as u64 + 1)
+        .take(metadata.len() + 1)
         .read_to_end(&mut bytes)
         .is_err()
     {
         return Here::Refused("it cannot be read".into());
     }
-    if bytes.len() > MAX_FILE {
-        return too_large();
+    if bytes.len() as u64 > metadata.len() {
+        return Here::Refused("it changed as it was read".into());
     }
     match String::from_utf8(bytes) {
         Ok(text) => Here::Text(text),
@@ -286,26 +308,22 @@ fn read_here(dir: &Path, walked: &Metadata, left: u64) -> Here {
     }
 }
 
-/// Whether `directory` is the one the walk saw as `walked`, by device and inode. Windows keeps
-/// no stable identity to compare, and its directories are opened by path.
-fn same_directory(directory: &Directory, walked: &Metadata) -> bool {
+/// The metadata of `directory`, if it is the one the walk saw as `walked`, by device and inode.
+/// Windows keeps no stable identity to compare, and its directories are opened by path.
+fn opened_as_walked(directory: &Directory, walked: &Metadata) -> Option<Metadata> {
+    let opened = directory.metadata().ok()?;
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        directory
-            .metadata()
-            .is_ok_and(|now| now.dev() == walked.dev() && now.ino() == walked.ino())
+    if !super::same_file(&opened, walked) {
+        return None;
     }
     #[cfg(not(unix))]
-    {
-        let _ = (directory, walked);
-        true
-    }
+    let _ = walked;
+    Some(opened)
 }
 
 mod reader;
 
-pub use reader::Reader;
+pub use reader::EditorConfigReader;
 
 #[cfg(test)]
 mod tests;

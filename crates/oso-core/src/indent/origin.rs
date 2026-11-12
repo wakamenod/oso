@@ -73,6 +73,8 @@ pub fn with_editorconfig(
         }
         None => u32::try_from(configured.indent_size()).unwrap_or(4),
     };
+    // Every width here is from 1 to `Settings::MAX`; one shown wider keeps the configured
+    // setting, as it must have been shown so.
     match Settings::new(indent_size, style, shown.get()) {
         Some(settings) => (settings, origins),
         None => (configured, given),

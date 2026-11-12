@@ -1624,6 +1624,14 @@ pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::
 pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::skip_like_this(&mut self, oso_core::editor::Toward) -> core::result::Result<(), oso_core::editor::CursorError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::editorconfig_read(&mut self, &oso_core::editor::ProjectRequest, core::option::Option<oso_core::editorconfig::Applied>) -> bool
+pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
+pub fn oso_core::editor::Editor::request_editorconfig(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::set_buffer_mode(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Mode) -> bool
+pub fn oso_core::editor::Editor::set_editorconfig(&mut self, oso_core::buffer::BufferId, core::option::Option<oso_core::editorconfig::Applied>)
+pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings, oso_core::indent::Origins); 4])
+pub fn oso_core::editor::Editor::take_editorconfig_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::electric_indent(&self) -> bool
 pub fn oso_core::editor::Editor::indent_for_tab(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::indent_typed_closers(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
@@ -1756,12 +1764,6 @@ pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::Buf
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::write_over_asked(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::written_elsewhere(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::ContentId, std::path::PathBuf, oso_core::buffer::FileStamp, impl core::ops::function::FnOnce(&mut oso_core::buffer::Buffer))
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
-pub fn oso_core::editor::Editor::set_buffer_mode(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Mode) -> bool
-pub fn oso_core::editor::Editor::set_editorconfig(&mut self, oso_core::buffer::BufferId, core::option::Option<oso_core::editorconfig::Applied>)
-pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings, oso_core::indent::Origins); 4])
-pub fn oso_core::editor::Editor::take_editorconfig_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) -> core::result::Result<bool, oso_core::buffer::EditError>
 impl oso_core::editor::Editor

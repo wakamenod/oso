@@ -1,5 +1,7 @@
 //! Each file's project (ADR 0114): asking the thread that finds them, taking in its answers,
-//! and the record of trusted projects, which another thread reads and writes.
+//! and the record of trusted projects, which another thread reads and writes; and a file's
+//! EditorConfig read again after `C-x C-w` or a dev restart (ADR 0115), which another thread
+//! reads.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Projects are found, and the record
 //! read and written, on their own threads, never here.
@@ -9,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{App, UserEvent, Waker};
 use crate::config::{Record, TrustFile};
-use crate::loader::{Home, Reader};
+use crate::loader::{EditorConfigReader, Home};
 use crate::project::{Detector, Trusted};
 
 /// The thread that finds projects, waking the event loop with [`UserEvent::Projects`]. It never
@@ -26,9 +28,9 @@ pub(super) fn detector(waker: &Waker) -> Detector {
 
 /// The thread that reads EditorConfig after `C-x C-w`, waking the event loop with
 /// [`UserEvent::EditorConfig`].
-pub(super) fn editorconfig_reader(waker: &Waker, home: &Home) -> Reader {
+pub(super) fn editorconfig_reader(waker: &Waker, home: &Home) -> EditorConfigReader {
     let waker = Mutex::new(waker.clone());
-    Reader::new(home.clone(), move || {
+    EditorConfigReader::new(home.clone(), move || {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -84,31 +86,26 @@ impl App {
         }
     }
 
-    /// Starts reading the EditorConfig of the files `C-x C-w` named, each on a thread of its
-    /// own (ADR 0115).
+    /// Hands the files whose EditorConfig is wanted again, after `C-x C-w` or a dev restart, to
+    /// the thread that reads it (ADR 0115).
     pub(super) fn read_editorconfigs(&mut self) {
         for request in self.editor.take_editorconfig_requests() {
             self.editorconfigs.read(request);
         }
     }
 
-    /// Threads read EditorConfig: gives what they found to their buffers, if their files are
-    /// still where they were when asked, and says what was skipped in `*Messages*`.
+    /// The thread read EditorConfig: gives what it found to the buffers whose files are still
+    /// where they were when asked, and says what was skipped in `*Messages*`.
     pub(super) fn editorconfigs_read(&mut self) {
         for (request, found) in self.editorconfigs.take() {
-            let current = self
-                .editor
-                .buffer(request.buffer)
-                .and_then(|buffer| buffer.baseline())
-                .is_some_and(|baseline| baseline.location == request.location);
-            if !current {
-                continue;
+            if self.editor.editorconfig_read(&request, found.applied) {
+                for note in found.notes {
+                    self.editor.note(note);
+                }
             }
-            for note in found.notes {
-                self.editor.note(note);
-            }
-            self.editor.set_editorconfig(request.buffer, found.applied);
         }
+        // `*Messages*` may be shown.
+        self.request_redraw();
     }
 
     /// The thread found projects: gives them to their buffers, and asks for a frame, as the
