@@ -96,6 +96,10 @@ pub(super) fn highlighted_typing(
             t["load"]["done_us"].is_u64()
         })?;
         middle_of_the_file(&mut app)?;
+        // RET indents in a Rust file (ADR 0115): off, the typing is what it measured before,
+        // and the text grows by what the keys type. `indent_ret_*` measures RET with it.
+        let params = json!({ "name": "electric-indent-mode", "arg": -1 });
+        app.call("run-command", Some(params))?;
         wait_for_highlights(&mut app)?;
         let mut rng = Lcg(run as u64 + 1);
         // Each phase goes first in every other run, so neither has the warmer caches.

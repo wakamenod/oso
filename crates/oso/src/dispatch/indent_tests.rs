@@ -171,3 +171,19 @@ fn c_j_answers_a_prompt_and_adds_a_line_break_to_a_search() {
     assert!(editor.isearch().is_some(), "the search goes on");
     assert_eq!(marked(&editor), "a\n|b", "it found a line break after a");
 }
+
+#[test]
+fn a_line_break_in_a_search_string_goes_in_its_history_and_comes_back() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\nb\na\nc");
+    send(&mut dispatcher, &mut editor, "C-s a C-j RET");
+    assert!(editor.isearch().is_none());
+    assert_eq!(marked(&editor), "a\n|b\na\nc");
+    send(&mut dispatcher, &mut editor, "C-s M-p");
+    assert_eq!(editor.isearch().map(|search| search.string()), Some("a\n"));
+    send(&mut dispatcher, &mut editor, "C-s");
+    assert_eq!(
+        marked(&editor),
+        "a\nb\na\n|c",
+        "the string recalled finds the next one"
+    );
+}
