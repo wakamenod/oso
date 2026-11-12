@@ -71,6 +71,43 @@ impl App {
         }
     }
 
+    /// Starts reading the EditorConfig of the files `C-x C-w` named, each on a thread of its
+    /// own (ADR 0115).
+    pub(super) fn read_editorconfigs(&mut self) {
+        for request in self.editor.take_editorconfig_requests() {
+            let waker = self.waker.clone();
+            let wake = move || {
+                let _ = waker.send(UserEvent::EditorConfig);
+            };
+            crate::loader::spawn_read(request, super::home(), &self.editorconfigs, wake);
+        }
+    }
+
+    /// Threads read EditorConfig: gives what they found to their buffers, if their files are
+    /// still where they were when asked, and says what was skipped in `*Messages*`.
+    pub(super) fn editorconfigs_read(&mut self) {
+        let answers = std::mem::take(
+            &mut *self
+                .editorconfigs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        for (request, found) in answers {
+            let current = self
+                .editor
+                .buffer(request.buffer)
+                .and_then(|buffer| buffer.baseline())
+                .is_some_and(|baseline| baseline.location == request.location);
+            if !current {
+                continue;
+            }
+            for note in found.notes {
+                self.editor.note(note);
+            }
+            self.editor.set_editorconfig(request.buffer, found.applied);
+        }
+    }
+
     /// The thread found projects: gives them to their buffers, and asks for a frame, as the
     /// modeline may name one.
     pub(super) fn projects_found(&mut self) {

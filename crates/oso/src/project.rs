@@ -123,22 +123,14 @@ fn lock(answers: &Mutex<Vec<Answer>>) -> std::sync::MutexGuard<'_, Vec<Answer>> 
 /// there yet, with a worktree's claim checked if it names a root of `trusted`. `None` if no
 /// directory on the way up holds a marker before the walk stops.
 pub fn detect(location: &Path, home: Option<&Path>, trusted: &[PathBuf]) -> Option<Found> {
-    let mut device = None;
-    for dir in location.parent()?.ancestors() {
-        if Some(dir) == home {
-            return None;
-        }
-        let metadata = match fs::symlink_metadata(dir) {
-            Ok(metadata) => metadata,
-            // The directories of a new file may not exist yet.
-            Err(e) if e.kind() == io::ErrorKind::NotFound && device.is_none() => continue,
-            Err(_) => return None,
-        };
-        if !metadata.is_dir() || !ours(&metadata) {
-            return None;
-        }
-        let here = device_of(&metadata);
-        if *device.get_or_insert(here) != here {
+    for Above {
+        dir,
+        metadata,
+        home,
+    } in upward(location, home)
+    {
+        // The home directory is never a project.
+        if home {
             return None;
         }
         match markers_in(dir) {
@@ -158,6 +150,57 @@ pub fn detect(location: &Path, home: Option<&Path>, trusted: &[PathBuf]) -> Opti
         }
     }
     None
+}
+
+/// A directory on the way up from a file, as [`upward`] finds it.
+pub struct Above<'a> {
+    pub dir: &'a Path,
+    /// Its metadata, not following a link.
+    pub metadata: Metadata,
+    /// Whether it is the home directory, after which the way up ends.
+    pub home: bool,
+}
+
+/// The directories above the file at `location`, the real place a path led, from its own up,
+/// as project detection and EditorConfig both walk them (ADR 0114, ADR 0115). The way ends at
+/// a link or anything but a directory, at a directory another user owns (root aside), where
+/// the file system changes, and after the home directory, `home`. Directories missing below
+/// the first one there, as a new file's may be, are passed over. Windows has no owner or
+/// device to go by, so there only the home directory and a link end it.
+pub fn upward<'a>(location: &'a Path, home: Option<&'a Path>) -> impl Iterator<Item = Above<'a>> {
+    let mut device = None;
+    let mut ended = false;
+    location
+        .parent()
+        .into_iter()
+        .flat_map(Path::ancestors)
+        .map_while(move |dir| {
+            if ended {
+                return None;
+            }
+            let metadata = match fs::symlink_metadata(dir) {
+                Ok(metadata) => metadata,
+                // The directories of a new file may not exist yet.
+                Err(e) if e.kind() == io::ErrorKind::NotFound && device.is_none() => {
+                    return Some(None);
+                }
+                Err(_) => return None,
+            };
+            if !metadata.is_dir() || !ours(&metadata) {
+                return None;
+            }
+            let here = device_of(&metadata);
+            if *device.get_or_insert(here) != here {
+                return None;
+            }
+            ended = Some(dir) == home;
+            Some(Some(Above {
+                dir,
+                metadata,
+                home: ended,
+            }))
+        })
+        .flatten()
 }
 
 /// What makes a directory a root.
@@ -258,7 +301,7 @@ fn same_node(a: &Metadata, b: &Metadata) -> bool {
 }
 
 /// Whether this user or root owns what `metadata` describes, as git's `safe.directory` asks.
-fn ours(metadata: &Metadata) -> bool {
+pub(crate) fn ours(metadata: &Metadata) -> bool {
     #[cfg(unix)]
     let by_root = std::os::unix::fs::MetadataExt::uid(metadata) == 0;
     #[cfg(not(unix))]

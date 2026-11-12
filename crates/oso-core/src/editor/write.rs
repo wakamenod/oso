@@ -209,8 +209,9 @@ impl Editor {
         // one a longer one.
         self.name_files_like(&old);
         self.name_files_like(&new);
-        // It may be in another project now.
+        // It may be in another project now, under other EditorConfig files (ADR 0115).
         self.request_project(id);
+        self.request_editorconfig(id);
     }
 }
 

@@ -142,6 +142,7 @@ fn a_mode_command_gives_the_buffer_its_modes_indentation() {
             } else {
                 Settings::default()
             },
+            oso_core::indent::Origins::default(),
         )
     }));
     run(&mut dispatcher, &mut editor, "rust-mode", None);

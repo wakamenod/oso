@@ -1,7 +1,8 @@
 //! The indentation commands of ADR 0115: `TAB` reindenting by the buffer's mode, the line
 //! breaks, `RET`'s `newline` among them, that indent and the one that does not,
 //! `electric-indent-mode`, the region's `indent-region` and `indent-rigidly` with the commands
-//! of its layer, `back-to-indentation`, `delete-indentation` and Markdown's new list item.
+//! of its layer, `back-to-indentation`, `delete-indentation`, Markdown's new list item and
+//! `describe-indentation` (`describe`).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -13,6 +14,8 @@ use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{IndentError, Shift};
 
 use super::MAX_INSERT;
+
+mod describe;
 
 /// The indentation commands.
 pub const COMMANDS: &[Command] = &[
@@ -113,6 +116,13 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: markdown_insert_list_item,
+    },
+    Command {
+        name: "describe-indentation",
+        doc: "Say the buffer's indentation setting, and where each part of it came from.\n\nEach of the indent size, spaces or tabs, and the tab width comes from the EditorConfig files that apply to the file, over the configuration's `[modes.<mode>]`, over the default. An EditorConfig file is named by its path in the project; one outside it is not named. A tab width read since the file was visited applies at the next visit.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: describe::describe_indentation,
     },
 ];
 

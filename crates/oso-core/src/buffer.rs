@@ -19,7 +19,8 @@ use std::path::{Path, PathBuf};
 
 use crate::decode::{FileInfo, InvalidBytes};
 use crate::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
-use crate::indent::Settings;
+use crate::editorconfig::Applied;
+use crate::indent::{Origins, Settings};
 use crate::load::{self, LoadSnapshot, Progress};
 use crate::rope::Rope;
 use crate::secret;
@@ -169,6 +170,10 @@ pub struct Buffer {
     mode: Mode,
     /// How its lines are indented; the tab width is the display map's (ADR 0115).
     indent: Settings,
+    /// Where each property of `indent` came from.
+    indent_origins: Origins,
+    /// What the EditorConfig files read when its file was visited give it, if any applied.
+    editorconfig: Option<Box<Applied>>,
     /// Counts the times a mode was set, the same one too (ADR 0111).
     mode_revision: u64,
     /// An emergency copy of its file waits for an answer.
@@ -240,6 +245,8 @@ impl Buffer {
             no_history: false,
             mode: Mode::Fundamental,
             indent: Settings::default(),
+            indent_origins: Origins::default(),
+            editorconfig: None,
             mode_revision: 0,
             copy_waits: false,
             own_spelling: None,
@@ -472,6 +479,24 @@ impl Buffer {
     /// that no window's layout goes stale.
     pub fn set_indent_settings(&mut self, settings: Settings) {
         self.indent = settings;
+    }
+
+    /// Where each property of its indentation setting came from (ADR 0115).
+    pub fn indent_origins(&self) -> Origins {
+        self.indent_origins
+    }
+
+    pub(crate) fn set_indent_origins(&mut self, origins: Origins) {
+        self.indent_origins = origins;
+    }
+
+    /// What the EditorConfig files read for its file give it, if any applied (ADR 0115).
+    pub fn editorconfig(&self) -> Option<&Applied> {
+        self.editorconfig.as_deref()
+    }
+
+    pub(crate) fn set_editorconfig(&mut self, applied: Option<Applied>) {
+        self.editorconfig = applied.map(Box::new);
     }
 
     /// The BOM and line ending of the file, and whether it is binary.

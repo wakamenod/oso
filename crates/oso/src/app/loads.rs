@@ -21,6 +21,9 @@ pub(super) struct Load {
     started: Instant,
     /// When its first content arrived, until that frame is drawn.
     first_screen: Option<Instant>,
+    /// What EditorConfig gave its file, until the buffer is shown with the tab width the
+    /// display map was built with (ADR 0115).
+    editorconfig: Option<loader::Found>,
 }
 
 impl App {
@@ -51,18 +54,23 @@ impl App {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let visiting = Buffer::visiting(path.clone());
-        // The mode's tab width, which the loader builds the display map with; adding the
-        // buffer gives it the mode's indent size and style (ADR 0115).
-        let tab_width = self.editor.mode_indent(visiting.mode()).tab_width();
+        // The mode's indentation, under which the loader reads EditorConfig before it builds
+        // the display map; adding the buffer gives it the mode's indent size and style until
+        // then (ADR 0115).
+        let visit = loader::Visit {
+            configured: self.editor.mode_indent(visiting.mode()),
+            editorconfig: true,
+            home: super::home(),
+        };
         let buffer = self.editor.add_buffer(visiting);
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
         let wake = move |buffer| waker.send(UserEvent::Load(buffer));
         let spawned = if for_agent {
-            loader::spawn_one_name(buffer, path, limit, tab_width, wake)
+            loader::spawn_one_name(buffer, path, limit, visit, wake)
         } else {
-            loader::spawn(buffer, path, limit, tab_width, wake)
+            loader::spawn(buffer, path, limit, visit, wake)
         };
         match spawned {
             Ok(handle) => {
@@ -70,6 +78,7 @@ impl App {
                     handle,
                     started,
                     first_screen: None,
+                    editorconfig: None,
                 });
                 Some(buffer)
             }
@@ -114,6 +123,7 @@ impl App {
                     handle,
                     started,
                     first_screen: None,
+                    editorconfig: None,
                 });
                 Some(buffer)
             }
@@ -203,6 +213,7 @@ impl App {
                 handle,
                 started,
                 first_screen: None,
+                editorconfig: None,
             }),
             Err(e) => {
                 self.editor.message(format!("Cannot read the copy: {e}"));
@@ -221,6 +232,7 @@ impl App {
         if self.take_what_was_found(index, id) {
             return true;
         }
+        let editorconfig = self.editorconfig_for(index, &update);
         let Some(buffer) = self.editor.buffer_mut(id) else {
             self.loads.swap_remove(index);
             return false;
@@ -294,16 +306,40 @@ impl App {
                 shown
             }
         };
+        self.give_editorconfig(id, editorconfig);
         if no_baseline {
-            let name = self.editor.buffer(id).map_or("", Buffer::name);
-            let message = format!(
-                "This cannot be saved, as where its file leads could not be told as it was read: {name}"
-            );
-            self.editor.message(message);
+            self.cannot_be_saved(id);
         }
         #[cfg(feature = "dev")]
         let redraw = self.try_restore_positions() || redraw;
         redraw
+    }
+
+    /// Says that `id` cannot be saved, as where its file leads could not be told.
+    fn cannot_be_saved(&mut self, id: BufferId) {
+        let name = self.editor.buffer(id).map_or("", Buffer::name);
+        let message = format!(
+            "This cannot be saved, as where its file leads could not be told as it was read: {name}"
+        );
+        self.editor.message(message);
+    }
+
+    /// What EditorConfig gave the file of the load at `index`, if `update` shows it with the
+    /// tab width the display map was built with, or makes it a new file (ADR 0115).
+    fn editorconfig_for(&mut self, index: usize, update: &LoadUpdate) -> Option<loader::Found> {
+        match update {
+            LoadUpdate::Snapshot(_) | LoadUpdate::Failed(LoadError::NotFound) => {
+                self.loads[index].editorconfig.take()
+            }
+            _ => None,
+        }
+    }
+
+    /// Gives `id` what EditorConfig gave its file, once the update that shows it is in.
+    fn give_editorconfig(&mut self, id: BufferId, found: Option<loader::Found>) {
+        if let Some(found) = found {
+            self.editor.set_editorconfig(id, found.applied);
+        }
     }
 
     /// Takes in what the load at `index` found of `id`'s file before its content: the verdict,
@@ -312,11 +348,18 @@ impl App {
     /// one visits that very file.
     fn take_what_was_found(&mut self, index: usize, id: BufferId) -> bool {
         let handle = &self.loads[index].handle;
-        let (resolved, baseline, spelling) = (
+        let (resolved, baseline, spelling, editorconfig) = (
             handle.take_resolved(),
             handle.take_baseline(),
             handle.take_own_spelling(),
+            handle.take_editorconfig(),
         );
+        if let Some(found) = editorconfig {
+            for note in &found.notes {
+                self.editor.note(note.as_str());
+            }
+            self.loads[index].editorconfig = Some(found);
+        }
         let Some(buffer) = self.editor.buffer_mut(id) else {
             return false;
         };

@@ -129,10 +129,12 @@ pub fn oso_core::buffer::Buffer::apply_load(&mut self, oso_core::load::LoadSnaps
 pub fn oso_core::buffer::Buffer::baseline(&self) -> core::option::Option<&oso_core::buffer::Baseline>
 pub fn oso_core::buffer::Buffer::content_id(&self) -> oso_core::buffer::ContentId
 pub fn oso_core::buffer::Buffer::display(&self) -> oso_core::display_map::DisplaySnapshot
+pub fn oso_core::buffer::Buffer::editorconfig(&self) -> core::option::Option<&oso_core::editorconfig::Applied>
 pub fn oso_core::buffer::Buffer::file_info(&self) -> oso_core::decode::FileInfo
 pub fn oso_core::buffer::Buffer::finish_empty(&mut self)
 pub fn oso_core::buffer::Buffer::from_bytes(impl core::convert::Into<alloc::string::String>, &[u8]) -> Self
 pub fn oso_core::buffer::Buffer::from_text(impl core::convert::Into<alloc::string::String>, &str) -> Self
+pub fn oso_core::buffer::Buffer::indent_origins(&self) -> oso_core::indent::Origins
 pub fn oso_core::buffer::Buffer::indent_settings(&self) -> oso_core::indent::Settings
 pub fn oso_core::buffer::Buffer::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::buffer::Buffer::is_modified(&self) -> bool
@@ -1625,9 +1627,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::electric_indent(&self) -> bool
 pub fn oso_core::editor::Editor::indent_for_tab(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::indent_typed_closers(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
-pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
 pub fn oso_core::editor::Editor::set_electric_indent(&mut self, bool)
-pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings); 4])
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
@@ -1755,6 +1755,11 @@ pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::Buf
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::write_over_asked(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::written_elsewhere(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::ContentId, std::path::PathBuf, oso_core::buffer::FileStamp, impl core::ops::function::FnOnce(&mut oso_core::buffer::Buffer))
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
+pub fn oso_core::editor::Editor::set_editorconfig(&mut self, oso_core::buffer::BufferId, core::option::Option<oso_core::editorconfig::Applied>)
+pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings, oso_core::indent::Origins); 4])
+pub fn oso_core::editor::Editor::take_editorconfig_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) -> core::result::Result<bool, oso_core::buffer::EditError>
 impl oso_core::editor::Editor
@@ -2139,6 +2144,114 @@ pub const oso_core::editor::MAX_MACRO_EVENTS: usize
 pub const oso_core::editor::MAX_MACRO_TEXT: usize
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
+pub mod oso_core::editorconfig
+pub enum oso_core::editorconfig::IndentSize
+pub oso_core::editorconfig::IndentSize::Columns(u8)
+pub oso_core::editorconfig::IndentSize::Tab
+impl core::clone::Clone for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::clone(&self) -> oso_core::editorconfig::IndentSize
+impl core::cmp::Eq for oso_core::editorconfig::IndentSize
+impl core::cmp::PartialEq for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::eq(&self, &oso_core::editorconfig::IndentSize) -> bool
+impl core::fmt::Debug for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::editorconfig::IndentSize
+pub fn oso_core::editorconfig::IndentSize::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::editorconfig::IndentSize
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::IndentSize
+pub enum oso_core::editorconfig::IndentStyle
+pub oso_core::editorconfig::IndentStyle::Space
+pub oso_core::editorconfig::IndentStyle::Tab
+impl core::clone::Clone for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::clone(&self) -> oso_core::editorconfig::IndentStyle
+impl core::cmp::Eq for oso_core::editorconfig::IndentStyle
+impl core::cmp::PartialEq for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::eq(&self, &oso_core::editorconfig::IndentStyle) -> bool
+impl core::fmt::Debug for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::editorconfig::IndentStyle
+pub fn oso_core::editorconfig::IndentStyle::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::editorconfig::IndentStyle
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::IndentStyle
+pub enum oso_core::editorconfig::Problem
+pub oso_core::editorconfig::Problem::GlobTooLong
+pub oso_core::editorconfig::Problem::GlobTooLong::line: usize
+pub oso_core::editorconfig::Problem::NestedTooDeep
+pub oso_core::editorconfig::Problem::NestedTooDeep::line: usize
+pub oso_core::editorconfig::Problem::OverBudget
+pub oso_core::editorconfig::Problem::OverBudget::line: usize
+pub oso_core::editorconfig::Problem::TooComplex
+pub oso_core::editorconfig::Problem::TooComplex::line: usize
+pub oso_core::editorconfig::Problem::TooLarge
+pub oso_core::editorconfig::Problem::TooManySections
+pub oso_core::editorconfig::Problem::TooManySections::line: usize
+impl core::clone::Clone for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::clone(&self) -> oso_core::editorconfig::Problem
+impl core::cmp::Eq for oso_core::editorconfig::Problem
+impl core::cmp::PartialEq for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::eq(&self, &oso_core::editorconfig::Problem) -> bool
+impl core::fmt::Debug for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editorconfig::Problem
+pub fn oso_core::editorconfig::Problem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editorconfig::Problem
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Problem
+pub struct oso_core::editorconfig::Applied
+pub oso_core::editorconfig::Applied::files: alloc::vec::Vec<std::path::PathBuf>
+pub oso_core::editorconfig::Applied::properties: oso_core::editorconfig::Properties
+impl core::clone::Clone for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::clone(&self) -> oso_core::editorconfig::Applied
+impl core::cmp::Eq for oso_core::editorconfig::Applied
+impl core::cmp::PartialEq for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::eq(&self, &oso_core::editorconfig::Applied) -> bool
+impl core::default::Default for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::default() -> oso_core::editorconfig::Applied
+impl core::fmt::Debug for oso_core::editorconfig::Applied
+pub fn oso_core::editorconfig::Applied::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Applied
+pub struct oso_core::editorconfig::Budget
+impl core::clone::Clone for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::clone(&self) -> oso_core::editorconfig::Budget
+impl core::cmp::Eq for oso_core::editorconfig::Budget
+impl core::cmp::PartialEq for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::eq(&self, &oso_core::editorconfig::Budget) -> bool
+impl core::default::Default for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::default() -> Self
+impl core::fmt::Debug for oso_core::editorconfig::Budget
+pub fn oso_core::editorconfig::Budget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editorconfig::Budget
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Budget
+pub struct oso_core::editorconfig::File
+impl oso_core::editorconfig::File
+pub fn oso_core::editorconfig::File::is_root(&self) -> bool
+pub fn oso_core::editorconfig::File::parse(&str, &mut oso_core::editorconfig::Budget) -> Self
+pub fn oso_core::editorconfig::File::problems(&self) -> &[oso_core::editorconfig::Problem]
+impl core::default::Default for oso_core::editorconfig::File
+pub fn oso_core::editorconfig::File::default() -> oso_core::editorconfig::File
+impl core::fmt::Debug for oso_core::editorconfig::File
+pub fn oso_core::editorconfig::File::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editorconfig::Properties
+impl oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::apply(&mut self, &oso_core::editorconfig::File, usize, &str)
+pub fn oso_core::editorconfig::Properties::indent_size(&self) -> core::option::Option<(oso_core::editorconfig::IndentSize, usize)>
+pub fn oso_core::editorconfig::Properties::indent_style(&self) -> core::option::Option<(oso_core::editorconfig::IndentStyle, usize)>
+pub fn oso_core::editorconfig::Properties::tab_width(&self) -> core::option::Option<(u8, usize)>
+impl core::clone::Clone for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::clone(&self) -> oso_core::editorconfig::Properties
+impl core::cmp::Eq for oso_core::editorconfig::Properties
+impl core::cmp::PartialEq for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::eq(&self, &oso_core::editorconfig::Properties) -> bool
+impl core::default::Default for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::default() -> oso_core::editorconfig::Properties
+impl core::fmt::Debug for oso_core::editorconfig::Properties
+pub fn oso_core::editorconfig::Properties::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editorconfig::Properties
+pub const oso_core::editorconfig::MAX_FILE: usize
+pub const oso_core::editorconfig::MAX_GLOB: usize
+pub const oso_core::editorconfig::MAX_NESTING: usize
+pub const oso_core::editorconfig::MAX_SECTIONS: usize
+pub const oso_core::editorconfig::VISIT_GLOBS: usize
+pub const oso_core::editorconfig::VISIT_SECTIONS: usize
 pub mod oso_core::frame
 pub enum oso_core::frame::BadTiling
 pub oso_core::frame::BadTiling::LonelyRun
@@ -2372,6 +2485,24 @@ impl core::hash::Hash for oso_core::indent::Line
 pub fn oso_core::indent::Line::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::indent::Line
 impl core::marker::StructuralPartialEq for oso_core::indent::Line
+pub enum oso_core::indent::Origin
+pub oso_core::indent::Origin::Configuration
+pub oso_core::indent::Origin::Default
+pub oso_core::indent::Origin::EditorConfig
+pub oso_core::indent::Origin::Visited
+impl core::clone::Clone for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::clone(&self) -> oso_core::indent::Origin
+impl core::cmp::Eq for oso_core::indent::Origin
+impl core::cmp::PartialEq for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::eq(&self, &oso_core::indent::Origin) -> bool
+impl core::default::Default for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::default() -> oso_core::indent::Origin
+impl core::fmt::Debug for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Origin
+pub fn oso_core::indent::Origin::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Origin
+impl core::marker::StructuralPartialEq for oso_core::indent::Origin
 pub enum oso_core::indent::Style
 pub oso_core::indent::Style::Spaces
 pub oso_core::indent::Style::Tabs
@@ -2404,6 +2535,23 @@ impl core::fmt::Debug for oso_core::indent::Budget
 pub fn oso_core::indent::Budget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::indent::Budget
 impl core::marker::StructuralPartialEq for oso_core::indent::Budget
+pub struct oso_core::indent::Origins
+pub oso_core::indent::Origins::indent_size: oso_core::indent::Origin
+pub oso_core::indent::Origins::style: oso_core::indent::Origin
+pub oso_core::indent::Origins::tab_width: oso_core::indent::Origin
+impl core::clone::Clone for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::clone(&self) -> oso_core::indent::Origins
+impl core::cmp::Eq for oso_core::indent::Origins
+impl core::cmp::PartialEq for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::eq(&self, &oso_core::indent::Origins) -> bool
+impl core::default::Default for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::default() -> oso_core::indent::Origins
+impl core::fmt::Debug for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::indent::Origins
+pub fn oso_core::indent::Origins::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::indent::Origins
+impl core::marker::StructuralPartialEq for oso_core::indent::Origins
 pub struct oso_core::indent::Settings
 impl oso_core::indent::Settings
 pub const oso_core::indent::Settings::MAX: u32
@@ -2433,6 +2581,7 @@ pub fn oso_core::indent::markdown(&oso_core::rope::Rope, oso_core::indent::Setti
 pub fn oso_core::indent::markdown_stops(&oso_core::rope::Rope, oso_core::indent::Settings, usize, &mut oso_core::indent::Budget) -> alloc::vec::Vec<usize>
 pub fn oso_core::indent::rust(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::toml(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub fn oso_core::indent::with_editorconfig(oso_core::indent::Settings, oso_core::indent::Origins, &oso_core::editorconfig::Properties) -> (oso_core::indent::Settings, oso_core::indent::Origins)
 pub mod oso_core::jump
 pub enum oso_core::jump::KeysError
 pub oso_core::jump::KeysError::Action(char)

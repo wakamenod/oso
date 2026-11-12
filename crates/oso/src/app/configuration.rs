@@ -198,7 +198,8 @@ impl App {
         if changes.mode_indents {
             let indents = configuration.in_force.mode_indents;
             self.editor.set_mode_indents(std::array::from_fn(|index| {
-                (MODES[index].1, indents[index])
+                let (settings, origins) = indents[index];
+                (MODES[index].1, settings, origins)
             }));
         }
         if let Some(aids) = changes.aids {
