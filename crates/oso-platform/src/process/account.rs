@@ -20,26 +20,34 @@ pub(super) fn shell() -> Option<PathBuf> {
         let mut found: *mut libc::passwd = std::ptr::null_mut();
         // SAFETY: `getpwuid_r` fills `entry` and writes its strings into `buf`, up to
         // `buf.len()` bytes, and sets `found` to `entry` or null. `geteuid` cannot
-        // fail. The shell is read only when `found` is not null, so `entry` is
-        // filled and its `pw_shell` is null or a NUL-terminated string in `buf`, which
-        // lives until the copy below is made.
-        let (error, shell) = unsafe {
-            let error = libc::getpwuid_r(
+        // fail.
+        let error = unsafe {
+            libc::getpwuid_r(
                 libc::geteuid(),
                 entry.as_mut_ptr(),
                 buf.as_mut_ptr().cast(),
                 buf.len(),
                 &raw mut found,
-            );
-            let shell = (error == 0 && !found.is_null() && !(*found).pw_shell.is_null())
-                .then(|| CStr::from_ptr((*found).pw_shell).to_bytes().to_vec());
-            (error, shell)
+            )
         };
         if error == libc::ERANGE && size < MAX_ACCOUNT_BUF {
             size *= 2;
             continue;
         }
-        let shell = PathBuf::from(OsStr::from_bytes(&shell?));
+        if error != 0 || found.is_null() {
+            return None;
+        }
+        // SAFETY: `getpwuid_r` succeeded and found the account, so it filled `entry`.
+        let entry = unsafe { entry.assume_init_ref() };
+        if entry.pw_shell.is_null() {
+            return None;
+        }
+        // SAFETY: the shell of a filled entry, when not null, is a NUL-terminated
+        // string in `buf`, which lives until the copy is made.
+        let shell = unsafe { CStr::from_ptr(entry.pw_shell) }
+            .to_bytes()
+            .to_vec();
+        let shell = PathBuf::from(OsStr::from_bytes(&shell));
         return shell.is_absolute().then_some(shell);
     }
 }
