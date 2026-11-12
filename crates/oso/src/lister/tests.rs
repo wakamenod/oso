@@ -136,7 +136,7 @@ fn a_listing_keeps_at_most_its_limit_and_says_there_were_more() {
 #[cfg(unix)]
 #[test]
 fn a_device_is_looked_at_without_being_opened() {
-    let looked = look(Path::new("/dev"), OsString::from("null")).unwrap();
+    let looked = look(Path::new("/dev"), &OsString::from("null")).unwrap();
     assert_eq!(looked.mode & 0o170_000, 0o020_000, "a character device");
 }
 
@@ -156,6 +156,7 @@ fn a_look_says_size_time_and_where_a_link_leads() {
             looks,
             generation,
             directory,
+            missed,
         },
     ] = &answers(&lister, &rx, 1)[..]
     else {
@@ -164,6 +165,7 @@ fn a_look_says_size_time_and_where_a_link_leads() {
     assert_eq!(*generation, 2);
     assert_eq!(directory, scratch.path());
     assert_eq!(looks.len(), 3, "a name that has gone is left out");
+    assert_eq!(missed, &[OsString::from("missing")], "and named");
     let file = &looks[0];
     assert_eq!(
         (file.len, file.others, file.target.as_ref()),
@@ -235,7 +237,7 @@ fn a_link_in_a_loop_is_not_called_missing() {
     let scratch = Scratch::new("lister-loop");
     std::os::unix::fs::symlink("b", scratch.path().join("a")).unwrap();
     std::os::unix::fs::symlink("a", scratch.path().join("b")).unwrap();
-    let looked = look(scratch.path(), OsString::from("a")).unwrap();
+    let looked = look(scratch.path(), &OsString::from("a")).unwrap();
     assert_eq!(looked.leads_to, Some(LeadsTo::Unknown));
 }
 

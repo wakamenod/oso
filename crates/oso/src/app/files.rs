@@ -59,9 +59,29 @@ impl App {
                     ..
                 } => (directory, entries, truncated),
                 Answer::Looked {
-                    directory, looks, ..
+                    directory,
+                    looks,
+                    missed,
+                    ..
                 } => {
-                    let looks = looks.iter().map(|look| looked(look, now)).collect();
+                    // A name that could not be looked at is answered as found to be no directory,
+                    // with nothing to say of it, so that nothing waits for it (ADR 0114). Its 0
+                    // bytes only mean that `C-x C-f` does not ask first: the loader compares the
+                    // size of the file it opened with the limit before it reads any of it, so a
+                    // file past it still stops there and asks (ADR 0087).
+                    let missed = missed.iter().map(|name| {
+                        let looked = Looked {
+                            annotation: String::new(),
+                            bytes: 0,
+                            directory: false,
+                        };
+                        (name.to_string_lossy().into_owned(), looked)
+                    });
+                    let looks = looks
+                        .iter()
+                        .map(|look| looked(look, now))
+                        .chain(missed)
+                        .collect();
                     self.editor.file_looked(&directory, looks);
                     changed = true;
                     continue;

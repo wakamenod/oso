@@ -578,6 +578,100 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   `!` and `=`, and only at a component's start.
 - **The preview is step 5.**
 
+### Step 5: the preview and the directory prompt
+
+- **What the preview shows.** The search's float splits as `C-x b`'s does. For the selected row,
+  in this order: `may hold secrets` for a row of a file that may hold secrets, and nothing of it
+  is read; an open buffer whose path is the root joined with the row's, from memory, unsaved edits
+  and all, or `may hold secrets` if that buffer withholds; otherwise what the host read. A read
+  that names the file's device and inode gives way to an open buffer of that very file, as one
+  opened through another spelling or a link, as `RET` would show it; if that buffer withholds,
+  nothing of the read is kept. Until a read comes the pane
+  is empty; a file that is gone, no longer a regular file or reached through a link shows
+  nothing.
+- **Reading.** The editor asks once per row selected (`Editor::take_preview_request`), never for
+  a secret row or one an open buffer shows, nor while the float has no room for a preview; a row
+  an open buffer showed is asked for once that buffer is killed.
+  `oso-preview`, one more thread of the `grep` module, started with the first read
+  (`grep/preview.rs`), takes the newest request waiting and reads it:
+  - the root is opened by its path and refused if it is or holds the home directory, by the real
+    place of both and by its device and inode, as the search's; each directory on the way and
+    the file are opened from the one before by name, following no link and waiting for nothing,
+    a regular file only, a path with anything but plain names in it refused;
+  - the file is judged again as the search judges it, by its name as the path walked and by its
+    path from every place the root leads through, each link's target on the way and its real
+    place, as the loader finds them, and one that may hold secrets is not read. A root that
+    cannot be resolved counts as one that may hold secrets. The app hands the loader's resolver
+    to `grep`, which may not name `loader`, and the search's rows are judged the same way;
+  - the root opened must be, by device and inode, the place judged, reached again from `/` a
+    name at a time following no link; the search's walk goes on only then too;
+  - each row now carries the offset of its line's start in its file
+    (`ProjectSearchRow::offset`), kept with the lines a narrowing search looks through. The read
+    starts there: at most 64 KiB before it, whole lines only, for about half the preview's rows,
+    and from it as many lines as fill the rest, within 16 MiB in all; past the row's line it
+    reads no more than an excerpt keeps of each line left, and a part of 64 KiB. An offset past
+    the file's end shows nothing, and a file changed since shows what is there now;
+  - the generation is read before the file is opened, at each directory on the way and before
+    each part, and a newer selection, a new input or the prompt closing moves it on.
+- **The excerpt** (`oso_core::editor::Excerpt`) keeps at most 256 lines of at most 4 KiB of the
+  file's bytes each, cut at characters with `…`, as a row's text is cut; the row's line keeps as
+  much from 1 KiB before its match once the match is more than 3 KiB in. Each invalid byte is one
+  U+FFFD and a `\r` before a line break goes, as a row shows them, and the match's column is
+  counted the same way. Its display model is built on `oso-preview`, with the default tab width,
+  so the UI thread measures nothing of it.
+- **Drawing.** `Preview::Excerpt` names the excerpt's revision, a counter, and its cursor at the
+  match. The float draws it as a text pane of its own, so that its rows are shaped as any
+  buffer's, with the prompt's buffer id and the excerpt's revision keying them. The preview's
+  line is about halfway down. It never wraps, and scrolls left once the match is past three
+  quarters of its width, keeping a third of the columns before it; an open buffer that does not
+  wrap scrolls the same way, and one that wraps wraps (ADR 0100). `Editor::preview_cells` gives
+  the cells of the row's match, in isearch's current face, and of the query's other matches on
+  the lines shown, in its other face, each line matched by `LineQuery::highlights` within 4 KiB
+  of what its rows draw.
+- **The directory prompt.** `C-u`'s prompt lists only directories and links, as Emacs's
+  `read-directory-name` does; `RET` on a row goes into it, and on a link a look found leads
+  elsewhere, or could not look at, says `Not a directory`: the lister names each name it could
+  not look at, which the host answers as no directory, and a name whose look a newer one in its
+  directory replaced is asked for again while shown, so nothing waits for it. What is typed is given:
+  - with `/` at its end, unless its own listing could not be read: `Cannot read directory`;
+  - without, if its directory's listing names it as a directory, or as a link no look found
+    leads elsewhere: `Not a directory` for a file or anything else, `No such directory` for a
+    name the listing lacks unless the listing was cut short, and `Cannot read directory` for a
+    directory that could not be listed;
+  - as typed where no listing tells, as for a directory the prompt started in.
+
+  While the listings its plan needs, or a look at the link selected or at a link typed whole
+  (each asked for on its own, also when the float shows no rows), have not come, `Editor::directory_answer_waits` says so and the
+  dispatcher holds `RET` and `M-RET` until they have (`dispatch/held.rs`), as it holds `RET` for a
+  worker. A command from the dev socket is
+  refused then, and `get-state`'s `pending` covers the wait. A key the dev socket sends
+  (`send-keys`) is never held, as for a worker: it runs on the listings the prompt has, and a
+  client waits until `pending` is false. This closes step 4's gap of a file typed before its
+  directory was listed.
+- **The dev socket.** A completion's state gains `preview_kind`: `buffer`, `excerpt`, `withheld`,
+  `kill` or `null`, never what the preview shows. `preview` stays a buffer's id or `null`.
+- **Memory.** The editor keeps one excerpt: 256 lines of 4 KiB of the file's bytes, each invalid
+  byte three in its text, so about 3 MiB at most with its display model. A read holds at most its
+  64 KiB before the line, the row's line, up to 16 MiB, and what the rows after it can show.
+- **Limits, accepted.** A look at the link selected in the directory prompt that never returns,
+  as on a stalled automount, keeps `RET` and `M-RET` held until another key; `C-g` drops them, and
+  the UI thread never waits. The preview reads on one thread, so a read that stalls in the file
+  system, as on FUSE or NFS, leaves later previews empty until it returns; the UI and the search
+  go on.
+- **Left for later.** The preview is worked out a few times a frame, each looking through the
+  open buffers for one of the row's file: about 213 µs a frame with 1000 buffers open. Caching it
+  would change the API. `editor/files.rs` is
+  near its size limit, so the directory prompt grows in `files/directory.rs`. `grep/preview.rs`
+  repeats the loader's device and inode of a file, as `grep` may not name `loader`; one function
+  in `oso_platform::file_meta` could serve both, as a later chore. An excerpt is not parsed, so
+  it shows uncoloured, where an open buffer shows its highlights
+  ([ADR 0111](0111-tree-sitter-highlighting.md)).
+- **Public items beyond the plan:** `Editor::directory_answer_waits`, so that `completion_pending`
+  keeps meaning a worker's result and `M-RET` stays unheld elsewhere.
+- **Changes to accepted ADRs.** [ADR 0096](0096-completion-on-a-worker-past-5000-candidates.md)'s
+  "`M-RET` … is not held": in a prompt for a directory, `M-RET` is held, as `RET` is, until the
+  listing or the look at a link that decides its answer has come.
+
 ## Alternatives considered
 
 - **`rg` through the process module (Q1 (b)):** what the roadmap named, and `rg`'s handling of

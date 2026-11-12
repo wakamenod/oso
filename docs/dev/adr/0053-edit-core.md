@@ -1,6 +1,6 @@
 # 0053. Edit core: edits, selection mapping and undo
 
-- Status: Accepted, amended by 0112
+- Status: Accepted, amended by 0112 and 0119
 - Date: 2026-11-04
 
 ## Context

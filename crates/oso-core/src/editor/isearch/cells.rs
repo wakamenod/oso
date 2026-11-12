@@ -31,8 +31,11 @@ pub struct MatchCells {
     pub current: Vec<CellRect>,
     /// The other matches' cells.
     pub others: Vec<CellRect>,
-    spans: Vec<Range<usize>>,
-    found: Vec<Range<usize>>,
+    pub(in crate::editor) spans: Vec<Range<usize>>,
+    pub(in crate::editor) found: Vec<Range<usize>>,
+    /// What a project search's preview cells were worked out for, so that a frame that shows
+    /// the same works out nothing (ADR 0114).
+    pub(in crate::editor) preview_key: Option<crate::editor::project_search::PreviewCellsKey>,
 }
 
 /// What [`Editor::match_cells`] looks for: a query, the current match, and a scope.
@@ -76,6 +79,7 @@ impl Editor {
             others,
             spans,
             found,
+            ..
         } = cells;
         current_cells.clear();
         others.clear();
