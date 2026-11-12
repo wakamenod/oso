@@ -8,6 +8,7 @@ use super::{ReplaceAnswer, ReplaceError};
 use crate::buffer::{Buffer, ReadOnly};
 use crate::editor::{Editor, Quit, Status};
 use crate::search::KEY_BUDGET;
+use crate::search::Needle;
 use crate::selection::{MarkActive, Selection, SelectionSet};
 use crate::window::ViewSize;
 
@@ -472,4 +473,52 @@ fn comma_at_an_empty_match_then_y_moves_on() {
     );
     answer(&mut editor, Replace);
     assert_eq!(text(&editor), "a!\nb!");
+}
+
+#[test]
+fn empty_matches_after_a_match_go_as_replace_all_takes_them() {
+    for (pattern, to, text, expected) in [
+        (r"\s*$", ";", "a  \nb", "a;\nb;"),
+        ("a*", "-", "baab", "-b-b-"),
+        ("x*", "Y", "xa", "YaY"),
+    ] {
+        assert_eq!(all_of_regexp(text, pattern, to), expected, "! of {pattern}");
+        let mut editor = editor(text);
+        begin_regexp(&mut editor, pattern, to);
+        while editor.replace().is_some() {
+            answer(&mut editor, Replace);
+        }
+        assert_eq!(self::text(&editor), expected, "y of {pattern}");
+    }
+}
+
+#[test]
+fn a_line_too_long_for_a_regexp_ends_the_session_saying_so() {
+    let mut editor = editor("a1\nlong line a2\na3");
+    begin_regexp(&mut editor, r"a\d", "x");
+    if let Some(Needle::Regexp(regexp)) = editor
+        .replacing
+        .session
+        .as_mut()
+        .map(|state| &mut state.needle)
+    {
+        regexp.set_longest_line(4);
+    }
+    answer(&mut editor, Replace);
+    assert!(editor.replace().is_none());
+    assert_eq!(text(&editor), "x\nlong line a2\na3");
+    assert!(
+        line(&editor).starts_with("Regexp search stops at line 2"),
+        "{}",
+        line(&editor)
+    );
+}
+
+#[test]
+fn the_count_of_a_long_line_s_matches_comes_from_the_worker() {
+    let long = "ab ".repeat(200_000);
+    let mut editor = editor(&long);
+    begin_regexp(&mut editor, "a(b)", "$1");
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((1, 200_000)));
 }

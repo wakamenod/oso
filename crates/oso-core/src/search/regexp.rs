@@ -3,6 +3,12 @@
 //!
 //! Must not depend on: `buffer`, `editor` or a log. `Debug` prints no pattern, which can say
 //! something of a buffer that may hold secrets.
+//!
+//! - A search keeps the line it is in and goes on in it match after match, so a line is read
+//!   once however many matches it holds, and what it costs is counted: each line read, and
+//!   each look for a match from where the last ended to the line's end.
+//! - Empty matches go as `Regex::replace_all` takes them: one right where a match ended is
+//!   skipped, and one at the end of a range counts.
 
 use std::fmt;
 use std::ops::Range;
@@ -15,8 +21,24 @@ use crate::rope::Rope;
 /// The longest line a regexp is matched in: past it, a search stops at the line.
 pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
 
-/// How much a search reads between looks at whether to stop.
+/// The most characters of a regexp, as isearch's string (ADR 0082).
+pub(crate) const MAX_PATTERN_CHARS: usize = 1024;
+
+/// The most memory a compiled regexp takes.
+const SIZE_LIMIT: usize = 1024 * 1024;
+
+/// What reading a line costs besides its bytes, as a line's seek and copy take time of
+/// their own.
+const PER_LINE: usize = 64;
+
+/// How much work a search does between looks at whether to stop.
 const LOOK_EVERY: usize = 64 * 1024;
+
+/// What a match found costs besides the text it spans.
+const PER_MATCH: usize = 16;
+
+/// How far past the view a frame's highlights look on a line.
+const VIEW_REACH: usize = 256;
 
 /// A line too long to match a regexp in, which starts at this offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +48,8 @@ pub(crate) struct LineTooLong(pub(crate) usize);
 #[derive(Clone)]
 pub(crate) struct Regexp {
     regex: Regex,
+    /// The longest line it is matched in.
+    longest: usize,
 }
 
 impl fmt::Debug for Regexp {
@@ -34,22 +58,38 @@ impl fmt::Debug for Regexp {
     }
 }
 
+/// How many characters of an escape follow `\` and its letter: the hex digits of `\x41`,
+/// `A` and `\U00000041`, or one for a class named by one letter, as `\pL`.
+fn escape_tail(letter: char) -> usize {
+    match letter {
+        'x' => 2,
+        'u' => 4,
+        'U' => 8,
+        'p' | 'P' => 1,
+        _ => 0,
+    }
+}
+
 /// Whether `pattern` makes the search case-sensitive: it holds an uppercase letter outside an
-/// escape, as Emacs looks at a regexp: `\W` and `\p{Lu}` hold none, and `Foo` does.
+/// escape, as Emacs looks at a regexp: `\W`, `\pL`, `\p{Lu}` and `\x{4A}` hold none, and `Foo`
+/// does.
 pub(crate) fn smart_case(pattern: &str) -> bool {
-    let mut chars = pattern.chars();
+    let mut chars = pattern.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '\\' {
-            // `\p{…}` and `\P{…}` name a class: skip to its end.
-            if let Some('p' | 'P') = chars.next() {
-                let mut rest = chars.clone();
-                if rest.next() == Some('{') {
-                    for c in rest.by_ref() {
-                        if c == '}' {
-                            break;
-                        }
+            let Some(letter) = chars.next() else {
+                break;
+            };
+            if chars.peek() == Some(&'{') && escape_tail(letter) > 0 {
+                // `\p{…}`, `\x{…}`: to the brace that closes it.
+                for c in chars.by_ref() {
+                    if c == '}' {
+                        break;
                     }
-                    chars = rest;
+                }
+            } else {
+                for _ in 0..escape_tail(letter) {
+                    chars.next();
                 }
             }
         } else if c.is_uppercase() {
@@ -64,137 +104,333 @@ pub(crate) fn smart_case(pattern: &str) -> bool {
 ///
 /// # Errors
 ///
-/// What is wrong with it, in the crate's words, on one line.
+/// What is wrong with it, on one line: too long, or in the crate's words.
 pub(crate) fn compile(pattern: &str) -> Result<Regexp, String> {
+    if pattern.chars().count() > MAX_PATTERN_CHARS {
+        return Err(format!(
+            "Invalid regexp: longer than {MAX_PATTERN_CHARS} characters"
+        ));
+    }
     RegexBuilder::new(pattern)
         .case_insensitive(!smart_case(pattern))
         .multi_line(false)
+        .size_limit(SIZE_LIMIT)
         .build()
-        .map(|regex| Regexp { regex })
+        .map(|regex| Regexp {
+            regex,
+            longest: MAX_LINE,
+        })
         .map_err(|error| {
             let error = error.to_string();
             let last = error.lines().last().unwrap_or("invalid regexp").trim();
+            let last = last.strip_prefix("error:").unwrap_or(last).trim();
             format!("Invalid regexp: {last}")
         })
 }
 
-/// The text of `range`, which holds no line break.
-fn line_text(text: &Rope, range: Range<usize>, into: &mut String) {
-    into.clear();
-    for chunk in text.chunks_in_range(range) {
-        into.push_str(chunk);
+/// A line's text, read from a rope, which a search keeps while it is in the line, and which
+/// `!` keeps across its slices while the text does not change but by its own edits.
+#[derive(Clone, Debug)]
+pub(crate) struct Line {
+    /// Where it starts.
+    pub(crate) start: usize,
+    /// Where the next line starts, or past the end of the text for the last.
+    pub(crate) next: usize,
+    /// Its text, without its line break.
+    pub(crate) text: String,
+}
+
+impl Line {
+    /// The line `offset` is on.
+    fn read(text: &Rope, offset: usize, longest: usize) -> Result<Self, LineTooLong> {
+        let row = text.offset_to_point(offset).row;
+        let (start, end) = (text.line_start(row), text.line_end(row));
+        if end - start > longest {
+            return Err(LineTooLong(start));
+        }
+        let next = if row >= text.summary().lines {
+            text.len() + 1
+        } else {
+            text.line_start(row + 1)
+        };
+        let mut line = String::with_capacity(end - start);
+        line.extend(text.chunks_in_range(start..end));
+        Ok(Self {
+            start,
+            next,
+            text: line,
+        })
+    }
+
+    /// Whether `offset` is in it, its end included.
+    fn holds(&self, offset: usize) -> bool {
+        offset >= self.start && offset <= self.start + self.text.len()
+    }
+
+    /// The line after `edits`, ascending and apart and within it, each a range of it and its
+    /// replacement: as the rope has them once they are made, so it need not be read again.
+    pub(crate) fn edited(mut self, edits: &[(Range<usize>, &str)]) -> Self {
+        let mut shift: isize = 0;
+        for (range, replacement) in edits.iter().rev() {
+            let (from, to) = (range.start - self.start, range.end - self.start);
+            self.text.replace_range(from..to, replacement);
+            shift += replacement.len().cast_signed() - range.len().cast_signed();
+        }
+        self.next = self.next.saturating_add_signed(shift);
+        self
+    }
+}
+
+/// The offset of the character after `at` in `line`, or one past its end.
+fn char_after(line: &str, at: usize) -> usize {
+    line[at..]
+        .chars()
+        .next()
+        .map_or(at + 1, |c| at + c.len_utf8())
+}
+
+/// A search for a regexp's matches through ranges of a rope, match after match.
+pub(crate) struct Scan<'a> {
+    regexp: &'a Regexp,
+    text: &'a Rope,
+    ranges: &'a [Range<usize>],
+    range: usize,
+    at: usize,
+    /// An empty match here is skipped: a match ended here.
+    skip_empty_at: Option<usize>,
+    line: Option<Line>,
+    /// The work done, against `limit`.
+    work: usize,
+    limit: usize,
+    /// The work at the last look at whether to stop.
+    looked: usize,
+    /// When it stops, whatever its work, for a search on the UI thread: a pattern can read
+    /// far past each match it finds.
+    until: Option<std::time::Instant>,
+}
+
+impl<'a> Scan<'a> {
+    /// A search of `regexp` through `ranges` of `text`, ascending and apart, from `from`,
+    /// skipping an empty match there if `after_match`, doing at most `limit` of work. `line`
+    /// is the text of a line it may start in, if the caller kept it.
+    pub(crate) fn new(
+        regexp: &'a Regexp,
+        text: &'a Rope,
+        ranges: &'a [Range<usize>],
+        (from, after_match): (usize, bool),
+        limit: usize,
+        line: Option<Line>,
+    ) -> Self {
+        Self {
+            regexp,
+            text,
+            ranges,
+            range: ranges.partition_point(|range| range.end < from),
+            at: from,
+            skip_empty_at: after_match.then_some(from),
+            line,
+            work: 0,
+            limit,
+            looked: 0,
+            until: None,
+        }
+    }
+
+    /// Stops at `until` too.
+    pub(crate) fn until(&mut self, until: std::time::Instant) {
+        self.until = Some(until);
+    }
+
+    /// Where it would go on, and whether a match ended there.
+    pub(crate) fn place(&self) -> (usize, bool) {
+        (self.at, self.skip_empty_at == Some(self.at))
+    }
+
+    /// The line it is in, for the caller to keep.
+    pub(crate) fn into_line(self) -> Option<Line> {
+        self.line
+    }
+
+    /// Adds `work`, and says whether the search must stop: past its limit, or as `stop`
+    /// says, looked at every [`LOOK_EVERY`] of work.
+    fn spend(&mut self, work: usize, stop: &dyn Fn() -> bool) -> bool {
+        self.work = self.work.saturating_add(work);
+        if self.work > self.limit {
+            return true;
+        }
+        if self.work - self.looked > LOOK_EVERY {
+            self.looked = self.work;
+            return stop();
+        }
+        false
+    }
+
+    /// The next match: [`Found::Match`], [`Found::None`] past the last range, or
+    /// [`Found::Stopped`] where it would go on, past its limit or as `stop` says.
+    ///
+    /// # Errors
+    ///
+    /// [`LineTooLong`] at a line longer than the regexp is matched in.
+    pub(crate) fn next(&mut self, stop: &dyn Fn() -> bool) -> Result<Found, LineTooLong> {
+        loop {
+            let Some(range) = self.ranges.get(self.range).cloned() else {
+                return Ok(Found::None);
+            };
+            let late = self
+                .until
+                .is_some_and(|until| std::time::Instant::now() >= until);
+            if self.work > self.limit || late {
+                return Ok(Found::Stopped { resume: self.at });
+            }
+            if self.at < range.start {
+                self.at = range.start;
+                self.skip_empty_at = None;
+            }
+            if self.at > range.end {
+                self.range += 1;
+                continue;
+            }
+            if !self.line.as_ref().is_some_and(|line| line.holds(self.at)) {
+                let line = Line::read(self.text, self.at, self.regexp.longest)?;
+                let cost = line.text.len() + PER_LINE;
+                if self.spend(cost, stop) {
+                    return Ok(Found::Stopped { resume: self.at });
+                }
+                self.line = Some(line);
+            }
+            let Some(line) = self.line.as_ref() else {
+                continue;
+            };
+            let (start, next) = (line.start, line.next);
+            let mut from = self.at - start;
+            let found = loop {
+                let found = self.regexp.regex.find_at(&line.text, from);
+                // A look that finds nothing read to the line's end; one that finds a match read
+                // about to its end, and a pattern that reads further is what `until` is for.
+                let cost = found.map_or(line.text.len() - from, |found| found.end() - from);
+                self.work = self.work.saturating_add(cost + PER_MATCH);
+                let Some(found) = found else {
+                    break None;
+                };
+                let matched = start + found.start()..start + found.end();
+                if matched.is_empty() && self.skip_empty_at == Some(matched.start) {
+                    from = char_after(&line.text, found.start());
+                } else if matched.end > range.end && matched.start < range.end {
+                    // The leftmost match runs past the range; one starting later may not.
+                    from = char_after(&line.text, found.start());
+                } else {
+                    break Some(matched);
+                }
+                if from > line.text.len() {
+                    break None;
+                }
+            };
+            let over = self.work > self.limit
+                || (self.work - self.looked > LOOK_EVERY && {
+                    self.looked = self.work;
+                    stop()
+                });
+            match found {
+                Some(matched) if matched.end <= range.end => {
+                    self.at = if !matched.is_empty() {
+                        matched.end
+                    } else if matched.start - start < line.text.len() {
+                        start + char_after(&line.text, matched.start - start)
+                    } else {
+                        // Past an empty match at the line's end: the next line.
+                        next
+                    };
+                    self.skip_empty_at = (!matched.is_empty()).then_some(matched.end);
+                    return Ok(Found::Match(matched));
+                }
+                // Past the range's end: on to the next range.
+                Some(_) => self.at = range.end + 1,
+                None => {
+                    self.at = next;
+                    self.skip_empty_at = None;
+                }
+            }
+            if over {
+                return Ok(Found::Stopped { resume: self.at });
+            }
+        }
     }
 }
 
 impl Regexp {
-    /// The first match within `range`, each line its own haystack, reading at most `limit`
-    /// bytes, and none past `stop`: a line that would take it past `limit` is not read. A match never crosses a line break, `^` and `$`
-    /// are a line's start and end, and a match ending past `range` is not one.
-    ///
-    /// # Errors
-    ///
-    /// [`LineTooLong`] at a line longer than [`MAX_LINE`].
-    pub(crate) fn find_in(
-        &self,
-        text: &Rope,
-        range: Range<usize>,
-        limit: usize,
-        stop: &dyn Fn() -> bool,
-    ) -> Result<Found, LineTooLong> {
-        let first = text.offset_to_point(range.start).row;
-        let last = text.offset_to_point(range.end).row;
-        let mut line = String::new();
-        let (mut read, mut unchecked) = (0usize, 0usize);
-        for row in first..=last {
-            let (start, end) = (text.line_start(row), text.line_end(row));
-            if end - start > MAX_LINE {
-                return Err(LineTooLong(start));
-            }
-            let resume = start.max(range.start);
-            // A line is read whole, so one that would pass the budget is left for later.
-            if read.saturating_add(end - start) > limit || (unchecked > LOOK_EVERY && stop()) {
-                return Ok(Found::Stopped { resume });
-            }
-            if unchecked > LOOK_EVERY {
-                unchecked = 0;
-            }
-            line_text(text, start..end, &mut line);
-            let from = range.start.saturating_sub(start).min(line.len());
-            if let Some(found) = self.regex.find_at(&line, from) {
-                let found = start + found.start()..start + found.end();
-                if found.end <= range.end {
-                    return Ok(Found::Match(found));
-                }
-                return Ok(Found::None);
-            }
-            read += end - start + 1;
-            unchecked += end - start + 1;
-        }
-        Ok(Found::None)
-    }
-
     /// The replacement for the match at `range`: `to` with its `$1`, `${name}`, `$0` and `$$`
-    /// expanded from the match's groups, as `Regex::replace` expands them.
+    /// expanded from the match's groups, as `Regex::replace` expands them. It reads the
+    /// match and the character before it, not the whole line.
     pub(crate) fn expand(&self, text: &Rope, range: &Range<usize>, to: &str) -> String {
-        let row = text.offset_to_point(range.start).row;
-        let (start, end) = (text.line_start(row), text.line_end(row));
-        let mut line = String::new();
-        line_text(text, start..end.max(range.end), &mut line);
-        let mut out = String::new();
-        if let Some(captures) = self.regex.captures_at(&line, range.start - start) {
-            captures.expand(to, &mut out);
+        let line_start = text.line_start(text.offset_to_point(range.start).row);
+        // One character before it, for `\b`; at the line's start, `^` holds there as it did.
+        let before = if range.start > line_start {
+            text.clip_offset(range.start - 1, crate::sum_tree::Bias::Left)
         } else {
-            out.push_str(to);
+            range.start
+        };
+        let mut haystack = String::with_capacity(range.end - before);
+        haystack.extend(text.chunks_in_range(before..range.end));
+        let mut out = String::new();
+        match self.regex.captures_at(&haystack, range.start - before) {
+            Some(captures) => captures.expand(to, &mut out),
+            None => out.push_str(to),
         }
         out
     }
 
-    /// The matches within `spans`, at most `most`, reading the lines they are on if each is
-    /// at most `longest` bytes, and no more than `limit` bytes in all: for the highlights of
-    /// a frame.
+    /// The matches within `spans`, the parts of lines a frame shows, at most `most`: each line
+    /// at most `longest` bytes is read, and looked in from a little before its span to a little
+    /// after, so a frame costs as much as its view, for the highlights. A match the window cuts
+    /// at its end is left out, as it may be longer or none.
     pub(crate) fn matches_in(
         &self,
         text: &Rope,
         spans: &[Range<usize>],
-        (most, limit, longest): (usize, usize, usize),
+        (most, longest): (usize, usize),
         out: &mut Vec<Range<usize>>,
     ) {
         let mut line = String::new();
-        let mut read = 0;
-        let mut last_row = None;
         for span in spans {
-            let first = text.offset_to_point(span.start).row;
-            let last = text.offset_to_point(span.end).row;
-            for row in first..=last {
-                if last_row.is_some_and(|done| row <= done) {
+            let row = text.offset_to_point(span.start).row;
+            let (start, end) = (text.line_start(row), text.line_end(row));
+            if end - start > longest || span.start > end {
+                continue;
+            }
+            line.clear();
+            line.extend(text.chunks_in_range(start..end));
+            let floor = |at: usize| {
+                let mut at = at.min(line.len());
+                while !line.is_char_boundary(at) {
+                    at -= 1;
+                }
+                at
+            };
+            let from = floor((span.start - start).saturating_sub(VIEW_REACH));
+            let cut = floor((span.end.min(end) - start).saturating_add(VIEW_REACH));
+            let haystack = &line[..cut];
+            let mut at = from;
+            let mut last_end = None;
+            while at <= cut {
+                let Some(found) = self.regex.find_at(haystack, at) else {
+                    break;
+                };
+                let matched = start + found.start()..start + found.end();
+                let cut_off = found.end() == cut && cut < line.len();
+                let skipped = found.is_empty() && last_end == Some(found.start());
+                at = if found.is_empty() {
+                    char_after(haystack, found.start())
+                } else {
+                    found.end()
+                };
+                last_end = (!found.is_empty()).then_some(found.end());
+                if matched.end <= span.start || matched.start >= span.end {
                     continue;
                 }
-                last_row = Some(row);
-                let (start, end) = (text.line_start(row), text.line_end(row));
-                if end - start > longest || read + (end - start) > limit {
-                    continue;
-                }
-                read += end - start;
-                line_text(text, start..end, &mut line);
-                let mut at = 0;
-                while let Some(found) = self.regex.find_at(&line, at) {
-                    let range = start + found.start()..start + found.end();
-                    if range.end > span.start && range.start < span.end && !range.is_empty() {
-                        out.push(range);
-                        if out.len() == most {
-                            return;
-                        }
-                    }
-                    at = if found.end() > found.start() {
-                        found.end()
-                    } else {
-                        line[found.end()..]
-                            .chars()
-                            .next()
-                            .map_or(line.len() + 1, |c| found.end() + c.len_utf8())
-                    };
-                    if at > line.len() {
-                        break;
+                if !cut_off && !skipped && !matched.is_empty() {
+                    out.push(matched);
+                    if out.len() == most {
+                        return;
                     }
                 }
             }
@@ -203,55 +439,12 @@ impl Regexp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn find(pattern: &str, text: &str, from: usize) -> Found {
-        let rope = Rope::from(text);
-        compile(pattern)
-            .unwrap()
-            .find_in(&rope, from..rope.len(), usize::MAX, &|| false)
-            .unwrap()
-    }
-
-    #[test]
-    fn smart_case_looks_past_escapes() {
-        assert!(!smart_case(r"\W+\p{Lu}foo"));
-        assert!(smart_case("Foo"));
-        assert!(smart_case(r"\dA"));
-        assert_eq!(find("foo", "x FOO", 0), Found::Match(2..5));
-        assert_eq!(find("Foo", "x FOO Foo", 0), Found::Match(6..9));
-        assert_eq!(find("(?-i)foo", "FOO", 0), Found::None);
-    }
-
-    #[test]
-    fn a_match_keeps_to_its_line() {
-        assert_eq!(find("^b", "ab\nbc", 0), Found::Match(3..4));
-        assert_eq!(find("b$", "ab\nbc", 0), Found::Match(1..2));
-        assert_eq!(find(r"b\nb", "ab\nbc", 0), Found::None);
-        assert_eq!(find("c", "ab\nbc", 4), Found::Match(4..5));
-    }
-
-    #[test]
-    fn an_invalid_regexp_says_why() {
-        let error = compile("(").unwrap_err();
-        assert!(error.starts_with("Invalid regexp: "), "{error}");
-    }
-
-    #[test]
-    fn groups_expand_in_the_replacement() {
-        let rope = Rope::from("x key=value");
-        let regexp = compile(r"(\w+)=(?P<v>\w+)").unwrap();
-        assert_eq!(regexp.expand(&rope, &(2..11), "${v}:$1 $$"), "value:key $");
-    }
-
-    #[test]
-    fn highlights_take_the_matches_in_view() {
-        let rope = Rope::from("a1 a2\nb3 a4\n");
-        let regexp = compile(r"a\d").unwrap();
-        let mut out = Vec::new();
-        let spans: Vec<_> = std::iter::once(0..rope.len()).collect();
-        regexp.matches_in(&rope, &spans, (10, 1000, 1000), &mut out);
-        assert_eq!(out, [0..2, 3..5, 9..11]);
+impl Regexp {
+    /// Matches in lines at most `longest` bytes long, for a test of the rule.
+    pub(crate) fn set_longest_line(&mut self, longest: usize) {
+        self.longest = longest;
     }
 }
+
+#[cfg(test)]
+mod tests;

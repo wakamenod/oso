@@ -92,7 +92,7 @@ enum Work {
         invalid: InvalidBytes,
         needle: Needle,
         ranges: Vec<Range<usize>>,
-        find: Option<usize>,
+        find: Option<(usize, bool)>,
         count: Option<Counting>,
     },
 }
@@ -109,19 +109,14 @@ pub(crate) struct Counting {
 /// Where a search goes on after `found`: its end, or past an empty match, the next
 /// character's start.
 pub(crate) fn after(text: &Rope, found: &Range<usize>) -> usize {
-    if found.is_empty() {
+    if found.is_empty() && found.end >= text.len() {
+        // Past the end, so that the same empty match is not found again.
+        found.end + 1
+    } else if found.is_empty() {
         text.clip_offset(found.end + 1, crate::sum_tree::Bias::Right)
     } else {
         found.end
     }
-}
-
-/// Why a scoped search went no further.
-enum Halt {
-    /// A newer job took its place.
-    Stopped,
-    /// A regexp met a line too long to match in, which starts here.
-    TooLong(usize),
 }
 
 /// Does a scoped job's work, and reports each part as it ends, unless `stop` says so first.
@@ -129,36 +124,41 @@ fn run_scoped(
     snapshot: (&Rope, &InvalidBytes),
     needle: &Needle,
     ranges: &[Range<usize>],
-    (find, count): (Option<usize>, Option<&Counting>),
+    (find, count): (Option<(usize, bool)>, Option<&Counting>),
     stop: &dyn Fn() -> bool,
     generation: u64,
     report: &mut dyn FnMut(Report),
 ) {
     if let Some(from) = find {
-        match find_scoped(snapshot, needle, ranges, from, stop) {
-            Ok(at) => report(Report::Found { generation, at }),
-            Err(Halt::TooLong(at)) => {
+        let mut scan = needle.scan(snapshot, ranges, from, usize::MAX, None);
+        match scan.next(stop) {
+            Ok(Found::Match(at)) => report(Report::Found {
+                generation,
+                at: Some(at),
+            }),
+            Ok(Found::None) => report(Report::Found {
+                generation,
+                at: None,
+            }),
+            Ok(Found::Stopped { .. }) => return,
+            Err(LineTooLong(at)) => {
                 report(Report::LineTooLong { generation, at });
                 return;
             }
-            Err(Halt::Stopped) => return,
         }
     }
     let Some(counting) = count else {
         return;
     };
     let snapshot = (&counting.text, &counting.invalid);
+    let mut scan = needle.scan(snapshot, &counting.ranges, (0, false), usize::MAX, None);
     let mut total = 0;
-    let mut from = 0;
     loop {
-        match find_scoped(snapshot, needle, &counting.ranges, from, stop) {
-            Ok(Some(next)) => {
-                total += 1;
-                from = after(&counting.text, &next);
-            }
-            Ok(None) => break,
-            // A count past a line too long would say less than there is.
-            Err(_) => return,
+        match scan.next(stop) {
+            Ok(Found::Match(_)) => total += 1,
+            Ok(Found::None) => break,
+            // Stopped, or past a line too long, which would say less than there is.
+            Ok(Found::Stopped { .. }) | Err(_) => return,
         }
     }
     report(Report::Counted {
@@ -166,28 +166,6 @@ fn run_scoped(
         count: Count { total, before: 0 },
         at: None,
     });
-}
-
-/// The first match within `ranges`, ascending and apart, that starts at `from` or after.
-fn find_scoped(
-    snapshot: (&Rope, &InvalidBytes),
-    needle: &Needle,
-    ranges: &[Range<usize>],
-    from: usize,
-    stop: &dyn Fn() -> bool,
-) -> Result<Option<Range<usize>>, Halt> {
-    let (text, _) = snapshot;
-    for range in ranges.iter().filter(|range| range.end > from) {
-        // Past an empty match, on at the next character.
-        let start = text.clip_offset(range.start.max(from), crate::sum_tree::Bias::Right);
-        match needle.find_in(snapshot, start..range.end, usize::MAX, stop) {
-            Ok(Found::Match(found)) => return Ok(Some(found)),
-            Ok(Found::None) => {}
-            Ok(Found::Stopped { .. }) => return Err(Halt::Stopped),
-            Err(LineTooLong(at)) => return Err(Halt::TooLong(at)),
-        }
-    }
-    Ok(None)
 }
 
 /// Work for a thread, over an O(1) snapshot of a buffer's text: a search to go on with, if
@@ -245,7 +223,7 @@ impl SearchJob {
         (text, invalid): (Rope, InvalidBytes),
         needle: Needle,
         ranges: Vec<Range<usize>>,
-        (find, count): (Option<usize>, Option<Counting>),
+        (find, count): (Option<(usize, bool)>, Option<Counting>),
         (generation, live): (u64, Arc<AtomicU64>),
     ) -> Self {
         Self {

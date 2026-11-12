@@ -84,12 +84,7 @@ impl Editor {
                 // even an empty one, it goes on at its end.
                 let empty = range.is_empty();
                 if let Some(now) = self.replace_one(range) {
-                    // An empty match at the replacement's end would be the same one again.
-                    let next = if empty {
-                        self.next_from(&(now.end..now.end))
-                    } else {
-                        now.end
-                    };
+                    let next = self.moved_on(&(now.end..now.end), !empty);
                     self.replace_find(next);
                 }
             }
@@ -102,7 +97,7 @@ impl Editor {
                             replaced: None,
                         });
                     }
-                    let next = self.next_from(&range);
+                    let next = self.moved_on(&(range.end..range.end), !range.is_empty());
                     self.replace_find(next);
                 }
             }
@@ -125,7 +120,7 @@ impl Editor {
             ReplaceAnswer::Undo => self.replace_undo(),
             ReplaceAnswer::All => {
                 let from = match (current, stay) {
-                    (Some(range), _) => range.start,
+                    (Some(range), _) => (range.start, false),
                     (None, Some(stay)) => self.after_stay(Some(&stay)),
                     (None, None) => return,
                 };
@@ -152,17 +147,28 @@ impl Editor {
         self.follow_cursor();
     }
 
+    /// Where the next search starts once the session has moved on from a match that ended at
+    /// `end`, as `Regex::replace_all` goes on: past a match, an empty one where it ended is
+    /// skipped; past an empty match, on at the next character.
+    fn moved_on(&self, end: &Range<usize>, matched: bool) -> (usize, bool) {
+        if matched {
+            (end.end, true)
+        } else {
+            (self.next_from(end), false)
+        }
+    }
+
     /// Where the next search starts after the place the session stays at: its end, or past an
     /// empty match there, the next character, or the same empty match would be asked again.
-    fn after_stay(&self, stay: Option<&Range<usize>>) -> usize {
+    fn after_stay(&self, stay: Option<&Range<usize>>) -> (usize, bool) {
         let Some(stay) = stay else {
-            return 0;
+            return (0, false);
         };
         let empty = self.replace().is_some_and(|state| state.stay_empty);
         if empty {
-            self.next_from(&(stay.end..stay.end))
+            (self.next_from(&(stay.end..stay.end)), false)
         } else {
-            stay.end
+            (stay.end, true)
         }
     }
 
