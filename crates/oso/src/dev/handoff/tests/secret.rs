@@ -41,10 +41,10 @@ fn a_secret_file_behind_messages_comes_back_unshown_with_no_position() {
     editor.toggle_messages();
     let exported = export(&editor, &[], None, None).unwrap();
     let state = parse(&exported).unwrap();
-    assert_eq!(state.paths()[state.shown], None);
+    assert_eq!(state.paths()[state.window().shown], None);
     assert!(state.paths().contains(&Some(PathBuf::from(&path))));
-    assert_eq!(state.selections, SelectionSet::default());
-    assert_eq!(state.scroll, Scroll::default());
+    assert_eq!(state.window().selections, SelectionSet::default());
+    assert_eq!(state.window().scroll, Scroll::default());
 }
 
 /// A new instance that took `state`, as `import-state` builds it, with each file judged by its
@@ -60,7 +60,7 @@ fn imported(state: &State) -> Editor {
             buffer.judge_secret(Some(std::slice::from_ref(path)));
             editor.add_buffer(buffer)
         });
-        if index == state.shown {
+        if index == state.window().shown {
             shown = id;
         }
     }
@@ -98,6 +98,7 @@ fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
     editor.restore_positions(SelectionSet::new(25), Scroll { start: 10, left: 1 });
     let other = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
     let waiting = Restore {
+        window: editor.window().id(),
         buffer: other,
         selections: SelectionSet::new(600),
         scroll: Scroll { start: 40, left: 0 },
@@ -105,8 +106,8 @@ fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
     };
     editor.toggle_messages();
     let state = parse(&export(&editor, &[], None, Some(&waiting)).unwrap()).unwrap();
-    assert_eq!(state.selections, SelectionSet::default());
-    assert_eq!(state.scroll, Scroll::default());
+    assert_eq!(state.window().selections, SelectionSet::default());
+    assert_eq!(state.window().scroll, Scroll::default());
 }
 
 #[test]

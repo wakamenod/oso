@@ -43,11 +43,11 @@ fn a_window_on_messages_hands_over_where_it_goes_back_to() {
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert_eq!(
-        parsed.paths()[parsed.shown],
+        parsed.paths()[parsed.window().shown],
         Some(PathBuf::from(absolute("/p/a.txt")))
     );
-    assert_eq!(parsed.selections, at);
-    assert_eq!(parsed.scroll, scroll);
+    assert_eq!(parsed.window().selections, at);
+    assert_eq!(parsed.window().scroll, scroll);
     assert!(!state.to_string().contains("Wrote"));
     assert!(
         !state.to_string().contains("*Messages*"),
@@ -65,11 +65,11 @@ fn a_window_on_the_emergency_copies_hands_over_where_it_goes_back_to() {
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert_eq!(
-        parsed.paths()[parsed.shown],
+        parsed.paths()[parsed.window().shown],
         Some(PathBuf::from(absolute("/p/a.txt")))
     );
-    assert_eq!(parsed.selections, at);
-    assert_eq!(parsed.scroll, scroll);
+    assert_eq!(parsed.window().selections, at);
+    assert_eq!(parsed.window().scroll, scroll);
     assert!(!state.to_string().contains("Emergency"));
     assert!(import_allowed(&editor).is_err(), "no *scratch* in view");
 }
@@ -82,9 +82,9 @@ fn a_window_on_messages_with_nothing_behind_it_comes_back_on_scratch() {
     editor.kill_buffer(file);
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
-    assert_eq!(parsed.paths()[parsed.shown], None, "*scratch*");
-    assert_eq!(parsed.selections, SelectionSet::default());
-    assert_eq!(parsed.scroll, Scroll::default());
+    assert_eq!(parsed.paths()[parsed.window().shown], None, "*scratch*");
+    assert_eq!(parsed.window().selections, SelectionSet::default());
+    assert_eq!(parsed.window().scroll, Scroll::default());
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn a_secret_behind_messages_is_handed_over_unshown_with_no_position() {
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert_eq!(
-        parsed.paths()[parsed.shown],
+        parsed.paths()[parsed.window().shown],
         None,
         "the window comes back on *scratch*"
     );
@@ -121,7 +121,7 @@ fn a_secret_behind_messages_is_handed_over_unshown_with_no_position() {
         parsed.paths().contains(&Some(path)),
         "it can still be reached"
     );
-    assert_eq!(parsed.selections, SelectionSet::default());
+    assert_eq!(parsed.window().selections, SelectionSet::default());
     let shown = crate::dev::get_state(&editor, &[], None);
     assert_eq!(shown["buffer"]["name"], "*Messages*");
     assert_eq!(shown["cursor"]["offset"], 0, "*Messages* is empty");
@@ -143,7 +143,7 @@ fn a_modified_file_behind_messages_is_carried() {
     assert!(check(&editor).is_ok());
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
-    assert!(parsed.buffers[parsed.shown].carried.is_some());
+    assert!(parsed.buffers[parsed.window().shown].carried.is_some());
 }
 
 #[test]
@@ -157,6 +157,7 @@ fn positions_still_waiting_behind_messages_are_the_imported_ones() {
     editor.current_mut().0.selections = SelectionSet::new(4);
     editor.toggle_messages();
     let restore = Restore {
+        window: editor.window().id(),
         buffer: id,
         selections: SelectionSet::new(2),
         scroll: Scroll::default(),
@@ -232,24 +233,61 @@ fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
     );
 }
 
-#[test]
-fn a_split_frame_holds_the_handover_until_the_state_carries_its_layout() {
+/// An editor on `*scratch*` holding `text`, which a handoff carries.
+fn scratch_with(text: &str) -> Editor {
     let mut editor = Editor::default();
+    let id = editor.window().buffer();
+    let edit = Replacement { range: 0..0, text };
+    editor.apply_edits(id, &[edit]).unwrap();
+    editor
+}
+
+#[test]
+fn a_split_frame_hands_over_every_window_in_the_trees_order_with_its_layout() {
+    let mut editor = scratch_with("one\ntwo\nthree\n");
     editor.set_frame_size(oso_core::frame::FrameSize {
         rows: 24,
-        columns: 80,
+        columns: 81,
     });
-    let before = generation(&editor);
     editor
-        .split_window(oso_core::frame::Way::Down, false)
+        .split_window(oso_core::frame::Way::Across, false)
         .unwrap();
-    let refused = "cannot hand over: the frame has more than one window";
-    assert_eq!(check(&editor), Err(refused.into()));
-    assert_eq!(export(&editor, &[], None, None), Err(refused.into()));
-    assert!(exit_allowed(&editor, Some(before)).is_err());
-    editor.delete_other_windows();
+    editor
+        .split_window(oso_core::frame::Way::Down, true)
+        .unwrap();
+    editor.current_mut().0.selections = SelectionSet::new(4);
+    assert!(check(&editor).is_ok(), "a split frame hands over");
+    let state = export(&editor, &[], None, None).unwrap();
+    assert_eq!(state["version"], 4);
     assert_eq!(
-        check(&editor),
-        Ok(json!({ "generation": before, "unsaved": false }))
+        state["layout"],
+        json!({ "across": [
+            { "weight": 41, "run": { "down": [
+                { "weight": 12, "window": 0 },
+                { "weight": 11, "window": 1 },
+            ] } },
+            { "weight": 40, "window": 2 },
+        ] })
     );
+    assert_eq!(state["selected"], 1, "the left one split below, selected");
+    let parsed = parse(&state).unwrap();
+    assert_eq!(parsed.windows.windows.len(), 3);
+    assert_eq!(parsed.windows.layout, editor.tiling());
+    assert_eq!(parsed.windows.selected, 1);
+    assert_eq!(parsed.windows.windows[1].selections, SelectionSet::new(4));
+    // The right one kept the cursor where the text was typed.
+    assert_eq!(parsed.windows.windows[2].selections, SelectionSet::new(14));
+}
+
+#[test]
+fn a_state_of_version_3_reads_as_one_window() {
+    let editor = scratch_with("one\n");
+    let mut state = export(&editor, &[], None, None).unwrap();
+    state["version"] = json!(3);
+    state.as_object_mut().unwrap().remove("layout");
+    let parsed = parse(&state).unwrap();
+    assert_eq!(parsed.windows.layout, oso_core::frame::Tiling::Window);
+    assert_eq!(parsed.windows.windows.len(), 1);
+    state["windows"] = json!([state["windows"][0], state["windows"][0]]);
+    assert!(parse(&state).unwrap_err().contains("one window"));
 }

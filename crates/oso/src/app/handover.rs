@@ -8,6 +8,7 @@
 use std::sync::mpsc;
 
 use oso_core::buffer::{BufferId, Verdict};
+use oso_core::frame::Tiling;
 use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
 use serde_json::{Value, json};
@@ -19,8 +20,9 @@ use crate::dev::handoff::{self, carry};
 /// What a restart under `oso dev` keeps on the UI thread.
 #[derive(Default)]
 pub(super) struct Handover {
-    /// Positions handed over from the previous instance, until their file has loaded.
-    pub(super) restore: Option<handoff::Restore>,
+    /// Positions handed over from the previous instance, each window's, until their files
+    /// have loaded (ADR 0112).
+    pub(super) restore: Vec<handoff::Restore>,
     /// How many states this instance has exported, which names the latest.
     exports: u64,
     /// The texts the latest export carries, for `export-text`.
@@ -47,7 +49,7 @@ impl App {
             &self.editor,
             self.dispatcher.pending(),
             self.frame(),
-            self.handover.restore.as_ref(),
+            &self.handover.restore,
             number,
         )?;
         self.handover.exports = number;
@@ -183,15 +185,12 @@ impl App {
             });
         }
         let scratch = self.editor.window().buffer();
-        let mut shown = scratch;
+        // Each of the state's buffers as this instance names it, for the windows.
+        let mut named = Vec::with_capacity(state.buffers.len());
         let mut added = Vec::new();
         let mut judging = Vec::new();
         let mut scratch_text = None;
-        for (index, (entry, carried)) in std::mem::take(&mut state.buffers)
-            .into_iter()
-            .zip(carried)
-            .enumerate()
-        {
+        for (entry, carried) in std::mem::take(&mut state.buffers).into_iter().zip(carried) {
             let (opened_by_agent, wraps) = (entry.opened_by_agent, entry.wraps);
             let buffer = match (entry.path, carried) {
                 // The old instance held it, so it opens without asking, whatever its size
@@ -222,9 +221,7 @@ impl App {
                 }
             }
             self.editor.set_wraps(buffer, wraps);
-            if index == state.shown {
-                shown = buffer;
-            }
+            named.push(buffer);
         }
         if let (Some((text, facts)), Some(buffer)) = (scratch_text, self.editor.buffer_mut(scratch))
         {
@@ -240,14 +237,14 @@ impl App {
             let answers = answers.iter().map(Rope::to_string);
             self.editor.carry_history(name, answers);
         }
-        self.take_view(shown, state);
+        self.take_view(&named, state);
         Ok(judging)
     }
 
-    /// Shows `shown` in a window of the state's size and place, with its positions, and
-    /// feeds back its pending keys.
-    fn take_view(&mut self, shown: BufferId, state: handoff::State) {
-        self.editor.show(shown);
+    /// Lays the frame out as the state's windows were, each showing its buffer of `named` with
+    /// its positions, in a window of the state's size and place, and feeds back its pending
+    /// keys (ADR 0112).
+    fn take_view(&mut self, named: &[BufferId], state: handoff::State) {
         // The size first, so that positions are restored against it. A system that applies
         // it at once says what it came to, with no `Resized`. Most apply it later, so the
         // view takes the size asked for now, and a `Resized` event corrects this if the
@@ -269,12 +266,7 @@ impl App {
         if let Some(aids) = state.visual_aids {
             self.editor.set_visual_aids(aids);
         }
-        self.handover.restore = Some(handoff::Restore {
-            buffer: shown,
-            selections: state.selections,
-            scroll: state.scroll,
-            top_is_row: state.top_is_row,
-        });
+        self.take_windows(named, state.windows);
         self.try_restore_positions();
         self.dispatcher
             .restore_pending(&mut self.editor, &state.pending_keys);
@@ -288,18 +280,45 @@ impl App {
         self.request_redraw();
     }
 
-    /// Applies positions from a handoff if their file has loaded far enough.
-    /// Returns whether this is over: restored, or the window has moved on.
-    pub(super) fn try_restore_positions(&mut self) -> bool {
-        let done = self
-            .handover
-            .restore
-            .as_ref()
-            .is_some_and(|restore| restore.try_apply(&mut self.editor));
-        if done {
-            self.handover.restore = None;
+    /// Splits the frame as the state's layout says, shows each window's buffer, keeps each
+    /// window's positions to restore, and selects the window that was selected. A layout this
+    /// editor cannot take leaves one window, the state's first.
+    fn take_windows(&mut self, named: &[BufferId], windows: handoff::Windows) {
+        let first = self.editor.tiled().0.id();
+        let ids = match windows.layout {
+            Tiling::Window => vec![first],
+            ref layout => self
+                .editor
+                .set_tiling(layout)
+                .unwrap_or_else(|_| vec![first]),
+        };
+        self.handover.restore.clear();
+        for (id, entry) in ids.iter().zip(windows.windows) {
+            let Some(&buffer) = named.get(entry.shown) else {
+                continue;
+            };
+            self.editor.select_window(*id);
+            self.editor.show(buffer);
+            self.handover.restore.push(handoff::Restore {
+                window: *id,
+                buffer,
+                selections: entry.selections,
+                scroll: entry.scroll,
+                top_is_row: entry.top_is_row,
+            });
         }
-        done
+        let selected = ids.get(windows.selected).copied().unwrap_or(first);
+        self.editor.select_window(selected);
+    }
+
+    /// Applies positions from a handoff if their files have loaded far enough.
+    /// Returns whether this is over: every window restored, or moved on.
+    pub(super) fn try_restore_positions(&mut self) -> bool {
+        let editor = &mut self.editor;
+        self.handover
+            .restore
+            .retain(|restore| !restore.try_apply(editor));
+        self.handover.restore.is_empty()
     }
 
     /// `dev-message`: what `oso dev` has to say, in the echo area and `*Messages*`.

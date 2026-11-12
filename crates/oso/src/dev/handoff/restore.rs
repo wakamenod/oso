@@ -10,7 +10,7 @@ use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::Editor;
 use oso_core::selection::{MarkRing, Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
-use oso_core::window::Scroll;
+use oso_core::window::{Scroll, WindowId};
 
 /// Positions waiting for their file to load, since a cursor or a mark cannot sit in
 /// text that has not arrived. The file may also have changed since the export, so
@@ -18,6 +18,8 @@ use oso_core::window::Scroll;
 /// its positions apply at once.
 #[derive(Debug)]
 pub struct Restore {
+    /// The window the positions are for (ADR 0112).
+    pub window: WindowId,
     pub buffer: BufferId,
     pub selections: SelectionSet,
     pub scroll: Scroll,
@@ -36,9 +38,13 @@ impl Restore {
     /// Moves the window to the positions if the buffer holds them by now, or, if the
     /// window has gone to another buffer meanwhile, the place it keeps for this one, which
     /// showing it again gives back (ADR 0090). Returns whether this is over: restored, or the
-    /// window keeps no place for the buffer.
+    /// window is gone or keeps no place for the buffer. A window that is not selected is
+    /// selected for it and the selection put back, but not while isearch runs, which ends when
+    /// another window is selected: it waits (ADR 0112).
     pub fn try_apply(&self, editor: &mut Editor) -> bool {
-        let window = editor.tiled().0;
+        let Some(window) = editor.window_by_id(self.window) else {
+            return true;
+        };
         let shown = window.buffer() == self.buffer;
         let kept = window.places().any(|(buffer, _)| buffer == self.buffer);
         let Some(buffer) = editor.buffer(self.buffer).filter(|_| shown || kept) else {
@@ -65,10 +71,21 @@ impl Restore {
         } else {
             clip(&display, scroll.start)
         };
+        let selected = editor.tiled().0.id();
+        let elsewhere = selected != self.window;
+        if elsewhere && (editor.isearch().is_some() || editor.prompt().is_some()) {
+            return false;
+        }
+        if elsewhere {
+            editor.select_window(self.window);
+        }
         if shown {
             editor.restore_positions(selections, scroll);
         } else {
             editor.restore_kept_place(self.buffer, selections, scroll);
+        }
+        if elsewhere {
+            editor.select_window(selected);
         }
         true
     }

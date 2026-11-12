@@ -234,7 +234,8 @@ The new commands are in `crates/oso/src/commands/windows.rs`, bound in `bindings
   - `layout`: the tree, as nested `{"across": [...]}` or `{"down": [...]}` of
     `{"weight": n, "window": i}` or `{"weight": n, "run": {...}}`, at most 16 deep;
   - `selected`: the index of the selected window, as today.
-- **A reader takes version 4 and version 3** (ADR 0090), a version 3 state as one window.
+- **A reader takes version 4 and version 3** (ADR 0090), a version 3 state as one window. As
+  built, it also keeps reading version 2, as it did before (the author's choice, 2026-11-12).
 - Places stay out of the handoff, as ADR 0088 has it. Each window's internal buffer falls back
   as the one window's does (ADR 0063, ADR 0079).
 - A state that does not fit its line, with many windows of many cursors, is refused as one too
@@ -318,6 +319,19 @@ file or a 10 MB line.
   its region, its current line's band and its flash, as Emacs keeps them in the minibuffer's
   selected window, so ADR 0072 and ADR 0097 hold as written. Its cursor is hollow and its
   modeline inactive, as every window's beneath a prompt.
+- **As built, step 4:**
+  - `frame::Tiling` is the tree as data, each child with its weight, its windows in the tree's
+    order. `Editor::tiling()` gives it, and `Editor::set_tiling()` lays a frame of one window
+    out as one says, refusing what the tree cannot keep (`BadTiling`): a run of fewer than two
+    children, a weight of 0, runs deeper than 16. A run inside one of the same way is merged,
+    its weights scaled so every share stays.
+  - The dev socket's `get-state` and the agent channel's `state` list the tiled windows in the
+    tree's order, each with `id` and `area`, its gutter, text and modeline together; `selected`
+    is the selected tiled window, also beneath a prompt. The channel's state stays version 1.
+  - The handoff is version 4: every window, `layout` and `selected`. A window waiting for its
+    file to load takes its positions when it does, as the one window did; one that is not
+    selected waits while isearch runs or a prompt is open, as selecting it would end them.
+    `Editor::place_behind_internal_of()` gives each window's way back.
 - **`Agent` stays in sight (the author's choice, 2026-11-12):** a prompt's float can cover the
   selected window's modeline, which then sits mid-frame. While one does, the bottom-most
   window's modeline, the left-most on the bottom row, says `Agent` too (ADR 0085).

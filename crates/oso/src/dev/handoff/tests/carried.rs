@@ -28,7 +28,7 @@ fn a_modified_file_is_carried_with_what_was_known_of_it_and_no_text_in_the_state
         true,
         "it may hand over, not be closed"
     );
-    let (state, exported) = super::super::export(&editor, &[], None, None, 7).unwrap();
+    let (state, exported) = super::super::export(&editor, &[], None, &[], 7).unwrap();
     assert!(
         !state.to_string().contains(TYPED),
         "the state names lengths only"
@@ -37,7 +37,10 @@ fn a_modified_file_is_carried_with_what_was_known_of_it_and_no_text_in_the_state
     let text = format!("{TYPED}on disk\n");
     assert_eq!(state["items"], json!([text.len()]));
     let parsed = parse(&state).unwrap();
-    let carried = parsed.buffers[parsed.shown].carried.as_ref().unwrap();
+    let carried = parsed.buffers[parsed.window().shown]
+        .carried
+        .as_ref()
+        .unwrap();
     assert_eq!(carried.item, 0);
     assert_eq!(carried.facts, facts);
     let piece = exported.piece(7, 0, 0).unwrap().run().unwrap();
@@ -129,13 +132,14 @@ fn marks_the_region_and_the_mark_ring_round_trip_and_are_put_back() {
     let set = set.with_ring(MarkRing::from_newest([20, 3]));
     editor.restore_positions(set.clone(), Scroll::default());
     let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
-    assert_eq!(state.selections, set);
+    assert_eq!(state.window().selections, set);
 
     let mut new = visiting(&absolute("/p/a.txt"), &"line\n".repeat(10));
     let restore = Restore {
+        window: new.window().id(),
         buffer: new.window().buffer(),
-        selections: state.selections,
-        scroll: state.scroll,
+        selections: state.window().selections.clone(),
+        scroll: state.window().scroll,
         top_is_row: false,
     };
     assert!(restore.try_apply(&mut new));
@@ -158,6 +162,7 @@ fn marks_and_the_ring_move_to_what_exists_and_wait_for_the_file() {
         goal: None,
     }];
     let restore = Restore {
+        window: editor.window().id(),
         buffer: id,
         selections: SelectionSet::from_parts(selections, 0)
             .unwrap()
@@ -259,7 +264,10 @@ fn what_was_known_of_a_carried_file_round_trips() {
     let facts = buffer.file_facts();
     type_text(&mut editor);
     let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
-    let carried = state.buffers[state.shown].carried.as_ref().unwrap();
+    let carried = state.buffers[state.window().shown]
+        .carried
+        .as_ref()
+        .unwrap();
     assert_eq!(carried.facts, facts);
     assert_eq!(facts.info.line_ending, oso_core::decode::LineEnding::Crlf);
 }
@@ -267,7 +275,7 @@ fn what_was_known_of_a_carried_file_round_trips() {
 #[test]
 fn bad_carried_fields_are_refused() {
     let bad: [(&str, Mutation); 11] = [
-        ("version 4", Box::new(|s| s["version"] = json!(4))),
+        ("version 5", Box::new(|s| s["version"] = json!(5))),
         (
             "no items",
             Box::new(|s| {

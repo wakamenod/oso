@@ -139,3 +139,72 @@ fn a_secret_buffer_beside_keeps_screenshots_refused_and_secure_input_follows_sel
         app.wait_for("none back in the plain one", |state| !wanted(state));
     }
 }
+
+/// Each window's buffer name, in the tree's order.
+fn shown_names(state: &Value) -> Vec<Value> {
+    let buffers = state["buffers"].as_array().expect("buffers are listed");
+    windows(state)
+        .iter()
+        .map(|window| {
+            let buffer = buffers
+                .iter()
+                .find(|buffer| buffer["id"] == window["buffer"]);
+            buffer.map_or(Value::Null, |buffer| buffer["name"].clone())
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_split_frame_comes_back_after_a_restart_with_each_windows_buffer_and_place() {
+    let scratch = Scratch::new("windows-restart");
+    let notes = scratch.write("notes.md", b"agenda\nbudget\nhiring\n");
+    let plan = scratch.write("plan.md", b"first\nsecond\nthird\n");
+    let mut old = App::start(Some(&notes), scratch.path());
+    old.wait_until_ready();
+    // notes | plan, with plan split below and its lower half selected on its second line.
+    old.send_keys("C-x 3");
+    old.open_file(&plan);
+    old.wait_until_ready();
+    old.send_keys("C-x 2 C-n");
+    let before = old.state();
+    assert_eq!(windows(&before).len(), 3);
+
+    let mut new = App::start(None, scratch.path());
+    new.wait_until_ready();
+    let (state, _) = super::handover::hand_over(&mut old, &mut new);
+    assert_eq!(state["version"], 4);
+    let after = new.wait_for("both files loaded", |state| {
+        windows(state).len() == 3
+            && state["buffers"]
+                .as_array()
+                .is_some_and(|buffers| buffers.iter().all(|b| b["loading"].is_null()))
+    });
+    assert_eq!(
+        shown_names(&after),
+        shown_names(&before),
+        "each window's buffer"
+    );
+    let selected = |state: &Value| -> Vec<Value> {
+        windows(state)
+            .iter()
+            .map(|window| window["selected"].clone())
+            .collect()
+    };
+    assert_eq!(
+        selected(&after),
+        selected(&before),
+        "the same window selected"
+    );
+    assert_eq!(after["cursor"], before["cursor"], "its cursor");
+    if after["surface"] == before["surface"] {
+        let areas = |state: &Value| -> Vec<Value> {
+            windows(state)
+                .iter()
+                .map(|window| window["area"].clone())
+                .collect()
+        };
+        assert_eq!(areas(&after), areas(&before), "the same layout");
+    }
+    new.stop_and_read_log();
+}

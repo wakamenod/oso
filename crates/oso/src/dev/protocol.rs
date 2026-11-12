@@ -730,6 +730,7 @@ mod tests {
                 "selections": [{ "cursor": 0, "goal": null }],
                 "scroll": { "start": 0, "left": 0 },
             }],
+            "layout": { "window": 0 },
             "selected": 0,
             "pending_keys": "",
             "frame": null,

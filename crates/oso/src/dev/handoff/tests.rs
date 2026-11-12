@@ -52,9 +52,9 @@ fn type_text(editor: &mut Editor) {
 }
 
 /// A change that spoils a state.
-type Mutation = Box<dyn Fn(&mut Value)>;
+pub(super) type Mutation = Box<dyn Fn(&mut Value)>;
 
-fn with(mutate: impl FnOnce(&mut Value)) -> Value {
+pub(super) fn with(mutate: impl FnOnce(&mut Value)) -> Value {
     let editor = visiting(&absolute("/p/a.txt"), "abc\n");
     let mut state = export(&editor, &[], None, None).unwrap();
     mutate(&mut state);
@@ -95,13 +95,18 @@ fn a_state_round_trips() {
         state.paths(),
         [None, Some(PathBuf::from(absolute("/p/a.txt")))]
     );
-    assert_eq!(state.shown, 1);
+    assert_eq!(state.window().shown, 1);
     assert_eq!(
-        state.selections.iter().copied().collect::<Vec<_>>(),
+        state
+            .window()
+            .selections
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
         selections
     );
-    assert_eq!(state.selections.primary().cursor, 11);
-    assert_eq!(state.scroll, Scroll { start: 10, left: 1 });
+    assert_eq!(state.window().selections.primary().cursor, 11);
+    assert_eq!(state.window().scroll, Scroll { start: 10, left: 1 });
     assert_eq!(state.pending_keys, pending.0);
     assert_eq!(state.frame, Some(frame));
 
@@ -124,8 +129,8 @@ fn positions_still_waiting_for_their_file_are_the_ones_exported() {
     editor.show(id);
     let restore = restore(600, 40, &editor);
     let state = parse(&export(&editor, &[], None, Some(&restore)).unwrap()).unwrap();
-    assert_eq!(state.selections.primary().cursor, 600);
-    assert_eq!(state.scroll.start, 40);
+    assert_eq!(state.window().selections.primary().cursor, 600);
+    assert_eq!(state.window().scroll.start, 40);
 }
 
 #[test]
@@ -291,8 +296,8 @@ fn bad_fields_are_refused() {
             "start",
             Box::new(|s| s["windows"][0]["scroll"]["start"] = json!(-1)),
         ),
-        ("one window", Box::new(|s| s["windows"] = json!([]))),
-        ("one window", Box::new(|s| s["selected"] = json!(1))),
+        ("1 to", Box::new(|s| s["windows"] = json!([]))),
+        ("selected window", Box::new(|s| s["selected"] = json!(1))),
         (
             "does not have",
             Box::new(|s| s["windows"][0]["buffer"] = json!(99)),
@@ -346,6 +351,7 @@ fn bad_fields_are_refused() {
 
 fn restore(cursor: usize, top: usize, editor: &Editor) -> Restore {
     Restore {
+        window: editor.window().id(),
         buffer: editor.window().buffer(),
         selections: SelectionSet::new(cursor),
         scroll: Scroll {
@@ -455,6 +461,7 @@ fn a_finished_save_lets_the_handover_through() {
 }
 
 mod carried;
+mod layout;
 mod secret;
 
 #[test]
@@ -489,7 +496,10 @@ fn a_buffer_that_wraps_says_so_and_comes_back_wrapped() {
     let mut editor = visiting(&absolute("/p/a.txt"), &"word ".repeat(100));
     let id = editor.window().buffer();
     let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
-    assert!(!state.buffers[state.shown].wraps, "said only when it does");
+    assert!(
+        !state.buffers[state.window().shown].wraps,
+        "said only when it does"
+    );
     editor.set_wraps(id, true);
     let exported = export(&editor, &[], None, None).unwrap();
     assert_eq!(exported["buffers"][1]["wraps"], true);
@@ -511,8 +521,8 @@ fn a_top_still_waiting_as_a_row_goes_on_as_one() {
     let exported = export(&editor, &[], None, Some(&waiting)).unwrap();
     assert_eq!(exported["windows"][0]["scroll"]["top"], 40);
     let state = parse(&exported).unwrap();
-    assert!(state.top_is_row, "a row, not an offset");
-    assert_eq!(state.scroll.start, 40);
+    assert!(state.window().top_is_row, "a row, not an offset");
+    assert_eq!(state.window().scroll.start, 40);
 }
 
 #[test]

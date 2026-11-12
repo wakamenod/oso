@@ -21,7 +21,7 @@ use super::follow::Selected;
 use super::{Editor, Isearch};
 use crate::buffer::{BufferId, Replacement};
 use crate::selection::SelectionSet;
-use crate::window::Scroll;
+use crate::window::{Scroll, WindowId};
 
 /// The messages the editor keeps, as Emacs's `message-log-max`.
 const MAX_MESSAGES: usize = 1000;
@@ -298,12 +298,24 @@ impl Editor {
         if !self.current().1.is_internal() {
             return None;
         }
-        let first = *self.tiled().0.way_back().first()?;
+        self.place_behind_internal_of(self.tiled_id())
+    }
+
+    /// Where the window `id` goes back to through the internal buffers it has gone to, if it is
+    /// on one and that buffer still exists, for a state handoff of every window (ADR 0112).
+    pub fn place_behind_internal_of(
+        &self,
+        id: WindowId,
+    ) -> Option<(BufferId, &SelectionSet, Scroll)> {
+        let window = self.window_by_id(id)?;
+        if !self.shown(window).is_internal() {
+            return None;
+        }
+        let first = *window.way_back().first()?;
         let buffer = self.buffer(first)?;
         if buffer.is_internal() {
             return None;
         }
-        let window = &self.windows[self.tiled_index()];
         let (_, place) = window.places().find(|(id, _)| *id == first)?;
         Some((first, &place.selections, place.scroll))
     }
