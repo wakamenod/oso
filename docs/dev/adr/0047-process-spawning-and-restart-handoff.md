@@ -1,6 +1,6 @@
 # 0047. Process spawning and the restart handoff
 
-- Status: Accepted, amended by 0090 and 0122
+- Status: Accepted, amended by 0090, 0120 and 0122
 - Date: 2026-11-04
 
 ## Context
