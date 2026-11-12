@@ -6,6 +6,9 @@
 
 use std::path::Path;
 
+use crate::indent::{self, Answer, Budget, Line, Settings};
+use crate::rope::Rope;
+
 /// Which keys a buffer takes, what its modeline calls it, and which language it holds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Mode {
@@ -65,6 +68,22 @@ impl Mode {
     pub fn shows_copies(self) -> bool {
         matches!(self, Self::CopyList | Self::CopyView)
     }
+
+    /// The rules its lines are indented by (ADR 0115), or none for the emergency copies'
+    /// buffers, whose text is not the person's to indent.
+    #[expect(
+        clippy::type_complexity,
+        reason = "the rules' own signature, which naming would make a public item of its own"
+    )]
+    pub fn indent_rules(self) -> Option<fn(&Rope, Settings, &[Line], &mut Budget) -> Vec<Answer>> {
+        match self {
+            Self::Rust => Some(indent::rust),
+            Self::Toml => Some(indent::toml),
+            Self::Markdown => Some(indent::markdown),
+            Self::Fundamental => Some(indent::fundamental),
+            Self::CopyList | Self::CopyView => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -82,6 +101,14 @@ mod tests {
         assert_eq!(mode("Cargo.toml"), Mode::Toml);
         assert_eq!(mode("work/Cargo.lock"), Mode::Toml);
         assert_eq!(mode("LIB.RS"), Mode::Rust);
+    }
+
+    #[test]
+    fn each_mode_but_the_copies_has_indentation_rules() {
+        let modes = [Mode::Rust, Mode::Toml, Mode::Markdown, Mode::Fundamental];
+        assert!(modes.iter().all(|mode| mode.indent_rules().is_some()));
+        assert!(Mode::CopyList.indent_rules().is_none());
+        assert!(Mode::CopyView.indent_rules().is_none());
     }
 
     #[test]

@@ -42,7 +42,10 @@ pub enum Report {
     Refused(String),
     /// The file was read and parsed. `group_writes` if the users of its group, or of its
     /// directory's, may change it, which is said beside what it holds.
-    Read { loaded: Loaded, group_writes: bool },
+    Read {
+        loaded: Box<Loaded>,
+        group_writes: bool,
+    },
 }
 
 /// What the file was when last looked at, to tell when to read it again.
@@ -233,7 +236,7 @@ fn read_and_parse(
                 }
             }
             let report = Report::Read {
-                loaded,
+                loaded: Box::new(loaded),
                 group_writes,
             };
             (report, hash.finish())

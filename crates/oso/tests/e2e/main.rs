@@ -19,6 +19,7 @@ mod handover;
 mod harness;
 mod highlight;
 mod ime;
+mod indent;
 mod isearch;
 mod kill;
 mod macros;

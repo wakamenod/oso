@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use oso_core::keymap::Keymap;
 
 use super::{App, UserEvent};
-use crate::config::{InForce, Look, Reader, Settings, Source, outcome};
+use crate::config::{InForce, Look, MODES, Reader, Settings, Source, outcome};
 
 /// The configuration's thread, what has been said of the file, and the settings in force.
 pub(super) struct Configuration {
@@ -185,6 +185,15 @@ impl App {
         configuration.applied = true;
         self.editor
             .set_trim_whitespace(configuration.in_force.trim_whitespace);
+        if let Some(on) = changes.electric_indent {
+            self.editor.set_electric_indent(on);
+        }
+        if changes.mode_indents {
+            let indents = configuration.in_force.mode_indents;
+            self.editor.set_mode_indents(std::array::from_fn(|index| {
+                (MODES[index].1, indents[index])
+            }));
+        }
         if let Some(aids) = changes.aids {
             self.editor.set_visual_aids(aids);
         }

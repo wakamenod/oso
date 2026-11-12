@@ -7,8 +7,9 @@
 //!
 //! Each makes one edit with one replacement per cursor of the selected window
 //! (ADR 0007), through `Editor::apply_edits`, which moves the cursors and refuses
-//! a read-only buffer. The dispatcher opens and closes the undo group around a
-//! command, so one command is one undo step across all cursors.
+//! a read-only buffer; a typed closer first on its line then reindents that line
+//! (ADR 0115). The dispatcher opens and closes the undo group around a command, so
+//! one command is one undo step across all cursors. The line breaks are in `indent`.
 
 use std::borrow::Cow;
 
@@ -16,12 +17,7 @@ use oso_core::buffer::{EditError, Replacement};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::motion::{self, Edge, WalkBudget};
 
-use super::budget_left;
-
-/// The most text one command inserts across all cursors, so that a count cannot
-/// run the process out of memory, which aborts it with no emergency save
-/// (ADR 0051). It takes about 40 ms to insert, which is no freeze.
-const MAX_INSERT: usize = 16 * 1024 * 1024;
+use super::{MAX_INSERT, budget_left};
 
 /// The most undo steps one command crosses. A step of joined typing has 20 small
 /// edits at about 9 µs each, so this takes about 50 ms, and more for text it puts
@@ -55,13 +51,6 @@ pub const COMMANDS: &[Command] = &[
         run: insert_full_width_space,
     },
     Command {
-        name: "newline",
-        doc: "Insert a line break at every cursor, N times.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. Each is an undo step of its own. A negative N signals an error.",
-        args: ArgSpec::Count,
-        reach: Reach::Change,
-        run: newline,
-    },
-    Command {
         name: "delete-backward-char",
         doc: "Delete the N characters before every cursor (after it if N is negative), or the region if it shows.\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters before it deletes nothing and signals \"Beginning of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
         args: ArgSpec::Count,
@@ -77,7 +66,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "tab-to-tab-stop",
-        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. Indenting by mode comes with modes.",
+        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. `TAB` runs it in Markdown, Fundamental mode and internal buffers; in Rust and TOML it indents by mode (`indent-for-tab-command`).",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: tab_to_tab_stop,
@@ -152,7 +141,12 @@ fn self_insert_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
     if input.is_empty() {
         return Err(CommandError::new("No text to insert"));
     }
-    type_text(ctx, input, args.count())
+    type_text(ctx, input, args.count())?;
+    // A closer typed first on its line goes under its opener's line (ADR 0115).
+    if matches!(input, "}" | ")" | "]") {
+        ctx.editor.indent_typed_closers()?;
+    }
+    Ok(())
 }
 
 /// Inserts `text` as typing does: a single character with a count under 2 asks to
@@ -171,11 +165,6 @@ const FULL_WIDTH_SPACE: &str = "\u{3000}";
 
 fn insert_full_width_space(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     type_text(ctx, FULL_WIDTH_SPACE, args.count())
-}
-
-fn newline(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    let ending = ctx.editor.current().1.file_info().line_ending.text();
-    insert_at_cursors(ctx, ending, args.count())
 }
 
 /// Deletes `n` display clusters at every cursor of the selected window, after

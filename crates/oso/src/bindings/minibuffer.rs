@@ -6,6 +6,8 @@
 /// work in it unchanged.
 pub const MINIBUFFER: &[(&str, &str)] = &[
     ("RET", "exit-minibuffer"),
+    // As in Emacs, not the global key's line break.
+    ("C-j", "exit-minibuffer"),
     ("C-g", "keyboard-quit"),
     ("M-p", "previous-history-element"),
     ("M-n", "next-history-element"),
