@@ -11,13 +11,19 @@
 use std::ops::Range;
 
 use super::leads::{leads_of, read_cost};
-use super::region::{MAX_CHANGED_LINES, REGION_LIMIT};
 use super::{IndentError, blanks_before, leading};
 use crate::buffer::{EditError, Replacement};
 use crate::display_map::TabWidth;
 use crate::editor::Editor;
 use crate::rope::Rope;
 use crate::selection::SelectionSet;
+
+/// The most lines one `M-^` joins: a join removes a line break, a splice of about 2 µs, so that
+/// the command stays under 50 ms with its reading (ADR 0115, step 3).
+pub(crate) const MAX_JOINS: usize = 15_000;
+
+/// What one `M-^` over a region may read, as [`read_cost`] counts it.
+pub(crate) const JOIN_READ: usize = 2 << 20;
 
 impl Editor {
     /// `M-m` (`back-to-indentation`): moves each cursor of the selected window to the first
@@ -64,7 +70,7 @@ impl Editor {
             .filter(|run| run.len() > 1)
             .map(|run| run.start - 1..run.end)
             .collect();
-        if joins > MAX_CHANGED_LINES || read_cost(rope, &read) > REGION_LIMIT {
+        if joins > MAX_JOINS || read_cost(rope, &read) > JOIN_READ {
             return Err(IndentError::TooLarge);
         }
         let joined = joined(rope, buffer.tab_width(), &runs);

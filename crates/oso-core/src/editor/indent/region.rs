@@ -31,6 +31,10 @@ pub(crate) const REGION_LIMIT: usize = 6 << 20;
 /// microsecond (ADR 0092), so that the edit stays within what the reading leaves of 50 ms.
 pub(crate) const MAX_CHANGED_LINES: usize = 30_000;
 
+/// The most bytes one region command inserts, whatever its caller allows: deep columns over many
+/// lines cost the edit about 3 ms a MiB on top of its splices (ADR 0115, step 3).
+pub(crate) const REGION_INSERT: usize = 4 << 20;
+
 /// Which way `indent-rigidly` goes to a tab stop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shift {
@@ -50,6 +54,9 @@ pub(in crate::editor) struct RigidLayer {
     began: (ContentId, u64),
     before: SelectionSet,
     after: (ContentId, u64),
+    /// The lines its keys changed so far: past [`MAX_CHANGED_LINES`], its next key starts a new
+    /// step, so that no undo of one replays more than about that many.
+    changed: usize,
 }
 
 /// How the lines of a region change.
@@ -148,12 +155,15 @@ impl Editor {
                 began: mark,
                 before: window.selections.clone(),
                 after: mark,
+                changed: 0,
             });
         }
     }
 
-    /// Changes the lines of every region as `how` says, as one edit.
+    /// Changes the lines of every region as `how` says, as one edit, inserting at most `limit`
+    /// bytes, and never more than [`REGION_INSERT`].
     fn change_regions(&mut self, how: How, limit: usize) -> Result<(), IndentError> {
+        let limit = limit.min(REGION_INSERT);
         let (window, buffer) = self.current();
         let set = &window.selections;
         if set.iter().any(|selection| selection.mark.is_none()) {
@@ -209,6 +219,8 @@ impl Editor {
         }
         let shown = set.mark_active();
         let id = window.buffer();
+        let changed = changes.len();
+        self.start_layer_step(changed);
         let edits: Vec<_> = changes
             .into_iter()
             .map(|(range, text)| Replacement {
@@ -222,9 +234,25 @@ impl Editor {
             let mark = self.current().1.undo_mark();
             if let Some(layer) = &mut self.rigid {
                 layer.after = mark;
+                layer.changed += changed;
             }
         }
         Ok(())
+    }
+}
+
+impl Editor {
+    /// Before an edit of `changed` lines in the open layer of `C-x TAB`: if its keys' edits would
+    /// pass [`MAX_CHANGED_LINES`], the step so far closes and a new one starts here.
+    fn start_layer_step(&mut self, changed: usize) {
+        let full = self
+            .rigid
+            .as_ref()
+            .is_some_and(|layer| layer.changed > 0 && layer.changed + changed > MAX_CHANGED_LINES);
+        if full && self.indent_rigidly_layer() {
+            self.set_indent_rigidly_layer(false);
+            self.set_indent_rigidly_layer(true);
+        }
     }
 }
 

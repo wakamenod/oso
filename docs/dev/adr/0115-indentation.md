@@ -761,8 +761,17 @@ As built:
   only when at most 30,000 of its lines change. A whole 2 MiB file pasted at the margin, 84,000
   lines, is refused, and is reindented in parts. A batched splice for large edits would lift
   this; it is a later ADR (`open-questions.md`).
-- **`M-^`** joins at most 20,000 lines a command, and reads no more than the 6 MiB budget: a join
-  removes a line break, a splice of about 2 µs.
+- **`M-^` over a region** joins at most **15,000 lines** and reads at most **2 MiB** (`bytes +
+  lines * LINE_COST`) a command (the author's choice): a join removes a line break, a splice of
+  about 2 µs. Past either it signals "Region too large to indent" and changes nothing.
+- **The region commands insert at most 4 MiB** a command, under the 16 MiB any command may (the
+  author's choice): a deep column over many lines costs the edit about 3 ms a MiB on top of its
+  splices, so `C-u 559 C-M-\` over 29,000 lines took 93 ms. Past it they signal "Too much text to
+  insert" and change nothing.
+- **Corrected:** "The keys of one `C-x TAB` session join into one undo step" (Commands and keys)
+  holds while they change at most 30,000 lines in all; the key that would take them past it starts
+  a new step (the author's choice), so that undoing one replays no more than about that many
+  splices. A session over a small region stays one step.
 - **The region's lines are read in one pass** (`editor/indent/leads.rs`): each line's
   indentation, what it is made of, whether it is blank, and where its text ends, for
   `indent-region`, `indent-rigidly` and `M-^` over a region. A seek to each line cost about
@@ -783,12 +792,13 @@ As built:
   there and no prefix argument reads. Another buffer shown in that window, by the agent channel
   or a load, leaves the layer behind, and the next command closes it. A file read again waits
   while the layer is open, as it does for isearch, and an edit that no key of the layer made is
-  never joined into its step. The dispatcher closes
-  it before any command a key of the layer did not run, the agent channel's too, and on an
-  undefined key or `C-g` under a prefix. Closing it joins the edits since it opened into one undo
-  step (`Buffer::join_undo_since`, as query-replace does), which goes back to the cursors before
-  it, so the joined step has no limit of keys. While it is open, each shift leaves the region as
-  shown as it was. `C-x TAB` with no mark signals "The mark is not set now", as Emacs's `r` does.
+  never joined into its step. The dispatcher closes it before any command but the layer's four
+  shifts that the person runs, before every command of the agent channel, and on an undefined key
+  or `C-g` under a prefix. Closing it joins the edits since it opened into one undo step
+  (`Buffer::join_undo_since`, as query-replace does), which goes back to the cursors before it,
+  with no limit of keys but the lines they change (below). While it is open, each shift leaves
+  the region as shown as it was. `C-x TAB` with no mark signals "The mark is not set now", as
+  Emacs's `r` does.
   A dev restart does not hand the layer over.
 - **To a tab stop** moves each region's least indented non-blank line to the next or previous
   multiple of `indent_size`, and the region's other lines by as much. Shifting right takes no line
@@ -818,7 +828,13 @@ As built:
   | `indent-region`, 30,000 short lines that change | 27.8 ms | 28.0 ms |
   | `indent-region`, 2 MiB right then 30,000 lines that change (the most it takes) | 43.5 ms | 43.6 ms |
   | `indent-region`, 2 MiB at the margin (refused after reading) | 10.8 ms | 11.0 ms |
+  | `indent-region`, 2 MiB of tab indentation already right | 10.2 ms | 10.3 ms |
+  | `indent-region`, 70,000 lines each before a blank line | 9.9 ms | 10.4 ms |
+  | `indent-region`, 1000 regions of 30 lines apart in 5 MiB | 7.5 ms | 7.7 ms |
+  | `indent-region` to column 140 over 29,000 lines (4 MiB inserted) | 38.5 ms | 39.0 ms |
   | `indent-rigidly` over 29,000 lines | 30.9 ms | 31.6 ms |
-  | `M-^` over 10,000 / 20,000 lines | 19.9 / 40.9 ms | 20.2 / 41.2 ms |
+  | `indent-rigidly`, 1000 regions of 30 lines | 38.2 ms | 38.7 ms |
+  | `M-^` over 10,000 lines | 20.1 ms | 20.3 ms |
+  | `M-^` over 15,000 lines, 2 MiB read (the most it takes) | 43.4 ms | 43.6 ms |
   | Markdown `TAB` at 1000 cursors in a 2 MiB document | 1.7 ms | 1.8 ms |
   | `M-RET` at 1000 cursors | 1.3 ms | 1.3 ms |

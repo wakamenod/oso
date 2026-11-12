@@ -456,3 +456,37 @@ fn an_edit_from_elsewhere_while_the_layer_is_open_joins_nothing() {
     command(&mut editor, Editor::undo).unwrap();
     assert_eq!(text(&editor, id), " a\n b", "and the shifts one by one");
 }
+
+#[test]
+fn a_region_command_inserts_at_most_its_own_limit() {
+    let lines = super::REGION_INSERT / 4096 + 1;
+    let start = format!("[{}|", "x\n".repeat(lines));
+    let (mut editor, id) = regions(Mode::Fundamental, &start, false);
+    assert_eq!(
+        region(&mut editor, Some(4096)),
+        Err(IndentError::TooMuchText)
+    );
+    assert_eq!(text(&editor, id), "x\n".repeat(lines));
+    assert_eq!(region(&mut editor, Some(2048)), Ok(()));
+}
+
+#[test]
+fn a_long_layer_session_starts_a_new_undo_step_past_the_changed_lines() {
+    let lines = MAX_CHANGED_LINES * 2 / 3;
+    let start = format!("[{}|", "x\n".repeat(lines));
+    let (mut editor, id) = regions(Mode::Fundamental, &start, true);
+    editor.set_indent_rigidly_layer(true);
+    for _ in 0..3 {
+        rigidly(&mut editor, 1).unwrap();
+    }
+    editor.set_indent_rigidly_layer(false);
+    let shifted = |columns: usize| format!("{}x\n", " ".repeat(columns)).repeat(lines);
+    assert_eq!(text(&editor, id), shifted(3));
+    // Each shift but the first passes the bound with the ones before it, so each is a step.
+    command(&mut editor, Editor::undo).unwrap();
+    assert_eq!(text(&editor, id), shifted(2));
+    command(&mut editor, Editor::undo).unwrap();
+    assert_eq!(text(&editor, id), shifted(1));
+    command(&mut editor, Editor::undo).unwrap();
+    assert_eq!(text(&editor, id), shifted(0));
+}

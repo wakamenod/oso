@@ -111,7 +111,7 @@ fn a_region_on_one_line_or_hidden_joins_as_without_one() {
 
 #[test]
 fn too_many_lines_to_join_change_nothing() {
-    let text = "a\n".repeat(super::MAX_CHANGED_LINES + 2);
+    let text = "a\n".repeat(super::MAX_JOINS + 2);
     let start = format!("|{text}");
     let (mut editor, id) = editor_in(Mode::Fundamental, &start);
     let region = Selection {
@@ -129,7 +129,7 @@ fn too_many_lines_to_join_change_nothing() {
 
 #[test]
 fn a_single_join_beside_a_huge_line_reads_only_its_edges() {
-    let long = "x".repeat(super::REGION_LIMIT + 1);
+    let long = "x".repeat(super::JOIN_READ * 4);
     let (mut editor, id) = editor_in(Mode::Fundamental, &format!("{long}\n  |b"));
     command(&mut editor, |editor| editor.delete_indentation(false)).unwrap();
     assert_eq!(marked(&editor, id), format!("{long}| b"));
