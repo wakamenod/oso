@@ -245,7 +245,8 @@ alongside the steps above, after M2-16:
 - Window splits ([ADR 0112](adr/0112-window-splits.md)), indentation, project trust model.
 - Project file finding and asynchronous ripgrep-style search, in-process
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
-- Migemo-style romaji search for Japanese text, and avy-style jumps.
+- Migemo-style romaji search for Japanese text, and avy-style jumps
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - The menu component, porting the author's hydra menus.
 - query-replace (`M-%`), keyboard macros, whitespace cleanup on save.
 - Comment-aware `C-e` using tree-sitter's highlights

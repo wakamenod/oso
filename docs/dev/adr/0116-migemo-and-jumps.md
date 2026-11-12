@@ -1,6 +1,6 @@
 # 0116. Migemo: romaji search for Japanese text, and jumps by label
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -100,7 +100,8 @@ avy, with avy's migemo variant, in Emacs. Earlier ADRs left these to M3:
 
 ## Questions
 
-Put to the author through the coordinator, the recommended option first.
+Put to the author through the coordinator, the recommended option first. The author chose (a) on
+each on 2026-11-12.
 
 ### The shape of this ADR
 
@@ -213,9 +214,11 @@ Put to the author through the coordinator, the recommended option first.
     (b) Also a `Look` command for the channel that jumps to a string's nearest match in view:
     the channel can already move with `goto-line` and `open`.
 
-## Decision (draft, assuming the recommendations)
+## Decision
 
-This section describes the recommended option of each question. It changes with the answers.
+The author chose on 2026-11-12, through the coordinator, the first option of each question under
+[Questions](#questions), which the text below describes. No dictionary is bundled (Q2): oso
+builds kana itself, and reads for kanji only a file the person names.
 
 ### 1. Migemo
 
@@ -408,20 +411,27 @@ then chosen points at, as avy's `avy-dispatch-alist` does, and none of them is a
 
 ### 4. Steps
 
-1. Regexp isearch, `C-M-s` and `C-M-r`, on 0113's matcher.
-2. `oso_core::migemo` with kana only; migemo in isearch, `M-m`, `[search] migemo`.
-3. The dictionary: the setting, the reader thread, the table, the limits measured over the
-   author's dictionary.
-4. Migemo in project search, and the `%` affix in completion.
-5. Jumps: the session, the four commands, labels, faces, windows; migemo for the string.
-6. The actions.
+One pull request a step, each with its own "As built" notes here.
 
-Steps 5 and 6 need none of steps 1 to 4, and can go beside them; a jump's string uses migemo once
-step 2 is in.
+1. **Regexp isearch:** `C-M-s` and `C-M-r` on 0113's per-line matcher, with backward search
+   within a line, the count and the view's highlights; smart case as 0113's regexps have it.
+2. **Migemo with kana:** `oso_core::migemo` (the romaji table, the kana forms, the trie pattern
+   and its cache), its line in `guardrails/layers.txt`, migemo in isearch by Q5's rule, `M-m`,
+   `[search] migemo` and `get-state`'s `migemo`.
+3. **The dictionary:** `[search] migemo-dictionary`, the `oso-migemo` reader thread, the two
+   formats and their limits, the table and its prefix search, and the pattern's limits measured
+   over C/Migemo's dictionary on the author's Mac (Q7's 2 ms at p99).
+4. **Migemo elsewhere:** project search's romaji components and the `%` affix in completion.
+5. **Jumps:** `oso_core::jump` and its line in `guardrails/layers.txt`, the session and
+   `Quit::Jump`, the four commands and their keys, the label tree, `JumpLabel` and
+   `JumpLabelNext` in the three themes with their contrast tests, `TextView::labels`, every tiled
+   window, `[jump] keys` and `[jump] timeout`, and `get-state`'s `jump`.
+6. **The actions:** `SPC`, `W`, `K`, `Y`, `T` and `c`.
+
+Step 5 needs none of steps 1 to 4, and can be built beside them; a jump's string goes through
+migemo once step 2 is in.
 
 ## Changes to accepted ADRs
-
-With the recommended options:
 
 - **[ADR 0082](0082-isearch.md):** "`C-s` and `C-r` search for the literal string" becomes: for the
   literal string, unless it is romaji and migemo is on, when they search for its migemo pattern
