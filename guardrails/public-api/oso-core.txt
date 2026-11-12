@@ -263,6 +263,8 @@ pub oso_core::command::ArgSpec::Passphrase
 pub oso_core::command::ArgSpec::Passphrase::prompt: &'static str
 pub oso_core::command::ArgSpec::ProjectFile
 pub oso_core::command::ArgSpec::ProjectFile::history: &'static str
+pub oso_core::command::ArgSpec::Replace
+pub oso_core::command::ArgSpec::Replace::regexp: bool
 pub oso_core::command::ArgSpec::Text
 pub oso_core::command::ArgSpec::Text::history: &'static str
 pub oso_core::command::ArgSpec::Text::prompt: &'static str
@@ -434,6 +436,7 @@ pub fn oso_core::command::Ctx<'a>::leave_prefix(&mut self, core::option::Option<
 pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
 pub fn oso_core::command::Ctx<'a>::number(&self) -> core::option::Option<i64>
 pub fn oso_core::command::Ctx<'a>::repeats(&self) -> usize
+pub fn oso_core::command::Ctx<'a>::replace_pair(&self) -> core::option::Option<(&'a str, &'a str)>
 pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
 pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
 pub fn oso_core::command::Ctx<'a>::shifted(&self) -> bool
@@ -461,6 +464,7 @@ pub oso_core::command::Invocation::confirmed: bool
 pub oso_core::command::Invocation::input: &'a str
 pub oso_core::command::Invocation::key_char: core::option::Option<char>
 pub oso_core::command::Invocation::repeats: usize
+pub oso_core::command::Invocation::second: core::option::Option<&'a str>
 pub oso_core::command::Invocation::shifted: bool
 impl core::fmt::Debug for oso_core::command::Invocation<'_>
 pub fn oso_core::command::Invocation<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1119,6 +1123,7 @@ pub oso_core::editor::Quit::Cursors
 pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
 pub oso_core::editor::Quit::Region
+pub oso_core::editor::Quit::Replace
 pub oso_core::editor::Quit::Search
 pub oso_core::editor::Quit::SearchStep
 impl core::clone::Clone for oso_core::editor::Quit
@@ -1165,6 +1170,39 @@ impl core::fmt::Debug for oso_core::editor::ReloadOutcome
 pub fn oso_core::editor::ReloadOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::ReloadOutcome
 impl core::marker::StructuralPartialEq for oso_core::editor::ReloadOutcome
+pub enum oso_core::editor::ReplaceAnswer
+pub oso_core::editor::ReplaceAnswer::All
+pub oso_core::editor::ReplaceAnswer::Back
+pub oso_core::editor::ReplaceAnswer::Exit
+pub oso_core::editor::ReplaceAnswer::Help
+pub oso_core::editor::ReplaceAnswer::Replace
+pub oso_core::editor::ReplaceAnswer::ReplaceAndExit
+pub oso_core::editor::ReplaceAnswer::ReplaceAndStay
+pub oso_core::editor::ReplaceAnswer::Skip
+pub oso_core::editor::ReplaceAnswer::Undo
+impl core::clone::Clone for oso_core::editor::ReplaceAnswer
+pub fn oso_core::editor::ReplaceAnswer::clone(&self) -> oso_core::editor::ReplaceAnswer
+impl core::cmp::Eq for oso_core::editor::ReplaceAnswer
+impl core::cmp::PartialEq for oso_core::editor::ReplaceAnswer
+pub fn oso_core::editor::ReplaceAnswer::eq(&self, &oso_core::editor::ReplaceAnswer) -> bool
+impl core::fmt::Debug for oso_core::editor::ReplaceAnswer
+pub fn oso_core::editor::ReplaceAnswer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ReplaceAnswer
+impl core::marker::StructuralPartialEq for oso_core::editor::ReplaceAnswer
+pub enum oso_core::editor::ReplaceError
+pub oso_core::editor::ReplaceError::EmptyString
+pub oso_core::editor::ReplaceError::ReadOnly(oso_core::buffer::ReadOnly)
+impl core::clone::Clone for oso_core::editor::ReplaceError
+pub fn oso_core::editor::ReplaceError::clone(&self) -> oso_core::editor::ReplaceError
+impl core::cmp::Eq for oso_core::editor::ReplaceError
+impl core::cmp::PartialEq for oso_core::editor::ReplaceError
+pub fn oso_core::editor::ReplaceError::eq(&self, &oso_core::editor::ReplaceError) -> bool
+impl core::fmt::Debug for oso_core::editor::ReplaceError
+pub fn oso_core::editor::ReplaceError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::ReplaceError
+pub fn oso_core::editor::ReplaceError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ReplaceError
+impl core::marker::StructuralPartialEq for oso_core::editor::ReplaceError
 pub enum oso_core::editor::SaveRefused
 pub oso_core::editor::SaveRefused::AlreadySaving
 pub oso_core::editor::SaveRefused::ChangedOnDisk
@@ -1527,6 +1565,13 @@ pub fn oso_core::editor::Editor::open_kill_list(&mut self, &str) -> core::result
 pub fn oso_core::editor::Editor::yank_picked(&mut self) -> core::result::Result<(), oso_core::editor::YankError>
 pub fn oso_core::editor::Editor::yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::last_replace(&self, bool) -> core::option::Option<(&str, &str)>
+pub fn oso_core::editor::Editor::replace(&self) -> core::option::Option<&oso_core::editor::Replace>
+pub fn oso_core::editor::Editor::replace_begin(&mut self, &str, &str, bool) -> core::result::Result<(), oso_core::editor::ReplaceError>
+pub fn oso_core::editor::Editor::replace_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
+pub fn oso_core::editor::Editor::replace_exit(&mut self) -> bool
+pub fn oso_core::editor::Editor::replace_may_begin(&self) -> core::result::Result<(), oso_core::editor::ReplaceError>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::load_theme(&mut self, &str) -> core::result::Result<(), oso_core::editor::NoSuchTheme>
 pub fn oso_core::editor::Editor::set_theme_pair(&mut self, [usize; 2])
 pub fn oso_core::editor::Editor::set_themes(&mut self, alloc::vec::Vec<(&'static str, &'static str)>, usize)
@@ -1561,6 +1606,11 @@ pub fn oso_core::editor::Editor::take_trust_changes(&mut self) -> alloc::vec::Ve
 pub fn oso_core::editor::Editor::trust_list(&self) -> core::option::Option<&oso_core::project::TrustList>
 pub fn oso_core::editor::Editor::trust_project(&mut self, oso_core::project::ProjectId, bool) -> core::result::Result<(), oso_core::editor::TrustRefused>
 pub fn oso_core::editor::Editor::untrust_project(&mut self, oso_core::project::ProjectId) -> core::result::Result<(), oso_core::editor::TrustRefused>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::ReplaceAnswer)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::replace_continue(&mut self)
+pub fn oso_core::editor::Editor::replace_works(&self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
 impl oso_core::editor::Editor
@@ -1689,6 +1739,15 @@ pub fn oso_core::editor::ProjectRequest::eq(&self, &oso_core::editor::ProjectReq
 impl core::fmt::Debug for oso_core::editor::ProjectRequest
 pub fn oso_core::editor::ProjectRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::ProjectRequest
+pub struct oso_core::editor::Replace
+impl oso_core::editor::Replace
+pub fn oso_core::editor::Replace::around_secret(&self) -> bool
+pub fn oso_core::editor::Replace::count(&self) -> core::option::Option<(usize, usize)>
+pub fn oso_core::editor::Replace::regexp(&self) -> bool
+pub fn oso_core::editor::Replace::replaced(&self) -> usize
+pub fn oso_core::editor::Replace::searching(&self) -> bool
+impl core::fmt::Debug for oso_core::editor::Replace
+pub fn oso_core::editor::Replace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::SaveJob
 pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::Baseline>
 pub oso_core::editor::SaveJob::bom: bool

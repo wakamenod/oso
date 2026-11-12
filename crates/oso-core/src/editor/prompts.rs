@@ -28,6 +28,8 @@ pub enum Quit {
     SearchStep,
     /// It ended isearch, and put the cursors and the view back as they were.
     Search,
+    /// It ended query-replace, keeping what it replaced (ADR 0113).
+    Replace,
     /// It left the selected window its primary cursor alone (ADR 0091).
     Cursors,
     /// Nothing was in progress.
@@ -49,8 +51,10 @@ impl Editor {
         if self.prompts.len() >= MAX_DEPTH {
             return Err(PromptError::TooDeep);
         }
-        // A prompt over a search ends it, as a key it does not bind does (ADR 0082).
+        // A prompt over a search ends it, as a key it does not bind does (ADR 0082), and so
+        // it does query-replace (ADR 0113).
         self.isearch_abandon();
+        self.replace_abandon();
         let depth = self.prompts.len() + 1;
         let from_agent = self.runs_for_agent();
         let mut label = label.into();
@@ -475,6 +479,10 @@ impl Editor {
         }
         if let Some(quit) = self.isearch_quit() {
             return quit;
+        }
+        // query-replace ends, keeping what it replaced, as Emacs's does (ADR 0113).
+        if self.replace_quit() {
+            return Quit::Replace;
         }
         if self.quit_cursors() {
             return Quit::Cursors;

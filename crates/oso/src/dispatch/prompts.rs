@@ -16,9 +16,11 @@ use oso_core::command::{
 };
 use oso_core::editor::{CompletionStyle, Editor};
 use oso_core::kill::FromClipboard;
-use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
+use oso_core::minibuffer::{self, Kind, Outcome, PromptError, PromptId};
 
 use super::{Dispatcher, Step, buffers, extended};
+
+mod paths;
 
 /// A command waiting for the answer of the prompt `prompt`.
 pub(super) struct Reading {
@@ -29,6 +31,29 @@ pub(super) struct Reading {
     passphrase: bool,
     /// The answer names a command, which runs in its place, as `M-x` does (ADR 0076).
     runs_answer: bool,
+    /// query-replace's prompts: the first, or the second with the first's answer (ADR 0113).
+    replace: Option<ReplaceStage>,
+}
+
+/// Which of query-replace's two prompts a command waits for (ADR 0113).
+#[derive(Clone)]
+enum ReplaceStage {
+    /// The string to replace.
+    From { regexp: bool },
+    /// Its replacement, after this string.
+    To { regexp: bool, from: String },
+}
+
+/// The most cells of the string to replace that the second prompt's label shows.
+const REPLACE_LABEL_CELLS: usize = 40;
+
+/// The history query-replace's prompts share, one for each kind.
+fn replace_history(regexp: bool) -> &'static str {
+    if regexp {
+        "query-replace-regexp"
+    } else {
+        "query-replace"
+    }
 }
 
 /// The most commands one key runs through prompts that end: a question's answer runs
@@ -47,6 +72,10 @@ fn stands_for_number(prefix: Option<Prefix>) -> Option<isize> {
 impl Dispatcher {
     /// Runs the command `id`, or first opens a prompt for what its spec reads, or waits for
     /// the clipboard. Returns what the host should do.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm for each argument spec, each a few lines"
+    )]
     pub(super) fn run_or_read(
         &mut self,
         editor: &mut Editor,
@@ -55,6 +84,9 @@ impl Dispatcher {
         invocation: Invocation<'_>,
     ) -> (Effects, Result<(), ExecuteError>) {
         let spec = self.registry.get(id).map(|command| command.args);
+        if let Some(ArgSpec::Replace { regexp }) = spec {
+            return self.read_replace(editor, id, args.raw(), regexp);
+        }
         let kind = match spec {
             Some(ArgSpec::Number { prompt, history }) => {
                 if let Some(n) = stands_for_number(args.raw()) {
@@ -127,6 +159,7 @@ impl Dispatcher {
                 prompt,
                 passphrase: kind == Kind::Passphrase,
                 runs_answer,
+                replace: None,
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
@@ -135,117 +168,6 @@ impl Dispatcher {
             redraw: true,
             ..Effects::default()
         };
-        (effects, Ok(()))
-    }
-
-    /// Opens the prompt for the command `id` that lists what `spec` reads: a mark, a path by its
-    /// segments, or a project's file.
-    fn read_listed(
-        &mut self,
-        editor: &mut Editor,
-        id: CommandId,
-        prefix: Option<Prefix>,
-        spec: ArgSpec,
-    ) -> (Effects, Result<(), ExecuteError>) {
-        match spec {
-            ArgSpec::Mark { prompt } => self.read_mark(editor, id, prefix, prompt),
-            ArgSpec::File { prompt, history } => {
-                self.read_file(editor, id, prefix, prompt, history)
-            }
-            ArgSpec::ProjectFile { history } => self.read_project_file(editor, id, prefix, history),
-            _ => self.execute(
-                editor,
-                id,
-                Args::with_prefix(prefix),
-                Invocation::default(),
-                Step::MayJoin,
-            ),
-        }
-    }
-
-    /// Opens the prompt that reads a path for the command `id`, starting at the shown buffer's
-    /// directory, or the one oso started in, unless a prompt is selected (ADR 0087).
-    fn read_file(
-        &mut self,
-        editor: &mut Editor,
-        id: CommandId,
-        prefix: Option<Prefix>,
-        prompt: &'static str,
-        history: &'static str,
-    ) -> (Effects, Result<(), ExecuteError>) {
-        let effects = Effects {
-            redraw: true,
-            ..Effects::default()
-        };
-        if editor.prompt().is_some() {
-            editor.prompt_says("Not in the minibuffer");
-            return (effects, Ok(()));
-        }
-        let start = editor.start_directory().to_path_buf();
-        let directory = editor
-            .current()
-            .1
-            .path()
-            .and_then(std::path::Path::parent)
-            .map_or(start, std::path::Path::to_path_buf);
-        let initial = oso_core::complete::typed_form(&directory, true, editor.home());
-        // A relative path typed in place of it starts there too.
-        match editor.open_file_prompt(prompt, history, &initial, directory) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-            }),
-            Err(error) => editor.prompt_says(error.to_string()),
-        }
-        (effects, Ok(()))
-    }
-
-    /// Opens the prompt that lists the files of the current buffer's project for the command
-    /// `id`, or of its directory outside one, unless a prompt is selected (ADR 0114). The host
-    /// walks the project, and the list grows as it does. The history is the spec's, one for each
-    /// project.
-    fn read_project_file(
-        &mut self,
-        editor: &mut Editor,
-        id: CommandId,
-        prefix: Option<Prefix>,
-        history: &'static str,
-    ) -> (Effects, Result<(), ExecuteError>) {
-        let effects = Effects {
-            redraw: true,
-            ..Effects::default()
-        };
-        if editor.prompt().is_some() {
-            editor.prompt_says("Not in the minibuffer");
-            return (effects, Ok(()));
-        }
-        let (root, name) = match editor.project_files_root() {
-            Ok(found) => found,
-            Err(not) => {
-                editor.message(not.to_string());
-                return (effects, Ok(()));
-            }
-        };
-        let utf8 = root.to_str().is_some();
-        match editor.open_project_files(root, &name, history) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-            }),
-            Err(PromptError::Invalid) if !utf8 => {
-                editor.message("Cannot list a project whose path is not UTF-8");
-            }
-            Err(PromptError::Invalid) => {
-                editor.message("A project's files are listed already");
-            }
-            Err(error) => editor.prompt_says(error.to_string()),
-        }
         (effects, Ok(()))
     }
 
@@ -273,6 +195,7 @@ impl Dispatcher {
                 prompt,
                 passphrase: false,
                 runs_answer: false,
+                replace: None,
             }),
             Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
             Err(error) => editor.prompt_says(error.to_string()),
@@ -328,6 +251,7 @@ impl Dispatcher {
                 prompt,
                 passphrase: false,
                 runs_answer: false,
+                replace: None,
             }),
             Err(PromptError::Invalid) => editor.message("Kill ring is empty"),
             Err(error) => editor.prompt_says(error.to_string()),
@@ -370,10 +294,106 @@ impl Dispatcher {
                 prompt,
                 passphrase: false,
                 runs_answer: false,
+                replace: None,
             }),
             Err(error) => editor.prompt_says(error.to_string()),
         }
         (effects, Ok(()))
+    }
+
+    /// Opens query-replace's first prompt, offering the last pair as the default, unless the
+    /// selected buffer is read-only, which it says before anything is read (ADR 0113).
+    fn read_replace(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        regexp: bool,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let redraw = Effects {
+            redraw: true,
+            ..Effects::default()
+        };
+        if let Err(refused) = editor.replace_may_begin() {
+            editor.message(refused.to_string());
+            return (redraw, Ok(()));
+        }
+        let kind = if regexp { " regexp" } else { "" };
+        let label = match editor.last_replace(regexp) {
+            Some((from, to)) => {
+                let (from, from_cut) = minibuffer::cut_to(from, REPLACE_LABEL_CELLS);
+                let (to, to_cut) = minibuffer::cut_to(to, REPLACE_LABEL_CELLS);
+                format!("Query replace{kind} (default {from}{from_cut} → {to}{to_cut}): ")
+            }
+            None => format!("Query replace{kind}: "),
+        };
+        let stage = ReplaceStage::From { regexp };
+        self.open_replace_prompt(editor, id, prefix, label, stage);
+        (redraw, Ok(()))
+    }
+
+    fn open_replace_prompt(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        label: String,
+        stage: ReplaceStage,
+    ) {
+        let regexp = match &stage {
+            ReplaceStage::From { regexp } | ReplaceStage::To { regexp, .. } => *regexp,
+        };
+        let kind = Kind::Text {
+            history: Some(replace_history(regexp)),
+        };
+        match editor.open_prompt(label, kind) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+                replace: Some(stage),
+            }),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
+    }
+
+    /// Takes the answer of one of query-replace's prompts: the string opens the second, and
+    /// the replacement, or an empty string, runs the command.
+    fn replace_answered(
+        &mut self,
+        editor: &mut Editor,
+        reading: &Reading,
+        stage: &ReplaceStage,
+        text: &str,
+    ) -> Effects {
+        let (from, to) = match stage {
+            ReplaceStage::From { regexp } if !text.is_empty() => {
+                let kind = if *regexp { " regexp" } else { "" };
+                let (shown, cut) = minibuffer::cut_to(text, REPLACE_LABEL_CELLS);
+                let label = format!("Query replace{kind} {shown}{cut} with: ");
+                let stage = ReplaceStage::To {
+                    regexp: *regexp,
+                    from: text.to_owned(),
+                };
+                self.open_replace_prompt(editor, reading.id, reading.prefix, label, stage);
+                return Effects {
+                    redraw: true,
+                    ..Effects::default()
+                };
+            }
+            ReplaceStage::From { .. } => ("", ""),
+            ReplaceStage::To { from, .. } => (from.as_str(), text),
+        };
+        let invocation = Invocation {
+            answer: Some(from),
+            second: Some(to),
+            ..Invocation::default()
+        };
+        let args = Args::with_prefix(reading.prefix);
+        self.execute(editor, reading.id, args, invocation, Step::MayJoin)
+            .0
     }
 
     /// Runs what the prompts that ended call for: a command waiting for an answer, or the
@@ -397,6 +417,9 @@ impl Dispatcher {
                         let args = Args::with_prefix(reading.prefix);
                         if reading.runs_answer {
                             return self.run_answer(editor, &text, args);
+                        }
+                        if let Some(stage) = &reading.replace {
+                            return self.replace_answered(editor, &reading, stage, &text);
                         }
                         let invocation = Invocation {
                             answer: Some(&text),

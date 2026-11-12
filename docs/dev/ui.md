@@ -381,6 +381,20 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   every match, with the search's string and case
   ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 
+## query-replace
+
+- `M-%` reads the string and its replacement in two prompts, which take Japanese as the prompt
+  for a file's name does; an empty string takes the last pair, which the first prompt offers
+  ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+- It runs from the cursor to the end of the buffer, or within the regions shown, with smart
+  case, and the replacement takes the match's case while case folds.
+- The echo area says `Query replacing foo with bar: [3/17] (? for help)`, and the matches in
+  the scope are highlighted as isearch's are.
+- At each match: `y`/`SPC` replace, `n`/`DEL` skip, `!` the rest, `.` this one and end, `,` this
+  one and stay, `^` back, `u` undo the last replacement, `q`/`RET` end, `?` the keys. `C-g` ends
+  it keeping what it replaced, and any other key ends it and runs.
+- The whole session undoes as one step.
+
 ## Input method (IME)
 
 - Preedit text is drawn **inline at the cursor, underlined**, and pushes the

@@ -30,12 +30,14 @@ pub(super) struct Keymaps {
     pub(super) completing: Keymap,
     /// The keys of a search under way, in place of the others (ADR 0082).
     pub(super) isearch: Keymap,
+    /// The answers of a query-replace under way, in place of the others (ADR 0113).
+    pub(super) replace: Keymap,
 }
 
 impl Keymaps {
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 10] {
+    pub(super) fn all(&self) -> [&Keymap; 11] {
         let Self {
             global,
             user,
@@ -45,9 +47,11 @@ impl Keymaps {
             question,
             completing,
             isearch,
+            replace,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
+            replace,
         ]
     }
 
@@ -75,6 +79,9 @@ impl Keymaps {
         }
         if editor.isearch().is_some() {
             return Layers::global(&self.isearch);
+        }
+        if editor.replace().is_some() {
+            return Layers::global(&self.replace);
         }
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => reading,

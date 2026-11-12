@@ -18,6 +18,7 @@ mod motion;
 mod prefix;
 mod projects;
 mod recovery;
+mod replace;
 mod save;
 mod scroll;
 mod session;
@@ -48,6 +49,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     prefix::BINDINGS,
     projects::BINDINGS,
     recovery::BINDINGS,
+    replace::BINDINGS,
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
@@ -101,6 +103,21 @@ pub fn isearch_keymap(registry: &Registry) -> Keymap {
         keymap.set_text_command(typing);
     }
     keymap
+}
+
+/// The keymap of a query-replace under way, in place of the others (ADR 0113). Empty for a
+/// registry without its commands, as in tests that bring their own.
+pub fn replace_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, replace::REPLACE).unwrap_or_default()
+}
+
+/// The commands that run in a query-replace rather than end it: those of its keymap.
+#[cfg(any(test, feature = "dev"))]
+pub fn replace_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    replace::REPLACE
+        .iter()
+        .filter_map(|&(_, name)| registry.lookup(name))
+        .collect()
 }
 
 /// The commands that run in a search rather than end it: those of its keymap, its text

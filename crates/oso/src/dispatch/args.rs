@@ -64,6 +64,10 @@ pub fn map(
         (ArgSpec::KillEntry { .. }, _) => Err(format!(
             "{name} reads a kill, which only its prompt takes, from keys"
         )),
+        // query-replace asks at each match, from keys (ADR 0113).
+        (ArgSpec::Replace { .. }, _) => Err(format!(
+            "{name} reads two strings, which only its prompts take, from keys"
+        )),
         // A path read with completion opens or writes a file the person typed (ADR 0087), and
         // a project's files are listed only in a prompt (ADR 0114).
         (ArgSpec::File { .. } | ArgSpec::ProjectFile { .. }, _) => Err(format!(

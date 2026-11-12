@@ -1,0 +1,211 @@
+//! query-replace's answers at a match (ADR 0113): replacing, skipping, staying, going back
+//! and undoing, and the answers given while a worker looked, run in order once it finds.
+//!
+//! Must not depend on: `command` or `keymap`, or the host.
+
+use std::ops::Range;
+
+use super::ReplaceAnswer;
+use super::state::Visit;
+use crate::buffer::Replacement;
+use crate::editor::Editor;
+use crate::motion;
+use crate::search;
+
+impl Editor {
+    /// Runs the answers given while a worker looked, in order, until one waits again.
+    pub(super) fn replace_run_pending(&mut self) {
+        while let Some(state) = &mut self.replacing.session {
+            if state.searching.is_some() || state.all_from.is_some() {
+                return;
+            }
+            let Some(answer) = state.pending.pop_front() else {
+                return;
+            };
+            self.replace_answer(answer);
+        }
+    }
+
+    /// Replaces `range` with the session's replacement, in its case if it preserves case.
+    /// Returns where the replacement is now.
+    fn replace_one(&mut self, range: Range<usize>) -> Option<Range<usize>> {
+        let state = self.replace()?;
+        let id = state.buffer;
+        let buffer = self.buffer(id)?;
+        let matched: String = buffer.text().chunks_in_range(range.clone()).collect();
+        let to = if state.preserve_case {
+            search::casified(&matched, &state.to).into_owned()
+        } else {
+            state.to.clone()
+        };
+        let edit = Replacement {
+            range: range.clone(),
+            text: &to,
+        };
+        self.apply_edits(id, &[edit]).ok()?;
+        let revision = self.buffer(id).map(|buffer| buffer.revision());
+        let state = self.replacing.session.as_mut()?;
+        state.replaced += 1;
+        if let Some(revision) = revision {
+            state.revision = revision;
+        }
+        let now = range.start..range.start + to.len();
+        state.visits.push(Visit {
+            found: range,
+            replaced: Some(now.clone()),
+        });
+        Some(now)
+    }
+
+    /// Takes `answer` at the match asked about. Answers given while a worker looks wait for
+    /// it, and those given while `!` replaces are dropped.
+    pub fn replace_answer(&mut self, answer: ReplaceAnswer) {
+        let Some(state) = &mut self.replacing.session else {
+            return;
+        };
+        if state.all_from.is_some() {
+            return;
+        }
+        if state.searching.is_some() && answer != ReplaceAnswer::Exit {
+            // Each runs a search of its own once the match comes, so only a few wait.
+            if state.pending.len() >= super::MOST_PENDING {
+                self.echo("Still searching; that answer was dropped");
+                return;
+            }
+            state.pending.push_back(answer);
+            return;
+        }
+        state.help = answer == ReplaceAnswer::Help;
+        let (current, stay) = (state.current.clone(), state.stay.clone());
+        match answer {
+            ReplaceAnswer::Help => {}
+            ReplaceAnswer::Exit => self.replace_end(true),
+            ReplaceAnswer::Replace | ReplaceAnswer::Skip if stay.is_some() => {
+                let at = stay.map_or(0, |stay| stay.end);
+                self.replace_find(at);
+            }
+            ReplaceAnswer::Replace => {
+                let Some(range) = current else {
+                    return;
+                };
+                // Past an empty match the search moves on a character; past a replacement,
+                // even an empty one, it goes on at its end.
+                let empty = range.is_empty();
+                if let Some(now) = self.replace_one(range) {
+                    let next = if empty { self.next_from(&now) } else { now.end };
+                    self.replace_find(next);
+                }
+            }
+            ReplaceAnswer::Skip => {
+                if let Some(range) = current {
+                    if let Some(state) = &mut self.replacing.session {
+                        state.skipped += 1;
+                        state.visits.push(Visit {
+                            found: range.clone(),
+                            replaced: None,
+                        });
+                    }
+                    let next = self.next_from(&range);
+                    self.replace_find(next);
+                }
+            }
+            ReplaceAnswer::ReplaceAndExit => {
+                if let Some(range) = current {
+                    self.replace_one(range);
+                }
+                self.replace_end(true);
+            }
+            ReplaceAnswer::ReplaceAndStay => {
+                if let Some(now) = current.and_then(|range| self.replace_one(range)) {
+                    self.replace_stay(now);
+                }
+            }
+            ReplaceAnswer::Back => self.replace_back(),
+            ReplaceAnswer::Undo => self.replace_undo(),
+            ReplaceAnswer::All => {
+                let from = match (current, stay) {
+                    (Some(range), _) => range.start,
+                    (None, Some(stay)) => stay.end,
+                    (None, None) => return,
+                };
+                if let Some(state) = &mut self.replacing.session {
+                    state.all_from = Some(from);
+                    state.current = None;
+                }
+                self.replace_continue();
+            }
+        }
+    }
+
+    /// Stays at `range`: the cursor at its end, and the next answer moves on from there.
+    fn replace_stay(&mut self, range: Range<usize>) {
+        if let Some(state) = &mut self.replacing.session {
+            state.current = None;
+            state.stay = Some(range.clone());
+        }
+        let display = self.current().1.display();
+        let cursor = motion::cluster_start(&display, range.end);
+        self.windows[self.selected].selections.move_primary(cursor);
+        self.follow_cursor();
+    }
+
+    /// `^`: back to the match before, as it is now, without undoing it.
+    fn replace_back(&mut self) {
+        let Some(state) = &mut self.replacing.session else {
+            return;
+        };
+        let back = state.back;
+        let Some(index) = state.visits.len().checked_sub(back + 1) else {
+            self.echo("No previous match");
+            return;
+        };
+        let visit = state.visits[index].clone();
+        match visit.replaced {
+            // Shown as it is now; the next `^` goes further back.
+            Some(now) => {
+                state.back += 1;
+                self.replace_stay(now);
+            }
+            // Asked again: it is no longer skipped, and the next `^` goes to the one before.
+            None => {
+                state.visits.remove(index);
+                state.skipped = state.skipped.saturating_sub(1);
+                self.replace_at(visit.found);
+                if let Some(state) = &mut self.replacing.session {
+                    state.back = back;
+                }
+            }
+        }
+    }
+
+    /// `u`: undoes the last replacement, and asks about its match again.
+    fn replace_undo(&mut self) {
+        let Some(state) = &mut self.replacing.session else {
+            return;
+        };
+        let Some(last) = state
+            .visits
+            .iter()
+            .rposition(|visit| visit.replaced.is_some())
+        else {
+            self.echo("Nothing to undo");
+            return;
+        };
+        let visit = state.visits[last].clone();
+        if self.undo().is_err() {
+            self.echo("Nothing to undo");
+            return;
+        }
+        let revision = self.current().1.revision();
+        if let Some(state) = &mut self.replacing.session {
+            let undone = state.visits.split_off(last);
+            state.skipped -= undone
+                .iter()
+                .filter(|visit| visit.replaced.is_none())
+                .count();
+            state.replaced -= 1;
+            state.revision = revision;
+        }
+        self.replace_at(visit.found);
+    }
+}

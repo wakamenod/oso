@@ -87,6 +87,11 @@ pub enum ArgSpec {
     /// in the ring (ADR 0091). The command yanks it with
     /// [`Editor::yank_picked`](crate::editor::Editor::yank_picked).
     KillEntry { prompt: &'static str },
+    /// A string to replace and its replacement, read in two prompts kept in one history, a
+    /// regexp's if `regexp`, before query-replace begins (ADR 0113). An empty first answer
+    /// takes the last pair, with no second prompt. The command reads both with
+    /// [`Ctx::replace_pair`](super::Ctx::replace_pair).
+    Replace { regexp: bool },
 }
 
 /// What a buffer is read for, which decides the order and what the prompt takes (ADR 0088).
