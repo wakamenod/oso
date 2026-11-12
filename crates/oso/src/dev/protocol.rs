@@ -10,6 +10,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use oso_core::key::{KeyPress, KeySequence};
+use oso_platform::window::{Position, Wheel};
 use serde_json::{Map, Value};
 
 use crate::channel::wire::short;
@@ -35,6 +36,10 @@ const MAX_COMMAND_NAME: usize = 256;
 /// sentence, and each one is segmented once when it comes (ADR 0069).
 const MAX_PREEDIT: usize = 64 * 1024;
 
+/// The largest delta `wheel` takes on either axis, in notches or pixels, far beyond any one
+/// event of a real wheel or trackpad.
+const MAX_WHEEL: f64 = 1e6;
+
 /// The largest count `run-command` passes on, in either direction, as the agent channel's.
 const MAX_COMMAND_ARG: isize = oso_core::command::MAX_REMOTE_COUNT;
 
@@ -50,7 +55,7 @@ pub const MAX_DEV_MESSAGE: usize = 1024;
 pub type Reply = Result<Value, String>;
 
 /// A method and its parsed parameters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Method {
     /// The protocol version and build information, which needs no UI.
     Version,
@@ -59,7 +64,7 @@ pub enum Method {
 }
 
 /// A method the UI thread answers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UiOp {
     /// Handle these key presses, in order.
     SendKeys(Vec<KeyPress>),
@@ -108,6 +113,16 @@ pub enum UiOp {
     Ime(ImeReport),
     /// Read or set the clipboard in memory, as another app would (ADR 0074).
     Clipboard(ClipboardOp),
+    /// Scroll as the mouse wheel or the trackpad would, with the pointer there (ADR 0112).
+    Wheel { delta: Wheel, at: Option<WheelAt> },
+}
+
+/// Where `wheel` puts the pointer: a place on the surface, in physical pixels, or the middle
+/// of a cell of the frame, which the app turns into one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WheelAt {
+    Pixel(Position),
+    Cell { row: usize, column: usize },
 }
 
 /// What `clipboard` does with the clipboard in memory. Its `Debug` gives lengths only.
@@ -204,6 +219,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "dev-end-unasked" => UiOp::EndUnasked,
         "ime" => UiOp::Ime(parse_ime(params).map_err(|m| bad(&id, m))?),
         "clipboard" => UiOp::Clipboard(parse_clipboard(params).map_err(|m| bad(&id, m))?),
+        "wheel" => parse_wheel(params).map_err(|m| bad(&id, m))?,
         "export-state" => UiOp::ExportState,
         "export-text" | "import-text" | "dev-message" => {
             parse_for_oso_dev(method, params).map_err(|m| bad(&id, m))?
@@ -422,6 +438,70 @@ fn parse_ime(params: &Map<String, Value>) -> Result<ImeReport, String> {
     }
 }
 
+/// The parameters of `wheel`: `lines` (a wheel's notches) or `pixels` (a trackpad's), each
+/// `[x, y]` with positive moving the content down and right, and an optional `at`, either
+/// `{"x", "y"}` in physical pixels or `{"row", "column"}` of a cell.
+fn parse_wheel(params: &Map<String, Value>) -> Result<UiOp, String> {
+    const USAGE: &str = "wheel takes one of \"lines\" or \"pixels\" as [x, y], each at most \
+                         1e6 across, and an optional \"at\" of {\"x\", \"y\"} in pixels or \
+                         {\"row\", \"column\"}";
+    let number = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_f64)
+            .filter(|n| n.abs() <= MAX_WHEEL)
+            .ok_or(USAGE)
+    };
+    let pair = |value: &Value| match value.as_array().map(Vec::as_slice) {
+        Some([x, y]) => Ok((number(Some(x))?, number(Some(y))?)),
+        _ => Err(USAGE),
+    };
+    let delta = match (params.get("lines"), params.get("pixels")) {
+        (Some(lines), None) => {
+            let (x, y) = pair(lines)?;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "at most 1e6, which f32 holds"
+            )]
+            Wheel::Lines {
+                x: x as f32,
+                y: y as f32,
+            }
+        }
+        (None, Some(pixels)) => {
+            let (x, y) = pair(pixels)?;
+            Wheel::Pixels { x, y }
+        }
+        _ => return Err(USAGE.into()),
+    };
+    let at = match params.get("at") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(at)) => Some(match (at.len(), at.get("x"), at.get("row")) {
+            (2, Some(x), None) => WheelAt::Pixel(Position {
+                x: number(Some(x))?,
+                y: number(at.get("y"))?,
+            }),
+            (2, None, Some(row)) => {
+                let cell = |value: Option<&Value>| {
+                    value
+                        .and_then(Value::as_u64)
+                        .and_then(|n| usize::try_from(n).ok())
+                        .ok_or(USAGE)
+                };
+                WheelAt::Cell {
+                    row: cell(Some(row))?,
+                    column: cell(at.get("column"))?,
+                }
+            }
+            _ => return Err(USAGE.into()),
+        }),
+        Some(_) => return Err(USAGE.into()),
+    };
+    if params.len() != 1 + usize::from(params.contains_key("at")) {
+        return Err(USAGE.into());
+    }
+    Ok(UiOp::Wheel { delta, at })
+}
+
 /// A required parameter that is a non-negative integer.
 fn parse_size(params: &Map<String, Value>, method: &str, name: &str) -> Result<usize, String> {
     params
@@ -435,9 +515,10 @@ fn parse_size(params: &Map<String, Value>, method: &str, name: &str) -> Result<u
 mod tests {
     use super::{
         ClipboardOp, ImeReport, MAX_COMMAND_ARG, MAX_KEYS, MAX_LINE, Method, Request, UiOp,
-        failure, parse, request, success,
+        WheelAt, failure, parse, request, success,
     };
     use crate::channel::wire::MAX_ID;
+    use oso_platform::window::{Position, Wheel};
     use serde_json::{Value, json};
 
     fn parsed(line: &str) -> Request {
@@ -546,6 +627,57 @@ mod tests {
         }
         let long = json!({ "preedit": "a".repeat(super::MAX_PREEDIT + 1) }).to_string();
         assert!(ime(&long).unwrap_err().message.contains("at most"));
+    }
+
+    #[test]
+    fn wheel_takes_a_delta_and_where_the_pointer_is() {
+        let wheel = |params: &str| parse(&format!(r#"{{"method": "wheel", "params": {params}}}"#));
+        let op = |params: &str| match wheel(params).unwrap().method {
+            Method::Ui(UiOp::Wheel { delta, at }) => (delta, at),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            op(r#"{"lines": [0, -3]}"#),
+            (Wheel::Lines { x: 0.0, y: -3.0 }, None)
+        );
+        assert_eq!(
+            op(r#"{"pixels": [1.5, -40], "at": {"x": 12.5, "y": 300}}"#),
+            (
+                Wheel::Pixels { x: 1.5, y: -40.0 },
+                Some(WheelAt::Pixel(Position { x: 12.5, y: 300.0 }))
+            )
+        );
+        assert_eq!(
+            op(r#"{"lines": [0, 1], "at": {"row": 3, "column": 0}}"#),
+            (
+                Wheel::Lines { x: 0.0, y: 1.0 },
+                Some(WheelAt::Cell { row: 3, column: 0 })
+            )
+        );
+        assert_eq!(op(r#"{"lines": [0, 1], "at": null}"#).1, None);
+        for params in [
+            r#"{}"#,
+            r#"{"lines": [0, 1], "pixels": [0, 1]}"#,
+            r#"{"lines": [1]}"#,
+            r#"{"lines": [0, "1"]}"#,
+            r#"{"lines": 3}"#,
+            r#"{"pixels": [0, 1e7]}"#,
+            r#"{"lines": [0, 1], "at": {"x": 1}}"#,
+            r#"{"lines": [0, 1], "at": {"x": 1, "row": 2}}"#,
+            r#"{"lines": [0, 1], "at": {"row": -1, "column": 0}}"#,
+            r#"{"lines": [0, 1], "at": {"row": 1.5, "column": 0}}"#,
+            r#"{"lines": [0, 1], "at": {"x": 1, "y": 2, "row": 3}}"#,
+            r#"{"lines": [0, 1], "at": [1, 2]}"#,
+            r#"{"lines": [0, 1], "rows": 3}"#,
+        ] {
+            assert!(
+                wheel(params)
+                    .unwrap_err()
+                    .message
+                    .starts_with("wheel takes"),
+                "{params}"
+            );
+        }
     }
 
     #[test]

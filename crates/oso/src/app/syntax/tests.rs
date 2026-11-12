@@ -118,7 +118,7 @@ fn a_job_carries_the_edits_since_the_last_and_what_windows_show() {
         (edits[0].start, edits[0].old_len, edits[0].new_len),
         (0, 0, 2)
     );
-    editor.scroll_view(20);
+    editor.scroll_view(editor.tiled().0.id(), 20);
     let scrolled = syntax.orders(&editor);
     assert_eq!(
         scrolled.jobs[0].edits.as_deref(),

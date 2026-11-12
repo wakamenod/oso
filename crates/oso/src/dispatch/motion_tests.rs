@@ -471,7 +471,7 @@ mod wheel {
         let (mut d, mut editor) = at(&lines, &[0]);
         send(&mut d, &mut editor, "C-e");
         assert_eq!(editor.window().scroll().left, 41);
-        assert!(editor.scroll_view(20));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 20));
         assert_eq!((editor.top_row(), editor.window().scroll().left), (20, 0));
         assert_eq!(cursors(&editor), [20 * 61], "at column 0, in view");
     }
@@ -480,7 +480,7 @@ mod wheel {
     fn the_sideways_wheel_leaves_the_cursor_and_the_next_key_comes_back() {
         let long = "x".repeat(60);
         let (mut d, mut editor) = at(&long, &[0]);
-        assert!(editor.scroll_view_sideways(30));
+        assert!(editor.scroll_view_sideways(editor.tiled().0.id(), 30));
         assert_eq!(editor.window().scroll().left, 30);
         assert_eq!(cursors(&editor), [0]);
         assert_eq!(send(&mut d, &mut editor, "<f35>"), NOTHING, "nothing ran");
@@ -495,8 +495,8 @@ mod wheel {
         let lines: String = (0..40).map(|_| format!("{long}\n")).collect();
         let (mut d, mut editor) = at(&lines, &[61 * 5]);
         send(&mut d, &mut editor, "C-f C-b");
-        assert!(editor.scroll_view_sideways(10));
-        assert!(editor.scroll_view(2));
+        assert!(editor.scroll_view_sideways(editor.tiled().0.id(), 10));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 2));
         assert_eq!((editor.top_row(), editor.window().scroll().left), (2, 10));
     }
 }

@@ -12,7 +12,7 @@ use std::time::Instant;
 use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
 use oso_core::editor::{Editor, Status};
-use oso_core::window::{WheelRemainder, WindowId};
+use oso_core::window::WindowId;
 
 mod agent;
 mod clipboard;
@@ -152,7 +152,7 @@ pub struct App {
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
-    wheel: WheelRemainder,
+    wheel: input::Wheeling,
     /// What each tiled window's modeline and the echo area said when a frame was last drawn
     /// or asked for, and room to compare it with what they would say now (ADR 0112).
     statuses: Vec<(WindowId, Status)>,
@@ -301,7 +301,7 @@ impl App {
             answering: None,
             scan_for_copies: false,
             started: Some(started),
-            wheel: WheelRemainder::default(),
+            wheel: input::Wheeling::default(),
             statuses: Vec::new(),
             next_statuses: Vec::new(),
             ime: ime::ImeState::default(),
