@@ -1,5 +1,6 @@
 //! Completion: matching an input against candidates as orderless does, and keeping the
-//! candidates that match in an order fixed when the list is made (ADR 0076).
+//! candidates that match in an order fixed when the list is made, into which a list that grows,
+//! as a project's files do while it is walked, puts each one it gains (ADR 0076, ADR 0114).
 //!
 //! Must not depend on: `editor`, `minibuffer` or `display_map`; it works on strings alone,
 //! so that a worker thread can run it on a snapshot of the list.
@@ -19,7 +20,9 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-pub(crate) use job::{Build, Built, Matched, Matching, Report, WORKER_PAST, listed, matched_part};
+pub(crate) use job::{
+    Build, Built, Matched, Matching, Merge, Report, WORKER_PAST, listed, matched_part,
+};
 pub use job::{CompletionJob, CompletionReport};
 pub use path::{Name, NameKind, typed_form};
 pub(crate) use query::MAX_INPUT_BYTES;
@@ -28,6 +31,7 @@ pub use query::Query;
 use job::{match_over, order_of};
 
 mod job;
+mod merge;
 pub(crate) mod path;
 mod query;
 
@@ -78,6 +82,24 @@ impl Candidate {
         }
     }
 
+    /// A copy of it, folding nothing again, for a list that grows while another holds this one
+    /// (ADR 0114).
+    pub(crate) fn duplicate(&self) -> Self {
+        Self {
+            text: self.text.clone(),
+            binding: self.binding.clone(),
+            annotation: self.annotation.clone(),
+            folded: self.folded.clone(),
+            folded_annotation: self.folded_annotation.clone(),
+            hidden_by_input: self.hidden_by_input,
+        }
+    }
+
+    /// Moves it out, leaving an empty candidate, which allocates nothing, in its place.
+    pub(crate) fn take(&mut self) -> Self {
+        std::mem::replace(self, Self::new("", "", ""))
+    }
+
     /// What it completes to.
     pub fn text(&self) -> &str {
         &self.text
@@ -105,6 +127,7 @@ impl fmt::Debug for Candidate {
 }
 
 /// A string in lower case, for matching that ignores case, and where its bytes came from.
+#[derive(Clone)]
 struct Folded {
     /// The folded string, or `None` where folding changes nothing.
     text: Option<Box<str>>,

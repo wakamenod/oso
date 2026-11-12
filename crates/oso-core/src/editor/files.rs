@@ -130,9 +130,10 @@ impl Editor {
     }
 
     /// Whether the innermost prompt that reads a path left candidates out: past the limits of a
-    /// listing, of a segment's directories or of the list. The count says so with `+`.
+    /// listing, of a segment's directories or of the list, or of a project's walk (ADR 0114).
+    /// The count says so with `+`.
     pub fn files_cut(&self) -> bool {
-        self.reads_path() && self.file_list.cut
+        (self.reads_path() && self.file_list.cut) || self.project_files_cut()
     }
 
     /// Whether a prompt that reads a path is open, innermost or not.
@@ -140,9 +141,10 @@ impl Editor {
         self.file_list.prompt.is_some()
     }
 
-    /// Whether the innermost prompt that reads a path waits for a listing.
+    /// Whether the innermost prompt that reads a path waits for a listing: of a directory, or
+    /// of a project whose walk has not ended or whose rows are not all in its list (ADR 0114).
     pub fn files_pending(&self) -> bool {
-        self.reads_path() && !self.file_list.asked.is_empty()
+        (self.reads_path() && !self.file_list.asked.is_empty()) || self.project_files_pending()
     }
 
     /// The directory the innermost prompt's path reaches, for the control socket, if it reads
@@ -248,7 +250,7 @@ impl Editor {
     fn file_build(&self, reached: Vec<Reached>, hidden: bool, text: &str) -> Build {
         let prompt = self.prompts.last();
         let history = prompt
-            .and_then(|prompt| prompt.kind.history())
+            .and_then(crate::minibuffer::Prompt::history_name)
             .unwrap_or("");
         let records = prompt.is_some_and(|prompt| !prompt.around_secret);
         let history = if records {

@@ -30,7 +30,7 @@ use std::thread;
 
 use oso_core::editor::ProjectRequest;
 use oso_core::project::{
-    Found, MAX_GIT_FILE, RootIdentity, same_place, worktree_backlink, worktree_claim,
+    Found, MARKERS, MAX_GIT_FILE, RootIdentity, same_place, worktree_backlink, worktree_claim,
     worktree_entry,
 };
 
@@ -173,12 +173,14 @@ enum Marker {
 /// owns.
 fn markers_in(dir: &Path) -> Marker {
     let entry = |name: &str| fs::symlink_metadata(dir.join(name)).ok().filter(ours);
-    match entry(".git") {
+    // `.git` is the first marker, and the only one that may be a file.
+    let [git, others @ ..] = MARKERS;
+    match entry(git) {
         Some(git) if git.is_dir() => return Marker::Plain,
         Some(git) if git.is_file() => return Marker::GitFile,
         _ => {}
     }
-    if [".jj", ".hg"]
+    if others
         .into_iter()
         .any(|name| entry(name).is_some_and(|marker| marker.is_dir()))
     {

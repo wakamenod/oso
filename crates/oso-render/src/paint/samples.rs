@@ -1,5 +1,6 @@
 //! Sample frames of every face in each theme, drawn off screen with the OS's
-//! font, for the author to pick colours from (ADR 0089). Run with `OSO_THEME_SAMPLES=<dir>
+//! font, for the author to pick colours from (ADR 0089), split windows' modelines among
+//! them (ADR 0112). Run with `OSO_THEME_SAMPLES=<dir>
 //! cargo test -p oso-render -- --ignored theme_samples`: it writes each frame's RGBA pixels
 //! and a table of the contrast of each face's pairs.
 //!
@@ -322,6 +323,9 @@ fn theme_samples() {
         };
         write(dir, &format!("{name}-completion"), completion);
         write(dir, &format!("{name}-question"), question);
+        if let Some(split) = split_frame(theme) {
+            write(dir, &format!("{name}-split"), split);
+        }
         writeln!(
             table,
             "## {name}\n\n{}",
@@ -330,4 +334,101 @@ fn theme_samples() {
         .unwrap();
     }
     std::fs::write(dir.join("ratios.md"), table).unwrap();
+}
+
+/// A frame of two windows side by side, the left one selected with `Agent` and a warning on
+/// its modeline, a divider between them, in `theme` (ADR 0112).
+fn split_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
+    let buffer = Buffer::from_text("sample.rs", TEXT);
+    let half = COLUMNS / 2;
+    let size = ViewSize::new(TEXT_ROWS, half - 1);
+    let mut screen = Screen::default();
+    screen.show_lines(&buffer.display(), ViewTop::default(), size);
+    let id = oso_core::editor::Editor::default().window().buffer();
+    let band = [cells(3, 0, 1, half - 1)];
+    let fills = [(Face::CurrentLine, &band[..])];
+    let view = |style: CursorStyle, fills| {
+        PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id,
+            revision: 1,
+            screen: &screen,
+            cursor: DisplayPoint::new(3, 10),
+            cursor_style: style,
+            others: &[],
+            preedit: None,
+            fills,
+            whitespace: true,
+            flash: None,
+        })
+    };
+    let active: [&[Span<'_>]; 1] = [&[
+        span("Agent  ", Face::Prompt),
+        span("[changed on disk] ", Face::Warning),
+        span("-- sample.rs  ", Face::Modeline),
+        span("4:10  Rust  UTF-8 LF", Face::Modeline),
+    ]];
+    let inactive: [&[Span<'_>]; 1] = [&[
+        span("-- sample.rs  ", Face::ModelineInactive),
+        span("4:10  Rust  UTF-8 LF", Face::ModelineInactive),
+    ]];
+    let echo: [&[Span<'_>]; 1] = [&[span("Mark set", Face::Text)]];
+    let pane = tiled_pane;
+    let panes = [
+        pane(
+            0,
+            cells(0, 0, TEXT_ROWS, half - 1),
+            Some(Face::Text),
+            view(CursorStyle::Box, &fills[..]),
+        ),
+        pane(
+            1,
+            cells(0, half, TEXT_ROWS, half),
+            Some(Face::Text),
+            view(CursorStyle::Hollow, &[]),
+        ),
+        pane(
+            2,
+            cells(0, half - 1, TEXT_ROWS + 1, 1),
+            Some(Face::Text),
+            PaneContent::Divider,
+        ),
+        pane(
+            3,
+            cells(TEXT_ROWS, 0, 1, half - 1),
+            Some(Face::Modeline),
+            PaneContent::Lines(&active),
+        ),
+        pane(
+            4,
+            cells(TEXT_ROWS, half, 1, half),
+            Some(Face::ModelineInactive),
+            PaneContent::Lines(&inactive),
+        ),
+        pane(
+            5,
+            cells(TEXT_ROWS + 1, 0, 1, COLUMNS),
+            None,
+            PaneContent::Lines(&echo),
+        ),
+    ];
+    draw(&panes, theme)
+}
+
+/// A tiled pane of `content`, filled in `background`.
+fn tiled_pane<'a>(
+    id: u32,
+    region: CellRect,
+    background: Option<Face>,
+    content: PaneContent<'a>,
+) -> Pane<'a> {
+    Pane {
+        id: PaneId(id),
+        region,
+        layer: Layer::TILED,
+        background,
+        panel: None,
+        bands: Bands::NONE,
+        content,
+    }
 }

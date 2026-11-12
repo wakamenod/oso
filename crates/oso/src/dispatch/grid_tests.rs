@@ -530,8 +530,17 @@ fn check_frame(name: &str, text: &str, (rows, columns): (usize, usize), steps: &
     check_editor(name, text.as_bytes(), editor, steps);
 }
 
-fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
-    let mut dispatcher = Dispatcher::new();
+fn check_editor(name: &str, bytes: &[u8], editor: Editor, steps: &[&str]) {
+    run_steps(name, bytes, editor, Dispatcher::new(), steps);
+}
+
+fn run_steps(
+    name: &str,
+    bytes: &[u8],
+    mut editor: Editor,
+    mut dispatcher: Dispatcher,
+    steps: &[&str],
+) {
     let mut frames = Vec::new();
     for &keys in steps {
         if let Some(command) = keys.strip_prefix("run:") {
@@ -570,6 +579,51 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
 #[cfg(test)]
 mod scenarios {
     use super::*;
+
+    /// The commands `M-x` lists in [`check_m_x`]: enough to fill and scroll its list and to
+    /// narrow it, and none that a new command would push out of it.
+    const M_X_COMMANDS: [&str; 28] = [
+        "undo",
+        "yank",
+        "insert",
+        "newline",
+        "find-file",
+        "goto-line",
+        "kill-line",
+        "kill-word",
+        "next-line",
+        "undo-redo",
+        "edit-lines",
+        "load-theme",
+        "write-file",
+        "beacon-mode",
+        "delete-char",
+        "kill-buffer",
+        "next-buffer",
+        "save-buffer",
+        "forward-char",
+        "forward-word",
+        "end-of-buffer",
+        "revert-buffer",
+        "isearch-forward",
+        "previous-buffer",
+        "switch-to-buffer",
+        "mark-whole-buffer",
+        "kill-buffer-anyway",
+        "beginning-of-buffer",
+    ];
+
+    /// As [`check_frame`], with `M-x` listing only [`M_X_COMMANDS`], so that a new command
+    /// changes neither the list nor its count. That `M-x` lists every command is checked in
+    /// `extended`'s tests.
+    fn check_m_x(name: &str, text: &str, (rows, columns): (usize, usize), steps: &[&str]) {
+        let mut editor = Editor::with_buffer(Buffer::from_bytes("test", text.as_bytes()));
+        aids_off(&mut editor);
+        editor.set_frame_size(FrameSize { rows, columns });
+        let mut dispatcher = Dispatcher::new();
+        dispatcher.list_only_in_m_x(&M_X_COMMANDS);
+        run_steps(name, text.as_bytes(), editor, dispatcher, steps);
+    }
 
     #[test]
     fn full_width_and_half_width() {
@@ -768,8 +822,6 @@ mod scenarios {
         );
     }
 
-    // A dev build lists its own commands too, so these run in a build without them.
-    #[cfg(not(feature = "dev"))]
     #[test]
     fn m_x_lists_commands_below_the_answer_with_their_keys_and_summaries() {
         let text = "# Notes\n\nAgenda\n- budget\n";
@@ -781,7 +833,7 @@ mod scenarios {
             "C-a C-SPC C-e",
             "C-g C-g",
         ];
-        check_frame("complete_m_x", text, (30, 100), &steps);
+        check_m_x("complete_m_x", text, (30, 100), &steps);
     }
 
     #[test]
@@ -826,20 +878,16 @@ mod scenarios {
         check_frame("buffers_c_x_b", "notes\n", (24, 100), &steps);
     }
 
-    // A dev build lists its own commands too, so these run in a build without them.
-    #[cfg(not(feature = "dev"))]
     #[test]
     fn a_narrow_list_cuts_the_summary_then_drops_it_then_the_key() {
-        check_frame("complete_narrow", "notes\n", (12, 44), &["M-x b u f"]);
+        check_m_x("complete_narrow", "notes\n", (12, 44), &["M-x b u f"]);
     }
 
-    // A dev build lists its own commands too, so these run in a build without them.
-    #[cfg(not(feature = "dev"))]
     #[test]
     fn a_short_frame_gives_up_candidate_rows_first() {
-        check_frame("complete_in_9_rows", "notes\n", (9, 80), &["M-x", "C-v"]);
-        check_frame("complete_in_7_rows", "notes\n", (7, 80), &["M-x"]);
-        check_frame("complete_in_3_rows", "notes\n", (3, 80), &["M-x"]);
+        check_m_x("complete_in_9_rows", "notes\n", (9, 80), &["M-x", "C-v"]);
+        check_m_x("complete_in_7_rows", "notes\n", (7, 80), &["M-x"]);
+        check_m_x("complete_in_3_rows", "notes\n", (3, 80), &["M-x"]);
     }
 
     #[cfg(feature = "dev")]
@@ -1148,6 +1196,64 @@ mod scenarios {
             root.as_bytes(),
             &[text_grid(&editor)],
         );
+    }
+
+    #[test]
+    fn c_x_p_f_streams_a_projects_files_and_keeps_the_selected_row() {
+        let path = std::path::PathBuf::from("/w/oso/src/main.rs");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_load(oso_core::load::decode_all(b"", Default::default()));
+        buffer.judge_secret(Some(std::slice::from_ref(&path)));
+        buffer.set_baseline(oso_core::buffer::Baseline {
+            location: path,
+            file: None,
+        });
+        let mut editor = Editor::with_buffer(buffer);
+        aids_off(&mut editor);
+        editor.set_frame_size(FrameSize {
+            rows: 14,
+            columns: 100,
+        });
+        let id = editor.tiled().0.buffer();
+        editor.request_project(id);
+        let request = editor.take_project_requests().pop().unwrap();
+        let found = oso_core::project::Found {
+            root: oso_core::project::RootIdentity {
+                path: std::path::PathBuf::from("/w/oso"),
+                identity: None,
+            },
+            worktree_of: None,
+            checked_main: None,
+        };
+        editor.project_found(&request, Some(found));
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        let mut frame = |editor: &Editor, step: &str| {
+            frames.push(format!("step: {step}\n{}", text_grid(editor)));
+        };
+        let keys = |dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str| {
+            let sequence: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(editor, sequence.0);
+        };
+        keys(&mut dispatcher, &mut editor, "C-x p f");
+        let walk = editor.take_walk_request().unwrap().generation;
+        frame(&editor, "C-x p f, nothing walked yet");
+        let batch = |names: &[&str]| names.iter().map(|&name| name.into()).collect();
+        editor.files_walked(
+            walk,
+            batch(&["src/main.rs", "docs/ui.md", "Cargo.toml"]),
+            None,
+        );
+        frame(&editor, "a batch");
+        keys(&mut dispatcher, &mut editor, "C-n");
+        editor.files_walked(walk, batch(&["a.rs", ".github/ci.yml", "src/lib.rs"]), None);
+        frame(&editor, "C-n, then a batch: the row moved to stays");
+        let end = Some(oso_core::editor::WalkEnd { cut: false });
+        editor.files_walked(walk, batch(&["build.rs"]), end);
+        frame(&editor, "the last batch, and the walk ends");
+        keys(&mut dispatcher, &mut editor, "r s");
+        frame(&editor, "r s");
+        assert_frames("project_find_file_streams", b"", &frames);
     }
 
     #[test]
