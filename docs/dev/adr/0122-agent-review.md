@@ -1,0 +1,608 @@
+# 0122. Agent review
+
+- Status: Proposed
+- Date: 2026-11-12
+
+## Context
+
+The roadmap's M4 puts "review and worktree tools on the `oso mcp` bridge" under the Claude Code
+integration ([ADR 0031](0031-claude-code-integration.md)), and ADR 0031 has oso own "review of
+changes with comments sent back to the session as a bracketed paste". This ADR designs that
+review. It is one of three M4 ADRs: ADR 0120 (the terminal, Proposed
+on PR #198), ADR 0121 (sessions and spaces, not written yet) and this one.
+
+The author reviews agent changes every day in their previous Emacs setup, and wants to finish and
+improve that inside oso. There, a person reads what an agent changed, comments on lines and hunks,
+sends the comments to the agent as one prompt, and the review follows as the agent edits more.
+What it taught:
+
+- **Everything ran on the UI thread.** `git` ran synchronously; blob reads, fontification and the
+  MCP tools ran on the main loop. A 57-file review took 1.7 s to open, 0.7 s of it fontifying,
+  and a re-read 0.7 to 0.8 s. Batching blob reads through one `git cat-file --batch` took them
+  from 0.8 s to 0.05 s.
+- **Timers froze it.** A repeating refresh timer froze the editor once; the fix was one one-shot
+  timer that re-arms while input is pending, and refreshing only reviews on screen.
+- **The re-anchoring held.** Comments are kept apart from the text and carried to their line on
+  every refresh by the shape of each reading, not by guessing from nearby text (see "Comments").
+  A comment whose line went is marked outdated, and comes back if the line does.
+- **Agent tours were slow:** a tour that walked the hunks one tool call at a time took 13 to 35 s.
+- **What it lacked:** per-hunk stage, revert or "viewed"; a review that survives a restart (an
+  unmerged branch); line carrying when jumping to the source from the unified view; a size cap on
+  the prompt sent.
+
+What oso has, and does not have:
+
+- No git integration yet. [ADR 0011](0011-git-integration.md) reads git's read-only information
+  in-process with `gix` (not yet a dependency) and runs the `git` CLI for writes only in trusted
+  projects, since running `git` in an untrusted repository can run commands from its config.
+- Projects open restricted until `trust-project` ([ADR 0009](0009-project-trust.md),
+  [ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md)).
+- Only `oso-platform::process` spawns, with an allowlisted environment and standard input closed
+  ([ADR 0047](0047-process-spawning-and-restart-handoff.md)). It is dev-only today; ADR 0120's
+  first step ships it in release builds.
+- The agent channel and `oso mcp` ship, off by default, and every command declares a reach
+  ([ADR 0085](0085-agent-channel-and-oso-mcp.md)): anything that spawns a process or needs a person
+  at the keyboard is `Person`. Nothing reaches a terminal's PTY from the channel (ADR 0120).
+- `similar` is a release dependency of the tip crate, for comparing an emergency copy
+  ([ADR 0064](0064-recovering-an-emergency-copy.md)), with a deadline and size bounds.
+- Tree-sitter highlighting runs on two workers, per buffer, up to 2 MiB
+  ([ADR 0111](0111-tree-sitter-highlighting.md)). Windows split
+  ([ADR 0112](0112-window-splits.md)). The display model has no BlockMap yet.
+
+Measured in the oso repository (905 files) on the author's Mac: `git diff --raw --numstat -z` over
+347 changed files takes 70 ms; a baseline snapshot through a throwaway index takes 80 ms, and the
+previous setup measured 25 ms for 206 files once the index's stat cache is copied in.
+
+### What others do
+
+- **The author's previous Emacs setup:** described above. Scopes from a menu (session changes,
+  uncommitted, staged, unstaged, branch against base, a commit or range, a PR through `gh`). Line
+  and hunk comments, re-anchored by shape, outdated kept and still sent. Sent comments stay, dimmed.
+  A files pane with a filter. Eight MCP tools, all auto-allowed; the agent cannot write or edit the
+  person's comments, but may remove them. No accept or reject.
+- **hunk** (a terminal review viewer for agent changes): every input becomes one review document
+  in one store that the UI, the agent API and extensions all change through named intents; the
+  renderer keeps only geometry. File identity is by path, content identity apart. Watch mode
+  debounces (200 ms quiet, 1 s at most), checks a cheap signature off the render path, and keeps
+  the viewport, the selection, notes and an unchanged file's draft across reloads. Agent notes
+  start hidden; feedback is pull-only; nothing stages or reverts; notes die with the window. Its
+  triage example drops a hunk's decision when the hunk's content changes, "rather than silently
+  transferring a decision to changed code". It refuses refs that look like options.
+- **Claude Code Desktop's diff:** line comments collected into one batch and sent together; for
+  the agent's own findings, "walk through findings", "fix this one" and "apply all".
+- **magit:** hunk and line staging from the diff (`s`, `u`, `k` to discard, with a question), and
+  `RET` visits the file at the line. Refinement of the current hunk, or of all.
+- **GitHub:** per-file "Viewed" checkboxes that clear when the file changes, outdated comments
+  kept on the old diff, threads with resolve, suggestions applied from a comment, and "Start a
+  review" batching comments until one submit.
+
+## Decision
+
+### One review model (Q1)
+
+- **A review is host-owned state, changed only through commands.** Every key, every agent tool and
+  every refresh goes through the same functions, as hunk's store does and as oso's commands are
+  plain functions over host-owned state. The model holds no geometry; windows keep their own
+  places.
+- **What a review holds:**
+  - its scope and the project (root, git directory);
+  - its files, in order: path, previous path for a rename, status, mode, whether binary, too large
+    or withheld, and per file a *reading*: the old side's blob id, the new side's signature, and
+    its hunks;
+  - each hunk's lines (side, number, text) and its *content key* (see "Decisions");
+  - comments and their threads;
+  - decisions (staged, reverted, viewed), keyed by content;
+  - the tour, if an agent gave one;
+  - the generation of the last refresh, and which files are stale.
+- **File identity is the path** (and the previous path for a rename), never content, so a file
+  the agent rewrites is still the same file and keeps its comments. Content identity is the
+  reading's signature, kept apart.
+- **Several reviews may be open**, one per scope and project. Each has one review buffer.
+
+### What can be reviewed (Q4, Q5, Q22)
+
+| Scope | Old side | New side |
+|---|---|---|
+| Session changes | the baseline tree taken when the session started | a fresh snapshot of the working tree |
+| Uncommitted | `HEAD` (the empty tree on an unborn branch) | the working tree, untracked files included |
+| Staged | `HEAD` | the index |
+| Unstaged | the index | the working tree |
+| Branch against base | `merge-base BASE HEAD` | the working tree |
+| A commit or a range | `X^` or `FROM^` (the empty tree for a root commit) | `X` or `TO` |
+| A pull request | the PR's base commit | its head commit |
+
+- **The session baseline** is a tree written through a throwaway index, so the person's index and
+  stash are untouched: copy the real index (keeping its modification time, so its stat cache
+  applies and a racily clean entry is not missed), then with `GIT_INDEX_FILE` set to the copy,
+  `git add -A --` and `git write-tree`. The copy is removed after. The tree id is kept with the
+  review (see "Persistence").
+- **The baseline is taken** when a session starts, through the session seam below. Until ADR 0121
+  exists, the `claude` command of ADR 0120 takes it when it starts an agent in a trusted project,
+  and `review-mark-baseline` takes it by hand (Q5).
+- **The baseline is not referenced (Q4):** git keeps an unreachable tree for `gc.pruneExpire`, two
+  weeks by default. A review whose baseline is gone says so and offers the uncommitted scope.
+- **A pull request** is found with `gh pr view N --json number,title,baseRefOid,headRefOid,…` (and
+  listed with `gh pr list`). Commits missing locally are fetched with `git fetch --no-tags
+  --recurse-submodules=no --refmap= REMOTE pull/N/head` into `FETCH_HEAD` only, no ref of the
+  person's moved. When the PR's branch is the one checked out, the scope is branch against base
+  instead, so the working tree shows. Posting to GitHub is not in this ADR.
+- **The menu** (`C-x v r`, a float of choices as in ADR 0117 once it lands, a completing
+  prompt until then) offers each scope with its file count, counted on a worker and
+  filled in as each count comes. It remembers the last choice per project.
+
+### Running git and gh
+
+- **Only in trusted projects, only through `oso-platform::process`, never on the UI thread.** Each
+  review has one thread that runs its git commands in order; counts for the menu run on a pool of
+  at most 2.
+- **The arguments are oso's.** Every run starts `git --no-pager -c core.quotePath=false`, and diff
+  runs add `--no-ext-diff --no-textconv --no-color`. A revision a person typed or an agent gave is
+  refused when it starts with `-` or holds a control character, then resolved to an object id with
+  `git rev-parse --verify --quiet --end-of-options REV^{commit}`; only ids reach later commands.
+  Paths always follow `--`. A PR number is digits only.
+- **The environment** is the allowlist plus values oso sets: `GIT_OPTIONAL_LOCKS=0` (so a read
+  never takes the index lock from the agent's own `git`), `GIT_TERMINAL_PROMPT=0`, and for `gh`
+  `GH_PROMPT_DISABLED=1`, `GH_NO_UPDATE_NOTIFIER=1` and `NO_COLOR=1`. `GH_TOKEN` and `GH_HOST` are
+  passed by name only when set.
+- **What git reports is read as bytes:** the file list comes from `git diff --raw --numstat -z`
+  (with `-M` for renames), paths NUL-separated, never parsed from patch headers. Old-side blobs
+  come through one long-lived `git cat-file --batch` per review, fed object ids on its standard
+  input. Every read is bounded (see "Cost and limits"), and a run past 10 s is killed and reported.
+- So `oso-platform::process` gains a piped standard input and variables set by value. Both are
+  amendments to ADR 0047 below.
+
+### Restricted projects (Q3)
+
+- **A restricted project gets no review.** `C-x v r` says "reviewing runs git, which this project
+  is not trusted to run: `M-x trust-project`", and the agent tools answer the same. Nothing runs.
+- Comments, decisions and saved reviews of a project that becomes restricted again stay on disk
+  and come back when it is trusted.
+- When `gix` lands for ADR 0011's in-process reads, an in-process review of the uncommitted,
+  staged and commit scopes in restricted projects is a separate decision (open question).
+
+### Diffing (Q2)
+
+- **oso diffs in-process, with `similar`.** git gives the file list and the old blobs; the new
+  side is the working-tree file, read as project search's preview reads one (from the root a
+  directory at a time, no link followed, regular files only, no wait), or the blob for a commit,
+  the index or a PR. The diff runs on a worker, per file, with `similar`'s Myers diff and a
+  deadline, and groups into hunks with no context lines (as the previous setup's `-U0`); context
+  is shown from the sides on demand.
+- Why in-process: each file is diffed on its own, so a refresh re-diffs only files whose signature
+  changed and on-screen files go first; the same sides feed intra-line refinement, highlighting
+  and re-anchoring without a second read; and no patch text from git is parsed. Hunks need not be
+  git's: staging builds its own patch (see "Decisions").
+- **A file's signature** is the old blob id plus the new side's blob id, or, for a working-tree
+  file, its device, inode, size and modification time (and its blob id when `git diff --raw`
+  gives one). A file whose signature did not change is not read again.
+
+### The views (Q6, Q7, Q8, Q9)
+
+- **The review buffer** is a generated, read-only buffer, `*review: <scope> <project>*`, with a
+  major mode of its own (`Review`) and its keymap. It is one continuous stream: each file's
+  header (status, path, `+n −m`, comment counts, decisions), then its hunks, as the previous setup
+  and hunk show it. The text is built on the review's worker as a rope with its display map
+  (`oso_core::load::Builder`), so the UI thread does no O(n) work, and a refresh replaces one
+  file's section as one edit.
+- **Unified is the default (Q6).** `|` switches the selected review to two panes: the old side and
+  the new side as two generated buffers in a side-by-side split, or stacked when the frame is
+  narrower than 160 columns. The two windows scroll together: moving in one moves the other to the
+  aligned row. Rows are aligned by filler rows the generated text holds, marked by a decoration
+  that motion skips and comments refuse (Q7).
+- **Intra-line refinement:** within each change block of a hunk, removed and added lines are
+  paired in order and diffed by words with `similar`, on the worker, on-screen first, drawn in
+  `diff.refine-removed` and `diff.refine-added`. Only blocks of at most 100 lines a side and lines
+  of at most 1 KiB are refined.
+- **Syntax highlighting (Q8):** each side of a file is highlighted whole by oso's tree-sitter
+  workers, as a document no buffer owns, then its runs are projected onto the review's rows.
+  When the file is open in a buffer whose text is the new side, that buffer's highlights are used.
+  On-screen files go first. Rows draw in the diff faces until highlights come, which recolour them
+  without moving anything (ADR 0111). ADR 0111's limits hold: no file over 2 MiB, nothing that may
+  hold secrets.
+- **Comments are rows in the review buffer (Q9):** a card under the line or hunk it is on, built
+  from the model, with the author's label drawn by oso in its own face and the text indented under
+  it. A comment's text cannot start a card or a label, so an agent cannot write something that
+  looks like the person's comment. Cards are read-only rows like filler rows.
+- **The files pane:** `s` shows a narrow window on the left listing the files: status, `+n −m`,
+  comment counts as the person's and the agent's, `!` for outdated, a mark for viewed and for
+  decided hunks. `RET` goes to the file in the review. `/` filters the review by path, or by
+  comment text; hidden files keep their comments and the header says how many are hidden.
+- **Jump to the source:** `RET` on a new-side line opens the file at that line, carried through
+  edits made since the reading: the line is shifted through the hunks between the review's new
+  side and the file's current text (the open buffer's, or the file's), counted on a worker for a
+  file over 1 MiB. An old-side line goes to where it was removed. A line inside a changed span
+  goes to the span's start. `C-u RET` opens the old side as a read-only buffer.
+- **Faces** join the theme table with their contrast rules ([ADR 0089](0089-built-in-themes-switched-at-run-time.md)):
+  `diff.added`, `diff.removed`, `diff.refine-added`, `diff.refine-removed`, `diff.hunk-header`,
+  `diff.file-header`, `review.comment-person`, `review.comment-agent`, `review.outdated`,
+  `review.sent` and `review.decided`.
+
+### Comments and re-anchoring (Q10, Q11)
+
+- **A comment** has an id (never reused), an author (`Person` or `Agent`), a path, a side (old or
+  new) and a line, or a whole hunk; the line's text (at most 4 KiB kept, with a hash beyond); the
+  shape of the reading it was last placed in; its text; the comment it replies to; and its state.
+- **States:** a draft (being typed), unsent, sent (dimmed, still shown), resolved (folded to one
+  line), and outdated, which combines with the others. An agent's comment is also unread or read.
+- **Re-anchoring is the previous setup's algorithm, ported.** Of each reading of a file, a shape
+  is kept: the lines the diff takes out of the old side and puts into the new, by number, and the
+  old side's blob id. The new side is then a sequence in which a line the old side had is its
+  number there (an identity, not a text) and a line put in is its text.
+  - Two readings against the same old side share every old line neither took out; those match by
+    number. Only the lines put in between two shared lines are matched, by text, with each other
+    (an LCS over those stretches).
+  - When the old side changed (a commit under the uncommitted scope, a moved branch), the old
+    blobs are diffed and old line numbers carried through those hunks first. When the old sides
+    are unknown, lines match by text and order alone. When nothing can be said, nothing matches.
+  - A line comment moves only to a line whose text is its own. A hunk comment carries each changed
+    line of the hunk; if half or more went, it is outdated, else the hunk with most of them wins.
+  - Nothing is guessed from surrounding text: a blank line or a lone brace reads like a hundred
+    others.
+- **Outdated comments are kept and shown** above the file's first hunk, with the line they were
+  on, and are still sent. One comes back to its line if the line comes back.
+- **The person comments** with `c` on a line or a hunk header, in a draft buffer in a float under
+  the line, `C-c C-c` to keep and `C-g` to drop (the draft stays in the kill ring). `c` on an
+  agent's comment starts a reply. `e` edits the person's own comment, which makes it unsent again;
+  `k` removes it; `r` resolves a thread. `{` and `}` move between comments.
+- **Agent comments are always shown (Q10),** in their own face and labelled with the agent's name,
+  and the modeline shows how many are unread. `a` folds every agent card to its first line; it
+  never hides them.
+- **Who may change what (Q11):** an agent adds comments, replies to any comment, and edits,
+  resolves and removes its own. It never edits, resolves or removes the person's. A reply takes
+  its parent's anchor.
+
+### Decisions: accept, reject, viewed (Q12, Q13, Q19)
+
+- **Per hunk:** `a` accepts (stages), `x` rejects (reverts), `v` marks viewed. On a file header
+  they apply to every hunk of the file. In the staged scope, `x` unstages.
+- **A decision is keyed by the hunk's content:** its path and the exact text of its removed and
+  added lines, not their numbers. A hash finds candidates and the text decides (Q19). When the
+  agent rewrites the hunk, no hunk has that content any more, so the decision drops, and the file
+  header says "2 decisions dropped: their hunks changed" until the person looks. A decision is
+  never carried to changed code.
+- **Accept stages exactly the hunk shown:** oso builds a patch from the review's hunk (with the
+  context lines read from the old side) and runs `git apply --cached --unidiff-zero` with it on
+  standard input. If the file moved on since the reading, the index still gets what the person
+  saw, or git refuses and the review says so.
+- **Reject edits the file through a buffer (Q13):** the file is opened (or its buffer used), the
+  hunk's new-side lines are checked to be where the reading put them, and replaced by its
+  old-side lines as one undo step, then saved by the safe save
+  ([ADR 0059](0059-safe-save-and-the-exit-guard.md)). If they are not there, it refuses: "that
+  hunk changed; look again". A buffer with unsaved edits asks first.
+- **Undo:** `u` in the review undoes the last decision: unstage what was staged (`git apply
+  --cached -R` with the same patch), put back what was reverted (the reverse edit, checked the
+  same way), clear a viewed mark. The review keeps its own list of decisions, at most 1,000.
+- **Progress** shows in the modeline: "7 of 12 hunks decided, 3 viewed".
+- **Reach:** accept, reject, unstage and their undo spawn git or write files at the person's
+  word, so they are `Person`. Viewed is the person's record of what they read, so it is `Person`
+  too. No agent tool decides.
+
+### Refresh while the agent edits (Q17)
+
+- **What marks a review stale:**
+  - a reviewed file's signature changes, by a look at the reviewed files' metadata once a second
+    while the review is shown, as `loader::Watcher` looks at open files, and when the window gains
+    the focus;
+  - a `git diff --raw` signature that changes (files added or gone, the index or `HEAD` moved),
+    checked every 2 s while the review is shown, on the review's thread;
+  - a save in oso of a file under the project;
+  - the agent finishing a turn or a tool that writes, through the turn seam below.
+- **Debounced:** a refresh starts after 200 ms with no new mark, or 1 s after the first, as hunk's.
+  One refresh runs at a time per review; marks during it make one more.
+- **Off the UI thread, on-screen first:** the review's worker re-reads the file list, re-diffs
+  only files whose signature changed, starting with those any window shows, re-anchors their
+  comments, drops decisions whose content went, and sends each file's new section with the
+  refresh's generation. A review no window shows is only marked stale, and refreshes when shown.
+- **It never moves what the person has:**
+  - each window keeps its first row by anchor (file, side, line, and offset), not by row number,
+    and its cursors the same way; a cursor whose line went goes to the nearest line that stayed;
+  - a draft is a buffer of its own, so a refresh never touches its text; if its line goes, it
+    stays open and says it will be kept as outdated;
+  - the files pane keeps its selection and filter;
+  - nothing takes the focus, and no window scrolls to show a change. A hunk that changed since the
+    person looked at it shows a `changed` mark in its header until they move onto it.
+
+### Sending comments to the agent (Q16, Q21)
+
+- **`C-c C-c` in the review** gathers every unsent comment of the person's, in review order, and
+  shows the message in `*review message*` first, editable. `C-c C-c` there sends it; `C-g` sends
+  nothing. Both are `Person`.
+- **The message** begins "Review comments on the changes below. Please act on each of them." and
+  names the scope. Each comment follows, as the previous setup wrote it:
+
+  ````
+  ## src/foo.rs  L42 (new)          (or L40-L48 for a hunk; "(outdated)" when it is)
+  ```diff
+  @@ -40,3 +40,7 @@
+  …the hunk…
+  ```
+  In reply to the agent's #12: …
+  Comment: …
+  ````
+
+  The fence grows longer than any run of backticks in the hunk. A hunk longer than 60 lines is cut
+  to the 30 lines around the comment, saying so. The message is at most 256 KiB; past that the
+  rest of the comments stay unsent, and the preview says how many.
+- **After sending,** the comments are marked sent and stay visible, dimmed. The next send carries
+  only new ones. An edited comment is unsent again.
+- **Where it goes** is the delivery seam below: a bracketed paste into the session's terminal,
+  sanitized as ADR 0120 sanitizes any paste, and not submitted, so the person reads it in the TUI
+  and presses Enter. Until the terminal exists, the message goes to the kill ring and the preview
+  says to paste it.
+- Comments on a file that may hold secrets go with the file and line, without the hunk.
+
+### The seams to ADR 0120 and 0121
+
+These sit in the tip crate's `review` module as small traits with one implementation each until
+the other ADRs land, so review is built and tested from git and files alone:
+
+- **Deliver:** where a message goes. Now the kill ring; with ADR 0120, the bracketed paste into a
+  terminal the person picks (the one `claude` started, by default); with ADR 0121, the session the
+  review belongs to.
+- **Turns:** "the agent finished a turn" and "a tool that writes finished", which mark the review
+  stale. Now nothing (the watching above covers it); with ADR 0121, the Stop and PostToolUse hooks.
+- **Sessions:** "a session started in this worktree" (take the baseline) and "which review is this
+  agent's" (for the tools). Now the `claude` command and `review-mark-baseline`, and the review
+  shown, else the one used last; with ADR 0121, the session's id carried by the bridge.
+
+### Agent tools in `oso mcp` (Q14, Q15, Q20)
+
+New channel methods, each a tool of `oso mcp`, with its reach as ADR 0085 counts it. Read tools
+answer while the channel waits for the person, as `state` does; the others wait as `run` does.
+
+| Tool | Reach | What it does |
+|---|---|---|
+| `review_list` | Look, read-only | the open reviews: id, scope, project, counts, whether stale |
+| `review_read` | Look, read-only | one review's structure: files, hunk ids and ranges, `+/−`, decisions, comment counts; patch text only when asked for, per file or hunk, at most 256 KiB a call |
+| `review_comments` | Look, read-only | comments with id, author, place, text, replies, state; by author, file or state |
+| `review_navigate` | Look | moves a review window to a file, hunk, line or comment, or the next or previous comment, without taking the focus |
+| `review_comment` | Change | adds a comment on a line or hunk, or a reply; a batch of at most 100, checked whole before any is added; a line not in the diff is refused, naming the lines that are |
+| `review_edit_comment` | Change | edits, resolves or removes one of the agent's own comments |
+| `review_tour` | Change | gives an ordered tour (see below) |
+| `review_open` | asks the person | asks to open a review of a scope (Q15) |
+
+- **There is no tool to accept, reject, stage, revert or mark viewed** (Q12). An agent that thinks
+  a hunk should go says so in a comment.
+- **`review_open` asks (Q15):** opening runs git, which the channel never does by itself, so it
+  opens an `Agent:` question as ADR 0085's saves do: "Agent: open a review of uncommitted changes in
+  oso? (y or n)", from the keyboard only, after 500 ms with no key. `y` opens it in a window beside
+  the selected one, without selecting it.
+- **The tour (Q20):** one call gives at most 50 stops, each a place and a note of at most 4 KiB.
+  The stops become agent comments of the kind `tour`, in order. The modeline shows `Tour 2/7`;
+  `n` and `p` step. At a stop, `f` adds the person's comment "Fix this." there (editable), and `F`
+  adds it at every stop not yet answered: Claude Code Desktop's "fix this one" and "apply all",
+  sent as any comments are.
+- **Withheld:** a file that may hold secrets is listed by path and counts only; its lines are
+  never in `review_read`, `review_comments` or a tour. While a review shows such a file's lines,
+  the channel waits as for a secret buffer.
+- **Instructions:** the bridge's server instructions say to open a review only when the person
+  asks, to read structure first and patch text only when needed, to batch comments, and not to
+  comment on every hunk. They come from the running oso, so they match its build.
+
+### Secrets and display
+
+- A file whose path matches the secret patterns shows in the review as a header with its counts
+  and "may hold secrets: `RET` to show". Showing it is `Person`, makes the review buffer one that
+  may hold secrets while shown, and its lines are never highlighted, saved with the review or put
+  in a message.
+- Paths, file text and comment text are drawn by the same rules as any buffer's: invalid bytes as
+  `\xNN`, bidirectional and invisible characters shown
+  ([`ui.md`](../ui.md#bidirectional-and-invisible-characters), [ADR 0066](0066-text-stays-in-logical-order.md)).
+
+### Persistence (Q18)
+
+- **A review is saved as it changes,** on a thread, to `reviews/` in the per-user state directory
+  ([ADR 0108](0108-the-user-configuration-file.md)), a private directory (mode `0700`, files `0600`,
+  with access lists counted as for emergency copies). One file per project and scope, JSON Lines
+  through `serde_json`: the scope, the baseline tree id, comments with their shapes, decisions with
+  their content, viewed marks, the tour, the filter and the place.
+- **It comes back** when the same scope of the same project opens again, re-anchored to the new
+  reading, and `review-resume` lists saved reviews. Killing a review with unsent comments says
+  "3 unsent comments kept; `review-resume` brings them back".
+- **Bounds:** at most 16 MiB a review; a review not opened for 30 days is removed. No line of a
+  file that may hold secrets is stored.
+
+### Cost and limits
+
+Budgets, measured on the author's Mac by a new `review` scenario of the performance harness (its
+thresholds need the author's approval):
+
+- **A 57-file, 5,000-line review shows its first screen within 100 ms** of `C-x v r` (as "startup
+  to first frame"), git's runs included, and is whole (every file diffed, refined and highlighted)
+  within 500 ms, on workers.
+- **The UI thread** spends at most 2 ms swapping in one file's section and never more than 4 ms in
+  one turn; keys in a review meet the 8 ms key-to-photon budget.
+- **A refresh after one file changed** costs one `git diff --raw` and that file's diff, and shows
+  within 100 ms of the debounce ending. UI work is proportional to that file's rows.
+
+Limits for crafted input, each saying what it hides:
+
+- **Files:** at most 10,000 listed and 32 MiB of `--raw` output; past that the review says how
+  many more there are.
+- **A side:** at most 8 MiB and 200,000 lines is diffed, with a 1 s deadline per file; past any of
+  these the file shows its sizes and "too large to show: `RET` opens it".
+- **Binary:** a NUL in the first 8,000 bytes (git's rule) or `-` in `--numstat` shows the sizes
+  only. A submodule shows its commit ids. A link shows its target's text, as git does, and is never
+  followed.
+- **Lines:** a line over 64 KiB is drawn as any long line is (ADR 0099); it is not refined, and a
+  comment keeps 4 KiB of its text and a hash.
+- **The review's text** is at most 64 MiB; past that, files collapse to their headers and open one
+  at a time.
+- **Comments:** at most 10,000 a review and 64 KiB each. **Agent input:** as the channel's, 1 MiB a
+  request.
+- **`gh` output** is at most 1 MiB, parsed with `serde_json`.
+
+### Crates and layers (Q1)
+
+- **`oso_core::review`** (new module, pure, no `unsafe`, no I/O): the model, the commands' state
+  changes, shapes and re-anchoring, content keys, the files pane's and filter's state. The LCS that
+  re-anchoring needs is handed in as a function by the caller, so `oso-core` takes no new
+  dependency. It sits on `guardrails/layers.txt`'s lowest `oso-core` line with `project`, and
+  `editor` holds the open reviews.
+- **`crates/oso/src/review/`** (new tip-crate module): the git and `gh` runner, the diff worker
+  (`similar`), the seams, persistence, and the channel methods' bodies. A new line entry beside
+  `walk` in `[oso]`.
+- **`oso-syntax`** gains documents no buffer owns, for the old side and files not open (new public
+  API, this ADR).
+- **`oso-platform::process`** gains a piped standard input and variables set by value.
+- **No new crate, no new crate edge, no new dependency** on the recommended options.
+
+### Keys
+
+In a review buffer: `n`/`p` hunk, `N`/`P` file, `{`/`}` comment, `c` comment, `e` edit, `k`
+remove, `r` resolve, `a` accept, `x` reject, `v` viewed, `u` undo a decision, `s` files pane, `/`
+filter, `|` two panes, `RET` source, `g` refresh now, `C-c C-c` send, `q` bury. `C-x v r` opens the
+menu. The exact keys are settled in step 3 with the author.
+
+## Steps
+
+One PR per step; each passes `just ci` and, where it touches the window, `just e2e`.
+
+1. **The model and re-anchoring** in `oso_core::review`, with property tests ported from the
+   previous setup's cases. No UI.
+2. **Git and diffing:** the process module's additions (after ADR 0120 step 1 ships it), the
+   review's thread, the scopes (session, uncommitted, staged, unstaged, branch, commit, range), the
+   baseline, `similar` diffs and the limits. Unit tests against temporary repositories.
+3. **The unified view:** the review buffer, its mode and keys, the menu, comments and drafts,
+   jumping to the source, refinement, the `review` performance scenario.
+4. **Refresh:** watching, debouncing, on-screen first, keeping places and drafts; end-to-end flows
+   that edit files under an open review.
+5. **Decisions:** accept, reject, viewed, undo, progress.
+6. **The files pane, the filter and persistence.**
+7. **Agent tools:** the channel methods, the `oso mcp` tools and instructions, the tour, guard tests
+   for authorship and reach.
+8. **Syntax highlighting of sides,** and the two-pane view.
+9. **Sending:** the message and its preview, and the Deliver seam's terminal implementation once
+   ADR 0120 lands. PRs through `gh` come here too.
+
+## Questions
+
+Recommended option first.
+
+1. **Where the model lives.** (a) `oso_core::review`, pure, with the LCS handed in; git, diffing and
+   workers in the tip crate: unit-testable, no new dependency in `oso-core`, one new module each
+   side. (b) The same, with `similar` added to `oso-core`: simpler code, but a new dependency edge
+   for the core. (c) All in the tip crate: no new core module, but the model's tests need the tip
+   crate and agent tools and keys share less.
+2. **Diff engine.** (a) In-process `similar` over blobs from `git cat-file --batch` and files read
+   by oso; git gives the file list: per-file refresh, one read feeds refinement, highlighting and
+   anchoring, no patch parsing; hunks may differ from `git diff`'s. (b) Parse `git diff` output:
+   git's exact hunks, but every refresh re-runs and re-parses the whole diff, and paths in headers
+   need unquoting. (c) `gix` for all of it: works in restricted projects, but a large new
+   dependency, and ADR 0011's check that it skips config commands is still open.
+3. **Restricted projects.** (a) No review; say why and point to `trust-project`: no git runs, as
+   ADR 0011 requires. (b) A review only of files open in oso against their text on disk: no git,
+   but a different feature with the same name. (c) In-process reads with `gix` now: a review
+   everywhere, at the cost of (2c).
+4. **Keeping the baseline from gc.** (a) Unreferenced, with git's two-week grace, and said when
+   lost: writes nothing in the person's refs. (b) A ref under `refs/oso/`: never lost, but writes
+   into the person's repository, shows in `git log --all` and must be cleaned up.
+5. **When the baseline is taken before ADR 0121.** (a) By the `claude` command in a trusted project,
+   and by `review-mark-baseline`: automatic for the main case. (b) Only by the command: nothing
+   runs that the person did not ask for, but easy to forget.
+6. **Default layout.** (a) Unified, `|` for two panes: one stream fits any width and matches the
+   previous setup's default. (b) Side by side when the window is 160 columns or wider, as hunk does:
+   better on a wide screen, but the layout changes with the window.
+7. **Aligning two panes.** (a) Filler rows in the generated text, and two windows that scroll
+   together: works without a BlockMap; needs a window pairing in ADR 0112's tree. (b) Wait for the
+   BlockMap: cleaner, but the two-pane view waits for it. (c) No alignment, as ediff: simplest, but
+   the previous setup found scrolling one side alone confusing.
+8. **Highlighting the sides.** (a) Whole sides on the tree-sitter workers, as documents no buffer
+   owns, on-screen first: correct inside strings and comments; new `oso-syntax` API and up to two
+   parses a file. (b) Only the hunks' text: cheap, but wrong where a hunk starts inside a string or
+   comment. (c) None at first: fastest to build, but the author's review had it.
+9. **Comment cards.** (a) Read-only rows in the review buffer: works now and is searchable. (b)
+   BlockMap blocks: no rows in the text, but waits for the BlockMap. (c) Only a mark and a float on
+   demand: compact, but comments are not read in place.
+10. **Agent comments.** (a) Always shown, with an unread count; `a` folds them: nothing the agent
+    wrote is missed. (b) Hidden until `a`, as hunk does: quieter, but notes go unseen.
+11. **What an agent may do with the person's comments.** (a) Reply only: the person's words and
+    their state stay theirs. (b) Also remove one it dealt with, as the previous setup allows: tidier,
+    but an agent steered by what it read can make a request disappear. (c) Also resolve: less
+    noise, and still visible, but the person no longer decides what is done.
+12. **Agent and decisions.** (a) Never: accept, reject and viewed are `Person`; the agent comments.
+    (b) A per-review setting that lets the agent stage (never revert): faster for trusted work, but
+    a staged hunk is one commit away from history. (c) Let the agent mark viewed: harmless to files,
+    but "viewed" stops meaning the person read it.
+13. **How reject reverts.** (a) An edit through the file's buffer, saved safely, checked against the
+    reading: undoable in the buffer and the review, and works with unsaved edits. (b) `git apply -R`
+    on the working tree: simpler, but bypasses the buffer and the safe save, and an open buffer
+    then reloads.
+14. **Reach of the agent's comment tools.** (a) `Change`, separate tools, not marked read-only: the
+    agent's own permission rules can allow reading and keep asking for writing. (b) `Look`: comments
+    change no file, but a person who allowed "look" would allow writing into their review.
+15. **May an agent open a review?** (a) Through an `Agent:` question: one keypress, nothing runs
+    without the person. (b) Never; the agent asks in chat and the person opens it: no question, but
+    slower. (c) Freely: smoothest, but against ADR 0085's rule that a channel action never starts a
+    process.
+16. **The preview before sending.** (a) Always: the person sees exactly what goes into the
+    terminal. (b) Only with `C-u`, as the previous setup: one key less, but a paste is unseen.
+17. **Watching for changes.** (a) Polling the reviewed files' metadata each second and a
+    `git diff --raw` signature every 2 s while shown, plus saves and the turn seam: no dependency.
+    (b) Native file events (`notify`, a new dependency): quicker to notice, but a new crate, and
+    large trees need many watches. (c) Only saves, the turn seam and `g`: cheapest, but edits made
+    from a shell go unseen.
+18. **Persistence.** (a) Saved automatically, kept 30 days: nothing is lost on a restart. (b) Saved
+    on request: fewer files, but a crash loses comments. (c) None, as hunk: simplest, the most
+    common loss its users report.
+19. **Decision identity.** (a) The exact text of the hunk, found by a hash: a decision can never
+    move to changed code. (b) A 64-bit hash only: smaller, but a crafted hunk could match it.
+20. **The tour.** (a) One call with all stops; the person steps, with "fix this" and "fix all": no
+    round trip per stop. (b) The agent navigates stop by stop: it can adapt, but each stop costs a
+    turn (13 to 35 s per tour measured).
+21. **What the message carries.** (a) Each comment with its hunk, cut past 60 lines, at most
+    256 KiB: the agent acts without another tool call. (b) Comments with places only: smaller, but
+    the agent must read the diff again.
+22. **Pull requests.** (a) Fetch missing commits into `FETCH_HEAD` only, in trusted projects, as a
+    `Person` command: no ref of the person's moves. (b) Only commits already present: no network
+    through git at all, but most PRs need a fetch first.
+
+### Dependencies
+
+None on the recommended options. The alternatives that would add one: `gix` (2c, 3c), `similar` in
+`oso-core` (1b) and `notify` (17b). Each would go through the `add-dependency` skill and the
+author's approval.
+
+## Changes to accepted ADRs
+
+- [ADR 0011](0011-git-integration.md), "Read-only information (branch, status, diff gutter) is
+  read in-process with `gix`": a review's diffs and file lists are read by the `git` CLI through
+  the process module, only in trusted projects, as write operations are. The diff gutter and
+  status in restricted projects stay as ADR 0011 says.
+- [ADR 0047](0047-process-spawning-and-restart-handoff.md), "Standard input is closed": a caller
+  may pipe standard input; and "the names the caller gives": a caller may also set variables by
+  value. Each spawn's log line names the variables set, without their values.
+- [ADR 0085](0085-agent-channel-and-oso-mcp.md), "What the channel can do" and the `oso mcp` tool
+  list: the review methods and tools above join them, with the reach given for each.
+
+## Consequences
+
+- The review is the first feature to run git, so it carries the git safety rules (option-like
+  revisions refused, ids only, `--end-of-options`, `--no-ext-diff --no-textconv`, no locks taken)
+  for the porcelain that follows in M4.
+- A review never stalls typing: git, reading, diffing, refinement and highlighting run on workers,
+  and the UI thread swaps in a file's section at a time.
+- Restricted projects get no review until they are trusted, or until an in-process path exists.
+- An agent can read the review, point at places, comment, reply and give a tour, but cannot
+  decide, change the person's comments, or run git without the person's `y`.
+- Review state is written to the state directory, and holds code text from the reviewed files.
+- Follow-up: the two-pane window pairing (ADR 0112), the BlockMap if comments move there, ADR
+  0121's session and turn seams, posting to GitHub, and in-process review with `gix`.
+
+## Alternatives considered
+
+- **A read-only viewer, as hunk:** simpler and safe, but the author wants accept and reject, and
+  hunk's own users ask for them.
+- **Comments hidden in a side buffer, not in the diff:** the comments would be read apart from the
+  code they are about.
+- **Sending each comment as it is written:** no batching, and nothing to look over first.
+- **Pull-only feedback, as hunk:** the person has to tell the agent to read their notes.
+- **Re-anchoring by nearby text (fuzzy):** a blank line or a brace matches anywhere, and a comment
+  lands on the wrong line silently.
+- **Rebuilding the whole review on each refresh:** the previous setup's 0.7 s re-read; cost must
+  follow what changed.
+- **Running `git diff` in restricted projects with config commands turned off by `-c`:** git's
+  config can name more programs than oso can list, which is why ADR 0011 keeps git out of
+  untrusted repositories.
+- **A review in the terminal, by running hunk or a similar tool in a PTY:** a second UI with its
+  own keys, and its state out of oso's commands and channel.
