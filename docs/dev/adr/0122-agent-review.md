@@ -779,9 +779,10 @@ in the plan, and answered its questions (a), on 2026-11-13:
    into the run around them when it runs their way.
 7. **The handoff stays at version 4.** A pair goes over as two windows of their own in the same
    cells, and its owner pairs them again when it opens once more (step 6 keeps a review).
-8. **A frame too small for every window hides both windows of a pair together,** unless it
-   holds the window kept shown, or is all there is in an area smaller than both need, where its
-   first window shows alone, as a run's first does.
+8. **A frame too small for every window hides both windows of a pair together,** never the
+   selected window's pair. This holds but where the area could keep no window otherwise: in an
+   area smaller than both windows need (a frame of one row, say), the pair's first window shows
+   alone, as a run's first does, since an area always keeps a window.
 
 What was built:
 
