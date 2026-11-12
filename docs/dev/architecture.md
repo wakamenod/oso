@@ -591,6 +591,15 @@ The UI thread never blocks on I/O or parsing:
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
+- An agent review's git and diffing run on a thread per review, `oso-review`
+  (`crates/oso/src/review.rs`), started only from a trusted project's root. It lists the
+  scope's files with `git diff --raw --numstat -z` (untracked files through a copy of the
+  index, in a private `reviews/tmp/` under the state directory), reads old sides through one
+  long-lived `git cat-file --batch` fed on a piped standard input, reads work tree files from
+  the top a directory at a time following no link, and diffs each file with `similar` into
+  `oso_core::review`'s hunks. A file whose signature did not change is not read again, and
+  shown files go first. Each listing and the readings after it share a generation
+  ([ADR 0122](adr/0122-agent-review.md)).
 
 ### Configuration
 

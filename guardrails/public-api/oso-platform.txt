@@ -342,6 +342,20 @@ impl core::fmt::Debug for oso_platform::process::Sink
 pub fn oso_platform::process::Sink::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_platform::process::Sink
 impl core::marker::StructuralPartialEq for oso_platform::process::Sink
+pub enum oso_platform::process::Source
+pub oso_platform::process::Source::Closed
+pub oso_platform::process::Source::Piped
+impl core::clone::Clone for oso_platform::process::Source
+pub fn oso_platform::process::Source::clone(&self) -> oso_platform::process::Source
+impl core::cmp::Eq for oso_platform::process::Source
+impl core::cmp::PartialEq for oso_platform::process::Source
+pub fn oso_platform::process::Source::eq(&self, &oso_platform::process::Source) -> bool
+impl core::convert::From<oso_platform::process::Source> for std::process::Stdio
+pub fn std::process::Stdio::from(oso_platform::process::Source) -> Self
+impl core::fmt::Debug for oso_platform::process::Source
+pub fn oso_platform::process::Source::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::process::Source
+impl core::marker::StructuralPartialEq for oso_platform::process::Source
 pub struct oso_platform::process::Executable(_)
 impl oso_platform::process::Executable
 pub fn oso_platform::process::Executable::absolute(impl core::convert::Into<std::path::PathBuf>) -> std::io::error::Result<Self>
@@ -364,6 +378,7 @@ pub oso_platform::process::Spawn::own_process_group: bool
 pub oso_platform::process::Spawn::project: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::set: &'a [(&'a str, &'a std::ffi::os_str::OsStr)]
 pub oso_platform::process::Spawn::stderr: oso_platform::process::Sink
+pub oso_platform::process::Spawn::stdin: oso_platform::process::Source
 pub oso_platform::process::Spawn::stdout: oso_platform::process::Sink
 pub oso_platform::process::Spawn::terminal: core::option::Option<&'a oso_platform::process::pty::Slave>
 impl core::fmt::Debug for oso_platform::process::Spawn<'_>

@@ -58,8 +58,9 @@ saver
 lister
 # `grep` searches a project's files over `walk`'s walk (ADR 0114).
 commands dev grep keys loader text
-# `walk` lists a project's files (ADR 0114), beside `project`, which finds them.
-channel project walk
+# `walk` lists a project's files (ADR 0114), beside `project`, which finds them, and
+# `review`, which runs git and diffs for a review (ADR 0122).
+channel project review walk
 
 [oso-syntax]
 crate

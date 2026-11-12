@@ -148,6 +148,7 @@ network features.
 | Language servers | no | yes |
 | Formatters, format on save | no | yes |
 | Git write operations (commit, push, rebase; hooks run) | no | yes |
+| Agent review (reads through the `git` CLI) | no | yes |
 | Org babel execution (explicit action only) | no | yes |
 
 - Inside repositories, oso reads only EditorConfig. It never reads settings
@@ -171,7 +172,10 @@ network features.
   trusted projects. So do an agent review's reads (diffs, file lists, blobs),
   with revisions resolved to object ids, option-like ones refused,
   `--no-ext-diff --no-textconv`, and `GIT_OPTIONAL_LOCKS=0`
-  ([ADR 0122](adr/0122-agent-review.md)). Restricted projects get no review.
+  ([ADR 0122](adr/0122-agent-review.md)). Restricted projects get no review: its thread starts
+  only from a root the editor trusts. Untracked files are listed through a copy of the index,
+  so the person's index is never written, and a file whose name may hold secrets is listed
+  and never read.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 
@@ -472,7 +476,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Processes spawn only through `oso_platform::process`: executables come from
   an absolute path or from `PATH` without relative or missing entries, the
   current directory or the project, children get an allowlisted environment and a closed
-  stdin, and every spawn is logged. It ships in every build since the terminal
+  stdin unless the caller pipes it (a review's `git cat-file --batch`), and every spawn is logged. It ships in every build since the terminal
   needs it ([ADR 0120](adr/0120-the-terminal.md)); a child in a terminal gets the
   terminal's slave as its streams and controlling terminal, in a session of its own, and
   neither end of a terminal reaches any other child. `oso dev` builds offline,
