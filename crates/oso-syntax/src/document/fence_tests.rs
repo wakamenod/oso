@@ -229,8 +229,9 @@ fn fences_that_follow_each_other_stay_apart() {
 }
 
 /// Inside a quote or a list item, a fence ends after the next line's continuation, where the
-/// next fence starts. A key in the middle one of five, each too large for its neighbours to
-/// share a piece, is highlighted to the end, as a fresh document is, and soon.
+/// next fence starts. Through a key in the middle one of five, each too large for its
+/// neighbours to share a piece, the fences stay apart, and it is highlighted to the end, as a
+/// fresh document is, and soon.
 #[test]
 fn a_key_among_fences_in_a_container_ends() {
     let code = "let x = 1;\n".repeat(900);
@@ -247,9 +248,23 @@ fn a_key_among_fences_in_a_container_ends() {
         // The first statement past the middle, in the middle fence.
         let at = text.len() / 2;
         let at = at + text[at..].find("let").unwrap();
+        let mut document = highlighted(Language::Markdown, &text);
+        assert_eq!(document.fences.ranges().len(), 5, "{prefix:?}");
+        let after = format!("{}fn {}", &text[..at], &text[at + 3..]);
+        let splice = Splice {
+            start: at,
+            old_len: 3,
+            new_len: 3,
+        };
         let started = Instant::now();
-        edit_matches_fresh(&text, at, 3, "fn ");
+        document.edit(&[splice], &Rope::from(after.as_str()));
+        let fences = document.fences.ranges().len();
+        assert_eq!(fences, 5, "{prefix:?}: they touch, and stay apart");
+        let done = document.highlight(&mut Queries::new(), &[], LONG);
         let took = started.elapsed();
+        assert_eq!(done, Highlighted::Done, "{prefix:?}");
         assert!(took < Duration::from_secs(2), "{prefix:?}: {took:?}");
+        let fresh = highlighted(Language::Markdown, &after);
+        assert_eq!(all_runs(&document), all_runs(&fresh), "{prefix:?}");
     }
 }

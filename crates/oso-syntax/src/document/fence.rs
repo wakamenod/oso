@@ -9,7 +9,8 @@
 //!   `rust` and `rs` are Rust's, `toml` TOML's, ignoring ASCII case. Any other, and a fence
 //!   with none, stays plain, as does an indented code block. A fence only picks one of the
 //!   compiled-in grammars, and nothing reads its content to guess one.
-//! - A fence longer than [`MAX_FENCE_BYTES`], its delimiter lines too, stays plain, so that the
+//! - The content of a fence longer than [`MAX_FENCE_BYTES`], its delimiter lines too, stays
+//!   plain (its delimiters and info string are still markup), so that the
 //!   piece that holds it stays small: a piece widens to the whole of each fence it meets, as typing
 //!   inside a fence (opening a block comment) can change its highlights to its end, while the
 //!   block tree changes only that line.

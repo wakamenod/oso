@@ -882,7 +882,7 @@ Built:
   Without this, a fence whose info string changes to a word oso does not inject, or that grows
   past the cap, kept the colours of its old grammar outside the edited line, as a test found.
   The blocks stay apart where they touch, as fences on consecutive lines do (a block ends
-  after its closing line's break): joined, one key in a chain of such fences did all of them
+  after its closing line's break, or, in a container, after the next line's continuation): joined, one key in a chain of such fences did all of them
   again, as the review found. A piece swaps the blocks it meets in place, and a piece in a
   document with no fence costs nothing more.
 - **Measured** with `syntax_perf -- fenced`, release, on the author's Mac (the others with a

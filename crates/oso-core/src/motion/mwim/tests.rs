@@ -219,8 +219,9 @@ fn a_stop_spent_on_the_blanks_after_a_comment_reads_no_highlights() {
     assert!(end > "x; // c".len(), "{end}");
 }
 
-/// Rust's grammar finds no comment after a full-width space (oso-syntax's
-/// `a_full_width_space_before_a_comment`), so `C-e` ends where the text does.
+/// Rust's grammar finds no comment after a full-width space, which oso-syntax's
+/// `a_full_width_space_before_a_comment` tests. This one only records what `C-e` makes of such
+/// highlights: the code ends where the text does.
 #[test]
 fn after_a_full_width_space_rust_finds_no_comment_and_the_code_ends_at_the_text() {
     let text = "let x = 1;\u{3000}// note";

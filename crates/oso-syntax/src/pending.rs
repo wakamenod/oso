@@ -96,8 +96,10 @@ impl Pending {
 
     /// Puts `ranges`, ascending, apart and inside `within`, in place of the ranges that meet
     /// `within`, and gives `within` widened to those it replaced: a binary search, and a move of
-    /// the ranges after them.
+    /// the ranges after them. Only for a set that keeps ranges apart: `ranges` may touch the
+    /// ones beside them, which a set that joins them would have joined.
     pub(crate) fn swap(&mut self, within: Range<usize>, ranges: &[Range<usize>]) -> Range<usize> {
+        debug_assert!(self.apart, "swap needs a set that keeps ranges apart");
         let first = self
             .ranges
             .partition_point(|range| range.end <= within.start);
