@@ -78,7 +78,8 @@
 
 (field_identifier) @property
 
-; Comments
+; Comments. Nothing inside a comment may be captured: C-e takes a comment's run for the whole
+; comment (ADR 0111, step 6), and a test checks.
 
 (line_comment) @comment
 (block_comment) @comment

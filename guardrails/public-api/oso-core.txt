@@ -2758,7 +2758,7 @@ pub fn oso_core::motion::move_line_start(&oso_core::display_map::DisplaySnapshot
 pub fn oso_core::motion::move_lines(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize) -> core::result::Result<(), oso_core::motion::Edge>
 pub fn oso_core::motion::next_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
 pub fn oso_core::motion::prev_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
-pub fn oso_core::motion::toggle_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, (isize, core::option::Option<&oso_core::syntax::Highlights>), &mut oso_core::motion::WalkBudget)
+pub fn oso_core::motion::toggle_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, core::option::Option<&oso_core::syntax::Highlights>, &mut oso_core::motion::WalkBudget)
 pub fn oso_core::motion::toggle_line_start(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
 pub mod oso_core::project
 pub enum oso_core::project::NotRecordable

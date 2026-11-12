@@ -99,9 +99,7 @@ impl Highlights {
 
     /// What the byte at `offset` is, or `None` past the end.
     pub fn at(&self, offset: usize) -> Option<Highlight> {
-        self.runs(offset..offset.saturating_add(1))
-            .next()
-            .and_then(|(_, highlight)| highlight)
+        self.run_at(offset).and_then(|(_, highlight)| highlight)
     }
 
     /// Puts `runs`, given as lengths with what each is, in place of `range`. Runs past the

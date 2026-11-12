@@ -283,3 +283,20 @@ fn a_name_too_long_for_a_predicate_matches_none() {
         "the long name is plain"
     );
 }
+
+/// `C-e` takes a comment's run for the whole comment (ADR 0111, step 6), so no capture may
+/// paint inside one: a trailing comment is one run, whatever it holds.
+#[test]
+fn a_trailing_comment_is_one_run() {
+    let rust = "fn f() { g(1); } // TODO: \"s\" 2 Some(x) fn\nlet x = 1; /// doc `y`\n";
+    assert_has(
+        Language::Rust,
+        rust,
+        &[
+            ("// TODO: \"s\" 2 Some(x) fn", Comment),
+            ("/// doc `y`", Comment),
+        ],
+    );
+    let toml = "a = 1 # \"s\" true 2 [x]\n";
+    assert_has(Language::Toml, toml, &[("# \"s\" true 2 [x]", Comment)]);
+}

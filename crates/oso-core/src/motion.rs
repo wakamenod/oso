@@ -1,4 +1,5 @@
-//! Cursor motion over the display model (ADR 0030, ADR 0040).
+//! Cursor motion over the display model (ADR 0030, ADR 0040), and for `C-e`, over the
+//! buffer's highlights (ADR 0111).
 //!
 //! Must not depend on: `buffer`, `window` or `editor`; it works on offsets and
 //! selections over a display snapshot.
@@ -16,9 +17,10 @@
 use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot, Preedit};
 use crate::selection::{Goal, Selection};
 use crate::sum_tree::Bias;
-use crate::syntax::Highlights;
 
-mod code_end;
+mod mwim;
+
+pub use mwim::{toggle_line_end, toggle_line_start};
 
 /// A motion reached the start or the end of the buffer before it was done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -164,6 +166,12 @@ impl StopWalk<'_> {
         let enough = bytes <= self.left && self.budget.spend(bytes);
         self.left = if enough { self.left - bytes } else { 0 };
         enough
+    }
+
+    /// Whether the stop and the command may still read anything: a look back reads a window
+    /// before it pays for it, so none is read once either holds less than a seek.
+    pub(crate) fn has_left(&self) -> bool {
+        self.left >= SEEK_COST && self.budget.left >= SEEK_COST
     }
 
     /// Takes a seek to where the stop starts reading: from the command's entry seeks while
@@ -469,109 +477,6 @@ pub fn move_line_end(display: &DisplaySnapshot, selection: &mut Selection, n: is
 fn to_line_end(selection: &mut Selection, offset: usize) {
     selection.cursor = offset;
     selection.goal = Some(Goal::LineEnd);
-}
-
-/// Moves `selection` as `C-a` does (mwim, ADR 0030): to the first non-blank
-/// character of its line, or from there to the line's start. With `n` other than 1
-/// it moves `n - 1` lines down first, and goes to the first non-blank character.
-pub fn toggle_line_start(
-    display: &DisplaySnapshot,
-    selection: &mut Selection,
-    n: isize,
-    budget: &mut WalkBudget,
-) {
-    let row = target_row(display, selection.cursor, n);
-    let code = first_non_blank(display, row, budget);
-    selection.move_to(if n == 1 && selection.cursor == code {
-        line_start(display, row)
-    } else {
-        code
-    });
-}
-
-/// Moves `selection` as `C-e` does (mwim, ADR 0030): to the end of its line's code, before
-/// trailing blanks and before a comment that `highlights` say ends the line (ADR 0111), or
-/// from there to the line's end. With `n` other than 1 it moves `n - 1` lines down first, and
-/// goes to the end of the code.
-pub fn toggle_line_end(
-    display: &DisplaySnapshot,
-    selection: &mut Selection,
-    (n, highlights): (isize, Option<&Highlights>),
-    budget: &mut WalkBudget,
-) {
-    let row = target_row(display, selection.cursor, n);
-    let code = code_end::code_end(display, row, highlights, budget);
-    let end = line_end(display, row);
-    if code == end || (n == 1 && selection.cursor == code) {
-        to_line_end(selection, end);
-    } else {
-        selection.move_to(code);
-    }
-}
-
-/// Whether `cluster` is blank: a tab, or text of nothing but white space, such as a
-/// full-width space. Such text with a mark on it is not.
-fn is_blank(cluster: &DisplayCluster<'_>) -> bool {
-    match cluster.kind {
-        CellKind::Tab => true,
-        CellKind::Text => cluster.text.chars().all(char::is_whitespace),
-        _ => false,
-    }
-}
-
-/// Where the first non-blank cluster of `row` starts, or the row's end if it has
-/// none. A run of blanks past what a stop reads ends the search where it got to.
-fn first_non_blank(display: &DisplaySnapshot, row: usize, budget: &mut WalkBudget) -> usize {
-    let mut walk = budget.stop();
-    let mut end = line_start(display, row);
-    if !walk.spend(SEEK_COST) {
-        return end;
-    }
-    for cluster in display.clusters(DisplayPoint::new(row, 0)) {
-        if !is_blank(&cluster) || !walk.spend(cluster.text.len()) {
-            return cluster.offset;
-        }
-        end = cluster.offset + cluster.text.len();
-    }
-    end
-}
-
-/// Where the text of `row` up to `end` ends before the blanks it ends with, or the row's start
-/// if it has nothing else. A run of blanks past what a stop reads ends the search where it got
-/// to.
-fn end_before_blanks(
-    display: &DisplaySnapshot,
-    (row, end): (usize, usize),
-    budget: &mut WalkBudget,
-) -> usize {
-    let mut walk = budget.stop();
-    let mut point = display.offset_to_display_point(end);
-    let mut earliest = end;
-    while point.column > 0 {
-        let mut text_end = None;
-        let mut first = None;
-        let mut read = 0;
-        for cluster in clusters_before(display, point, earliest) {
-            first.get_or_insert((cluster.offset, cluster.column));
-            read += cluster.text.len();
-            if !is_blank(&cluster) {
-                text_end = Some(cluster.offset + cluster.text.len());
-            }
-        }
-        let spent = walk.spend(read + SEEK_COST);
-        if let Some(text_end) = text_end {
-            return text_end;
-        }
-        let Some((offset, column)) = first else {
-            break;
-        };
-        earliest = offset;
-        if !spent {
-            return earliest;
-        }
-        point = DisplayPoint::new(row, column);
-    }
-    earliest
 }
 
 /// The row `n - 1` lines from the cursor's, clamped to the buffer.

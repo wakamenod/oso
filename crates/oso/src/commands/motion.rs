@@ -224,8 +224,7 @@ fn mwim_end(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     // secrets: then the code ends where the text does (ADR 0111).
     let highlights = ctx.editor.current().1.highlights().cloned();
     move_cursors(ctx, |display, s| {
-        let n = (args.count(), highlights.as_ref());
-        motion::toggle_line_end(display, s, n, &mut budget);
+        motion::toggle_line_end(display, s, args.count(), highlights.as_ref(), &mut budget);
         Ok(())
     })?;
     budget_left(budget)
