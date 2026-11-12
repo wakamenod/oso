@@ -85,8 +85,20 @@ network features.
   repository cannot make a search read a file outside it. A line longer than
   16 MiB skips the rest of its file, a NUL byte stops it, and a search keeps at
   most 10,000 rows of at most 512 bytes of text. A file whose name may hold
-  secrets, as the path walked or as the root leads, is searched, but its rows
-  carry no text and are never previewed. A file that could not be opened for a
+  secrets, as the path walked or by its path from every place the root leads
+  through, as the loader finds them, is searched, but its rows carry no text
+  and are never previewed: nothing of it is read for a preview. A root that
+  cannot be resolved counts as one that may hold secrets, and the root opened
+  must be, by device and inode, the place judged, reached again from `/` a name
+  at a time following no link, or nothing under it is read.
+  A preview reads a row's file on `oso-preview` as the search reached it: the
+  root by its path with the same home checks, then each directory and the file
+  from the one before, following no link and waiting for nothing, a regular
+  file only, judged again as the search judges it, from the root opened only if
+  it is the place judged. It reads at most 64 KiB before the row's line and
+  16 MiB in all, keeps at most 256 lines of at most 4 KiB of the file's bytes,
+  opens no buffer, and an open buffer of a file
+  that may hold secrets is never shown in it. A file that could not be opened for a
   reason other than its being gone or refused ends the search with `+`. On
   macOS a file a sync service keeps elsewhere is not read, as reading would
   fetch it.

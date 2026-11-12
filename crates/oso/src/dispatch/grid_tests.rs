@@ -40,7 +40,6 @@
 use oso_core::buffer::Buffer;
 
 use oso_core::display_map::{Preedit, text_clusters};
-use oso_core::editor::Preview;
 use oso_core::editor::{Editor, Status};
 use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
@@ -50,12 +49,14 @@ use oso_core::window::{Screen, ViewSize};
 
 use super::Dispatcher;
 
+mod preview;
 mod rows;
 mod text_area;
 #[cfg(test)]
 mod windows;
 #[cfg(test)]
 mod wrap;
+use preview::preview_row;
 use rows::{Style, blank_row, draw_row, draw_run, screen_row};
 use text_area::draw_text_area;
 
@@ -292,10 +293,18 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
     let mut highlights = Vec::new();
     for index in 0..rows.rows {
         let place = candidates.top() + index;
-        let beside = preview_row(editor, layout, index);
+        let (beside, beside_marks) = preview_row(editor, layout, index);
+        // A search's matches in the preview, marked below its row (ADR 0114).
+        let preview_marks = beside_marks
+            .iter()
+            .any(|mark| *mark != ' ')
+            .then(|| format!(" {}", beside_marks.iter().collect::<String>()));
         let Some(candidate) = candidates.get(place) else {
             let blank = " ".repeat(rows.columns);
             lines.push(format!("{edge}{pad} {blank}{beside} {pad}{edge}"));
+            if let Some(preview_marks) = &preview_marks {
+                lines.push(format!(":{pad} {blank}{preview_marks} {pad}:"));
+            }
             continue;
         };
         let (text, binding, note) = (
@@ -335,66 +344,14 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
             let to = minibuffer::cells_of(&shown[..end]).min(rows.columns);
             marks[from..to].fill('*');
         }
-        if marks.contains(&'*') {
+        if marks.contains(&'*') || preview_marks.is_some() {
             lines.push(format!(
-                ":{pad} {} {pad}:",
-                marks.into_iter().collect::<String>()
+                ":{pad} {}{} {pad}:",
+                marks.into_iter().collect::<String>(),
+                preview_marks.as_deref().unwrap_or("")
             ));
         }
     }
-}
-
-/// What goes right of the candidates on their row `index` beside a preview: the column that
-/// divides them, then the previewed buffer's row from where its window was, its cursor as `o`,
-/// or what is said of a buffer that may hold secrets on the first row (ADR 0088).
-fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
-    let preview = layout.regions.preview;
-    if preview.columns == 0 || index >= preview.rows {
-        return String::new();
-    }
-    let text = match editor.preview() {
-        Some(Preview::Buffer { id, cursor, .. }) => {
-            let Some(buffer) = editor.buffer(id) else {
-                return String::new();
-            };
-            let display = buffer.display();
-            let point = display.offset_to_display_point(cursor);
-            let mut screen = Screen::default();
-            editor.preview_screen(&mut screen);
-            let (place, cells) = motion::cursor_box(&display, point, None);
-            let cursor = frame::cursor_rect(preview, &screen, place, cells)
-                .filter(|cells| cells.row == preview.row + index)
-                .map_or(0..0, |cells| {
-                    let start = cells.column - preview.column;
-                    start..start + cells.columns
-                });
-            let style = Style {
-                cursor: 'o',
-                whitespace: false,
-            };
-            let (text, marks) = match screen_row(&screen, index, preview.columns) {
-                Some(row) => draw_row(&display, &row, cursor, None, style),
-                None => blank_row(preview.columns),
-            };
-            // The cursor's mark shows in the text, as the row of marks is the list's.
-            text.chars()
-                .zip(marks)
-                .map(|(c, mark)| if mark == 'o' { 'o' } else { c })
-                .collect()
-        }
-        Some(Preview::Withheld) if index == 0 => {
-            let (text, _) = spans_row(&["may hold secrets"], preview.columns);
-            text
-        }
-        // A kill's lines, as the float draws them (ADR 0091).
-        Some(Preview::Text { entry }) => {
-            let lines = editor.kill_preview(entry, preview.rows, preview.columns);
-            let line = lines.get(index).map_or("", String::as_str);
-            spans_row(&[line], preview.columns).0
-        }
-        _ => " ".repeat(preview.columns),
-    };
-    format!("│{text}")
 }
 
 /// The answer's cells in `area`, as the renderer draws them: the prompt's window, or one `*`
@@ -448,7 +405,7 @@ fn draw_spans(spans: &[&str], area: CellRect, edge: char, lines: &mut Vec<String
 }
 
 /// `spans`, one after the other, in a row of `columns` cells, and a mark for each.
-fn spans_row(spans: &[&str], columns: usize) -> (String, Vec<char>) {
+pub(super) fn spans_row(spans: &[&str], columns: usize) -> (String, Vec<char>) {
     let mut text = String::new();
     let mut marks = vec![' '; columns];
     let mut drawn = 0;
@@ -1198,11 +1155,12 @@ mod scenarios {
         );
     }
 
-    #[test]
-    fn c_x_p_f_streams_a_projects_files_and_keeps_the_selected_row() {
+    /// An editor on `/w/oso/src/main.rs`, holding `text`, in the project `/w/oso`, in a frame of
+    /// 14 rows of 100 columns.
+    fn on_main_rs_in_oso(text: &[u8]) -> Editor {
         let path = std::path::PathBuf::from("/w/oso/src/main.rs");
         let mut buffer = Buffer::visiting(path.clone());
-        buffer.apply_load(oso_core::load::decode_all(b"", Default::default()));
+        buffer.apply_load(oso_core::load::decode_all(text, Default::default()));
         buffer.judge_secret(Some(std::slice::from_ref(&path)));
         buffer.set_baseline(oso_core::buffer::Baseline {
             location: path,
@@ -1226,6 +1184,12 @@ mod scenarios {
             checked_main: None,
         };
         editor.project_found(&request, Some(found));
+        editor
+    }
+
+    #[test]
+    fn c_x_p_f_streams_a_projects_files_and_keeps_the_selected_row() {
+        let mut editor = on_main_rs_in_oso(b"");
         let mut dispatcher = Dispatcher::new();
         let mut frames = Vec::new();
         let mut frame = |editor: &Editor, step: &str| {
@@ -1258,32 +1222,7 @@ mod scenarios {
 
     #[test]
     fn m_s_r_streams_a_searchs_rows_and_keeps_the_selected_row() {
-        let path = std::path::PathBuf::from("/w/oso/src/main.rs");
-        let mut buffer = Buffer::visiting(path.clone());
-        buffer.apply_load(oso_core::load::decode_all(b"", Default::default()));
-        buffer.judge_secret(Some(std::slice::from_ref(&path)));
-        buffer.set_baseline(oso_core::buffer::Baseline {
-            location: path,
-            file: None,
-        });
-        let mut editor = Editor::with_buffer(buffer);
-        aids_off(&mut editor);
-        editor.set_frame_size(FrameSize {
-            rows: 14,
-            columns: 100,
-        });
-        let id = editor.tiled().0.buffer();
-        editor.request_project(id);
-        let request = editor.take_project_requests().pop().unwrap();
-        let found = oso_core::project::Found {
-            root: oso_core::project::RootIdentity {
-                path: std::path::PathBuf::from("/w/oso"),
-                identity: None,
-            },
-            worktree_of: None,
-            checked_main: None,
-        };
-        editor.project_found(&request, Some(found));
+        let mut editor = on_main_rs_in_oso(b"");
         let mut dispatcher = Dispatcher::new();
         let mut frames = Vec::new();
         let mut frame = |editor: &Editor, step: &str| {
@@ -1296,6 +1235,7 @@ mod scenarios {
         let row = |path: &str, line, text: &str, secret| oso_core::editor::ProjectSearchRow {
             path: path.into(),
             line,
+            offset: 0,
             column: 0,
             text: text.into(),
             secret,
@@ -1336,6 +1276,74 @@ mod scenarios {
         editor.rows_found(search, Vec::new(), end);
         frame(&editor, "the search ends at a limit");
         assert_frames("project_search_streams", b"", &frames);
+    }
+
+    #[test]
+    fn m_s_r_previews_the_selected_rows_file_but_never_one_that_may_hold_secrets() {
+        use oso_core::editor::{Excerpt, ProjectPreviewRead, ProjectSearchRow};
+        let mut editor = on_main_rs_in_oso(b"// main\nfn main() {\n    run();\n}\n");
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        let mut frame = |editor: &Editor, step: &str| {
+            frames.push(format!("step: {step}\n{}", text_grid(editor)));
+        };
+        let keys = |dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str| {
+            let sequence: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(editor, sequence.0);
+        };
+        let row = |path: &str, line, column, secret| ProjectSearchRow {
+            path: path.into(),
+            line,
+            offset: 0,
+            column,
+            text: if secret { "" } else { "fn" }.into(),
+            secret,
+        };
+        keys(&mut dispatcher, &mut editor, "M-s r f n");
+        let search = editor.take_search_request().unwrap().generation;
+        let long = format!("{}fn far()", "x".repeat(150));
+        editor.rows_found(
+            search,
+            vec![
+                row("src/main.rs", 2, 0, false),
+                row("src/lib.rs", 3, 4, false),
+                row(".env", 2, 6, true),
+                row("src/long.rs", 1, 150, false),
+            ],
+            Some(oso_core::editor::WalkEnd { cut: false }),
+        );
+        assert!(
+            editor.take_preview_request().is_none(),
+            "an open buffer is read from memory"
+        );
+        frame(&editor, "an open buffer of the file, from memory");
+        keys(&mut dispatcher, &mut editor, "C-n");
+        let read = editor.take_preview_request().expect("a read of src/lib.rs");
+        frame(&editor, "C-n: nothing until the read comes");
+        let lib = b"use std::fmt;\n\npub fn run() {\n\tprintln!(\"fn\");\n}\n";
+        let excerpt = Excerpt::new(lib, 1, (3, 4), None);
+        editor.preview_read(read.generation, ProjectPreviewRead::Text(excerpt));
+        frame(&editor, "the read came: its matches, the row's first");
+        keys(&mut dispatcher, &mut editor, "C-n");
+        assert!(
+            editor.take_preview_request().is_none(),
+            "a secret file is never read"
+        );
+        frame(&editor, "C-n: a file that may hold secrets");
+        keys(&mut dispatcher, &mut editor, "C-n");
+        let read = editor.take_preview_request().unwrap();
+        let excerpt = Excerpt::new(long.as_bytes(), 1, (1, 150), None);
+        editor.preview_read(read.generation, ProjectPreviewRead::Text(excerpt));
+        frame(
+            &editor,
+            "C-n: a match past the preview's width scrolls into view",
+        );
+        editor.set_frame_size(FrameSize {
+            rows: 14,
+            columns: 60,
+        });
+        frame(&editor, "a narrow frame gives up the preview");
+        assert_frames("project_search_preview", b"", &frames);
     }
 
     #[test]

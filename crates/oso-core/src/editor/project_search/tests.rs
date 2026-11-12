@@ -33,6 +33,7 @@ fn row(path: &str, line: usize, text: &str) -> ProjectSearchRow {
     ProjectSearchRow {
         path: path.into(),
         line,
+        offset: 0,
         column: 4,
         text: text.into(),
         secret: false,
@@ -162,6 +163,7 @@ fn a_secret_files_row_shows_its_place_and_no_text() {
     let secret = ProjectSearchRow {
         path: ".env".into(),
         line: 2,
+        offset: 0,
         column: 0,
         text: "".into(),
         secret: true,
@@ -319,6 +321,7 @@ fn a_secret_files_row_keeps_no_history_of_what_found_it() {
     let secret = ProjectSearchRow {
         path: ".env".into(),
         line: 1,
+        offset: 0,
         column: 0,
         text: "".into(),
         secret: true,

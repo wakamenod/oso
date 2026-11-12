@@ -184,9 +184,11 @@ are rounded.
   `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
 - `C-u C-x p f` asks `Find file in directory:` first, with `C-x C-f`'s completion from the
   buffer's directory, and lists that directory as a project, named after its last component.
-  `RET` on a file's row says `Not a directory: <path>`, unless what is typed ends with `/`, which
-  gives that directory. The home directory, one that holds it, `/` and a path with `..` in it are
-  refused.
+  It lists only directories and links, as Emacs's `read-directory-name` does: `RET` on a row
+  goes into it, and on a link that leads elsewhere says `Not a directory: <path>`. What is typed
+  is given once the listings that decide it have come, `RET` and `M-RET` waiting until then:
+  `Not a directory`, `No such directory` or `Cannot read directory` when they say so. The home
+  directory, one that holds it, `/` and a path with `..` in it are refused.
 - The float opens empty and the list grows while the project is walked, every 50 ms. The count
   shows `…/…` until the walk ends, and `+` after it when it stopped at a limit: 100,000 files,
   32 MiB of paths and names, 1,000,000 entries read, or 16 MiB of ignore files.
@@ -211,10 +213,10 @@ are rounded.
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ …/… Search oso: fn !test█                                  ┃
-┃ src/main.rs:1: fn main() {                                 ┃
-┃▌src/main.rs:9: fn run(U+202Ex) {}                         ▐┃
-┃ .env:2                        may hold secrets             ┃
-┃ src/lib.rs:40:     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… ┃
+┃ src/main.rs:1: fn main()│use std::fmt;                       ┃
+┃▌src/lib.rs:3: fn run() ▐│                                    ┃
+┃ .env:2      may hold se…│pub ▯n run() {                      ┃
+┃ src/lib.rs:40:     xxxx…│    println!("fn");                 ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
@@ -240,7 +242,20 @@ are rounded.
   `may hold secrets`, with no text.
 - `RET` visits the file as `C-x C-f` does and goes to the line and the match's column once it
   shows, with the place before on the mark ring. `TAB` does nothing, as a row's text would
-  replace what is looked for. There is no preview yet (step 5). `C-g` stops the search.
+  replace what is looked for. `C-g` stops the search.
+- The float splits as `C-x b`'s does, and the preview shows the selected row's file around its
+  line, that line about halfway down, with a hollow cursor at the match, the match in isearch's
+  face and the other matches in view in its other face. An open buffer of the file is shown from
+  memory, unsaved edits and all; any other file is read from where the search found the line, at
+  once, and a row selected before the read comes stops it. The preview never wraps here: it
+  scrolls left as far as the match needs to show. A row of a file that may hold secrets says
+  `may hold secrets` in its place and nothing of the file is read; a file gone, swapped for a link
+  or no longer a regular file shows nothing. The preview opens no buffer and takes no key.
+- `C-u`'s `Search in directory:` and `Find file in directory:` list only directories and links,
+  as Emacs's `read-directory-name` does. `RET` on a row goes into it. What is typed is given only
+  once a listing says it is a directory, or a look says a link leads to one: otherwise the prompt
+  stays open and says `Not a directory`, `No such directory` or `Cannot read directory`. `RET` and
+  `M-RET` typed before that listing or look has come wait for it.
 - The history, `project-search`, keeps what was typed, not the row, and a search beside a buffer
   that may hold secrets keeps none.
 

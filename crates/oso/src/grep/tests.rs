@@ -18,7 +18,7 @@ use std::sync::{Mutex, PoisonError};
 fn lines_in(query: &str, text: &[u8]) -> Vec<(usize, String)> {
     let query = LineQuery::parse(query);
     let mut found = Vec::new();
-    let mut hit = |line, bytes: &[u8], _| {
+    let mut hit = |line, _, bytes: &[u8], _| {
         found.push((line, String::from_utf8_lossy(bytes).into_owned()));
         true
     };
@@ -86,17 +86,17 @@ fn a_search_that_is_over_reads_no_more_blocks() {
             reads.set(reads.get() + 1);
             reads.get() < 2
         },
-        &mut |_, _, _| true,
+        &mut |_, _, _, _| true,
         &mut Vec::new(),
     );
     assert_eq!(reads.get(), 2, "one block, then it stops");
 }
 
 /// A scratch directory with no links in its path, removed at the end of the test.
-struct Scratch(PathBuf);
+pub(super) struct Scratch(pub(super) PathBuf);
 
 impl Scratch {
-    fn new(test: &str) -> Self {
+    pub(super) fn new(test: &str) -> Self {
         let name = format!("oso-grep-test-{}-{test}", std::process::id());
         let path = fs::canonicalize(std::env::temp_dir()).unwrap().join(name);
         let _ = fs::remove_dir_all(&path);
@@ -104,11 +104,24 @@ impl Scratch {
         Self(path)
     }
 
-    fn file(&self, relative: &str, content: &str) {
+    pub(super) fn file(&self, relative: &str, content: impl AsRef<[u8]>) {
         let path = self.0.join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, content).unwrap();
     }
+}
+
+/// Where `root` leads, as the loader finds it, for the tests: each link's target on the way,
+/// taken by its words from the directory that holds the link, then its real place.
+pub(super) fn leads(root: &std::path::Path) -> Option<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for ancestor in root.ancestors() {
+        if let Ok(target) = fs::read_link(ancestor) {
+            paths.push(ancestor.parent()?.join(target));
+        }
+    }
+    paths.push(fs::canonicalize(root).ok()?);
+    Some(paths)
 }
 
 impl Drop for Scratch {
@@ -128,7 +141,7 @@ impl Harness {
     fn new() -> Self {
         let (send, found) = mpsc::channel();
         let send = Mutex::new(send);
-        let grep = Grep::new(None, move |found| {
+        let grep = Grep::new(None, leads, move |found| {
             send.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .send(found)
@@ -142,11 +155,17 @@ impl Harness {
     }
 
     /// Searches `root` for `input` as the search `generation`, narrowing `narrow`.
-    fn search(&mut self, root: &Scratch, input: &str, generation: u64, narrow: Option<u64>) {
+    fn search(
+        &mut self,
+        root: &std::path::Path,
+        input: &str,
+        generation: u64,
+        narrow: Option<u64>,
+    ) {
         self.live.store(generation, Ordering::Relaxed);
         self.grep.search(ProjectSearchRequest {
             generation,
-            root: root.0.clone(),
+            root: root.to_path_buf(),
             query: Arc::new(LineQuery::parse(input)),
             live: Arc::clone(&self.live),
             narrow,
@@ -172,6 +191,28 @@ impl Harness {
             }
         }
     }
+
+    /// The rows of the search `generation` until it ends, as their path, line and line's offset,
+    /// sorted.
+    fn places(&self, generation: u64) -> Vec<(String, usize, u64)> {
+        let mut places = Vec::new();
+        loop {
+            let found = self.found.recv_timeout(Duration::from_secs(10)).unwrap();
+            if found.generation != generation {
+                continue;
+            }
+            places.extend(
+                found
+                    .rows
+                    .into_iter()
+                    .map(|row| (row.path.to_string(), row.line, row.offset)),
+            );
+            if found.end.is_some() {
+                places.sort();
+                return places;
+            }
+        }
+    }
 }
 
 #[test]
@@ -186,7 +227,7 @@ fn a_project_is_searched_as_it_is_walked_and_a_files_rows_come_in_order() {
     scratch.file(".ignore", "ignored/\n");
     scratch.file(".git/HEAD", "needle\n");
     let mut harness = Harness::new();
-    harness.search(&scratch, "needle", 1, None);
+    harness.search(&scratch.0, "needle", 1, None);
     let (rows, cut) = harness.rows(1);
     assert_eq!(
         rows,
@@ -211,19 +252,34 @@ fn a_link_is_not_searched_and_a_secret_files_rows_carry_no_text() {
     symlink(outside.0.join("id_rsa"), scratch.0.join("key")).unwrap();
     symlink("a.txt", scratch.0.join("to-a")).unwrap();
     let mut harness = Harness::new();
-    harness.search(&scratch, "needle", 1, None);
+    harness.search(&scratch.0, "needle", 1, None);
     let (rows, _) = harness.rows(1);
     assert_eq!(rows, [".env:1:6: (secret)", "a.txt:1:0: needle here"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_that_leads_through_a_place_that_may_hold_secrets_gives_rows_with_no_text() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("search-secret-root");
+    scratch.file("real/keys/config", "needle\n");
+    symlink(scratch.0.join("real/keys"), scratch.0.join("real/.ssh")).unwrap();
+    fs::create_dir(scratch.0.join("proj")).unwrap();
+    symlink("../real/.ssh", scratch.0.join("proj/docs")).unwrap();
+    let mut harness = Harness::new();
+    harness.search(&scratch.0.join("proj/docs"), "needle", 1, None);
+    let (rows, _) = harness.rows(1);
+    assert_eq!(rows, ["config:1:0: (secret)"]);
 }
 
 #[test]
 fn a_search_stops_at_its_rows_and_says_it_was_cut() {
     let scratch = Scratch::new("search-rows");
     for file in 0..3 {
-        scratch.file(&format!("f{file}.txt"), &"x row\n".repeat(MAX_ROWS / 2));
+        scratch.file(&format!("f{file}.txt"), "x row\n".repeat(MAX_ROWS / 2));
     }
     let mut harness = Harness::new();
-    harness.search(&scratch, "row", 1, None);
+    harness.search(&scratch.0, "row", 1, None);
     let (rows, cut) = harness.rows(1);
     assert_eq!((rows.len(), cut), (MAX_ROWS, true));
 }
@@ -233,21 +289,21 @@ fn a_newer_search_stops_the_one_before_and_a_narrowing_one_looks_at_its_lines() 
     let scratch = Scratch::new("search-narrow");
     scratch.file("a.txt", "foo one\nfoobar two\nbar three\n");
     let mut harness = Harness::new();
-    harness.search(&scratch, "foo", 1, None);
+    harness.search(&scratch.0, "foo", 1, None);
     let (rows, _) = harness.rows(1);
     assert_eq!(rows.len(), 2);
     // The file changes, so a search that walked again would find the new line.
     scratch.file("a.txt", "foo one\nfoobar two\nfoobar new\n");
-    harness.search(&scratch, "foobar", 2, Some(1));
+    harness.search(&scratch.0, "foobar", 2, Some(1));
     let (rows, cut) = harness.rows(2);
     assert_eq!(
         (rows, cut),
         (vec!["a.txt:2:0: foobar two".to_owned()], false)
     );
     // One that does not narrow, or narrows a search not kept, walks again.
-    harness.search(&scratch, "foobar", 3, Some(1));
+    harness.search(&scratch.0, "foobar", 3, Some(1));
     assert_eq!(harness.rows(3).0.len(), 2);
-    harness.search(&scratch, "new", 4, None);
+    harness.search(&scratch.0, "new", 4, None);
     assert_eq!(harness.rows(4).0, ["a.txt:3:7: foobar new"]);
     // A superseded request sends nothing, and the newest still ends.
     harness.live.store(6, Ordering::Relaxed);
@@ -258,7 +314,7 @@ fn a_newer_search_stops_the_one_before_and_a_narrowing_one_looks_at_its_lines() 
         live: Arc::clone(&harness.live),
         narrow: None,
     });
-    harness.search(&scratch, "one", 6, None);
+    harness.search(&scratch.0, "one", 6, None);
     let mut generations = Vec::new();
     loop {
         let found = harness.found.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -271,12 +327,46 @@ fn a_newer_search_stops_the_one_before_and_a_narrowing_one_looks_at_its_lines() 
 }
 
 #[test]
+fn a_rows_offset_is_where_its_line_starts_and_a_narrowing_search_keeps_it() {
+    let scratch = Scratch::new("search-offsets");
+    // A line ending `\r\n` with text of several bytes a character, then one past the first block.
+    let mut text = String::from("héllo foo\r\nbar\n");
+    let mut line = 3;
+    while text.len() < BLOCK + 10 {
+        text.push_str("filler line\n");
+        line += 1;
+    }
+    let far = text.len() as u64;
+    text.push_str("foobar far\n");
+    scratch.file("a.txt", &text);
+    scratch.file("b/c.txt", "x\nfoobar\n");
+    let mut harness = Harness::new();
+    harness.search(&scratch.0, "foo", 1, None);
+    let at = |path: &str, line, offset| (path.to_owned(), line, offset);
+    assert_eq!(
+        harness.places(1),
+        [
+            at("a.txt", 1, 0),
+            at("a.txt", line, far),
+            at("b/c.txt", 2, 2)
+        ]
+    );
+    // The lines a narrowing search looks through keep their offsets.
+    harness.search(&scratch.0, "foobar", 2, Some(1));
+    assert_eq!(
+        harness.places(2),
+        [at("a.txt", line, far), at("b/c.txt", 2, 2)]
+    );
+}
+
+#[test]
 fn debug_of_a_batch_names_no_row() {
     let found = Found {
         generation: 3,
         rows: vec![ProjectSearchRow {
             path: "secret/path.txt".into(),
             line: 1,
+            offset: 0,
             column: 0,
             text: "hunter2".into(),
             secret: false,
@@ -327,7 +417,7 @@ fn a_root_that_holds_home_by_its_real_place_is_never_searched() {
     std::os::unix::fs::symlink(scratch.0.join("home"), scratch.0.join("to-home")).unwrap();
     let (send, found) = mpsc::channel();
     let send = Mutex::new(send);
-    let mut grep = Grep::new(Some(scratch.0.join("home/me")), move |found| {
+    let mut grep = Grep::new(Some(scratch.0.join("home/me")), leads, move |found| {
         send.lock()
             .unwrap_or_else(PoisonError::into_inner)
             .send(found)

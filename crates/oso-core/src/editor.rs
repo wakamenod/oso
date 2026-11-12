@@ -84,7 +84,10 @@ pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
-pub use project_search::{ProjectSearchHit, ProjectSearchRequest, ProjectSearchRow};
+pub use project_search::{
+    Excerpt, ProjectPreviewRead, ProjectPreviewRequest, ProjectSearchHit, ProjectSearchRequest,
+    ProjectSearchRow,
+};
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};

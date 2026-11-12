@@ -1,0 +1,193 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: "
+---
+step: an open buffer of the file, from memory
+│// main                                                                                             │
+:o                                                                                                   :
+│fn main() {                                                                                         │
+│    run();                                                                                          │
+│}                                                                                                   │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ 1/4 Search oso: fn                                           │
+:                   ^                                          :
+│>src/main.rs:2: fn       │// main                             │
+│ src/lib.rs:3: fn        │on main() {                         │
+:                          ##                                  :
+│ .env:2      may hold se…│    run();                          │
+│ src/long.rs:1: fn       │}                                   │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+step: C-n: nothing until the read comes
+│// main                                                                                             │
+:o                                                                                                   :
+│fn main() {                                                                                         │
+│    run();                                                                                          │
+│}                                                                                                   │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ 2/4 Search oso: fn                                           │
+:                   ^                                          :
+│ src/main.rs:2: fn       │                                    │
+│>src/lib.rs:3: fn        │                                    │
+│ .env:2      may hold se…│                                    │
+│ src/long.rs:1: fn       │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+step: the read came: its matches, the row's first
+│// main                                                                                             │
+:o                                                                                                   :
+│fn main() {                                                                                         │
+│    run();                                                                                          │
+│}                                                                                                   │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ 2/4 Search oso: fn                                           │
+:                   ^                                          :
+│ src/main.rs:2: fn       │use std::fmt;                       │
+│>src/lib.rs:3: fn        │                                    │
+│ .env:2      may hold se…│pub on run() {                      │
+:                              ##                              :
+│ src/long.rs:1: fn       │        println!("fn");             │
+:                                            ~~                :
+│                         │}                                   │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+step: C-n: a file that may hold secrets
+│// main                                                                                             │
+:o                                                                                                   :
+│fn main() {                                                                                         │
+│    run();                                                                                          │
+│}                                                                                                   │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ 3/4 Search oso: fn                                           │
+:                   ^                                          :
+│ src/main.rs:2: fn       │may hold secrets                    │
+│ src/lib.rs:3: fn        │                                    │
+│>.env:2      may hold se…│                                    │
+│ src/long.rs:1: fn       │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+step: C-n: a match past the preview's width scrolls into view
+│// main                                                                                             │
+:o                                                                                                   :
+│fn main() {                                                                                         │
+│    run();                                                                                          │
+│}                                                                                                   │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ 4/4 Search oso: fn                                           │
+:                   ^                                          :
+│ src/main.rs:2: fn       │xxxxxxxxxxxon far()                 │
+:                                     ##                       :
+│ src/lib.rs:3: fn        │                                    │
+│ .env:2      may hold se…│                                    │
+│>src/long.rs:1: fn       │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+step: a narrow frame gives up the preview
+│// main                                                     │
+:o                                                           :
+│fn main() {                                                 │
+│    run();                                                  │
+│}                                                           │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF            -
+"                                                            "
+float at row 0, column 10: 12 x 40
+│ 4/4 Search oso: fn                     │
+:                   ^                    :
+│ src/main.rs:2: fn                      │
+│ src/lib.rs:3: fn                       │
+│ .env:2             may hold secrets    │
+│>src/long.rs:1: fn                      │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
