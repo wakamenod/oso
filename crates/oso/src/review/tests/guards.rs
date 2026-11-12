@@ -45,12 +45,12 @@ fn editor_in_a_project(record: &str) -> (oso_core::editor::Editor, oso_core::pro
 fn only_a_trusted_project_gives_a_root_to_review() {
     let (editor, project) = editor_in_a_project("");
     assert!(TrustedRoot::of(&editor, project).is_none(), "restricted");
-    let record = if cfg!(unix) {
-        "/home/me/src/oso\tdev=1 ino=7\n"
-    } else {
-        "/home/me/src/oso\n"
-    };
-    let (editor, project) = editor_in_a_project(record);
+    // Unix only from here, as the trust tests elsewhere are: without a drive, the path is not
+    // absolute on Windows, and a record of it trusts nothing there.
+    if cfg!(not(unix)) {
+        return;
+    }
+    let (editor, project) = editor_in_a_project("/home/me/src/oso\tdev=1 ino=7\n");
     let root = TrustedRoot::of(&editor, project).expect("trusted");
     assert_eq!(root.path(), PathBuf::from("/home/me/src/oso"));
 }
