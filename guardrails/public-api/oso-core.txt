@@ -153,9 +153,11 @@ pub fn oso_core::buffer::Buffer::begin_loading(&mut self)
 pub fn oso_core::buffer::Buffer::forget_recovery(&mut self)
 pub fn oso_core::buffer::Buffer::judge_copy(&mut self, &[std::path::PathBuf], oso_core::buffer::Verdict)
 pub fn oso_core::buffer::Buffer::mode(&self) -> oso_core::buffer::Mode
+pub fn oso_core::buffer::Buffer::mode_revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::place_for_copy(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::recovery_stands(&self) -> bool
 pub fn oso_core::buffer::Buffer::set_copy_waits(&mut self, bool)
+pub fn oso_core::buffer::Buffer::set_mode(&mut self, oso_core::buffer::Mode) -> bool
 pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
@@ -1461,6 +1463,8 @@ pub fn oso_core::editor::Editor::start_save_over(&mut self) -> core::result::Res
 pub fn oso_core::editor::Editor::take_save_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::SaveJob>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::current_line_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::editor::Editor::font_lock(&self) -> bool
+pub fn oso_core::editor::Editor::set_font_lock(&mut self, bool)
 pub fn oso_core::editor::Editor::set_visual_aids(&mut self, oso_core::editor::VisualAids)
 pub fn oso_core::editor::Editor::trailing_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::visual_aids(&self) -> oso_core::editor::VisualAids

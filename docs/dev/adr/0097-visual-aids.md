@@ -38,6 +38,8 @@ and nothing remembered. The rest is settled here.
   - `global-hl-line-mode`
   - `beacon-mode`
   - `global-display-line-numbers-mode`
+  - `global-font-lock-mode`, which turns syntax highlighting on and off, is not a visual aid
+    but takes the same argument ([ADR 0111](0111-tree-sitter-highlighting.md), step 4b).
 
   Emacs's buffer-local names (`whitespace-mode`, `display-line-numbers-mode`) are left
   for per-buffer switches with configuration (M3).

@@ -14,7 +14,7 @@ use super::Editor;
 use super::follow::clip_selections;
 use super::save::{Elsewhere, SaveRefused};
 use crate::buffer::{
-    BufferId, EditError, Mode, Reads, Replacement, Tracking, Trim, TrimRules, as_spans,
+    Buffer, BufferId, EditError, Mode, Reads, Replacement, Tracking, Trim, TrimRules, as_spans,
     trailing_whitespace,
 };
 use crate::rope::Rope;
@@ -169,9 +169,16 @@ impl Trimmed {
     };
 }
 
-/// Whether `path` names a Markdown file: its major mode, as the name decides it (ADR 0111).
-fn is_markdown(path: Option<&Path>) -> bool {
-    path.is_some_and(|path| Mode::for_path(path) == Mode::Markdown)
+/// Whether a write under the new name `path` makes a Markdown file: the mode that name gives
+/// (ADR 0111).
+fn names_markdown(path: &Path) -> bool {
+    Mode::for_path(path) == Mode::Markdown
+}
+
+/// Whether `buffer` is Markdown: its major mode, which a visit takes from the name and a
+/// command can set by hand (ADR 0113).
+fn is_markdown(buffer: &Buffer) -> bool {
+    buffer.mode() == Mode::Markdown
 }
 
 /// `ranges` moved through `deletions`, both ascending and apart.
@@ -224,7 +231,7 @@ impl Editor {
         };
         ranges.sort_unstable_by_key(|range| range.start);
         let id = window.buffer();
-        let markdown = is_markdown(buffer.path());
+        let markdown = is_markdown(buffer);
         match self.trim(id, ranges, Vec::new(), markdown, Then::Command) {
             Trimmed::Done { changed, .. } => Ok(changed),
             Trimmed::Waiting => Ok(false),
@@ -244,8 +251,8 @@ impl Editor {
         }
         // A write to a new place follows the rule of the name it takes.
         let markdown = match &then {
-            Then::Write { path, .. } => is_markdown(Some(path)),
-            Then::Save { .. } | Then::Command => is_markdown(buffer.path()),
+            Then::Write { path, .. } => names_markdown(path),
+            Then::Save { .. } | Then::Command => is_markdown(buffer),
         };
         let keep = self.cursors_of(id);
         let trimmed = self.trim(id, ranges, keep, markdown, then);
@@ -529,10 +536,10 @@ impl Editor {
         let (ranges, markdown) = match then {
             Then::Command => (
                 buffer.tracked(scan.0).unwrap_or_default().to_vec(),
-                is_markdown(buffer.path()),
+                is_markdown(buffer),
             ),
-            Then::Save { .. } => (buffer.edited_ranges().to_vec(), is_markdown(buffer.path())),
-            Then::Write { path, .. } => (buffer.edited_ranges().to_vec(), is_markdown(Some(path))),
+            Then::Save { .. } => (buffer.edited_ranges().to_vec(), is_markdown(buffer)),
+            Then::Write { path, .. } => (buffer.edited_ranges().to_vec(), names_markdown(path)),
         };
         let keep = if matches!(then, Then::Command) {
             Vec::new()

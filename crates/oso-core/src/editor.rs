@@ -236,6 +236,8 @@ pub struct Editor {
     trust: projects::Trust,
     themes: themes::Themes,
     aids: VisualAids,
+    /// Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
+    font_lock: bool,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
     trims: trim::Trims,
     /// query-replace's session, and the last pairs given (ADR 0113).
@@ -313,6 +315,7 @@ impl Editor {
             trust: projects::Trust::default(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
+            font_lock: true,
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
         };

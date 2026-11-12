@@ -114,3 +114,17 @@ fn a_new_name_gives_the_mode_as_a_visit_does() {
     buffer.set_path(PathBuf::from("/p/notes.md"));
     assert_eq!(buffer.mode(), Mode::Markdown);
 }
+
+#[test]
+fn a_file_buffer_never_takes_the_copies_modes_and_an_internal_one_keeps_its_own() {
+    let mut file = Buffer::visiting(PathBuf::from("/p/main.rs"));
+    assert!(!file.set_mode(Mode::CopyList));
+    assert!(!file.set_mode(Mode::CopyView));
+    assert_eq!(file.mode(), Mode::Rust);
+    assert!(file.set_mode(Mode::Toml));
+    let mut editor = Editor::with_buffer(Buffer::from_text("a", ""));
+    let list = editor.add_internal_buffer("*Copies*", Mode::CopyList);
+    let list = editor.buffer_mut(list).unwrap();
+    assert!(!list.set_mode(Mode::Fundamental));
+    assert_eq!(list.mode(), Mode::CopyList);
+}
