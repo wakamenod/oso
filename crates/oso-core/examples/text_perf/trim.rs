@@ -1,11 +1,12 @@
-//! Whitespace cleanup on save (ADR 0113): a save after typing at many cursors, and after
-//! pasting a large text, on the UI thread and on the scan's thread. Run with `-- trim`.
+//! Whitespace cleanup on save (ADR 0113): a save after typing at many cursors, after pasting a
+//! large text, and after a keyboard macro's replay edited every line, one command an edit, on
+//! the UI thread and on the scan's thread. Run with `-- trim`.
 //!
 //! Must not depend on: other workspace crates or crate internals; it uses only the public
 //! API.
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::TabWidth;
@@ -99,4 +100,46 @@ pub(crate) fn trim_costs() {
         editor.end_undo_group();
         save_costs(label, &mut editor);
     }
+    replay_costs(100_000);
+}
+
+/// A forward replay's edits, one command each, as a macro run over `lines` lines makes them:
+/// a space at each line's start, so each is an edited range of its own. The first and last
+/// tenth's edits are timed apart, so a cost that grows with the ranges kept shows, then a
+/// save.
+fn replay_costs(lines: usize) {
+    const LINE: usize = 40;
+    let mut editor = visiting(&format!("{}\n", "x".repeat(LINE - 1)).repeat(lines));
+    let id = editor.window().buffer();
+    let tenth = (lines / 10).max(1);
+    let (mut first, mut last) = (Duration::ZERO, Duration::ZERO);
+    let started = Instant::now();
+    let mut chunk = Instant::now();
+    for line in 0..lines {
+        // Each line is one longer for the space before it.
+        let at = line * (LINE + 2);
+        editor.begin_undo_group();
+        editor
+            .apply_edits(
+                id,
+                &[Replacement {
+                    range: at..at,
+                    text: " ",
+                }],
+            )
+            .expect("the buffer takes edits");
+        editor.end_undo_group();
+        if (line + 1) % tenth == 0 {
+            last = chunk.elapsed() / u32::try_from(tenth).unwrap_or(u32::MAX);
+            if line + 1 == tenth {
+                first = last;
+            }
+            chunk = Instant::now();
+        }
+    }
+    let total = started.elapsed();
+    println!(
+        "replay of {lines} far edits    {total:>10.2?}, an edit: first tenth {first:>8.2?} last tenth {last:>8.2?}"
+    );
+    save_costs("after the replay", &mut editor);
 }

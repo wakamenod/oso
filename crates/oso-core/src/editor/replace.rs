@@ -17,7 +17,7 @@ use std::sync::atomic::Ordering;
 
 use super::Editor;
 use super::isearch::MatchCells;
-use crate::buffer::ReadOnly;
+use crate::buffer::{ReadOnly, join_touching};
 use crate::motion;
 use crate::search::{
     self, Counting, Found, KEY_BUDGET, LineTooLong, Needle, Query, Report, SearchJob, SearchReport,
@@ -89,14 +89,8 @@ const MOST_PENDING: usize = 16;
 /// Merges `ranges`, sorted, into ranges apart.
 fn merged(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     ranges.sort_unstable_by_key(|range| range.start);
-    let mut out: Vec<Range<usize>> = Vec::with_capacity(ranges.len());
-    for range in ranges {
-        match out.last_mut() {
-            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
-            _ => out.push(range),
-        }
-    }
-    out
+    join_touching(&mut ranges);
+    ranges
 }
 
 impl Editor {
@@ -242,7 +236,6 @@ impl Editor {
         };
         self.buffer(state.buffer)
             .and_then(|buffer| buffer.tracked(state.scope))
-            .map(<[_]>::to_vec)
             .unwrap_or_default()
     }
 

@@ -6,6 +6,7 @@
 //!
 //! Must not depend on: `window`, `editor` or `command`; this sees only offsets.
 
+use std::fmt;
 use std::ops::Range;
 
 use super::Buffer;
@@ -44,18 +45,16 @@ impl FollowedLines {
         self.lines.follow(edits);
     }
 
-    /// How many ranges a batch more moves.
+    /// How many ranges a batch more moves, at most: a batch near the gap moves only those
+    /// near it.
     pub(crate) fn len(&self) -> usize {
         let lines = &self.lines;
-        lines.now.ranges.len()
-            + lines
-                .saving
-                .as_ref()
-                .map_or(0, |saving| saving.ranges.len())
+        lines.now.len()
+            + lines.saving.as_ref().map_or(0, Edited::len)
             + lines
                 .tracked
                 .iter()
-                .map(|(_, tracked)| tracked.ranges.len())
+                .map(|(_, tracked)| tracked.len())
                 .sum::<usize>()
     }
 
@@ -107,8 +106,8 @@ impl EditedLines {
 impl Buffer {
     /// Where the buffer was edited since its file was read, read again or a save took its
     /// text, ascending and apart.
-    pub(crate) fn edited_ranges(&self) -> &[Range<usize>] {
-        self.edited.now.ranges()
+    pub(crate) fn edited_ranges(&self) -> Vec<Range<usize>> {
+        self.edited.now.to_vec()
     }
 
     /// Forgets every edited range: the buffer holds what its file does.
@@ -120,14 +119,9 @@ impl Buffer {
 
     /// A save took the text: what was edited goes aside until the write ends, and only
     /// `kept`, the whitespace a cursor kept, stays edited.
-    pub(crate) fn save_took_edits(&mut self, kept: Vec<Range<usize>>) {
-        let taken = std::mem::replace(
-            &mut self.edited.now,
-            Edited {
-                ranges: kept,
-                scratch: Vec::new(),
-            },
-        );
+    pub(crate) fn save_took_edits(&mut self, mut kept: Vec<Range<usize>>) {
+        join_touching(&mut kept);
+        let taken = std::mem::replace(&mut self.edited.now, Edited::from_ranges(kept));
         self.edited.saving = Some(taken);
         self.edited.changes += 1;
     }
@@ -153,23 +147,17 @@ impl Buffer {
 
     /// Keeps `ranges` as `id`'s, following the edits made from now on.
     pub(crate) fn track(&mut self, id: Tracking, ranges: Vec<Range<usize>>) {
-        self.edited.tracked.push((
-            id,
-            Edited {
-                ranges,
-                scratch: Vec::new(),
-            },
-        ));
+        self.edited.tracked.push((id, Edited::from_ranges(ranges)));
         self.edited.changes += 1;
     }
 
     /// The ranges `id` keeps, as the edits since moved them.
-    pub(crate) fn tracked(&self, id: Tracking) -> Option<&[Range<usize>]> {
+    pub(crate) fn tracked(&self, id: Tracking) -> Option<Vec<Range<usize>>> {
         self.edited
             .tracked
             .iter()
             .find(|(tracking, _)| *tracking == id)
-            .map(|(_, edited)| edited.ranges())
+            .map(|(_, edited)| edited.to_vec())
     }
 
     /// Forgets `id`'s ranges.
@@ -180,9 +168,22 @@ impl Buffer {
 
 /// Ranges, ascending and apart. A deletion leaves an empty range where it was, so its line
 /// counts too.
-#[derive(Debug, Default)]
+///
+/// They are kept in two parts, around a gap where the last edit was: the ranges before it as
+/// they are, and the ranges after it, nearest last, less the shift the edits since have made.
+/// An edit moves only the ranges between the gap and itself, and those it touches, so edits
+/// one after another through the text, as a macro's replay makes, cost O(log ranges) each,
+/// amortized, however many ranges there are. A batch costs O(ranges + edits) at most, as one that spans
+/// the text moves the gap over every range.
+#[derive(Default)]
 pub(crate) struct Edited {
-    ranges: Vec<Range<usize>>,
+    /// The ranges before the gap, ascending.
+    before: Vec<Range<usize>>,
+    /// The ranges after the gap, descending, each less [`Edited::shift`].
+    after: Vec<Range<usize>>,
+    /// How far the edits since moved the ranges after the gap, wrapping: a range there is
+    /// at its offsets plus this.
+    shift: usize,
     /// Reused for each batch, so that typing does not allocate.
     scratch: Vec<Range<usize>>,
 }
@@ -191,7 +192,9 @@ impl Clone for Edited {
     /// The ranges only: the scratch list is of no use to a copy.
     fn clone(&self) -> Self {
         Self {
-            ranges: self.ranges.clone(),
+            before: self.before.clone(),
+            after: self.after.clone(),
+            shift: self.shift,
             scratch: Vec::new(),
         }
     }
@@ -199,87 +202,251 @@ impl Clone for Edited {
 
 impl PartialEq for Edited {
     fn eq(&self, other: &Self) -> bool {
-        self.ranges == other.ranges
+        self.ranges().eq(other.ranges())
+    }
+}
+
+impl fmt::Debug for Edited {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.ranges()).finish()
     }
 }
 
 impl Edited {
-    /// The ranges, ascending and apart.
-    pub(crate) fn ranges(&self) -> &[Range<usize>] {
-        &self.ranges
+    /// `ranges`, ascending and apart, as they are, with the gap after the last.
+    fn from_ranges(ranges: Vec<Range<usize>>) -> Self {
+        Self {
+            before: ranges,
+            ..Self::default()
+        }
+    }
+
+    /// The ranges, ascending and apart. O(ranges) to read through.
+    pub(crate) fn ranges(&self) -> impl Iterator<Item = Range<usize>> + '_ {
+        let shift = self.shift;
+        self.before.iter().cloned().chain(
+            self.after
+                .iter()
+                .rev()
+                .map(move |range| moved(range, shift)),
+        )
+    }
+
+    /// The ranges, ascending and apart, as a list. O(ranges).
+    pub(crate) fn to_vec(&self) -> Vec<Range<usize>> {
+        let mut ranges = Vec::with_capacity(self.len());
+        ranges.extend_from_slice(&self.before);
+        ranges.extend(
+            self.after
+                .iter()
+                .rev()
+                .map(|range| moved(range, self.shift)),
+        );
+        ranges
+    }
+
+    /// How many ranges there are.
+    pub(crate) fn len(&self) -> usize {
+        self.before.len() + self.after.len()
     }
 
     /// Forgets every range.
     pub(crate) fn clear(&mut self) {
-        self.ranges.clear();
+        self.before.clear();
+        self.after.clear();
+        self.shift = 0;
+    }
+
+    /// Moves the gap so that the ranges before it are those that end before `offset`.
+    /// O(log ranges + the ranges it passes).
+    fn seek(&mut self, offset: usize) {
+        let kept = self.before.partition_point(|range| range.end < offset);
+        let back = self.shift.wrapping_neg();
+        self.after.extend(
+            self.before
+                .drain(kept..)
+                .rev()
+                .map(|range| moved(&range, back)),
+        );
+        let shift = self.shift;
+        let from = self
+            .after
+            .partition_point(|range| moved(range, shift).end >= offset);
+        self.before.extend(
+            self.after
+                .drain(from..)
+                .rev()
+                .map(|range| moved(&range, shift)),
+        );
+    }
+
+    /// Takes the ranges after the gap that start by `end` off it, ascending, onto `out`.
+    fn take_after(&mut self, end: usize, out: &mut Vec<Range<usize>>) {
+        let shift = self.shift;
+        let from = self
+            .after
+            .partition_point(|range| moved(range, shift).start > end);
+        out.extend(
+            self.after
+                .drain(from..)
+                .rev()
+                .map(|range| moved(&range, shift)),
+        );
+    }
+
+    /// Takes the ranges that end at `start` or after and start by `end` off both parts,
+    /// ascending, onto `out`, each moved once; the gap is then where they were. O(log ranges
+    /// + the ranges taken and those the gap passes).
+    fn take_span(&mut self, start: usize, end: usize, out: &mut Vec<Range<usize>>) {
+        // Before the gap, those in the span go straight to `out`, and those past it behind
+        // the gap.
+        let kept = self.before.partition_point(|range| range.end < start);
+        let upto = kept + self.before[kept..].partition_point(|range| range.start <= end);
+        let back = self.shift.wrapping_neg();
+        self.after.extend(
+            self.before
+                .drain(upto..)
+                .rev()
+                .map(|range| moved(&range, back)),
+        );
+        if upto == kept {
+            self.seek(start);
+        } else {
+            out.extend(self.before.drain(kept..));
+        }
+        self.take_after(end, out);
+    }
+
+    /// Takes the ranges `edits` may move other than by their whole shift into the scratch
+    /// list, ascending, and moves them through the edits; those after the edits shift with
+    /// the gap. The ranges that end before the first edit stay before the gap, as no edit
+    /// moves them.
+    fn take_touched(&mut self, edits: &[OffsetEdit]) {
+        let (Some(first), Some(last)) = (edits.first(), edits.last()) else {
+            return;
+        };
+        let mut touched = std::mem::take(&mut self.scratch);
+        touched.clear();
+        self.take_span(first.start, last.start + last.old_len, &mut touched);
+        follow_ranges(&mut touched, edits);
+        self.scratch = touched;
+        // Past the last edit, an offset moves by what the edits added and took away.
+        for edit in edits {
+            self.shift = self
+                .shift
+                .wrapping_add(edit.new_len)
+                .wrapping_sub(edit.old_len);
+        }
     }
 
     /// Moves the ranges through one batch of edits, as [`Edited::follow`] does, without
     /// taking the new text in.
     pub(crate) fn follow_only(&mut self, edits: &[OffsetEdit]) {
-        follow_ranges(&mut self.ranges, edits);
+        if edits.is_empty() {
+            return;
+        }
+        self.take_touched(edits);
+        self.before.append(&mut self.scratch);
     }
 
     /// Takes in one batch of edits, ascending and apart in the offsets before it, as
     /// [`OffsetEdit`]s are: the ranges kept follow them, and the new text of each is a
-    /// range of its own. O(ranges + edits).
+    /// range of its own. O(the ranges between the gap and the edits, and edits).
     pub(crate) fn follow(&mut self, edits: &[OffsetEdit]) {
         if edits.is_empty() {
             return;
         }
-        follow_ranges(&mut self.ranges, edits);
+        self.take_touched(edits);
         let mut shift: isize = 0;
-        let mut added = edits.iter().map(|edit| {
+        let added = edits.iter().map(|edit| {
             let start = edit.start.saturating_add_signed(shift);
             shift += edit.new_len.cast_signed() - edit.old_len.cast_signed();
             start..start + edit.new_len
         });
-        self.merge_from(&mut added);
+        // The ranges the edits touched and their new text lie past every range before the
+        // gap and before every one after it, so they merge only with each other.
+        let mut touched = std::mem::take(&mut self.scratch);
+        merge_onto(&mut self.before, touched.drain(..), added);
+        self.scratch = touched;
     }
 
-    /// Makes the ranges within or touching `span` one range, with `span`. O(ranges).
+    /// Makes the ranges within or touching `span` one range, with `span`. O(the ranges
+    /// between the gap and `span`, and those in it).
     pub(crate) fn cover(&mut self, span: Range<usize>) {
-        let first = self.ranges.partition_point(|range| range.end < span.start);
-        let last = self.ranges.partition_point(|range| range.start <= span.end);
-        let (start, end) = self.ranges[first..last]
+        let mut within = std::mem::take(&mut self.scratch);
+        within.clear();
+        self.take_span(span.start, span.end, &mut within);
+        let (start, end) = within
             .iter()
             .fold((span.start, span.end), |(start, end), range| {
                 (start.min(range.start), end.max(range.end))
             });
-        self.ranges.splice(first..last, std::iter::once(start..end));
+        self.before.push(start..end);
+        self.scratch = within;
     }
 
-    /// Takes `ranges`, ascending, in as edited too.
-    pub(crate) fn add(&mut self, ranges: &[Range<usize>]) {
-        self.merge_from(&mut ranges.iter().cloned());
-    }
-
-    /// Merges ascending `added` into the ranges, through the scratch list.
-    fn merge_from(&mut self, added: &mut dyn Iterator<Item = Range<usize>>) {
+    /// Takes `ranges`, ascending, in as edited too. O(ranges kept and added).
+    pub(crate) fn add(&mut self, ranges: impl Iterator<Item = Range<usize>>) {
         let mut merged = std::mem::take(&mut self.scratch);
         merged.clear();
-        let mut kept = self.ranges.iter().cloned().peekable();
-        let mut added = added.peekable();
-        loop {
-            let next = match (kept.peek(), added.peek()) {
-                (Some(a), Some(b)) if a.start <= b.start => kept.next(),
-                (Some(_), Some(_)) | (None, Some(_)) => added.next(),
-                (Some(_), None) => kept.next(),
-                (None, None) => break,
-            };
-            let Some(range) = next else { break };
-            match merged.last_mut() {
-                Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
-                _ => merged.push(range),
+        merge_onto(&mut merged, self.ranges(), ranges);
+        self.clear();
+        self.scratch = std::mem::replace(&mut self.before, merged);
+    }
+}
+
+/// Joins each range of ascending `ranges` that touches the one before with it, in place, as
+/// a batch's merge would join them.
+pub(crate) fn join_touching(ranges: &mut Vec<Range<usize>>) {
+    let mut kept: usize = 0;
+    for index in 0..ranges.len() {
+        let range = ranges[index].clone();
+        match kept.checked_sub(1).map(|last| &mut ranges[last]) {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => {
+                ranges[kept] = range;
+                kept += 1;
             }
         }
-        self.scratch = std::mem::replace(&mut self.ranges, merged);
+    }
+    ranges.truncate(kept);
+}
+
+/// `range` moved `by`, wrapping.
+fn moved(range: &Range<usize>, by: usize) -> Range<usize> {
+    range.start.wrapping_add(by)..range.end.wrapping_add(by)
+}
+
+/// Pushes ascending `a` and `b` onto `out` in order, each range that touches the one before
+/// joined with it.
+fn merge_onto(
+    out: &mut Vec<Range<usize>>,
+    a: impl Iterator<Item = Range<usize>>,
+    b: impl Iterator<Item = Range<usize>>,
+) {
+    let (mut a, mut b) = (a.peekable(), b.peekable());
+    loop {
+        let next = match (a.peek(), b.peek()) {
+            (Some(x), Some(y)) if x.start <= y.start => a.next(),
+            (Some(_) | None, Some(_)) => b.next(),
+            (Some(_), None) => a.next(),
+            (None, None) => break,
+        };
+        let Some(range) = next else { break };
+        match out.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => out.push(range),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn all(edited: &Edited) -> Vec<Range<usize>> {
+        edited.ranges().collect()
+    }
 
     fn edit(start: usize, old_len: usize, new_len: usize) -> OffsetEdit {
         OffsetEdit {
@@ -293,7 +460,7 @@ mod tests {
     fn new_text_is_a_range_and_a_deletion_an_empty_one() {
         let mut edited = Edited::default();
         edited.follow(&[edit(2, 0, 3), edit(10, 4, 0)]);
-        assert_eq!(edited.ranges(), [2..5, 13..13]);
+        assert_eq!(all(&edited), [2..5, 13..13]);
     }
 
     #[test]
@@ -302,12 +469,12 @@ mod tests {
         edited.follow(&[edit(10, 0, 2)]);
         // Two bytes in front move it; one at its end joins it.
         edited.follow(&[edit(0, 0, 2), edit(12, 0, 1)]);
-        assert_eq!(edited.ranges(), [0..2, 12..15]);
+        assert_eq!(all(&edited), [0..2, 12..15]);
         // A deletion over all of it leaves an empty range at its place.
         edited.follow(&[edit(12, 3, 0)]);
-        assert_eq!(edited.ranges(), [0..2, 12..12]);
+        assert_eq!(all(&edited), [0..2, 12..12]);
         edited.clear();
-        assert!(edited.ranges().is_empty());
+        assert_eq!(edited.len(), 0);
     }
 
     #[test]
@@ -322,8 +489,29 @@ mod tests {
                 .map(|(i, e)| edit(e.start + i + 1, 0, 1))
                 .collect::<Vec<_>>(),
         );
-        assert_eq!(edited.ranges().len(), 1000);
-        assert_eq!(edited.ranges()[1], 12..14);
+        assert_eq!(edited.len(), 1000);
+        assert_eq!(edited.ranges().nth(1), Some(12..14));
+    }
+
+    #[test]
+    fn a_batch_leaves_nothing_behind_for_the_next() {
+        // A batch's scratch list is the next one's: an empty batch takes nothing from it.
+        let mut edited = Edited::default();
+        edited.follow(&[edit(0, 0, 4)]);
+        edited.follow(&[edit(2, 0, 0)]);
+        edited.follow_only(&[]);
+        assert_eq!(all(&edited), [Range { start: 0, end: 4 }]);
+        let mut taken = std::mem::take(&mut edited);
+        taken.follow_only(&[]);
+        taken.follow_only(&[edit(10, 0, 1)]);
+        assert_eq!(all(&taken), [Range { start: 0, end: 4 }]);
+    }
+
+    #[test]
+    fn touching_ranges_join_in_place() {
+        let mut ranges = vec![0..2, 2..3, 5..5, 5..7, 9..9];
+        join_touching(&mut ranges);
+        assert_eq!(ranges, [0..3, 5..7, 9..9]);
     }
 
     #[test]
@@ -336,8 +524,179 @@ mod tests {
             edit(40, 0, 1),
         ]);
         edited.cover(5..22);
-        assert_eq!(edited.ranges(), [0..1, 5..23, 43..44]);
+        assert_eq!(all(&edited), [0..1, 5..23, 43..44]);
         edited.cover(30..35);
-        assert_eq!(edited.ranges(), [0..1, 5..23, 30..35, 43..44]);
+        assert_eq!(all(&edited), [0..1, 5..23, 30..35, 43..44]);
+    }
+
+    /// The ranges kept as one list, which each batch moves whole, as before the gap.
+    #[derive(Default)]
+    struct Plain(Vec<Range<usize>>);
+
+    impl Plain {
+        fn merge(&mut self, added: impl Iterator<Item = Range<usize>>) {
+            let kept = std::mem::take(&mut self.0);
+            merge_onto(&mut self.0, kept.into_iter(), added);
+        }
+
+        fn follow(&mut self, edits: &[OffsetEdit]) {
+            if edits.is_empty() {
+                return;
+            }
+            follow_ranges(&mut self.0, edits);
+            let mut shift: isize = 0;
+            let added: Vec<_> = edits
+                .iter()
+                .map(|edit| {
+                    let start = edit.start.saturating_add_signed(shift);
+                    shift += edit.new_len.cast_signed() - edit.old_len.cast_signed();
+                    start..start + edit.new_len
+                })
+                .collect();
+            self.merge(added.into_iter());
+        }
+
+        fn cover(&mut self, span: Range<usize>) {
+            let first = self.0.partition_point(|range| range.end < span.start);
+            let last = self.0.partition_point(|range| range.start <= span.end);
+            let (start, end) = self.0[first..last]
+                .iter()
+                .fold((span.start, span.end), |(start, end), range| {
+                    (start.min(range.start), end.max(range.end))
+                });
+            self.0.splice(first..last, std::iter::once(start..end));
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    enum Op {
+        /// Edits as (from the last one's end, old length, new length).
+        Follow(Vec<(usize, usize, usize)>),
+        Cover(usize, usize),
+        Add(Vec<usize>),
+        /// A save takes the ranges, which then only follow the edits.
+        Take,
+        /// The save failed and gives them back.
+        GiveBack,
+        Clone,
+        Clear,
+    }
+
+    fn op() -> impl proptest::strategy::Strategy<Value = Op> {
+        use proptest::prelude::*;
+        let edits = proptest::collection::vec((0..40usize, 0..6usize, 0..6usize), 1..4);
+        prop_oneof![
+            8 => edits.prop_map(Op::Follow),
+            2 => (0..300usize, 0..30usize).prop_map(|(at, len)| Op::Cover(at, len)),
+            1 => proptest::collection::vec(0..300usize, 0..8).prop_map(Op::Add),
+            1 => Just(Op::Take),
+            1 => Just(Op::GiveBack),
+            1 => Just(Op::Clone),
+            1 => Just(Op::Clear),
+        ]
+    }
+
+    /// `raw` as edits ascending and apart in a text `len` long, from `at`.
+    fn edits_from(raw: &[(usize, usize, usize)], at: usize, len: usize) -> Vec<OffsetEdit> {
+        let mut edits: Vec<OffsetEdit> = Vec::new();
+        let mut from = at.min(len);
+        for &(gap, old, new) in raw {
+            let start = from + gap;
+            if start > len
+                || edits
+                    .last()
+                    .is_some_and(|last| last.start == start && gap == 0)
+            {
+                break;
+            }
+            let old_len = old.min(len - start);
+            edits.push(edit(start, old_len, new));
+            from = start + old_len.max(1);
+        }
+        edits
+    }
+
+    proptest::proptest! {
+        /// As [`EditedLines`] uses them: the buffer's set follows every batch, covers spans and
+        /// takes ranges in, and a set a save took only follows the batches, until it is given
+        /// back.
+        #[test]
+        fn the_gap_keeps_the_ranges_one_list_keeps(
+            ops in proptest::collection::vec((op(), 0..300usize), 1..60),
+        ) {
+            let mut len = 300;
+            let (mut now, mut plain) = (Edited::default(), Plain::default());
+            let (mut taken, mut plain_taken) = (Edited::default(), Plain::default());
+            for (op, at) in ops {
+                match op {
+                    Op::Follow(raw) => {
+                        let edits = edits_from(&raw, at, len);
+                        now.follow(&edits);
+                        plain.follow(&edits);
+                        taken.follow_only(&edits);
+                        follow_ranges(&mut plain_taken.0, &edits);
+                        len = edits.iter().fold(len, |len, e| len + e.new_len - e.old_len);
+                    }
+                    Op::Cover(start, span) => {
+                        let start = start.min(len);
+                        let span = start..(start + span).min(len);
+                        now.cover(span.clone());
+                        plain.cover(span);
+                    }
+                    Op::Add(mut points) => {
+                        points.iter_mut().for_each(|at| *at = (*at).min(len));
+                        points.sort_unstable();
+                        let ranges: Vec<_> = points
+                            .chunks(2)
+                            .map(|pair| pair[0]..pair.get(1).copied().unwrap_or(pair[0]))
+                            .collect();
+                        now.add(ranges.iter().cloned());
+                        plain.merge(ranges.into_iter());
+                    }
+                    Op::Take => {
+                        taken = std::mem::take(&mut now);
+                        plain_taken = std::mem::take(&mut plain);
+                    }
+                    Op::GiveBack => {
+                        now.add(std::mem::take(&mut taken).ranges());
+                        plain.merge(std::mem::take(&mut plain_taken.0).into_iter());
+                    }
+                    Op::Clone => (now, taken) = (now.clone(), taken.clone()),
+                    Op::Clear => {
+                        now.clear();
+                        plain.0.clear();
+                    }
+                }
+                proptest::prop_assert_eq!(all(&now), plain.0.clone());
+                proptest::prop_assert_eq!(now.len(), plain.0.len());
+                proptest::prop_assert_eq!(all(&taken), plain_taken.0.clone());
+            }
+        }
+    }
+
+    #[test]
+    fn edits_one_after_another_move_only_the_ranges_near_the_gap() {
+        // A forward replay: one edit after another, each far from the last range.
+        let mut edited = Edited::default();
+        for line in 0..10_000 {
+            edited.follow(&[edit(line * 10, 0, 1)]);
+            assert!(edited.scratch.len() <= 1, "line {line}");
+        }
+        assert_eq!(edited.len(), 10_000);
+        assert_eq!(edited.ranges().nth(1), Some(10..11));
+        // A backward replay: one edit before another, each passing one range.
+        for line in (0..10_000).rev() {
+            edited.follow(&[edit(line * 10 + 5, 0, 1)]);
+            assert!(edited.scratch.is_empty(), "line {line}");
+            assert_eq!(edited.before.len(), line + 2, "line {line}");
+        }
+        assert_eq!(edited.len(), 20_000);
+        // Typing back at the start moves the gap there, then it stays.
+        edited.follow(&[edit(1, 0, 1)]);
+        assert_eq!(edited.before.len(), 1);
+        assert_eq!(
+            edited.ranges().take(3).collect::<Vec<_>>(),
+            [0..2, 6..7, 12..13]
+        );
     }
 }
