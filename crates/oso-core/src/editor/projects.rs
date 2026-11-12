@@ -47,30 +47,36 @@ pub enum TrustRefused {
     ThroughMain(PathBuf),
 }
 
-/// A file whose project the host should find: the buffer, and the real place its path leads.
+/// A file whose project, or whose EditorConfig, the host should find: the buffer, and the real
+/// place its path leads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProjectRequest {
     pub buffer: BufferId,
     pub location: PathBuf,
 }
 
+/// Adds `request` to `requests`, where only a buffer's newest stays.
+pub(super) fn ask(requests: &mut Vec<ProjectRequest>, request: ProjectRequest) {
+    requests.retain(|asked| asked.buffer != request.buffer);
+    requests.push(request);
+}
+
 impl Editor {
+    /// The request for `id`'s file, once where its path leads is known.
+    pub(super) fn file_request(&self, id: BufferId) -> Option<ProjectRequest> {
+        let location = self.buffer(id)?.baseline()?.location.clone();
+        Some(ProjectRequest {
+            buffer: id,
+            location,
+        })
+    }
+
     /// Asks the host to find the project of `id`'s file, once where its path leads is known.
     /// A buffer with no such place is in no project.
     pub fn request_project(&mut self, id: BufferId) {
-        let Some(buffer) = self.buffer(id) else {
-            return;
-        };
-        let Some(baseline) = buffer.baseline() else {
-            return;
-        };
-        let request = ProjectRequest {
-            buffer: id,
-            location: baseline.location.clone(),
-        };
-        // Of the requests not yet taken, only a buffer's newest stays.
-        self.project_requests.retain(|asked| asked.buffer != id);
-        self.project_requests.push(request);
+        if let Some(request) = self.file_request(id) {
+            ask(&mut self.project_requests, request);
+        }
     }
 
     /// The files whose project the host should find, the oldest first.

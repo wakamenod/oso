@@ -30,7 +30,7 @@ buffer motion search
 undo kill indent
 load selection
 display_map syntax
-complete decode key project review rope secret
+complete decode editorconfig key project review rope secret
 sum_tree
 
 [oso-platform]

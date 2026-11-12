@@ -4,7 +4,7 @@
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's.
 
 use oso_core::buffer::Mode;
-use oso_core::indent::{self, Style};
+use oso_core::indent::{self, Origin, Style};
 use toml::Spanned;
 use toml::de::DeValue;
 
@@ -36,6 +36,23 @@ impl ModeIndent {
         let style = self.style.unwrap_or(compiled.style());
         let width = self.tab_width.unwrap_or(compiled.tab_width().get());
         indent::Settings::new(size, style, width).unwrap_or(compiled)
+    }
+
+    /// Where each property of [`ModeIndent::over`]'s setting comes from: the file, or the
+    /// compiled-in default.
+    pub fn origins(self) -> indent::Origins {
+        let from = |given: bool| {
+            if given {
+                Origin::Configuration
+            } else {
+                Origin::Default
+            }
+        };
+        indent::Origins {
+            indent_size: from(self.indent_size.is_some()),
+            style: from(self.style.is_some()),
+            tab_width: from(self.tab_width.is_some()),
+        }
     }
 }
 

@@ -643,13 +643,15 @@ read. See [ADR 0019](adr/0019-configuration.md).
   (`config/agent_rules.rs`), and handed to the sessions worker for every session at once; a
   file that fails to parse keeps the rules in force. Its format is in
   [agent-rules.md](agent-rules.md) ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
-- Indentation ([ADR 0115](adr/0115-indentation.md); its rules, `TAB`, `RET` and `C-j` are built,
-  the region commands and EditorConfig come in later steps): each buffer has an indentation setting, from the EditorConfig files that apply to it,
-  then the configuration's `[modes.<mode>]`, then the defaults. The loader reads the EditorConfig files from the file's
-  directory up, with project detection's stops, before it builds the display map; parsing and
-  matching are a pure function in `oso_core::editorconfig`. Indentation itself is computed on the UI
-  thread at the key by per-mode rules in `oso_core::indent`, from the text alone, within a budget:
-  no tree and no worker.
+- Indentation ([ADR 0115](adr/0115-indentation.md)): each buffer has an indentation setting,
+  property by property from the EditorConfig files that apply to it, then the configuration's
+  `[modes.<mode>]`, then the defaults, and knows where each came from (`describe-indentation`).
+  The loader reads the EditorConfig files from the file's directory up, through the stop checks
+  it shares with project detection (`project::upward`), before it builds the display map, and a
+  thread reads them again after `C-x C-w`; parsing and matching are pure functions in
+  `oso_core::editorconfig`. Indentation itself is computed on the UI thread at the key by
+  per-mode rules in `oso_core::indent`, from the text alone, within a budget: no tree and no
+  worker.
 
 ### Persistence
 

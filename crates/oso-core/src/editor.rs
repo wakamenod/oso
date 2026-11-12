@@ -25,7 +25,7 @@
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, ContentId, EditError, Mode, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{FrameLayout, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -270,7 +270,9 @@ pub struct Editor {
     /// Whether `RET` and typed closers indent (`electric-indent-mode`, ADR 0115).
     electric_indent: bool,
     /// Each mode's indentation, as the configuration gives it (ADR 0115).
-    mode_indents: [(Mode, crate::indent::Settings); 4],
+    mode_indents: indent::ModeIndents,
+    /// Files whose EditorConfig the host should read, after `C-x C-w` named them (ADR 0115).
+    editorconfig_requests: Vec<ProjectRequest>,
     /// The layer of `C-x TAB`, while it is open (ADR 0115).
     rigid: Option<indent::RigidLayer>,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
@@ -356,8 +358,8 @@ impl Editor {
             aids: VisualAids::default(),
             font_lock: true,
             electric_indent: true,
-            mode_indents: [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
-                .map(|mode| (mode, crate::indent::Settings::default())),
+            mode_indents: indent::compiled_mode_indents(),
+            editorconfig_requests: Vec::new(),
             rigid: None,
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),

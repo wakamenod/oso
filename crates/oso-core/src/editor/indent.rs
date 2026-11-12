@@ -14,7 +14,7 @@ use std::fmt;
 use std::ops::Range;
 
 use super::Editor;
-use crate::buffer::{Buffer, BufferId, EditError, Mode, Replacement};
+use crate::buffer::{Buffer, EditError, Mode, Replacement};
 use crate::indent::{self, Answer, Budget, Line, MAX_COLUMN, Settings, Style};
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
@@ -29,6 +29,9 @@ mod line;
 mod markdown;
 mod newline;
 mod region;
+mod settings;
+
+pub(super) use settings::{ModeIndents, compiled_mode_indents};
 
 use newline::spots;
 pub(super) use region::RigidLayer;
@@ -94,41 +97,6 @@ impl Editor {
     /// Turns `RET`'s indentation and the typed closers' on or off.
     pub fn set_electric_indent(&mut self, on: bool) {
         self.electric_indent = on;
-    }
-
-    /// Sets each mode's indentation, as the configuration gives it, and gives every buffer of
-    /// the person's its mode's indent size and style. A buffer's tab width stays the one it was
-    /// visited with, which its display map is built with.
-    pub fn set_mode_indents(&mut self, indents: [(Mode, Settings); 4]) {
-        self.mode_indents = indents;
-        let ids: Vec<BufferId> = self.buffers().map(|(id, _)| id).collect();
-        for id in ids {
-            self.give_mode_indent(id);
-        }
-    }
-
-    /// The indentation of `mode`: the configuration's, or four spaces with tabs eight wide.
-    pub fn mode_indent(&self, mode: Mode) -> Settings {
-        self.mode_indents
-            .iter()
-            .find(|(known, _)| *known == mode)
-            .map_or_else(Settings::default, |&(_, settings)| settings)
-    }
-
-    /// Gives the buffer `id` its mode's indent size and style, unless it is internal: as a
-    /// visit, a mode command or a new name that changes its mode does.
-    pub(crate) fn give_mode_indent(&mut self, id: BufferId) {
-        let Some(mode) = self
-            .buffer(id)
-            .filter(|b| !b.is_internal())
-            .map(Buffer::mode)
-        else {
-            return;
-        };
-        let settings = self.mode_indent(mode);
-        if let Some(buffer) = self.buffer_mut(id) {
-            buffer.set_indent_settings(settings);
-        }
     }
 
     /// `TAB` (`indent-for-tab-command`): in Rust and TOML, reindents the line of every cursor
