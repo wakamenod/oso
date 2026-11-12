@@ -20,6 +20,8 @@ use oso_core::minibuffer::{self, Kind, Outcome, PromptError, PromptId};
 
 use super::{Dispatcher, Step, buffers, extended};
 
+mod paths;
+
 /// A command waiting for the answer of the prompt `prompt`.
 pub(super) struct Reading {
     id: CommandId,
@@ -129,11 +131,10 @@ impl Dispatcher {
                 };
                 return self.read_buffer(editor, id, args.raw(), read);
             }
-            Some(ArgSpec::Mark { prompt }) => {
-                return self.read_mark(editor, id, args.raw(), prompt);
-            }
-            Some(ArgSpec::File { prompt, history }) => {
-                return self.read_file(editor, id, args.raw(), prompt, history);
+            Some(
+                spec @ (ArgSpec::Mark { .. } | ArgSpec::File { .. } | ArgSpec::ProjectFile { .. }),
+            ) => {
+                return self.read_listed(editor, id, args.raw(), spec);
             }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
@@ -167,47 +168,6 @@ impl Dispatcher {
             redraw: true,
             ..Effects::default()
         };
-        (effects, Ok(()))
-    }
-
-    /// Opens the prompt that reads a path for the command `id`, starting at the shown buffer's
-    /// directory, or the one oso started in, unless a prompt is selected (ADR 0087).
-    fn read_file(
-        &mut self,
-        editor: &mut Editor,
-        id: CommandId,
-        prefix: Option<Prefix>,
-        prompt: &'static str,
-        history: &'static str,
-    ) -> (Effects, Result<(), ExecuteError>) {
-        let effects = Effects {
-            redraw: true,
-            ..Effects::default()
-        };
-        if editor.prompt().is_some() {
-            editor.prompt_says("Not in the minibuffer");
-            return (effects, Ok(()));
-        }
-        let start = editor.start_directory().to_path_buf();
-        let directory = editor
-            .current()
-            .1
-            .path()
-            .and_then(std::path::Path::parent)
-            .map_or(start, std::path::Path::to_path_buf);
-        let initial = oso_core::complete::typed_form(&directory, true, editor.home());
-        // A relative path typed in place of it starts there too.
-        match editor.open_file_prompt(prompt, history, &initial, directory) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-                replace: None,
-            }),
-            Err(error) => editor.prompt_says(error.to_string()),
-        }
         (effects, Ok(()))
     }
 

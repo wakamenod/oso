@@ -262,6 +262,8 @@ pub oso_core::command::ArgSpec::Number::history: &'static str
 pub oso_core::command::ArgSpec::Number::prompt: &'static str
 pub oso_core::command::ArgSpec::Passphrase
 pub oso_core::command::ArgSpec::Passphrase::prompt: &'static str
+pub oso_core::command::ArgSpec::ProjectFile
+pub oso_core::command::ArgSpec::ProjectFile::history: &'static str
 pub oso_core::command::ArgSpec::Replace
 pub oso_core::command::ArgSpec::Replace::regexp: bool
 pub oso_core::command::ArgSpec::Text
@@ -1525,6 +1527,11 @@ pub fn oso_core::editor::Editor::request_revert(&mut self)
 pub fn oso_core::editor::Editor::revert(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
 pub fn oso_core::editor::Editor::take_revert_requests(&mut self) -> alloc::vec::Vec<(oso_core::buffer::BufferId, oso_core::buffer::ContentId)>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::files_walked(&mut self, u64, alloc::vec::Vec<alloc::boxed::Box<str>>, core::option::Option<oso_core::editor::WalkEnd>)
+pub fn oso_core::editor::Editor::open_project_files(&mut self, std::path::PathBuf, &str, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::project_files_root(&self) -> core::result::Result<(std::path::PathBuf, alloc::string::String), oso_core::editor::NotInProject>
+pub fn oso_core::editor::Editor::take_walk_request(&mut self) -> core::option::Option<oso_core::editor::WalkRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::fit_gutter(&mut self) -> bool
 pub fn oso_core::editor::Editor::gutter_into(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::Gutter)
 impl oso_core::editor::Editor
@@ -1700,6 +1707,19 @@ impl core::fmt::Display for oso_core::editor::NoWindow
 pub fn oso_core::editor::NoWindow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::NoWindow
 impl core::marker::StructuralPartialEq for oso_core::editor::NoWindow
+pub struct oso_core::editor::NotInProject
+impl core::clone::Clone for oso_core::editor::NotInProject
+pub fn oso_core::editor::NotInProject::clone(&self) -> oso_core::editor::NotInProject
+impl core::cmp::Eq for oso_core::editor::NotInProject
+impl core::cmp::PartialEq for oso_core::editor::NotInProject
+pub fn oso_core::editor::NotInProject::eq(&self, &oso_core::editor::NotInProject) -> bool
+impl core::error::Error for oso_core::editor::NotInProject
+impl core::fmt::Debug for oso_core::editor::NotInProject
+pub fn oso_core::editor::NotInProject::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::NotInProject
+pub fn oso_core::editor::NotInProject::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::NotInProject
+impl core::marker::StructuralPartialEq for oso_core::editor::NotInProject
 pub struct oso_core::editor::Over
 pub oso_core::editor::Over::found: oso_core::buffer::FileStamp
 pub oso_core::editor::Over::location: std::path::PathBuf
@@ -1849,6 +1869,25 @@ impl core::fmt::Debug for oso_core::editor::VisualAids
 pub fn oso_core::editor::VisualAids::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::VisualAids
 impl core::marker::StructuralPartialEq for oso_core::editor::VisualAids
+pub struct oso_core::editor::WalkEnd
+pub oso_core::editor::WalkEnd::cut: bool
+impl core::clone::Clone for oso_core::editor::WalkEnd
+pub fn oso_core::editor::WalkEnd::clone(&self) -> oso_core::editor::WalkEnd
+impl core::cmp::Eq for oso_core::editor::WalkEnd
+impl core::cmp::PartialEq for oso_core::editor::WalkEnd
+pub fn oso_core::editor::WalkEnd::eq(&self, &oso_core::editor::WalkEnd) -> bool
+impl core::fmt::Debug for oso_core::editor::WalkEnd
+pub fn oso_core::editor::WalkEnd::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::WalkEnd
+impl core::marker::StructuralPartialEq for oso_core::editor::WalkEnd
+pub struct oso_core::editor::WalkRequest
+pub oso_core::editor::WalkRequest::generation: u64
+pub oso_core::editor::WalkRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
+pub oso_core::editor::WalkRequest::root: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::WalkRequest
+pub fn oso_core::editor::WalkRequest::clone(&self) -> oso_core::editor::WalkRequest
+impl core::fmt::Debug for oso_core::editor::WalkRequest
+pub fn oso_core::editor::WalkRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
 pub mod oso_core::frame
@@ -2680,7 +2719,9 @@ pub fn oso_core::project::TrustList::default() -> oso_core::project::TrustList
 impl core::fmt::Debug for oso_core::project::TrustList
 pub fn oso_core::project::TrustList::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::project::TrustList
+pub const oso_core::project::MARKERS: [&str; 3]
 pub const oso_core::project::MAX_GIT_FILE: u64
+pub const oso_core::project::MAX_WALKED: usize
 pub fn oso_core::project::same_place(&std::path::Path, &std::path::Path) -> bool
 pub fn oso_core::project::worktree_backlink(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>
 pub fn oso_core::project::worktree_claim(&std::path::Path, &[u8]) -> core::option::Option<std::path::PathBuf>

@@ -164,6 +164,41 @@ are rounded.
 - `C-x C-w` writes the buffer under a new path, asking before it writes over a file, and the buffer
   then visits it.
 
+### A project's files (`C-x p f`)
+
+[ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md):
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ …/… Find file in oso: rs█                                  ┃
+┃▌a.rs                                                      ▐┃
+┃ build.rs                                                   ┃
+┃ src/lib.rs                                                 ┃
+┃ src/main.rs                                                ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+- `project-find-file` opens the centred float, `Find file in oso:`, over the current buffer's
+  project, its files as paths from the root. Outside a project the buffer's directory stands in,
+  named after its last component; a buffer with no file, the home directory and `/` say
+  `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
+- The float opens empty and the list grows while the project is walked, every 50 ms. The count
+  shows `…/…` until the walk ends, and `+` after it when it stopped at a limit: 100,000 files,
+  32 MiB of paths and names, 1,000,000 entries read, or 16 MiB of ignore files.
+- Rows come in the order of `M-x`'s: the files opened from this project's listing first, then the
+  shorter, then by name. Each batch is matched against what is typed as it comes. The row
+  selected stays selected as rows come, so `RET` during the walk takes the row shown. Past 5000
+  rows a worker adds each batch, and `RET` waits only when it also matches a newer input.
+- The files are those `rg --files --hidden` lists: hidden files too, less what `.rgignore`,
+  `.ignore`, `.gitignore`, the root's `.git/info/exclude` and the global excludes leave out, read
+  only inside the project. Nothing inside `.git`, `.jj`, `.hg` or a directory holding one, which
+  is another project, is listed. Links are never followed: a link to a file under the root is
+  listed, and so is one that leaves it.
+- `RET` visits the file as `C-x C-f` does, so a file that may hold secrets opens as such a buffer.
+  There is no preview. `C-g` stops the walk.
+- The history is the project's own, in memory, and a listing beside a buffer that may hold
+  secrets keeps none.
+
 ### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
 
 [ADR 0088](adr/0088-switching-and-killing-buffers.md):

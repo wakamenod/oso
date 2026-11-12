@@ -61,6 +61,7 @@ impl App {
             UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),
             UserEvent::Projects => self.projects_found(),
+            UserEvent::Walked(walked) => self.walked(event_loop, walked),
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -91,6 +92,7 @@ impl App {
         self.start_wraps();
         // And text to highlight, or buffers to drop.
         self.start_syntax();
+        self.add_quiet_walk(event_loop);
         self.start_completions(event_loop);
         // A list built here after a listing ends a wait with no report.
         self.run_held_completion(event_loop);
@@ -172,6 +174,7 @@ impl App {
             self.leaving.next_wake(),
             self.flash.next_wake(),
             self.reload_deadline(),
+            self.quiet_walk_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),
