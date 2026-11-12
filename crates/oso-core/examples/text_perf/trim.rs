@@ -116,8 +116,8 @@ fn replay_costs(lines: usize) {
     let started = Instant::now();
     let mut chunk = Instant::now();
     for line in 0..lines {
-        // Each line is one longer for the space before it.
-        let at = line * (LINE + 2);
+        // Each line before is one longer for the space at its start.
+        let at = line * (LINE + 1);
         editor.begin_undo_group();
         editor
             .apply_edits(

@@ -351,7 +351,8 @@ impl Edited {
 
     /// Takes in one batch of edits, ascending and apart in the offsets before it, as
     /// [`OffsetEdit`]s are: the ranges kept follow them, and the new text of each is a
-    /// range of its own. O(the ranges between the gap and the edits, and edits).
+    /// range of its own. O(log ranges + the ranges between the gap and the edits, those the
+    /// edits touch, and the edits).
     pub(crate) fn follow(&mut self, edits: &[OffsetEdit]) {
         if edits.is_empty() {
             return;
@@ -568,100 +569,189 @@ mod tests {
         }
     }
 
+    /// Where an edit or a span starts, before a step of -1, 0 or 1: at a range's start or end,
+    /// where the last edit started, at either end of the text, or anywhere.
+    #[derive(Clone, Copy, Debug)]
+    enum At {
+        RangeStart(usize),
+        RangeEnd(usize),
+        LastEdit,
+        Start,
+        End,
+        Anywhere(usize),
+    }
+
+    /// How much an edit deletes: a few bytes, or the rest of the text.
+    #[derive(Clone, Copy, Debug)]
+    enum Old {
+        Short(usize),
+        Rest,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct RawEdit {
+        at: At,
+        step: isize,
+        old: Old,
+        new: usize,
+    }
+
     #[derive(Clone, Debug)]
     enum Op {
-        /// Edits as (from the last one's end, old length, new length).
-        Follow(Vec<(usize, usize, usize)>),
-        Cover(usize, usize),
+        Follow(Vec<RawEdit>),
+        Cover(At, usize),
         Add(Vec<usize>),
-        /// A save takes the ranges, which then only follow the edits.
-        Take,
+        /// A save takes the ranges, which then only follow the edits, and the ranges given
+        /// stay edited, as the whitespace a cursor kept does.
+        Take(Vec<usize>),
         /// The save failed and gives them back.
         GiveBack,
+        /// A cleanup command waits with these ranges, sorted, which may touch or repeat.
+        Track(Vec<usize>),
         Clone,
         Clear,
     }
 
+    fn at() -> impl proptest::strategy::Strategy<Value = At> {
+        use proptest::prelude::*;
+        prop_oneof![
+            3 => any::<usize>().prop_map(At::RangeStart),
+            3 => any::<usize>().prop_map(At::RangeEnd),
+            2 => Just(At::LastEdit),
+            1 => Just(At::Start),
+            1 => Just(At::End),
+            2 => any::<usize>().prop_map(At::Anywhere),
+        ]
+    }
+
     fn op() -> impl proptest::strategy::Strategy<Value = Op> {
         use proptest::prelude::*;
-        let edits = proptest::collection::vec((0..40usize, 0..6usize, 0..6usize), 1..4);
+        let old = prop_oneof![5 => (0..6usize).prop_map(Old::Short), 1 => Just(Old::Rest)];
+        let new = prop_oneof![8 => 0..6usize, 1 => (1usize << 20)..(1 << 20) + 8];
+        let edit = (at(), -1..=1isize, old, new).prop_map(|(at, step, old, new)| RawEdit {
+            at,
+            step,
+            old,
+            new,
+        });
+        let points = || proptest::collection::vec(any::<usize>(), 0..8);
         prop_oneof![
-            8 => edits.prop_map(Op::Follow),
-            2 => (0..300usize, 0..30usize).prop_map(|(at, len)| Op::Cover(at, len)),
-            1 => proptest::collection::vec(0..300usize, 0..8).prop_map(Op::Add),
-            1 => Just(Op::Take),
+            8 => proptest::collection::vec(edit, 1..4).prop_map(Op::Follow),
+            2 => (at(), 0..30usize).prop_map(|(at, len)| Op::Cover(at, len)),
+            1 => points().prop_map(Op::Add),
+            1 => points().prop_map(Op::Take),
             1 => Just(Op::GiveBack),
+            1 => points().prop_map(Op::Track),
             1 => Just(Op::Clone),
             1 => Just(Op::Clear),
         ]
     }
 
-    /// `raw` as edits ascending and apart in a text `len` long, from `at`.
-    fn edits_from(raw: &[(usize, usize, usize)], at: usize, len: usize) -> Vec<OffsetEdit> {
+    /// Where `at` is, a step on, in a text `len` long whose edited ranges are `ranges`, the
+    /// last edit having started at `last`.
+    fn resolve(at: At, step: isize, ranges: &[Range<usize>], last: usize, len: usize) -> usize {
+        let pick = |index: usize| ranges.get(index % ranges.len().max(1));
+        let place = match at {
+            At::RangeStart(index) => pick(index).map_or(0, |range| range.start),
+            At::RangeEnd(index) => pick(index).map_or(len, |range| range.end),
+            At::LastEdit => last,
+            At::Start => 0,
+            At::End => len,
+            At::Anywhere(at) => at % (len + 1),
+        };
+        place.saturating_add_signed(step).min(len)
+    }
+
+    /// `raw` as edits ascending and apart in a text `len` long.
+    fn edits_from(
+        raw: &[RawEdit],
+        ranges: &[Range<usize>],
+        last: usize,
+        len: usize,
+    ) -> Vec<OffsetEdit> {
         let mut edits: Vec<OffsetEdit> = Vec::new();
-        let mut from = at.min(len);
-        for &(gap, old, new) in raw {
-            let start = from + gap;
-            if start > len
-                || edits
-                    .last()
-                    .is_some_and(|last| last.start == start && gap == 0)
-            {
+        let mut from = 0;
+        for edit_at in raw {
+            let start = resolve(edit_at.at, edit_at.step, ranges, last, len).max(from);
+            if start > len {
                 break;
             }
-            let old_len = old.min(len - start);
-            edits.push(edit(start, old_len, new));
+            let old_len = match edit_at.old {
+                Old::Short(old) => old.min(len - start),
+                Old::Rest => len - start,
+            };
+            edits.push(edit(start, old_len, edit_at.new));
             from = start + old_len.max(1);
         }
         edits
     }
 
+    /// `points` within a text `len` long, sorted, as ranges in pairs; they may touch or repeat.
+    fn ranges_of(mut points: Vec<usize>, len: usize) -> Vec<Range<usize>> {
+        points.iter_mut().for_each(|at| *at %= len + 1);
+        points.sort_unstable();
+        points
+            .chunks(2)
+            .map(|pair| pair[0]..pair.get(1).copied().unwrap_or(pair[0]))
+            .collect()
+    }
+
     proptest::proptest! {
         /// As [`EditedLines`] uses them: the buffer's set follows every batch, covers spans and
-        /// takes ranges in, and a set a save took only follows the batches, until it is given
-        /// back.
+        /// takes ranges in; a set a save took only follows the batches, until it is given
+        /// back; and so does a set a cleanup command tracks, which may touch or repeat.
         #[test]
         fn the_gap_keeps_the_ranges_one_list_keeps(
-            ops in proptest::collection::vec((op(), 0..300usize), 1..60),
+            len in 0..400usize,
+            ops in proptest::collection::vec(op(), 1..60),
         ) {
-            let mut len = 300;
+            let mut len = len;
+            let mut last = 0;
             let (mut now, mut plain) = (Edited::default(), Plain::default());
             let (mut taken, mut plain_taken) = (Edited::default(), Plain::default());
-            for (op, at) in ops {
+            let (mut tracked, mut plain_tracked) = (Edited::default(), Vec::new());
+            for op in ops {
                 match op {
                     Op::Follow(raw) => {
-                        let edits = edits_from(&raw, at, len);
+                        let edits = edits_from(&raw, &plain.0, last, len);
                         now.follow(&edits);
                         plain.follow(&edits);
                         taken.follow_only(&edits);
                         follow_ranges(&mut plain_taken.0, &edits);
+                        tracked.follow_only(&edits);
+                        follow_ranges(&mut plain_tracked, &edits);
+                        last = edits.last().map_or(last, |edit| edit.start);
                         len = edits.iter().fold(len, |len, e| len + e.new_len - e.old_len);
                     }
-                    Op::Cover(start, span) => {
-                        let start = start.min(len);
+                    Op::Cover(at, span) => {
+                        let start = resolve(at, 0, &plain.0, last, len);
                         let span = start..(start + span).min(len);
                         now.cover(span.clone());
                         plain.cover(span);
                     }
-                    Op::Add(mut points) => {
-                        points.iter_mut().for_each(|at| *at = (*at).min(len));
-                        points.sort_unstable();
-                        let ranges: Vec<_> = points
-                            .chunks(2)
-                            .map(|pair| pair[0]..pair.get(1).copied().unwrap_or(pair[0]))
-                            .collect();
+                    Op::Add(points) => {
+                        let ranges = ranges_of(points, len);
                         now.add(ranges.iter().cloned());
                         plain.merge(ranges.into_iter());
                     }
-                    Op::Take => {
-                        taken = std::mem::take(&mut now);
-                        plain_taken = std::mem::take(&mut plain);
+                    Op::Take(points) => {
+                        // As `Buffer::save_took_edits` does.
+                        let mut kept = ranges_of(points, len);
+                        join_touching(&mut kept);
+                        taken = std::mem::replace(&mut now, Edited::from_ranges(kept.clone()));
+                        plain_taken = std::mem::replace(&mut plain, Plain(kept));
                     }
                     Op::GiveBack => {
                         now.add(std::mem::take(&mut taken).ranges());
                         plain.merge(std::mem::take(&mut plain_taken.0).into_iter());
                     }
-                    Op::Clone => (now, taken) = (now.clone(), taken.clone()),
+                    Op::Track(points) => {
+                        plain_tracked = ranges_of(points, len);
+                        tracked = Edited::from_ranges(plain_tracked.clone());
+                    }
+                    Op::Clone => {
+                        (now, taken, tracked) = (now.clone(), taken.clone(), tracked.clone());
+                    }
                     Op::Clear => {
                         now.clear();
                         plain.0.clear();
@@ -670,6 +760,7 @@ mod tests {
                 proptest::prop_assert_eq!(all(&now), plain.0.clone());
                 proptest::prop_assert_eq!(now.len(), plain.0.len());
                 proptest::prop_assert_eq!(all(&taken), plain_taken.0.clone());
+                proptest::prop_assert_eq!(all(&tracked), plain_tracked.clone());
             }
         }
     }
