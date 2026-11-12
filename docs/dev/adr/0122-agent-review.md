@@ -1,6 +1,6 @@
 # 0122. Agent review
 
-- Status: Accepted
+- Status: Accepted, amended by 0121
 - Date: 2026-11-12
 
 ## Context
@@ -39,7 +39,7 @@ What oso has, and does not have:
   [ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Only `oso-platform::process` spawns, with an allowlisted environment and standard input closed
   ([ADR 0047](0047-process-spawning-and-restart-handoff.md)). It is dev-only today; ADR 0120's
-  first step ships it in release builds.
+  step 2 ships it in release builds.
 - The agent channel and `oso mcp` ship, off by default, and every command declares a reach
   ([ADR 0085](0085-agent-channel-and-oso-mcp.md)): anything that spawns a process or needs a person
   at the keyboard is `Person`. Nothing reaches a terminal's PTY from the channel (ADR 0120).
@@ -117,7 +117,7 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   `git add -A --` and `git write-tree`. The copy is removed after. The tree id is kept with the
   review (see "Persistence").
 - **The baseline is taken** when a session starts, through the session seam below. Until ADR 0121
-  exists, the `claude` command of ADR 0120 takes it when it starts an agent in a trusted project,
+  exists, the `claude` command of ADR 0121 takes it when it starts an agent in a trusted project,
   and `review-mark-baseline` takes it by hand (Q5).
 - **The baseline is not referenced (Q4):** git keeps an unreachable tree for `gc.pruneExpire`, two
   weeks by default. A review whose baseline is gone says so and offers the uncommitted scope.
@@ -476,7 +476,7 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
 
 1. **The model and re-anchoring** in `oso_core::review`, with property tests ported from the
    previous setup's cases. No UI.
-2. **Git and diffing:** the process module's additions (after ADR 0120 step 1 ships it), the
+2. **Git and diffing:** the process module's additions (after ADR 0120 step 2 ships it), the
    review's thread, the scopes (session, uncommitted, staged, unstaged, branch, commit, range), the
    baseline, `similar` diffs and the limits. Unit tests against temporary repositories.
 3. **The unified view:** the review buffer, its mode and keys, the menu, comments and drafts,

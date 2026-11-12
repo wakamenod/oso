@@ -271,9 +271,10 @@ alongside the steps above, after M2-16:
   commands, Kitty images, the seam for the compile buffer, and terminals that
   survive `oso dev`'s restart. OSC 7501 status comes with sessions (ADR 0121).
 - Claude Code integration ([ADR 0031](adr/0031-claude-code-integration.md)):
-  the official `claude` TUI in a terminal view, hooks for session identity
-  and state, review and worktree tools on the `oso mcp` bridge, session
-  list, notifications, worktree sessions, and restore via `--resume`.
+  the official `claude` TUI in a terminal view. Sessions and spaces
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)): state read from the
+  screen, the session list, notifications, worktree sessions, session tools
+  on the `oso mcp` bridge, and restore via `--resume`.
 - Agent review ([ADR 0122](adr/0122-agent-review.md)): the changes since a
   session's baseline, uncommitted, staged, a branch, a commit range or a PR;
   comments re-anchored as the agent edits, sent as one message; per-hunk

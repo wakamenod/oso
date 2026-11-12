@@ -381,18 +381,14 @@ item notes when it must be settled.
 
 ## M4
 
-- Claude Code hooks: which events map to which states, and how
-  `oso integration install claude` merges with existing user settings, and registers `oso mcp`
-  ([ADR 0031](adr/0031-claude-code-integration.md),
-  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
-- Which worktree tools join `oso mcp`, and the reach of each
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The review's tools are decided in
-  [ADR 0122](adr/0122-agent-review.md).
+- Check on the current Claude Code CLI, before the step that relies on each
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)): that hooks given with `--settings` merge
+  with the person's own, that `--append-system-prompt` applies to interactive sessions, which of
+  two MCP servers named `oso` wins, and that auto memory is shared by a repository's worktrees.
 - A review in restricted projects, read in-process with `gix` once ADR 0011's check that it skips
   config commands is done ([ADR 0122](adr/0122-agent-review.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
-- OSC 7501 is a draft; track its revisions.
 - Terminal engine: `alacritty_terminal` or libghostty-vt, decided by ADR 0120's
   step 1, a comparison of at most three days
   ([ADR 0120](adr/0120-the-terminal.md)).
@@ -406,6 +402,8 @@ item notes when it must be settled.
 
 ## Later
 
+- Notification banners once oso ships as an app bundle, and Desktop's coordinator routing,
+  suggested threads and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - An option for East Asian Ambiguous characters to take 2 cells
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.
