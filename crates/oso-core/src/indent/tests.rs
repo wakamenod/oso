@@ -560,3 +560,18 @@ fn an_empty_line_between_is_asked_in_every_mode() {
         assert_eq!(answers, expected, "{text:?}");
     }
 }
+
+#[test]
+fn a_line_asked_again_after_the_budget_ran_out_on_it_gets_the_fallback() {
+    // Found by `random_text_never_panics_and_answers_every_line`: the budget ran out reading
+    // row 8's start, and asking for row 8 again read it for free.
+    let text = "\n日本\"\"\"\"\"\"\"#x{r#\"\"\"\"where \"\"\"\"#r#\"\"#where fn \"#xx#{{\"\"\"fn x\n{{{\"\"\"\"\"\"\"\"\"r#\"{r#\"r#\"r#\"fn r#\"{{r#\"\n\n\n\n\n日本r#\"{{fn {日本{r#\"{{r#\"r#\"{{r#\"\n{{{{{{{{\"\"\"r#\"r#\"";
+    let rope = Rope::from(text);
+    let lines = [Line::New(99), Line::Row(8), Line::Row(0), Line::Row(8)];
+    for rules in ALL_RULES {
+        let mut budget = Budget::with_limit(334);
+        let answers = rules(&rope, Settings::default(), &lines, &mut budget);
+        assert!(budget.is_spent());
+        assert_eq!(answers[3], answers[1], "row 8 again, as the first time");
+    }
+}

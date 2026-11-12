@@ -240,11 +240,11 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// Charges the bytes up to `to` not charged yet.
+    /// Charges the bytes up to `to` not charged yet; those the budget cannot pay stay uncharged.
     fn charge(&mut self, to: usize, budget: &mut Budget) -> bool {
-        let bytes = to.saturating_sub(self.charged);
-        self.charged = self.charged.max(to);
-        budget.spend(bytes)
+        let paid = budget.spend(to.saturating_sub(self.charged));
+        self.charged = self.charged.max(if paid { to } else { 0 });
+        paid
     }
 
     /// Where the line after the one here starts, if the chunk at hand tells.
