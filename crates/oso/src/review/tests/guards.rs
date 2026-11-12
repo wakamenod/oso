@@ -157,3 +157,137 @@ fn a_root_put_in_the_trusted_ones_place_runs_no_git() {
         "{answer}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_file_with_another_name_is_withheld_until_it_has_one() {
+    use std::fs;
+    let repo = Repo::new("hard-link");
+    repo.write("keep.txt", b"k\n");
+    repo.commit("root");
+    repo.write(".env", b"SECRET=1\n");
+    fs::hard_link(repo.root.join(".env"), repo.root.join("notes.txt")).unwrap();
+    let mut reader = repo.reader();
+    let answers = open(&mut reader, Scope::Uncommitted);
+    assert!(matches!(
+        answers.reading("notes.txt").content,
+        Content::Withheld
+    ));
+    let again = ask(&mut reader, Request::Refresh { first: Vec::new() });
+    assert!(again.readings.is_empty(), "{:?}", again.paths());
+    fs::remove_file(repo.root.join(".env")).unwrap();
+    let alone = ask(&mut reader, Request::Refresh { first: Vec::new() });
+    assert_eq!(added(alone.reading("notes.txt")), ["SECRET=1\n"]);
+}
+
+/// A script at `path` that notes each run in `mark` and passes its input through, as a clean
+/// filter must.
+#[cfg(unix)]
+fn marking_script(path: &std::path::Path, mark: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let text = format!("#!/bin/sh\necho ran >> '{}'\ncat\n", mark.display());
+    std::fs::write(path, text).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn no_hook_monitor_or_embedded_repository_program_runs() {
+    use std::fs;
+    use std::time::{Duration, SystemTime};
+    let repo = Repo::new("no-programs");
+    let (script, mark) = (repo.dir.join("mark.sh"), repo.dir.join("ran"));
+    marking_script(&script, &mark);
+    let script = script.to_str().unwrap();
+    repo.write("a.txt", b"a\n");
+    let vendor = Repo {
+        dir: repo.dir.join("unused"),
+        root: repo.root.join("vendor"),
+    };
+    fs::create_dir(&vendor.root).unwrap();
+    vendor.git(&["init", "-q", "-b", "main"]);
+    vendor.write("v.txt", b"v\n");
+    vendor.commit("vendored");
+    repo.write(
+        ".gitmodules",
+        b"[submodule \"vendor\"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = none\n",
+    );
+    repo.commit("root");
+    // `git add` runs this hook when it writes an index.
+    for repo in [&repo, &vendor] {
+        repo.git(&["config", "core.fsmonitor", script]);
+        fs::copy(script, repo.root.join(".git/hooks/post-index-change")).unwrap();
+    }
+    vendor.git(&["config", "filter.mark.clean", script]);
+    vendor.write(".git/info/attributes", b"* filter=mark\n");
+    // Changed, but not in size: only hashing it through its filter tells.
+    vendor.write("v.txt", b"w\n");
+    let old = SystemTime::now() - Duration::from_secs(3600);
+    fs::File::options()
+        .write(true)
+        .open(vendor.root.join("v.txt"))
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    repo.write("a.txt", b"b\n");
+    repo.write("new.txt", b"n\n");
+    let _ = fs::remove_file(&mark);
+    let mut reader = repo.reader();
+    for scope in [Scope::Uncommitted, Scope::Unstaged] {
+        let answers = open(&mut reader, scope.clone());
+        assert_eq!(answers.status("a.txt"), Some(Status::Modified), "{scope:?}");
+    }
+    let branch = open(
+        &mut reader,
+        Scope::Branch {
+            base: "main".into(),
+        },
+    );
+    assert_eq!(branch.status("new.txt"), Some(Status::Added));
+    let taken = ask(&mut reader, Request::Baseline);
+    assert!(
+        matches!(taken.other[..], [Report::Baseline { .. }]),
+        "{:?}",
+        taken.other
+    );
+    assert!(
+        !mark.exists(),
+        "{}",
+        fs::read_to_string(&mark).unwrap_or_default()
+    );
+}
+
+#[test]
+fn a_revoked_root_runs_nothing_more() {
+    use super::super::Reviewer;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let repo = Repo::new("revoked");
+    repo.write("a.txt", b"a\n");
+    repo.commit("root");
+    let root = TrustedRoot::for_tests(repo.root.clone());
+    let (sent, got) = mpsc::channel();
+    let reviewer = Reviewer::start(root.clone(), Some(repo.dir.join("state")), move |report| {
+        sent.send(format!("{report:?}")).is_ok()
+    })
+    .unwrap();
+    root.revoke();
+    assert!(reviewer.ask(Request::Open(Scope::Uncommitted)));
+    let answer = got.recv_timeout(Duration::from_secs(20)).unwrap();
+    assert!(answer.contains("no longer trusted"), "{answer}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_whose_parent_git_cannot_stop_at_is_refused() {
+    let dir = super::scratch_dir("ceiling");
+    let root = dir.join("a:b").join("repo");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut reader = Reader::new(&root, Some(&dir.join("state")));
+    let answers = open(&mut reader, Scope::Uncommitted);
+    let [Report::Failed { why, .. }] = &answers.other[..] else {
+        panic!("{:?}", answers.other);
+    };
+    assert!(why.contains("parent's path"), "{why}");
+    std::fs::remove_dir_all(dir).unwrap();
+}

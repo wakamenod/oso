@@ -107,7 +107,8 @@ impl Reader {
 
     fn repository(&mut self) -> Result<&Repository, ScopeError> {
         if self.repository.is_none() {
-            self.repository = Some(find_repository(&self.root)?);
+            let hooks = self.scratch.as_ref().ok_or(ScopeError::NoScratch)?.hooks();
+            self.repository = Some(find_repository(&self.root, hooks)?);
         }
         self.repository
             .as_ref()
@@ -242,9 +243,9 @@ impl Reader {
 }
 
 /// The repository whose work tree's top is `root`: git to run there, and its index. git never
-/// looks above the root, and a top elsewhere is refused.
-fn find_repository(root: &Path) -> Result<Repository, ScopeError> {
-    let git = Git::new(root)?;
+/// looks above the root, looks for hooks only in `hooks`, and a top elsewhere is refused.
+fn find_repository(root: &Path, hooks: &Path) -> Result<Repository, ScopeError> {
+    let git = Git::new(root, hooks)?;
     let args = ["rev-parse", "--show-toplevel", "--absolute-git-dir"].map(OsStr::new);
     let out = git.run(&args, &[], MAX_SHORT)?;
     let mut lines = out.split(|&byte| byte == b'\n');
@@ -261,7 +262,7 @@ fn find_repository(root: &Path) -> Result<Repository, ScopeError> {
     }
     Ok(Repository {
         index: git_dir.join("index"),
-        git: git.in_top(top),
+        git: git.in_top(&top),
     })
 }
 
@@ -294,7 +295,11 @@ fn message(error: &ScopeError) -> String {
         ScopeError::Elsewhere => {
             "git found a repository whose top is not the project's root".into()
         }
-        ScopeError::NoScratch => "there is no private place for a copy of the index".into(),
+        ScopeError::NoScratch => {
+            "there is no private place for the review's copies of the index and its empty \
+             directory for git's hooks"
+                .into()
+        }
         ScopeError::Copy(e) => format!("cannot copy the index: {e}"),
     }
 }

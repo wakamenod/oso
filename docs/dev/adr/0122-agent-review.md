@@ -781,12 +781,17 @@ its reviews (a):
 7. **The environment** also passes `XDG_CONFIG_HOME` by name, so git finds the person's own
    configuration and ignore file when they moved it, and sets `GIT_NO_LAZY_FETCH=1`,
    `GIT_NO_REPLACE_OBJECTS=1`, and `GIT_CEILING_DIRECTORIES` to the root's parent. The
-   baseline's run adds `LC_ALL=C`. This adds to "Running git and gh".
+   baseline's run adds `LC_ALL=C`. This adds to "Running git and gh". A root whose parent's
+   path holds the list separator (`:`, or `;` on Windows) cannot be a ceiling, so it is refused
+   before git runs. On Windows, a path handed to git loses its verbatim `\\?\` prefix, which
+   git cannot take.
 8. **Trust by construction:** a review's thread starts only from a `TrustedRoot`, which only
    `Editor::project_trusted` gives, with the root's device and inode as the project was
    found. Before each request they are looked at again, and a root that is no longer that
    directory runs nothing. git never looks above the root, and a work tree whose top is not
-   the root is refused.
+   the root is refused. A `TrustedRoot`'s clones share a revocation: once revoked, the thread
+   refuses every later request and stops the running one between files. Step 3 revokes the
+   root of a review whose project is no longer trusted (`untrust-project`).
 9. **The baseline** runs `git add -A --ignore-errors --`, so a file git cannot read is left
    out, and the log says at least how many, not which. It writes the untracked files'
    contents into the repository as unreferenced objects, as any `git add` does; leaving out
@@ -796,6 +801,22 @@ its reviews (a):
 11. **Carrying runs on the review's thread:** `Request::Carry` runs step 1's `Carry::run` with
     `similar` as the matcher and old blobs read through `cat-file`.
 12. **No command yet:** `review-mark-baseline` and the menu come with step 3.
+13. **No hook and no file system monitor run.** Every run adds `-c core.fsmonitor=false` and
+    `-c core.hooksPath=` an empty private directory, `reviews/tmp/hooks/` (refused if it is not
+    empty); git hands both to a git it starts in an embedded repository. Without that private
+    directory no git runs. Clean filters still run, as `git add` and a diff of the work tree
+    need them (Git LFS is one), so a trusted project's filter programs run in a review. This
+    adds to "Running git and gh".
+14. **No run enters an embedded repository,** which is a project of its own: diff runs add
+    `--ignore-submodules=dirty`, which `.gitmodules` cannot override, and both adds leave out
+    each submodule the index copy names (`git ls-files -s -z`, read for mode `160000`), as
+    `:(exclude,top,literal)PATH` pathspecs on standard input. An embedded repository the index
+    does not name yet is added as a submodule with nothing run inside it. So a submodule shows
+    its commit, never its work tree's changes.
+15. **A work tree file with more than one name is withheld,** judged on the file opened, as
+    the agent channel refuses one (ADR 0085): another of its names may hold secrets.
+16. **A conflicted file is listed once,** as conflicted, and neither side is read: git lists
+    it again for a stage it compares, and that record is dropped.
 
 What was built:
 
@@ -813,7 +834,8 @@ What was built:
   the scope again, as `HEAD` or a branch may have moved.
 - **A reading** is a file's entry (paths, status, modes, ids) and its content: both sides and
   a `Shape`, or binary, too large, out of time, withheld (a name, or a name before a rename,
-  that may hold secrets: never read), a submodule, or unreadable. Its signature is the old
+  that may hold secrets, or a work tree file with more than one name: never read),
+  conflicted, a submodule, or unreadable. Its signature is the old
   blob and modes, and the new blob or, for a work tree file, its `FileStamp`, or a link's
   target. A refresh reads only files whose signature changed, the caller's shown files first,
   and lets go of files no longer listed. A file that could not be read, did not fit or ran out
@@ -825,6 +847,9 @@ What was built:
   commit, an unborn branch, the baseline and a lost one, refreshing after `HEAD` moved, the
   shown files first, a stopped request, what a review holds, secrets (also by a rename's old
   name), binaries, attributes that would hide a change, large files and links, refused
-  revisions, a root inside another repository, a root put in the trusted one's place,
-  carrying a comment across a moved old side, the thread's end, and that the person's index
-  is left as it was.
+  revisions, a root inside another repository, a root put in the trusted one's place, a
+  revoked root, a root git cannot stop above, a merge commit, a shallow clone's oldest commit,
+  a conflicted file, a file with a second name, planted hooks, monitors and an embedded
+  repository's clean filter that must not run, carrying a comment across a moved old side,
+  the thread's end, and that the person's index is left as it was. `cat-file`'s standard error
+  goes nowhere, so a warning cannot end it.

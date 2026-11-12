@@ -5,6 +5,9 @@
 //!
 //! At most [`MAX_FILES`] are kept; the rest are counted. Line counts and whether a file is
 //! binary come from the review's own reading, not from git.
+//!
+//! A conflicted file is listed once, as unmerged: git writes it again for a stage it compares,
+//! and that record is dropped.
 
 use super::id::Id;
 
@@ -71,6 +74,18 @@ pub(crate) fn parse(bytes: &[u8], cut: bool) -> Listing {
             listing.cut = true;
             break;
         };
+        let previous = listing.entries.last();
+        if previous.is_some_and(|previous| {
+            previous.path == record.path
+                && (previous.status == Status::Unmerged || record.status == Status::Unmerged)
+        }) {
+            if record.status == Status::Unmerged
+                && let Some(last) = listing.entries.last_mut()
+            {
+                *last = record;
+            }
+            continue;
+        }
         if listing.entries.len() < MAX_FILES {
             listing.entries.push(record);
         } else {
@@ -150,6 +165,18 @@ mod tests {
         assert_eq!(&*renamed.path, b"new\nname");
         assert_eq!(renamed.old_path.as_deref(), Some(&b"old name"[..]));
         assert_eq!((link.status, link.new_mode), (Status::Added, MODE_LINK));
+    }
+
+    #[test]
+    fn a_conflicted_file_is_one_unmerged_entry() {
+        let unmerged = format!(":000000 100644 {Z} {Z} U\0both\0");
+        let text = format!("{unmerged}{}{}", raw("M", &["both"]), raw("M", &["next"]));
+        let listing = parse(text.as_bytes(), false);
+        let [both, next] = &listing.entries[..] else {
+            panic!("{listing:?}")
+        };
+        assert_eq!((&*both.path, both.status), (&b"both"[..], Status::Unmerged));
+        assert_eq!(&*next.path, b"next");
     }
 
     #[test]

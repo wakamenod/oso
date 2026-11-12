@@ -17,17 +17,28 @@
 //! added (`git add -A -N`), which writes no file's contents into the repository. The baseline
 //! is a tree written from such a copy with everything added; it is not referenced, so git
 //! keeps it for its prune grace period, two weeks by default.
+//!
+//! No git run enters a repository embedded in the work tree, which is a project of its own with
+//! its own configuration: diffs take `--ignore-submodules=dirty`, which no `.gitmodules`
+//! overrides, and the adds leave out every submodule the index copy names, by pathspecs on
+//! their standard input. An embedded repository the index does not name yet is added as a
+//! submodule, and nothing runs inside it.
 
 use std::ffi::OsStr;
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
-use super::git::{Git, GitError, MAX_SHORT, MAX_STDERR};
+use super::git::{Git, GitError, MAX_SHORT, MAX_STDERR, Output, for_git, read_at_most};
 use super::id::{Id, trim_line};
 use super::index::Scratch;
 use super::list::{self, Listing};
 
 /// The most bytes of `git diff --raw` output read.
 pub(crate) const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
+/// The most bytes of submodule paths an index copy may name for the adds to leave out.
+const MAX_SUBMODULE_BYTES: usize = 1024 * 1024;
+/// The longest record of `git ls-files -s -z` read: its mode, id and stage, and a path.
+const MAX_STAGE_RECORD: u64 = 8 * 1024;
 
 /// What to review. Revisions are as a person or an agent gave them, and are checked and
 /// resolved to ids before git sees anything else.
@@ -188,6 +199,7 @@ pub(crate) fn list(
         "--no-ext-diff",
         "--no-textconv",
         "--no-color",
+        "--ignore-submodules=dirty",
     ]
     .map(OsStr::new)
     .to_vec();
@@ -203,15 +215,26 @@ pub(crate) fn list(
         New::WorkTree { untracked: true } => {
             let scratch = scratch.ok_or(ScopeError::NoScratch)?;
             let copy = scratch.copy(index).map_err(ScopeError::Copy)?;
-            let set = [("GIT_INDEX_FILE", copy.path().as_os_str())];
-            git.run(&["add", "-A", "-N", "--"].map(OsStr::new), &set, MAX_STDERR)?;
-            Some(copy)
+            let path = for_git(copy.path());
+            let set = [("GIT_INDEX_FILE", path.as_os_str())];
+            let added = add(git, &["add", "-A", "-N"], &set)?;
+            if added.cut {
+                return Err(GitError::TooLong.into());
+            }
+            if !added.status.success() {
+                return Err(GitError::Failed {
+                    status: added.status.code(),
+                    stderr: added.stderr,
+                }
+                .into());
+            }
+            Some((copy, path))
         }
         _ => None,
     };
     let set: Vec<(&str, &OsStr)> = copy
         .iter()
-        .map(|copy| ("GIT_INDEX_FILE", copy.path().as_os_str()))
+        .map(|(_, path)| ("GIT_INDEX_FILE", path.as_os_str()))
         .collect();
     let output = git.output(&args, &set, MAX_LIST_BYTES)?;
     if !output.cut && !output.status.success() {
@@ -233,16 +256,13 @@ pub(crate) fn baseline(
     scratch: &mut Scratch,
 ) -> Result<(Id, usize), ScopeError> {
     let copy = scratch.copy(index).map_err(ScopeError::Copy)?;
+    let path = for_git(copy.path());
     let set = [
-        ("GIT_INDEX_FILE", copy.path().as_os_str()),
+        ("GIT_INDEX_FILE", path.as_os_str()),
         // The count below reads git's own words.
         ("LC_ALL", OsStr::new("C")),
     ];
-    let added = git.output(
-        &["add", "-A", "--ignore-errors", "--"].map(OsStr::new),
-        &set,
-        MAX_STDERR,
-    )?;
+    let added = add(git, &["add", "-A", "--ignore-errors"], &set)?;
     let left_out = added
         .stderr
         .lines()
@@ -261,4 +281,80 @@ pub(crate) fn baseline(
     let out = git.run(&[OsStr::new("write-tree")], &set, MAX_SHORT)?;
     let tree = Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not a tree id"))?;
     Ok((tree, left_out))
+}
+
+/// Runs `git add` with `args` over the index copy `set` names, leaving out every submodule the
+/// copy names, so that git starts nothing inside one.
+fn add(git: &Git, args: &[&str], set: &[(&str, &OsStr)]) -> Result<Output, GitError> {
+    let submodules = submodules(git, set)?;
+    let mut args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+    if submodules.is_empty() {
+        args.push(OsStr::new("--"));
+        return git.output(&args, set, MAX_STDERR);
+    }
+    args.extend(["--pathspec-from-file=-", "--pathspec-file-nul"].map(OsStr::new));
+    let mut specs = Vec::new();
+    for path in &submodules {
+        specs.extend_from_slice(b":(exclude,top,literal)");
+        specs.extend_from_slice(path);
+        specs.push(0);
+    }
+    git.output_with(&args, set, Some(specs), |stdout| {
+        read_at_most(stdout, MAX_STDERR)
+    })
+}
+
+/// The paths of the submodules the index copy `set` names, each once.
+fn submodules(git: &Git, set: &[(&str, &OsStr)]) -> Result<Vec<Box<[u8]>>, GitError> {
+    let args = ["ls-files", "-s", "-z"].map(OsStr::new);
+    let output = git.output_with(&args, set, None, submodule_paths)?;
+    if output.cut {
+        return Err(GitError::TooLong);
+    }
+    if !output.status.success() {
+        return Err(GitError::Failed {
+            status: output.status.code(),
+            stderr: output.stderr,
+        });
+    }
+    let mut paths: Vec<Box<[u8]>> = output
+        .stdout
+        .split(|&byte| byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(Box::from)
+        .collect();
+    // A conflicted submodule is named once per stage, one after another.
+    paths.dedup();
+    Ok(paths)
+}
+
+/// Reads `git ls-files -s -z` and keeps the paths of its submodules, each ended by a NUL, up to
+/// [`MAX_SUBMODULE_BYTES`]; `true` if there were more, or a record past [`MAX_STAGE_RECORD`].
+fn submodule_paths(stdout: impl Read) -> io::Result<(Vec<u8>, bool)> {
+    let mut stdout = BufReader::new(stdout);
+    let mut kept = Vec::new();
+    let mut record = Vec::new();
+    loop {
+        record.clear();
+        (&mut stdout)
+            .take(MAX_STAGE_RECORD)
+            .read_until(0, &mut record)?;
+        match record.pop() {
+            None => return Ok((kept, false)),
+            Some(0) => {}
+            Some(_) => return Ok((kept, true)),
+        }
+        // `MODE ID STAGE\tPATH`
+        let Some(tab) = record.iter().position(|&byte| byte == b'\t') else {
+            continue;
+        };
+        if !record.starts_with(b"160000 ") {
+            continue;
+        }
+        kept.extend_from_slice(&record[tab + 1..]);
+        kept.push(0);
+        if kept.len() > MAX_SUBMODULE_BYTES {
+            return Ok((kept, true));
+        }
+    }
 }

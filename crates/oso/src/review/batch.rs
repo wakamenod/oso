@@ -17,7 +17,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use oso_platform::process::Source;
+use oso_platform::process::{Sink, Source};
 
 use super::MAX_BLOB;
 use super::git::{self, Git, GitError};
@@ -99,9 +99,9 @@ fn start(git: &Git) -> Result<Running, GitError> {
         &[OsStr::new("cat-file"), OsStr::new("--batch")],
         &[],
         Source::Piped,
+        // Nothing reads its standard error, and a closed one would end it at its first warning.
+        Sink::Null,
     )?;
-    // Nothing reads its standard error, so it must not be able to fill.
-    drop(child.stderr.take());
     let (Some(input), Some(output)) = (child.stdin.take(), child.stdout.take()) else {
         git::stop(&mut child);
         return Err(GitError::Unexpected("no streams"));

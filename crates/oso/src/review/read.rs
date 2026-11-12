@@ -48,6 +48,8 @@ enum NewSign {
     Blob(Id),
     Stamp(FileStamp),
     Link(Box<[u8]>),
+    /// A work tree file with more than one name.
+    Shared,
     Nothing,
 }
 
@@ -113,11 +115,19 @@ pub(super) fn read(cx: &mut Context<'_>, entry: &Entry) -> Option<Reading> {
         let signature = signature(entry, NewSign::Nothing);
         return keep(cx, entry, signature, Content::Withheld, 0);
     }
+    if entry.status == Status::Unmerged {
+        let signature = signature(entry, NewSign::Nothing);
+        return keep(cx, entry, signature, Content::Conflicted, 0);
+    }
     if entry.old_mode == MODE_SUBMODULE || entry.new_mode == MODE_SUBMODULE {
         let signature = signature(entry, NewSign::Nothing);
         return keep(cx, entry, signature, Content::Submodule, 0);
     }
     let (new_sign, file) = look(cx, entry);
+    if new_sign == NewSign::Shared {
+        let signature = signature(entry, NewSign::Shared);
+        return keep(cx, entry, signature, Content::Withheld, 0);
+    }
     let signature = signature(entry, new_sign);
     if cx.kept.has(&entry.path, &signature) {
         return None;
@@ -167,7 +177,7 @@ fn sides(
         }
         (NewSign::Link(target), _) => Got::Bytes(target.to_vec()),
         (NewSign::Blob(id), _) => blob(cx, id)?,
-        (NewSign::Nothing | NewSign::Stamp(_), _) => Got::Bytes(Vec::new()),
+        (NewSign::Nothing | NewSign::Shared | NewSign::Stamp(_), _) => Got::Bytes(Vec::new()),
     };
     Ok((old, new))
 }
@@ -212,6 +222,7 @@ fn look(cx: &Context<'_>, entry: &Entry) -> (NewSign, Option<File>) {
         New::WorkTree { .. } => match cx.top.map(|top| side::find(top, &entry.path)) {
             Some(Ok(Found::File(file, stamp))) => (NewSign::Stamp(stamp), Some(file)),
             Some(Ok(Found::Link(target))) => (NewSign::Link(target.into()), None),
+            Some(Ok(Found::Shared)) => (NewSign::Shared, None),
             Some(Ok(Found::Nothing) | Err(_)) | None => (NewSign::Nothing, None),
         },
         New::Index | New::Tree(_) => (NewSign::Blob(entry.new_id.clone()), None),

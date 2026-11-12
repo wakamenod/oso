@@ -4,13 +4,19 @@
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the review's
 //! thread and waits for git.
 //!
-//! - Every run starts `git --no-pager -c core.quotePath=false`, in the work tree's top, and
-//!   gets the process module's allowlist plus `GIT_OPTIONAL_LOCKS=0` (a read takes no lock
+//! - Every run starts `git --no-pager -c core.quotePath=false -c core.fsmonitor=false
+//!   -c core.hooksPath=HOOKS`, where `HOOKS` is an empty private directory, so that no hook
+//!   and no file system monitor the repository names runs; git hands these to the git it
+//!   starts in an embedded repository too. Clean filters still run, as `git add` and a diff of
+//!   the work tree need them. Each run is in the work tree's top, and gets the process
+//!   module's allowlist plus `GIT_OPTIONAL_LOCKS=0` (a read takes no lock
 //!   from the agent's own git), `GIT_TERMINAL_PROMPT=0`, `GIT_NO_LAZY_FETCH=1` (a partial
 //!   clone fetches nothing), `GIT_NO_REPLACE_OBJECTS=1` (an object is what its id names),
 //!   `GIT_CEILING_DIRECTORIES` set to the project's parent (git never looks above the trusted
 //!   root for a repository) and, by name, `XDG_CONFIG_HOME`, where git finds the person's own
-//!   configuration and ignore file when it is not under `HOME`.
+//!   configuration and ignore file when it is not under `HOME`. A parent whose path holds the
+//!   list separator cannot be a ceiling, so such a root is refused before git runs.
+//! - On Windows, a path handed to git loses its verbatim `\\?\` prefix, which git cannot take.
 //! - A revision a person typed or an agent gave is refused when it is empty, starts with `-`
 //!   or holds a control character, then resolved to an object id; only ids go further.
 //! - What git writes is read as bytes, up to a limit per run; past it the run is killed.
@@ -21,9 +27,9 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus};
+use std::process::{Child, ChildStdout, ExitStatus};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -39,8 +45,16 @@ pub(super) const MAX_STDERR: usize = 4 * 1024;
 /// The most bytes a short answer (an id, a path) may take.
 pub(super) const MAX_SHORT: usize = 4 * 1024;
 
-/// The arguments every run starts with.
-const PREFIX: [&str; 3] = ["--no-pager", "-c", "core.quotePath=false"];
+/// The arguments every run starts with, before the hooks directory.
+const PREFIX: [&str; 5] = [
+    "--no-pager",
+    "-c",
+    "core.quotePath=false",
+    "-c",
+    "core.fsmonitor=false",
+];
+/// What separates the directories of `GIT_CEILING_DIRECTORIES`.
+const LIST_SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };
 /// The variables passed by name, besides the process module's allowlist.
 const INHERIT: [&str; 1] = ["XDG_CONFIG_HOME"];
 /// How often a run whose output has ended is asked whether it has exited.
@@ -57,6 +71,9 @@ pub(crate) enum GitError {
     TimedOut,
     /// It wrote more than the run allows, and was killed.
     TooLong,
+    /// git could not be kept from looking above the project: the parent's path holds the
+    /// list separator.
+    NoCeiling,
     /// It failed: its exit status and the start of what it wrote to standard error.
     Failed { status: Option<i32>, stderr: String },
     /// Its answer was not what was asked for.
@@ -72,6 +89,11 @@ impl fmt::Display for GitError {
             Self::Io(e) => write!(f, "cannot talk to git: {e}"),
             Self::TimedOut => write!(f, "git took more than {} s", RUN_LIMIT.as_secs()),
             Self::TooLong => f.write_str("git wrote more than a review reads"),
+            Self::NoCeiling => write!(
+                f,
+                "git cannot be kept from looking above the project, as its parent's path holds \
+                 a '{LIST_SEPARATOR}'"
+            ),
             Self::Failed { status, stderr } => match status {
                 Some(code) => write!(f, "git failed ({code}): {}", stderr.trim_end()),
                 None => write!(f, "git was stopped: {}", stderr.trim_end()),
@@ -101,27 +123,36 @@ pub(crate) struct Git {
     top: PathBuf,
     /// Where git stops looking for a repository: the project's parent.
     ceiling: OsString,
+    /// `core.hooksPath=` an empty directory.
+    hooks: OsString,
 }
 
 impl Git {
-    /// git from `PATH`, leaving out `project` and what is under it, run in `project`, and
-    /// never finding a repository above it.
-    pub(super) fn new(project: &Path) -> Result<Git, GitError> {
-        let executable = Executable::from_path("git", Some(project)).map_err(GitError::Spawn)?;
+    /// git from `PATH`, leaving out `project` and what is under it, run in `project`, never
+    /// finding a repository above it, and looking for hooks only in `hooks`, an empty private
+    /// directory.
+    pub(super) fn new(project: &Path, hooks: &Path) -> Result<Git, GitError> {
         let ceiling = project
             .parent()
-            .map_or_else(OsString::new, |parent| parent.as_os_str().to_owned());
+            .map_or_else(OsString::new, |parent| for_git(parent).into_os_string());
+        if ceiling.to_string_lossy().contains(LIST_SEPARATOR) {
+            return Err(GitError::NoCeiling);
+        }
+        let executable = Executable::from_path("git", Some(project)).map_err(GitError::Spawn)?;
+        let mut hooks_path = OsString::from("core.hooksPath=");
+        hooks_path.push(for_git(hooks));
         Ok(Git {
             executable,
-            top: project.to_owned(),
+            top: for_git(project),
             ceiling,
+            hooks: hooks_path,
         })
     }
 
     /// The same git, run in `top` instead.
-    pub(super) fn in_top(&self, top: PathBuf) -> Git {
+    pub(super) fn in_top(&self, top: &Path) -> Git {
         Git {
-            top,
+            top: for_git(top),
             ..self.clone()
         }
     }
@@ -131,17 +162,20 @@ impl Git {
         &self.top
     }
 
-    /// Starts git with `args` after oso's own, `set` over the environment, and standard
-    /// input as `stdin`.
+    /// Starts git with `args` after oso's own, `set` over the environment, standard input as
+    /// `stdin` and standard error as `stderr`. A path in `set` must have gone through
+    /// [`for_git`].
     pub(super) fn start(
         &self,
         args: &[&OsStr],
         set: &[(&str, &OsStr)],
         stdin: Source,
+        stderr: Sink,
     ) -> Result<Child, GitError> {
         let args: Vec<OsString> = PREFIX
             .iter()
             .map(OsString::from)
+            .chain([OsString::from("-c"), self.hooks.clone()])
             .chain(args.iter().map(|arg| (*arg).to_owned()))
             .collect();
         let mut variables: Vec<(&str, &OsStr)> = vec![
@@ -162,7 +196,7 @@ impl Git {
             inherit: &INHERIT,
             stdin,
             stdout: Sink::Piped,
-            stderr: Sink::Piped,
+            stderr,
             own_process_group: false,
             set: &variables,
             terminal: None,
@@ -178,22 +212,45 @@ impl Git {
         set: &[(&str, &OsStr)],
         limit: usize,
     ) -> Result<Output, GitError> {
-        let mut child = self.start(args, set, Source::Closed)?;
+        self.output_with(args, set, None, move |stdout| read_at_most(stdout, limit))
+    }
+
+    /// Runs git with `args` and `set`, writing `input` to its standard input if there is one,
+    /// and keeping what `read` keeps of its output, which says whether it cut it. A cut run is
+    /// killed.
+    pub(super) fn output_with(
+        &self,
+        args: &[&OsStr],
+        set: &[(&str, &OsStr)],
+        input: Option<Vec<u8>>,
+        read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
+    ) -> Result<Output, GitError> {
+        let stdin = if input.is_some() {
+            Source::Piped
+        } else {
+            Source::Closed
+        };
+        let mut child = self.start(args, set, stdin, Sink::Piped)?;
         let deadline = Instant::now() + RUN_LIMIT;
         let streams = (child.stdout.take(), child.stderr.take());
         let (Some(stdout), Some(stderr)) = streams else {
             stop(&mut child);
             return Err(GitError::Unexpected("no output streams"));
         };
+        if let Some(input) = input
+            && let Err(e) = write_away(&mut child, input)
+        {
+            stop(&mut child);
+            return Err(e);
+        }
         let (sent, got) = mpsc::channel();
         let sent_too = sent.clone();
-        let started =
-            reader(move || Stream::Out(read_at_most(stdout, limit)), sent).and_then(|()| {
-                reader(
-                    move || Stream::Err(keep_start(stderr, MAX_STDERR)),
-                    sent_too,
-                )
-            });
+        let started = reader(move || Stream::Out(read(stdout)), sent).and_then(|()| {
+            reader(
+                move || Stream::Err(keep_start(stderr, MAX_STDERR)),
+                sent_too,
+            )
+        });
         if let Err(e) = started {
             stop(&mut child);
             return Err(GitError::Io(e));
@@ -295,6 +352,22 @@ fn reader(
         .map(drop)
 }
 
+/// Writes `input` to `child`'s standard input on a thread of its own, and closes it after: a
+/// run that is given up on leaves the thread to end when the pipe does.
+fn write_away(child: &mut Child, input: Vec<u8>) -> Result<(), GitError> {
+    let mut writer = child
+        .stdin
+        .take()
+        .ok_or(GitError::Unexpected("no input stream"))?;
+    thread::Builder::new()
+        .name("oso-review-write".into())
+        .spawn(move || {
+            let _ = writer.write_all(&input);
+        })
+        .map(drop)
+        .map_err(GitError::Io)
+}
+
 /// Kills `child` and reaps it; one that has gone already is no error.
 pub(super) fn stop(child: &mut Child) {
     let _ = child.kill();
@@ -316,6 +389,44 @@ fn exited(child: &mut Child, deadline: Instant) -> Result<ExitStatus, GitError> 
     }
 }
 
+/// `path` as git can take it: on Windows, without the verbatim `\\?\` prefix that
+/// `canonicalize` gives, which git cannot open a lock beside; elsewhere as it is.
+pub(super) fn for_git(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        let mut components = path.components();
+        let Some(Component::Prefix(prefix)) = components.next() else {
+            return path.to_owned();
+        };
+        let mut plain = match prefix.kind() {
+            Prefix::VerbatimDisk(letter) => PathBuf::from(format!("{}:\\", char::from(letter))),
+            Prefix::VerbatimUNC(server, share) => {
+                let mut unc = OsString::from(r"\\");
+                unc.push(server);
+                unc.push(r"\");
+                unc.push(share);
+                unc.push(r"\");
+                PathBuf::from(unc)
+            }
+            _ => return path.to_owned(),
+        };
+        for component in components {
+            match component {
+                Component::RootDir => {}
+                Component::Normal(name) => plain.push(name),
+                // A verbatim path means these literally; spelled plainly they would not.
+                Component::CurDir | Component::ParentDir | Component::Prefix(_) => {
+                    return path.to_owned();
+                }
+            }
+        }
+        plain
+    }
+    #[cfg(not(windows))]
+    path.to_owned()
+}
+
 /// Refuses a revision git could read as an option or that holds a control character.
 pub(super) fn check_revision(revision: &str) -> Result<(), GitError> {
     if revision.is_empty() || revision.starts_with('-') || revision.chars().any(char::is_control) {
@@ -325,7 +436,7 @@ pub(super) fn check_revision(revision: &str) -> Result<(), GitError> {
 }
 
 /// Reads `from` to its end, keeping at most `limit` bytes. `true` if there was more.
-fn read_at_most(mut from: impl Read, limit: usize) -> io::Result<(Vec<u8>, bool)> {
+pub(super) fn read_at_most(mut from: impl Read, limit: usize) -> io::Result<(Vec<u8>, bool)> {
     let mut kept = Vec::new();
     let cap = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
     (&mut from).take(cap).read_to_end(&mut kept)?;
@@ -352,6 +463,21 @@ fn keep_start(mut from: impl Read, limit: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{check_revision, read_at_most};
+
+    #[cfg(windows)]
+    #[test]
+    fn a_path_for_git_loses_its_verbatim_prefix() {
+        use super::for_git;
+        use std::path::Path;
+        let cases = [
+            (r"\\?\C:\Users\a\state\index-1", r"C:\Users\a\state\index-1"),
+            (r"\\?\UNC\server\share\repo", r"\\server\share\repo"),
+            (r"C:\plain\path", r"C:\plain\path"),
+        ];
+        for (given, plain) in cases {
+            assert_eq!(for_git(Path::new(given)), Path::new(plain), "{given}");
+        }
+    }
 
     #[test]
     fn a_revision_that_reads_as_an_option_or_holds_a_control_character_is_refused() {

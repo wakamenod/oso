@@ -6,6 +6,9 @@
 //! review's thread.
 //!
 //! - A link is never followed: its side is its target's text, as git stores a link.
+//! - A file with more than one name, as a hard link gives one, is not read: another of its
+//!   names may hold secrets. It is judged by the file it opened, so nothing swapped in after
+//!   gets past (ADR 0085's rule for the agent channel).
 //! - A file past [`MAX_BLOB`] is not read; its size is enough to say it is too large.
 //! - What a file is, by its device, inode, size, mode and modification time, is its stamp
 //!   (`FileStamp`, as the loader keeps one), so a file whose stamp did not change is not read
@@ -20,6 +23,7 @@ use std::path::Path;
 
 use oso_core::buffer::{Buffer, FileStamp};
 use oso_platform::file_meta::{Directory, EntryKind};
+use oso_platform::privacy::has_one_name;
 
 use super::MAX_BLOB;
 
@@ -34,6 +38,8 @@ pub(crate) const BINARY_PROBE: usize = 8000;
 pub(crate) enum Found {
     /// A regular file, open, with its stamp.
     File(File, FileStamp),
+    /// A regular file with more than one name, not to be read.
+    Shared,
     /// A link, and the bytes of its target.
     Link(Vec<u8>),
     /// Nothing, or something that is no file or link: a directory, a pipe, a device.
@@ -73,6 +79,7 @@ pub(crate) fn find(top: &Directory, path: &[u8]) -> io::Result<Found> {
     match kind {
         EntryKind::Link => Ok(Found::Link(target_bytes(&here.read_link(name)?))),
         EntryKind::File => Ok(match here.open_file(name)? {
+            Some((_, metadata)) if !has_one_name(&metadata) => Found::Shared,
             Some((file, metadata)) => Found::File(file, stamp(&metadata)),
             None => Found::Nothing,
         }),

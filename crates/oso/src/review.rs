@@ -7,14 +7,17 @@
 //!
 //! - It starts only from a [`TrustedRoot`], which only a trusted project gives, and looks at
 //!   the root's device and inode again before each request: a restricted project, or another
-//!   directory put in a trusted one's place, runs no git (ADR 0009, ADR 0011, ADR 0114).
+//!   directory put in a trusted one's place, runs no git (ADR 0009, ADR 0011, ADR 0114). A
+//!   root revoked when its project is no longer trusted runs nothing more, and stops the
+//!   request running between files.
 //! - git runs only through `oso-platform::process`, with oso's arguments, never finding a
 //!   repository above the root, and its output is read as bytes, each read bounded.
 //! - Old sides, and new sides that are no work tree file, come through one long-lived
 //!   `git cat-file --batch`; work tree files are read from the work tree's top a directory at
 //!   a time, following no link.
 //! - A file whose name, or whose name before a rename, may hold secrets is listed and never
-//!   read.
+//!   read, nor is a work tree file with more than one name. A conflicted file is listed as
+//!   conflicted, its sides not read.
 //! - A file whose signature did not change since the last reading is not read again, and the
 //!   files the caller shows go first. Refreshes asked for meanwhile are answered as one, and a
 //!   newer request, or the reviewer's end, stops the one running between files.
@@ -59,11 +62,13 @@ pub(crate) const MAX_BLOB: u64 = 8 * 1024 * 1024;
 const STACK: usize = 16 * 1024 * 1024;
 
 /// The root of a project that is trusted to run git, with its device and inode as the project
-/// was found. Only [`TrustedRoot::of`] makes one.
+/// was found. Only [`TrustedRoot::of`] makes one. Its clones share one revocation: once one is
+/// revoked, so are all.
 #[derive(Clone, Debug)]
 pub(crate) struct TrustedRoot {
     path: PathBuf,
     identity: Option<(u64, u64)>,
+    revoked: Arc<AtomicBool>,
 }
 
 impl TrustedRoot {
@@ -76,13 +81,28 @@ impl TrustedRoot {
         Some(TrustedRoot {
             path: project.root().to_owned(),
             identity: project.identity(),
+            revoked: Arc::default(),
         })
     }
 
     #[cfg(test)]
     pub(crate) fn for_tests(path: PathBuf) -> TrustedRoot {
         let identity = side::identity_of(&path);
-        TrustedRoot { path, identity }
+        TrustedRoot {
+            path,
+            identity,
+            revoked: Arc::default(),
+        }
+    }
+
+    /// Takes the trust back, as when the person no longer trusts the project: the review's
+    /// thread runs nothing more for it.
+    pub(crate) fn revoke(&self) {
+        self.revoked.store(true, Ordering::SeqCst);
+    }
+
+    fn revoked(&self) -> bool {
+        self.revoked.load(Ordering::SeqCst)
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -227,6 +247,7 @@ impl fmt::Debug for Reading {
             Content::TooLarge { .. } => "too large".into(),
             Content::OutOfTime => "out of time".into(),
             Content::Withheld => "withheld".into(),
+            Content::Conflicted => "conflicted".into(),
             Content::Submodule => "submodule".into(),
             Content::Unreadable(why) => format!("unreadable: {why}"),
         };
@@ -252,8 +273,11 @@ pub(crate) enum Content {
     TooLarge { old: u64, new: u64 },
     /// The request's time for diffing ran out before this file; the next refresh reads it.
     OutOfTime,
-    /// Its name, or its name before a rename, may hold secrets: it was not read.
+    /// Its name, or its name before a rename, may hold secrets, or it is a work tree file with
+    /// more than one name, another of which may: it was not read.
     Withheld,
+    /// It is conflicted: neither side was read.
+    Conflicted,
     /// A submodule: the entry's ids are what it shows.
     Submodule,
     /// A side could not be read; why, with no file's text. The next refresh reads it again.
@@ -364,13 +388,22 @@ fn serve(
             return;
         }
         let asked = asked(&request);
+        if root.revoked() {
+            let why = "the project is no longer trusted".into();
+            send(Report::Failed { asked, why });
+            continue;
+        }
         if !root.still_there() {
             let why = "the project's root is no longer the directory that was trusted".into();
             send(Report::Failed { asked, why });
             continue;
         }
-        let stop =
-            || !live.load(Ordering::SeqCst) || next.is_some() || waiting.load(Ordering::SeqCst) > 0;
+        let stop = || {
+            !live.load(Ordering::SeqCst)
+                || next.is_some()
+                || waiting.load(Ordering::SeqCst) > 0
+                || root.revoked()
+        };
         let mut gone = false;
         let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             reader.answer(request, &stop, &mut |report| {

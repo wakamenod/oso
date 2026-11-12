@@ -13,6 +13,9 @@
 //!   and copied only up to [`MAX_INDEX`]. A copy is removed when it is dropped, with the lock
 //!   git leaves beside it; copies an earlier run left behind are swept when a review's thread
 //!   starts.
+//! - Beside the copies is `hooks/`, an empty private directory that every review's git is told
+//!   holds the hooks, so that no hook the repository names runs. One that is not empty is
+//!   refused.
 
 use std::fs::{self, File};
 use std::hash::{BuildHasher, RandomState};
@@ -37,6 +40,8 @@ pub(crate) const MAX_INDEX: u64 = 128 * 1024 * 1024;
 #[derive(Debug)]
 pub(crate) struct Scratch {
     dir: PrivateDir,
+    /// The empty directory git looks in for hooks.
+    hooks: PrivateDir,
     /// A random token in this review's names.
     token: u64,
     /// The next name's count.
@@ -48,12 +53,24 @@ impl Scratch {
     /// private if missing, with old copies swept.
     pub(crate) fn open(state: &Path) -> io::Result<Scratch> {
         let dir = PrivateDir::open(state.join("reviews").join("tmp"))?;
+        let hooks = PrivateDir::open(dir.path().join("hooks"))?;
+        if fs::read_dir(hooks.path())?.next().is_some() {
+            return Err(io::Error::other(
+                "the review's empty directory for git's hooks is not empty",
+            ));
+        }
         sweep(dir.path());
         Ok(Scratch {
             dir,
+            hooks,
             token: RandomState::new().hash_one(std::process::id()),
             next: 0,
         })
+    }
+
+    /// The empty directory git is told holds the hooks.
+    pub(crate) fn hooks(&self) -> &Path {
+        self.hooks.path()
     }
 
     /// A copy of the index at `index`, keeping its modification time. With no index there

@@ -17,6 +17,7 @@ use super::work::Reader;
 use super::{Content, Entry, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
 
 mod guards;
+mod history;
 
 /// A fresh directory for one test, with no links in its path.
 pub(crate) fn scratch_dir(name: &str) -> PathBuf {
@@ -206,10 +207,16 @@ fn uncommitted_lists_changes_and_untracked_files_and_leaves_the_index_alone() {
     // Marking untracked files writes at most the empty blob.
     assert!(loose_objects(&repo) <= objects + 1);
     let copies = repo.dir.join("state/reviews/tmp");
+    let left: Vec<_> = fs::read_dir(copies)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(left, ["hooks"], "copies are removed");
+    let hooks = repo.dir.join("state/reviews/tmp/hooks");
     assert_eq!(
-        fs::read_dir(copies).unwrap().count(),
+        fs::read_dir(hooks).unwrap().count(),
         0,
-        "copies are removed"
+        "nothing is put there"
     );
 }
 
