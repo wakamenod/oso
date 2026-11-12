@@ -27,6 +27,7 @@ pub mod load;
 pub mod minibuffer;
 pub mod motion;
 pub mod project;
+pub mod review;
 pub mod rope;
 mod search;
 mod secret;
