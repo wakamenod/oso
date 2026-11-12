@@ -338,6 +338,13 @@ impl Buffer {
         !was_withheld
     }
 
+    /// Withholds the text from the agent channel and dev tooling from now on, as a secret's
+    /// is: for an internal buffer that shows what only the person may read, such as a hosted
+    /// session's screen in `*Session explain*` (ADR 0121).
+    pub fn withhold(&mut self) {
+        self.treat_as_secret();
+    }
+
     /// Whether the text may hold secrets, and why.
     pub fn verdict(&self) -> Verdict {
         match self.verdict {

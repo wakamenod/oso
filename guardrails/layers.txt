@@ -57,7 +57,7 @@ emergency
 saver
 lister
 # `grep` searches a project's files over `walk`'s walk (ADR 0114).
-commands dev grep keys loader text
+commands dev grep keys loader sessions text
 # `walk` lists a project's files (ADR 0114), beside `project`, which finds them.
 channel project walk
 

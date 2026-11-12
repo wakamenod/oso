@@ -153,6 +153,7 @@ pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::verdict(&self) -> oso_core::buffer::Verdict
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
+pub fn oso_core::buffer::Buffer::withhold(&mut self)
 pub fn oso_core::buffer::Buffer::wraps(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::begin_loading(&mut self)
@@ -1307,6 +1308,16 @@ impl core::fmt::Display for oso_core::editor::SaveRefused
 pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
+pub enum oso_core::editor::SessionRequest
+pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
+impl core::clone::Clone for oso_core::editor::SessionRequest
+pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest
+impl core::cmp::Eq for oso_core::editor::SessionRequest
+impl core::cmp::PartialEq for oso_core::editor::SessionRequest
+pub fn oso_core::editor::SessionRequest::eq(&self, &oso_core::editor::SessionRequest) -> bool
+impl core::fmt::Debug for oso_core::editor::SessionRequest
+pub fn oso_core::editor::SessionRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SessionRequest
 pub enum oso_core::editor::Shift
 pub oso_core::editor::Shift::Left
 pub oso_core::editor::Shift::Right
@@ -1791,6 +1802,10 @@ pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::Rep
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::SessionRequest)
+pub fn oso_core::editor::Editor::set_internal_text(&mut self, oso_core::buffer::BufferId, &str)
+pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
 impl oso_core::editor::Editor

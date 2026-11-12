@@ -749,6 +749,36 @@ Each passage stays in its ADR as written; what holds now follows it.
 - [ADR 0122](0122-agent-review.md), "Turns: … with ADR 0121, the Stop and PostToolUse hooks": a turn's end is the state's
   transition; a write tool's end is not given.
 
+## Step 2, as built
+
+Step 2 was built on 2026-11-13, before step 1 and before ADR 0120's terminal, against screens
+recorded from Claude Code 2.1.322. The coordinator approved these points:
+
+- **`regex` became a dependency of the tip crate.** It is the same version and features as
+  `oso-core`'s, so the tree gains no crate. The dependency line above was wrong: only `toml` and
+  `ignore` were the tip crate's.
+- **The fuzz target is a proptest generator** (`sessions/fuzz_tests.rs`). It makes rules files
+  and screens, and runs in `just ci`. The tip crate has no library target that cargo-fuzz could
+  link; a cargo-fuzz harness can share the generators once `oso-term` has one.
+- **`hold` is a state a rule gives**, not a flag beside one. `session-explain-file` is
+  `Person`: the sessions worker reads the file, at most 256 KiB.
+- **The format** is in [agent-rules.md](../agent-rules.md). It has the regions listed above,
+  with no `whole_recent`, since `bottom(40)` is the same.
+- **`oso-core` gained `editor::SessionRequest`, `Editor::request_session`,
+  `Editor::take_session_requests`, `Editor::set_internal_text` and `Buffer::withhold`.**
+  `*Session explain*` uses `Buffer::withhold` to keep the agent channel from reading it.
+- **What the recorded screens showed.** The title stayed `✳ …` throughout the recording, inside
+  tmux. So a turn is told by the `esc to interrupt` footer and the status line; the title's
+  spinner and OSC 9;4 stay as further signs.
+- **Left to step 3, which has live sessions:**
+  - `session-explain` on a running session;
+  - the modeline marks;
+  - `session-next-waiting`;
+  - the 2 s timer that marks a session seen;
+  - the `git diff` call for ready for review.
+
+  The tracker already takes seen and the call's answer.
+
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

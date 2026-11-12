@@ -581,6 +581,19 @@ The UI thread never blocks on I/O or parsing:
   parsed again, with their own grammars, wherever the worker highlights. Buffers that may
   hold secrets and files over 2 MiB are not parsed
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+- A hosted agent session's state is read from its screen on `oso-sessions`
+  (`crates/oso/src/sessions/`, glue in `app/sessions.rs`), never on the UI thread
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `sessions::screen::Evidence` is the last 40
+  non-empty rows, the title and the OSC 9;4 progress, cut to fixed sizes; `sessions::rules`
+  compiles the bundled `claude.toml` and the local `agent-rules/claude.toml` over it; and
+  `sessions::engine::evaluate` gives the first rule that holds, highest priority first. A tracker
+  per session (`sessions::state::Tracker`) turns verdicts into the taxonomy with the debounce and
+  the 3 s grace period, from instants it is given, so its tests need no clock. The thread judges
+  a session's screen only after it changed, at most 10 times a second, and wakes on its own only
+  while a debounce or grace period waits. It sends the UI thread only changes
+  (`UserEvent::Sessions`). The terminal's host API (ADR 0120) feeds it from step 3; step 2 built
+  it against recorded screens, and `session-explain-file` explains a saved one in
+  `*Session explain*`, a buffer the agent channel cannot read.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -614,6 +627,11 @@ read. See [ADR 0019](adr/0019-configuration.md).
   value of each it leaves out) and applies only those a look changes, so a choice made at run
   time stands. The theme shown last is remembered with the configured default then, in
   `oso/theme`, and wins at start while that default is the file's.
+- The local agent rules file, `agent-rules/claude.toml` beside the file, is read on the same
+  thread with the same checks and at most 256 KiB, compiled there over the bundled rules
+  (`config/agent_rules.rs`), and handed to the sessions worker for every session at once; a
+  file that fails to parse keeps the rules in force. Its format is in
+  [agent-rules.md](agent-rules.md) ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - Indentation ([ADR 0115](adr/0115-indentation.md); its rules, `TAB`, `RET` and `C-j` are built,
   the region commands and EditorConfig come in later steps): each buffer has an indentation setting, from the EditorConfig files that apply to it,
   then the configuration's `[modes.<mode>]`, then the defaults. The loader reads the EditorConfig files from the file's

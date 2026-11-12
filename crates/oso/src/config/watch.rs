@@ -23,6 +23,7 @@ use oso_core::buffer::FileStamp;
 use oso_platform::file_meta::open_for_reading;
 use oso_platform::privacy::{self, Writers};
 
+use super::agent_rules::{RulesReport, RulesWatch};
 use super::{Loaded, STACK, Source, parse};
 use crate::loader::{same_file, stamp_of};
 use crate::{bindings, commands};
@@ -72,6 +73,8 @@ struct Shared {
 struct State {
     /// What the last look found, until it is taken.
     report: Option<Report>,
+    /// What the last look at the agent rules file found, until it is taken (ADR 0121).
+    rules: Option<RulesReport>,
     /// Whether that is the launch's: the first look, which no later one replaced before it was
     /// taken. Only it starts the agent channel (ADR 0108).
     launch: bool,
@@ -103,6 +106,10 @@ impl Shared {
         let report = state.report.take()?;
         Some((report, std::mem::take(&mut state.launch)))
     }
+
+    fn take_rules(&self) -> Option<RulesReport> {
+        self.lock().rules.take()
+    }
 }
 
 impl Reader {
@@ -117,10 +124,11 @@ impl Reader {
         };
         let shared = Arc::new(Shared::default());
         let thread_shared = Arc::clone(&shared);
+        let rules = RulesWatch::beside(&file);
         let spawned = thread::Builder::new()
             .name("oso-config".into())
             .stack_size(STACK)
-            .spawn(move || run(&file, &thread_shared));
+            .spawn(move || run(&file, rules, &thread_shared));
         if let Err(e) = spawned {
             log::warn!("cannot read the configuration: {e}");
             return None;
@@ -131,7 +139,7 @@ impl Reader {
     /// Calls `wake` whenever a look finds something new to take, and now if it already has.
     pub fn set_wake(&self, wake: impl Fn() + Send + 'static) {
         let mut state = self.shared.lock();
-        if state.report.is_some() {
+        if state.report.is_some() || state.rules.is_some() {
             wake();
         }
         state.wake = Some(Box::new(wake));
@@ -143,6 +151,12 @@ impl Reader {
     /// it found fixed is not the launch's.
     pub fn take(&self) -> Option<(Report, bool)> {
         self.shared.take()
+    }
+
+    /// What the last look at the agent rules file found, if it found something new since this
+    /// was last asked (ADR 0121).
+    pub fn take_rules(&self) -> Option<RulesReport> {
+        self.shared.take_rules()
     }
 
     /// Looks at the file now: oso gained the focus, or saved a file. A file refused is read
@@ -162,15 +176,16 @@ impl Drop for Reader {
 
 /// The thread: reads `file` at once, and again whenever it is found changed. A panic anywhere
 /// on it, as the loader and the saver catch theirs, is said, and ends it.
-fn run(file: &Path, shared: &Shared) {
-    if catch_unwind(AssertUnwindSafe(|| watch(file, shared))).is_err() {
+fn run(file: &Path, rules: Option<RulesWatch>, shared: &Shared) {
+    if catch_unwind(AssertUnwindSafe(|| watch(file, rules, shared))).is_err() {
         let refused = Report::Refused("reading it failed".to_owned());
         let _ = catch_unwind(AssertUnwindSafe(|| deliver(shared, refused)));
     }
 }
 
-/// Reads `file` whenever it is found changed, or a look is asked for, and says what is new.
-fn watch(file: &Path, shared: &Shared) {
+/// Reads `file` whenever it is found changed, or a look is asked for, and says what is new; and
+/// the agent rules file beside it, in the same way.
+fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
     let registry = commands::registry();
     let defaults = bindings::global_keymap(&registry);
     let themes: Vec<&str> = oso_render::theme::themes()
@@ -202,6 +217,9 @@ fn watch(file: &Path, shared: &Shared) {
                 said = Some(saying);
                 deliver(shared, report);
             }
+        }
+        if let Some(report) = rules.as_mut().and_then(|rules| rules.look(poked)) {
+            deliver_rules(shared, report);
         }
         let mut state = shared.lock();
         if !state.poked && !state.stopped {
@@ -273,6 +291,20 @@ fn deliver(shared: &Shared, report: Report) {
     };
     // A report the app did not take may hold a large keymap: it goes with the lock released,
     // so that the UI thread never waits for it.
+    drop(untaken);
+}
+
+/// Hands `report`, of the agent rules file, to the app, and wakes it.
+fn deliver_rules(shared: &Shared, report: RulesReport) {
+    let untaken = {
+        let mut state = shared.lock();
+        let untaken = state.rules.replace(report);
+        if let Some(wake) = &state.wake {
+            wake();
+        }
+        untaken
+    };
+    // Rules the app did not take go with the lock released.
     drop(untaken);
 }
 

@@ -413,6 +413,15 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - Hooks are installed only by an explicit command that shows the settings
   change first.
+- A hosted session's state comes from rules over its screen, which a model wrote: untrusted
+  text ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). No state authorises anything, and
+  needs input is set only by a rule that knows a dialog; an unknown prompt is idle. The rules
+  are oso's, compiled in, and the person's `agent-rules/claude.toml` beside `config.toml`, read
+  with its checks and refused when other users can change it; never a project's, never
+  fetched. They use the `regex` crate only, each pattern with a 1 MiB size limit, at most 256
+  patterns and 128 rules a file, and the screen is cut to 40 rows of 1 KiB, so judging one is
+  linear in at most some 41 KiB. `*Session explain*` shows screen text and is withheld from the
+  agent channel; `session-explain-file`, which reads a file, is `Person`.
 
 ### Denial of service (T8)
 

@@ -1,0 +1,32 @@
+ ▐▛███▛█   Claude Code v2.1.322
+▝▜██████▀  Opus 5.5 with high effort · Plan
+ ▝▝   ▝▝   ~/src/project
+
+  Updated to latest. Got 66 features, 406 bugfixes, and 176 other changes.
+  code.claude.com/docs/en/changelog for details
+
+  Fable 5.2 is here for your longest and toughest coding tasks. It draws down usage faster than Opus
+  5.5. Switch with /model.
+
+❯ /help
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Help  General   Commands   Custom commands
+
+  Claude understands your codebase, makes edits with your permission, and executes commands —
+  right from your terminal.
+  Shortcuts
+  ! for shell mode          double tap esc to clear input        ctrl + shift + _ to undo
+  / for commands            shift + tab to auto-accept edits     ctrl + z to suspend
+  @ for file paths          shift + ↑/↓ to change effort         ctrl + v to paste images
+  /btw for side question    ctrl + o for verbose output          opt + p to switch model
+                            ctrl + t to toggle tasks             ctrl + s to stash prompt
+                            \⏎ for newline                       opt + e to edit in $EDITOR
+                                                                 /keybindings to customize
+
+  For more help: https://code.claude.com/docs/en/overview
+
+  Esc to cancel
+
+
+

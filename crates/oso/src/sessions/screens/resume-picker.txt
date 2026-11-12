@@ -1,0 +1,32 @@
+ ▐▛███▛█   Claude Code v2.1.322
+▝▜██████▀  Opus 5.5 with high effort · Plan
+ ▝▝   ▝▝   ~/src/project
+
+  Updated to latest. Got 66 features, 406 bugfixes, and 176 other changes.
+  code.claude.com/docs/en/changelog for details
+
+  Fable 5.2 is here for your longest and toughest coding tasks. It draws down usage faster than Opus
+  5.5. Switch with /model.
+
+❯ /help
+  ⎿  Help dialog dismissed
+
+❯ /model
+  ⎿  Kept model as Opus 5.5
+
+❯ /resume
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Resume session
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ⌕ Search…                                                                                    │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+    proj
+
+   No conversations found in this project.
+   Ctrl+A to show all projects
+
+    Ctrl+A to show all projects · Ctrl+B to only show current branch · Type to search · Esc to
+    cancel
+
+
