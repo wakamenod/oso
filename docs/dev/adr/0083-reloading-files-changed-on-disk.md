@@ -1,6 +1,6 @@
 # 0083. Reloading files changed on disk
 
-- Status: Accepted
+- Status: Accepted, amended by 0119
 - Date: 2026-11-08
 
 ## Context

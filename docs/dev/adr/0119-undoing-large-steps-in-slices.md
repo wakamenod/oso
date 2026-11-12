@@ -1,6 +1,6 @@
 # 0119. Undoing large steps in slices
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -117,8 +117,6 @@ touches nothing until its last move.
 
 ## Decision
 
-Draft, subject to the questions below.
-
 ### A crossing is a value that goes on (Q1, Q2, Q3)
 
 - **Every undo and redo is a resumable crossing.** `Buffer::stage_crossing` becomes a value that
@@ -232,13 +230,13 @@ Draft, subject to the questions below.
   crossing, and `buffer/splice.rs` gains a resumable `apply_group`, which merges the changed ranges
   once per slice, not once per batch. `editor/undo_group.rs` keeps the crossing under way, with
   `Editor::go_on_crossing` and `Editor::cancel_crossing`. All of it is private to the crate except
-  those two and `Editor::crossing` for the host, which the step asks the author for.
+  those two and `Editor::crossing` for the host, which step 2 asks the author for.
 - `crates/oso` holds the keys, cancels on `C-g`, asks for the next slice each turn as for `!`,
   waits the channel, the replay, the reload and the restart, and adds `undoing` to `get-state`.
 
 ## Questions
 
-Recommended option first.
+Put to the author on 2026-11-12, the recommended option first; each answer was the first, (a).
 
 ### When and how it slices
 
@@ -346,7 +344,8 @@ Recommended option first.
 
 ## Steps
 
-Proposed, to settle with the answers.
+Each step is its own PR. Step 1 touches only the history's internals in `oso-core`; steps 2 and 3
+wait for the coordinator's go.
 
 1. **Measure where the time goes,** with `text_perf` cases for the three `!` cases above, an
    `indent-region` over 4 MiB, a macro replay of 1000 commands, and undoing an 89 MB kill: per
@@ -357,7 +356,8 @@ Proposed, to settle with the answers.
 2. **The resumable crossing in `oso-core`,** with the counts, the cuts inside batches and splices,
    `go_on_crossing`, `cancel_crossing` and the commit; property tests that a crossing in slices of
    any size gives the same text, cursors, content id, history and redo group as one at once, and
-   that cancelling at any point changes nothing.
+   that cancelling at any point changes nothing. The public API it needs, `Editor::go_on_crossing`,
+   `Editor::cancel_crossing` and `Editor::crossing`, is asked of the author with this step.
 3. **The host:** holding keys, `C-g`, the echo row, the channel's wait and reply, `get-state`, the
    restart's wait, the reload's wait, the replay's wait, freeing off the UI thread; e2e for holding,
    `C-g` and the restart; `verify-in-app` on the 100 MB file.
