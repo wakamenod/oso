@@ -1,6 +1,6 @@
-# The headless-Wayland flows again and again, each run under a new Weston, to catch the
-# crash that e2e.yml's Wayland job meets now and then (.github/scripts/e2e-weston.sh). A job
-# stops at the first crash and prints its backtrace. It runs by hand, or on a pull request
+# The headless-Wayland flows again and again, each run under a new Weston, to catch a crash
+# such as the one Weston's pixman renderer had (.github/scripts/e2e-weston.sh). A job stops at
+# the first crash and prints its backtrace. It runs by hand, or on a pull request
 # labelled weston-repeat, and gates nothing. The token stays read-only (ADR 0021).
 name: E2E under Weston, repeated
 
@@ -16,6 +16,11 @@ on:
       flows:
         description: "Filters for the flows, separated by spaces; empty runs them all"
         default: "handover"
+      renderer:
+        description: "Weston's renderer: gl, or pixman, which crashed now and then"
+        type: choice
+        options: [gl, pixman]
+        default: gl
       protocol_log:
         description: "Log every Wayland message Weston handles (WAYLAND_DEBUG=server)"
         type: boolean
@@ -55,16 +60,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            weston mesa-vulkan-drivers libvulkan1 libwayland-client0 libwayland-cursor0 libxkbcommon0
+            weston mesa-vulkan-drivers libvulkan1 libwayland-client0 libwayland-cursor0 libxkbcommon0 \
+            libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
           weston --version
           dpkg-query -W -f '${Package} ${Version}\n' weston 'libweston-*' libpixman-1-0 \
-            libwayland-server0 mesa-vulkan-drivers
+            libwayland-server0 mesa-vulkan-drivers libegl-mesa0
       - name: Build the flows
         run: cargo test --locked -p oso --features dev --test e2e --no-run
       - name: The flows, repeated under headless Weston
         env:
           RUNS: ${{ inputs.runs || '20' }}
           FLOWS: ${{ github.event_name == 'workflow_dispatch' && inputs.flows || 'handover' }}
+          WESTON_RENDERER: ${{ inputs.renderer || 'gl' }}
           WESTON_PROTOCOL_LOG: ${{ (github.event_name != 'workflow_dispatch' || inputs.protocol_log) && '1' || '0' }}
           # As `just e2e` sets it.
           RUST_LOG: oso=debug,wgpu=warn

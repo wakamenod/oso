@@ -78,18 +78,20 @@ jobs:
         with:
           save-if: false
       - uses: $/.github/actions/install-just
-      # Weston with its headless backend and the software renderer, lavapipe, and what
-      # winit's Wayland backend loads at run time, all from Ubuntu's archive.
+      # Weston with its headless backend and its GL renderer on Mesa's software EGL, lavapipe,
+      # and what winit's Wayland backend loads at run time, all from Ubuntu's archive.
       - name: Install a headless Wayland compositor and lavapipe
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            weston mesa-vulkan-drivers libvulkan1 libwayland-client0 libwayland-cursor0 libxkbcommon0
+            weston mesa-vulkan-drivers libvulkan1 libwayland-client0 libwayland-cursor0 libxkbcommon0 \
+            libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
           weston --version
           dpkg-query -W -f '${Package} ${Version}\n' weston 'libweston-*' libpixman-1-0 \
-            libwayland-server0 mesa-vulkan-drivers
-      # Weston has crashed mid-run now and then: the script keeps its core and, when it
-      # crashes, says where with a backtrace, and what the clients sent it last.
+            libwayland-server0 mesa-vulkan-drivers libegl-mesa0
+      # The script runs Weston's GL renderer, since its pixman one crashed now and then (see
+      # the script). Should Weston crash still, it keeps the core and says where with a
+      # backtrace, and what the clients sent it last.
       - name: End-to-end tests under headless Weston
         env:
           WESTON_PROTOCOL_LOG: 1

@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # Runs a command, the e2e flows, under a headless Weston on its own socket, then says how
-# Weston ended. Used by e2e.yml's Wayland job and by e2e-weston-repeat.yml, to find out why
-# Weston sometimes crashes mid-run. Diagnostics only: the flows run as they would without it.
+# Weston ended. Used by e2e.yml's Wayland job and by e2e-weston-repeat.yml.
+#
+# Weston draws with WESTON_RENDERER, `gl` by default, on Mesa's surfaceless EGL. Its `pixman`
+# renderer keeps a pointer into a client's shared memory from when a buffer is attached, and
+# reads the memory's old place once the client grows the pool: up to Weston 14 and on its main
+# branch, it takes no reference that would make libwayland wait with the move. sctk grows the
+# pool of the window's decorations while they are on screen, so Weston crashed about once in 80
+# runs of the handover flows. The GL renderer reads the memory afresh at each upload.
 #
 # Usage: e2e-weston.sh DIR COMMAND [ARGS...]
 #
@@ -46,7 +52,7 @@ redact='s/((surrounding_text|commit_string|preedit_string|set_title|set_class|se
     trap "echo \"subshell caught SIG$sig at \$(date -u +%T.%N)\" >> \"$probe\"" "$sig"
   done
   ulimit -c unlimited
-  args=(--backend=headless --renderer=pixman --width=1280 --height=800
+  args=(--backend=headless --renderer="${WESTON_RENDERER:-gl}" --width=1280 --height=800
         --socket=wayland-oso --idle-time=0 --log="$dir/weston.log")
   if [ "${WESTON_PROTOCOL_LOG:-0}" = 1 ]; then
     # tail keeps the end in memory and writes it once Weston's stderr closes.
@@ -76,6 +82,8 @@ if [ ! -S "$XDG_RUNTIME_DIR/wayland-oso" ]; then
   exit 1
 fi
 weston_pid=$(cat "$dir/weston.pid")
+# Which renderer and which GL Weston took, as it says in its log.
+grep -iE "renderer|EGL version|GL version|GL vendor" "$dir/weston.log" | head -n 8
 
 # When Weston goes, to 200 ms, to line up with the flows' own times.
 ( while kill -0 "$weston_pid" 2> /dev/null; do sleep 0.2; done
