@@ -318,6 +318,13 @@ file or a 10 MB line.
   its region, its current line's band and its flash, as Emacs keeps them in the minibuffer's
   selected window, so ADR 0072 and ADR 0097 hold as written. Its cursor is hollow and its
   modeline inactive, as every window's beneath a prompt.
+- **The modelines' colours (the author's choice, 2026-11-12):** the selected window's
+  modeline is blue, far apart from the others', as Emacs's mode-line is from
+  mode-line-inactive. Dark: `#2c3f6e` with white text, the others `#15171e` with `#8e95ad`;
+  light: `#b8cdf2` with `#0b0c10`, the others `#eef0f4` with `#5a6178`; dusk: `#44507a` with
+  `#f3f3f6`, the others `#35353f` with `#b8bccc`. The `Agent` label, warnings and escapes keep
+  their floors on both (ADR 0089), which bounds how far the selected one can stand from the
+  text. The theme samples draw a split frame in each theme to compare them.
 - **`Agent` stays in sight (the author's choice, 2026-11-12):** a prompt's float can cover the
   selected window's modeline, which then sits mid-frame. While one does, the bottom-most
   window's modeline, the left-most on the bottom row, says `Agent` too (ADR 0085).
