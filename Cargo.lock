@@ -1400,6 +1400,7 @@ dependencies = [
  "oso-core",
  "oso-platform",
  "oso-render",
+ "oso-syntax",
  "pollster",
  "proptest",
  "serde_json",

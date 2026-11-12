@@ -385,7 +385,7 @@ mod tests {
         in_project(&mut editor, "/w/oso");
         assert_eq!(
             status(&editor).modeline(),
-            "%% notes.md  oso  restricted  Loading 0 MiB  1:0  Fundamental  UTF-8 LF"
+            "%% notes.md  oso  restricted  Loading 0 MiB  1:0  Markdown  UTF-8 LF"
         );
         in_project(&mut editor, "/w/a-very-long-project-name-that-goes-on");
         let long = status(&editor).project;

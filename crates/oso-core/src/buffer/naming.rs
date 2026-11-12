@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use super::Buffer;
+use super::{Buffer, Mode};
 use crate::project::ProjectId;
 
 impl Buffer {
@@ -20,8 +20,9 @@ impl Buffer {
 
     /// Makes the buffer visit `path`, as a write under a new name does. What was known of
     /// the old file goes: its baseline, its own spelling, its project and what a save found
-    /// there.
+    /// there. The new name gives the mode, as a visit does (ADR 0111).
     pub(crate) fn set_path(&mut self, path: PathBuf) {
+        self.set_mode(Mode::for_path(&path));
         self.path = Some(path);
         self.baseline = None;
         self.own_spelling = None;

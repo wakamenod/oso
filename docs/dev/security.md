@@ -345,7 +345,10 @@ and below the row, and a label's glyphs keep their own cells
   columns of a row, and rasterizes a bounded number of new glyphs per frame
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Parsing runs in the background with cancellation and timeouts. Tree-sitter parses no file over
-  2 MiB, and stops highlighting a buffer whose first parse passes 5 s or a later one 1 s. Its
+  2 MiB, and stops highlighting a buffer whose first parse passes 5 s or a later one 1 s, or whose
+  highlighting runs too long (ADR 0111, as built). A buffer that may hold secrets, including one
+  not judged yet, gets no job, and one that turns secret is dropped from the worker after the
+  event that made it so: what waited for it never runs. Its
   queries are oso's own, compiled in, with a match limit; nothing is loaded at run time
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 

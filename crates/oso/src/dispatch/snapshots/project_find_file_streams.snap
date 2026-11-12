@@ -16,7 +16,7 @@ step: C-x p f, nothing walked yet
 │                                                                                                    │
 │                                                                                                    │
 │                                                                                                    │
---- main.rs  oso  restricted  1:0  Fundamental  UTF-8 LF                                             -
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
 "                                                                                                    "
 float at row 0, column 19: 12 x 62
 │ …/… Find file in oso:                                        │
@@ -47,7 +47,7 @@ step: a batch
 │                                                                                                    │
 │                                                                                                    │
 │                                                                                                    │
---- main.rs  oso  restricted  1:0  Fundamental  UTF-8 LF                                             -
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
 "                                                                                                    "
 float at row 0, column 19: 12 x 62
 │ …/… Find file in oso:                                        │
@@ -78,7 +78,7 @@ step: C-n, then a batch: the row moved to stays
 │                                                                                                    │
 │                                                                                                    │
 │                                                                                                    │
---- main.rs  oso  restricted  1:0  Fundamental  UTF-8 LF                                             -
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
 "                                                                                                    "
 float at row 0, column 19: 12 x 62
 │ …/… Find file in oso:                                        │
@@ -109,7 +109,7 @@ step: the last batch, and the walk ends
 │                                                                                                    │
 │                                                                                                    │
 │                                                                                                    │
---- main.rs  oso  restricted  1:0  Fundamental  UTF-8 LF                                             -
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
 "                                                                                                    "
 float at row 0, column 19: 12 x 62
 │ 4/7 Find file in oso:                                        │
@@ -140,7 +140,7 @@ step: r s
 │                                                                                                    │
 │                                                                                                    │
 │                                                                                                    │
---- main.rs  oso  restricted  1:0  Fundamental  UTF-8 LF                                             -
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
 "                                                                                                    "
 float at row 0, column 19: 12 x 62
 │ 1/4 Find file in oso: rs                                     │

@@ -11,6 +11,7 @@ rust-version.workspace = true
 oso-core.workspace = true
 oso-render.workspace = true
 oso-platform.workspace = true
+oso-syntax.workspace = true
 pollster.workspace = true
 log.workspace = true
 env_logger.workspace = true
