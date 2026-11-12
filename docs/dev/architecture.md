@@ -548,8 +548,10 @@ The UI thread never blocks on I/O or parsing:
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row, and a report draws a frame only
-  if a window shows runs it changed. Buffers that may hold secrets and
-  files over 2 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
+  parsed again, with their own grammars, wherever the worker highlights. Buffers that may
+  hold secrets and files over 2 MiB are not parsed
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

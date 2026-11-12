@@ -206,3 +206,23 @@ fn a_spent_command_reads_nothing_more() {
     assert_eq!(end, text.len(), "where it got to: nowhere");
     assert!(!budget.is_spent(), "it tried to read nothing");
 }
+
+#[test]
+fn a_stop_spent_on_the_blanks_after_a_comment_reads_no_highlights() {
+    // The walk back over the trailing blanks takes all of a stop's reads, so the code ends
+    // where it got to, among the blanks, not before the comment those blanks are part of.
+    let blanks = " ".repeat(MAX_STOP_WALK * 2);
+    let text = format!("x; // c{blanks}");
+    let display = display(&text);
+    let highlights = highlights(&text, &[(&format!("// c{blanks}"), Highlight::Comment)]);
+    let end = code_end_of(&display, 0, Some(&highlights), &mut WalkBudget::new());
+    assert!(end > "x; // c".len(), "{end}");
+}
+
+/// Rust's grammar finds no comment after a full-width space (oso-syntax's
+/// `a_full_width_space_before_a_comment`), so `C-e` ends where the text does.
+#[test]
+fn after_a_full_width_space_rust_finds_no_comment_and_the_code_ends_at_the_text() {
+    let text = "let x = 1;\u{3000}// note";
+    assert_eq!(end(text, 0, &[("1", Highlight::Constant)]), text.len());
+}

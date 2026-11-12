@@ -240,8 +240,8 @@ alongside the steps above, after M2-16:
   ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)). Nothing in M3 has to wait: what
   opening or saving starts in M3 runs in oso's own process, and the release build cannot spawn.
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Later, Markdown's fenced code tagged
-  `rust` or `toml` is highlighted with those grammars.
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Markdown's fenced code tagged `rust`
+  or `toml` is highlighted with those grammars.
 - Window splits ([ADR 0112](adr/0112-window-splits.md)), indentation
   ([ADR 0115](adr/0115-indentation.md)), project trust model.
 - Project file finding and asynchronous ripgrep-style search, in-process

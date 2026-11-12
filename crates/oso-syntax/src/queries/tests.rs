@@ -11,7 +11,7 @@ const ALL: [Kind; 5] = [
     Kind::Highlights(Language::Markdown),
     Kind::Highlights(Language::MarkdownInline),
     Kind::Highlights(Language::Toml),
-    Kind::Inlines,
+    Kind::Injections,
 ];
 
 /// The predicates tree-sitter's crate evaluates itself (ADR 0111).
@@ -30,7 +30,7 @@ fn every_query_compiles_once() {
 #[test]
 fn every_highlight_capture_names_a_class() {
     let mut queries = Queries::new();
-    for kind in ALL.into_iter().filter(|kind| *kind != Kind::Inlines) {
+    for kind in ALL.into_iter().filter(|kind| *kind != Kind::Injections) {
         assert!(queries.prepare(kind), "{kind:?}");
         let prepared = queries.get(kind).unwrap();
         for (name, class) in prepared.query.capture_names().iter().zip(&prepared.classes) {
