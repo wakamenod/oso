@@ -153,7 +153,7 @@ impl Editor {
             window: window.id(),
             row: window.cursor_row(&display),
             top: window.top_row(&display),
-            searching: self.isearch().is_some(),
+            searching: self.isearch().is_some() || self.replace().is_some(),
         }
     }
 

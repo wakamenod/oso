@@ -45,6 +45,8 @@ const GAP: &str = "  ";
 const AGENT: &str = "Agent  ";
 /// The most cells a project's name takes (ADR 0114).
 const PROJECT_CELLS: usize = 24;
+/// Says that the buffer's project is not trusted to run its code (ADR 0114).
+const RESTRICTED: &str = "restricted  ";
 
 /// The text of the modeline and the echo area. Comparing two says whether a frame
 /// would differ there.
@@ -62,6 +64,9 @@ pub struct Status {
     /// The name of the project the buffer's file is in, cut to [`PROJECT_CELLS`], or nothing
     /// (ADR 0114).
     pub project: String,
+    /// `restricted` while that project is not trusted, which the host draws dim, or nothing
+    /// (ADR 0114). It comes from the record of trusted projects alone, never from a name.
+    pub restricted: &'static str,
     /// Loading progress, the position, the major mode, the encoding and line endings.
     pub state: String,
     /// The echo area's line, as it comes from a message.
@@ -80,8 +85,8 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}",
-            self.agent, self.warnings, self.name, self.project, self.state
+            "{}{}{}{}{}{}",
+            self.agent, self.warnings, self.name, self.project, self.restricted, self.state
         )
     }
 
@@ -225,9 +230,15 @@ impl Editor {
         status.state.clear();
         push_state(&mut status.state, window, buffer);
         status.project.clear();
-        if let Some(project) = self.buffer_project(window.buffer()) {
+        status.restricted = "";
+        if let Some(id) = buffer.project()
+            && let Some(project) = self.project(id)
+        {
             push_cut(&mut status.project, project.name(), PROJECT_CELLS);
             status.project.push_str(GAP);
+            if !self.project_trusted(id) {
+                status.restricted = RESTRICTED;
+            }
         }
 
         let marker = marker(buffer);
@@ -238,6 +249,7 @@ impl Editor {
             + 1
             + GAP.len()
             + text_cells(&status.project)
+            + status.restricted.len()
             + status.state.len();
         let columns = regions.modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
@@ -292,6 +304,7 @@ impl Editor {
         out.push_str(self.echo_text());
         if out.is_empty() {
             self.write_isearch_line(out);
+            self.write_replace_line(out);
         }
     }
 }
@@ -361,6 +374,7 @@ mod tests {
                 identity: Some((1, 2)),
             },
             worktree_of: None,
+            checked_main: None,
         };
         editor.set_buffer_project(id, Some(found));
     }
@@ -371,7 +385,7 @@ mod tests {
         in_project(&mut editor, "/w/oso");
         assert_eq!(
             status(&editor).modeline(),
-            "%% notes.md  oso  Loading 0 MiB  1:0  Fundamental  UTF-8 LF"
+            "%% notes.md  oso  restricted  Loading 0 MiB  1:0  Fundamental  UTF-8 LF"
         );
         in_project(&mut editor, "/w/a-very-long-project-name-that-goes-on");
         let long = status(&editor).project;
@@ -382,6 +396,24 @@ mod tests {
     fn a_buffer_in_no_project_shows_none() {
         let editor = file("notes.md", 80);
         assert_eq!(status(&editor).project, "");
+        assert_eq!(status(&editor).restricted, "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restricted_goes_once_the_record_trusts_the_root() {
+        let mut editor = file("notes.md", 80);
+        in_project(&mut editor, "/w/oso");
+        assert_eq!(status(&editor).restricted, RESTRICTED, "not read yet");
+        let (list, _) = crate::project::TrustList::parse("/w/oso\tdev=1 ino=3\n");
+        editor.set_trust_list(Some(list));
+        assert_eq!(status(&editor).restricted, RESTRICTED, "another directory");
+        let (list, _) = crate::project::TrustList::parse("/w/oso\tdev=1 ino=2\n");
+        editor.set_trust_list(Some(list));
+        assert_eq!(status(&editor).restricted, "");
+        assert_eq!(status(&editor).project, "oso  ");
+        editor.set_trust_list(None);
+        assert_eq!(status(&editor).restricted, RESTRICTED, "refused");
     }
 
     #[test]

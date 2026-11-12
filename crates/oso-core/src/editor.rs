@@ -53,6 +53,7 @@ mod messages;
 mod projects;
 mod prompts;
 mod reload;
+mod replace;
 mod save;
 mod screen;
 mod status;
@@ -78,9 +79,10 @@ pub use gutter::Gutter;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
-pub use projects::ProjectRequest;
+pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
+pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
@@ -226,10 +228,14 @@ pub struct Editor {
     projects: Vec<Project>,
     /// Files whose project the host should find.
     project_requests: Vec<ProjectRequest>,
+    /// The record of trusted projects, and what of it waits to be written.
+    trust: projects::Trust,
     themes: themes::Themes,
     aids: VisualAids,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
     trims: trim::Trims,
+    /// query-replace's session, and the last pairs given (ADR 0113).
+    replacing: replace::Replacing,
 }
 
 impl Default for Editor {
@@ -299,9 +305,11 @@ impl Editor {
             reverts: Vec::new(),
             projects: Vec::new(),
             project_requests: Vec::new(),
+            trust: projects::Trust::default(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
             trims: trim::Trims::default(),
+            replacing: replace::Replacing::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));

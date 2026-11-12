@@ -124,10 +124,14 @@ impl App {
         self.configuration.directories.clone()
     }
 
-    /// Asks the configuration's thread to look at the file now: oso gained the focus, or saved.
+    /// Asks the configuration's thread to look at the file now, and the thread of the record of
+    /// trusted projects to look at that one, beside it: oso gained the focus, or saved.
     pub(super) fn look_at_configuration_again(&self) {
         if let Some(reader) = &self.configuration.reader {
             reader.look_again();
+        }
+        if let Some(trust_file) = &self.trust_file {
+            trust_file.look_again();
         }
     }
 

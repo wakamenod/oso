@@ -249,8 +249,12 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   count, and a file not yet judged shows none of them.
 - A frame of two rows has no modeline, and its warnings go first on the echo row. A frame of
   one row has no place for them ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-- M3 adds the project: its name, then `restricted` in the dim face until it
-  is trusted ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- The project, after the name: its root's last component, cut to 24 cells, then
+  `restricted` in the dim face, as `Agent` is, while the record of trusted projects
+  does not trust it, also while that record is unread or refused. A buffer in no project
+  shows neither ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+  `M-x trust-project` asks "Trust ~/src/oso? Its code may run through language servers,
+  formatters and git hooks (y or n)", with the verbs `trust` and `keep restricted`.
 
 ## Cursor
 
@@ -342,6 +346,20 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case
   ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
+
+## query-replace
+
+- `M-%` reads the string and its replacement in two prompts, which take Japanese as the prompt
+  for a file's name does; an empty string takes the last pair, which the first prompt offers
+  ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+- It runs from the cursor to the end of the buffer, or within the regions shown, with smart
+  case, and the replacement takes the match's case while case folds.
+- The echo area says `Query replacing foo with bar: [3/17] (? for help)`, and the matches in
+  the scope are highlighted as isearch's are.
+- At each match: `y`/`SPC` replace, `n`/`DEL` skip, `!` the rest, `.` this one and end, `,` this
+  one and stay, `^` back, `u` undo the last replacement, `q`/`RET` end, `?` the keys. `C-g` ends
+  it keeping what it replaced, and any other key ends it and runs.
+- The whole session undoes as one step.
 
 ## Input method (IME)
 

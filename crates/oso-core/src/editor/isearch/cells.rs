@@ -8,6 +8,7 @@
 
 use std::ops::Range;
 
+use crate::buffer::BufferId;
 use crate::display_map::DisplayPoint;
 use crate::editor::Editor;
 use crate::frame::{self, CellRect};
@@ -34,35 +35,59 @@ pub struct MatchCells {
     found: Vec<Range<usize>>,
 }
 
+/// What [`Editor::match_cells`] looks for: a query, the current match, and a scope.
+pub(in crate::editor) type MatchQuery<'a> = (
+    &'a search::Query,
+    Option<&'a Range<usize>>,
+    Option<&'a [Range<usize>]>,
+);
+
 impl Editor {
     /// The cells the matches in view take in the text area of the tiled window `id`, as
     /// `screen` shows it ([`Editor::screen_of`]), into `cells`, emptied first. isearch runs in
     /// the selected window, and only it shows them (ADR 0112).
     pub fn isearch_cells(&self, id: WindowId, screen: &Screen, cells: &mut MatchCells) {
-        let MatchCells {
-            current,
-            others,
-            spans,
-            found,
-        } = cells;
-        current.clear();
-        others.clear();
-        spans.clear();
-        found.clear();
+        cells.current.clear();
+        cells.others.clear();
         let Some(state) = &self.isearch else {
             return;
         };
         let Some(query) = &state.query else {
             return;
         };
-        let Some((window, buffer, regions)) = self.selected_in_tree(id) else {
+        let current = state.current.as_ref().filter(|_| !state.failing);
+        self.match_cells(id, state.buffer, screen, (query, current, None), cells);
+    }
+
+    /// The cells of a query's matches in view in the tiled window `id`, if it is the selected
+    /// one and shows `buffer`, within a scope if given, the current one apart, into `cells`,
+    /// emptied first: isearch's and query-replace's (ADR 0113).
+    pub(in crate::editor) fn match_cells(
+        &self,
+        id: WindowId,
+        buffer: BufferId,
+        screen: &Screen,
+        (query, current, scope): MatchQuery<'_>,
+        cells: &mut MatchCells,
+    ) {
+        let MatchCells {
+            current: current_cells,
+            others,
+            spans,
+            found,
+        } = cells;
+        current_cells.clear();
+        others.clear();
+        spans.clear();
+        found.clear();
+        let Some((window, shown, regions)) = self.selected_in_tree(id) else {
             return;
         };
-        if window.buffer() != state.buffer {
+        if window.buffer() != buffer {
             return;
         }
-        let display = buffer.display();
-        let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
+        let display = shown.display();
+        let (text, invalid) = (shown.text(), shown.invalid_bytes());
         let area = regions.text;
         let reach = query.max_bytes();
         // Each view row's columns in view, widened, and joined where they meet.
@@ -78,13 +103,25 @@ impl Editor {
                 _ => spans.push(start..end),
             }
         }
+        if let Some(scope) = scope {
+            // Only what is in both, so a match outside the scope shows nothing.
+            let view = std::mem::take(spans);
+            for span in &view {
+                for range in scope {
+                    let (start, end) = (span.start.max(range.start), span.end.min(range.end));
+                    if start < end {
+                        spans.push(start..end);
+                    }
+                }
+            }
+        }
         let limits = (MAX_MATCHES_SHOWN, FRAME_BUDGET);
         search::matches_in((text, invalid), query, spans, limits, found);
         // The current one alone, and the rest without what overlaps it.
-        if let Some(range) = state.current.as_ref().filter(|_| !state.failing) {
+        if let Some(range) = current {
             found.retain(|other| other.end <= range.start || other.start >= range.end);
             let one = std::slice::from_ref(range);
-            frame::match_cells(area, screen, &display, one, current);
+            frame::match_cells(area, screen, &display, one, current_cells);
         }
         frame::match_cells(area, screen, &display, found, others);
     }

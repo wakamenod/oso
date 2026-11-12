@@ -384,7 +384,7 @@ fn held(editor: &Editor) -> Result<(), String> {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
-    if editor.isearch().is_some() {
+    if editor.isearch().is_some() || editor.replace().is_some() {
         return Err(SEARCHING.into());
     }
     if editor.frame().windows().len() > 1 {
@@ -463,7 +463,7 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
             Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
         Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
-        Some(_) if editor.isearch().is_some() => {
+        Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
             Err(format!("{EXIT_REFUSED}: a search is under way"))
         }
         Some(_) if editor.frame().windows().len() > 1 => Err(format!(

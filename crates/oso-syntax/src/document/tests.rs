@@ -14,6 +14,20 @@ use crate::language::Language;
 
 pub(super) const LONG: Duration = Duration::from_secs(30);
 
+/// A property test's number of cases: `default`, or `PROPTEST_CASES` if it is set, so that the
+/// weekly workflow runs many more.
+pub(super) fn cases(default: u32) -> proptest::prelude::ProptestConfig {
+    let config = proptest::prelude::ProptestConfig::default();
+    if std::env::var_os("PROPTEST_CASES").is_some() {
+        config
+    } else {
+        proptest::prelude::ProptestConfig {
+            cases: default,
+            ..config
+        }
+    }
+}
+
 /// A node's kind, its bytes, and its first and last points as rows and columns.
 pub(super) type Node = (String, usize, usize, (usize, usize), (usize, usize));
 
@@ -156,7 +170,11 @@ fn a_text_past_the_size_limit_is_not_parsed() {
 fn a_parse_past_its_time_limit_stops_for_good() {
     let text = "fn f(a: u32) -> u32 { a + 1 }\n".repeat(20_000);
     let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
-    document.limits = (Duration::from_micros(300), Duration::from_micros(300));
+    document.limits = (
+        Duration::from_micros(300),
+        Duration::from_micros(300),
+        Duration::from_micros(300),
+    );
     let mut result = Parsed::Paused;
     for _ in 0..100_000 {
         result = document.parse(Duration::from_micros(100));

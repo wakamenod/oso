@@ -25,6 +25,7 @@ mod png;
 mod prompts;
 mod recovery;
 mod reload;
+mod replace;
 #[cfg(target_os = "macos")]
 mod secure;
 mod windows;

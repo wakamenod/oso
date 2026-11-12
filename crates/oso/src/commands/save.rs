@@ -76,7 +76,10 @@ fn save_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             .map(|baseline| baseline.location.clone())
             .or_else(|| buffer.path().map(std::path::Path::to_path_buf))
             .unwrap_or_default();
-        let question = format!("Save {}, which the agent opened?", shown_place(&place));
+        let question = format!(
+            "Save {}, which the agent opened?",
+            super::shown_place(&place, ctx.editor.home(), PLACE_CELLS)
+        );
         return super::session::ask(
             ctx,
             question,
@@ -90,25 +93,6 @@ fn save_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 /// The cells of a place the agent's save question shows: its end, which names the file.
 const PLACE_CELLS: usize = 48;
-
-/// `place` as the person reads it: home as `~`, and only its last [`PLACE_CELLS`] cells,
-/// after `…`, when it is longer.
-fn shown_place(place: &std::path::Path) -> String {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    let shown = match home
-        .as_deref()
-        .and_then(|home| place.strip_prefix(home).ok())
-    {
-        Some(rest) => format!("~/{}", rest.display()),
-        None => place.display().to_string(),
-    };
-    let chars: Vec<char> = shown.chars().collect();
-    if chars.len() <= PLACE_CELLS {
-        return shown;
-    }
-    let tail: String = chars[chars.len() - PLACE_CELLS..].iter().collect();
-    format!("…{tail}")
-}
 
 /// Starts saving the selected buffer, over a file changed on disk if `over`.
 fn start_save(ctx: &mut Ctx<'_>, over: bool) -> Result<(), CommandError> {
@@ -172,16 +156,15 @@ mod tests {
         assert!(visited.prompt().is_none());
     }
 
-    // Unix paths and `HOME`, which Windows need not have.
     #[cfg(unix)]
     #[test]
     fn the_place_shows_its_end_and_home_as_a_tilde() {
-        let home = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap();
-        assert_eq!(super::shown_place(&home.join("notes.md")), "~/notes.md");
+        use super::super::shown_place;
+        let home = std::path::Path::new("/home/me");
+        let shown = shown_place(&home.join("notes.md"), Some(home), super::PLACE_CELLS);
+        assert_eq!(shown, "~/notes.md");
         let long = std::path::PathBuf::from(format!("/{}/settings.json", "d".repeat(80)));
-        let shown = super::shown_place(&long);
+        let shown = shown_place(&long, Some(home), super::PLACE_CELLS);
         assert!(
             shown.starts_with('…') && shown.ends_with("settings.json"),
             "{shown}"

@@ -218,6 +218,23 @@ impl Buffer {
         self.history.can_join(self.content, selections)
     }
 
+    /// Joins the undo groups made since the state `before` into one, which goes back to
+    /// `selections` if given (ADR 0113). Returns
+    /// whether it joined any.
+    pub(crate) fn join_undo_since(
+        &mut self,
+        (before, evicted): (ContentId, u64),
+        selections: Option<SelectionSet>,
+    ) -> bool {
+        self.history.join_since(before, selections, evicted)
+    }
+
+    /// Where the undo history stands, for [`Buffer::join_undo_since`] later: this state, and
+    /// how many groups the limit has dropped so far.
+    pub(crate) fn undo_mark(&self) -> (ContentId, u64) {
+        (self.content, self.history.evicted())
+    }
+
     /// Sets the cursors the newest undo group ends with.
     pub(crate) fn set_undo_after(&mut self, selections: SelectionSet) {
         self.history.set_after(selections);
