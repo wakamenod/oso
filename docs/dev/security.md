@@ -86,7 +86,14 @@ network features.
   16 MiB skips the rest of its file, a NUL byte stops it, and a search keeps at
   most 10,000 rows of at most 512 bytes of text. A file whose name may hold
   secrets, as the path walked or as the root leads, is searched, but its rows
-  carry no text and are never previewed. A file that could not be opened for a
+  carry no text and are never previewed: nothing of it is read for a preview.
+  A preview reads a row's file on `oso-preview` as the search reached it: the
+  root by its path with the same home checks, then each directory and the file
+  from the one before, following no link and waiting for nothing, a regular
+  file only, judged again by its name as the path walked and as the root leads.
+  It reads at most 64 KiB before the row's line and 16 MiB in all, keeps at
+  most 256 lines of at most 4 KiB, opens no buffer, and an open buffer of a file
+  that may hold secrets is never shown in it. A file that could not be opened for a
   reason other than its being gone or refused ends the search with `+`. On
   macOS a file a sync service keeps elsewhere is not read, as reading would
   fetch it.

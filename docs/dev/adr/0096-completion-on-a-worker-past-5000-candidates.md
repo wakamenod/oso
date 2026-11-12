@@ -1,6 +1,6 @@
 # 0096. Completion on a worker past 5000 candidates
 
-- Status: Accepted
+- Status: Accepted, amended by 0114
 - Date: 2026-11-09
 
 ## Context

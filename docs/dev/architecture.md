@@ -524,6 +524,14 @@ The UI thread never blocks on I/O or parsing:
   narrows a whole search's input sends that search's generation, and `oso-grep` looks through
   the lines it kept, at most 16 MiB, instead of walking
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- The selected row's preview is read on `oso-preview` (`grep/preview.rs`): the editor asks once
+  per row selected (`Editor::take_preview_request`), with the row's byte offset, unless the row's
+  file may hold secrets or an open buffer of it shows; the thread reads the newest request
+  waiting, opening the file from the root a directory at a time, and builds an
+  `oso_core::editor::Excerpt`, the lines around the row with their display model, which comes
+  back as `UserEvent::Previewed`. The editor shows it as `Preview::Excerpt`, drawn as a text pane
+  of its own whose revision is the excerpt's, or an open buffer of the same file by device and
+  inode in its place (`editor/project_search/preview.rs`).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
