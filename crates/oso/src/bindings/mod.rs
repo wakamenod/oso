@@ -23,6 +23,7 @@ mod scroll;
 mod session;
 mod theme;
 mod view;
+mod windows;
 
 use oso_core::command::Registry;
 use oso_core::keymap::Keymap;
@@ -53,6 +54,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     session::BINDINGS,
     theme::BINDINGS,
     view::BINDINGS,
+    windows::BINDINGS,
 ];
 
 /// The default global keymap, over the commands in `registry`.

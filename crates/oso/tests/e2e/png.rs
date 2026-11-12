@@ -76,6 +76,27 @@ impl Png {
         })
     }
 
+    /// How many pixels in `columns` of `rows` differ from the background, the bottom right
+    /// corner's colour as for [`Png::foreground`].
+    pub fn drawn_in(&self, columns: std::ops::Range<u32>, rows: std::ops::Range<u32>) -> usize {
+        let Some(background) = self.rgba.last_chunk::<4>() else {
+            return 0;
+        };
+        let stride = self.width as usize * 4;
+        rows.filter(|&y| y < self.height)
+            .flat_map(|y| {
+                columns
+                    .clone()
+                    .filter(|&x| x < self.width)
+                    .map(move |x| (x, y))
+            })
+            .filter(|&(x, y)| {
+                let at = y as usize * stride + x as usize * 4;
+                self.rgba.get(at..at + 4) != Some(&background[..])
+            })
+            .count()
+    }
+
     /// What differs from the background in the topmost rows that hold any, down to
     /// the first row that holds none. So the modeline's bar and text, below a gap of
     /// empty rows, do not count. The background is taken to be the bottom right

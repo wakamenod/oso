@@ -25,8 +25,12 @@ pub enum Face {
     /// The outline of a cursor other than the primary, dimmer than the cursor box, over
     /// glyphs as they are (ADR 0091). Only its background is drawn.
     SecondaryCursor,
-    /// A modeline, and its text.
+    /// A modeline, and its text: the selected window's.
     Modeline,
+    /// The modeline of a window that is not selected, and its text, dimmer (ADR 0112).
+    ModelineInactive,
+    /// The line between side by side windows, down the middle of its column (ADR 0112).
+    Divider,
     /// A warning that must be seen, on whatever is behind it.
     Warning,
     /// Text an input method is composing, and its underline (ADR 0069). It is
@@ -206,6 +210,9 @@ pub enum PaneContent<'a> {
     /// One row that stands for typed text without showing it, such as one `*` per
     /// character of a passphrase (ADR 0072), with a cursor box.
     Masked(Masked<'a>),
+    /// The line between side by side windows: one pixel wide down the middle of the pane's
+    /// column, in [`Face::Divider`] (ADR 0112).
+    Divider,
 }
 
 /// What [`PaneContent::Masked`] shows.

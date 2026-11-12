@@ -12,7 +12,7 @@ use std::time::Instant;
 use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
 use oso_core::editor::{Editor, Status};
-use oso_core::window::WheelRemainder;
+use oso_core::window::{WheelRemainder, WindowId};
 
 mod agent;
 mod clipboard;
@@ -147,10 +147,10 @@ pub struct App {
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
     wheel: WheelRemainder,
-    /// What the modeline and the echo area said when a frame was last drawn or asked
-    /// for, and room to compare it with what they would say now.
-    status: Status,
-    next_status: Status,
+    /// What each tiled window's modeline and the echo area said when a frame was last drawn
+    /// or asked for, and room to compare it with what they would say now (ADR 0112).
+    statuses: Vec<(WindowId, Status)>,
+    next_statuses: Vec<(WindowId, Status)>,
     /// What oso has told the OS about the input method (ADR 0069).
     ime: ime::ImeState,
     /// The OS clipboard's threads, or none if they could not start (ADR 0074).
@@ -289,8 +289,8 @@ impl App {
             scan_for_copies: false,
             started: Some(started),
             wheel: WheelRemainder::default(),
-            status: Status::default(),
-            next_status: Status::default(),
+            statuses: Vec::new(),
+            next_statuses: Vec::new(),
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),

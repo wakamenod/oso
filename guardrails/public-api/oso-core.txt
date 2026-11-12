@@ -3189,6 +3189,8 @@ pub fn oso_core::window::Window::places(&self) -> impl core::iter::traits::itera
 impl core::fmt::Debug for oso_core::window::Window
 pub fn oso_core::window::Window::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::window::WindowId(_)
+impl oso_core::window::WindowId
+pub const fn oso_core::window::WindowId::get(self) -> u64
 impl core::clone::Clone for oso_core::window::WindowId
 pub fn oso_core::window::WindowId::clone(&self) -> oso_core::window::WindowId
 impl core::cmp::Eq for oso_core::window::WindowId

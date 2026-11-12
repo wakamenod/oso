@@ -17,51 +17,15 @@ keys: none
 =-- test  1:0  Fundamenta=
 "                        "
 
-keys: run:split-window-below
-WindowId(0) at row 0, column 0: 6 x 24, selected
-│line 1                  │
-:^                       :
-│line 2                  │
-│line 3                  │
-│line 4                  │
-│line 5                  │
-=-- test  1:0  Fundamenta=
-WindowId(1) at row 6, column 0: 5 x 24
-│line 1                  │
-:o                       :
-│line 2                  │
-│line 3                  │
-│line 4                  │
---- test  1:0  Fundamenta-
-"                        "
-
-keys: C-n C-n C-f
-WindowId(0) at row 0, column 0: 6 x 24, selected
-│line 1                  │
-│line 2                  │
-│line 3                  │
-: ^                      :
-│line 4                  │
-│line 5                  │
-=-- test  3:1  Fundamenta=
-WindowId(1) at row 6, column 0: 5 x 24
-│line 1                  │
-:o                       :
-│line 2                  │
-│line 3                  │
-│line 4                  │
---- test  1:0  Fundamenta-
-"                        "
-
-keys: run:other-window
+keys: C-x 2
 WindowId(0) at row 0, column 0: 6 x 24
 │line 1                  │
+:o                       :
 │line 2                  │
 │line 3                  │
-: o                      :
 │line 4                  │
 │line 5                  │
---- test  3:1  Fundamenta-
+--- test  1:0  Fundamenta-
 WindowId(1) at row 6, column 0: 5 x 24, selected
 │line 1                  │
 :^                       :
@@ -71,14 +35,44 @@ WindowId(1) at row 6, column 0: 5 x 24, selected
 =-- test  1:0  Fundamenta=
 "                        "
 
-keys: run:enlarge-window 2
-WindowId(0) at row 0, column 0: 4 x 24
+keys: C-n C-n C-f
+WindowId(0) at row 0, column 0: 6 x 24
+│line 1                  │
+:o                       :
+│line 2                  │
+│line 3                  │
+│line 4                  │
+│line 5                  │
+--- test  1:0  Fundamenta-
+WindowId(1) at row 6, column 0: 5 x 24, selected
+│line 1                  │
+│line 2                  │
+│line 3                  │
+: ^                      :
+│line 4                  │
+=-- test  3:1  Fundamenta=
+"                        "
+
+keys: C-x o
+WindowId(0) at row 0, column 0: 6 x 24, selected
+│line 1                  │
+:^                       :
+│line 2                  │
+│line 3                  │
+│line 4                  │
+│line 5                  │
+=-- test  1:0  Fundamenta=
+WindowId(1) at row 6, column 0: 5 x 24
 │line 1                  │
 │line 2                  │
 │line 3                  │
 : o                      :
+│line 4                  │
 --- test  3:1  Fundamenta-
-WindowId(1) at row 4, column 0: 7 x 24, selected
+"                        "
+
+keys: C-u 2 C-x ^
+WindowId(0) at row 0, column 0: 8 x 24, selected
 │line 1                  │
 :^                       :
 │line 2                  │
@@ -86,11 +80,16 @@ WindowId(1) at row 4, column 0: 7 x 24, selected
 │line 4                  │
 │line 5                  │
 │line 6                  │
+│line 7                  │
 =-- test  1:0  Fundamenta=
+WindowId(1) at row 8, column 0: 3 x 24
+│line 2                  │
+│line 3                  │
+: o                      :
+--- test  3:1  Fundamenta-
 "                        "
 
-keys: run:delete-window
-│line 1                  │
+keys: C-x 0
 │line 2                  │
 │line 3                  │
 : ^                      :
@@ -101,5 +100,6 @@ keys: run:delete-window
 │line 8                  │
 │line 9                  │
 │line 10                 │
+│line 11                 │
 =-- test  3:1  Fundamenta=
 "                        "

@@ -1,4 +1,5 @@
-//! Drawing: the window and its renderer, and what a frame shows.
+//! Drawing: the window and its renderer, and what a frame shows: every tiled window, the echo
+//! area and a prompt's float (ADR 0112).
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
 //! has loaded and fits the gutter to it, as a load is no input; otherwise a frame only
@@ -10,47 +11,33 @@
 
 use std::time::Instant;
 
-use oso_core::editor::{Editor, Gutter, MatchCells, Status};
-use oso_core::frame;
-use oso_core::window::Screen;
-use oso_render::{
-    Bands, CursorStyle, Face, FlashFill, Layer, Pane, PaneContent, PaneId, Redraw, RenderState,
-    Span, TextView,
-};
+use oso_core::editor::{Editor, Status};
+use oso_core::window::{Screen, WindowId};
+use oso_render::{Bands, Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span};
 
 use super::App;
 use super::shell::{Loop, Window};
 use crate::text;
 
 mod float;
+mod tiled;
 
-/// The cells a frame fills behind the text, kept from frame to frame so they are not
-/// allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), and the current
-/// line's band and trailing whitespace (ADR 0097). Also the cursor flash, which the app sets
+pub(super) use tiled::statuses_into;
+
+/// What a frame draws besides the editor's state, kept from frame to frame so that it is not
+/// allocated again: each tiled window's cells (ADR 0112), the rows of the innermost prompt's
+/// answer and of the buffer it previews (ADR 0088), and the cursor flash, which the app sets
 /// before a frame.
 #[derive(Default)]
 pub(super) struct Cells {
-    region: Vec<frame::CellRect>,
-    /// The boxes of the cursors other than the primary (ADR 0091).
-    others: Vec<frame::CellRect>,
-    matches: MatchCells,
-    band: Vec<frame::CellRect>,
-    trailing: Vec<frame::CellRect>,
+    windows: Vec<tiled::WindowCells>,
     /// The cursor flash's strength in this frame, from the app's clock (ADR 0097).
     pub(super) flash: Option<f32>,
-    /// The tiled window's rows in view, built once a frame, which everything it draws reads
-    /// (ADR 0104).
-    screen: Screen,
-    /// The rows of the innermost prompt's answer, and of the buffer it previews (ADR 0088).
     answer: Screen,
     preview: Screen,
-    /// The gutter's line numbers in view (ADR 0097).
-    gutter: Gutter,
-    /// Room for the gutter's spans and rows, empty between frames, so that a frame with line
-    /// numbers allocates nothing once warm. Each frame takes it at its own lifetime
-    /// ([`reuse`]).
-    numbers: Vec<[Span<'static>; 1]>,
-    rows: Vec<&'static [Span<'static>]>,
+    /// Room for the spans and rows each frame lists, empty between frames.
+    room: tiled::Room,
+    panes: Vec<Pane<'static>>,
 }
 
 /// `room`'s allocation, emptied, for elements that differ from its own only in their
@@ -61,179 +48,77 @@ fn reuse<T, U>(mut room: Vec<T>) -> Vec<U> {
     room.into_iter().filter_map(|_| None).collect()
 }
 
-/// Calls `draw` with what the frame shows, for the renderer. The cells behind the text go
-/// in `cells`, which a frame reuses.
+/// The echo area's pane, apart from every window's and float's.
+const ECHO: PaneId = PaneId(2);
+
+/// Calls `draw` with what the frame shows, for the renderer: every tiled window's panes, in
+/// the tree's order, with their `statuses` ([`statuses_into`]), the echo area, and a prompt's
+/// float over them. What they fill goes in `cells`, which a frame reuses.
 pub(super) fn with_panes<R>(
     editor: &Editor,
-    status: &Status,
+    statuses: &[(WindowId, Status)],
     cells: &mut Cells,
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
-    let span = |text, face| Span { text, face };
-    // Warnings first, so that nothing can push them off the row, after `Agent` while the
-    // agent channel is on: dim, and bright while an agent is connected (ADR 0085). A name and
-    // the rest are shaped apart, so that neither changes how the other reads.
-    let agent = if status.agent_connected {
-        Face::Warning
-    } else {
-        Face::Prompt
-    };
-    let modeline = [
-        span(status.agent, agent),
-        span(&status.warnings[..], Face::Warning),
-        span(&status.name[..], Face::Modeline),
-        span(&status.project[..], Face::Modeline),
-        // Dim, as `Agent` is: what the trust record says, never a name (ADR 0114).
-        span(status.restricted, Face::Prompt),
-        span(&status.state[..], Face::Modeline),
-    ];
-    let echo = [
-        span(status.echo_warnings(), Face::Warning),
-        span(&status.echo[..], Face::Text),
-    ];
-    editor.screen(&mut cells.screen);
+    tiled::fill(editor, &mut cells.windows);
     editor.prompt_screen(&mut cells.answer);
     editor.preview_screen(&mut cells.preview);
-    let screen = &cells.screen;
-    let tiled = editor.tiled().0.id();
-    editor.region_cells(tiled, screen, &mut cells.region);
-    editor.other_cursor_cells(tiled, screen, &mut cells.others);
-    editor.isearch_cells(tiled, screen, &mut cells.matches);
-    editor.replace_cells(tiled, screen, &mut cells.matches);
-    editor.trailing_cells(tiled, screen, &mut cells.trailing);
-    editor.gutter_into(tiled, screen, &mut cells.gutter);
-    let flash = (cells.flash).and_then(|strength| {
-        let cells = editor.flash_cells(tiled, screen)?;
-        Some(FlashFill { cells, strength })
-    });
-    // Built each frame, only with line numbers on, in room kept from the last (ADR 0097).
-    let mut numbers: Vec<[Span<'_>; 1]> = reuse(std::mem::take(&mut cells.numbers));
-    numbers.extend(cells.gutter.rows().map(|(text, current)| {
-        let face = if current {
-            Face::LineNumberCurrent
-        } else {
-            Face::LineNumber
-        };
-        [span(text, face)]
-    }));
-    let mut gutter: Vec<&[Span<'_>]> = reuse(std::mem::take(&mut cells.rows));
-    gutter.extend(numbers.iter().map(|row| &row[..]));
-    cells.band.clear();
-    cells.band.extend(editor.current_line_cells(tiled, screen));
-    // From the back: the current line's band, trailing whitespace, then the current match
-    // first, so that it always has room, and the regions over the matches.
-    let fills = [
-        (Face::CurrentLine, &cells.band[..]),
-        (Face::TrailingWhitespace, &cells.trailing[..]),
-        (Face::SearchCurrent, &cells.matches.current[..]),
-        (Face::SearchMatch, &cells.matches.others[..]),
-        (Face::Region, &cells.region[..]),
-    ];
-    let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
-    let marks = Marks {
-        screen,
-        fills: &fills,
-        others: &cells.others,
-        flash,
-        gutter: &gutter,
-    };
-    let tiled = panes(editor, marks, &modeline, &echo);
-    let drawn = match float::Parts::of(editor, &cells.answer) {
-        None => draw(&tiled),
-        Some(parts) => {
-            // A prompt's float goes over the tiled panes.
-            let spans = parts.spans();
-            let lines = spans.lines();
-            let mut list = Vec::with_capacity(tiled.len() + float::MAX_PANES);
-            list.extend(tiled);
-            let screens = float::Screens {
-                answer: &cells.answer,
-                preview: &cells.preview,
-            };
-            float::panes(editor, (&parts, screens), &lines, &mut list);
-            draw(&list)
-        }
-    };
-    cells.rows = reuse(gutter);
-    cells.numbers = reuse(numbers);
-    drawn
-}
-
-/// The gutter's pane, apart from every float's.
-const GUTTER: PaneId = PaneId(13);
-
-/// What the tiled window draws besides the text: the fills behind it, the other cursors'
-/// boxes, the cursor flash and the gutter's rows.
-struct Marks<'a> {
-    screen: &'a Screen,
-    fills: &'a [(Face, &'a [frame::CellRect])],
-    others: &'a [frame::CellRect],
-    flash: Option<FlashFill>,
-    gutter: &'a [&'a [Span<'a>]],
-}
-
-/// The tiled window, then the rows reserved below it. The later panes come first if
-/// a frame runs out of room, so no amount of text can take their place (ADR 0061).
-/// Beneath a prompt, the window's cursor is hollow and it shows no preedit, as it is
-/// not selected (ADR 0072).
-fn panes<'a>(
-    editor: &'a Editor,
-    Marks {
-        screen,
-        fills,
-        others,
-        flash,
-        gutter,
-    }: Marks<'a>,
-    modeline: &'a [&'a [Span<'a>]],
-    echo: &'a [&'a [Span<'a>]],
-) -> [Pane<'a>; 4] {
-    let (window, buffer) = editor.tiled();
-    let beneath = editor.prompt().is_some();
-    let display = buffer.display();
-    let cursor = window.cursor_point(&display);
-    let regions = editor.tiled_regions();
-    let text = PaneContent::Text(TextView {
-        display,
-        buffer: window.buffer(),
-        revision: buffer.revision(),
-        screen,
-        cursor,
-        cursor_style: if beneath {
-            CursorStyle::Hollow
-        } else {
-            CursorStyle::Box
+    let empty = Status::default();
+    let status = tiled::tiled_status(editor, statuses).unwrap_or(&empty);
+    let echo = [
+        Span {
+            text: status.echo_warnings(),
+            face: Face::Warning,
         },
-        others,
-        // Where the screen was laid out with it: not beneath a prompt (ADR 0104).
-        preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
-        fills,
-        whitespace: editor.visual_aids().whitespace,
-        flash,
-    });
-    let pane = |id, region, background, content| Pane {
-        id: PaneId(id),
-        region,
+        Span {
+            text: &status.echo[..],
+            face: Face::Text,
+        },
+    ];
+    let echo = [&echo[..]];
+    let mut room = std::mem::take(&mut cells.room);
+    let windows = editor.frame().windows();
+    let spans = tiled::spans_of(windows, statuses, &cells.windows, &empty, &mut room);
+    let rows = tiled::rows_of(&spans.0, &spans.1, &mut room);
+    let drawn = tiled::Drawn {
+        cells: &cells.windows,
+        fills: &spans.2,
+        modelines: &rows.0,
+        gutters: &rows.1,
+        statuses,
+        flash: cells.flash,
+    };
+    // A prompt's float goes over the tiled panes.
+    let float = float::Parts::of(editor, &cells.answer);
+    let float_spans = float.as_ref().map(float::Parts::spans);
+    let lines = float_spans.as_ref().map(|spans| spans.lines());
+    let mut list: Vec<Pane<'_>> = reuse(std::mem::take(&mut cells.panes));
+    tiled::panes(editor, &drawn, &mut list);
+    // The echo area has no background of its own, so that nothing marks the pixels left
+    // over below it (ADR 0057). It comes after the windows, so that no amount of text can
+    // take its place (ADR 0061).
+    list.push(Pane {
+        id: ECHO,
+        region: editor.frame().echo,
         layer: Layer::TILED,
-        background,
+        background: None,
         panel: None,
         bands: Bands::NONE,
-        content,
-    };
-    [
-        pane(0, regions.text, None, text),
-        // No band and no fill: the current line's number marks the line there.
-        pane(GUTTER.0, regions.gutter, None, PaneContent::Lines(gutter)),
-        pane(
-            1,
-            regions.modeline,
-            Some(Face::Modeline),
-            PaneContent::Lines(modeline),
-        ),
-        // The echo area has no background of its own, so that nothing marks the
-        // pixels left over below it (ADR 0057).
-        pane(2, editor.frame().echo, None, PaneContent::Lines(echo)),
-    ]
+        content: PaneContent::Lines(&echo),
+    });
+    if let (Some(parts), Some(lines)) = (&float, &lines) {
+        let screens = float::Screens {
+            answer: &cells.answer,
+            preview: &cells.preview,
+        };
+        float::panes(editor, (parts, screens), lines, &mut list);
+    }
+    let result = draw(&list);
+    cells.panes = reuse(list);
+    tiled::give_back_rows(&mut room, rows);
+    tiled::give_back_spans(&mut room, spans);
+    cells.room = room;
+    result
 }
 
 /// The window and its renderer. The tip crate owns the window; `oso-render`
@@ -336,10 +221,9 @@ impl App {
         if self.view.is_none() {
             return;
         }
-        self.editor
-            .status_into(self.editor.tiled().0.id(), &mut self.next_status);
-        if self.next_status != self.status {
-            std::mem::swap(&mut self.status, &mut self.next_status);
+        statuses_into(&self.editor, &mut self.next_statuses);
+        if self.next_statuses != self.statuses {
+            std::mem::swap(&mut self.statuses, &mut self.next_statuses);
             self.request_redraw();
         }
     }
@@ -364,8 +248,7 @@ impl App {
         }
         let window = &view.window;
         let window_size = || window.inner_size();
-        self.editor
-            .status_into(self.editor.tiled().0.id(), &mut self.status);
+        statuses_into(&self.editor, &mut self.statuses);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
         #[cfg(feature = "dev")]
@@ -373,7 +256,7 @@ impl App {
         let render_state = &mut view.render_state;
         let cells = &mut view.cells;
         cells.flash = self.flash.strength(Instant::now());
-        let result = with_panes(&self.editor, &self.status, cells, |panes| {
+        let result = with_panes(&self.editor, &self.statuses, cells, |panes| {
             render_state.render(panes, &window_size)
         });
         // Recovering from a surface error can configure it to a new size before
@@ -429,6 +312,17 @@ mod tests {
     use oso_core::frame::{self, FrameSize};
     use oso_core::minibuffer::Kind;
 
+    fn statuses(editor: &Editor) -> Vec<(WindowId, Status)> {
+        let mut statuses = Vec::new();
+        statuses_into(editor, &mut statuses);
+        statuses
+    }
+
+    /// The tiled window's gutter pane.
+    fn gutter_id(editor: &Editor) -> PaneId {
+        tiled::pane_id(editor.tiled().0.id(), tiled::Part::Gutter)
+    }
+
     /// A pane's region, its background, and its one row as spans of text and face.
     type Shown = (frame::CellRect, Option<Face>, Vec<(String, Face)>);
 
@@ -438,24 +332,29 @@ mod tests {
         let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", "\u{202e}"));
         editor.set_frame_size(FrameSize { rows, columns: 80 });
         editor.message("Saved");
-        let mut status = Status::default();
-        editor.status_into(editor.tiled().0.id(), &mut status);
-        with_panes(&editor, &status, &mut Cells::default(), |panes| {
-            panes
-                .iter()
-                .filter(|pane| pane.id != GUTTER)
-                .map(|pane| {
-                    let spans = match &pane.content {
-                        PaneContent::Text(_) | PaneContent::Masked(_) => Vec::new(),
-                        PaneContent::Lines(lines) => lines[0]
-                            .iter()
-                            .map(|span| (span.text.to_owned(), span.face))
-                            .collect(),
-                    };
-                    (pane.region, pane.background, spans)
-                })
-                .collect()
-        })
+        with_panes(
+            &editor,
+            &statuses(&editor),
+            &mut Cells::default(),
+            |panes| {
+                panes
+                    .iter()
+                    .filter(|pane| pane.id != gutter_id(&editor))
+                    .map(|pane| {
+                        let spans = match &pane.content {
+                            PaneContent::Text(_)
+                            | PaneContent::Masked(_)
+                            | PaneContent::Divider => Vec::new(),
+                            PaneContent::Lines(lines) => lines[0]
+                                .iter()
+                                .map(|span| (span.text.to_owned(), span.face))
+                                .collect(),
+                        };
+                        (pane.region, pane.background, spans)
+                    })
+                    .collect()
+            },
+        )
     }
 
     #[test]
@@ -467,19 +366,114 @@ mod tests {
         };
         editor.set_frame_size(size);
         let layout = editor.frame().clone();
-        let status = Status::default();
-        with_panes(&editor, &status, &mut Cells::default(), |panes| {
-            let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
-            let window = editor.tiled_regions();
-            assert_eq!(layout.windows(), [(editor.window().id(), window)]);
-            assert_eq!(
-                regions,
-                [window.text, window.gutter, window.modeline, layout.echo]
-            );
-            let ids: Vec<_> = panes.iter().map(|pane| pane.id).collect();
-            assert_eq!(ids, [PaneId(0), GUTTER, PaneId(1), PaneId(2)]);
-            assert!(panes.iter().all(|pane| pane.layer == Layer::TILED));
+        with_panes(
+            &editor,
+            &statuses(&editor),
+            &mut Cells::default(),
+            |panes| {
+                let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
+                let window = editor.tiled_regions();
+                assert_eq!(layout.windows(), [(editor.window().id(), window)]);
+                assert_eq!(
+                    regions,
+                    [window.text, window.gutter, window.modeline, layout.echo]
+                );
+                let ids: Vec<_> = panes.iter().map(|pane| pane.id).collect();
+                // The first window's text, gutter and modeline, then the echo area.
+                assert_eq!(ids, [PaneId(16), PaneId(17), PaneId(18), ECHO]);
+                assert!(panes.iter().all(|pane| pane.layer == Layer::TILED));
+            },
+        );
+    }
+
+    /// Each pane's id, region, background, and for a text the cursor's style, for a split
+    /// frame.
+    fn split_panes(editor: &Editor) -> Vec<(PaneId, frame::CellRect, Option<Face>, String)> {
+        with_panes(editor, &statuses(editor), &mut Cells::default(), |panes| {
+            panes
+                .iter()
+                .map(|pane| {
+                    let what = match &pane.content {
+                        PaneContent::Text(view) => format!("{:?}", view.cursor_style),
+                        PaneContent::Lines(lines) => lines
+                            .first()
+                            .map(|row| {
+                                row.iter()
+                                    .map(|span| format!("{}{:?}", span.text, span.face))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        PaneContent::Divider => "divider".to_owned(),
+                        PaneContent::Masked(_) => String::new(),
+                    };
+                    (pane.id, pane.region, pane.background, what)
+                })
+                .collect()
+        })
+    }
+
+    #[test]
+    fn a_split_frame_draws_each_window_with_its_own_ids_and_the_selected_one_active() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", "text\n"));
+        editor.set_frame_size(FrameSize {
+            rows: 10,
+            columns: 41,
         });
+        editor.set_agent_channel(AgentChannel::On);
+        let first = editor.window().id();
+        let second = editor
+            .split_window(oso_core::frame::Way::Across, false)
+            .unwrap();
+        let panes = split_panes(&editor);
+        let [left, right] = [first, second].map(|id| *editor.regions(id).unwrap());
+        let ids: Vec<_> = panes.iter().map(|pane| pane.0.0).collect();
+        // The texts, the selected one's last, then the gutters, the modelines, the divider and
+        // the echo area.
+        assert_eq!(ids, [20, 16, 17, 21, 18, 22, 19, ECHO.0]);
+        assert_eq!(panes[0].1, right.text);
+        assert_eq!(panes[0].3, "Hollow", "the other");
+        assert_eq!(panes[1].1, left.text);
+        assert_eq!(panes[1].3, "Box", "the selected window");
+        assert_eq!(panes[4].2, Some(Face::Modeline));
+        assert!(panes[4].3.starts_with("Agent  Prompt"), "{}", panes[4].3);
+        assert_eq!(panes[5].2, Some(Face::ModelineInactive));
+        assert!(panes[5].3.starts_with("Prompt"), "no Agent: {}", panes[5].3);
+        assert!(
+            panes[5].3.contains("a.txt  ModelineInactive"),
+            "{}",
+            panes[5].3
+        );
+        assert_eq!(
+            (panes[6].1, panes[6].3.as_str()),
+            (left.divider.unwrap(), "divider")
+        );
+        assert!(right.divider.is_none());
+
+        // Deleted, the first gives its cells to the second, which keeps its ids.
+        editor.delete_window().unwrap();
+        let ids: Vec<_> = split_panes(&editor).iter().map(|pane| pane.0.0).collect();
+        assert_eq!(ids, [20, 21, 22, ECHO.0]);
+    }
+
+    #[test]
+    fn beneath_a_prompt_no_window_is_drawn_as_selected() {
+        let mut editor = Editor::default();
+        editor.set_frame_size(FrameSize {
+            rows: 10,
+            columns: 40,
+        });
+        editor
+            .split_window(oso_core::frame::Way::Down, false)
+            .unwrap();
+        editor.ask("Exit?", "keyboard-quit").unwrap();
+        let panes = split_panes(&editor);
+        let tiled: Vec<_> = panes.iter().filter(|pane| pane.0.0 >= 16).collect();
+        // The window the prompt came from, the first, has its text last.
+        assert_eq!((tiled[0].0.0, tiled[1].0.0), (20, 16));
+        assert_eq!(tiled[0].3, "Hollow");
+        assert_eq!(tiled[1].3, "Hollow");
+        assert_eq!(tiled[4].2, Some(Face::ModelineInactive));
+        assert_eq!(tiled[5].2, Some(Face::ModelineInactive));
     }
 
     #[test]
@@ -502,23 +496,30 @@ mod tests {
             line_numbers: true,
             ..oso_core::editor::VisualAids::default()
         });
-        let status = Status::default();
-        with_panes(&editor, &status, &mut Cells::default(), |panes| {
-            let gutter = panes.iter().find(|pane| pane.id == GUTTER).unwrap();
-            assert_eq!(gutter.region.columns, 4);
-            let PaneContent::Lines(lines) = &gutter.content else {
-                panic!("the gutter has lines");
-            };
-            let shown: Vec<_> = lines.iter().map(|row| (row[0].text, row[0].face)).collect();
-            assert_eq!(
-                shown,
-                [
-                    ("  1 ", Face::LineNumberCurrent),
-                    ("  2 ", Face::LineNumber),
-                    ("  3 ", Face::LineNumber),
-                ]
-            );
-        });
+        with_panes(
+            &editor,
+            &statuses(&editor),
+            &mut Cells::default(),
+            |panes| {
+                let gutter = panes
+                    .iter()
+                    .find(|pane| pane.id == gutter_id(&editor))
+                    .unwrap();
+                assert_eq!(gutter.region.columns, 4);
+                let PaneContent::Lines(lines) = &gutter.content else {
+                    panic!("the gutter has lines");
+                };
+                let shown: Vec<_> = lines.iter().map(|row| (row[0].text, row[0].face)).collect();
+                assert_eq!(
+                    shown,
+                    [
+                        ("  1 ", Face::LineNumberCurrent),
+                        ("  2 ", Face::LineNumber),
+                        ("  3 ", Face::LineNumber),
+                    ]
+                );
+            },
+        );
     }
 
     #[test]
@@ -545,15 +546,13 @@ mod tests {
             columns: 80,
         });
         let first = |editor: &Editor| {
-            let mut status = Status::default();
-            editor.status_into(editor.tiled().0.id(), &mut status);
             with_panes(
                 editor,
-                &status,
+                &statuses(editor),
                 &mut Cells::default(),
                 |panes| match &panes[2].content {
                     PaneContent::Lines(lines) => (lines[0][0].text.to_owned(), lines[0][0].face),
-                    PaneContent::Text(_) | PaneContent::Masked(_) => panic!("a modeline has lines"),
+                    _ => panic!("a modeline has lines"),
                 },
             )
         };
@@ -588,38 +587,42 @@ mod tests {
         });
         let long = "a question long enough to take three rows of a narrow float";
         editor.ask(long, "keyboard-quit").unwrap();
-        let status = Status::default();
-        with_panes(&editor, &status, &mut Cells::default(), |panes| {
-            let inside: Vec<_> = panes
-                .iter()
-                .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
-                .collect();
-            for (i, a) in inside.iter().enumerate() {
-                for b in &inside[..i] {
-                    let rows = |p: &Pane<'_>| p.region.row..p.region.row + p.region.rows;
-                    let columns =
-                        |p: &Pane<'_>| p.region.column..p.region.column + p.region.columns;
-                    let meet = |x: std::ops::Range<usize>, y: std::ops::Range<usize>| {
-                        x.start < y.end && y.start < x.end
-                    };
-                    assert!(
-                        !(meet(rows(a), rows(b)) && meet(columns(a), columns(b))),
-                        "{:?} and {:?} overlap",
-                        a.region,
-                        b.region
-                    );
+        with_panes(
+            &editor,
+            &statuses(&editor),
+            &mut Cells::default(),
+            |panes| {
+                let inside: Vec<_> = panes
+                    .iter()
+                    .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
+                    .collect();
+                for (i, a) in inside.iter().enumerate() {
+                    for b in &inside[..i] {
+                        let rows = |p: &Pane<'_>| p.region.row..p.region.row + p.region.rows;
+                        let columns =
+                            |p: &Pane<'_>| p.region.column..p.region.column + p.region.columns;
+                        let meet = |x: std::ops::Range<usize>, y: std::ops::Range<usize>| {
+                            x.start < y.end && y.start < x.end
+                        };
+                        assert!(
+                            !(meet(rows(a), rows(b)) && meet(columns(a), columns(b))),
+                            "{:?} and {:?} overlap",
+                            a.region,
+                            b.region
+                        );
+                    }
                 }
-            }
-            let shown: String = inside
-                .iter()
-                .filter_map(|pane| match &pane.content {
-                    PaneContent::Lines(lines) => lines.first().copied(),
-                    _ => None,
-                })
-                .flat_map(|row| row.iter().map(|span| span.text))
-                .collect();
-            assert!(shown.contains(" y ") && shown.contains(" n "), "{shown}");
-        });
+                let shown: String = inside
+                    .iter()
+                    .filter_map(|pane| match &pane.content {
+                        PaneContent::Lines(lines) => lines.first().copied(),
+                        _ => None,
+                    })
+                    .flat_map(|row| row.iter().map(|span| span.text))
+                    .collect();
+                assert!(shown.contains(" y ") && shown.contains(" n "), "{shown}");
+            },
+        );
     }
 
     #[test]
@@ -634,17 +637,23 @@ mod tests {
                 } else {
                     editor.ask("Exit?", "keyboard-quit").unwrap();
                 }
-                let status = Status::default();
-                with_panes(&editor, &status, &mut Cells::default(), |panes| {
-                    let text = editor.tiled_regions().text;
-                    for pane in panes
-                        .iter()
-                        .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
-                    {
-                        let region = pane.region;
-                        assert!(region.row + region.rows <= text.row + text.rows, "{rows}");
-                    }
-                });
+                with_panes(
+                    &editor,
+                    &statuses(&editor),
+                    &mut Cells::default(),
+                    |panes| {
+                        let text = editor.tiled_regions().text;
+                        for pane in panes
+                            .iter()
+                            .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
+                        {
+                            let region = pane.region;
+                            assert!(region.row + region.rows <= text.row + text.rows, "{rows}");
+                            // Below the windows' ids, which start at 16.
+                            assert!(pane.id.0 < 16, "{:?}", pane.id);
+                        }
+                    },
+                );
             }
         }
     }
@@ -666,22 +675,26 @@ mod tests {
                     && ((regions.gap && row + 1 == last)
                         || (regions.padded_below() && row == last + 1))
             };
-            let status = Status::default();
-            with_panes(&editor, &status, &mut Cells::default(), |panes| {
-                for pane in panes
-                    .iter()
-                    .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
-                {
-                    let region = pane.region;
-                    let above = region
-                        .row
-                        .checked_sub(1)
-                        .is_some_and(|row| padding(row, region.row));
-                    let below = padding(region.row + region.rows, region.row);
-                    assert_eq!(pane.bands.above, above, "{rows} rows: {region:?}");
-                    assert_eq!(pane.bands.below, below, "{rows} rows: {region:?}");
-                }
-            });
+            with_panes(
+                &editor,
+                &statuses(&editor),
+                &mut Cells::default(),
+                |panes| {
+                    for pane in panes
+                        .iter()
+                        .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
+                    {
+                        let region = pane.region;
+                        let above = region
+                            .row
+                            .checked_sub(1)
+                            .is_some_and(|row| padding(row, region.row));
+                        let below = padding(region.row + region.rows, region.row);
+                        assert_eq!(pane.bands.above, above, "{rows} rows: {region:?}");
+                        assert_eq!(pane.bands.below, below, "{rows} rows: {region:?}");
+                    }
+                },
+            );
         }
     }
 }
