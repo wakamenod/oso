@@ -12,7 +12,9 @@
 //!   once, as a dropped buffer does. A refused open closes a document open under the key too.
 //! - Documents run only in the lane one thread at a time has, with background buffers, so a
 //!   shown buffer always has a thread: shown documents first, then background buffers, then
-//!   documents not shown; among documents, one that holds a tree first.
+//!   documents not shown; among documents, one that holds a tree first. While a shown document
+//!   waits for room under the tree cap, hidden documents that hold a tree go before background
+//!   buffers, so that one finishes and makes room.
 //! - At most [`MAX_DOCUMENTS`] are open, which bounds the bookkeeping under the lock, and at
 //!   most [`MAX_STARTED`] hold a tree at once. A document that is done gives its tree to a
 //!   thread to free; its slot stays, holding nothing, until it is closed.
@@ -105,14 +107,23 @@ impl Slot {
         self.is_unfinished() && !self.checked_out && self.document.is_none()
     }
 
+    /// Whether it is a shown document no buffer owns that would make a tree if taken now: one
+    /// that waits for room when [`MAX_STARTED`] hold a tree.
+    pub(super) fn is_blocked(&self) -> bool {
+        !self.shown.is_empty() && self.would_start() && self.queued.is_some()
+    }
+
     /// Its rank in the lane, lower first: shown documents, background buffers, documents not
     /// shown; among documents, one that holds a tree first, so that it finishes and frees it;
-    /// then the one waiting longest.
-    pub(super) fn rank(&self) -> (u8, bool, Option<u64>) {
+    /// then the one waiting longest. While a shown document is `blocked` by the tree cap,
+    /// hidden documents that hold a tree go before background buffers, so that one finishes
+    /// and makes room.
+    pub(super) fn rank(&self, blocked: bool) -> (u8, bool, Option<u64>) {
         let class = match (self.is_unowned(), self.shown.is_empty()) {
             (true, false) => 0,
-            (false, _) => 1,
-            (true, true) => 2,
+            (true, true) if blocked && !self.would_start() => 1,
+            (false, _) => 2,
+            (true, true) => 3,
         };
         (class, self.would_start(), self.queued)
     }

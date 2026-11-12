@@ -349,11 +349,12 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             None if lane_busy => return None,
             None => {
                 let room = self.room_for_a_tree();
+                let blocked = !room && self.slots.values().any(Slot::is_blocked);
                 *self
                     .slots
                     .iter()
                     .filter(|(_, slot)| ready(slot) && (room || !slot.would_start()))
-                    .min_by_key(|(_, slot)| slot.rank())?
+                    .min_by_key(|(_, slot)| slot.rank(blocked))?
                     .0
             }
         };

@@ -785,6 +785,11 @@ through the coordinator).
   documents and 16 buffers open, a checkout and its give-back cost about 5 µs together, and an
   open and a close about 0.8 µs (release, the author's Mac). At most 4 documents hold a tree at
   once, and a document that would start a fifth waits for one to finish or close.
+- **A shown document waiting for room** (the author's choice after the review, Q10 (a)): while
+  a shown document cannot start because 4 hold a tree, hidden documents that hold one go before
+  background buffers, so that one finishes and makes room. Under the plain order, the shown
+  side would wait behind every background buffer, for as long as they had work. Not taken:
+  letting up to 2 shown documents pass the cap, and keeping the plain order as a known limit.
 - **A checkout whose slot went** (closed, replaced or dropped while a thread has it) still holds
   the lane, and its tree still counts, until it is given back. Otherwise the next document
   could take the second thread while that slice runs, and a fifth tree could start.
@@ -812,7 +817,7 @@ through the coordinator).
   - A finished document frees its tree and keeps an empty slot.
   - Closing before, during and after a slice.
   - The lane, its order (a document that holds a tree before one that waited longer) and the
-    tree cap.
+    tree cap, and a shown document waiting for room letting a started one finish first.
   - Nothing is made or freed where documents open, show or close.
   - In the tip crate, two real threads: a crafted document that fails as too slow, beside a
     shown buffer that is highlighted first, and a second document that waits for it.

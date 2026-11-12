@@ -440,3 +440,30 @@ fn a_checkout_whose_document_closed_keeps_the_lane_and_its_tree_until_given_back
     assert!(scheduler.room_for_a_tree());
     assert_eq!(scheduler.take_next().unwrap().buffer, 11);
 }
+
+#[test]
+fn a_shown_document_waiting_for_room_lets_a_started_one_finish_before_background_buffers() {
+    let mut scheduler = Scheduler::new();
+    for key in 0..u32::try_from(MAX_STARTED).unwrap() {
+        open(&mut scheduler, key, true);
+        assert_eq!(start(&mut scheduler), key);
+        scheduler.show(key, Vec::new());
+    }
+    scheduler.submit(buffer(20, false));
+    assert_eq!(
+        start(&mut scheduler),
+        20,
+        "nothing waits for room: background buffers first"
+    );
+    open(&mut scheduler, 10, true);
+    assert_eq!(
+        start(&mut scheduler),
+        0,
+        "a started hidden document went before the background buffer"
+    );
+    // The started document finishes and frees its tree: the shown one starts.
+    let checkout = scheduler.take_next().unwrap();
+    assert_eq!(checkout.buffer, 0);
+    scheduler.give_back(checkout, Highlighted::Done);
+    assert_eq!(start(&mut scheduler), 10);
+}
