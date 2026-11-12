@@ -7,8 +7,18 @@
 
 use oso_core::editor::{Editor, Status};
 
+use super::Dispatcher;
 use super::motion_tests::{at, cursors, send, text};
 use crate::commands::kept_messages;
+
+/// Runs `!`'s slices to its end, as the host's turns do, and then the keys held meanwhile.
+/// A slice ends after a few milliseconds of work, so a test reads the text only after this.
+fn finish_bang(d: &mut Dispatcher, editor: &mut Editor) {
+    while editor.replace_works() {
+        editor.replace_continue();
+    }
+    d.run_held_during_all(editor);
+}
 
 fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
@@ -49,6 +59,7 @@ fn an_empty_first_answer_takes_the_last_pair() {
         "Query replace (default a → b): "
     );
     send(&mut d, &mut editor, "RET !");
+    finish_bang(&mut d, &mut editor);
     assert_eq!(text(&editor), "b b b\n");
 }
 
@@ -81,6 +92,7 @@ fn c_m_percent_keeps_its_prompt_open_for_a_regexp_that_does_not_compile() {
         &mut editor,
         "DEL ( \\ w ) = ( \\ w ) RET $ 2 = $ 1 RET !",
     );
+    finish_bang(&mut d, &mut editor);
     assert_eq!(text(&editor), "v=k\n");
 }
 
@@ -92,15 +104,18 @@ fn input_during_bang_waits_for_it_and_c_g_stops_it() {
     assert!(editor.replace_works(), "more than one slice");
     send(&mut d, &mut editor, "C-e");
     assert!(editor.replace_works(), "the key waits");
-    while editor.replace_works() {
-        editor.replace_continue();
-    }
-    d.run_held_during_all(&mut editor);
+    finish_bang(&mut d, &mut editor);
     assert_eq!(text(&editor), "c ".repeat(3000));
     assert_eq!(cursors(&editor), [6000], "C-e ran after it");
 
     let (mut d, mut editor) = at(&many, &[0]);
     send(&mut d, &mut editor, "M-% a b RET c RET !");
+    // A slice is a few milliseconds of work, at most 1000 matches: on a slow machine the
+    // first may replace fewer than two, so it goes on until two are, still short of the end.
+    while !text(&editor).starts_with("c c ") && editor.replace_works() {
+        editor.replace_continue();
+    }
+    assert!(editor.replace_works(), "still replacing");
     send(&mut d, &mut editor, "C-g");
     assert!(editor.replace().is_none());
     assert!(text(&editor).starts_with("c c "), "kept what it replaced");
