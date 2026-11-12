@@ -1405,6 +1405,7 @@ pub fn oso_core::editor::Editor::other_window(&mut self, isize)
 pub fn oso_core::editor::Editor::resize_window(&mut self, oso_core::frame::Way, isize) -> core::result::Result<(), oso_core::editor::CannotResize>
 pub fn oso_core::editor::Editor::select_window(&mut self, oso_core::window::WindowId)
 pub fn oso_core::editor::Editor::split_window(&mut self, oso_core::frame::Way, bool) -> core::result::Result<oso_core::window::WindowId, oso_core::frame::TooSmall>
+pub fn oso_core::editor::Editor::wheel_window(&self, core::option::Option<(usize, usize)>) -> oso_core::window::WindowId
 pub fn oso_core::editor::Editor::windmove(&mut self, oso_core::frame::Side) -> core::result::Result<(), oso_core::editor::NoWindow>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
@@ -1477,8 +1478,8 @@ pub fn oso_core::editor::Editor::region_cells(&self, oso_core::window::WindowId,
 pub fn oso_core::editor::Editor::regions(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::frame::WindowRegions>
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_lines(&mut self, isize) -> core::result::Result<bool, oso_core::motion::Edge>
-pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
-pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
+pub fn oso_core::editor::Editor::scroll_view(&mut self, oso_core::window::WindowId, isize) -> bool
+pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, oso_core::window::WindowId, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
@@ -1998,6 +1999,7 @@ impl core::marker::StructuralPartialEq for oso_core::frame::FrameSize
 pub struct oso_core::frame::PixelGrid
 impl oso_core::frame::PixelGrid
 pub fn oso_core::frame::PixelGrid::cell(self, i64, i64) -> [f32; 2]
+pub fn oso_core::frame::PixelGrid::cell_at(self, f64, f64) -> core::option::Option<(usize, usize)>
 pub fn oso_core::frame::PixelGrid::frame_size(self, u32, u32) -> oso_core::frame::FrameSize
 pub fn oso_core::frame::PixelGrid::new(f32, f32) -> Self
 pub fn oso_core::frame::PixelGrid::rect(self, oso_core::frame::CellRect) -> oso_core::frame::PixelRect

@@ -736,11 +736,11 @@ mod tests {
         let text = format!("ab\n{long}\n{}\nab\n", "y".repeat(100));
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &text));
         editor.set_view_size(ViewSize::new(2, 20));
-        assert!(editor.scroll_view_sideways(6));
+        assert!(editor.scroll_view_sideways(editor.tiled().0.id(), 6));
         assert_eq!(editor.window().scroll().left, 6);
-        assert!(editor.scroll_view_sideways(1000));
+        assert!(editor.scroll_view_sideways(editor.tiled().0.id(), 1000));
         assert_eq!(editor.window().scroll().left, 31, "the widest row in view");
-        assert!(!editor.scroll_view_sideways(1));
+        assert!(!editor.scroll_view_sideways(editor.tiled().0.id(), 1));
         assert_eq!(editor.window().selections.primary().cursor, 0);
         assert!(editor.follow_cursor(), "the next command brings it back");
         assert_eq!(editor.window().scroll().left, 0);
@@ -785,7 +785,7 @@ mod tests {
             columns: 0,
         });
         assert_eq!(editor.window().size(), ViewSize::new(1, 1));
-        assert!(editor.scroll_view(3));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 3));
         let grid = PixelGrid::new(10.0, 20.0);
         assert_eq!(editor.cursor_area(grid), None, "nothing is shown");
     }
@@ -821,7 +821,7 @@ mod tests {
         let grid = PixelGrid::new(10.0, 20.0);
         let before = editor.cursor_area(grid).map(|area| area.y);
         assert_eq!(before, Some(8.0 + 5.0 * 20.0));
-        assert!(editor.scroll_view(2));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 2));
         let after = editor.cursor_area(grid).map(|area| area.y);
         assert_eq!(after, Some(8.0 + 3.0 * 20.0));
     }
@@ -869,7 +869,7 @@ mod tests {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
         editor.set_view_size(ViewSize::new(10, 20));
         editor.set_preedit(Some(Preedit::new("か".into(), None)));
-        assert!(editor.scroll_view(30));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 30));
         let mut positions = vec![1.0];
         let grid = PixelGrid::new(10.0, 20.0);
         assert_eq!(editor.preedit_layout(grid, &mut positions), None);
@@ -881,7 +881,7 @@ mod tests {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
         editor.set_view_size(ViewSize::new(10, 20));
         editor.set_preedit(Some(Preedit::new("か".into(), None)));
-        assert!(editor.scroll_view(30));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 30));
         assert_eq!(editor.top_row(), 30);
         assert_eq!(
             editor.window().selections.primary().cursor,
@@ -890,7 +890,7 @@ mod tests {
         );
         editor.set_preedit(None);
         assert_eq!(editor.top_row(), 0, "the view comes back to it");
-        assert!(editor.scroll_view(30));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 30));
         assert_ne!(
             editor.window().selections.primary().cursor,
             0,
@@ -991,15 +991,15 @@ mod tests {
         assert_eq!(editor.top_row(), 6);
         assert!(!editor.follow_cursor());
 
-        assert!(editor.scroll_view(20));
+        assert!(editor.scroll_view(editor.tiled().0.id(), 20));
         assert_eq!(editor.top_row(), 26);
         let cursor = editor.window().selections.primary().cursor;
         assert_eq!(cursor, 26 * 9, "moved to the start of the top row");
-        assert!(editor.scroll_view(-3));
+        assert!(editor.scroll_view(editor.tiled().0.id(), -3));
         assert_eq!(editor.window().selections.primary().cursor, 26 * 9);
-        assert!(editor.scroll_view(-100));
+        assert!(editor.scroll_view(editor.tiled().0.id(), -100));
         assert_eq!(editor.top_row(), 0);
-        assert!(!editor.scroll_view(-1));
+        assert!(!editor.scroll_view(editor.tiled().0.id(), -1));
     }
 }
 

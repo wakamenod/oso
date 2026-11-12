@@ -35,7 +35,12 @@ pub enum Event<'a> {
     /// The window has gained the keyboard focus.
     Focused,
     RedrawRequested,
-    Wheel(Wheel),
+    /// The mouse wheel or the trackpad scrolled, with the pointer `at` a place over the
+    /// drawable area, if the window system says where (ADR 0112).
+    Wheel {
+        delta: Wheel,
+        at: Option<Position>,
+    },
     ModifiersChanged(Held),
     Key(KeyInput<'a>),
     Ime(ImeEvent),
@@ -64,6 +69,13 @@ pub enum Wheel {
     Lines { x: f32, y: f32 },
     /// Physical pixels, from a trackpad.
     Pixels { x: f64, y: f64 },
+}
+
+/// A place on the drawable area, in physical pixels from its top left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Position {
+    pub x: f64,
+    pub y: f64,
 }
 
 /// A real key press as the window system reports it: a release, or a press the system

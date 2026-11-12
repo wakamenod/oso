@@ -35,7 +35,7 @@ use super::key_text;
 use super::keys::{self, Route};
 use super::{Delivery, State};
 use crate::window::utf16;
-use crate::window::{CursorArea, Event, Held, ImeEvent, KeyInput, SystemKey, Wheel};
+use crate::window::{CursorArea, Event, Held, ImeEvent, KeyInput, Position, SystemKey, Wheel};
 
 /// The key `keyDown:` is handling while the input method has it, and whether the input
 /// method gave it back to oso as a key.
@@ -163,8 +163,8 @@ define_class!(
         fn scroll_wheel(&self, event: &NSEvent) {
             self.ivars().state.during_event(|| {
                 let (x, y) = (event.scrollingDeltaX(), event.scrollingDeltaY());
+                let scale = self.scale();
                 let wheel = if event.hasPreciseScrollingDeltas() {
-                    let scale = self.scale();
                     Wheel::Pixels {
                         x: x * scale,
                         y: y * scale,
@@ -176,9 +176,17 @@ define_class!(
                         y: y as f32,
                     }
                 };
-                self.ivars()
-                    .state
-                    .deliver(Delivery::Window(Event::Wheel(wheel)));
+                // In the view's own points, from its top left as it is flipped, then in
+                // pixels as the drawable's size is (ADR 0112).
+                let point = self.convertPoint_fromView(event.locationInWindow(), None);
+                let at = Position {
+                    x: point.x * scale,
+                    y: point.y * scale,
+                };
+                self.ivars().state.deliver(Delivery::Window(Event::Wheel {
+                    delta: wheel,
+                    at: Some(at),
+                }));
             });
         }
     }

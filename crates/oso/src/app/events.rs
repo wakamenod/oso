@@ -136,7 +136,9 @@ impl App {
             Event::RedrawRequested => self.draw_frame(),
 
             // ---- Mouse wheel and trackpad ----
-            Event::Wheel(wheel) => self.handle_wheel(wheel),
+            Event::Wheel { delta, at } => {
+                self.handle_wheel(delta, at);
+            }
 
             // ---- Keyboard input ----
             Event::ModifiersChanged(held) => self.set_modifiers(held),
