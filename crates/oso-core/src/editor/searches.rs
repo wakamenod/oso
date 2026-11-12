@@ -119,7 +119,7 @@ pub(super) struct ProjectSearch {
     query: Option<Arc<LineQuery>>,
     /// The last search that ended without a limit, which an input that narrows its own looks
     /// through again.
-    whole: Option<(u64, Arc<LineQuery>)>,
+    last_whole: Option<(u64, Arc<LineQuery>)>,
     /// Each row's place, by its index in the list.
     places: Vec<Place>,
     /// The row `RET` took, for the command.
@@ -216,7 +216,7 @@ impl Editor {
             search.cut = true;
         }
         if !search.running && !search.cut {
-            search.whole = search.query.clone().map(|query| (generation, query));
+            search.last_whole = search.query.clone().map(|query| (generation, query));
         }
         if let Some((candidates, _)) = self
             .prompts
@@ -279,7 +279,7 @@ impl Editor {
             query: Arc::clone(&query),
             live: Arc::clone(&search.live),
             narrow: search
-                .whole
+                .last_whole
                 .as_ref()
                 .filter(|(_, before)| query.narrows(before))
                 .map(|(generation, _)| *generation),

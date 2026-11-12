@@ -14,9 +14,9 @@
 //! - Each request has a generation, which the walk reads at each entry and a searcher before
 //!   each file and each block: a superseded search stops there and sends nothing more.
 //! - A file's rows go together and in line order; files come in the order they are finished. A
-//!   batch goes at most every [`BATCH_EVERY`]. At [`MAX_ROWS`](oso_core::project::MAX_ROWS) the
-//!   search stops and says it was cut, and so does one that could not read some file for a
-//!   reason other than its being gone or refused.
+//!   batch goes at most every [`BATCH_EVERY`], of at most [`MAX_BATCH`] rows. At
+//!   [`MAX_ROWS`](oso_core::project::MAX_ROWS) the search stops and says it was cut, and so does
+//!   one that could not read some file for a reason other than its being gone or refused.
 //! - A file that may hold secrets, by the name of its path from the root as given or as it
 //!   leads, is searched, but its rows carry no text.
 //! - The lines a search that ended without a limit found are kept here, up to
@@ -44,6 +44,10 @@ mod read;
 
 /// How often a search sends the rows it found.
 pub const BATCH_EVERY: Duration = Duration::from_millis(30);
+
+/// The most rows one batch takes to the editor, whose UI thread takes each in well under a
+/// millisecond.
+pub const MAX_BATCH: usize = 1000;
 
 /// How long the lines a search found are kept with no search coming.
 pub const KEPT_FOR: Duration = Duration::from_secs(30);
@@ -213,10 +217,32 @@ fn flush(search: &Search, sent: &mut Instant, send: &dyn Fn(Found) -> bool) -> b
         return true;
     }
     *sent = Instant::now();
+    send_rows(search.request.generation, rows, None, send)
+}
+
+/// Sends `rows` of the search `generation` in batches of at most [`MAX_BATCH`], with `end` on
+/// the last. `false` once the event loop has gone.
+fn send_rows(
+    generation: u64,
+    mut rows: Vec<SearchRow>,
+    end: Option<WalkEnd>,
+    send: &dyn Fn(Found) -> bool,
+) -> bool {
+    while rows.len() > MAX_BATCH {
+        let rest = rows.split_off(MAX_BATCH);
+        let batch = std::mem::replace(&mut rows, rest);
+        if !send(Found {
+            generation,
+            rows: batch,
+            end: None,
+        }) {
+            return false;
+        }
+    }
     send(Found {
-        generation: search.request.generation,
+        generation,
         rows,
-        end: None,
+        end,
     })
 }
 
@@ -320,12 +346,7 @@ fn walk_and_search(
     let whole = (!cut && !over).then(|| std::mem::take(&mut collected.kept));
     drop(collected);
     let end = Some(WalkEnd { cut });
-    let generation = search.request.generation;
-    if !send(Found {
-        generation,
-        rows,
-        end,
-    }) {
+    if !send_rows(search.request.generation, rows, end, send) {
         return Outcome::Gone;
     }
     Outcome::Ended(whole)
@@ -335,11 +356,7 @@ fn walk_and_search(
 fn narrow(search: &Search, lines: &[Kept], send: &dyn Fn(Found) -> bool) -> Outcome {
     let generation = search.request.generation;
     let filtered = filter(search, lines, &mut |rows| {
-        send(Found {
-            generation,
-            rows,
-            end: None,
-        })
+        send_rows(generation, rows, None, send)
     });
     match filtered {
         Ok(whole) => {

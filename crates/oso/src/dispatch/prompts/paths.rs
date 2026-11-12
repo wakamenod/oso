@@ -1,7 +1,6 @@
 //! The prompts that read a path, for a command's argument: `C-x C-f`'s and `C-x C-w`'s by its
 //! segments (ADR 0087), and a project's files, listed as they are walked, or a line of them,
-//! searched for (ADR 0114). The mark
-//! list shares their way in, as it too lists before it reads.
+//! searched for (ADR 0114). The mark list shares their way in, as it too lists before it reads.
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -10,7 +9,7 @@ use oso_core::editor::Editor;
 use oso_core::minibuffer::PromptError;
 
 use super::super::{Dispatcher, Step};
-use super::Reading;
+use super::{ProjectPrompt, Reading, Then};
 
 impl Dispatcher {
     /// Opens the prompt for the command `id` that lists what `spec` reads: a mark, a path by its
@@ -27,8 +26,11 @@ impl Dispatcher {
             ArgSpec::File { prompt, history } => {
                 self.read_file(editor, id, prefix, prompt, history)
             }
-            ArgSpec::ProjectFile { .. } | ArgSpec::ProjectSearch { .. } => {
-                self.read_project(editor, id, prefix, spec)
+            ArgSpec::ProjectFile { history } => {
+                self.read_project(editor, id, prefix, ProjectPrompt::Files { history })
+            }
+            ArgSpec::ProjectSearch { history } => {
+                self.read_project(editor, id, prefix, ProjectPrompt::Search { history })
             }
             _ => self.execute(
                 editor,
@@ -50,158 +52,153 @@ impl Dispatcher {
         prompt: &'static str,
         history: &'static str,
     ) -> (Effects, Result<(), ExecuteError>) {
-        let effects = Effects {
-            redraw: true,
-            ..Effects::default()
-        };
-        if editor.prompt().is_some() {
-            editor.prompt_says("Not in the minibuffer");
-            return (effects, Ok(()));
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
         }
-        let start = editor.start_directory().to_path_buf();
-        let directory = editor
-            .current()
-            .1
-            .path()
-            .and_then(std::path::Path::parent)
-            .map_or(start, std::path::Path::to_path_buf);
-        let initial = oso_core::complete::typed_form(&directory, true, editor.home());
-        // A relative path typed in place of it starts there too.
-        match editor.open_file_prompt(prompt, history, &initial, directory) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-                replace: None,
-                directory_for: None,
-            }),
-            Err(error) => editor.prompt_says(error.to_string()),
+        if let Some(prompt) = open_path_prompt(editor, prompt, history) {
+            self.reading.push(Reading::run(id, prefix, prompt));
         }
-        (effects, Ok(()))
+        (redraw(), Ok(()))
     }
 
     /// Opens the prompt of `spec` for the command `id` over the current buffer's project, or its
     /// directory outside one, unless a prompt is selected (ADR 0114): its files, listed as the
-    /// host walks it, or a search of them. With `C-u`, a directory is read first, with `C-x C-f`'s
-    /// completion, and stands for the project.
+    /// host walks it, or a search of them. With `C-u`, a directory is read first, with
+    /// `C-x C-f`'s completion, and stands for the project.
     fn read_project(
         &mut self,
         editor: &mut Editor,
         id: CommandId,
         prefix: Option<Prefix>,
-        spec: ArgSpec,
+        project: ProjectPrompt,
     ) -> (Effects, Result<(), ExecuteError>) {
-        let effects = Effects {
-            redraw: true,
-            ..Effects::default()
-        };
-        if editor.prompt().is_some() {
-            editor.prompt_says("Not in the minibuffer");
-            return (effects, Ok(()));
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
         }
         if matches!(prefix, Some(Prefix::Universal(_))) {
-            let prompt = if matches!(spec, ArgSpec::ProjectSearch { .. }) {
-                "Search in directory:"
-            } else {
-                "Find file in directory:"
+            let label = match project {
+                ProjectPrompt::Search { .. } => "Search in directory:",
+                ProjectPrompt::Files { .. } => "Find file in directory:",
             };
-            let start = editor.start_directory().to_path_buf();
-            let directory = editor
-                .current()
-                .1
-                .path()
-                .and_then(std::path::Path::parent)
-                .map_or(start, std::path::Path::to_path_buf);
-            let initial = oso_core::complete::typed_form(&directory, true, editor.home());
-            match editor.open_file_prompt(prompt, "project-directory", &initial, directory) {
-                Ok(prompt) => self.reading.push(Reading {
-                    id,
-                    prefix: None,
-                    prompt,
-                    passphrase: false,
-                    runs_answer: false,
-                    replace: None,
-                    directory_for: Some(spec),
-                }),
-                Err(error) => editor.prompt_says(error.to_string()),
+            if let Some(prompt) = open_path_prompt(editor, label, "project-directory") {
+                self.reading.push(Reading {
+                    then: Then::Directory(project),
+                    ..Reading::run(id, None, prompt)
+                });
             }
-            return (effects, Ok(()));
+            return (redraw(), Ok(()));
         }
         match editor.project_files_root() {
-            Ok((root, name)) => self.open_project(editor, id, spec, root, &name),
+            Ok((root, name)) => self.open_project(editor, id, project, root, &name),
             Err(not) => editor.message(not.to_string()),
         }
-        (effects, Ok(()))
+        (redraw(), Ok(()))
     }
 
-    /// Takes the directory `C-u` read for the prompt of `spec`, and opens that prompt on it,
-    /// unless it is the home directory, one that holds it, or the root of the file system.
+    /// Takes the directory `C-u` read for `project`, and opens that prompt on it, unless it is
+    /// the home directory, one that holds it, or the root of the file system.
     pub(super) fn directory_answered(
         &mut self,
         editor: &mut Editor,
         reading: &Reading,
-        spec: ArgSpec,
+        project: ProjectPrompt,
         text: &str,
     ) -> Effects {
         let directory = std::path::PathBuf::from(text);
         match editor.listable_root(&directory) {
-            Ok((root, name)) => self.open_project(editor, reading.id, spec, root, &name),
+            Ok((root, name)) => self.open_project(editor, reading.id, project, root, &name),
             Err(_) => {
-                let verb = if matches!(spec, ArgSpec::ProjectSearch { .. }) {
-                    "search"
-                } else {
-                    "list"
-                };
+                let verb = project.verb();
                 editor.message(format!(
                     "Cannot {verb} the home directory, one that holds it, or /"
                 ));
             }
         }
-        Effects {
-            redraw: true,
-            ..Effects::default()
-        }
+        redraw()
     }
 
-    /// Opens the prompt of `spec`, the project's files or its search, on `root`, named `name`,
-    /// for the command `id`. The history is the spec's: one for each project for its files, one
-    /// for every search.
+    /// Opens `project`'s prompt, its files or its search, on `root`, named `name`, for the
+    /// command `id`. The history is the spec's: one for each project for its files, one for
+    /// every search.
     fn open_project(
         &mut self,
         editor: &mut Editor,
         id: CommandId,
-        spec: ArgSpec,
+        project: ProjectPrompt,
         root: std::path::PathBuf,
         name: &str,
     ) {
         let utf8 = root.to_str().is_some();
-        let opened = match spec {
-            ArgSpec::ProjectSearch { history } => editor.open_project_search(root, name, history),
-            ArgSpec::ProjectFile { history } => editor.open_project_files(root, name, history),
-            _ => return,
-        };
-        let (verb, open_already) = if matches!(spec, ArgSpec::ProjectSearch { .. }) {
-            ("search", "A project is searched already")
-        } else {
-            ("list", "A project's files are listed already")
+        let (opened, open_already) = match project {
+            ProjectPrompt::Search { history } => (
+                editor.open_project_search(root, name, history),
+                "A project is searched already",
+            ),
+            ProjectPrompt::Files { history } => (
+                editor.open_project_files(root, name, history),
+                "A project's files are listed already",
+            ),
         };
         match opened {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix: None,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-                replace: None,
-                directory_for: None,
-            }),
+            Ok(prompt) => self.reading.push(Reading::run(id, None, prompt)),
             Err(PromptError::Invalid) if !utf8 => {
+                let verb = project.verb();
                 editor.message(format!("Cannot {verb} a project whose path is not UTF-8"));
             }
             Err(PromptError::Invalid) => editor.message(open_already),
             Err(error) => editor.prompt_says(error.to_string()),
+        }
+    }
+}
+
+impl ProjectPrompt {
+    /// What it does, as a message says it.
+    fn verb(self) -> &'static str {
+        match self {
+            Self::Search { .. } => "search",
+            Self::Files { .. } => "list",
+        }
+    }
+}
+
+/// What a command does when it would open a prompt from inside one: it says so.
+fn refused_in_a_prompt(editor: &mut Editor) -> Option<(Effects, Result<(), ExecuteError>)> {
+    editor.prompt().is_some().then(|| {
+        editor.prompt_says("Not in the minibuffer");
+        (redraw(), Ok(()))
+    })
+}
+
+/// The effects of opening a prompt: a frame.
+fn redraw() -> Effects {
+    Effects {
+        redraw: true,
+        ..Effects::default()
+    }
+}
+
+/// Opens a prompt that says `label` and reads a path with `C-x C-f`'s completion, kept in the
+/// history `history`, starting at the shown buffer's directory, or the one oso started in. A
+/// relative path typed in place of it starts there too. `None` if it could not open, which the
+/// prompt beneath says.
+fn open_path_prompt(
+    editor: &mut Editor,
+    label: &'static str,
+    history: &'static str,
+) -> Option<oso_core::minibuffer::PromptId> {
+    let start = editor.start_directory().to_path_buf();
+    let directory = editor
+        .current()
+        .1
+        .path()
+        .and_then(std::path::Path::parent)
+        .map_or(start, std::path::Path::to_path_buf);
+    let initial = oso_core::complete::typed_form(&directory, true, editor.home());
+    match editor.open_file_prompt(label, history, &initial, directory) {
+        Ok(prompt) => Some(prompt),
+        Err(error) => {
+            editor.prompt_says(error.to_string());
+            None
         }
     }
 }

@@ -385,7 +385,9 @@ fn a_walk_of_a_large_tree_takes_about_as_long_as_rg() {
     };
     let tree = PathBuf::from(tree);
     // The fastest of three, warm, against a second: `rg --files --hidden` took 0.09 s for
-    // 46,234 files on the author's Mac, and 0.19 s on one thread; this walk took 0.20 s.
+    // 46,234 files on the author's Mac, and 0.19 s on one thread; this walk took 0.20 s. Listing
+    // each directory from its parent (step 4), it took 0.139 s, against 0.114 s for step 3's on
+    // the same day.
     let fastest = (0..3)
         .map(|_| {
             let started = std::time::Instant::now();

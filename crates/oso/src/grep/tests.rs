@@ -294,6 +294,8 @@ fn a_search_of_a_large_tree_takes_about_as_long_as_rg() {
         return;
     };
     let tree = PathBuf::from(tree);
+    // The fastest of three, warm: on the author's Mac, over 46,234 files and 932 MB, this took
+    // 0.61 s and `rg --no-config --hidden -j8` 0.55-0.58 s; `fn \w+_new\(` 0.64 s and 0.57 s.
     let fastest = (0..3)
         .map(|run| {
             let mut harness = Harness::new();
@@ -312,7 +314,7 @@ fn a_search_of_a_large_tree_takes_about_as_long_as_rg() {
         .min();
     let (took, rows, cut) = fastest.unwrap();
     assert!(
-        took < Duration::from_secs(2),
+        took < Duration::from_millis(900),
         "{rows} rows (cut: {cut}) in {took:?}"
     );
 }

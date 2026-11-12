@@ -29,13 +29,43 @@ pub(super) struct Reading {
     prompt: PromptId,
     /// The answer is a passphrase.
     passphrase: bool,
-    /// The answer names a command, which runs in its place, as `M-x` does (ADR 0076).
-    runs_answer: bool,
-    /// query-replace's prompts: the first, or the second with the first's answer (ADR 0113).
-    replace: Option<ReplaceStage>,
-    /// The answer is the directory a project's prompt of this spec opens on, as `C-u` asks
-    /// (ADR 0114).
-    directory_for: Option<ArgSpec>,
+    /// What the answer is for.
+    then: Then,
+}
+
+/// What a prompt's answer is for.
+enum Then {
+    /// The command, with the answer.
+    Run,
+    /// The command it names, in the command's place, as `M-x` does (ADR 0076).
+    RunAnswer,
+    /// One of query-replace's prompts, the first or the second with the first's answer
+    /// (ADR 0113).
+    Replace(ReplaceStage),
+    /// The directory a project's prompt opens on, as `C-u` asks (ADR 0114).
+    Directory(ProjectPrompt),
+}
+
+/// A project's prompt, which `C-u` reads a directory for first (ADR 0114).
+#[derive(Clone, Copy)]
+enum ProjectPrompt {
+    /// Its files, kept in the history `history`, one for each project.
+    Files { history: &'static str },
+    /// A search of them, kept in the history `history`.
+    Search { history: &'static str },
+}
+
+impl Reading {
+    /// A command waiting to run with the answer of `prompt`.
+    fn run(id: CommandId, prefix: Option<Prefix>, prompt: PromptId) -> Self {
+        Self {
+            id,
+            prefix,
+            prompt,
+            passphrase: false,
+            then: Then::Run,
+        }
+    }
 }
 
 /// Which of query-replace's two prompts a command waits for (ADR 0113).
@@ -164,9 +194,11 @@ impl Dispatcher {
                 prefix: args.raw(),
                 prompt,
                 passphrase: kind == Kind::Passphrase,
-                runs_answer,
-                replace: None,
-                directory_for: None,
+                then: if runs_answer {
+                    Then::RunAnswer
+                } else {
+                    Then::Run
+                },
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
@@ -196,15 +228,7 @@ impl Dispatcher {
             return (effects, Ok(()));
         }
         match editor.open_mark_list(prompt) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-                replace: None,
-                directory_for: None,
-            }),
+            Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
             Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -253,15 +277,7 @@ impl Dispatcher {
             editor.take_from_clipboard(text.clone(), *concealed, *fingerprint);
         }
         match editor.open_kill_list(prompt) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-                replace: None,
-                directory_for: None,
-            }),
+            Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
             Err(PromptError::Invalid) => editor.message("Kill ring is empty"),
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -297,15 +313,7 @@ impl Dispatcher {
         };
         let items = buffers::candidates(editor, read.purpose);
         match editor.open_completion_as(read.prompt, read.history, items, style) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                runs_answer: false,
-                replace: None,
-                directory_for: None,
-            }),
+            Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
             Err(error) => editor.prompt_says(error.to_string()),
         }
         (effects, Ok(()))
@@ -362,9 +370,7 @@ impl Dispatcher {
                 prefix,
                 prompt,
                 passphrase: false,
-                runs_answer: false,
-                replace: Some(stage),
-                directory_for: None,
+                then: Then::Replace(stage),
             }),
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -426,21 +432,23 @@ impl Dispatcher {
                     self.forget_closed(editor);
                     waiting.map(|reading| {
                         let args = Args::with_prefix(reading.prefix);
-                        if reading.runs_answer {
-                            return self.run_answer(editor, &text, args);
+                        match &reading.then {
+                            Then::RunAnswer => self.run_answer(editor, &text, args),
+                            Then::Replace(stage) => {
+                                self.replace_answered(editor, &reading, stage, &text)
+                            }
+                            Then::Directory(project) => {
+                                self.directory_answered(editor, &reading, *project, &text)
+                            }
+                            Then::Run => {
+                                let invocation = Invocation {
+                                    answer: Some(&text),
+                                    ..Invocation::default()
+                                };
+                                self.execute(editor, reading.id, args, invocation, Step::MayJoin)
+                                    .0
+                            }
                         }
-                        if let Some(stage) = &reading.replace {
-                            return self.replace_answered(editor, &reading, stage, &text);
-                        }
-                        if let Some(spec) = reading.directory_for {
-                            return self.directory_answered(editor, &reading, spec, &text);
-                        }
-                        let invocation = Invocation {
-                            answer: Some(&text),
-                            ..Invocation::default()
-                        };
-                        self.execute(editor, reading.id, args, invocation, Step::MayJoin)
-                            .0
                     })
                 }
                 Some(Outcome::Run(name)) => {

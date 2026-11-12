@@ -491,7 +491,8 @@ The UI thread never blocks on I/O or parsing:
 - A project's files for `C-x p f` are walked on a thread of their own, `oso-walk`
   (`crates/oso/src/walk.rs`, glue in `app/walks.rs`): a depth-first walk of its own, each
   directory opened from its parent by name and listed from the descriptor
-  (`oso_platform::file_meta::Directory`, at most 32 held, `walk/tree.rs`), matching
+  (`oso_platform::file_meta::Directory`, at most 32 held, at most 256 deep, `walk/tree.rs`),
+  matching
   with a stack of the `ignore` crate's gitignore matchers in ripgrep's order, built from ignore
   files it reads itself (regular, no link, no wait, at most 1 MiB, none above the root). Hidden
   files are in, the markers and nested projects out, links are not followed, at most 100,000
@@ -506,13 +507,15 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - A project's search for `M-s r` runs on `oso-grep` (`crates/oso/src/grep.rs`, glue in
   `app/walks.rs`): it walks with `walk::walk_files` and hands each file, with its open directory,
-  over a bounded queue of 32 to `min(cores - 1, 8)` searching threads, at least one. A searcher
-  reads 256 KiB blocks cut at a line's end and matches them with `oso_core::project::LineQuery`,
-  completion's orderless components over each line on the `regex` crate's byte engine: the first
-  component that is not excluded is found through the block, and only its lines are matched
-  whole. A file's rows go together into the search's batch, which `oso-grep` sends at most every
-  30 ms (`UserEvent::Grepped`), with the request's generation, which every thread reads before
-  each file and each block. The editor (`editor/searches.rs`) puts the rows after those shown,
+  over a bounded queue of 16 to `min(cores - 1, 8)` searching threads, at least one
+  (`grep/files.rs`). A searcher reads 256 KiB blocks cut at a line's end (`grep/read.rs`) and
+  matches them with its own copy of `oso_core::project::LineQuery`, completion's orderless
+  components over each line on the `regex` crate's byte engine: the longest component that is
+  not excluded is found through the block by its earliest end, and only the line of that end is
+  matched whole. A file's rows go together into the search's batch, which `oso-grep` sends at
+  most every 30 ms in batches of at most 1000 rows (`UserEvent::Grepped`, glue in
+  `app/greps.rs`), with the request's generation, which every thread reads before each file and
+  each block. The editor (`editor/searches.rs`) puts the rows after those shown,
   never filtering them by the input, and each changed input asks for a new search; one that
   narrows a whole search's input sends that search's generation, and `oso-grep` looks through
   the lines it kept, at most 16 MiB, instead of walking

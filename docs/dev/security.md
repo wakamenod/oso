@@ -66,23 +66,36 @@ network features.
   link, and listed and read from what was opened, never by its path again
   (`oso_platform::file_meta::Directory`); at most 32 stay open, and one let go
   is opened again the same way only if it is still the directory it was, by
-  device and inode. Links are never followed: a link is resolved by its words,
+  device and inode. A walk enters at most 256 directories deep and 4096 bytes
+  of path, and a directory it cannot open or list for a reason other than its
+  being gone, refused or no directory ends it with `+`. Links are never followed: a link is resolved by its words,
   each hop looked at from the directory before it, only while every hop stays
   under the root, and one that leaves it is listed without a look. Opening any
   row goes through the loader's verdict, so a file that may hold secrets opens
   as such a buffer. On Windows directories are still reached by their paths.
 - `M-s r` and `C-x p g` search the same files in-process, on `oso-grep` and up
-  to eight searching threads, and run nothing. A file is opened from its
+  to eight searching threads, and run nothing. A search holds about 70
+  descriptors at most: the walk's 32, and the directories of the 16 files
+  waiting and the 8 being read, with those files. Like the walk, it never
+  searches a root that holds the home directory, by the real place of both, and
+  a directory named with `C-u` that is home, holds it, is `/` or has `..` in it
+  is refused. A file is opened from its
   directory as the walk opened it, following no link and waiting for nothing,
   and only a regular file is read; a link is never searched, so a link in a
   repository cannot make a search read a file outside it. A line longer than
   16 MiB skips the rest of its file, a NUL byte stops it, and a search keeps at
   most 10,000 rows of at most 512 bytes of text. A file whose name may hold
-  secrets is searched, but its rows carry no text and are never previewed.
+  secrets, as the path walked or as the root leads, is searched, but its rows
+  carry no text and are never previewed. A file that could not be opened for a
+  reason other than its being gone or refused ends the search with `+`. On
+  macOS a file a sync service keeps elsewhere is not read, as reading would
+  fetch it.
   Nothing of the input or the rows reaches a log, and `Debug` of a request, a
-  row or a batch gives a generation and a count only. The lines a finished
-  search found, at most 16 MiB of them, stay on `oso-grep` for a search that
-  narrows it, and are dropped by the next search that walks.
+  row or a batch gives a generation and a count only. The lines a search that
+  ended without a limit found, at most 16 MiB of them with their paths,
+  counted as they are found, stay on `oso-grep` for a search that narrows it.
+  The next search that ends replaces them, and they go once no search came for
+  30 s.
 - The walk reads the project's ignore files itself, as patterns only: only a
   regular file that is not a link, opened without waiting, of at most 1 MiB.
   The person's global excludes may be a link but must be such a file too. They

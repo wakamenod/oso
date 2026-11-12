@@ -44,7 +44,7 @@ pub(super) struct Parts<'a> {
     breaks: bool,
     /// For a project's search, each row shown: how much of it is its path and line, and where
     /// it matches (ADR 0114).
-    found: Option<Vec<(usize, Vec<Range<usize>>)>>,
+    search_rows: Option<Vec<(usize, Vec<Range<usize>>)>>,
 }
 
 impl<'a> Parts<'a> {
@@ -82,7 +82,7 @@ impl<'a> Parts<'a> {
             }
             _ => Vec::new(),
         };
-        let found = list.as_ref().and_then(|(candidates, _)| {
+        let search_rows = list.as_ref().and_then(|(candidates, _)| {
             let rows = layout.regions.candidates.rows;
             candidates
                 .shown(rows)
@@ -103,7 +103,7 @@ impl<'a> Parts<'a> {
             region,
             kill,
             breaks: editor.kill_list_open(),
-            found,
+            search_rows,
         })
     }
 
@@ -132,7 +132,9 @@ impl<'a> Parts<'a> {
             .map(|(row, (_, candidate))| {
                 let at = (shown.columns, column);
                 // A search's row: its path and line, then its text, matched by the search.
-                if let Some((prefix, found)) = self.found.as_ref().and_then(|f| f.get(row)) {
+                if let Some((prefix, found)) =
+                    self.search_rows.as_ref().and_then(|rows| rows.get(row))
+                {
                     return candidate_spans(candidate, (*prefix, found), at, self.breaks);
                 }
                 candidates.query().highlights(candidate, &mut highlights);

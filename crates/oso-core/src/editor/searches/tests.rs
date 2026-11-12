@@ -266,3 +266,39 @@ fn the_search_splits_its_input_as_completion_does() {
     let long = "a".repeat(crate::complete::MAX_INPUT_BYTES + 1);
     assert!(!crate::project::LineQuery::parse(&long).starts());
 }
+
+#[test]
+fn tab_leaves_what_is_looked_for_as_it_is() {
+    let mut editor = searching();
+    let generation = search_for(&mut editor, "needle");
+    editor.rows_found(generation, vec![row("a.rs", 1, "let needle")], None);
+    editor.insert_completion().unwrap();
+    let id = editor.prompt().unwrap().buffer();
+    assert_eq!(editor.buffer(id).unwrap().text().to_string(), "needle");
+    assert!(editor.take_search_request().is_none());
+    assert_eq!(rows(&editor), ["a.rs:1: let needle"]);
+}
+
+#[test]
+#[ignore = "a timing: run by hand in a release build"]
+fn the_ui_threads_share_of_a_batch_of_rows() {
+    use std::time::{Duration, Instant};
+    let text = format!(
+        "    let ÜBER = {}needle(x, y);",
+        "Some_Mixed_Case_".repeat(30)
+    );
+    let mut slowest = [Duration::ZERO; 3];
+    for (at, size) in [1000, 5000, 10_000].into_iter().enumerate() {
+        for _ in 0..5 {
+            let mut editor = searching();
+            let generation = search_for(&mut editor, "needle");
+            let batch: Vec<_> = (0..size)
+                .map(|line| row("src/some/deeper/path/file.rs", line, &text))
+                .collect();
+            let started = Instant::now();
+            editor.rows_found(generation, batch, None);
+            slowest[at] = slowest[at].max(started.elapsed());
+        }
+    }
+    assert!(slowest[0] < Duration::from_millis(1), "{slowest:?}");
+}

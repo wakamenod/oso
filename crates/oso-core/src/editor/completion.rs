@@ -240,6 +240,10 @@ impl Editor {
     ///
     /// As [`Editor::move_completion`].
     pub fn insert_completion(&mut self) -> Result<(), PromptError> {
+        // A search's input is what it looks for, which a row's text would replace (ADR 0114).
+        if self.searches_project() {
+            return Ok(());
+        }
         let text = self.selected_completion()?;
         // A path goes in whole, the segments it expanded too, as `~/` from the home directory.
         let text = self.selected_file().map_or(text, |(_, form)| form);

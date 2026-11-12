@@ -180,7 +180,7 @@ are rounded.
   `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
 - `C-u C-x p f` asks `Find file in directory:` first, with `C-x C-f`'s completion from the
   buffer's directory, and lists that directory as a project, named after its last component. The
-  home directory, one that holds it and `/` are refused.
+  home directory, one that holds it, `/` and a path with `..` in it are refused.
 - The float opens empty and the list grows while the project is walked, every 50 ms. The count
   shows `…/…` until the walk ends, and `+` after it when it stopped at a limit: 100,000 files,
   32 MiB of paths and names, 1,000,000 entries read, or 16 MiB of ignore files.
@@ -233,8 +233,8 @@ are rounded.
   one. A file whose name may hold secrets is searched, but its rows say `path:line` and
   `may hold secrets`, with no text.
 - `RET` visits the file as `C-x C-f` does and goes to the line and the match's column once it
-  shows, with the place before on the mark ring. There is no preview yet (step 5). `C-g` stops
-  the search.
+  shows, with the place before on the mark ring. `TAB` does nothing, as a row's text would
+  replace what is looked for. There is no preview yet (step 5). `C-g` stops the search.
 - The history, `project-search`, keeps what was typed, not the row, and a search beside a buffer
   that may hold secrets keeps none.
 

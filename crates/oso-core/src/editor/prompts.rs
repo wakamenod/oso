@@ -249,12 +249,12 @@ impl Editor {
             self.prompt_says("Not a number");
             return Err(PromptError::Invalid);
         }
-        // A project's file is given as its whole path, and kept in the history by its path
-        // from the root, as the list shows it (ADR 0114).
         // A search's row is given as its file's whole path, and the history keeps the input.
         if let Some((path, input)) = self.search_answer() {
             return self.give_answer_recording(path, &input);
         }
+        // A project's file is given as its whole path, and kept in the history by its path
+        // from the root, as the list shows it (ADR 0114).
         if let Some(path) = self.project_file_answer(&text) {
             return self.give_answer_recording(path, text.trim());
         }
