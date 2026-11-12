@@ -300,12 +300,27 @@ file or a 10 MB line.
     `gutter_into` and the cell functions taking a window's id. The tree's order is
     `FrameLayout::windows`;
   - no new public module: `Splits` and `Way` go in `frame`, `WindowId` in `window`.
-- **As built, step 2:** the window commands are registered only in tests until step 3 draws
-  every window and binds their keys, so the app never shows a frame with windows it does not
+- **As built, step 2:** the window commands were registered only in tests until step 3 drew
+  every window and bound their keys, so the app never showed a frame with windows it did not
   draw. `windmove-up` and `windmove-down` say "No window up from selected window" and "…down…",
   as Emacs's `windmove` does.
-- **`oso-render`:** `Face::ModelineInactive` and `Face::Divider`, and a divider pane drawn as a
-  line.
+- **`oso-render`:** `Face::ModelineInactive` and `Face::Divider`, and `PaneContent::Divider`, a
+  line one pixel wide down the middle of its column.
+- **As built, step 3:** each window's panes take ids from its `WindowId` (`WindowId::get`): 16
+  and up, four a window, below them the echo area's and the floats'. A composition ends when
+  another tiled window is selected, whatever selected it, and stays when a prompt opens over
+  it (ADR 0077).
+- **A split selects the new window (the author's choice, 2026-11-12),** in place of question
+  3's (a): `C-x 2` and `C-x 3` select the window below or at the right, as the author's own
+  Emacs does, unlike Emacs's default. `split-window-below-and-select` and
+  `split-window-right-and-select` do the same, kept for configurations that name them.
+- **Beneath a prompt (the author's choice, 2026-11-12),** the window the prompt came from keeps
+  its region, its current line's band and its flash, as Emacs keeps them in the minibuffer's
+  selected window, so ADR 0072 and ADR 0097 hold as written. Its cursor is hollow and its
+  modeline inactive, as every window's beneath a prompt.
+- **`Agent` stays in sight (the author's choice, 2026-11-12):** a prompt's float can cover the
+  selected window's modeline, which then sits mid-frame. While one does, the bottom-most
+  window's modeline, the left-most on the bottom row, says `Agent` too (ADR 0085).
 - **`oso-platform`:** the wheel event's position.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.

@@ -262,7 +262,7 @@ impl App {
 
     /// Takes in what reading `id`'s file again ended with. Returns whether a frame is needed.
     fn apply_reload(&mut self, id: BufferId, running: Running, update: LoadUpdate) -> bool {
-        let shown = self.editor.tiled().0.buffer() == id;
+        let shown = super::loads::shown_in_a_window(&self.editor, id);
         let name = self.editor.buffer(id).map_or("", Buffer::name).to_owned();
         let Running {
             handle,

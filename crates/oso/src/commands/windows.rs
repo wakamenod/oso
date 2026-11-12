@@ -14,28 +14,28 @@ use super::not_in_prompt;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "split-window-below",
-        doc: "Split the selected window into two windows, one above the other.\n\nThe selected window stays selected, above; the new one, below, shows the same buffer from the same place, with the primary cursor and its mark.",
+        doc: "Split the selected window into two windows, one above the other, and select the new one below.\n\nThe new window shows the same buffer from the same place, with the primary cursor and its mark. Unlike Emacs's default, the new window is selected.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_below,
     },
     Command {
         name: "split-window-right",
-        doc: "Split the selected window into two side-by-side windows.\n\nThe selected window stays selected, at the left; the new one, at the right, shows the same buffer from the same place, with the primary cursor and its mark.",
+        doc: "Split the selected window into two side-by-side windows, and select the new one at the right.\n\nThe new window shows the same buffer from the same place, with the primary cursor and its mark. Unlike Emacs's default, the new window is selected.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_right,
     },
     Command {
         name: "split-window-below-and-select",
-        doc: "Split the selected window into two windows, one above the other, and select the new one below.",
+        doc: "Split the selected window into two windows, one above the other, and select the new one below.\n\nAs split-window-below, which selects the new window too; kept for configurations that name it.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_below_and_select,
     },
     Command {
         name: "split-window-right-and-select",
-        doc: "Split the selected window into two side-by-side windows, and select the new one at the right.",
+        doc: "Split the selected window into two side-by-side windows, and select the new one at the right.\n\nAs split-window-right, which selects the new window too; kept for configurations that name it.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_right_and_select,
@@ -135,12 +135,14 @@ fn split(ctx: &mut Ctx<'_>, way: Way, select: bool) -> Result<(), CommandError> 
     Ok(())
 }
 
+/// The new window is selected, as the author's own Emacs has it, unlike Emacs's default
+/// (ADR 0112).
 fn split_window_below(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    split(ctx, Way::Down, false)
+    split(ctx, Way::Down, true)
 }
 
 fn split_window_right(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    split(ctx, Way::Across, false)
+    split(ctx, Way::Across, true)
 }
 
 fn split_window_below_and_select(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

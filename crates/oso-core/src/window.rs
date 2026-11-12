@@ -69,6 +69,11 @@ impl WindowId {
     pub(crate) const fn new(n: u64) -> Self {
         Self(n)
     }
+
+    /// Its number, by which the host names what it keeps for the window, as its panes.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
 }
 
 /// How many rows and columns a window shows in full. Both at least 1.

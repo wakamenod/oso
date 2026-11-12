@@ -3,8 +3,9 @@
 //!
 //! Must not depend on: `app`, winit or the GPU.
 
+use crate::commands::tests::run;
 use oso_core::buffer::Buffer;
-use oso_core::command::{Args, Ctx, Effects, ExecuteError};
+use oso_core::command::Args;
 use oso_core::editor::Editor;
 use oso_core::frame::FrameSize;
 use oso_core::minibuffer::Kind;
@@ -18,20 +19,6 @@ fn editor() -> Editor {
         columns: 81,
     });
     editor
-}
-
-/// Runs the window command `name` through a registry that has them, as the app's will from
-/// ADR 0112's step 3.
-fn run(editor: &mut Editor, name: &str, args: Args) -> (Result<(), String>, Effects) {
-    let mut registry = crate::commands::registry();
-    registry.register_all(super::COMMANDS).unwrap();
-    let id = registry.lookup(name).unwrap();
-    let mut ctx = Ctx::new(editor);
-    let result = registry.execute(id, &mut ctx, args).map_err(|e| match e {
-        ExecuteError::Failed { error, .. } => error.message().to_owned(),
-        other => panic!("{other}"),
-    });
-    (result, ctx.effects())
 }
 
 /// Runs `name`, which must work.
@@ -48,22 +35,20 @@ fn selected(editor: &Editor) -> WindowId {
 }
 
 #[test]
-fn the_splits_keep_or_select_the_new_window() {
+fn every_split_selects_the_new_window_below_or_at_the_right() {
     let mut editor = editor();
-    for (name, select) in [
-        ("split-window-below", false),
-        ("split-window-right", false),
-        ("split-window-below-and-select", true),
-        ("split-window-right-and-select", true),
+    for name in [
+        "split-window-below",
+        "split-window-right",
+        "split-window-below-and-select",
+        "split-window-right-and-select",
     ] {
         editor.delete_other_windows();
-        editor.select_window(ids(&editor)[0]);
-        let before = selected(&editor);
         let (result, effects) = run(&mut editor, name, Args::NONE);
         assert_eq!(result, Ok(()), "{name}");
         assert!(effects.redraw, "{name}");
         assert_eq!(ids(&editor).len(), 2, "{name}");
-        assert_eq!(selected(&editor) != before, select, "{name}");
+        assert_eq!(selected(&editor), ids(&editor)[1], "{name}: the new one");
     }
 }
 
@@ -107,11 +92,12 @@ fn other_window_takes_a_count_and_redraws_only_when_it_moves() {
     ok(&mut editor, "split-window-below", Args::NONE);
     ok(&mut editor, "split-window-below", Args::NONE);
     let order = ids(&editor);
+    assert_eq!(selected(&editor), order[2], "the last split's new window");
     let (_, effects) = run(&mut editor, "other-window", Args::NONE);
     assert!(effects.redraw);
-    assert_eq!(selected(&editor), order[1]);
+    assert_eq!(selected(&editor), order[0], "around the end");
     ok(&mut editor, "other-window", Args::numeric(-2));
-    assert_eq!(selected(&editor), order[2]);
+    assert_eq!(selected(&editor), order[1]);
     let (_, effects) = run(&mut editor, "other-window", Args::numeric(3));
     assert!(!effects.redraw, "all the way around");
     for count in [isize::MIN, isize::MAX, 0] {
@@ -127,8 +113,9 @@ fn windmove_says_when_no_window_is_there() {
     let mut editor = editor();
     ok(&mut editor, "split-window-right", Args::NONE);
     let order = ids(&editor);
+    assert_eq!(selected(&editor), order[1], "the new window at the right");
     for (name, message) in [
-        ("windmove-left", "No window left from selected window"),
+        ("windmove-right", "No window right from selected window"),
         ("windmove-up", "No window up from selected window"),
         ("windmove-down", "No window down from selected window"),
     ] {
@@ -136,12 +123,12 @@ fn windmove_says_when_no_window_is_there() {
         assert_eq!(result, Err(message.to_owned()));
         assert!(!effects.redraw);
     }
-    let (result, effects) = run(&mut editor, "windmove-right", Args::NONE);
+    let (result, effects) = run(&mut editor, "windmove-left", Args::NONE);
     assert_eq!((result, effects.redraw), (Ok(()), true));
-    assert_eq!(selected(&editor), order[1]);
+    assert_eq!(selected(&editor), order[0]);
     assert_eq!(
-        run(&mut editor, "windmove-right", Args::NONE).0,
-        Err("No window right from selected window".to_owned())
+        run(&mut editor, "windmove-left", Args::NONE).0,
+        Err("No window left from selected window".to_owned())
     );
 }
 
