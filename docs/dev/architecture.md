@@ -189,8 +189,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   always stays. It is not persisted to disk. A batch of more than 4096 splices is
   kept in parts. An undo or a redo crosses a slice a turn on clones and commits each
   step once ([ADR 0119](adr/0119-undoing-large-steps-in-slices.md)): the command runs
-  the first slice, `App::undo_slice` the rest, keys and the wheel wait as for `!` and
-  `C-g` cancels it, and what each commit lets go is freed off the UI thread.
+  the first slice, `app/slices.rs` the rest, back to back and drawn as the share moves
+  on, keys and the wheel wait as for `!` and `C-g` cancels it, and what each commit lets
+  go is freed off the UI thread.
 - **The kill ring** (`oso_core::kill`, [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md))
   is owned by `Editor`. A kill takes one piece per cursor as rope slices, merging ranges
   that overlap, so it copies nothing on the UI thread, and appends to the newest entry
