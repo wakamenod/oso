@@ -1,13 +1,15 @@
-//! A project's files for `project-find-file` (ADR 0114): the walk its prompt asked for, started
-//! on the walker's thread, and the batches the walk sends, handed to the editor.
+//! A project's files for `project-find-file` and its lines for `project-search` (ADR 0114): the
+//! walk or the search a prompt asked for, started on its thread, and the batches it sends,
+//! handed to the editor.
 //!
-//! Must not depend on: key presses or how a frame is drawn. The project is walked on the
-//! walker's thread, never here, and nothing here logs what it found.
+//! Must not depend on: key presses or how a frame is drawn. The project is walked and searched
+//! on those threads, never here, and nothing here logs what they found.
 
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use super::{App, Loop, UserEvent, Waker};
+use crate::grep::{Found, Grep};
 use crate::walk::{Walked, Walker};
 
 /// How long a walk may send nothing before the rows it sent that wait are added anyway, as a
@@ -29,7 +31,33 @@ pub(super) fn walker(waker: &Waker) -> Walker {
     })
 }
 
+/// The searcher for the app, waking the event loop with [`UserEvent::Grepped`].
+pub(super) fn grep(waker: &Waker) -> Grep {
+    let waker = Mutex::new(waker.clone());
+    Grep::new(move |found| {
+        waker
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(UserEvent::Grepped(found))
+    })
+}
+
 impl App {
+    /// Starts the search a project's search prompt asked for, if any. The one before it, if one
+    /// runs, has been stopped.
+    pub(super) fn start_project_search(&mut self) {
+        if let Some(request) = self.editor.take_search_request() {
+            self.grep.search(request);
+        }
+    }
+
+    /// A search sent rows: the prompt takes them in, if the search is still its newest.
+    pub(super) fn grepped(&mut self, found: Found) {
+        self.editor
+            .rows_found(found.generation, found.rows, found.end);
+        self.request_redraw();
+    }
+
     /// Starts the walk a prompt that lists a project's files asked for, if any. The walk before
     /// it, if one runs, has been stopped.
     pub(super) fn start_walks(&mut self) {

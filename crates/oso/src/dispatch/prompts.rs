@@ -33,6 +33,9 @@ pub(super) struct Reading {
     runs_answer: bool,
     /// query-replace's prompts: the first, or the second with the first's answer (ADR 0113).
     replace: Option<ReplaceStage>,
+    /// The answer is the directory a project's prompt of this spec opens on, as `C-u` asks
+    /// (ADR 0114).
+    directory_for: Option<ArgSpec>,
 }
 
 /// Which of query-replace's two prompts a command waits for (ADR 0113).
@@ -132,7 +135,10 @@ impl Dispatcher {
                 return self.read_buffer(editor, id, args.raw(), read);
             }
             Some(
-                spec @ (ArgSpec::Mark { .. } | ArgSpec::File { .. } | ArgSpec::ProjectFile { .. }),
+                spec @ (ArgSpec::Mark { .. }
+                | ArgSpec::File { .. }
+                | ArgSpec::ProjectFile { .. }
+                | ArgSpec::ProjectSearch { .. }),
             ) => {
                 return self.read_listed(editor, id, args.raw(), spec);
             }
@@ -160,6 +166,7 @@ impl Dispatcher {
                 passphrase: kind == Kind::Passphrase,
                 runs_answer,
                 replace: None,
+                directory_for: None,
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
@@ -196,6 +203,7 @@ impl Dispatcher {
                 passphrase: false,
                 runs_answer: false,
                 replace: None,
+                directory_for: None,
             }),
             Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
             Err(error) => editor.prompt_says(error.to_string()),
@@ -252,6 +260,7 @@ impl Dispatcher {
                 passphrase: false,
                 runs_answer: false,
                 replace: None,
+                directory_for: None,
             }),
             Err(PromptError::Invalid) => editor.message("Kill ring is empty"),
             Err(error) => editor.prompt_says(error.to_string()),
@@ -295,6 +304,7 @@ impl Dispatcher {
                 passphrase: false,
                 runs_answer: false,
                 replace: None,
+                directory_for: None,
             }),
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -354,6 +364,7 @@ impl Dispatcher {
                 passphrase: false,
                 runs_answer: false,
                 replace: Some(stage),
+                directory_for: None,
             }),
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -420,6 +431,9 @@ impl Dispatcher {
                         }
                         if let Some(stage) = &reading.replace {
                             return self.replace_answered(editor, &reading, stage, &text);
+                        }
+                        if let Some(spec) = reading.directory_for {
+                            return self.directory_answered(editor, &reading, spec, &text);
                         }
                         let invocation = Invocation {
                             answer: Some(&text),

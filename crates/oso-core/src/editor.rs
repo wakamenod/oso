@@ -56,6 +56,7 @@ mod reload;
 mod replace;
 mod save;
 mod screen;
+mod searches;
 mod status;
 mod switch;
 mod tab;
@@ -85,6 +86,7 @@ pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
+pub use searches::{SearchHit, SearchRequest, SearchRow};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
@@ -154,6 +156,10 @@ pub struct Editor {
     file_list: files::FileList,
     /// What the prompt that lists a project's files keeps beside its candidates (ADR 0114).
     project_files: walks::ProjectFiles,
+    /// What the prompt that searches a project keeps beside its rows (ADR 0114).
+    project_search: searches::ProjectSearch,
+    /// Where a visit a search's row asked for goes once it shows (ADR 0114).
+    visit_place: Option<searches::VisitPlace>,
     /// What a prompt that completes waits for from the worker (ADR 0096).
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
@@ -277,6 +283,8 @@ impl Editor {
             kill_list: None,
             file_list: files::FileList::default(),
             project_files: walks::ProjectFiles::default(),
+            project_search: searches::ProjectSearch::default(),
+            visit_place: None,
             completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,

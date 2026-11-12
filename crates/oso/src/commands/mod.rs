@@ -212,6 +212,7 @@ mod tests {
             "next-history-element",
             "previous-history-element",
             "project-find-file",
+            "project-search",
             // Emergency copies.
             "emergency-copies-back",
             "emergency-copies-refresh",

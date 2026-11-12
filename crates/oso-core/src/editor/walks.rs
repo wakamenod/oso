@@ -114,18 +114,7 @@ impl Editor {
             .baseline()
             .and_then(|baseline| baseline.location.parent())
             .ok_or(NotInProject)?;
-        let holds_home = self
-            .home
-            .as_deref()
-            .is_some_and(|home| home.starts_with(directory));
-        if directory.parent().is_none() || holds_home {
-            return Err(NotInProject);
-        }
-        let name = directory.file_name().map_or_else(
-            || directory.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        );
-        Ok((directory.to_path_buf(), name))
+        self.listable_root(directory)
     }
 
     /// Opens a prompt that lists the files of the project at `root`, named `name`, as paths

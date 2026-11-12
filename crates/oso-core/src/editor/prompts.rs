@@ -251,6 +251,10 @@ impl Editor {
         }
         // A project's file is given as its whole path, and kept in the history by its path
         // from the root, as the list shows it (ADR 0114).
+        // A search's row is given as its file's whole path, and the history keeps the input.
+        if let Some((path, input)) = self.search_answer() {
+            return self.give_answer_recording(path, &input);
+        }
         if let Some(path) = self.project_file_answer(&text) {
             return self.give_answer_recording(path, text.trim());
         }
@@ -415,6 +419,7 @@ impl Editor {
     /// where its answer is typed. Called whenever the frame, the innermost prompt or its
     /// message changes.
     pub(super) fn relayout_prompt(&mut self) {
+        let cut = self.files_cut();
         self.prompt_layout = self.prompts.last().map(|prompt| {
             let message = prompt.message.as_deref();
             match prompt.candidates() {
@@ -423,7 +428,7 @@ impl Editor {
                     &self.frame,
                     &prompt.label,
                     message,
-                    candidates.total(),
+                    (candidates.total(), cut),
                     candidates.previews(),
                 ),
                 None => minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message),
@@ -449,6 +454,7 @@ impl Editor {
         self.forget_kill_list(prompt.id);
         self.forget_files(prompt.id);
         self.forget_project_files(prompt.id);
+        self.forget_project_search(prompt.id);
         self.forget_completion_work(prompt.id);
         // A list of 100,000 is dropped on the worker (ADR 0096).
         self.free_prompts_list(&mut prompt);

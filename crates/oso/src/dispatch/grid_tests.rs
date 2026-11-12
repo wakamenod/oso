@@ -1209,6 +1209,88 @@ mod scenarios {
     }
 
     #[test]
+    fn m_s_r_streams_a_searchs_rows_and_keeps_the_selected_row() {
+        let path = std::path::PathBuf::from("/w/oso/src/main.rs");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_load(oso_core::load::decode_all(b"", Default::default()));
+        buffer.judge_secret(Some(std::slice::from_ref(&path)));
+        buffer.set_baseline(oso_core::buffer::Baseline {
+            location: path,
+            file: None,
+        });
+        let mut editor = Editor::with_buffer(buffer);
+        aids_off(&mut editor);
+        editor.set_frame_size(FrameSize {
+            rows: 14,
+            columns: 100,
+        });
+        let id = editor.tiled().0.buffer();
+        editor.request_project(id);
+        let request = editor.take_project_requests().pop().unwrap();
+        let found = oso_core::project::Found {
+            root: oso_core::project::RootIdentity {
+                path: std::path::PathBuf::from("/w/oso"),
+                identity: None,
+            },
+            worktree_of: None,
+            checked_main: None,
+        };
+        editor.project_found(&request, Some(found));
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        let mut frame = |editor: &Editor, step: &str| {
+            frames.push(format!("step: {step}\n{}", text_grid(editor)));
+        };
+        let keys = |dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str| {
+            let sequence: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(editor, sequence.0);
+        };
+        let row = |path: &str, line, text: &str, secret| oso_core::editor::SearchRow {
+            path: path.into(),
+            line,
+            column: 0,
+            text: text.into(),
+            secret,
+        };
+        keys(&mut dispatcher, &mut editor, "M-s r");
+        frame(&editor, "M-s r, nothing typed");
+        keys(&mut dispatcher, &mut editor, "f n");
+        let search = editor.take_search_request().unwrap().generation;
+        frame(&editor, "f n, nothing found yet");
+        editor.rows_found(
+            search,
+            vec![
+                row("src/main.rs", 1, "fn main() {", false),
+                row("src/main.rs", 9, "fn run(\u{202e}x) {}", false),
+            ],
+            None,
+        );
+        frame(&editor, "a file's rows, a control boxed");
+        keys(&mut dispatcher, &mut editor, "C-n");
+        editor.rows_found(
+            search,
+            vec![
+                row(".env", 2, "", true),
+                row(
+                    "src/lib.rs",
+                    40,
+                    &format!("    {}fn", "x".repeat(120)),
+                    false,
+                ),
+            ],
+            None,
+        );
+        frame(
+            &editor,
+            "C-n, then more: the row moved to stays, a secret row has no text",
+        );
+        let end = Some(oso_core::editor::WalkEnd { cut: true });
+        editor.rows_found(search, Vec::new(), end);
+        frame(&editor, "the search ends at a limit");
+        assert_frames("project_search_streams", b"", &frames);
+    }
+
+    #[test]
     fn a_secret_buffers_modeline_says_no_position() {
         let path = std::path::PathBuf::from("/tmp/.env");
         let mut buffer = Buffer::visiting(path.clone());

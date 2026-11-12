@@ -127,6 +127,15 @@ impl Editor {
             return;
         }
         let revision = buffer.revision();
+        // A project's search takes the answer as what to look for, and the rows stay its own.
+        if self.searches_project() {
+            if let Some((_, seen)) = self.completion_mut() {
+                *seen = revision;
+            }
+            self.search_input_changed();
+            self.relayout_prompt();
+            return;
+        }
         // An answer too long to match, such as a whole file yanked into it, is never read.
         let text = (buffer.text().len() <= MAX_INPUT_BYTES).then(|| buffer.text().to_string());
         let unmerged = self.has_pending_batches();

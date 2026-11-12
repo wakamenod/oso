@@ -511,3 +511,5 @@ fn an_ignore_file_longer_than_what_is_left_ends_the_walk_before_it_is_read() {
         "exactly what is left is read"
     );
 }
+
+mod deep;

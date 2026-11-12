@@ -130,10 +130,10 @@ impl Editor {
     }
 
     /// Whether the innermost prompt that reads a path left candidates out: past the limits of a
-    /// listing, of a segment's directories or of the list, or of a project's walk (ADR 0114).
-    /// The count says so with `+`.
+    /// listing, of a segment's directories or of the list, or of a project's walk or search
+    /// (ADR 0114). The count says so with `+`.
     pub fn files_cut(&self) -> bool {
-        (self.reads_path() && self.file_list.cut) || self.project_files_cut()
+        (self.reads_path() && self.file_list.cut) || self.project_files_cut() || self.search_cut()
     }
 
     /// Whether a prompt that reads a path is open, innermost or not.
@@ -142,9 +142,12 @@ impl Editor {
     }
 
     /// Whether the innermost prompt that reads a path waits for a listing: of a directory, or
-    /// of a project whose walk has not ended or whose rows are not all in its list (ADR 0114).
+    /// of a project whose walk has not ended or whose rows are not all in its list, or for a
+    /// project's search that runs (ADR 0114).
     pub fn files_pending(&self) -> bool {
-        (self.reads_path() && !self.file_list.asked.is_empty()) || self.project_files_pending()
+        (self.reads_path() && !self.file_list.asked.is_empty())
+            || self.project_files_pending()
+            || self.search_pending()
     }
 
     /// The directory the innermost prompt's path reaches, for the control socket, if it reads
@@ -409,6 +412,7 @@ impl Editor {
     /// command cannot start a load itself. A buffer that visits that path already is shown at
     /// once instead, unless the agent channel is still opening it.
     pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
+        self.visit_place = None;
         let open = self
             .buffers()
             .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))

@@ -14,18 +14,17 @@ use std::ops::Range;
 use oso_core::complete::{self, Candidates};
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
-use oso_core::minibuffer::{self, Kind, PromptLayout, cells_of};
+use oso_core::minibuffer::{self, Kind, PromptLayout};
 use oso_core::window::Screen;
 use oso_render::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
 
 mod preview;
+mod row;
 
 use preview::preview_panes;
-
-/// What a line break in a `M-y` row reads as, drawn in the annotation's face (ADR 0091).
-const LINE_BREAK: &str = "⤶";
+use row::{SPACES, candidate_spans};
 
 /// What the innermost prompt shows, worked out for one frame.
 pub(super) struct Parts<'a> {
@@ -41,8 +40,11 @@ pub(super) struct Parts<'a> {
     region: Vec<CellRect>,
     /// A kill's lines in the preview (ADR 0091).
     kill: Vec<String>,
-    /// Whether the rows are kills, whose line breaks show as [`LINE_BREAK`] (ADR 0091).
+    /// Whether the rows are kills, whose line breaks show as [`row::LINE_BREAK`] (ADR 0091).
     breaks: bool,
+    /// For a project's search, each row shown: how much of it is its path and line, and where
+    /// it matches (ADR 0114).
+    found: Option<Vec<(usize, Vec<Range<usize>>)>>,
 }
 
 impl<'a> Parts<'a> {
@@ -80,6 +82,17 @@ impl<'a> Parts<'a> {
             }
             _ => Vec::new(),
         };
+        let found = list.as_ref().and_then(|(candidates, _)| {
+            let rows = layout.regions.candidates.rows;
+            candidates
+                .shown(rows)
+                .map(|(place, candidate)| {
+                    let mut out = Vec::new();
+                    let prefix = editor.search_highlights(place, candidate.text(), &mut out)?;
+                    Some((prefix, out))
+                })
+                .collect()
+        });
         Some(Self {
             layout,
             label: prompt.label(),
@@ -90,6 +103,7 @@ impl<'a> Parts<'a> {
             region,
             kill,
             breaks: editor.kill_list_open(),
+            found,
         })
     }
 
@@ -114,9 +128,15 @@ impl<'a> Parts<'a> {
         let mut highlights = Vec::new();
         let rows = candidates
             .shown(shown.rows)
-            .map(|(_, candidate)| {
+            .enumerate()
+            .map(|(row, (_, candidate))| {
+                let at = (shown.columns, column);
+                // A search's row: its path and line, then its text, matched by the search.
+                if let Some((prefix, found)) = self.found.as_ref().and_then(|f| f.get(row)) {
+                    return candidate_spans(candidate, (*prefix, found), at, self.breaks);
+                }
                 candidates.query().highlights(candidate, &mut highlights);
-                candidate_spans(candidate, &highlights, (shown.columns, column), self.breaks)
+                candidate_spans(candidate, (0, &highlights), at, self.breaks)
             })
             .collect();
         (rows, count)
@@ -225,122 +245,11 @@ impl<'a> Parts<'a> {
     }
 }
 
-/// Spaces for the gaps between a question's keys and in a candidate's row.
-const SPACES: &str = concat!(
-    "                                                                ",
-    "                                                                ",
-    "                                                                ",
-    "                                                                ",
-);
-
-/// `n` spaces, at most as many as [`SPACES`] holds.
-fn spaces(n: usize) -> &'static str {
-    &SPACES[..n.min(SPACES.len())]
-}
-
-/// Pushes `n` spaces onto `spans`, in pieces of [`SPACES`], so that no gap is cut short however
-/// wide the row.
-fn push_spaces(spans: &mut Vec<Span<'_>>, mut n: usize) {
-    while n > 0 {
-        let text = spaces(n);
-        spans.push(Span {
-            text,
-            face: Face::Float,
-        });
-        n -= text.len();
-    }
-}
-
 fn blank<'a>() -> Span<'a> {
     Span {
         text: "",
         face: Face::Float,
     }
-}
-
-/// The spans of a candidate's row of `columns` cells: its text with what matched in
-/// [`Face::CompletionMatch`], each [`LINE_BREAK`] in the annotation's face if `breaks` is set,
-/// its binding in parentheses, and its annotation at `column`, as `minibuffer::candidate_row`
-/// places them.
-fn candidate_spans<'a>(
-    candidate: &'a oso_core::complete::Candidate,
-    highlights: &[Range<usize>],
-    (columns, column): (usize, usize),
-    breaks: bool,
-) -> Vec<Span<'a>> {
-    let text = candidate.text();
-    let (binding, annotation) = (candidate.binding(), candidate.annotation());
-    let row = minibuffer::candidate_row(text, binding, annotation, columns, column);
-    let shown = &text[..row.text];
-    let mut spans = Vec::with_capacity(2 * highlights.len() + 6);
-    let mut at = 0;
-    for range in highlights {
-        let (start, end) = (range.start.min(shown.len()), range.end.min(shown.len()));
-        if start >= end {
-            continue;
-        }
-        push_text(&mut spans, &shown[at..start], breaks);
-        spans.push(Span {
-            text: &shown[start..end],
-            face: Face::CompletionMatch,
-        });
-        at = end;
-    }
-    push_text(&mut spans, &shown[at..], breaks);
-    let mut used = cells_of(shown);
-    if row.text_cut {
-        spans.push(Span {
-            text: minibuffer::CUT,
-            face: Face::Float,
-        });
-        used += 1;
-    }
-    if let Some(column) = row.binding {
-        push_spaces(&mut spans, column.saturating_sub(used));
-        for text in [minibuffer::BINDING_OPEN, binding, minibuffer::BINDING_CLOSE] {
-            spans.push(Span {
-                text,
-                face: Face::CompletionBinding,
-            });
-        }
-        used = column + cells_of(binding) + 2;
-    }
-    if let Some((column, bytes, cut)) = row.annotation {
-        push_spaces(&mut spans, column.saturating_sub(used));
-        spans.push(Span {
-            text: &candidate.annotation()[..bytes],
-            face: Face::CompletionAnnotation,
-        });
-        if cut {
-            spans.push(Span {
-                text: minibuffer::CUT,
-                face: Face::CompletionAnnotation,
-            });
-        }
-    }
-    spans
-}
-
-/// Pushes `text` in [`Face::Float`], with each [`LINE_BREAK`] in it in the annotation's face
-/// if `breaks` is set.
-fn push_text<'a>(spans: &mut Vec<Span<'a>>, text: &'a str, breaks: bool) {
-    let mut rest = text;
-    while breaks && let Some(at) = rest.find(LINE_BREAK) {
-        let end = at + LINE_BREAK.len();
-        spans.push(Span {
-            text: &rest[..at],
-            face: Face::Float,
-        });
-        spans.push(Span {
-            text: &rest[at..end],
-            face: Face::CompletionAnnotation,
-        });
-        rest = &rest[end..];
-    }
-    spans.push(Span {
-        text: rest,
-        face: Face::Float,
-    });
 }
 
 /// The spans of a float's rows, which its lines borrow.
