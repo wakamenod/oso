@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use super::follow::clip_selections;
 use super::{Editor, SLICE_TIME};
-use crate::buffer::{Budget, BufferId, EditError, PIECE, StagedCrossing};
+use crate::buffer::{Budget, BufferId, EditError, FOLLOW_WORK, PIECE, StagedCrossing};
 use crate::selection::{MarkActive, SelectionSet, follow_offset};
 use crate::sum_tree::Bias;
 use crate::undo::Direction;
@@ -197,12 +197,20 @@ impl Editor {
     ) -> Result<Crossing, EditError> {
         let buffer = self.buffer(id).ok_or(EditError::NoSuchBuffer)?;
         let staged = buffer.stage_crossing(direction)?;
+        // The selected window gets the cursors the step returns to, if it has them: only its
+        // ring follows.
+        let restores = buffer.crossing_selections(&staged).is_some();
+        let selected = self.windows[self.selected].id();
         let windows = self
             .windows
             .iter()
             .filter(|window| window.buffer() == id)
             .map(|window| {
-                let mut set = window.selections.clone();
+                let mut set = if restores && window.id() == selected {
+                    SelectionSet::new(0).with_ring(*window.selections.mark_ring())
+                } else {
+                    window.selections.clone()
+                };
                 // A change hides every region of the buffer (ADR 0071).
                 set.set_mark_active(MarkActive::Inactive);
                 Followed {
@@ -228,17 +236,9 @@ impl Editor {
     fn crossing_budget(&self, until: Instant) -> Budget {
         #[cfg(test)]
         if let Some((work, piece)) = self.crossing_slices {
-            return Budget {
-                work,
-                until: None,
-                piece,
-            };
+            return Budget::new(work, None, piece);
         }
-        Budget {
-            work: SLICE_WORK,
-            until: Some(until),
-            piece: PIECE,
-        }
+        Budget::new(SLICE_WORK, Some(until), PIECE)
     }
 
     /// Runs a slice of the step, and moves the windows' copies along. Returns whether the step
@@ -262,6 +262,12 @@ impl Editor {
             return Err(EditError::Abandoned);
         }
         let buffer = self.buffer(crossing.buffer).ok_or(EditError::Abandoned)?;
+        let cursors: usize = crossing
+            .windows
+            .iter()
+            .map(|followed| followed.set.len())
+            .sum();
+        budget.part = cursors * FOLLOW_WORK;
         let mut steps = Vec::new();
         let ended = buffer.apply_slice(&mut crossing.staged, budget, &mut steps)?;
         for followed in &mut crossing.windows {

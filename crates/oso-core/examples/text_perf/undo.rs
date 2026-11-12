@@ -1,6 +1,6 @@
 //! Undoing large steps (ADR 0119): a large `!` with what else follows a crossing turned on, a
 //! soft wrap, a second window and highlights, a session answered match by match, typing at
-//! 1000 cursors joined into one step, and a large kill.
+//! 1000 cursors joined into one step, a large kill, and many runs that meet with much to follow.
 //! Each case prints the undo and the redo at once, so that what grows with the step shows, and
 //! then crossed a slice at a time as the host runs them: the slices, p50, p99 and the longest
 //! of them, the last, which commits, and the whole. Run with `-- undo`.
@@ -97,6 +97,44 @@ fn sliced(editor: &mut Editor, count: isize) -> Sliced {
         times,
         whole: started.elapsed(),
     }
+}
+
+/// A step of `answers` runs that meet, as a replay typing forward makes: a session answered
+/// `y` at each of a first line of `a`, after one command that left `edited` lines edited, with
+/// `cursors` cursors in a second window. Each run that ends follows them all.
+fn meeting_runs(label: &str, lines: usize, answers: usize, edited: usize, cursors: usize) {
+    let text = "a".repeat(answers) + "\n" + &"line\n".repeat(lines);
+    let mut editor = editor_with_cursors(&text, cursors);
+    editor
+        .split_window(Way::Down, true)
+        .expect("the window splits");
+    let id = editor.window().buffer();
+    let (first, every) = (answers + 1, lines / edited * 5);
+    let edits: Vec<_> = (0..edited)
+        .map(|line| Replacement {
+            range: first + line * every..first + line * every,
+            text: "y",
+        })
+        .collect();
+    editor.begin_undo_group();
+    editor
+        .apply_edits(id, &edits)
+        .expect("the buffer is editable");
+    editor.end_undo_group();
+    editor.begin_undo_group();
+    editor
+        .replace_begin("a", "b", false)
+        .expect("the buffer takes edits");
+    editor.end_undo_group();
+    // The last answer ends the session there, whose next match a worker would look for.
+    for _ in 1..answers {
+        editor.replace_answer(ReplaceAnswer::Replace);
+    }
+    editor.replace_answer(ReplaceAnswer::ReplaceAndExit);
+    assert!(editor.replace().is_none(), "the session ended");
+    let (undone, redone, in_slices) = cross(&mut editor);
+    println!("{label:<34}       undo {undone:>9.2?}  redo {redone:>9.2?}");
+    println!("{in_slices}");
 }
 
 /// Killing `killed` bytes from the middle of `text`, then its undo.
@@ -252,4 +290,19 @@ pub(crate) fn undo_costs() {
     joined_typing("8 MB, 1000 cursors, 20 joined", &source, 20);
     let source = file_text(100 * MB);
     kill("89 MB killed of 100 MB", &source, 89 * MB);
+    drop(source);
+    meeting_runs(
+        "2000 runs that meet, 200k edited",
+        400_000,
+        2000,
+        200_000,
+        1,
+    );
+    meeting_runs(
+        "  and 100k cursors in a window",
+        400_000,
+        2000,
+        200_000,
+        100_000,
+    );
 }

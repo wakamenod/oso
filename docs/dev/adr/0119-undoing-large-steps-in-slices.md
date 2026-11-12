@@ -145,9 +145,9 @@ touches nothing until its last move.
   mapped, so it cannot leave the buffer half undone.
 - So a save, the emergency save after a panic, a crash, a dev restart's handoff, `get-state` and
   the syntax worker all see the state before the undo, which is a state the buffer really had.
-- **The staged crossing remembers the buffer's revision** and drops itself, saying "Undo
-  abandoned", if the buffer changed under it some other way; the rules below leave no such way,
-  so this is a guard.
+- **The staged crossing remembers the buffer's revision** and drops itself, saying "Undo or redo
+  abandoned", if the buffer changed under it some other way; the rules below leave no such way, so
+  this is a guard.
 - **A panic in a slice** drops the crossing and nothing else; the buffer is as before.
 - **A save already running when the undo starts** writes its snapshot and marks that content id
   saved, so the buffer after the undo is modified, as when an undo follows a save today.
@@ -185,7 +185,8 @@ touches nothing until its last move.
   its own copy of the highlights slice by slice, as it maps cursors, so the commit only moves it
   in; past the log's 4096 splices the log is emptied as for any large batch, and the worker parses
   the new text. Reports for the old revision that come mid-undo are taken as usual, since the buffer
-  has not changed, and the crossing's copy takes them too.
+  has not changed, and the crossing takes them in at its commit, as if they came just after it
+  (see "As built (step 2)").
 - **Soft wraps** take a large crossing as a large edit: the rows in view at the commit, the rest
   on the wrap worker (ADR 0100).
 
@@ -478,25 +479,32 @@ first, (a).
   is put in those offsets when the splice below it applies, or at that splice's start if it falls
   inside it, which holds as much or more. A run's ranges join the others when it ends. They may be
   wider than at once; clipping a cursor more is clipping it to where it already is.
-- **The budget:** a splice costs 1024 units and the bytes it puts back, and a slice does at most
-  4 MiB of them or applies for 3 ms. Highlights cost about 430 ns a splice to follow after the
-  slice has applied, so a slice applies for 3 ms less however long the one before went on past
-  its time, but at least 1 ms. Tests set the work and the piece size with
-  `Editor::set_crossing_slices` and no time, so that the slices are the same every run.
+- **The budget:** a splice costs 1024 units and the bytes it puts back, and a slice does at most 4
+  MiB of them or applies for 3 ms. Highlights cost about 430 ns a splice to follow after the slice
+  has applied, so a slice applies for 3 ms less however long the one before went on past its time,
+  but at least 1 ms. A slice also counts the following it does: each part handed out costs its
+  windows' cursors, the highlights' batch and the earlier runs' changed ranges, and each run that
+  ends costs the edited lines, 2 units each. A slice stops after a run when what is left cannot pay
+  for the next. The selected window's cursors are not followed when the step restores its own; only
+  its ring is. Tests set the work and the piece size with `Editor::set_crossing_slices` and no time,
+  so that the slices are the same every run.
 - **What may change meanwhile, and what abandons it.** Each slice checks the buffer's revision, its
   history's count of changes (`History::changes`, bumped by every record, join, crossing and clear),
   that the buffer can still be edited and still wraps or not as it did, that the window it began in
   is still selected and that the same windows show the buffer. The editor's commit checks that no
-  window's cursors changed, and the buffer's checks all this again and commits nothing that has not
-  all applied. A save taking the edited lines, or a scope tracked for cleanup or query-replace, also
-  abandons it. What the host may do between turns is taken in at the commit instead: a save that
-  ended (what it took is forgotten, or edited again if it failed), a cleanup scan that ended, and
-  highlights a report brought or that were dropped, which are mapped through the slices' batch; past
-  the log's 4096 splices the crossing's own copy stays, as when the report comes after the commit. A
-  window that scrolled meanwhile, by a resize or a wrap report, gets the top that followed the
-  crossing.
+  window's cursors changed, only then, once every slice has applied, as nothing but a command
+  changes them and the host holds commands meanwhile; and the buffer's checks all this again and
+  commits nothing that has not all applied. A save taking the edited lines, or a scope tracked for
+  cleanup or query-replace, also abandons it. What the host may do between turns is taken in at the
+  commit instead: a save that ended (what it took is forgotten, or edited again if it failed), a
+  cleanup scan that ended, and highlights a report brought or that were dropped, which are mapped
+  through the slices' batch; past the log's 4096 splices the crossing's own copy stays, as when the
+  report comes after the commit. Either way the highlights of text the step put back are a guess, as
+  after any edit, and may differ from those of a report taken before the undo. A window that
+  scrolled meanwhile, by a resize or a wrap report, gets the top that followed the crossing.
 - **A panic in a slice** drops the crossing and nothing else: the editor holds no crossing while a
   slice runs. No test makes a slice panic, as nothing but a bug can.
+- **`EditError::Abandoned` says "Undo or redo abandoned",** as it may be either.
 - **`begin_crossing` drops a crossing under way once its first step can begin;** a count of 0, or an
   error, leaves it. `Editor::undo` and `redo` begin one too. `go_on_crossing` with none under way
   returns `Some(Ok(()))`. A step it commits outside a command leaves the wraps' budget and following
@@ -525,6 +533,8 @@ first, (a).
   | 20,000 answers far apart in 100 MB | 48 / 45 ms | 14 | 3.00 ms | 3.06 ms | 5.8 ms | 45 ms |
   | 20 commands joined at 1000 cursors | 29 / 28 ms | 10 | 3.00 ms | 3.01 ms | 2.7 ms | 30 ms |
   | an 89 MB kill | 61 ms | 20 | 2.92 ms | 2.99 ms | 2.2 ms | 55 ms |
+  | 2000 runs that meet, 200k edited | 587 / 606 ms | 200 | 3.20 ms | 3.34 ms | 3.4 ms | 620 ms |
+  | the same, 100k cursors in a window | 840 / 841 ms | 334 | 2.42 ms | 2.71 ms | 1.2 ms | 842 ms |
 
   Runs vary by about 10% with other work on the machine. Undoing at once costs what it did after
   step 1, and typing and undoing at 1000 cursors costs what

@@ -364,7 +364,7 @@ fn a_buffer_changed_under_a_crossing_abandons_it_and_nothing_crosses() {
     assert!(editor.crossing().is_none());
     assert_eq!(text(&editor, id), "!1 2 3");
     assert_eq!(editor.buffer(id).map(Buffer::undo_lens), Some((2, 0)));
-    assert_eq!(EditError::Abandoned.to_string(), "Undo abandoned");
+    assert_eq!(EditError::Abandoned.to_string(), "Undo or redo abandoned");
 }
 
 #[test]

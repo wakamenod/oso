@@ -45,6 +45,11 @@ pub(super) struct FollowedHighlighting {
 }
 
 impl FollowedHighlighting {
+    /// How many splices the log's batch holds, which each batch more is composed with.
+    pub(super) fn composed(&self) -> usize {
+        self.batch.as_ref().map_or(0, Vec::len)
+    }
+
     /// Maps the copy through one more batch of edits, and composes it into the log's batch.
     pub(super) fn follow(&mut self, step: &[OffsetEdit]) {
         let step: Vec<Splice> = step.iter().map(splice_of).collect();

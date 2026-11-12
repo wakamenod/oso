@@ -44,6 +44,21 @@ impl FollowedLines {
         self.lines.follow(edits);
     }
 
+    /// How many ranges a batch more moves.
+    pub(crate) fn len(&self) -> usize {
+        let lines = &self.lines;
+        lines.now.ranges.len()
+            + lines
+                .saving
+                .as_ref()
+                .map_or(0, |saving| saving.ranges.len())
+            + lines
+                .tracked
+                .iter()
+                .map(|(_, tracked)| tracked.ranges.len())
+                .sum::<usize>()
+    }
+
     /// Whether `now`, the buffer's, changed since the copy began in a way it cannot take in.
     pub(crate) fn stale(&self, now: &EditedLines) -> bool {
         now.changes != self.changes

@@ -55,7 +55,7 @@ pub(crate) use edit::{Rewrap, StagedEdit};
 pub(crate) use edited::{EditedLines, Tracking};
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
-pub(crate) use sliced::{Budget, PIECE};
+pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE};
 use splice::normalized;
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
@@ -130,7 +130,7 @@ impl fmt::Display for EditError {
             Self::NoSuchBuffer => "No such buffer",
             Self::NoUndo => "No further undo information",
             Self::NoRedo => "No further redo information",
-            Self::Abandoned => "Undo abandoned",
+            Self::Abandoned => "Undo or redo abandoned",
         })
     }
 }

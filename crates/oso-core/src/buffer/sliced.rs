@@ -27,18 +27,39 @@ pub(crate) const SPLICE_WORK: usize = 1024;
 /// of this, at increasing offsets.
 pub(crate) const PIECE: usize = 1024 * 1024;
 
+/// What following an offset or a range through a part of a run costs, as [`Budget`] counts it.
+pub(crate) const FOLLOW_WORK: usize = 2;
+
 /// What a slice may still do.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Budget {
-    /// Work left, counted as [`SPLICE_WORK`] a splice and the bytes put back.
+    /// Work left, counted as [`SPLICE_WORK`] a splice and the bytes put back, and what
+    /// following what applied costs.
     pub(crate) work: usize,
-    /// When the slice must stop, if it has a time.
+    /// When the slice must stop applying, if it has a time.
     pub(crate) until: Option<Instant>,
     /// The most bytes of a splice's text put back at once.
     pub(crate) piece: usize,
+    /// What following each part of a run handed out costs besides its splices: every window's
+    /// cursors and the highlights' batch.
+    pub(crate) part: usize,
+    /// What following each run that ends costs: the edited lines.
+    pub(crate) run: usize,
 }
 
 impl Budget {
+    /// A slice of `work` until `until`, putting a splice's text back `piece` bytes at a time,
+    /// whose following costs nothing more.
+    pub(crate) fn new(work: usize, until: Option<Instant>, piece: usize) -> Self {
+        Self {
+            work,
+            until,
+            piece,
+            part: 0,
+            run: 0,
+        }
+    }
+
     /// Whether the slice is to stop.
     pub(crate) fn spent(&self) -> bool {
         self.work == 0 || self.until.is_some_and(|until| Instant::now() >= until)
@@ -144,18 +165,22 @@ impl GroupApply {
     ) -> bool {
         let mut moved = false;
         let ended = loop {
+            let mut fresh = false;
             if self.run.is_none() {
                 match self.plan(group, counts, budget) {
-                    Some(run) => self.run = Some(run),
+                    Some(run) => (self.run, fresh) = (Some(run), true),
                     None => break true,
                 }
             }
             let Some(run) = &mut self.run else {
                 break true;
             };
-            if moved && budget.spent() {
+            // What is left must pay for following the part handed out, and a run begun for
+            // following it when it ends.
+            let owed = budget.part + if fresh { budget.run } else { 0 };
+            if moved && (budget.spent() || budget.work <= owed) {
                 if run.apart(group) {
-                    self.end_chunk(steps);
+                    self.end_chunk(steps, budget);
                 }
                 break false;
             }
@@ -170,8 +195,8 @@ impl GroupApply {
                 &mut self.chunk,
             );
             if ended {
-                self.end_chunk(steps);
-                self.end_run();
+                self.end_chunk(steps, budget);
+                self.end_run(budget);
             }
         };
         settle_wraps(display, wraps);
@@ -268,10 +293,11 @@ impl GroupApply {
 
     /// Hands this slice's part of the run to `steps`, ascending, and moves what earlier runs
     /// changed along with it.
-    fn end_chunk(&mut self, steps: &mut Vec<Vec<OffsetEdit>>) {
+    fn end_chunk(&mut self, steps: &mut Vec<Vec<OffsetEdit>>, budget: &mut Budget) {
         if self.chunk.is_empty() {
             return;
         }
+        budget.spend(budget.part + self.changed.len() * FOLLOW_WORK);
         let mut chunk = mem::take(&mut self.chunk);
         chunk.reverse();
         follow_ranges(&mut self.changed, &chunk);
@@ -280,10 +306,11 @@ impl GroupApply {
 
     /// Puts the run that ended with the batches that undo, and what it changed with the
     /// rest.
-    fn end_run(&mut self) {
+    fn end_run(&mut self, budget: &mut Budget) {
         let Some(mut run) = self.run.take() else {
             return;
         };
+        budget.spend(budget.run);
         // Nothing is below what is still pending, so it stays where it is.
         while let Some((at, end)) = run.pending.pop() {
             add_descending(&mut run.changed, at..end);

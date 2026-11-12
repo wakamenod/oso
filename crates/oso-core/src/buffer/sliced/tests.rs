@@ -70,11 +70,7 @@ fn the_work_done_grows_to_the_group_s_and_no_further() {
     let mut last = 0;
     let mut slices = 0;
     loop {
-        let mut budget = Budget {
-            work: SPLICE_WORK,
-            until: None,
-            piece: PIECE,
-        };
+        let mut budget = Budget::new(SPLICE_WORK, None, PIECE);
         let ended = apply.go_on(
             &group,
             &counts,

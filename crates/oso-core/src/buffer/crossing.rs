@@ -11,7 +11,7 @@ use std::ops::Range;
 use super::edit::Rewrap;
 use super::edited::FollowedLines;
 use super::highlighting::FollowedHighlighting;
-use super::sliced::{Budget, GroupApply, work_of};
+use super::sliced::{Budget, FOLLOW_WORK, GroupApply, work_of};
 use super::{Buffer, EditError};
 use crate::display_map::{DisplayMap, DisplaySnapshot};
 use crate::rope::Rope;
@@ -141,6 +141,8 @@ impl Buffer {
             Rewrap::Splices(_) | Rewrap::Whole => None,
         };
         let first = steps.len();
+        budget.part += staged.highlighting.composed() * FOLLOW_WORK;
+        budget.run = staged.edited.len() * FOLLOW_WORK;
         let (batches, counts) = group.batches();
         let ended = staged.apply.go_on(
             batches,
@@ -213,11 +215,7 @@ impl Buffer {
     #[cfg(test)]
     pub(crate) fn cross_whole(&mut self, direction: Direction) -> Result<(), EditError> {
         let mut staged = self.stage_crossing(direction)?;
-        let mut budget = Budget {
-            work: usize::MAX,
-            until: None,
-            piece: super::PIECE,
-        };
+        let mut budget = Budget::new(usize::MAX, None, super::PIECE);
         let ended = self.apply_slice(&mut staged, &mut budget, &mut Vec::new())?;
         assert!(ended, "a slice with no limit crosses the whole group");
         self.commit_crossing(staged).ok_or(EditError::Abandoned)?;

@@ -138,11 +138,7 @@ pub(in crate::buffer) fn apply_in_slices(
     let mut apply = GroupApply::default();
     let mut steps = Vec::new();
     loop {
-        let mut budget = Budget {
-            work,
-            until: None,
-            piece,
-        };
+        let mut budget = Budget::new(work, None, piece);
         let wraps = wraps.as_deref_mut();
         if apply.go_on(
             group,
