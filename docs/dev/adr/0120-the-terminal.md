@@ -769,3 +769,76 @@ Each passage stays in its ADR as written; what holds now follows it.
   history and state would be lost, and a process's directory cannot be changed from outside.
 - **Kitty graphics from a file or shared memory:** a remote program could name a local file for oso to
   read and show.
+
+## As built
+
+### Step 2: the PTY
+
+The author approved the plan on 2026-11-13, through the coordinator, with the first option on each
+question, and after the reviews, the restored guards below.
+
+- **`oso-platform::process` is in every build.** `log` is no longer optional in `oso-platform`, whose
+  `dev` feature now gates only the window layer's dev code and the memory clipboard, and the spawn
+  log line starts with `oso-process-spawn`. Tests that start a process no longer need the `dev`
+  feature.
+- **The guards that moved with it.** `just release-safety` no longer looks for a spawn marker; it
+  looks for `oso-dev-supervisor`, which only `oso dev`'s supervisor holds, so that the code that
+  runs cargo cannot reach a release build alone. Clippy's `disallowed-methods` adds
+  `CommandExt::pre_exec` and `before_exec`, and libc's `fork`, `vfork`, `forkpty`, `clone`, `exec*`,
+  `posix_spawn*`, `system` and `popen`,
+  and the architecture test allows silencing them in `process.rs` and in `process/pty/unix.rs`, which
+  holds the terminal's child-side hook, only.
+- **`Spawn` gains two fields:** `set`, variables set by value over the allowlist; and
+  `terminal: Option<&pty::Slave>`. ADR 0122's step 2 then adds only a piped standard input. Names
+  in `set` and in `inherit` are refused when empty, holding `=` or NUL, `PATH` (the module's own),
+  `LD_*` or `DYLD_*`; names and values come from oso or the person's own configuration, never from a
+  project's files, a terminal's output or the agent channel. `set`'s values are neither logged nor
+  shown by `Spawn`'s `Debug`. A child in a terminal must leave `stdout` and `stderr` as
+  `Sink::Inherit` and `own_process_group` false.
+- **`process::pty`:** `open(Size) -> (Master, Slave)`; `Master` reads and writes without blocking,
+  `resize`s (`TIOCSWINSZ`, pixels too), says whether the terminal `echoes`, gives its
+  `foreground_group` and can `hang_up`; `wake_pair()` gives a `Waker` and a `Wakeup`, and
+  `Master::wait` polls the master and the wake-up pipe with a timeout, so step 3's thread needs no OS
+  calls of its own. Wakes not yet seen are one byte in the pipe, and a `Wakeup` keeps the pipe open,
+  so a dropped `Waker` cannot make the wait spin. A `Slave` is dropped once the child has started,
+  so that the master sees the terminal's end; a read then returns 0 on both systems (Linux's `EIO`
+  is read as the end). The child's exit status is the standard library's `Child::wait`.
+- **For step 3:** one read returns a few KiB, so the thread reads until `WouldBlock` before waiting;
+  it asks `wait` for `writable` only while input is queued; and it opens, spawns and drops the slave
+  itself, as a spawn with a terminal forks the whole process.
+- **`hang_up`** on macOS asks the kernel to signal the foreground group (`TIOCSIG` on the master),
+  so no group number is read and then signalled. Linux's `TIOCSIG` sends only `SIGINT`, `SIGQUIT`
+  and `SIGTSTP`, so there, and wherever `TIOCSIG` fails, it signals the number `tcgetpgrp` gives,
+  never 0, 1 or oso's own group.
+- **`posix_openpt` with `O_CLOEXEC`, not `openpty`.** `openpty` opens both ends without
+  close-on-exec on macOS and Linux, so a spawn on another thread before they were marked would
+  give a child that does not own the terminal its master: it could read what is typed there, and
+  the master would never see the end. `posix_openpt` sets it atomically (checked on macOS; glibc
+  and musl pass the flag to `open`), the slave's name comes from `TIOCPTYGNAME` on macOS and
+  `ptsname_r` on Linux, and the standard library opens the slave with `O_CLOEXEC` and `O_NOCTTY`.
+- **The child-side hook** (`pre_exec`, which makes the standard library fork) calls `setsid` and
+  `TIOCSCTTY`, sets the job-control and termination signals back to their default actions (an oso
+  started with `nohup` would otherwise give its shells an ignored `SIGHUP`), empties the signal
+  mask the child has from the spawning thread, and marks every descriptor from 3 up close-on-exec
+  (`close_range` on Linux, else one by one up to the soft descriptor limit, which on macOS is
+  capped at `kern.maxfilesperproc`), so the long-lived shell keeps no descriptor another thread
+  had not marked yet. It allocates nothing and calls only async-signal-safe functions.
+- **The unsafe blocks.** "One `unsafe` `pre_exec`" is the one block that runs in the child. Every
+  other libc call in the parent has a block of its own, each with its `// SAFETY:` comment:
+  `posix_openpt` and taking its descriptor, `grantpt` with `unlockpt`, the slave's name, `fcntl` for
+  `O_NONBLOCK`, `TIOCSWINSZ`, `tcgetattr` and reading its result, `tcgetpgrp`, `TIOCSIG`, `getpgrp`,
+  `kill`, `poll`, `getrlimit`, `sysctlbyname` on macOS, and `getpwuid_r`.
+- **`process::account_shell()`**, in a module of its own, reads the account's shell from the user
+  database for step 4's order of shells; it may wait on a directory service, so it never runs on the
+  UI thread. The order and `-l` are step 4's.
+- **Windows:** `pty` is compiled everywhere, so `Spawn` is the same on every system; `open` and
+  `wake_pair` return `Unsupported` there, and no value of its types exists. ConPTY will fill `open`,
+  reading, writing, `resize` and `wait`, but has no echo flag, process groups or hang-up: a caller
+  treats an error from `echoes` as echo off, and one from `foreground_group` as a shell not in the
+  foreground.
+- **Tests** run `/bin/sh` in a terminal on macOS and Linux: its size and streams, the controlling
+  terminal, the session, a resize reaching a `WINCH` trap, input, echo off, the end, a hang-up
+  (also from a thread that blocks `SIGHUP`),
+  that no other child inherits either end, that a descriptor left open on `exec` reaches no
+  terminal child, the names refused by value and by name, the group a hang-up never signals, and the
+  wake-up.

@@ -244,7 +244,7 @@ fn a_deeper_ignore_file_and_a_negation_decide_and_rgignore_comes_first() {
     );
 }
 
-#[cfg(all(unix, feature = "dev"))]
+#[cfg(unix)]
 #[test]
 fn an_ignore_file_that_is_a_pipe_does_not_hold_the_walk() {
     use oso_platform::process::{Executable, Sink, Spawn, spawn};
@@ -262,6 +262,8 @@ fn an_ignore_file_that_is_a_pipe_does_not_hold_the_walk() {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .and_then(|mut child| child.wait())
         .expect("cannot run mkfifo");

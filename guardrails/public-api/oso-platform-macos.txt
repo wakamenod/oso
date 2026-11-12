@@ -271,6 +271,62 @@ pub fn oso_platform::privacy::is_this_users(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::state_home() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::privacy::who_can_change(&std::path::Path) -> std::io::error::Result<oso_platform::privacy::WhoCanChange>
 pub mod oso_platform::process
+pub mod oso_platform::process::pty
+pub struct oso_platform::process::pty::Master(_)
+impl oso_platform::process::pty::Master
+pub fn oso_platform::process::pty::Master::echoes(&self) -> std::io::error::Result<bool>
+pub fn oso_platform::process::pty::Master::foreground_group(&self) -> std::io::error::Result<core::option::Option<u32>>
+pub fn oso_platform::process::pty::Master::hang_up(&self) -> std::io::error::Result<()>
+pub fn oso_platform::process::pty::Master::read(&self, &mut [u8]) -> std::io::error::Result<usize>
+pub fn oso_platform::process::pty::Master::resize(&self, oso_platform::process::pty::Size) -> std::io::error::Result<()>
+pub fn oso_platform::process::pty::Master::wait(&self, &oso_platform::process::pty::Wakeup, bool, core::option::Option<core::time::Duration>) -> std::io::error::Result<oso_platform::process::pty::Ready>
+pub fn oso_platform::process::pty::Master::write(&self, &[u8]) -> std::io::error::Result<usize>
+impl core::fmt::Debug for oso_platform::process::pty::Master
+pub fn oso_platform::process::pty::Master::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_platform::process::pty::Ready
+pub oso_platform::process::pty::Ready::readable: bool
+pub oso_platform::process::pty::Ready::woken: bool
+pub oso_platform::process::pty::Ready::writable: bool
+impl core::clone::Clone for oso_platform::process::pty::Ready
+pub fn oso_platform::process::pty::Ready::clone(&self) -> oso_platform::process::pty::Ready
+impl core::cmp::Eq for oso_platform::process::pty::Ready
+impl core::cmp::PartialEq for oso_platform::process::pty::Ready
+pub fn oso_platform::process::pty::Ready::eq(&self, &oso_platform::process::pty::Ready) -> bool
+impl core::default::Default for oso_platform::process::pty::Ready
+pub fn oso_platform::process::pty::Ready::default() -> oso_platform::process::pty::Ready
+impl core::fmt::Debug for oso_platform::process::pty::Ready
+pub fn oso_platform::process::pty::Ready::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::process::pty::Ready
+impl core::marker::StructuralPartialEq for oso_platform::process::pty::Ready
+pub struct oso_platform::process::pty::Size
+pub oso_platform::process::pty::Size::columns: u16
+pub oso_platform::process::pty::Size::height: u16
+pub oso_platform::process::pty::Size::rows: u16
+pub oso_platform::process::pty::Size::width: u16
+impl core::clone::Clone for oso_platform::process::pty::Size
+pub fn oso_platform::process::pty::Size::clone(&self) -> oso_platform::process::pty::Size
+impl core::cmp::Eq for oso_platform::process::pty::Size
+impl core::cmp::PartialEq for oso_platform::process::pty::Size
+pub fn oso_platform::process::pty::Size::eq(&self, &oso_platform::process::pty::Size) -> bool
+impl core::fmt::Debug for oso_platform::process::pty::Size
+pub fn oso_platform::process::pty::Size::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::process::pty::Size
+impl core::marker::StructuralPartialEq for oso_platform::process::pty::Size
+pub struct oso_platform::process::pty::Slave(_)
+impl core::fmt::Debug for oso_platform::process::pty::Slave
+pub fn oso_platform::process::pty::Slave::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_platform::process::pty::Waker(_)
+impl oso_platform::process::pty::Waker
+pub fn oso_platform::process::pty::Waker::wake(&self) -> std::io::error::Result<()>
+impl core::clone::Clone for oso_platform::process::pty::Waker
+pub fn oso_platform::process::pty::Waker::clone(&self) -> oso_platform::process::pty::Waker
+impl core::fmt::Debug for oso_platform::process::pty::Waker
+pub fn oso_platform::process::pty::Waker::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_platform::process::pty::Wakeup(_)
+impl core::fmt::Debug for oso_platform::process::pty::Wakeup
+pub fn oso_platform::process::pty::Wakeup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn oso_platform::process::pty::open(oso_platform::process::pty::Size) -> std::io::error::Result<(oso_platform::process::pty::Master, oso_platform::process::pty::Slave)>
+pub fn oso_platform::process::pty::wake_pair() -> std::io::error::Result<(oso_platform::process::pty::Waker, oso_platform::process::pty::Wakeup)>
 pub enum oso_platform::process::Sink
 pub oso_platform::process::Sink::Inherit
 pub oso_platform::process::Sink::Null
@@ -306,13 +362,16 @@ pub oso_platform::process::Spawn::executable: &'a oso_platform::process::Executa
 pub oso_platform::process::Spawn::inherit: &'a [&'a str]
 pub oso_platform::process::Spawn::own_process_group: bool
 pub oso_platform::process::Spawn::project: core::option::Option<&'a std::path::Path>
+pub oso_platform::process::Spawn::set: &'a [(&'a str, &'a std::ffi::os_str::OsStr)]
 pub oso_platform::process::Spawn::stderr: oso_platform::process::Sink
 pub oso_platform::process::Spawn::stdout: oso_platform::process::Sink
+pub oso_platform::process::Spawn::terminal: core::option::Option<&'a oso_platform::process::pty::Slave>
+impl core::fmt::Debug for oso_platform::process::Spawn<'_>
+pub fn oso_platform::process::Spawn<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a> core::clone::Clone for oso_platform::process::Spawn<'a>
 pub fn oso_platform::process::Spawn<'a>::clone(&self) -> oso_platform::process::Spawn<'a>
-impl<'a> core::fmt::Debug for oso_platform::process::Spawn<'a>
-pub fn oso_platform::process::Spawn<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a> core::marker::Copy for oso_platform::process::Spawn<'a>
+pub fn oso_platform::process::account_shell() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::process::spawn(&oso_platform::process::Spawn<'_>) -> std::io::error::Result<std::process::Child>
 pub mod oso_platform::text
 pub enum oso_platform::text::GlyphFormat

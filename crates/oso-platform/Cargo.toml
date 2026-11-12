@@ -8,7 +8,8 @@ publish.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-log = { workspace = true, optional = true }
+# The spawn log line (ADR 0047), in every build since the terminal ships (ADR 0120).
+log.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
@@ -26,12 +27,12 @@ objc2-foundation.workspace = true
 objc2-app-kit.workspace = true
 objc2-quartz-core.workspace = true
 raw-window-handle.workspace = true
-log.workspace = true
 
 [features]
-# Process spawning (ADR 0010, ADR 0047) and the log lines of the dev tooling. The
-# control sockets' transport is in every build (ADR 0085). Enabled only by `oso/dev`.
-dev = ["dep:log"]
+# The dev tooling's code in the window layer and the memory clipboard. Process spawning
+# (ADR 0120) and the control sockets' transport (ADR 0085) are in every build. Enabled
+# only by `oso/dev`.
+dev = []
 
 [lints]
 workspace = true
