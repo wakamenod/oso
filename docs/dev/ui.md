@@ -399,6 +399,9 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   one and stay, `^` back, `u` undo the last replacement, `q`/`RET` end, `?` the keys. `C-g` ends
   it keeping what it replaced, and any other key ends it and runs.
 - The whole session undoes as one step.
+- `C-M-%` replaces a regexp's matches, in the `regex` crate's syntax, one line at a time, with
+  `$1`, `${name}` and `$0` in the replacement. A regexp that does not compile keeps the prompt
+  open, saying why.
 
 ## Input method (IME)
 

@@ -46,3 +46,27 @@ fn m_percent_asks_at_each_match_and_undoes_as_one_step() {
     let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 3 })));
     assert_eq!(rows["rows"], json!(["foo", "foo", "foo"]), "one step");
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn c_m_percent_replaces_a_regexps_matches_with_its_groups() {
+    let scratch = Scratch::new("replace-regexp");
+    let file = scratch.write("pairs.txt", b"a=1\nb=2\nc=3\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    // A regexp that does not compile keeps the prompt open.
+    app.send_keys("C-M-% ( RET");
+    let state = app.state();
+    assert_eq!(state["prompts"][0]["prompt"], "Query replace regexp: ");
+    app.send_keys(&format!(
+        "DEL {} RET {} RET",
+        typing(r"(\w)=(\d)"),
+        typing("$2=$1")
+    ));
+    let state = app.wait_for("the count", |state| !state["replace"]["count"].is_null());
+    assert_eq!(state["replace"]["regexp"], true);
+    app.send_keys("!");
+    app.wait_for("the end", |state| state["replace"].is_null());
+    let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 3 })));
+    assert_eq!(rows["rows"], json!(["1=a", "2=b", "3=c"]));
+}
