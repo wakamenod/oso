@@ -20,6 +20,8 @@ use crate::pane::{
 };
 use crate::theme::{Theme, themes};
 
+mod syntax;
+
 const COLUMNS: usize = 80;
 const ROWS: usize = 24;
 /// The text area's rows; the modeline and the echo area take the last two.
@@ -100,6 +102,7 @@ fn text_pane<'a>(
             fills,
             whitespace: true,
             flash,
+            highlights: None,
         }),
     }
 }
@@ -332,6 +335,7 @@ fn theme_samples() {
             crate::theme::tests::ratios(&theme)
         )
         .unwrap();
+        syntax::write_sample(dir, theme);
     }
     std::fs::write(dir.join("ratios.md"), table).unwrap();
 }
@@ -360,6 +364,7 @@ fn split_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
             fills,
             whitespace: true,
             flash: None,
+            highlights: None,
         })
     };
     let active: [&[Span<'_>]; 1] = [&[

@@ -369,5 +369,7 @@ fn text<'a>(
         fills: drawn.fills.get(index).map_or(&[][..], |fills| &fills[..]),
         whitespace: editor.visual_aids().whitespace,
         flash,
+        // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
+        highlights: buffer.highlights(),
     })
 }
