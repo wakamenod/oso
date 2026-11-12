@@ -8,8 +8,8 @@ item notes when it must be settled.
 
 - **UI of each later feature** (before building it). The M2 UI is decided
   ([`ui.md`](ui.md), [ADR 0026](adr/0026-m2-ui-layout.md)); M3 and later
-  features (the menu contents, the git status buffer,
-  the terminal) are designed when they come up.
+  features (the menu contents, the git status buffer) are designed when
+  they come up.
 
 ## M1
 
@@ -374,7 +374,8 @@ item notes when it must be settled.
 - Fuzzing targets and how long they run. The `SumTree`, the rope, the
   display model under random edits, and the streaming decoder and load
   builder (property-tested since M1-6) are the first candidates.
-- URL-opening policy: which schemes, and what confirmation.
+- URL-opening policy outside terminals: which schemes, and what confirmation.
+  Terminals have theirs ([ADR 0120](adr/0120-the-terminal.md)).
 
 ## M4
 
@@ -387,27 +388,9 @@ item notes when it must be settled.
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - OSC 7501 is a draft; track its revisions.
-- Terminal engine: compare `alacritty_terminal` (ADR 0015) and libghostty-vt
-  1.0 when M4's terminal work starts, by building with both, and decide in
-  an ADR. The bar is parity with the author's current Emacs terminal
-  (ghostel, built on libghostty-vt):
-  - inline images (Kitty graphics protocol)
-  - shell integration: directory tracking (OSC 7), prompt navigation
-    (OSC 133), calling whitelisted editor commands from the shell
-  - input modes (semi-char, char, line, read-only, copy)
-  - the terminal as the backend for compile, async shell commands and
-    comint-style buffers
-
-  `alacritty_terminal` lacks OSC 7, OSC 133, OSC 7501 and Kitty graphics.
-  It also gives the embedder no way to observe escape sequences it does not
-  handle, so OSC 7501 for ADR 0031 would need a second parser over the same
-  bytes. Kitty graphics would have to be implemented by oso. libghostty-vt
-  has all of these, but needs Zig to build on three OSes, has no official
-  Rust binding, and parses untrusted output in code that is not memory safe.
-  Also compare rendering of the Claude Code TUI and bulk-output performance.
-  Keep the engine behind a trait.
-- Terminal: PTY implementation per OS (ConPTY on Windows) and the full list of
-  allowed and blocked escape sequences.
+- Terminal engine: `alacritty_terminal` or libghostty-vt, decided by ADR 0120's
+  step 1, a comparison of at most three days
+  ([ADR 0120](adr/0120-the-terminal.md)).
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,

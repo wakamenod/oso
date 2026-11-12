@@ -263,9 +263,13 @@ alongside the steps above, after M2-16:
 - A git-porcelain subset: status, staging hunks, commit, push/pull, log,
   conflict resolution.
 - Compile buffer (running `just ci`), format on save.
-- Terminal view for hosting agents: PTY, `alacritty_terminal` rendering,
-  input, searchable text, escape-sequence policy, OSC 7501 status
-  ([ADR 0015](adr/0015-terminal.md)).
+- The terminal, replacing a terminal app
+  ([ADR 0120](adr/0120-the-terminal.md)): a PTY of oso's own, the engine chosen by
+  a time-boxed comparison, a thread per terminal, semi-char keys with `C-s` search
+  and copy mode, the escape-sequence policy, project terminals (`C-x p m`,
+  `C-x p M`), a floating terminal (`` C-` ``), shell commands that run listed oso
+  commands, Kitty images, the seam for the compile buffer, and terminals that
+  survive `oso dev`'s restart. OSC 7501 status comes with sessions (ADR 0121).
 - Claude Code integration ([ADR 0031](adr/0031-claude-code-integration.md)):
   the official `claude` TUI in a terminal view, hooks for session identity
   and state, review and worktree tools on the `oso mcp` bridge, session
@@ -274,9 +278,8 @@ alongside the steps above, after M2-16:
 ### After M4
 
 - Directory editor (dired-like), org subset.
-- Pop-up terminal with parity with the author's current Emacs terminal:
-  inline images, shell integration, input and copy modes, and the terminal
-  as the backend for compile and async shell commands.
+- Terminal: ConPTY on Windows, Sixel and iTerm2 images
+  ([ADR 0120](adr/0120-the-terminal.md)).
 - A wiki/GTD client, to be considered.
 - Tabs and multiple frames.
 - Inline images and a PDF viewer.
