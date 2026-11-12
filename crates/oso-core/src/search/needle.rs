@@ -7,6 +7,7 @@
 //! Must not depend on: `buffer`, `editor` or a log.
 
 use std::ops::Range;
+use std::time::Instant;
 
 use super::regexp::{self, Line, LineTooLong, Regexp};
 use super::{Count, Found, Limits, Query, count, find_backward, find_forward, find_in, matches_in};
@@ -80,17 +81,20 @@ impl Needle {
     }
 
     /// The matches within `spans`, at most `most` and reading at most `limit` bytes, for a
-    /// frame's highlights.
+    /// frame's highlights or a jump's key. A regexp's stop at `until` too, and read each line
+    /// into `line`, room the caller keeps; a literal query's read only the text the spans
+    /// cover, so its budget alone bounds them.
     pub(crate) fn matches_in(
         &self,
         (text, invalid): (&Rope, &InvalidBytes),
         spans: &[Range<usize>],
         (most, limit): (usize, usize),
+        room: (Instant, &mut String),
         out: &mut Vec<Range<usize>>,
     ) {
         match self {
             Self::Literal(query) => matches_in((text, invalid), query, spans, (most, limit), out),
-            Self::Regexp(regexp) => regexp.matches_in(text, spans, (most, limit), out),
+            Self::Regexp(regexp) => regexp.matches_in(text, spans, (most, limit), room, out),
         }
     }
 

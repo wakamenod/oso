@@ -1,6 +1,7 @@
 //! Tests of migemo on the editor (ADR 0116): a romaji string's kana in isearch, its line,
 //! `M-m`, the setting, `M-r` and `M-c` with it, the history, cursors from it, the cache
-//! and `Debug`, and a jump's string, also around a secret.
+//! and `Debug`, a secret kill yanked into the string, and a jump's string, also around a
+//! secret.
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
@@ -197,6 +198,23 @@ fn debug_prints_no_cached_string_and_a_secret_keeps_no_needle() {
     let mut editor = secret_editor();
     search(&mut editor, "kana");
     assert!(migemo(&editor));
+    assert_eq!(editor.migemo.cached(), 0);
+}
+
+#[test]
+fn a_secret_kill_of_romaji_yanked_into_the_string_keeps_no_needle() {
+    let mut editor = secret_editor();
+    let direction = crate::kill::Direction::Forward;
+    editor
+        .kill(std::iter::once(6..10), direction, true)
+        .unwrap();
+    let notes = editor.add_buffer(Buffer::from_text("notes.txt", "かな kana"));
+    editor.show(notes);
+    assert!(!editor.shows_secret());
+    editor.isearch_begin(false, false);
+    editor.isearch_yank_kill();
+    assert_eq!(editor.isearch().unwrap().string(), "kana");
+    assert!(migemo(&editor), "the string is still searched by migemo");
     assert_eq!(editor.migemo.cached(), 0);
 }
 

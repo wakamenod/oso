@@ -1,6 +1,7 @@
 //! Search over a rope, for isearch (ADR 0082) and query-replace (ADR 0113): a literal query
 //! built from a string with smart case, searched forward, backward, in a range and through
-//! the whole text, and the regexps of `regexp`, matched one line at a time.
+//! the whole text, and the regexps of `regexp`, matched one line at a time, among them
+//! migemo's pattern for a romaji string (ADR 0116).
 //!
 //! Must not depend on: `buffer`, `motion`, `editor`, threads or a log. The worker's
 //! [`SearchJob`] is a plain function here, and the host runs it on its thread.
@@ -32,7 +33,7 @@ pub(crate) use job::{Counting, Find, MatchWork, Matched, Prepared, Report, after
 pub use job::{SearchJob, SearchReport};
 pub(crate) use needle::Needle;
 pub(crate) use regexp::{
-    CompileError, Line, LineTooLong, MAX_LINE, On, Regexp, compile as compile_regexp,
+    CompileError, FRAME_TIME, Line, LineTooLong, MAX_LINE, On, Regexp, compile as compile_regexp,
     compile_isearch, quote, smart_case as regexp_smart_case,
 };
 

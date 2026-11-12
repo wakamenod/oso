@@ -1,6 +1,6 @@
 //! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108),
-//! whitespace cleanup on save (ADR 0113), migemo in isearch and jumps' keys and timeout
-//! (ADR 0116). Indentation's are in `indentation` (ADR 0115).
+//! whitespace cleanup on save (ADR 0113), migemo in isearch and jumps, and jumps' keys and
+//! timeout (ADR 0116). Indentation's are in `indentation` (ADR 0115).
 //! Each is `None` where the file leaves it out or gives a bad value, so the caller keeps its own.
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's

@@ -65,7 +65,7 @@ const VIEW_REACH: usize = 256;
 
 /// The most time a frame's highlights look for a regexp's matches: what is left of a frame
 /// beside a key's search.
-const FRAME_TIME: std::time::Duration = std::time::Duration::from_millis(2);
+pub(crate) const FRAME_TIME: std::time::Duration = std::time::Duration::from_millis(2);
 
 /// A line too long to match a regexp in, which starts at this offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -416,17 +416,19 @@ impl Regexp {
     /// The matches within `spans`, the parts of lines a frame shows, at most `most`, for the
     /// highlights: each line is read and looked in from a little before its span to a little
     /// after, from one character before that, so `^` and `\b` see what is there, reading at
-    /// most `limit` bytes in all and for at most [`FRAME_TIME`], so a frame costs as much as its
+    /// most `limit` bytes in all and until `until`, so a frame or a key costs as much as its
     /// view. A match the window cuts at its end is left out, as it may be longer or none.
+    /// `line` is room the caller keeps for a line's text, so a frame allocates nothing once
+    /// it has grown.
     pub(crate) fn matches_in(
         &self,
         text: &Rope,
         spans: &[Range<usize>],
         (most, limit): (usize, usize),
+        (until, line): (Instant, &mut String),
         out: &mut Vec<Range<usize>>,
     ) {
-        let until = Instant::now() + FRAME_TIME;
-        let (mut left, mut line) = (limit, String::new());
+        let mut left = limit;
         for shown in spans {
             let (_, start, end) = span(text, shown.start);
             if shown.start > end || Instant::now() >= until {
@@ -446,14 +448,14 @@ impl Regexp {
             let mut at = look - read_from;
             let mut last_end = None;
             while at <= cut {
-                let Some(found) = self.regex.find_at(&line, at) else {
+                let Some(found) = self.regex.find_at(line, at) else {
                     break;
                 };
                 let matched = read_from + found.start()..read_from + found.end();
                 let cut_off = found.end() == cut && !at_end;
                 let skipped = found.is_empty() && last_end == Some(found.start());
                 at = if found.is_empty() {
-                    char_after(&line, found.start())
+                    char_after(line, found.start())
                 } else {
                     found.end()
                 };

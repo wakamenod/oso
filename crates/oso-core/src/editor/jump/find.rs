@@ -5,6 +5,7 @@
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 
 use std::ops::Range;
+use std::time::Instant;
 
 use super::Near;
 use crate::buffer::Buffer;
@@ -39,14 +40,15 @@ pub(in crate::editor) fn outward(at: usize, count: usize) -> impl Iterator<Item 
 }
 
 /// Adds the candidates of `kind` in a window's rows in view to `found`, reading at most
-/// `budget` bytes and adding at most `most`, from the cursor's row outward. Returns about how
-/// many bytes it read. `ranges` is room to work in.
+/// `budget` bytes, adding at most `most` and, for a regexp, looking until `until`, from the
+/// cursor's row outward. Returns about how many bytes it read. `room` is room to work in: a
+/// match's ranges and a line's text.
 pub(super) fn candidates_in(
     place: &Place<'_>,
     (kind, needle): (Kind, Option<&Needle>),
-    (budget, most): (usize, usize),
+    (budget, most, until): (usize, usize, Instant),
     found: &mut Vec<Near>,
-    ranges: &mut Vec<Range<usize>>,
+    room: (&mut Vec<Range<usize>>, &mut String),
 ) -> usize {
     let display = place.buffer.display();
     let (screen, text) = (place.screen, place.buffer.text());
@@ -81,6 +83,7 @@ pub(super) fn candidates_in(
             0
         }
         (_, Some(needle)) => {
+            let (ranges, kept) = room;
             let mut left = budget;
             // The rows of one line are matched together, as isearch's highlights are, so that
             // a match running into the next row hides the one it overlaps there.
@@ -102,13 +105,14 @@ pub(super) fn candidates_in(
                 } else {
                     done.start.min(first)..done.end.max(last)
                 };
-                let within = (left, limit - found.len());
+                let within = (left, limit - found.len(), until);
                 let run = Run {
                     needle,
                     rows: first..last,
                     cursor_row,
                 };
-                left = left.saturating_sub(run_matches(place, &run, within, found, ranges));
+                let read = run_matches(place, &run, within, found, (&mut *ranges, &mut *kept));
+                left = left.saturating_sub(read);
             }
             budget - left
         }
@@ -139,15 +143,16 @@ struct Run<'a> {
 }
 
 /// Adds to `found` the matches of `run`'s needle that start in its rows' columns in view, each
-/// with its row, reading at most `budget` bytes and adding at most `most`. The rows are matched
-/// as one span from the first's start, widened as isearch's highlights are, so no two of them
-/// overlap. Returns about how many bytes it read. `ranges` is room to work in.
+/// with its row, reading at most `budget` bytes, adding at most `most` and, for a regexp,
+/// looking until `until`. The rows are matched as one span from the first's start, widened as
+/// isearch's highlights are, so no two of them overlap. Returns about how many bytes it read.
+/// `room` is room to work in.
 fn run_matches(
     place: &Place<'_>,
     run: &Run<'_>,
-    (budget, most): (usize, usize),
+    (budget, most, until): (usize, usize, Instant),
     found: &mut Vec<Near>,
-    ranges: &mut Vec<Range<usize>>,
+    (ranges, line): (&mut Vec<Range<usize>>, &mut String),
 ) -> usize {
     let display = place.buffer.display();
     let (screen, text) = (place.screen, place.buffer.text());
@@ -169,7 +174,7 @@ fn run_matches(
     let invalid = place.buffer.invalid_bytes();
     let one = std::slice::from_ref(&span);
     run.needle
-        .matches_in((text, invalid), one, (most, budget), ranges);
+        .matches_in((text, invalid), one, (most, budget), (until, line), ranges);
     let (mut at, mut row) = (0, bounds(0));
     for range in ranges.drain(..) {
         while range.start >= row.end && at + 1 < rows.len() {

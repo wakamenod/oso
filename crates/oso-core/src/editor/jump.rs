@@ -7,9 +7,10 @@
 //! keeps the time a string is read for, and calls [`Editor::jump_show_labels`] when it passes.
 //!
 //! - Only the text in view is looked at: each window's rows in view, within [`WINDOW_BUDGET`]
-//!   of text a window and [`JUMP_BUDGET`] in all, the selected window first, then the others
-//!   in the tree's order, and each window's rows from its cursor's outward, so a budget that
-//!   runs out leaves out the farthest. A key costs as much as the view, not the buffer, and
+//!   of text a window and [`JUMP_BUDGET`] in all, and a regexp's matches within a key's time
+//!   (`search::KEY_TIME`), the selected window first, then the others in the tree's order,
+//!   and each window's rows from its cursor's outward, so a budget that runs out leaves out
+//!   the farthest. A key costs as much as the view, not the buffer, and
 //!   works out each kept candidate's display points once, for every frame after it.
 //! - The candidates nearest each window's primary cursor come first, by rows and then
 //!   columns on the screen, and at most [`MAX_LABELLED`] are labelled: the nearest rows' are
@@ -19,10 +20,12 @@
 //! - Nothing here logs the string, and `Debug` prints none of it (ADR 0044).
 
 use std::ops::Range;
+use std::time::Instant;
 
 use super::{Editor, Isearch};
 use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
+use crate::search;
 use crate::window::{Screen, WindowId};
 
 mod cells;
@@ -71,6 +74,8 @@ struct Near {
 pub(super) struct Scratch {
     found: Vec<Near>,
     ranges: Vec<Range<usize>>,
+    /// A line's text, for a regexp's matches.
+    line: String,
     /// What each window looked at shows now.
     views: Vec<Shown>,
     /// Each window looked at, by its place among them, and its primary cursor's point.
@@ -352,15 +357,19 @@ impl Editor {
             // isearch keeps a string typed around a secret out of its history.
             Kind::Char => {
                 let (string, around_secret) = (jump.string.clone(), jump.around_secret);
-                self.needle_for(&string, around_secret)
+                self.jump_needle(&string, around_secret)
             }
             Kind::Isearch => self.isearch_needle(),
             Kind::LineStart | Kind::LineEnd => None,
         };
+        // One time for the key's matches in every window. Its needle, of at most
+        // [`MAX_STRING`] characters, compiles well within a key, or comes from the cache.
+        let until = Instant::now() + search::KEY_TIME;
         let mut scratch = std::mem::take(&mut self.jump_scratch);
         let Scratch {
             found,
             ranges,
+            line,
             views,
             cursors,
             screen,
@@ -383,6 +392,7 @@ impl Editor {
             let within = (
                 WINDOW_BUDGET.min(left),
                 MAX_FOUND.saturating_sub(found.len()),
+                until,
             );
             let place = Place {
                 rank,
@@ -392,7 +402,8 @@ impl Editor {
                 rows,
                 cursor,
             };
-            left -= candidates_in(&place, (kind, needle.as_ref()), within, found, ranges);
+            let room = (&mut *ranges, &mut *line);
+            left -= candidates_in(&place, (kind, needle.as_ref()), within, found, room);
             if left == 0 || found.len() >= MAX_FOUND {
                 break;
             }

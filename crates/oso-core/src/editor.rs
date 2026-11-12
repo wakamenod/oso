@@ -19,8 +19,8 @@
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
 //! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], kills and
-//! yanks in [`kill`], isearch in [`isearch`], and files read again after they changed on disk
-//! in [`reload`].
+//! yanks in [`kill`], isearch in [`isearch`], jumps in [`jump`], migemo's setting and cache
+//! in [`migemo`], and files read again after they changed on disk in [`reload`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.

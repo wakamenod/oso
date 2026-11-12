@@ -21,6 +21,11 @@ use crate::rope::Rope;
 use crate::search::{Found, Needle};
 
 /// Every match of `pattern` in `text`, from its start, as `!` would take them.
+/// A time a test's search never reaches.
+fn later() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(60)
+}
+
 fn all(pattern: &str, text: &str) -> Vec<Range<usize>> {
     within(pattern, text, &[0..text.len()])
 }
@@ -190,16 +195,52 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
     let text = format!("{}a1 a2 a3", "z".repeat(1000));
     let rope = Rope::from(text.as_str());
     let regexp = compile(r"a\d").unwrap();
-    let mut out = Vec::new();
+    let (mut out, mut line) = (Vec::new(), String::new());
     // The view shows the end of the line.
-    regexp.matches_in(&rope, &[1000..1008], (10, 64 * 1024), &mut out);
+    regexp.matches_in(
+        &rope,
+        &[1000..1008],
+        (10, 64 * 1024),
+        (later(), &mut line),
+        &mut out,
+    );
     assert_eq!(out, [1000..1002, 1003..1005, 1006..1008]);
     // A window that cuts a match short leaves it out.
     let rope = Rope::from(format!("ab{}", "c".repeat(1000)).as_str());
     let regexp = compile("ab.*").unwrap();
     out.clear();
-    regexp.matches_in(&rope, &[0..2], (10, 64 * 1024), &mut out);
+    regexp.matches_in(
+        &rope,
+        &[0..2],
+        (10, 64 * 1024),
+        (later(), &mut line),
+        &mut out,
+    );
     assert!(out.is_empty(), "{out:?}");
+}
+
+#[test]
+fn highlights_past_their_time_find_nothing_more() {
+    let rope = Rope::from("a1 a2\na3\n");
+    let regexp = compile(r"a\d").unwrap();
+    let (mut out, mut line) = (Vec::new(), String::new());
+    let gone = std::time::Instant::now();
+    regexp.matches_in(
+        &rope,
+        &[0..5, 6..8],
+        (10, 1024),
+        (gone, &mut line),
+        &mut out,
+    );
+    assert!(out.is_empty(), "{out:?}");
+    regexp.matches_in(
+        &rope,
+        &[0..5, 6..8],
+        (10, 1024),
+        (later(), &mut line),
+        &mut out,
+    );
+    assert_eq!(out, [0..2, 3..5, 6..8]);
 }
 
 #[test]
@@ -211,14 +252,22 @@ fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
     let rope = Rope::from(text.as_str());
     let snapshot = (&rope, &InvalidBytes::new());
     let started = std::time::Instant::now();
-    let mut out = Vec::new();
-    needle.matches_in(snapshot, &[0..rope.len()], (16, 1024 * 1024), &mut out);
+    let (mut out, mut line) = (Vec::new(), String::new());
+    let room = (later(), &mut line);
+    needle.matches_in(
+        snapshot,
+        &[0..rope.len()],
+        (16, 1024 * 1024),
+        room,
+        &mut out,
+    );
     assert!(out.is_empty());
     // A span within the limit is read.
     needle.matches_in(
         snapshot,
         &[rope.len() - 64..rope.len()],
         (16, 1024 * 1024),
+        (later(), &mut line),
         &mut out,
     );
     assert_eq!(out.len(), 1);

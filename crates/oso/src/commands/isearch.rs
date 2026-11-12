@@ -16,7 +16,7 @@ use oso_core::editor::Toward;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "isearch-forward",
-        doc: "Search forward as you type.\n\nEach character typed adds to the search string, and the cursor goes to the end of the next match. Case does not matter unless the string has an uppercase letter. `C-s` goes to the next match, round to the start after a failure, `C-r` back, `DEL` back a step, `RET` ends the search there, and `C-g` takes a failing part away, then goes back where the search began. Any other key ends the search and runs. Only the primary cursor moves.",
+        doc: "Search forward as you type.\n\nEach character typed adds to the search string, and the cursor goes to the end of the next match. Case does not matter unless the string has an uppercase letter. A string of romaji also matches its hiragana and katakana (migemo) unless `[search] migemo = false`, and `M-m` turns that for this search. `C-s` goes to the next match, round to the start after a failure, `C-r` back, `DEL` back a step, `RET` ends the search there, and `C-g` takes a failing part away, then goes back where the search began. Any other key ends the search and runs. Only the primary cursor moves.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_forward,

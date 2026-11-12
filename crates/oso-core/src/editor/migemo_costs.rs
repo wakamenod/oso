@@ -11,7 +11,9 @@
 use std::time::Instant;
 
 use super::Editor;
+use super::migemo::Cache;
 use crate::buffer::Buffer;
+use crate::frame::Way;
 use crate::jump::Kind;
 use crate::search::Needle;
 use crate::selection::SelectionSet;
@@ -86,16 +88,23 @@ fn strings() -> Vec<(&'static str, String)> {
 #[ignore = "a measure, in a release build"]
 fn migemo_key_costs() {
     for (name, string) in strings() {
-        let mut times = Vec::new();
+        // The pattern alone, and the needle, which builds it and compiles it.
+        let (mut patterns, mut needles) = (Vec::new(), Vec::new());
         let mut bytes = 0;
         for _ in 0..30 {
             let started = Instant::now();
             bytes = crate::migemo::pattern(&string).map_or(0, |pattern| pattern.len());
-            let _ = Needle::migemo(&string, false);
-            times.push(ms(started));
+            patterns.push(ms(started));
+            let started = Instant::now();
+            std::hint::black_box(Needle::migemo(&string, false));
+            needles.push(ms(started));
         }
-        let (p50, max) = p50_max(&mut times);
-        println!("needle  {name:15} pattern={bytes:6} B p50={p50:.3} max={max:.3} ms");
+        let (pattern_p50, pattern_max) = p50_max(&mut patterns);
+        let (p50, max) = p50_max(&mut needles);
+        println!(
+            "needle  {name:15} pattern={bytes:6} B build p50={pattern_p50:.3} \
+             max={pattern_max:.3} needle p50={p50:.3} max={max:.3} ms"
+        );
     }
     for (what, text) in texts() {
         for (name, string) in strings() {
@@ -191,37 +200,60 @@ fn migemo_on_a_line_too_long_for_a_regexp() {
     }
 }
 
-/// What a jump's key costs when its needle is built each time, as around a secret, against
-/// one from the cache: a string of the jump's 64 characters.
+/// A jump's editor over `text`, 120 rows by 400 columns, in `windows` of 1, or 4 of 60 by 200,
+/// a buffer that may hold secrets if `secret`.
+fn jump_editor(text: &str, windows: usize, secret: bool) -> Editor {
+    let mut editor = if secret {
+        let mut buffer = super::test_buffers::secret_buffer();
+        let load = crate::load::decode_all(text.as_bytes(), Default::default());
+        buffer.apply_load(load);
+        Editor::with_buffer(buffer)
+    } else {
+        Editor::with_buffer(Buffer::from_text("notes.txt", text))
+    };
+    editor.set_view_size(ViewSize::new(120, 400));
+    if windows == 4 {
+        let top = editor.window().id();
+        let bottom = editor.split_window(Way::Down, false).unwrap();
+        editor.split_window(Way::Across, false).unwrap();
+        editor.select_window(bottom);
+        editor.split_window(Way::Across, false).unwrap();
+        editor.select_window(top);
+    }
+    editor
+}
+
+/// What a jump's key costs, in 1 window and in 4, with its needle from the cache and, around a
+/// secret, built each time: short strings, and one of the jump's 64 characters.
 #[test]
 #[ignore = "a measure, in a release build"]
 fn migemo_jump_costs() {
-    let [(_, text), _] = texts();
-    let string = "a".repeat(crate::jump::MAX_STRING);
-    for secret in [false, true] {
-        let mut times = Vec::new();
-        for _ in 0..30 {
-            let mut editor = if secret {
-                let mut buffer = super::test_buffers::secret_buffer();
-                let load = crate::load::decode_all(text.as_bytes(), Default::default());
-                buffer.apply_load(load);
-                let mut editor = Editor::with_buffer(buffer);
-                editor.set_view_size(ViewSize::new(40, 120));
-                editor
-            } else {
-                editor(&text)
-            };
-            // Once, which fills the cache unless around a secret.
-            assert!(editor.jump_begin(Kind::Char, false));
-            editor.jump_add(&string);
-            editor.jump_end();
-            assert!(editor.jump_begin(Kind::Char, false));
-            let started = Instant::now();
-            editor.jump_add(&string);
-            times.push(ms(started));
+    let long = "a".repeat(crate::jump::MAX_STRING);
+    for (what, text) in texts() {
+        for windows in [1, 4] {
+            for string in ["k", "ka", "no", long.as_str()] {
+                for secret in [false, true] {
+                    let mut times = Vec::new();
+                    for _ in 0..20 {
+                        let mut editor = jump_editor(&text, windows, secret);
+                        // Once, which fills the cache unless around a secret.
+                        assert!(editor.jump_begin(Kind::Char, false));
+                        editor.jump_add(string);
+                        editor.jump_end();
+                        assert!(editor.jump_begin(Kind::Char, false));
+                        let started = Instant::now();
+                        editor.jump_add(string);
+                        times.push(ms(started));
+                    }
+                    let (p50, max) = p50_max(&mut times);
+                    let name = if string.len() > 8 { "a*64" } else { string };
+                    println!(
+                        "jump {what:8} windows={windows} {name:4} secret={secret:5} \
+                         p50={p50:.3} max={max:.3} ms"
+                    );
+                }
+            }
         }
-        let (p50, max) = p50_max(&mut times);
-        println!("jump a*64 secret={secret:5} p50={p50:.3} max={max:.3} ms");
     }
 }
 
@@ -234,7 +266,7 @@ fn fill_cache(count: usize) {
         assert!(
             editor
                 .migemo
-                .string_needle(&string, false, (true, true))
+                .string_needle(&string, false, (true, Cache::Keep))
                 .is_some()
         );
     }

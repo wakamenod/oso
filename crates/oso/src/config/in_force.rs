@@ -55,8 +55,8 @@ pub struct InForce {
     /// Whether a save cleans the whitespace of the lines edited since (ADR 0113). It has no
     /// run-time switch, so the value in force is the one that applies.
     pub trim_whitespace: bool,
-    /// Whether a search starts with migemo on (ADR 0116). `M-m` turns it for one search, so
-    /// the value in force is the one that applies.
+    /// Whether isearch starts with migemo on, and jumps match by it (ADR 0116). `M-m` turns it
+    /// for one search, so the value in force is the one that applies.
     pub migemo: bool,
     /// The jump's keys and timeout (ADR 0116), `None` where the file leaves them out, for the
     /// editor's and the app's own. They have no run-time switch either.
@@ -69,7 +69,8 @@ pub struct InForce {
 
 impl InForce {
     /// The compiled-in values, for `themes`, the built-in themes' names, the default first:
-    /// the default theme, the first two themes, ADR 0026's aids, no channel and no cleanup.
+    /// the default theme, the first two themes, ADR 0026's aids, no channel, no cleanup and
+    /// migemo on.
     pub fn compiled(themes: &[&str]) -> Self {
         let first = themes.first().copied().unwrap_or_default();
         // With one theme, the toggle stays on it, as the editor's own pair does.

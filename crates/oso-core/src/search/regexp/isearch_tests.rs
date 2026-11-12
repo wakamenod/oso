@@ -379,15 +379,16 @@ fn highlights_read_around_the_view_and_within_their_budget() {
     let text = format!("{} ab ab", "x".repeat(1000));
     let rope = Rope::from(text.as_str());
     let shown = std::slice::from_ref(&(1001..1006));
-    let mut out = Vec::new();
+    let (mut out, mut line) = (Vec::new(), String::new());
+    let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
     // `^` holds only at the line's start, though what is read starts near the view.
-    regexp("^ab").matches_in(&rope, shown, (100, 1 << 20), &mut out);
+    regexp("^ab").matches_in(&rope, shown, (100, 1 << 20), (later, &mut line), &mut out);
     assert!(out.is_empty());
-    regexp(r"\bab\b").matches_in(&rope, shown, (100, 1 << 20), &mut out);
+    regexp(r"\bab\b").matches_in(&rope, shown, (100, 1 << 20), (later, &mut line), &mut out);
     assert_eq!(out, [1001..1003, 1004..1006]);
     // Past the budget, nothing more is read.
     out.clear();
-    regexp("ab").matches_in(&rope, shown, (100, 8), &mut out);
+    regexp("ab").matches_in(&rope, shown, (100, 8), (later, &mut line), &mut out);
     assert!(out.is_empty());
 }
 

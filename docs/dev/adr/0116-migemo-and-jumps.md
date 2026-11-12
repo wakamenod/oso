@@ -525,7 +525,9 @@ coordinator; the notes below are those choices as built.
 #### As built (step 2, 2026-11-13)
 
 The author chose the first option of each of six questions on 2026-11-12, through the
-coordinator; the notes below are those choices as built.
+coordinator; the notes below are those choices as built. Two depart from the Decision's text:
+`oso_core::migemo` stays private until step 4, and the cache holds compiled needles, in the
+editor.
 
 - **The module.** `oso_core::migemo` is private to the crate until step 4, when the tip crate's
   project search needs it, so its public shape is settled once, with the dictionary. It holds
@@ -580,6 +582,10 @@ coordinator; the notes below are those choices as built.
   string, 0.3 ms for `k`, 1.4 to 2.0 ms for `kanji`, and 2.0 to 2.3 ms for 256 characters of
   romaji; over 20 MB of Japanese, 0.2 ms for `kanji`.
 - **Jumps** look for their string through the same cache, by the setting: `ka` labels `か` too.
+  As migemo makes a regexp the usual needle of a jump, a jump's key has one time for matching
+  in every window, isearch's 3 ms, once its needle is built, which a string of at most 64
+  characters keeps short; the rows past it, the farthest from each cursor, get no label. A regexp's highlights and a
+  jump's key read each line into room they keep, so neither allocates once it has grown.
 
 #### As built (step 5, 2026-11-12)
 

@@ -143,6 +143,12 @@ impl Editor {
 
     /// Adds `text` to the string, as typing does, and searches again from the match.
     pub fn isearch_add(&mut self, text: &str) {
+        self.isearch_add_since(text, None);
+    }
+
+    /// [`Editor::isearch_add`], with the key's time to search counted from `started` if given,
+    /// when a key that did more first began, as `M-y` does.
+    fn isearch_add_since(&mut self, text: &str, started: Option<Instant>) {
         self.isearch_follow_text();
         let cursor = self.primary_cursor();
         let Some(state) = &mut self.isearch else {
@@ -155,17 +161,20 @@ impl Editor {
             return;
         }
         debug_assert!(state.string.len() > len);
-        let started = self.isearch_rebuild();
-        self.isearch_typed(started);
+        let rebuilt = self.isearch_rebuild();
+        self.isearch_typed(started.unwrap_or(rebuilt));
     }
 
     /// Adds `text` taken from the buffer or a kill, as `C-w` and `C-y` do: as it is to a
     /// literal string, and with its special characters escaped to a regexp, as Emacs's
-    /// `isearch-yank-string` quotes it.
-    fn isearch_add_taken(&mut self, text: &str) {
+    /// `isearch-yank-string` quotes it. `started` is as [`Editor::isearch_add_since`] takes it.
+    fn isearch_add_taken(&mut self, text: &str, started: Option<Instant>) {
         match &self.isearch {
-            Some(state) if state.regexp => self.isearch_add(&search::quote(text, state.room())),
-            _ => self.isearch_add(text),
+            Some(state) if state.regexp => {
+                let quoted = search::quote(text, state.room());
+                self.isearch_add_since(&quoted, started);
+            }
+            _ => self.isearch_add_since(text, started),
         }
     }
 
@@ -190,7 +199,7 @@ impl Editor {
         };
         let end = end.min(from.saturating_add(most));
         let piece: String = buffer.text().slice(from..end).chunks().collect();
-        self.isearch_add_taken(&piece);
+        self.isearch_add_taken(&piece, None);
     }
 
     /// `M-p` (`older`) and `M-n`: the string becomes an older or newer one of the history,

@@ -465,7 +465,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 ## Jumps
 
 - `M-j` (`avy-goto-char-timer`) reads a string on the echo row, `Jump: ka`, and highlights its
-  matches in view as isearch's other matches. `DEL` takes a character away. Half a second after
+  matches in view as isearch's other matches. A romaji string matches by migemo, as isearch's
+  does, unless `[search] migemo = false`. `DEL` takes a character away. Half a second after
   the last key, or at `RET`, each match shows a label; with no string yet, it waits
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit that no label
