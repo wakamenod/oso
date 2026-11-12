@@ -1401,6 +1401,7 @@ pub fn oso_core::editor::Editor::other_window(&mut self, isize)
 pub fn oso_core::editor::Editor::resize_window(&mut self, oso_core::frame::Way, isize) -> core::result::Result<(), oso_core::editor::CannotResize>
 pub fn oso_core::editor::Editor::select_window(&mut self, oso_core::window::WindowId)
 pub fn oso_core::editor::Editor::split_window(&mut self, oso_core::frame::Way, bool) -> core::result::Result<oso_core::window::WindowId, oso_core::frame::TooSmall>
+pub fn oso_core::editor::Editor::wheel_window(&self, core::option::Option<(usize, usize)>) -> oso_core::window::WindowId
 pub fn oso_core::editor::Editor::windmove(&mut self, oso_core::frame::Side) -> core::result::Result<(), oso_core::editor::NoWindow>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
@@ -1478,7 +1479,6 @@ pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 pub fn oso_core::editor::Editor::tiled_regions(&self) -> oso_core::frame::WindowRegions
 pub fn oso_core::editor::Editor::top_row(&self) -> usize
-pub fn oso_core::editor::Editor::wheel_window(&self, core::option::Option<(usize, usize)>) -> oso_core::window::WindowId
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>

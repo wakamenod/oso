@@ -83,6 +83,8 @@ are rounded.
   of text, the label and the answer share it.
 - The window beneath keeps its text and modeline, and its cursor is drawn **hollow**. The
   float may cover it, and the view does not move. The wheel scrolls it, and its cursors stay.
+  The wheel scrolls another window too, whose cursors come into its view as without a
+  prompt.
 - Keys: `RET` gives the answer, `C-g` closes the prompt, `M-p` and `M-n` walk its history,
   and editing keys work as in any buffer. A history keeps 100 answers in memory, and an
   answer given again moves to the front. A prompt opened while a buffer that may hold secrets

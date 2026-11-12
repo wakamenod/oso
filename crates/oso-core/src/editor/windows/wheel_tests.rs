@@ -133,7 +133,7 @@ fn the_wheel_scrolls_sideways_the_window_under_the_pointer() {
 }
 
 #[test]
-fn beneath_a_prompt_the_wheel_scrolls_any_tiled_window_and_no_cursor_moves() {
+fn beneath_a_prompt_the_wheel_scrolls_any_tiled_window_and_moves_no_cursor_beneath() {
     let (mut editor, upper, lower) = stacked();
     editor
         .open_prompt(
@@ -146,7 +146,13 @@ fn beneath_a_prompt_the_wheel_scrolls_any_tiled_window_and_no_cursor_moves() {
     assert!(editor.scroll_view(lower, 30));
     assert!(editor.scroll_view(upper, 10));
     assert_eq!((top(&editor, upper), top(&editor, lower)), (10, 30));
-    assert_eq!((cursor(&editor, upper), cursor(&editor, lower)), (0, 0));
+    assert_eq!(cursor(&editor, upper), 0, "what the prompt acts on stays");
+    let line = "line 000\n".len();
+    assert_eq!(
+        cursor(&editor, lower),
+        30 * line,
+        "another window's comes into its view, so it keeps it after the prompt"
+    );
     let prompt = editor.window().id();
     assert_eq!(
         editor.wheel_window(None),

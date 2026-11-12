@@ -168,8 +168,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   selected window that gets taller also pulls its top row back by at most the rows
   it gained, to fill empty rows below the last one, so one that was short at the
   end of a buffer shows its text again. `Editor::scroll_view_sideways`, for the wheel,
-  is the one public method that moves the view and leaves the cursor, even out of
-  view, until the next command. The wheel scrolls the window under the pointer
+  moves the view and leaves the cursor, even out of view, until the next command in
+  that window or one that moves it; `Editor::scroll_view` leaves it too beneath a
+  prompt or a composition (ADR 0069, ADR 0072). The wheel scrolls the window under the pointer
   without selecting it: the app turns the pointer's pixel into a cell with
   `PixelGrid::cell_at`, and `Editor::wheel_window` into a window
   ([ADR 0112](adr/0112-window-splits.md)).

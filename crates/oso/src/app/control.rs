@@ -278,7 +278,8 @@ impl App {
 
     /// The result of `wheel`: scrolls as the wheel would with the pointer `at` a pixel, or the
     /// middle of a cell, so that a cell goes through the same grid as a real pointer
-    /// (ADR 0112). Says which window it scrolled and whether its view moved.
+    /// (ADR 0112). Says which window it scrolled and whether its view moved, but not of a
+    /// buffer that may hold secrets.
     fn dev_wheel(&mut self, delta: Wheel, at: Option<dev::WheelAt>) -> dev::Reply {
         let grid = self
             .view
@@ -301,7 +302,7 @@ impl App {
         let (window, moved) = self
             .handle_wheel(delta, at)
             .ok_or("the window is not open yet")?;
-        Ok(json!({ "window": window.get(), "moved": moved }))
+        Ok(dev::wheel_reply(&self.editor, window, moved))
     }
 
     /// The result of `open-file`: visits a file in the selected window.

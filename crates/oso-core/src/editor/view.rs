@@ -1,6 +1,6 @@
-//! The editor's frame and its selected window's view: laying out the frame,
+//! The editor's frame and its tiled windows' views: laying out the frame,
 //! scrolling to follow the cursor and for the wheel, and the cells its regions take
-//! (ADR 0040, ADR 0057, ADR 0058, ADR 0071).
+//! (ADR 0040, ADR 0057, ADR 0058, ADR 0071, ADR 0112).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window; the rules for
 //! scrolling are pure functions elsewhere, and this applies them to the state.
@@ -8,9 +8,7 @@
 use super::Editor;
 use crate::buffer::Buffer;
 use crate::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use crate::frame::{
-    self, CellRect, FrameLayout, FrameSize, Part, PixelGrid, PixelRect, WindowRegions,
-};
+use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect, WindowRegions};
 use crate::motion;
 use crate::motion::Edge;
 use crate::selection::{MarkActive, SelectionSet};
@@ -373,38 +371,22 @@ impl Editor {
         self.follow_window(index);
     }
 
-    /// The tiled window the wheel scrolls with the pointer on the frame's cell at `cell`, a
-    /// row and a column ([`PixelGrid::cell_at`]): the one whose text, gutter or modeline
-    /// holds it, as Emacs's `mouse-wheel-follow-mouse` has it (ADR 0112). Over a divider, the
-    /// echo area or past the frame, and with no cell, the selected tiled window, or the one
-    /// beneath the prompts. Floats take no wheel, so over one it is the window under it.
-    pub fn wheel_window(&self, cell: Option<(usize, usize)>) -> WindowId {
-        cell.and_then(|(row, column)| self.frame.hit(row, column))
-            .filter(|hit| hit.part != Part::Divider)
-            .map_or_else(|| self.tiled_id(), |hit| hit.window)
-    }
-
-    /// The index of the tiled window `id`, if there is one.
-    fn tiled_window_index(&self, id: WindowId) -> Option<usize> {
-        self.window_index(id)
-            .filter(|&index| index < self.tiled_count())
-    }
-
     /// Scrolls the view of the tiled window `id` by `rows` (down toward the end if positive),
     /// for the mouse wheel and trackpad, without selecting it (ADR 0112). Cursors left outside
-    /// the view move to its nearest row, as in Emacs, but not in the selected window while a
-    /// preedit is shown: the commit goes where the composition started, and the next command
-    /// brings the view back (ADR 0069). Returns whether the view moved: never for a window
-    /// that is not tiled.
+    /// the view move to its nearest row, as in Emacs, so that every window's cursor stays in
+    /// its view, but not in the selected window while a preedit is shown: the commit goes
+    /// where the composition started, and the next command brings the view back (ADR 0069).
+    /// Returns whether the view moved: never for a window that is not tiled.
     ///
-    /// While a prompt is open, the cursors of every window stay, so that what the prompt's
-    /// command acts on does not move (ADR 0072).
+    /// While a prompt is open, the cursors of the window beneath it stay, so that what the
+    /// prompt's command acts on does not move (ADR 0072); they follow once it closes.
     pub fn scroll_view(&mut self, id: WindowId, rows: isize) -> bool {
         let Some(index) = self.tiled_window_index(id) else {
             return false;
         };
+        // The window beneath the prompts is the selected one while none is open.
         let cursors_stay =
-            (self.preedit.is_some() && index == self.selected) || !self.prompts.is_empty();
+            index == self.tiled_index() && (self.preedit.is_some() || !self.prompts.is_empty());
         // The wheel's budget, all of it for the window it scrolls (ADR 0112).
         self.refill_wraps();
         self.pass_wrap_budget(index);
@@ -485,9 +467,10 @@ impl Editor {
 
     /// Scrolls the view of the tiled window `id` by `columns` (toward the ends of lines if
     /// positive), for the mouse wheel and trackpad, as far as the rows in view need, without
-    /// selecting it (ADR 0112). Cursors stay, even out of view, and the next command brings
-    /// the view back. A short row may not reach the view at all, so no place in view would
-    /// do. Returns whether the view moved: never for a window that is not tiled.
+    /// selecting it (ADR 0112). Cursors stay, even out of view, and the next command in that
+    /// window, or one that moves it, brings the view back. A short row may not reach the view
+    /// at all, so no place in view would do. Returns whether the view moved: never for a
+    /// window that is not tiled.
     pub fn scroll_view_sideways(&mut self, id: WindowId, columns: isize) -> bool {
         let Some(index) = self.tiled_window_index(id) else {
             return false;

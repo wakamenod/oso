@@ -336,8 +336,9 @@ file or a 10 MB line.
   the window whose text, gutter or modeline holds it; a divider, the echo area, the margins,
   past the frame and no position give the selected tiled window. A float takes no wheel, so
   over one it is the tiled window under it. `Editor::scroll_view` and `scroll_view_sideways`
-  take the window's id, and its cursors move into view, but while a prompt is open, or in
-  the selected window while a preedit is shown. Each event goes to the window under the
+  take the window's id, and its cursors move into view, but those of the window beneath a
+  prompt while one is open (ADR 0072), and of the selected window while a preedit is shown,
+  so every other window keeps its cursor in its view. Each event goes to the window under the
   pointer then, and the app starts the rows and columns left over anew when that window
   changes (the author's choices, 2026-11-12). The dev socket gains `wheel`, so a flow
   scrolls at a pixel or a cell.

@@ -24,6 +24,14 @@ const WHEEL_ROWS: f64 = 3.0;
 /// cell is about half as wide as it is high.
 const WHEEL_COLUMNS: f64 = 6.0;
 
+/// Wheel and trackpad scrolling not yet worth a whole row or column, and the window it is
+/// for: a wheel over another window starts anew (ADR 0112).
+#[derive(Default)]
+pub(super) struct Wheeling {
+    window: Option<WindowId>,
+    remainder: WheelRemainder,
+}
+
 /// Whether `key` from the window must not reach the innermost prompt, `innermost`: a question,
 /// or a prompt that completes, that a control socket request opened, among `remote`. `C-g`
 /// still closes it.
@@ -159,12 +167,14 @@ impl App {
                 )
             }
         };
-        let (wheel_window, remainder) = &mut self.wheel;
-        if *wheel_window != Some(window) {
-            *wheel_window = Some(window);
-            *remainder = WheelRemainder::default();
+        let wheeling = &mut self.wheel;
+        if wheeling.window != Some(window) {
+            *wheeling = Wheeling {
+                window: Some(window),
+                remainder: WheelRemainder::default(),
+            };
         }
-        let (rows, columns) = remainder.add(rows, columns);
+        let (rows, columns) = wheeling.remainder.add(rows, columns);
         let moved_rows = rows != 0 && self.editor.scroll_view(window, rows);
         let moved_columns = columns != 0 && self.editor.scroll_view_sideways(window, columns);
         let moved = moved_rows || moved_columns;
