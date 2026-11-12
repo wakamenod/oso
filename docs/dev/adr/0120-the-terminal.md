@@ -784,7 +784,8 @@ question, and after the reviews, the restored guards below.
 - **The guards that moved with it.** `just release-safety` no longer looks for a spawn marker; it
   looks for `oso-dev-supervisor`, which only `oso dev`'s supervisor holds, so that the code that
   runs cargo cannot reach a release build alone. Clippy's `disallowed-methods` adds
-  `CommandExt::pre_exec` and libc's `fork`, `vfork`, `exec*`, `posix_spawn*`, `system` and `popen`,
+  `CommandExt::pre_exec` and `before_exec`, and libc's `fork`, `vfork`, `forkpty`, `clone`, `exec*`,
+  `posix_spawn*`, `system` and `popen`,
   and the architecture test allows silencing them in `process.rs` and in `process/pty/unix.rs`, which
   holds the terminal's child-side hook, only.
 - **`Spawn` gains two fields:** `set`, variables set by value over the allowlist; and
@@ -805,9 +806,10 @@ question, and after the reviews, the restored guards below.
 - **For step 3:** one read returns a few KiB, so the thread reads until `WouldBlock` before waiting;
   it asks `wait` for `writable` only while input is queued; and it opens, spawns and drops the slave
   itself, as a spawn with a terminal forks the whole process.
-- **`hang_up`** asks the kernel to signal the foreground group (`TIOCSIG` on the master, on macOS
-  and Linux), so no group number is read and then signalled; where that fails, it signals the
-  number `tcgetpgrp` gives, never 0, 1 or oso's own group.
+- **`hang_up`** on macOS asks the kernel to signal the foreground group (`TIOCSIG` on the master),
+  so no group number is read and then signalled. Linux's `TIOCSIG` sends only `SIGINT`, `SIGQUIT`
+  and `SIGTSTP`, so there, and wherever `TIOCSIG` fails, it signals the number `tcgetpgrp` gives,
+  never 0, 1 or oso's own group.
 - **`posix_openpt` with `O_CLOEXEC`, not `openpty`.** `openpty` opens both ends without
   close-on-exec on macOS and Linux, so a spawn on another thread before they were marked would
   give a child that does not own the terminal its master: it could read what is typed there, and
@@ -816,15 +818,16 @@ question, and after the reviews, the restored guards below.
   `ptsname_r` on Linux, and the standard library opens the slave with `O_CLOEXEC` and `O_NOCTTY`.
 - **The child-side hook** (`pre_exec`, which makes the standard library fork) calls `setsid` and
   `TIOCSCTTY`, sets the job-control and termination signals back to their default actions (an oso
-  started with `nohup` would otherwise give its shells an ignored `SIGHUP`), and marks every
-  descriptor from 3 up close-on-exec (`close_range` on Linux, else one by one up to the soft
-  descriptor limit), so the long-lived shell keeps no descriptor another thread had not marked
-  yet. It allocates nothing and calls only async-signal-safe functions.
+  started with `nohup` would otherwise give its shells an ignored `SIGHUP`), empties the signal
+  mask the child has from the spawning thread, and marks every descriptor from 3 up close-on-exec
+  (`close_range` on Linux, else one by one up to the soft descriptor limit, which on macOS is
+  capped at `kern.maxfilesperproc`), so the long-lived shell keeps no descriptor another thread
+  had not marked yet. It allocates nothing and calls only async-signal-safe functions.
 - **The unsafe blocks.** "One `unsafe` `pre_exec`" is the one block that runs in the child. Every
   other libc call in the parent has a block of its own, each with its `// SAFETY:` comment:
   `posix_openpt` and taking its descriptor, `grantpt` with `unlockpt`, the slave's name, `fcntl` for
   `O_NONBLOCK`, `TIOCSWINSZ`, `tcgetattr` and reading its result, `tcgetpgrp`, `TIOCSIG`, `getpgrp`,
-  `kill`, `poll`, `getrlimit`, and `getpwuid_r`.
+  `kill`, `poll`, `getrlimit`, `sysctlbyname` on macOS, and `getpwuid_r`.
 - **`process::account_shell()`**, in a module of its own, reads the account's shell from the user
   database for step 4's order of shells; it may wait on a directory service, so it never runs on the
   UI thread. The order and `-l` are step 4's.
@@ -834,7 +837,8 @@ question, and after the reviews, the restored guards below.
   treats an error from `echoes` as echo off, and one from `foreground_group` as a shell not in the
   foreground.
 - **Tests** run `/bin/sh` in a terminal on macOS and Linux: its size and streams, the controlling
-  terminal, the session, a resize reaching a `WINCH` trap, input, echo off, the end, a hang-up,
+  terminal, the session, a resize reaching a `WINCH` trap, input, echo off, the end, a hang-up
+  (also from a thread that blocks `SIGHUP`),
   that no other child inherits either end, that a descriptor left open on `exec` reaches no
   terminal child, the names refused by value and by name, the group a hang-up never signals, and the
   wake-up.

@@ -6,7 +6,7 @@ disallowed-methods = [
     { path = "tokio::process::Command::new", reason = "spawn only through oso-platform::process (ADR 0010)" },
     { path = "async_process::Command::new", reason = "spawn only through oso-platform::process (ADR 0010)" },
     # What spawns without `Command`, and the hook that runs in a forked child (ADR 0120).
-    # macOS has no `vfork` or `fexecve` in `libc`.
+    # macOS has no `vfork`, `fexecve`, `execvpe` or `clone` in `libc`.
     { path = "std::os::unix::process::CommandExt::pre_exec", reason = "spawn only through oso-platform::process (ADR 0120)" },
     { path = "libc::fork", reason = "spawn only through oso-platform::process (ADR 0120)" },
     { path = "libc::vfork", reason = "spawn only through oso-platform::process (ADR 0120)", allow-invalid = true },
@@ -21,6 +21,10 @@ disallowed-methods = [
     { path = "libc::posix_spawnp", reason = "spawn only through oso-platform::process (ADR 0120)" },
     { path = "libc::system", reason = "spawn only through oso-platform::process (ADR 0120)" },
     { path = "libc::popen", reason = "spawn only through oso-platform::process (ADR 0120)" },
+    { path = "libc::forkpty", reason = "spawn only through oso-platform::process (ADR 0120)" },
+    { path = "libc::execvpe", reason = "spawn only through oso-platform::process (ADR 0120)", allow-invalid = true },
+    { path = "libc::clone", reason = "spawn only through oso-platform::process (ADR 0120)", allow-invalid = true },
+    { path = "std::os::unix::process::CommandExt::before_exec", reason = "spawn only through oso-platform::process (ADR 0120)" },
 ]
 disallowed-types = [
     { path = "std::net::TcpListener", reason = "no network code in oso (ADR 0010)" },

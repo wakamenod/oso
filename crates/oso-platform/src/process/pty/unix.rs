@@ -51,11 +51,10 @@ const SET_CONTROLLING_TERMINAL: libc::c_ulong = libc::TIOCSCTTY as libc::c_ulong
 #[cfg(not(target_os = "macos"))]
 const SET_CONTROLLING_TERMINAL: libc::Ioctl = libc::TIOCSCTTY;
 
-/// `TIOCSIG`, as `ioctl` takes it.
+/// `TIOCSIG`, as `ioctl` takes it. Only macOS sends `SIGHUP` with it: Linux's
+/// accepts only `SIGINT`, `SIGQUIT` and `SIGTSTP`.
 #[cfg(target_os = "macos")]
 const SEND_SIGNAL: libc::c_ulong = libc::TIOCSIG as libc::c_ulong;
-#[cfg(not(target_os = "macos"))]
-const SEND_SIGNAL: libc::Ioctl = libc::TIOCSIG;
 
 /// Signals a child gets back at their default action, whatever oso was started
 /// with: `nohup` and a shell's background jobs ignore some, and a terminal's
@@ -212,13 +211,14 @@ impl Master {
     }
 
     pub(super) fn hang_up(&self) -> io::Result<()> {
-        // SAFETY: `TIOCSIG` takes the signal's number by value and signals the
-        // terminal's foreground process group, which the kernel picks, so no group
-        // number can go stale between reading and signalling it.
+        // SAFETY: on macOS, `TIOCSIG` takes the signal's number by value and signals
+        // the terminal's foreground process group, which the kernel picks, so no
+        // group number can go stale between reading and signalling it.
+        #[cfg(target_os = "macos")]
         if unsafe { libc::ioctl(self.0.as_raw_fd(), SEND_SIGNAL, libc::SIGHUP) } == 0 {
             return Ok(());
         }
-        // Where the master cannot signal: by the group's number.
+        // Where the master cannot signal, as on Linux: by the group's number.
         let Some(group) = self.foreground_group()? else {
             return Ok(());
         };
@@ -329,7 +329,11 @@ impl Wakeup {
                 Ok(_) => break,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error),
+                Err(error) => {
+                    // So that later wakes write again rather than stop for good.
+                    self.wake.pending.store(false, Ordering::Release);
+                    return Err(error);
+                }
             }
         }
         self.wake.pending.store(false, Ordering::Release);
@@ -357,7 +361,9 @@ pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
     )]
     // SAFETY: the hook runs in the child between `fork` and `exec`, where only
     // async-signal-safe functions may be called. It calls only `setsid`, `ioctl`,
-    // `signal`, `syscall` (`close_range`) and `fcntl`, which are, allocates nothing
+    // `signal`, `sigemptyset`, `sigprocmask`, `syscall` (`close_range`) and `fcntl`,
+    // which are, on a `sigset_t` on its own stack that `sigemptyset` fills before
+    // `sigprocmask` reads it. It allocates nothing
     // (an OS error is a number), and takes no lock. By then the standard library has
     // made the slave the child's descriptors 0, 1 and 2, as it sets up the standard
     // streams before it runs hooks. Marking the rest close-on-exec, rather than
@@ -371,6 +377,11 @@ pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
             for signal in DEFAULT_SIGNALS {
                 libc::signal(signal, libc::SIG_DFL);
             }
+            // The child starts with the spawning thread's signal mask, which may
+            // block what the shell must receive.
+            let mut none = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+            libc::sigemptyset(none.as_mut_ptr());
+            libc::sigprocmask(libc::SIG_SETMASK, none.as_ptr(), std::ptr::null_mut());
             // A descriptor another thread made without close-on-exec, and was about
             // to mark, must not reach a shell that outlives it.
             #[cfg(target_os = "linux")]
@@ -405,5 +416,38 @@ fn open_limit() -> libc::c_int {
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
         return MAX_MARKED;
     }
-    libc::c_int::try_from(limit.rlim_cur).map_or(MAX_MARKED, |limit| limit.min(MAX_MARKED))
+    libc::c_int::try_from(limit.rlim_cur)
+        .map_or(MAX_MARKED, |limit| limit.min(MAX_MARKED))
+        .min(max_files_per_process())
+}
+
+/// Where the system sets no limit of its own beside the soft one.
+#[cfg(not(target_os = "macos"))]
+fn max_files_per_process() -> libc::c_int {
+    MAX_MARKED
+}
+
+/// The most descriptors macOS lets one process open, whatever its soft limit
+/// says, or [`MAX_MARKED`] if it cannot tell.
+#[cfg(target_os = "macos")]
+fn max_files_per_process() -> libc::c_int {
+    let mut value: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    // SAFETY: `sysctlbyname` reads the NUL-terminated name, writes at most `size`
+    // bytes into `value`, which has room for them, sets `size` to what it wrote, and
+    // is given no new value.
+    let done = unsafe {
+        libc::sysctlbyname(
+            c"kern.maxfilesperproc".as_ptr(),
+            (&raw mut value).cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } == 0;
+    if done && size == std::mem::size_of::<libc::c_int>() && value > 0 {
+        value
+    } else {
+        MAX_MARKED
+    }
 }

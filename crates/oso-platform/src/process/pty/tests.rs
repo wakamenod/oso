@@ -128,6 +128,27 @@ fn the_child_leads_its_session_and_a_hang_up_ends_it() {
 }
 
 #[test]
+fn a_child_does_not_keep_the_spawning_threads_signal_mask() {
+    let (master, child) = std::thread::spawn(|| {
+        let mut blocked = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+        // SAFETY: `sigemptyset` fills `blocked`, `sigaddset` adds to it, and
+        // `pthread_sigmask` reads it; it changes the mask of this short-lived thread
+        // only.
+        unsafe {
+            libc::sigemptyset(blocked.as_mut_ptr());
+            libc::sigaddset(blocked.as_mut_ptr(), libc::SIGHUP);
+            libc::sigaddset(blocked.as_mut_ptr(), libc::SIGINT);
+            libc::pthread_sigmask(libc::SIG_BLOCK, blocked.as_ptr(), std::ptr::null_mut());
+        }
+        start("echo ready; exec sleep 60")
+    })
+    .join()
+    .unwrap();
+    read_until(&master, "ready");
+    hang_up(&master, child);
+}
+
+#[test]
 fn a_resize_reaches_the_child() {
     let (master, child) = start("trap 'stty size' WINCH; echo ready; while :; do sleep 0.1; done");
     read_until(&master, "ready");
