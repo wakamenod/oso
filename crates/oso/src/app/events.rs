@@ -86,8 +86,9 @@ impl App {
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.
         self.start_searches();
-        // `!` replaces a slice a turn (ADR 0113).
+        // `!` replaces a slice a turn, and a keyboard macro replays a little (ADR 0113).
         self.replace_slice(event_loop);
+        self.replay_macro(event_loop);
         // Commands, a resize or a load may have left rows to wrap.
         self.start_wraps();
         // And text to highlight, or buffers to drop.

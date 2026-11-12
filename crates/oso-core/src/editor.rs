@@ -48,6 +48,7 @@ mod follow;
 mod gutter;
 mod isearch;
 mod kill;
+mod macros;
 mod marks;
 mod messages;
 mod projects;
@@ -79,6 +80,7 @@ pub use files::Looked;
 pub use gutter::Gutter;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
+pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
@@ -242,6 +244,8 @@ pub struct Editor {
     trims: trim::Trims,
     /// query-replace's session, and the last pairs given (ADR 0113).
     replacing: replace::Replacing,
+    /// Keyboard macros: the recording, the last one and a replay (ADR 0113).
+    macros: macros::Macros,
 }
 
 impl Default for Editor {
@@ -318,6 +322,7 @@ impl Editor {
             font_lock: true,
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
+            macros: macros::Macros::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));

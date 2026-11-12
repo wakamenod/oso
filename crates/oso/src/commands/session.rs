@@ -36,6 +36,13 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if quit == Quit::SearchStep {
         return Ok(());
     }
+    // With nothing else to do, it drops a keyboard macro being recorded (ADR 0113).
+    if quit == Quit::Nothing && ctx.editor.macro_recording() {
+        ctx.editor
+            .macro_cancel("Keyboard macro recording cancelled");
+        ctx.request_redraw();
+        return Ok(());
+    }
     log::debug!("Quit");
     ctx.editor.echo("Quit");
     Ok(())

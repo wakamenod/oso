@@ -403,6 +403,21 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   `$1`, `${name}` and `$0` in the replacement. A regexp that does not compile keeps the prompt
   open, saying why.
 
+## Keyboard macros
+
+- `C-x (` or `<f3>` starts recording, with `Def` on the modeline; `C-x )` ends it; `C-x e` or `<f4>`
+  ends a recording and runs the last macro, and `e` right after runs it again. `C-u N` runs it
+  N times, and `C-u 0` until something stops it
+  ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+- A macro holds the keys typed and the text an input method commits. A passphrase prompt
+  drops the recording, as does typing in a buffer that may hold secrets, and `C-g` with
+  nothing else to do drops it too.
+- A replay never answers a question: it does not start while one is asked, and it stops
+  before typing into one.
+- A replay runs a few milliseconds at each turn, so frames keep coming. A command's error, an
+  undefined key, a failing search, a question or a passphrase prompt stops it, and `C-g`
+  does. What it changed in a buffer undoes as one step.
+
 ## Input method (IME)
 
 - Preedit text is drawn **inline at the cursor, underlined**, and pushes the

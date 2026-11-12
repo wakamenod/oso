@@ -258,6 +258,9 @@ coordinator.
   why, as a number prompt does with `Not a number` (`Editor::prompt_takes_regexp`), and the session takes the regexp it compiled.
 - **The replacement's groups** are read from the match and the character before it, not its whole
   line.
+- **Known:** the replacement's groups are read with the match's end as the text's end, so a
+  regexp whose alternatives depend on `$` or `\b` there can fill in other groups than the
+  match the search took.
 - **Case follows the match whenever the search folds,** also where an inline `(?-i)` makes a part
   of the regexp case-sensitive, as Emacs looks only at the regexp's letters.
 - **Limits:** a pattern that reads to the end of its line for each match it finds makes `!` take
@@ -357,16 +360,43 @@ coordinator.
 
 #### Secrets, restarts and the channel
 
-- **Recording and replaying work in a buffer that may hold secrets (Q10),** as isearch does. A
-  macro recorded while such a buffer was shown, or that typed into one, is marked secret. Its
-  `Debug` never prints events in any case; nothing logs them.
+- **Nothing is recorded in a buffer that may hold secrets.** Input that goes to one, or to a
+  prompt opened over one, drops the recording with a message, as a passphrase prompt does, and
+  the old macro stays (the author's choice on 2026-11-12, in place of Q10's mark). A replay
+  still works there. `Debug` never prints events; nothing logs them.
 - **`oso dev` does not carry the macro,** secret or not, and a restart waits while one is recorded
   or replayed, as for a prompt. ADR 0090's handoff stays as it is.
 - **`get-state` gains `macro`:** `recording` and `replaying`, booleans. No events, no count.
-- **The four macro commands are `Person`.** A replay types keys, which reach every binding,
+- **The three macro commands are `Person`.** A replay types keys, which reach every binding,
   `Person` commands among them, so the channel can never start one.
 - **The channel waits while a macro is recorded or replayed:** a channel command would change the
   text under the macro without being in it.
+
+#### As built (step 4, 2026-11-12)
+
+- **The editor keeps the macros, the dispatcher records and feeds them.** `Editor` holds the
+  recording, the last macro and a replay's place, with `MacroEvent` (a key, or text and whether
+  an input method committed it), and the dispatcher records a command's input at a time, so a
+  macro command's own keys, and a prefix argument given to it, are never in it.
+- **A replay is fed for 4 ms at each turn of the loop** (`Dispatcher::replay`), and waits while a
+  clipboard read, a key held for a completion, a search on a worker, `!`'s slices, a search for
+  cursors or a file's load is under way.
+- **A question stops the replay,** left open with the recorded answer dropped, and so does a
+  passphrase prompt; a command's error, an undefined key and a failing isearch stop it too.
+- **What a replay changed undoes as one step** in each buffer, through the history's join of
+  the steps made since it began.
+- **`Def` is the last part of the modeline's state,** in the selected window's modeline.
+- **A replay never answers a question or types a passphrase.** It does not start while one is
+  asked (`MacroError::Asking`), `e` then goes to the question, and before each event the replay
+  stops if one has opened, however it opened. The channel's question about a connection waits
+  while a macro is recorded or replayed.
+- **A passphrase prompt drops the recording and stops a replay as it opens,** also one that
+  opens later than the key that asked for it.
+- **Input goes into the recording once nothing holds it:** a key held while the clipboard is
+  read, or while `!` runs, is recorded when it runs, once. Text past the recording's size is
+  not copied: the recording is dropped first.
+- **During a replay, a key from the window goes to the replay first,** before `!`'s hold: `C-g`
+  stops the replay, and a second `C-g` stops `!`.
 
 ### 3. Whitespace cleanup on save
 

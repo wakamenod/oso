@@ -82,6 +82,13 @@ impl Editor {
         true
     }
 
+    /// Whether a search for cursors waits on the worker.
+    pub fn cursor_search_waits(&self) -> bool {
+        self.marking
+            .as_ref()
+            .is_some_and(|marking| marking.pending.is_some())
+    }
+
     /// Drops a search for cursors still waiting on the worker: every `C-g` does, also one
     /// that cancels a prefix, and every key that adds cursors before it searches.
     pub fn drop_cursor_search(&mut self) {

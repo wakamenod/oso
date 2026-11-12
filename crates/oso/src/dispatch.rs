@@ -11,7 +11,7 @@
 use oso_core::command::{
     Args, CommandId, Ctx, Effects, ExecuteError, Invocation, Prefix, Registry,
 };
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, MacroEvent};
 use oso_core::key::Key;
 use oso_core::key::KeyPress;
 #[cfg(any(test, feature = "dev"))]
@@ -32,6 +32,7 @@ mod extended;
 mod held;
 mod hold_all;
 mod keymaps;
+mod macros;
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
 mod run_command;
@@ -80,6 +81,8 @@ pub struct Dispatcher {
     publisher: Option<Publisher>,
     /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
     waiting: Option<clipboard::Waiting>,
+    /// Keyboard macros: what a recording takes, and a replay's state here (ADR 0113).
+    macros: macros::MacroInput,
     /// Input held while query-replace's `!` runs (ADR 0113).
     held_during_all: hold_all::HeldDuringAll,
     /// The input being handled came through the dev socket, which never reads the system
@@ -112,6 +115,7 @@ impl Dispatcher {
         let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
         let isearch = bindings::isearch_keymap(&registry);
         let replace = bindings::replace_keymap(&registry);
+        let macros = macros::MacroInput::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]
@@ -142,6 +146,7 @@ impl Dispatcher {
             last: None,
             publisher: None,
             waiting: None,
+            macros,
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             completion_held: None,
@@ -319,19 +324,7 @@ impl Dispatcher {
     /// and one undo step. A pending prefix makes it an undefined key sequence.
     /// A key that types several characters comes through here.
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
-        let held = hold_all::Held::Text {
-            text: text.to_owned(),
-            commit: false,
-        };
-        if let Some(done) = self.hold_during_all(editor, held) {
-            return done;
-        }
-        if self.hold_text(text, false) {
-            return Effects::default();
-        }
-        self.as_input(editor, |this, editor| {
-            this.run_text(editor, text, Step::MayJoin)
-        })
+        self.take_text(editor, text, false)
     }
 
     /// Starts an input method's composition, which counts as a key: keys never reach
@@ -346,19 +339,7 @@ impl Dispatcher {
     /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
     /// always as an undo step of its own, even of one character (ADR 0069).
     pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
-        let held = hold_all::Held::Text {
-            text: text.to_owned(),
-            commit: true,
-        };
-        if let Some(done) = self.hold_during_all(editor, held) {
-            return done;
-        }
-        if self.hold_text(text, true) {
-            return Effects::default();
-        }
-        self.as_input(editor, |this, editor| {
-            this.run_text(editor, text, Step::Apart)
-        })
+        self.take_text(editor, text, true)
     }
 
     fn run_text(&mut self, editor: &mut Editor, text: &str, step: Step) -> Effects {
@@ -466,6 +447,7 @@ impl Dispatcher {
             }
         }
         editor.end_command();
+        self.macro_ran(id, result.is_err(), editor);
         // What the command typed in a prompt that completes is matched once, now (ADR 0076).
         editor.match_completion();
         if let Err(error @ ExecuteError::Panicked { .. }) = &result {
@@ -491,13 +473,20 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        // A replay takes a key from the window first: `C-g` stops it before anything else.
+        if let Some(done) = self.macro_before(editor, (Some(key), || MacroEvent::Key(key))) {
+            return done;
+        }
         if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
             return done;
         }
         if self.hold_key(key) {
             return Effects::default();
         }
-        self.as_input(editor, |this, editor| this.resolve_key(editor, key))
+        self.macro_key(editor, key);
+        let effects = self.as_input(editor, |this, editor| this.resolve_key(editor, key));
+        self.macro_after(editor);
+        effects
     }
 
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
@@ -628,6 +617,8 @@ mod ime_tests;
 mod isearch_tests;
 #[cfg(test)]
 mod kill_tests;
+#[cfg(test)]
+mod macro_tests;
 #[cfg(test)]
 mod mark_tests;
 #[cfg(test)]
