@@ -26,6 +26,10 @@ pub(super) trait Lexer: Sized {
         *self = Self::fresh(settings);
     }
 
+    /// Whether any line is an anchor; with none, only the buffer's start is, and no line
+    /// looks back for one.
+    const HAS_ANCHORS: bool = true;
+
     /// Whether a line whose text starts with `line` (at most [`HEAD_BYTES`] of it) is an
     /// anchor.
     fn is_anchor(line: &[u8]) -> bool;
@@ -76,7 +80,8 @@ pub(super) struct Head {
 }
 
 impl Head {
-    /// Up to [`HEAD_BYTES`] of the line past its spaces and tabs, empty if it is blank.
+    /// Up to [`HEAD_BYTES`] of the line past its spaces and tabs, with no `\r`: empty if it
+    /// is blank.
     pub(super) fn text(&self) -> &[u8] {
         &self.bytes[..self.len]
     }
@@ -244,6 +249,7 @@ impl<'a> Reader<'a> {
                 read += 1;
                 match byte {
                     b'\n' => break 'pieces,
+                    b'\r' => {}
                     b' ' | b'\t' if head.len == 0 && read > MAX_LEAD => return None,
                     b' ' | b'\t' if head.len == 0 => {}
                     _ => {
@@ -314,6 +320,10 @@ pub(super) fn answers<L: Lexer>(
                 let new = matches!(line, Line::New(_));
                 match pass_at(rope, settings, target, pass.take(), adjacent, budget) {
                     Some(mut p) => {
+                        if new && p.reader.line_start {
+                            // A break at a line's start leaves an empty line behind it.
+                            p.lexer.line("", 0);
+                        }
                         let told = p
                             .reader
                             .head(budget)
@@ -411,13 +421,15 @@ impl<L: Lexer> Pass<'_, L> {
                 break;
             };
             let text = text.ok()?;
-            if line_start && !self.lexer.is_inside() && L::is_anchor(head_of(text)) {
+            // A line the command answered is where it puts it: an anchor only at column 0.
+            let (column, starts) = match answered.take() {
+                Some(column) => (column, text.trim_start_matches([' ', '\t'])),
+                None => (measure(text, settings.tab_width()).column, text),
+            };
+            if line_start && column == 0 && !self.lexer.is_inside() && L::is_anchor(head_of(starts))
+            {
                 self.lexer.reset(settings);
             }
-            let column = match answered.take() {
-                Some(column) => column,
-                None => measure(text, settings.tab_width()).column,
-            };
             self.lexer.line(text, column);
         }
         Some(())
@@ -436,6 +448,9 @@ fn find_anchor<L: Lexer>(
     target: usize,
     budget: &mut Budget,
 ) -> Result<Option<usize>, Spent> {
+    if !L::HAS_ANCHORS {
+        return Ok((from == 0).then_some(0));
+    }
     let mut window = Vec::new();
     let mut end = target;
     // Most anchors are near: the windows grow from a small one.

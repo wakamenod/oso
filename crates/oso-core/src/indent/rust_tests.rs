@@ -212,3 +212,11 @@ fn a_value_after_a_line_that_ends_with_an_equals_sign_keeps_the_operands_place()
         "        && x.is_ok()\n    {\n        g();\n    }\n}\n",
     ));
 }
+
+#[test]
+fn a_chain_after_a_string_over_lines_goes_by_the_line_it_starts_on() {
+    fixed(concat!(
+        "fn f() {\n    g(\n        \"a long text \\\n         that goes on\"\n",
+        "            .into(),\n    );\n}\n",
+    ));
+}

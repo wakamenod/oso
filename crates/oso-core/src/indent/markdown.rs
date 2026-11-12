@@ -56,6 +56,8 @@ impl Lexer for Markdown {
         self.items = items;
     }
 
+    const HAS_ANCHORS: bool = false;
+
     fn is_anchor(_line: &[u8]) -> bool {
         false
     }

@@ -270,8 +270,21 @@ impl Lexer for Rust {
         let place = self.place(text.trim_start_matches([' ', '\t']).as_bytes());
         let continued = place.and_then(|place| self.continues(&place));
         let depth = self.depth();
+        let in_string = matches!(self.inside, Inside::Str | Inside::Raw(_));
         self.operand = self.layout(None, indent, continued).0;
         let tokens = self.lex(text, indent);
+        if in_string && let Some(previous) = &mut self.previous {
+            // A line a string goes on to lays out what follows as the line the string
+            // starts on does.
+            self.last_indent = indent;
+            self.lines = self.lines.wrapping_add(1);
+            if let Some(last) = tokens.last {
+                previous.ends = last.ends();
+                previous.closers = false;
+                previous.assigns = last == Token::Assign;
+            }
+            return;
+        }
         self.end_line(&tokens, indent, continued, depth);
     }
 

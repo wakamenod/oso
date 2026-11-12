@@ -7,8 +7,8 @@ use proptest::prelude::*;
 
 use super::pass::{MAX_COLUMN, fallback, measure};
 use super::{
-    Answer, Budget, LINE_LOOKBACK, Line, Settings, Style, fundamental, markdown, markdown_stops,
-    rust, toml,
+    Answer, Budget, LINE_COST, LINE_LOOKBACK, Line, Settings, Style, fundamental, markdown,
+    markdown_stops, rust, toml,
 };
 use crate::display_map::TabWidth;
 use crate::rope::Rope;
@@ -20,7 +20,11 @@ pub(super) type Rules = fn(&Rope, Settings, &[Line], &mut Budget) -> Vec<Answer>
 pub(super) fn reindented(rules: Rules, text: &str) -> Vec<Option<usize>> {
     let rope = Rope::from(text);
     let lines: Vec<_> = (0..rope.line_count()).map(Line::Row).collect();
-    let answers = rules(&rope, Settings::default(), &lines, &mut Budget::new());
+    // What a region needs, so that no line falls back for want of budget.
+    let needed = rope.len() + lines.len() * LINE_COST + LINE_LOOKBACK;
+    let mut budget = Budget::with_limit(needed);
+    let answers = rules(&rope, Settings::default(), &lines, &mut budget);
+    assert!(!budget.is_spent(), "the budget ran out");
     answers.into_iter().map(column).collect()
 }
 
@@ -398,6 +402,51 @@ fn a_line_of_block_comments_is_measured_once() {
     );
     let answers = reindented(rust, &text);
     assert_eq!(answers[2], Some(4 + 4 + 2 + 4 * 900 + 1));
+}
+
+#[test]
+fn a_line_the_command_moved_off_the_margin_is_no_anchor() {
+    let text = "impl X {\nfn a() {\nlet x = 1;\n}\nfn b() {\nlet y = 2;\n}\n}\n";
+    let expected = [0, 4, 8, 4, 4, 8, 4, 0, 0].map(Some);
+    assert_eq!(reindented(rust, text), expected);
+    let text = "m = [\n[1, 2],\n[3, 4],\n]";
+    assert_eq!(reindented(toml, text), [Some(0), Some(4), Some(4), Some(0)]);
+}
+
+#[test]
+fn a_break_at_a_lines_start_leaves_an_empty_line() {
+    assert_eq!(
+        new_lines(fundamental, "    a\nb", &[6]),
+        [Answer::Column(0)]
+    );
+    assert_eq!(
+        new_lines(fundamental, "    a\n  b", &[8]),
+        [Answer::Column(0)]
+    );
+    assert_eq!(new_lines(markdown, "- a\n- b", &[4]), [Answer::Column(0)]);
+    assert_eq!(
+        new_lines(rust, "fn f() {\n    x\n}", &[9]),
+        [Answer::Column(4)]
+    );
+    assert_eq!(
+        new_lines(toml, "x = [\n    1,\n]", &[6]),
+        [Answer::Column(4)]
+    );
+}
+
+#[test]
+fn lines_that_end_with_cr_lf_are_reindented_as_any_other() {
+    let text = "fn f() {\r\n    g(\r\n        a,\r\n    );\r\n\r\n}\r\n";
+    assert!(
+        misindented(rust, text).is_empty(),
+        "{:?}",
+        misindented(rust, text)
+    );
+    assert_eq!(reindented(rust, text)[4], Some(4));
+    let text = "x = [\r\n    1,\r\n]\r\n";
+    assert_eq!(reindented(toml, text), [Some(0), Some(4), Some(0), Some(0)]);
+    assert_eq!(new_lines(fundamental, "  a\r\n", &[3]), [Answer::Column(2)]);
+    assert_eq!(new_lines(markdown, "- a\r\n", &[3]), [Answer::Column(2)]);
 }
 
 /// Pieces of text random tests are built from: what each lexer reacts to, and the atoms of

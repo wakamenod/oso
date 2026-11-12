@@ -530,7 +530,11 @@ gains `amended by 0115`.
   command inserts more than that for one line, whatever the text.
 - **Each answer counts for the next:** a line the command reindents, or a new line it starts,
   has the answered indentation for the lines after it. So `foo(|bar(|x))` with `RET` at both
-  cursors gives 4, then 8, as the second opener's line is the new one.
+  cursors gives 4, then 8, as the second opener's line is the new one; and a line the command
+  moves off column 0 is no anchor, so reindenting pasted code that starts at the margin keeps its
+  brackets. A break at a line's start leaves an empty line behind it, so the new line takes no
+  indentation in Fundamental and Markdown. A line a string goes on to, past a `\` at a line's end,
+  lays out what follows as the line the string starts on.
 - **Rust's continuation follows rustfmt more closely than rule 4.** The repository's fixed point
   needed:
   - continuation inside every bracket, not only `{` and top level, with an opener at a line's end
@@ -594,17 +598,17 @@ gains `amended by 0115`.
     step 3 measures it with the edit and gives `Budget::with_limit` what the region needs.
 - **The rustfmt fixed point** runs with `just ci`: reindenting every `.rs` file of the repository
   takes 0.6 s in a debug build. It reads only files under the workspace's root, past directories
-  whose names start with `.` and `target`, and follows no link. Six files have lines the rules
-  indent otherwise, listed in the test with the count and the reason; a listed file that is gone
-  or has none fails it:
+  whose names start with `.` or `target`, and follows no link, and it gives each file the budget a
+  region of its size needs, so no line falls back. Five files have lines the rules indent
+  otherwise, listed in the test with the count and the reason; a listed file that is gone or has
+  none fails it:
 
   | File | Lines | Why |
   |---|---|---|
   | `oso-render/src/rows.rs` | 22 | a `proptest!` body, which rustfmt does not format |
   | `oso/src/dispatch/prompts.rs` | 3 | `\|` patterns inside parentheses sit with the first one |
   | `oso-render/src/lib.rs` | 1 | the same |
-  | `oso-core/src/editor/files.rs` | 1 | an operand of `==` inside one of `&&` goes one level further |
-  | `oso-platform/src/text/coretext/direction.rs` | 1 | an operand of `&&` inside one of `\|\|`, the same |
+  | `oso-platform/src/text/coretext/direction.rs` | 1 | an operand of `&&` inside one of `\|\|` goes one level further |
   | `oso-core/src/syntax/highlights/tests.rs` | 1 | a chain on a tuple goes one level past its closer |
 
   A change that makes the rules indent another line of the repository otherwise fails the test,

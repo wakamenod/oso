@@ -31,11 +31,6 @@ const NOT_COVERED: &[(&str, usize, &str)] = &[
         "patterns after `|` inside parentheses sit with the first one",
     ),
     (
-        "crates/oso-core/src/editor/files.rs",
-        1,
-        "an operand of `==` inside an operand of `&&` is one level further in",
-    ),
-    (
         "crates/oso-platform/src/text/coretext/direction.rs",
         1,
         "an operand of `&&` inside an operand of `||` is one level further in",
@@ -60,7 +55,7 @@ fn root() -> PathBuf {
 }
 
 /// Every `.rs` file under `dir`, past directories whose names start with `.` (git's, and
-/// worktrees under `.claude`) and `target`, following no link.
+/// worktrees under `.claude`) or `target`, following no link.
 fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -71,7 +66,7 @@ fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
         let Ok(kind) = entry.file_type() else {
             continue;
         };
-        if kind.is_dir() && !name.starts_with('.') && name != "target" {
+        if kind.is_dir() && !name.starts_with('.') && !name.starts_with("target") {
             rust_files(&entry.path(), files);
         } else if kind.is_file() && name.ends_with(".rs") {
             files.push(entry.path());
