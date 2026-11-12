@@ -659,6 +659,8 @@ As built:
   nothing trimmed. All the cursors share one call to the rules, on the text before the edit, so a
   cursor's answer counts the lines the ones before it make. More than 16 MiB, indentation
   included, changes nothing and signals "Too much text to insert".
+- **In Markdown, `RET` keeps the spaces before the cursor:** two at a line's end break the line,
+  as whitespace cleanup on save (ADR 0113) keeps them too; those after it still go.
 - **The line between brackets** is opened in Rust and TOML only (the author's choice): in Markdown
   `[|]` is a link's text, and `RET` there breaks the line alone.
 - **`TAB`** in Rust and TOML asks the rules for each cursor's line once and replaces only

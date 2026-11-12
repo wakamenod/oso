@@ -208,7 +208,12 @@ impl Editor {
             };
             return Some(cursors.iter().map(|&at| plain(at)).collect());
         };
-        let spots: Vec<Break> = cursors.iter().map(|&at| spot(rope, at, brackets)).collect();
+        // In Markdown, two spaces at a line's end break it: they stay (ADR 0113 keeps them too).
+        let keep_before = buffer.mode() == Mode::Markdown;
+        let spots: Vec<Break> = cursors
+            .iter()
+            .map(|&at| spot(rope, at, brackets, keep_before))
+            .collect();
         let mut lines = Vec::with_capacity(cursors.len() * 2);
         for (&at, spot) in cursors.iter().zip(&spots) {
             if spot.between {
@@ -301,11 +306,16 @@ fn planned(
     }
 }
 
-/// Where `RET` breaks the line at `at`: the spaces and tabs around it, and whether it is
-/// between an opener and its closer, which `brackets` says to look for.
-fn spot(rope: &Rope, at: usize, brackets: bool) -> Break {
+/// Where `RET` breaks the line at `at`: the spaces and tabs around it, those before it unless
+/// `keep_before`, and whether it is between an opener and its closer, which `brackets` says to
+/// look for.
+fn spot(rope: &Rope, at: usize, brackets: bool, keep_before: bool) -> Break {
     let start = rope.line_start(rope.offset_to_point(at).row);
-    let before = blanks_before(rope, at, start);
+    let before = if keep_before {
+        0
+    } else {
+        blanks_before(rope, at, start)
+    };
     let after = blanks_after(rope, at);
     let range = at - before..at + after;
     let opener = range

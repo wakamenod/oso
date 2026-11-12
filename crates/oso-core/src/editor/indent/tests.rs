@@ -111,6 +111,10 @@ fn ret_in_markdown_and_toml_follows_their_rules() {
     let (mut editor, id) = editor_in(Mode::Markdown, "- item|");
     ret(&mut editor);
     assert_eq!(marked(&editor, id), "- item\n  |");
+    // Two spaces at a line's end break it in Markdown: they stay.
+    let (mut editor, id) = editor_in(Mode::Markdown, "a  |");
+    ret(&mut editor);
+    assert_eq!(marked(&editor, id), "a  \n|");
     let (mut editor, id) = editor_in(Mode::Toml, "x = [|]");
     ret(&mut editor);
     assert_eq!(marked(&editor, id), "x = [\n    |\n]");
