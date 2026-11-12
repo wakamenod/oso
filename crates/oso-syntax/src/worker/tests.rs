@@ -19,6 +19,7 @@ fn job(buffer: u32, revision: u64, text: &str, edits: Option<Vec<Splice>>) -> Jo
     Job {
         buffer,
         language: Language::Rust,
+        epoch: 1,
         revision,
         text: Rope::from(text),
         edits,
@@ -35,7 +36,7 @@ fn shown(mut job: Job<u32>) -> Job<u32> {
 fn drain(scheduler: &mut Scheduler<u32>, queries: &mut Queries) -> Vec<Report<u32>> {
     let mut reports = Vec::new();
     while let Some(mut checkout) = scheduler.take_next() {
-        let outcome = checkout.document.highlight(queries, &checkout.shown, LONG);
+        let outcome = checkout.run_for(queries, LONG);
         reports.extend(scheduler.give_back(checkout, outcome));
     }
     reports
@@ -140,9 +141,7 @@ fn edits_that_come_during_a_slice_follow_after_it() {
         "a checked-out buffer has one thread"
     );
     // A long slice, so that it ends, and reports, on a slow runner too.
-    let outcome = checkout
-        .document
-        .highlight(&mut queries, &checkout.shown, LONG);
+    let outcome = checkout.run_for(&mut queries, LONG);
     let report = scheduler.give_back(checkout, outcome).unwrap();
     assert_eq!(
         report.revision, 1,
@@ -197,7 +196,7 @@ fn a_slice_that_panicked_loses_only_its_buffer() {
     let panicked = scheduler.take_next().unwrap();
     assert_eq!(panicked.buffer, 2);
     let report = scheduler.lost(panicked).unwrap();
-    assert!(matches!(report.outcome, Outcome::Failed(Failure::Lost)));
+    assert!(matches!(report.outcome, Outcome::Lost));
     assert!(!scheduler.has(2));
     assert_eq!(
         drain(&mut scheduler, &mut Queries::new()).len(),
@@ -218,4 +217,70 @@ fn a_new_language_starts_over() {
     assert!(scheduler.give_back(checkout, Highlighted::Paused).is_none());
     let reports = drain(&mut scheduler, &mut queries);
     assert_eq!(reports.last().unwrap().revision, 2);
+}
+
+#[test]
+fn nothing_is_parsed_or_freed_where_jobs_and_drops_come_in() {
+    let mut scheduler = Scheduler::new();
+    let mut queries = Queries::new();
+    scheduler.submit(shown(job(1, 1, "fn a() {}\n", None)));
+    assert!(
+        scheduler.slots[&1].document.is_none(),
+        "submit made a document"
+    );
+    drain(&mut scheduler, &mut queries);
+    assert!(scheduler.slots[&1].document.is_some());
+    // A new start, and a drop: the documents wait for a thread to free them.
+    scheduler.submit(shown(job(1, 2, "fn b() {}\n", None)));
+    assert_eq!(scheduler.take_doomed().len(), 1, "the reset's old document");
+    drain(&mut scheduler, &mut queries);
+    scheduler.drop_buffer(1);
+    assert_eq!(
+        scheduler.take_doomed().len(),
+        1,
+        "the dropped buffer's document"
+    );
+    assert!(scheduler.take_doomed().is_empty());
+}
+
+#[test]
+fn a_document_given_back_for_a_dropped_buffer_waits_to_be_freed() {
+    let mut scheduler = Scheduler::new();
+    let mut queries = Queries::new();
+    scheduler.submit(job(1, 1, "fn a() {}\n", None));
+    let mut checkout = scheduler.take_next().unwrap();
+    scheduler.drop_buffer(1);
+    let outcome = checkout.run_for(&mut queries, LONG);
+    assert!(scheduler.give_back(checkout, outcome).is_none());
+    assert_eq!(scheduler.take_doomed().len(), 1);
+}
+
+#[test]
+fn a_shown_buffer_whose_window_went_counts_as_background() {
+    let mut scheduler = Scheduler::new();
+    scheduler.submit(shown(job(1, 1, "fn a() {}\n", None)));
+    scheduler.submit(job(2, 1, "fn b() {}\n", None));
+    let first = scheduler.take_next().unwrap();
+    assert_eq!(first.buffer, 1);
+    // Its window shows another buffer now.
+    scheduler.submit(job(1, 1, "fn a() {}\n", Some(Vec::new())));
+    assert!(
+        scheduler.take_next().is_none(),
+        "a second thread on a buffer no window shows"
+    );
+}
+
+#[test]
+fn reports_carry_the_epoch_of_their_start_and_stamps_in_order() {
+    let mut scheduler = Scheduler::new();
+    let mut queries = Queries::new();
+    scheduler.submit(shown(job(1, 1, "fn a() {}\n", None)));
+    let first = drain(&mut scheduler, &mut queries);
+    let mut again = shown(job(1, 2, "fn b() {}\n", None));
+    again.epoch = 2;
+    scheduler.submit(again);
+    let second = drain(&mut scheduler, &mut queries);
+    assert_eq!(first[0].epoch, 1);
+    assert_eq!(second[0].epoch, 2);
+    assert!(second[0].stamp > first[0].stamp);
 }

@@ -1,7 +1,6 @@
 pub mod oso_syntax
 pub enum oso_syntax::Failure
 pub oso_syntax::Failure::Incompatible
-pub oso_syntax::Failure::Lost
 pub oso_syntax::Failure::TooLarge
 pub oso_syntax::Failure::TooSlow
 impl core::clone::Clone for oso_syntax::Failure
@@ -48,6 +47,7 @@ impl core::marker::StructuralPartialEq for oso_syntax::Language
 pub enum oso_syntax::Outcome
 pub oso_syntax::Outcome::Failed(oso_syntax::Failure)
 pub oso_syntax::Outcome::Highlights(oso_core::syntax::highlights::Highlights)
+pub oso_syntax::Outcome::Lost
 impl core::clone::Clone for oso_syntax::Outcome
 pub fn oso_syntax::Outcome::clone(&self) -> oso_syntax::Outcome
 impl core::fmt::Debug for oso_syntax::Outcome
@@ -80,6 +80,7 @@ pub fn oso_syntax::Document::highlights(&self) -> &oso_core::syntax::highlights:
 pub struct oso_syntax::Job<Key>
 pub oso_syntax::Job::buffer: Key
 pub oso_syntax::Job::edits: core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
+pub oso_syntax::Job::epoch: u64
 pub oso_syntax::Job::language: oso_syntax::Language
 pub oso_syntax::Job::revision: u64
 pub oso_syntax::Job::shown: alloc::vec::Vec<core::ops::range::Range<usize>>
@@ -95,8 +96,10 @@ impl core::default::Default for oso_syntax::Queries
 pub fn oso_syntax::Queries::default() -> oso_syntax::Queries
 pub struct oso_syntax::Report<Key>
 pub oso_syntax::Report::buffer: Key
+pub oso_syntax::Report::epoch: u64
 pub oso_syntax::Report::outcome: oso_syntax::Outcome
 pub oso_syntax::Report::revision: u64
+pub oso_syntax::Report::stamp: u64
 impl<Key: core::clone::Clone> core::clone::Clone for oso_syntax::Report<Key>
 pub fn oso_syntax::Report<Key>::clone(&self) -> oso_syntax::Report<Key>
 impl<Key: core::fmt::Debug> core::fmt::Debug for oso_syntax::Report<Key>
@@ -105,12 +108,11 @@ pub struct oso_syntax::Scheduler<Key>
 impl<Key: core::marker::Copy + core::cmp::Eq + core::hash::Hash> oso_syntax::Scheduler<Key>
 pub fn oso_syntax::Scheduler<Key>::drop_buffer(&mut self, Key)
 pub fn oso_syntax::Scheduler<Key>::give_back(&mut self, oso_syntax::Checkout<Key>, oso_syntax::Highlighted) -> core::option::Option<oso_syntax::Report<Key>>
-pub fn oso_syntax::Scheduler<Key>::has(&self, Key) -> bool
 pub fn oso_syntax::Scheduler<Key>::lost(&mut self, oso_syntax::Checkout<Key>) -> core::option::Option<oso_syntax::Report<Key>>
 pub fn oso_syntax::Scheduler<Key>::new() -> Self
 pub fn oso_syntax::Scheduler<Key>::submit(&mut self, oso_syntax::Job<Key>)
+pub fn oso_syntax::Scheduler<Key>::take_doomed(&mut self) -> alloc::vec::Vec<oso_syntax::Document>
 pub fn oso_syntax::Scheduler<Key>::take_next(&mut self) -> core::option::Option<oso_syntax::Checkout<Key>>
 impl<Key> core::default::Default for oso_syntax::Scheduler<Key>
 pub fn oso_syntax::Scheduler<Key>::default() -> Self
 pub const oso_syntax::MAX_BYTES: usize
-pub const oso_syntax::SLICE: core::time::Duration

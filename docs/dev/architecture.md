@@ -506,8 +506,9 @@ The UI thread never blocks on I/O or parsing:
 - Tree-sitter parsing runs on two worker threads of the tip crate (`app/syntax.rs`), each on an
   8 MiB stack, which share one schedule of every buffer's document (`oso_syntax::Scheduler`):
   shown buffers first, and at most one thread on a buffer no window shows, so a slice that runs
-  long never holds the shown ones. The UI thread never calls tree-sitter; it sends a job after
-  each command and drops a buffer that turned secret at once. A buffer's highlights are a map of runs
+  long never holds the shown ones. The UI thread never calls tree-sitter, and nothing under the
+  lock makes or frees a document; the UI sends a job after each command and drops a buffer that
+  turned secret at once. It is off until colour is drawn (ADR 0111, step 4a). A buffer's highlights are a map of runs
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and

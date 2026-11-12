@@ -17,7 +17,7 @@ use std::ops::Range;
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::Editor;
-use oso_core::window::{Scroll, ViewSize, WindowId};
+use oso_core::window::{Scroll, ViewSize, Window, WindowId};
 use oso_syntax::{Failure, Job, Language, Outcome, Report};
 
 use super::App;
@@ -29,6 +29,9 @@ use pool::Pool;
 /// What the UI keeps of highlighting.
 #[derive(Default)]
 pub(super) struct Syntax {
+    /// Whether highlighting runs at all: off until colour is drawn (ADR 0111, step 4a), so
+    /// that no thread starts and no job goes in normal use.
+    enabled: bool,
     pool: Option<Pool>,
     /// The threads could not start: no buffer is highlighted this session.
     broken: bool,
@@ -36,23 +39,30 @@ pub(super) struct Syntax {
     sent: HashMap<BufferId, Sent>,
     /// Buffers whose highlighting failed, in the mode it failed in.
     stopped: HashMap<BufferId, Mode>,
+    /// The last epoch given out: each new start of a buffer takes the next.
+    epochs: u64,
     /// What windows show, kept while nothing that decides it moved.
     shown: Vec<(BufferId, Range<usize>)>,
     /// What `shown` was built from: each window's buffer, that buffer's revision, the
     /// window's scroll and size, and whether it wraps.
     views: Vec<View>,
+    /// Each buffer's mode and whether the worker may have it, reused between calls.
+    present: HashMap<BufferId, (Mode, bool)>,
 }
 
 /// What decides what a window shows, as far as the next job cares.
 type View = (WindowId, BufferId, u64, Scroll, ViewSize, bool);
 
-/// The last job of a buffer's.
+/// The last job of a buffer's, and the last report taken.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Sent {
+    epoch: u64,
     revision: u64,
     mode: Mode,
     shown: Vec<Range<usize>>,
     loading: bool,
+    /// The stamp of the last report taken: an older one that comes later is dropped.
+    stamp: u64,
 }
 
 /// What to tell the worker: buffers to drop first, then jobs.
@@ -69,124 +79,178 @@ impl Orders {
 }
 
 impl Syntax {
+    /// Highlighting that runs, for tests now, and for every session once colour is drawn.
+    #[cfg(test)]
+    pub(super) fn on() -> Self {
+        Self {
+            enabled: true,
+            ..Self::default()
+        }
+    }
+
     /// The buffers the worker must drop now: killed, or no longer allowed, as a buffer that
-    /// turned secret is. Cheap: it builds no screen.
+    /// turned secret is. One walk over the buffers, and none while the worker has nothing.
     pub(super) fn drops(&mut self, editor: &Editor) -> Vec<BufferId> {
         let mut drops = Vec::new();
+        if self.sent.is_empty() && self.stopped.is_empty() {
+            return drops;
+        }
+        self.present.clear();
+        self.present.extend(
+            editor
+                .buffers()
+                .map(|(id, buffer)| (id, (buffer.mode(), allowed(buffer.mode(), buffer)))),
+        );
+        let present = &self.present;
         self.sent.retain(|id, sent| {
-            let keep = editor
-                .buffer(*id)
-                .is_some_and(|buffer| buffer.mode() == sent.mode && allowed(buffer.mode(), buffer));
+            let keep = present
+                .get(id)
+                .is_some_and(|(mode, allowed)| *mode == sent.mode && *allowed);
             if !keep {
                 drops.push(*id);
             }
             keep
         });
-        self.stopped.retain(|id, _| editor.buffer(*id).is_some());
+        self.stopped.retain(|id, _| present.contains_key(id));
         drops
     }
 
     /// Everything to tell the worker after a command: the drops, and a job for each buffer
-    /// whose text or shown ranges moved.
+    /// whose text or shown ranges moved. Nothing while highlighting is off, and no screen is
+    /// looked at while no buffer can be highlighted.
     pub(super) fn orders(&mut self, editor: &Editor) -> Orders {
-        let mut orders = Orders {
-            drops: self.drops(editor),
-            jobs: Vec::new(),
-        };
+        let mut orders = Orders::default();
+        if !self.enabled {
+            return orders;
+        }
+        orders.drops = self.drops(editor);
+        let mut wanted = editor
+            .buffers()
+            .filter(|(id, buffer)| {
+                let mode = buffer.mode();
+                allowed(mode, buffer) && self.stopped.get(id).is_none_or(|stopped| *stopped != mode)
+            })
+            .peekable();
+        if wanted.peek().is_none() {
+            return orders;
+        }
+        let wanted: Vec<BufferId> = wanted.map(|(id, _)| id).collect();
         self.refresh_shown(editor);
-        for (id, buffer) in editor.buffers() {
-            let mode = buffer.mode();
-            match self.stopped.get(&id) {
-                Some(stopped) if *stopped == mode => continue,
-                Some(_) => {
-                    // A new mode gives it another try (ADR 0111).
-                    self.stopped.remove(&id);
-                }
-                None => {}
+        for id in wanted {
+            if let Some(job) = self.job(editor, id) {
+                orders.jobs.push(job);
             }
-            let Some(language) = Language::of(mode).filter(|_| allowed(mode, buffer)) else {
-                continue;
-            };
-            let shown: Vec<Range<usize>> = self
-                .shown
-                .iter()
-                .filter(|(shown, _)| *shown == id)
-                .map(|(_, range)| range.clone())
-                .collect();
-            let loading = buffer.loading().is_some();
-            let last = self.sent.get(&id);
-            let unchanged = last.is_some_and(|last| {
-                // While a file loads, the snapshots after the first are skipped.
-                (loading && last.loading)
-                    || (last.revision == buffer.revision() && last.shown == shown)
-            });
-            if unchanged {
-                continue;
-            }
-            let edits = last.and_then(|last| buffer.splices_since(last.revision));
-            orders.jobs.push(Job {
-                buffer: id,
-                language,
-                revision: buffer.revision(),
-                text: buffer.text().clone(),
-                edits,
-                shown: shown.clone(),
-            });
-            let sent = Sent {
-                revision: buffer.revision(),
-                mode,
-                shown,
-                loading,
-            };
-            self.sent.insert(id, sent);
         }
         orders
     }
 
-    /// Builds what windows show again only if a window, its buffer's text, its scroll or its
-    /// size moved, so a turn of the loop that changed none of them builds no screen. A wrap
-    /// that settles rows meanwhile is seen at the next of those: the ranges only order work.
-    fn refresh_shown(&mut self, editor: &Editor) {
-        let views: Vec<View> = editor
-            .windows()
-            .map(|window| {
-                let revision = editor.shown(window).revision();
-                let wraps = window.wrap().is_some();
-                (
-                    window.id(),
-                    window.buffer(),
-                    revision,
-                    window.scroll(),
-                    window.size(),
-                    wraps,
-                )
-            })
+    /// The job for buffer `id`, if its text or what windows show of it moved.
+    fn job(&mut self, editor: &Editor, id: BufferId) -> Option<Job<BufferId>> {
+        let buffer = editor.buffer(id)?;
+        let mode = buffer.mode();
+        // A new mode gives a buffer whose highlighting failed another try (ADR 0111).
+        self.stopped.remove(&id);
+        let language = Language::of(mode)?;
+        let loading = buffer.loading().is_some();
+        let last = self.sent.get(&id);
+        let same_shown = |last: &Sent| {
+            let shown = self.shown.iter().filter(|(shown, _)| *shown == id);
+            shown.map(|(_, range)| range).eq(last.shown.iter())
+        };
+        // While a file loads, the snapshots after the first are skipped.
+        let unchanged = last.is_some_and(|last| {
+            (loading && last.loading) || (last.revision == buffer.revision() && same_shown(last))
+        });
+        if unchanged {
+            return None;
+        }
+        let edits = last
+            .filter(|last| last.mode == mode)
+            .and_then(|last| buffer.splices_since(last.revision));
+        let (epoch, stamp) = match (&edits, last) {
+            (Some(_), Some(last)) => (last.epoch, last.stamp),
+            _ => {
+                self.epochs += 1;
+                (self.epochs, 0)
+            }
+        };
+        let shown: Vec<Range<usize>> = self
+            .shown
+            .iter()
+            .filter(|(shown, _)| *shown == id)
+            .map(|(_, range)| range.clone())
             .collect();
-        if views == self.views {
+        let sent = Sent {
+            epoch,
+            revision: buffer.revision(),
+            mode,
+            shown: shown.clone(),
+            loading,
+            stamp,
+        };
+        self.sent.insert(id, sent);
+        Some(Job {
+            buffer: id,
+            language,
+            epoch,
+            revision: buffer.revision(),
+            text: buffer.text().clone(),
+            edits,
+            shown,
+        })
+    }
+
+    /// Builds what windows show again only if a window, its buffer's text, its scroll or its
+    /// size moved. A wrap that settles rows meanwhile is seen at the next of those: the ranges
+    /// only order work.
+    fn refresh_shown(&mut self, editor: &Editor) {
+        let key = |window: &Window| -> View {
+            (
+                window.id(),
+                window.buffer(),
+                editor.shown(window).revision(),
+                window.scroll(),
+                window.size(),
+                window.wrap().is_some(),
+            )
+        };
+        let same = editor.windows().len() == self.views.len()
+            && editor
+                .windows()
+                .map(key)
+                .zip(&self.views)
+                .all(|(now, was)| now == *was);
+        if same {
             return;
         }
-        self.views = views;
+        self.views.clear();
+        self.views.extend(editor.windows().map(key));
         editor.shown_ranges(&mut self.shown);
     }
 
     /// Takes a report into its buffer, and returns what to say if its highlighting failed. A
-    /// report for a buffer the worker was told to drop is ignored.
+    /// report for a buffer the worker was told to drop, from before its last new start, or
+    /// older than one already taken, is ignored.
     pub(super) fn take(&mut self, editor: &mut Editor, report: Report<BufferId>) -> Option<String> {
-        self.sent.get(&report.buffer)?;
-        let buffer = editor.buffer_mut(report.buffer)?;
-        match report.outcome {
-            Outcome::Highlights(highlights) => {
-                // False for a stale or unwanted report, which changes nothing.
-                buffer.take_highlights(report.revision, highlights);
-                None
-            }
-            Outcome::Failed(failure) => {
-                self.sent.remove(&report.buffer);
-                self.stopped.insert(report.buffer, buffer.mode());
-                buffer.drop_highlights();
-                Some(stopped(buffer.name(), failure))
-            }
+        let sent = self.sent.get_mut(&report.buffer)?;
+        if report.epoch != sent.epoch || report.stamp <= sent.stamp {
+            return None;
         }
+        sent.stamp = report.stamp;
+        let buffer = editor.buffer_mut(report.buffer)?;
+        let why = match report.outcome {
+            Outcome::Highlights(highlights) => {
+                // False for a report the buffer cannot take, which changes nothing.
+                buffer.take_highlights(report.revision, highlights);
+                return None;
+            }
+            Outcome::Failed(failure) => why(failure),
+            Outcome::Lost => "the highlighter failed",
+        };
+        self.sent.remove(&report.buffer);
+        self.stopped.insert(report.buffer, buffer.mode());
+        buffer.drop_highlights();
+        Some(format!("Highlighting stopped in {}: {why}", buffer.name()))
     }
 }
 
@@ -195,16 +259,13 @@ fn allowed(mode: Mode, buffer: &oso_core::buffer::Buffer) -> bool {
     Language::of(mode).is_some() && buffer.can_highlight()
 }
 
-/// What the echo area says when a buffer's highlighting stops: its name and why, nothing of
-/// its text or its path.
-fn stopped(name: &str, failure: Failure) -> String {
-    let why = match failure {
+/// Why a buffer's highlighting stopped, for the echo area: nothing of its text or its path.
+fn why(failure: Failure) -> &'static str {
+    match failure {
         Failure::TooLarge => "it is too large",
         Failure::TooSlow => "it took too long",
         Failure::Incompatible => "this build cannot parse its language",
-        Failure::Lost => "the highlighter failed",
-    };
-    format!("Highlighting stopped in {name}: {why}")
+    }
 }
 
 impl App {

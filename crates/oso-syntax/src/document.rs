@@ -63,8 +63,6 @@ pub enum Failure {
     /// The grammar, or oso's query for it, does not fit the tree-sitter runtime oso was built
     /// with.
     Incompatible,
-    /// A slice panicked, and the worker dropped the document; only the worker reports it.
-    Lost,
 }
 
 /// One buffer's parse state. It lives on the worker, never on the UI thread.

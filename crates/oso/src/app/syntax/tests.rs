@@ -56,19 +56,19 @@ fn a_buffer_not_judged_yet_gets_no_job() {
     let mut buffer = Buffer::visiting(PathBuf::from("/p/main.rs"));
     buffer.apply_load(decode_all(b"fn a() {}\n", TabWidth::default()));
     let (editor, _) = editor_with(buffer);
-    assert!(Syntax::default().orders(&editor).jobs.is_empty());
+    assert!(Syntax::on().orders(&editor).jobs.is_empty());
 }
 
 #[test]
 fn a_buffer_that_may_hold_secrets_gets_no_job() {
     let (editor, _) = editor_with(visited("/p/.env.toml", "a = 1\n"));
-    assert!(Syntax::default().orders(&editor).jobs.is_empty());
+    assert!(Syntax::on().orders(&editor).jobs.is_empty());
 }
 
 #[test]
 fn a_buffer_that_turns_secret_is_dropped_before_any_job() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::default();
+    let mut syntax = Syntax::on();
     assert_eq!(job_ids(&syntax.orders(&editor)), [id]);
     edit(&mut editor, id, 0, "x");
     // Read again, it now leads somewhere that may hold secrets.
@@ -88,7 +88,7 @@ fn a_buffer_that_turns_secret_is_dropped_before_any_job() {
 #[test]
 fn a_killed_buffer_is_dropped() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::default();
+    let mut syntax = Syntax::on();
     assert_eq!(job_ids(&syntax.orders(&editor)), [id]);
     editor.kill_buffer(id);
     assert_eq!(syntax.drops(&editor), [id]);
@@ -97,7 +97,7 @@ fn a_killed_buffer_is_dropped() {
 #[test]
 fn a_job_carries_the_edits_since_the_last_and_what_windows_show() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", &"fn a() {}\n".repeat(50)));
-    let mut syntax = Syntax::default();
+    let mut syntax = Syntax::on();
     let first = syntax.orders(&editor);
     assert_eq!(
         first.jobs[0].edits, None,
@@ -130,18 +130,20 @@ fn a_job_carries_the_edits_since_the_last_and_what_windows_show() {
 #[test]
 fn a_plain_text_file_gets_no_job() {
     let (editor, _) = editor_with(visited("/p/notes.txt", "fn a() {}\n"));
-    assert!(Syntax::default().orders(&editor).jobs.is_empty());
+    assert!(Syntax::on().orders(&editor).jobs.is_empty());
 }
 
 #[test]
 fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
     let (mut editor, id) = editor_with(visited("/p/secret-plan/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::default();
+    let mut syntax = Syntax::on();
     let job = syntax.orders(&editor).jobs.remove(0);
     let mut highlights = Highlights::new(job.text.len());
     highlights.replace(0..2, [(2, Some(Highlight::Keyword))]);
     let report = Report {
         buffer: id,
+        epoch: job.epoch,
+        stamp: 1,
         revision: job.revision,
         outcome: Outcome::Highlights(highlights),
     };
@@ -150,6 +152,8 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
     assert_eq!(buffer.highlights().unwrap().at(0), Some(Highlight::Keyword));
     let failed = Report {
         buffer: id,
+        epoch: job.epoch,
+        stamp: 2,
         revision: job.revision,
         outcome: Outcome::Failed(Failure::TooSlow),
     };
@@ -164,7 +168,7 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
 #[test]
 fn a_report_for_a_dropped_buffer_is_ignored() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::default();
+    let mut syntax = Syntax::on();
     let job = syntax.orders(&editor).jobs.remove(0);
     editor
         .buffer_mut(id)
@@ -173,6 +177,8 @@ fn a_report_for_a_dropped_buffer_is_ignored() {
     syntax.drops(&editor);
     let report = Report {
         buffer: id,
+        epoch: job.epoch,
+        stamp: 1,
         revision: job.revision,
         outcome: Outcome::Highlights(Highlights::new(job.text.len())),
     };
@@ -191,7 +197,7 @@ fn the_threads_report_highlights_and_failures() {
     let background = editor.add_buffer(visited("/p/slow.rs", &slow));
     let (reports, received) = mpsc::channel();
     let pool = Pool::start(move |report| drop(reports.send(report))).unwrap();
-    let mut syntax = Syntax::default();
+    let mut syntax = Syntax::on();
     pool.send(syntax.orders(&editor));
     let (mut highlighted, mut failed) = (false, false);
     while !(highlighted && failed) {
@@ -201,12 +207,15 @@ fn the_threads_report_highlights_and_failures() {
             Outcome::Failed(Failure::TooSlow) if report.buffer == background => failed = true,
             Outcome::Highlights(_) => {}
             Outcome::Failed(failure) => panic!("{failure:?}"),
+            Outcome::Lost => panic!("a slice panicked"),
         }
     }
     let message = syntax.take(
         &mut editor,
         Report {
             buffer: background,
+            epoch: syntax.sent[&background].epoch,
+            stamp: u64::MAX,
             revision: 0,
             outcome: Outcome::Failed(Failure::TooSlow),
         },
@@ -215,4 +224,59 @@ fn the_threads_report_highlights_and_failures() {
         message.as_deref(),
         Some("Highlighting stopped in slow.rs: it took too long")
     );
+}
+
+#[test]
+fn highlighting_is_off_until_colour_is_drawn() {
+    let (editor, _) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let mut syntax = Syntax::default();
+    assert!(
+        syntax.orders(&editor).is_empty(),
+        "no job, so no thread, in normal use"
+    );
+}
+
+#[test]
+fn a_report_from_before_a_new_start_or_older_than_one_taken_is_dropped() {
+    let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let mut syntax = Syntax::on();
+    let job = syntax.orders(&editor).jobs.remove(0);
+    let report = |epoch, stamp, highlight| {
+        let mut highlights = Highlights::new(job.text.len());
+        highlights.replace(0..2, [(2, Some(highlight))]);
+        Report {
+            buffer: id,
+            epoch,
+            stamp,
+            revision: job.revision,
+            outcome: Outcome::Highlights(highlights),
+        }
+    };
+    let at_start = |editor: &Editor| {
+        editor
+            .buffer(id)
+            .unwrap()
+            .highlights()
+            .and_then(|h| h.at(0))
+    };
+    syntax.take(&mut editor, report(job.epoch, 5, Highlight::Keyword));
+    assert_eq!(at_start(&editor), Some(Highlight::Keyword));
+    // A slice that ended earlier, whose thread sent later.
+    syntax.take(&mut editor, report(job.epoch, 4, Highlight::String));
+    assert_eq!(
+        at_start(&editor),
+        Some(Highlight::Keyword),
+        "an older report won"
+    );
+    // A failure of the document from before a new start.
+    let failed = Report {
+        outcome: Outcome::Failed(Failure::TooSlow),
+        ..report(job.epoch - 1, 9, Highlight::String)
+    };
+    assert_eq!(
+        syntax.take(&mut editor, failed),
+        None,
+        "a stale failure stopped it"
+    );
+    assert!(syntax.sent.contains_key(&id));
 }

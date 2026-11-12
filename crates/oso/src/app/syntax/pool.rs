@@ -3,6 +3,8 @@
 //!
 //! Must not depend on: the editor; it sees orders, documents and reports.
 //!
+//! - Nothing under the lock calls tree-sitter: documents are made, edited and freed by a thread
+//!   with nothing locked, so the UI never waits on that, here or for the lock.
 //! - Two threads, and at most one on a buffer no window shows (`oso_syntax::Scheduler`): a
 //!   slice that runs long, as tree-sitter checks its deadline only so often, holds one thread,
 //!   and shown buffers keep the other.
@@ -79,14 +81,12 @@ impl Pool {
         for buffer in orders.drops {
             state.scheduler.drop_buffer(buffer);
         }
-        let jobs = !orders.jobs.is_empty();
         for job in orders.jobs {
             state.scheduler.submit(job);
         }
         drop(state);
-        if jobs {
-            self.shared.ready.notify_all();
-        }
+        // There is work, or documents to free.
+        self.shared.ready.notify_all();
     }
 }
 
@@ -97,18 +97,21 @@ impl Drop for Pool {
     }
 }
 
-/// A thread's loop: take a document, run a slice with nothing locked, give it back, report.
+/// A thread's loop: take a document and what is to free, free and run a slice with nothing
+/// locked, give the document back, report.
 fn work(shared: &Shared, send: &impl Fn(Report<BufferId>)) {
     let mut queries = Queries::new();
     loop {
-        let mut checkout = {
+        let (doomed, checkout) = {
             let mut state = lock(&shared.state);
             loop {
                 if state.stopped {
                     return;
                 }
-                if let Some(checkout) = state.scheduler.take_next() {
-                    break checkout;
+                let doomed = state.scheduler.take_doomed();
+                let checkout = state.scheduler.take_next();
+                if !doomed.is_empty() || checkout.is_some() {
+                    break (doomed, checkout);
                 }
                 state = shared
                     .ready
@@ -116,18 +119,25 @@ fn work(shared: &Shared, send: &impl Fn(Report<BufferId>)) {
                     .unwrap_or_else(PoisonError::into_inner);
             }
         };
+        // Freeing a tree costs as much as its nodes: never under the lock.
+        drop(doomed);
+        let Some(mut checkout) = checkout else {
+            continue;
+        };
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| checkout.run(&mut queries)));
-        let report = {
+        let (report, doomed) = {
             let mut state = lock(&shared.state);
-            match outcome {
+            let report = match outcome {
                 Ok(outcome) => state.scheduler.give_back(checkout, outcome),
                 Err(_) => {
                     log::warn!("a syntax slice panicked; that buffer stays plain");
                     queries = Queries::new();
                     state.scheduler.lost(checkout)
                 }
-            }
+            };
+            (report, state.scheduler.take_doomed())
         };
+        drop(doomed);
         // Another thread may now take what this one held back, or the background lane.
         shared.ready.notify_all();
         if let Some(report) = report {
@@ -136,8 +146,8 @@ fn work(shared: &Shared, send: &impl Fn(Report<BufferId>)) {
     }
 }
 
-/// The lock, also after a panic elsewhere: the schedule stays usable, as no panic happens
-/// while it is held.
+/// The lock, also after a panic elsewhere: the schedule stays usable. Nothing under it calls
+/// tree-sitter, makes or frees a document.
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
