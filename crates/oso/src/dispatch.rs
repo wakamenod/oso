@@ -613,6 +613,8 @@ mod cursor_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
+mod editorconfig_tests;
+#[cfg(test)]
 mod emergency_tests;
 #[cfg(test)]
 mod file_tests;

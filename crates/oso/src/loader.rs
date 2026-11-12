@@ -30,6 +30,10 @@
 //! a baseline, but its text comes whole, compared with the buffer's on this thread
 //! ([`spawn_reload`]). [`Watcher`] notices the change (ADR 0083).
 //!
+//! A visit reads the EditorConfig files that apply to the file right after opening it, before
+//! reading it, so the display map is built with their tab width (ADR 0115,
+//! [`editorconfig`]).
+//!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1). Nothing logged says how large a file is, as it may hold secrets.
 
@@ -46,11 +50,13 @@ use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, LoadSnapshot, Reloaded};
 use oso_core::rope::Rope;
 
+mod editorconfig;
 mod error;
 mod identity;
 mod resolve;
 mod watch;
 
+pub use editorconfig::{EditorConfigFound, EditorConfigReader, Home, Visit};
 pub use error::LoadError;
 #[cfg(test)]
 use identity::same_stamp;
@@ -119,8 +125,13 @@ struct Shared {
     baseline: Mutex<Option<Baseline>>,
     /// The file's own spelling. Set before the first update, and taken once.
     spelling: Mutex<Option<PathBuf>>,
-    /// The tab width the display map is built with: the buffer's (ADR 0115).
+    /// The tab width the display map is built with: the buffer's (ADR 0115), unless a visit
+    /// reads EditorConfig first.
     tab_width: TabWidth,
+    /// The visit, for a load that reads EditorConfig first.
+    visit: Option<Visit>,
+    /// What EditorConfig gave the file. Set before the first update, and taken once.
+    editorconfig: Mutex<Option<EditorConfigFound>>,
 }
 
 impl Shared {
@@ -139,6 +150,14 @@ impl Shared {
     /// Locks the file's own spelling, which is also held only to swap an `Option`.
     fn spelling(&self) -> std::sync::MutexGuard<'_, Option<PathBuf>> {
         self.spelling.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// What a load shares that builds the display map with tabs `tab_width` wide.
+    fn with_tab_width(tab_width: TabWidth) -> Self {
+        Self {
+            tab_width,
+            ..Self::default()
+        }
     }
 
     /// Locks the baseline, which is also held only to swap an `Option`.
@@ -184,6 +203,12 @@ impl LoadHandle {
     pub fn take_baseline(&self) -> Option<Baseline> {
         self.shared.baseline().take()
     }
+
+    /// What the EditorConfig files gave a visit's file, the first time this is called after
+    /// they were read. Every update comes after this is available.
+    pub fn take_editorconfig(&self) -> Option<EditorConfigFound> {
+        self.shared.editorconfig().take()
+    }
 }
 
 impl Drop for LoadHandle {
@@ -200,15 +225,18 @@ pub fn spawn<W>(
     buffer: BufferId,
     path: PathBuf,
     limit: u64,
-    tab_width: TabWidth,
+    visit: Visit,
     wake: W,
 ) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, tab_width, wake, move |shared, post| {
-        load(&path, limit, shared, post, false)
-    })
+    spawn_reading(
+        buffer,
+        Shared::visiting(visit),
+        wake,
+        move |shared, post| load(&path, limit, shared, post, false),
+    )
 }
 
 /// [`spawn`], for the agent channel: the file opened must have one name, by the open file
@@ -219,15 +247,18 @@ pub fn spawn_one_name<W>(
     buffer: BufferId,
     path: PathBuf,
     limit: u64,
-    tab_width: TabWidth,
+    visit: Visit,
     wake: W,
 ) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, tab_width, wake, move |shared, post| {
-        load(&path, limit, shared, post, true)
-    })
+    spawn_reading(
+        buffer,
+        Shared::visiting(visit),
+        wake,
+        move |shared, post| load(&path, limit, shared, post, true),
+    )
 }
 
 /// Starts judging `path` for `buffer` on a background thread, which holds text carried from
@@ -275,38 +306,37 @@ pub fn spawn_reload<W>(
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, tab_width, wake, move |shared, post| {
-        let (file, metadata) = open_and_record(&path, shared, || {})?;
-        // A buffer the agent opened is read again only as it may be opened (ADR 0085).
-        if for_agent {
-            for_the_agent(&metadata)?;
-        }
-        let Some((builder, _)) = read_all(file, metadata.len(), shared, |_| true)? else {
-            return Ok(());
-        };
-        let reloaded = builder.snapshot().compared_with(&old);
-        // Freed here, not on the UI thread, if the buffer has moved on from it.
-        drop(old);
-        post(LoadUpdate::Reloaded(Box::new(reloaded)));
-        Ok(())
-    })
+    spawn_reading(
+        buffer,
+        Shared::with_tab_width(tab_width),
+        wake,
+        move |shared, post| {
+            let (file, metadata) = open_and_record(&path, shared, || {})?;
+            // A buffer the agent opened is read again only as it may be opened (ADR 0085).
+            if for_agent {
+                for_the_agent(&metadata)?;
+            }
+            let Some((builder, _)) =
+                read_all(file, metadata.len(), shared, shared.tab_width, |_| true)?
+            else {
+                return Ok(());
+            };
+            let reloaded = builder.snapshot().compared_with(&old);
+            // Freed here, not on the UI thread, if the buffer has moved on from it.
+            drop(old);
+            post(LoadUpdate::Reloaded(Box::new(reloaded)));
+            Ok(())
+        },
+    )
 }
 
-/// Starts `read` on a background thread, with what the thread and the UI share.
-fn spawn_reading<W, R>(
-    buffer: BufferId,
-    tab_width: TabWidth,
-    wake: W,
-    read: R,
-) -> io::Result<LoadHandle>
+/// Starts `read` on a background thread, with `shared` between the thread and the UI.
+fn spawn_reading<W, R>(buffer: BufferId, shared: Shared, wake: W, read: R) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
     R: FnOnce(&Shared, &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> + Send + 'static,
 {
-    let shared = Arc::new(Shared {
-        tab_width,
-        ..Shared::default()
-    });
+    let shared = Arc::new(shared);
     let thread_shared = Arc::clone(&shared);
     thread::Builder::new()
         .name("oso-load".into())
@@ -346,9 +376,9 @@ where
     O: FnOnce() -> io::Result<File> + Send + 'static,
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, TabWidth::default(), wake, move |shared, post| {
+    spawn_reading(buffer, Shared::default(), wake, move |shared, post| {
         let file = open().map_err(LoadError::Io)?;
-        read_into(file, limit, shared, post)
+        read_into(file, limit, shared, shared.tab_width, post)
     })
 }
 
@@ -454,14 +484,17 @@ fn load_around(
     after_open: impl FnOnce(),
     one_name: bool,
 ) -> Result<(), LoadError> {
-    let (file, metadata) = open_and_record(path, shared, after_open)?;
+    let opened = open_and_record(path, shared, after_open);
+    // Before reading, a new file too, so that the UI has it with the first update.
+    let tab_width = shared.tab_width_for_load(&opened, limit);
+    let (file, metadata) = opened?;
     if metadata.len() > limit {
         return Err(LoadError::TooLarge(metadata.len()));
     }
     if one_name {
         for_the_agent(&metadata)?;
     }
-    read_into(file, metadata.len(), shared, send)
+    read_into(file, metadata.len(), shared, tab_width, send)
 }
 
 /// What a load for the agent channel checks on the file it opened, so that no file swapped
@@ -506,10 +539,11 @@ fn read_into(
     file: File,
     total: u64,
     shared: &Shared,
+    tab_width: TabWidth,
     send: &dyn Fn(LoadUpdate) -> bool,
 ) -> Result<(), LoadError> {
     let mut sent: Option<Instant> = None;
-    let read = read_all(file, total, shared, |builder| {
+    let read = read_all(file, total, shared, tab_width, |builder| {
         if sent.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL) {
             if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
                 return false;
@@ -528,17 +562,19 @@ fn read_into(
     Ok(())
 }
 
-/// Reads `total` bytes of `file` and decodes them, showing `each` the builder after each read.
+/// Reads `total` bytes of `file` and decodes them into a display map of tabs `tab_width`
+/// wide, showing `each` the builder after each read.
 /// Returns the finished builder and whether the file had more, or `None` if cancelled or once
 /// `each` returns false.
 fn read_all(
     file: File,
     total: u64,
     shared: &Shared,
+    tab_width: TabWidth,
     mut each: impl FnMut(&Builder) -> bool,
 ) -> Result<Option<(Builder, bool)>, LoadError> {
     let mut file = file.take(total);
-    let mut builder = Builder::new(Some(total), shared.tab_width);
+    let mut builder = Builder::new(Some(total), tab_width);
     let mut piece = vec![0; READ_SIZE];
     loop {
         if shared.cancel.load(Ordering::Relaxed) {
@@ -591,7 +627,7 @@ mod tests {
     /// [`events`], with a load that reads at most `limit` bytes.
     fn events_up_to(path: PathBuf, limit: u64) -> Vec<LoadUpdate> {
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path, limit, TabWidth::default(), move |_| {
+        let handle = spawn(id(), path, limit, Visit::default(), move |_| {
             tx.send(()).is_ok()
         })
         .unwrap();
@@ -691,13 +727,9 @@ mod tests {
     fn the_resolved_path_is_there_before_the_first_update() {
         let path = scratch_file("resolved.txt", b"abc");
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(
-            id(),
-            path.clone(),
-            UNASKED,
-            TabWidth::default(),
-            move |_| tx.send(()).is_ok(),
-        )
+        let handle = spawn(id(), path.clone(), UNASKED, Visit::default(), move |_| {
+            tx.send(()).is_ok()
+        })
         .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let resolved = handle.take_resolved().unwrap();
@@ -717,7 +749,7 @@ mod tests {
     fn a_missing_file_is_resolved_too() {
         let (tx, rx) = mpsc::channel();
         let path = std::env::temp_dir().join("oso-no-such-file-here");
-        let handle = spawn(id(), path, UNASKED, TabWidth::default(), move |_| {
+        let handle = spawn(id(), path, UNASKED, Visit::default(), move |_| {
             tx.send(()).is_ok()
         })
         .unwrap();
@@ -733,13 +765,9 @@ mod tests {
         let path = scratch_file("baseline.txt", b"abc");
         let metadata = std::fs::metadata(&path).unwrap();
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(
-            id(),
-            path.clone(),
-            UNASKED,
-            TabWidth::default(),
-            move |_| tx.send(()).is_ok(),
-        )
+        let handle = spawn(id(), path.clone(), UNASKED, Visit::default(), move |_| {
+            tx.send(()).is_ok()
+        })
         .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert_eq!(
@@ -934,13 +962,9 @@ mod tests {
     fn a_missing_file_has_a_baseline_with_no_file() {
         let (tx, rx) = mpsc::channel();
         let path = std::env::temp_dir().join("oso-no-such-file-here");
-        let handle = spawn(
-            id(),
-            path.clone(),
-            UNASKED,
-            TabWidth::default(),
-            move |_| tx.send(()).is_ok(),
-        )
+        let handle = spawn(id(), path.clone(), UNASKED, Visit::default(), move |_| {
+            tx.send(()).is_ok()
+        })
         .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let directory = std::fs::canonicalize(std::env::temp_dir()).unwrap();
@@ -957,16 +981,10 @@ mod tests {
     fn a_closed_ui_stops_the_load() {
         let path = scratch_file("closed.txt", &vec![b'a'; READ_SIZE * 4]);
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(
-            id(),
-            path.clone(),
-            UNASKED,
-            TabWidth::default(),
-            move |_| {
-                let _ = tx.send(());
-                false
-            },
-        )
+        let handle = spawn(id(), path.clone(), UNASKED, Visit::default(), move |_| {
+            let _ = tx.send(());
+            false
+        })
         .unwrap();
         assert_eq!(rx.iter().count(), 1, "one wake, then it stopped");
         let Some(LoadUpdate::Snapshot(snapshot)) = handle.take() else {

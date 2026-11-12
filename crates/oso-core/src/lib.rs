@@ -16,6 +16,7 @@ pub mod complete;
 pub mod decode;
 pub mod display_map;
 pub mod editor;
+pub mod editorconfig;
 pub mod frame;
 pub mod indent;
 pub mod jump;

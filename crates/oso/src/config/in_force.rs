@@ -60,8 +60,9 @@ pub struct InForce {
     pub jump: Jump,
     /// Whether `RET` and typed closers indent (`electric-indent-mode`, ADR 0115).
     pub electric_indent: bool,
-    /// Each mode's indentation, in the order of `config::MODES`.
-    pub mode_indents: [indent::Settings; 4],
+    /// Each mode's indentation, in the order of `config::MODES`, with where each property
+    /// came from: the file or the compiled-in default.
+    pub mode_indents: [(indent::Settings, indent::Origins); 4],
 }
 
 impl InForce {
@@ -79,7 +80,7 @@ impl InForce {
             trim_whitespace: false,
             jump: Jump::default(),
             electric_indent: true,
-            mode_indents: [indent::Settings::default(); 4],
+            mode_indents: [Default::default(); 4],
         }
     }
 
@@ -107,7 +108,8 @@ impl InForce {
             jump: settings.jump.clone(),
             electric_indent: or(settings.indent.electric, compiled.electric_indent),
             mode_indents: std::array::from_fn(|index| {
-                settings.modes[index].over(compiled.mode_indents[index])
+                let mode = settings.modes[index];
+                (mode.over(compiled.mode_indents[index].0), mode.origins())
             }),
         }
     }
@@ -191,7 +193,7 @@ mod tests {
                 trim_whitespace: false,
                 jump: Jump::default(),
                 electric_indent: true,
-                mode_indents: [indent::Settings::default(); 4],
+                mode_indents: [Default::default(); 4],
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -237,7 +239,7 @@ mod tests {
                     timeout: Some(Duration::from_secs(1)),
                 },
                 electric_indent: true,
-                mode_indents: [indent::Settings::default(); 4],
+                mode_indents: [Default::default(); 4],
             }
         );
     }
@@ -354,7 +356,7 @@ mod tests {
         let before = InForce::compiled(THEMES);
         let mut now = before.clone();
         now.electric_indent = false;
-        now.mode_indents[0] = indent::Settings::new(2, indent::Style::Tabs, 4).unwrap();
+        now.mode_indents[0].0 = indent::Settings::new(2, indent::Style::Tabs, 4).unwrap();
         let changed = changes(&now, &before, LATER);
         assert_eq!(
             (changed.electric_indent, changed.mode_indents),
