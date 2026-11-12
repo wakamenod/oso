@@ -34,7 +34,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::Buffer;
-use oso_core::editor::{SearchRequest, SearchRow, WalkEnd};
+use oso_core::editor::{ProjectSearchRequest, ProjectSearchRow, WalkEnd};
 
 use crate::walk::{self, Ended, File, Limits, Visit};
 use files::{Kept, Search, Searcher, Task, filter, searchers};
@@ -56,7 +56,7 @@ pub const KEPT_FOR: Duration = Duration::from_secs(30);
 /// only.
 pub struct Found {
     pub generation: u64,
-    pub rows: Vec<SearchRow>,
+    pub rows: Vec<ProjectSearchRow>,
     pub end: Option<WalkEnd>,
 }
 
@@ -86,7 +86,7 @@ type SendRows = Arc<dyn Fn(Found) -> bool + Send + Sync>;
 
 /// The searching thread and its searchers, started with the first request.
 pub struct Grep {
-    requests: Option<Sender<SearchRequest>>,
+    requests: Option<Sender<ProjectSearchRequest>>,
     send: SendRows,
     /// The home directory as the person's environment spells it, which the thread finds the
     /// real place of once.
@@ -110,9 +110,9 @@ impl Grep {
     /// Searches as `request` asks, on `oso-grep`, after any search before it, which a newer
     /// one has stopped. If the thread cannot start, the search ends at once with nothing found,
     /// so the prompt stops waiting.
-    pub fn search(&mut self, request: SearchRequest) {
+    pub fn search(&mut self, request: ProjectSearchRequest) {
         if self.requests.is_none() {
-            let (requests, queue) = mpsc::channel::<SearchRequest>();
+            let (requests, queue) = mpsc::channel::<ProjectSearchRequest>();
             let send = Arc::clone(&self.send);
             let home = self.home.clone();
             let spawned = thread::Builder::new()
@@ -139,7 +139,7 @@ impl Grep {
 /// Searches as each request that comes asks, in turn, until the searcher is dropped or the
 /// event loop has gone.
 fn serve(
-    queue: &Receiver<SearchRequest>,
+    queue: &Receiver<ProjectSearchRequest>,
     send: &(dyn Fn(Found) -> bool + Send + Sync),
     home: Option<&Path>,
 ) {
@@ -224,7 +224,7 @@ fn flush(search: &Search, sent: &mut Instant, send: &dyn Fn(Found) -> bool) -> b
 /// the last. `false` once the event loop has gone.
 fn send_rows(
     generation: u64,
-    mut rows: Vec<SearchRow>,
+    mut rows: Vec<ProjectSearchRow>,
     end: Option<WalkEnd>,
     send: &dyn Fn(Found) -> bool,
 ) -> bool {

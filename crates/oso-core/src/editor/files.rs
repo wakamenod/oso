@@ -61,9 +61,31 @@ pub(super) struct FileList {
     /// The directories the prompt started in and those that hold it, which exist, so a segment
     /// naming one whole needs no listing of the one above (ADR 0087).
     known: Vec<PathBuf>,
+    /// The answer must be a directory, as `C-u` asks for a project's (ADR 0114).
+    wants_directory: bool,
 }
 
 impl Editor {
+    /// Opens a prompt that reads a directory's path, as [`Editor::open_file_prompt`] reads a
+    /// path, for a command that walks it (ADR 0114). `RET` on a file's row says it is not a
+    /// directory and keeps the prompt open, unless what is typed ends with `/`, which gives that
+    /// directory.
+    ///
+    /// # Errors
+    ///
+    /// As [`Editor::open_file_prompt`].
+    pub fn open_directory_prompt(
+        &mut self,
+        label: &str,
+        history: &'static str,
+        initial: &str,
+        base: PathBuf,
+    ) -> Result<PromptId, PromptError> {
+        let id = self.open_file_prompt(label, history, initial, base)?;
+        self.file_list.wants_directory = true;
+        Ok(id)
+    }
+
     /// Opens a prompt that says `label` and reads a path, kept in the history `history`,
     /// starting with `initial`, such as the buffer's directory with the home directory as `~/`.
     /// Relative paths start from `base`. It takes any text, as a new file is one (ADR 0087).
@@ -378,13 +400,24 @@ impl Editor {
             .prompt()
             .and_then(crate::minibuffer::Prompt::candidates)
             .is_some_and(crate::complete::Candidates::on_input);
-        if !typed
-            && !on_input
-            && let Some((found, _)) = self.selected_file()
-        {
+        // A path typed with `/` at its end names a directory, which `C-x C-w` writes into.
+        let slash = self
+            .prompts
+            .last()
+            .and_then(|prompt| self.buffer(prompt.buffer))
+            .is_some_and(|buffer| buffer.text().to_string().ends_with('/'));
+        let wants_directory = self.file_list.wants_directory;
+        // What is typed is given, not the selected row: `M-RET`, the input selected, or a
+        // directory typed for a prompt that wants one.
+        let as_typed = typed || on_input || (wants_directory && slash);
+        if !as_typed && let Some((found, shown)) = self.selected_file() {
             let looked = self.file_list.looks.get(&found.path);
             if found.directory || looked.is_some_and(|looked| looked.directory) {
                 return Some(self.insert_completion());
+            }
+            if wants_directory {
+                self.prompt_says(format!("Not a directory: {shown}"));
+                return Some(Err(PromptError::Invalid));
             }
             // A look that found 2 GiB or more makes the command ask at once (ADR 0087).
             let bytes = looked.map_or(0, |looked| looked.bytes);
@@ -395,12 +428,6 @@ impl Editor {
             return Some(self.give_answer(path.display().to_string()));
         }
         let path = self.typed_file()?;
-        // A path typed with `/` at its end names a directory, which `C-x C-w` writes into.
-        let text = self
-            .prompts
-            .last()
-            .and_then(|prompt| self.buffer(prompt.buffer));
-        let slash = text.is_some_and(|buffer| buffer.text().to_string().ends_with('/'));
         let mut answer = path.display().to_string();
         if slash && !answer.ends_with('/') {
             answer.push('/');

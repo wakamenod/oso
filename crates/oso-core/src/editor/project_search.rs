@@ -30,7 +30,7 @@ const WITHHELD: &str = "may hold secrets";
 /// A search of a project's files the host should start, as `M-s r` asks (ADR 0114). `Debug`
 /// gives its generation only.
 #[derive(Clone)]
-pub struct SearchRequest {
+pub struct ProjectSearchRequest {
     /// The search it is, which [`Editor::rows_found`] is given back.
     pub generation: u64,
     /// The project's root, which the walk starts from and the rows' paths are relative to.
@@ -38,16 +38,16 @@ pub struct SearchRequest {
     /// What a line must match.
     pub query: Arc<LineQuery>,
     /// The live search's generation: the host stops at its next file or block once this has
-    /// moved past [`SearchRequest::generation`].
+    /// moved past [`ProjectSearchRequest::generation`].
     pub live: Arc<AtomicU64>,
     /// The search whose lines hold every one this one can find, as its input narrows that one's
     /// and it ended without a limit: the host looks only through them, if it still has them.
     pub narrow: Option<u64>,
 }
 
-impl fmt::Debug for SearchRequest {
+impl fmt::Debug for ProjectSearchRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SearchRequest")
+        f.debug_struct("ProjectSearchRequest")
             .field("generation", &self.generation)
             .finish_non_exhaustive()
     }
@@ -57,7 +57,7 @@ impl fmt::Debug for SearchRequest {
 /// first match in characters, and what of it a row shows, empty for a file that may hold
 /// secrets, whose text is never shown. `Debug` says nothing of it.
 #[derive(Clone)]
-pub struct SearchRow {
+pub struct ProjectSearchRow {
     pub path: Box<str>,
     pub line: usize,
     pub column: usize,
@@ -65,23 +65,23 @@ pub struct SearchRow {
     pub secret: bool,
 }
 
-impl fmt::Debug for SearchRow {
+impl fmt::Debug for ProjectSearchRow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SearchRow").finish_non_exhaustive()
+        f.debug_struct("ProjectSearchRow").finish_non_exhaustive()
     }
 }
 
 /// The row `RET` took: the file, the line from 1 and the column in characters, from 0.
 #[derive(Clone, PartialEq, Eq)]
-pub struct SearchHit {
+pub struct ProjectSearchHit {
     pub path: PathBuf,
     pub line: usize,
     pub column: usize,
 }
 
-impl fmt::Debug for SearchHit {
+impl fmt::Debug for ProjectSearchHit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SearchHit")
+        f.debug_struct("ProjectSearchHit")
             .field("line", &self.line)
             .field("column", &self.column)
             .finish_non_exhaustive()
@@ -109,7 +109,7 @@ pub(super) struct ProjectSearch {
     /// The newest search's generation, shared with the host, which stops once it moves on.
     live: Arc<AtomicU64>,
     /// The search to start, until the host takes it.
-    request: Option<SearchRequest>,
+    request: Option<ProjectSearchRequest>,
     /// The search has not ended.
     running: bool,
     /// It stopped at a limit.
@@ -123,7 +123,7 @@ pub(super) struct ProjectSearch {
     /// Each row's place, by its index in the list.
     places: Vec<Place>,
     /// The row `RET` took, for the command.
-    hit: Option<SearchHit>,
+    hit: Option<ProjectSearchHit>,
 }
 
 impl Editor {
@@ -163,14 +163,19 @@ impl Editor {
     }
 
     /// The search the host should start, once.
-    pub fn take_search_request(&mut self) -> Option<SearchRequest> {
+    pub fn take_search_request(&mut self) -> Option<ProjectSearchRequest> {
         self.project_search.request.take()
     }
 
     /// Takes in rows the search `generation` found, and with `end`, that it ended. They go
     /// after the rows shown, and the selected row stays selected. Rows of a search that is not
     /// the newest, or whose prompt has closed, are dropped.
-    pub fn rows_found(&mut self, generation: u64, rows: Vec<SearchRow>, end: Option<WalkEnd>) {
+    pub fn rows_found(
+        &mut self,
+        generation: u64,
+        rows: Vec<ProjectSearchRow>,
+        end: Option<WalkEnd>,
+    ) {
         let search = &mut self.project_search;
         let Some(id) = search
             .prompt
@@ -273,7 +278,7 @@ impl Editor {
         let places = std::mem::take(&mut search.places);
         search.cut = false;
         search.running = query.starts();
-        search.request = search.running.then(|| SearchRequest {
+        search.request = search.running.then(|| ProjectSearchRequest {
             generation: search.generation,
             root: search.root.clone(),
             query: Arc::clone(&query),
@@ -307,7 +312,7 @@ impl Editor {
         let place = search.places.get(item)?;
         let path = search.root.join(&*place.path);
         let answer = path.to_str()?.to_owned();
-        search.hit = Some(SearchHit {
+        search.hit = Some(ProjectSearchHit {
             path,
             line: place.line,
             column: place.column,
@@ -317,7 +322,7 @@ impl Editor {
     }
 
     /// The row the last search's `RET` took, once.
-    pub fn take_search_hit(&mut self) -> Option<SearchHit> {
+    pub fn take_search_hit(&mut self) -> Option<ProjectSearchHit> {
         self.project_search.hit.take()
     }
 

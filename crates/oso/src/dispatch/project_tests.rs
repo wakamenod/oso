@@ -254,7 +254,7 @@ fn m_s_r_and_c_x_p_g_search_the_project_and_ret_visits_the_line() {
         send(&mut d, &mut editor, "n e e d l e");
         let request = editor.take_search_request().expect("a search is asked for");
         assert_eq!(request.root, PathBuf::from("/home/me/src/oso"));
-        let row = oso_core::editor::SearchRow {
+        let row = oso_core::editor::ProjectSearchRow {
             path: "src/main.rs".into(),
             line: 3,
             column: 4,

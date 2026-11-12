@@ -458,8 +458,11 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 
 - **`C-u` asks for a directory first,** for `project-find-file` and `project-search`, with
   `C-x C-f`'s completion from the buffer's directory: `Find file in directory:` and
-  `Search in directory:`. The directory named stands for the project, named after its last
-  component. The home directory, one that holds it, `/` and any path with `..` in it are refused
+  `Search in directory:` (`Editor::open_directory_prompt`). `RET` on a file's row says
+  `Not a directory: <path>` and keeps the prompt open, unless what is typed ends with `/`, which
+  gives that directory whatever row is selected. A prompt that lists only directories, as Emacs's
+  `read-directory-name`, comes with step 5. The directory named stands for the project, named
+  after its last component. The home directory, one that holds it, `/` and any path with `..` in it are refused
   by their words (`Editor::listable_root`), and the walking and searching threads refuse a root
   that holds the home directory by the real place of both, and by the device and inode of the
   root they opened against those of the home directory and each directory above it.
@@ -549,15 +552,17 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 - **Modules.** The tip crate gains `grep` (`grep.rs`, with `grep/files.rs` for the searchers and
   `grep/read.rs` for a file's blocks), placed in `guardrails/layers.txt` on the line of
   `commands dev grep keys loader text`, above `walk`, which it uses; its glue is `app/greps.rs`.
-  A search's request, rows and hit are in `oso_core::editor`, beside the walk's, and its query,
-  line matching and limits in `oso_core::project`.
+  A search's request, rows and hit are `oso_core::editor::{ProjectSearchRequest,
+  ProjectSearchRow, ProjectSearchHit}` (`editor/project_search.rs`), named apart from isearch's
+  `SearchJob` (the author's choice, 2026-11-12), and its query, line matching and limits are in
+  `oso_core::project`.
 - **Measured** on the author's Mac, warm, release, over 46,234 files and 932 MB: the walk 0.139 s,
   against 0.114 s for step 3's on the same day; `AKIA[0-9A-Z]{16}` 0.61 s and `fn \w+_new\(`
   0.64 s, against 0.55-0.58 s and 0.57 s for `rg --no-config --hidden -j8`; `unsafe impl` reached
   10,000 rows in 0.28 s.
 - **Public items beyond the plan:** `project::LineHit` and `LineQuery::matches_line`,
-  `file_meta::{Entries, Entry}` and `Directory::kind_of`, and `Editor::search_highlights`, through
-  which the float draws a row's path and matches.
+  `file_meta::{Entries, Entry}` and `Directory::kind_of`, `Editor::search_highlights`, through
+  which the float draws a row's path and matches, and `Editor::open_directory_prompt`.
 - **Changes to accepted ADRs.** [ADR 0076](0076-completion-and-m-x.md)'s affixes `,`, `~`, `^` and
   `&`, initialism, flex, prefix and annotation, mean nothing for a line, so a search reads only
   `!` and `=`, and only at a component's start.

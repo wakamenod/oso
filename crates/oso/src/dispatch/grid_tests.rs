@@ -1293,7 +1293,7 @@ mod scenarios {
             let sequence: KeySequence = keys.parse().unwrap();
             dispatcher.handle_keys(editor, sequence.0);
         };
-        let row = |path: &str, line, text: &str, secret| oso_core::editor::SearchRow {
+        let row = |path: &str, line, text: &str, secret| oso_core::editor::ProjectSearchRow {
             path: path.into(),
             line,
             column: 0,

@@ -144,7 +144,7 @@ impl Harness {
     /// Searches `root` for `input` as the search `generation`, narrowing `narrow`.
     fn search(&mut self, root: &Scratch, input: &str, generation: u64, narrow: Option<u64>) {
         self.live.store(generation, Ordering::Relaxed);
-        self.grep.search(SearchRequest {
+        self.grep.search(ProjectSearchRequest {
             generation,
             root: root.0.clone(),
             query: Arc::new(LineQuery::parse(input)),
@@ -251,7 +251,7 @@ fn a_newer_search_stops_the_one_before_and_a_narrowing_one_looks_at_its_lines() 
     assert_eq!(harness.rows(4).0, ["a.txt:3:7: foobar new"]);
     // A superseded request sends nothing, and the newest still ends.
     harness.live.store(6, Ordering::Relaxed);
-    harness.grep.search(SearchRequest {
+    harness.grep.search(ProjectSearchRequest {
         generation: 5,
         root: scratch.0.clone(),
         query: Arc::new(LineQuery::parse("foo")),
@@ -274,7 +274,7 @@ fn a_newer_search_stops_the_one_before_and_a_narrowing_one_looks_at_its_lines() 
 fn debug_of_a_batch_names_no_row() {
     let found = Found {
         generation: 3,
-        rows: vec![SearchRow {
+        rows: vec![ProjectSearchRow {
             path: "secret/path.txt".into(),
             line: 1,
             column: 0,
@@ -301,7 +301,7 @@ fn a_search_of_a_large_tree_takes_about_as_long_as_rg() {
             let mut harness = Harness::new();
             let started = std::time::Instant::now();
             harness.live.store(run + 1, Ordering::Relaxed);
-            harness.grep.search(SearchRequest {
+            harness.grep.search(ProjectSearchRequest {
                 generation: run + 1,
                 root: tree.clone(),
                 query: Arc::new(LineQuery::parse("AKIA[0-9A-Z]{16}")),
@@ -334,7 +334,7 @@ fn a_root_that_holds_home_by_its_real_place_is_never_searched() {
             .is_ok()
     });
     let live = Arc::new(AtomicU64::new(1));
-    grep.search(SearchRequest {
+    grep.search(ProjectSearchRequest {
         generation: 1,
         root: scratch.0.join("to-home"),
         query: Arc::new(LineQuery::parse("needle")),
@@ -354,7 +354,7 @@ fn a_root_given_through_a_link_judges_its_files_where_they_lead_too() {
     std::os::unix::fs::symlink(scratch.0.join("keys/.aws"), scratch.0.join("plain")).unwrap();
     let mut harness = Harness::new();
     harness.live.store(1, Ordering::Relaxed);
-    harness.grep.search(SearchRequest {
+    harness.grep.search(ProjectSearchRequest {
         generation: 1,
         root: scratch.0.join("plain"),
         query: Arc::new(LineQuery::parse("needle")),
@@ -366,7 +366,7 @@ fn a_root_given_through_a_link_judges_its_files_where_they_lead_too() {
 
 #[test]
 fn the_lines_kept_never_pass_their_bound_while_a_file_is_read() {
-    let request = SearchRequest {
+    let request = ProjectSearchRequest {
         generation: 1,
         root: PathBuf::from("/"),
         query: Arc::new(LineQuery::parse("x")),
@@ -383,7 +383,7 @@ fn the_lines_kept_never_pass_their_bound_while_a_file_is_read() {
 
 #[test]
 fn rows_are_taken_as_they_are_found_so_searchers_together_stay_in_bounds() {
-    let request = SearchRequest {
+    let request = ProjectSearchRequest {
         generation: 1,
         root: PathBuf::from("/"),
         query: Arc::new(LineQuery::parse("x")),

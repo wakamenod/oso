@@ -183,8 +183,10 @@ are rounded.
   named after its last component; a buffer with no file, the home directory and `/` say
   `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
 - `C-u C-x p f` asks `Find file in directory:` first, with `C-x C-f`'s completion from the
-  buffer's directory, and lists that directory as a project, named after its last component. The
-  home directory, one that holds it, `/` and a path with `..` in it are refused.
+  buffer's directory, and lists that directory as a project, named after its last component.
+  `RET` on a file's row says `Not a directory: <path>`, unless what is typed ends with `/`, which
+  gives that directory. The home directory, one that holds it, `/` and a path with `..` in it are
+  refused.
 - The float opens empty and the list grows while the project is walked, every 50 ms. The count
   shows `…/…` until the walk ends, and `+` after it when it stopped at a limit: 100,000 files,
   32 MiB of paths and names, 1,000,000 entries read, or 16 MiB of ignore files.

@@ -1509,6 +1509,7 @@ pub fn oso_core::editor::Editor::file_prompt_open(&self) -> bool
 pub fn oso_core::editor::Editor::files_cut(&self) -> bool
 pub fn oso_core::editor::Editor::files_pending(&self) -> bool
 pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::option::Option<u64>
+pub fn oso_core::editor::Editor::open_directory_prompt(&mut self, &str, &'static str, &str, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_file_prompt(&mut self, &str, &'static str, &str, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::remember_large(&mut self, std::path::PathBuf, u64)
 pub fn oso_core::editor::Editor::request_visit(&mut self, std::path::PathBuf, u64)
@@ -1596,10 +1597,10 @@ pub fn oso_core::editor::Editor::write_over_asked(&self) -> core::option::Option
 pub fn oso_core::editor::Editor::written_elsewhere(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::ContentId, std::path::PathBuf, oso_core::buffer::FileStamp, impl core::ops::function::FnOnce(&mut oso_core::buffer::Buffer))
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::open_project_search(&mut self, std::path::PathBuf, &str, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::rows_found(&mut self, u64, alloc::vec::Vec<oso_core::editor::SearchRow>, core::option::Option<oso_core::editor::WalkEnd>)
+pub fn oso_core::editor::Editor::rows_found(&mut self, u64, alloc::vec::Vec<oso_core::editor::ProjectSearchRow>, core::option::Option<oso_core::editor::WalkEnd>)
 pub fn oso_core::editor::Editor::search_highlights(&self, usize, &str, &mut alloc::vec::Vec<core::ops::range::Range<usize>>) -> core::option::Option<usize>
-pub fn oso_core::editor::Editor::take_search_hit(&mut self) -> core::option::Option<oso_core::editor::SearchHit>
-pub fn oso_core::editor::Editor::take_search_request(&mut self) -> core::option::Option<oso_core::editor::SearchRequest>
+pub fn oso_core::editor::Editor::take_search_hit(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchHit>
+pub fn oso_core::editor::Editor::take_search_request(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::preview_screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::prompt_screen(&self, &mut oso_core::window::Screen)
@@ -1753,6 +1754,38 @@ pub fn oso_core::editor::ProjectRequest::eq(&self, &oso_core::editor::ProjectReq
 impl core::fmt::Debug for oso_core::editor::ProjectRequest
 pub fn oso_core::editor::ProjectRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::ProjectRequest
+pub struct oso_core::editor::ProjectSearchHit
+pub oso_core::editor::ProjectSearchHit::column: usize
+pub oso_core::editor::ProjectSearchHit::line: usize
+pub oso_core::editor::ProjectSearchHit::path: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::ProjectSearchHit
+pub fn oso_core::editor::ProjectSearchHit::clone(&self) -> oso_core::editor::ProjectSearchHit
+impl core::cmp::Eq for oso_core::editor::ProjectSearchHit
+impl core::cmp::PartialEq for oso_core::editor::ProjectSearchHit
+pub fn oso_core::editor::ProjectSearchHit::eq(&self, &oso_core::editor::ProjectSearchHit) -> bool
+impl core::fmt::Debug for oso_core::editor::ProjectSearchHit
+pub fn oso_core::editor::ProjectSearchHit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::ProjectSearchHit
+pub struct oso_core::editor::ProjectSearchRequest
+pub oso_core::editor::ProjectSearchRequest::generation: u64
+pub oso_core::editor::ProjectSearchRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
+pub oso_core::editor::ProjectSearchRequest::narrow: core::option::Option<u64>
+pub oso_core::editor::ProjectSearchRequest::query: alloc::sync::Arc<oso_core::project::LineQuery>
+pub oso_core::editor::ProjectSearchRequest::root: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::ProjectSearchRequest
+pub fn oso_core::editor::ProjectSearchRequest::clone(&self) -> oso_core::editor::ProjectSearchRequest
+impl core::fmt::Debug for oso_core::editor::ProjectSearchRequest
+pub fn oso_core::editor::ProjectSearchRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::ProjectSearchRow
+pub oso_core::editor::ProjectSearchRow::column: usize
+pub oso_core::editor::ProjectSearchRow::line: usize
+pub oso_core::editor::ProjectSearchRow::path: alloc::boxed::Box<str>
+pub oso_core::editor::ProjectSearchRow::secret: bool
+pub oso_core::editor::ProjectSearchRow::text: alloc::boxed::Box<str>
+impl core::clone::Clone for oso_core::editor::ProjectSearchRow
+pub fn oso_core::editor::ProjectSearchRow::clone(&self) -> oso_core::editor::ProjectSearchRow
+impl core::fmt::Debug for oso_core::editor::ProjectSearchRow
+pub fn oso_core::editor::ProjectSearchRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Replace
 impl oso_core::editor::Replace
 pub fn oso_core::editor::Replace::around_secret(&self) -> bool
@@ -1771,18 +1804,6 @@ pub oso_core::editor::SaveJob::elsewhere: core::option::Option<oso_core::editor:
 pub oso_core::editor::SaveJob::only_if_gone: bool
 pub oso_core::editor::SaveJob::path: std::path::PathBuf
 pub oso_core::editor::SaveJob::text: oso_core::rope::Rope
-pub struct oso_core::editor::SearchHit
-pub oso_core::editor::SearchHit::column: usize
-pub oso_core::editor::SearchHit::line: usize
-pub oso_core::editor::SearchHit::path: std::path::PathBuf
-impl core::clone::Clone for oso_core::editor::SearchHit
-pub fn oso_core::editor::SearchHit::clone(&self) -> oso_core::editor::SearchHit
-impl core::cmp::Eq for oso_core::editor::SearchHit
-impl core::cmp::PartialEq for oso_core::editor::SearchHit
-pub fn oso_core::editor::SearchHit::eq(&self, &oso_core::editor::SearchHit) -> bool
-impl core::fmt::Debug for oso_core::editor::SearchHit
-pub fn oso_core::editor::SearchHit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::editor::SearchHit
 pub struct oso_core::editor::SearchJob
 impl oso_core::editor::SearchJob
 pub fn oso_core::editor::SearchJob::run(self, impl core::ops::function::FnMut(oso_core::editor::SearchReport))
@@ -1797,26 +1818,6 @@ pub fn oso_core::editor::SearchReport::eq(&self, &oso_core::editor::SearchReport
 impl core::fmt::Debug for oso_core::editor::SearchReport
 pub fn oso_core::editor::SearchReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::SearchReport
-pub struct oso_core::editor::SearchRequest
-pub oso_core::editor::SearchRequest::generation: u64
-pub oso_core::editor::SearchRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
-pub oso_core::editor::SearchRequest::narrow: core::option::Option<u64>
-pub oso_core::editor::SearchRequest::query: alloc::sync::Arc<oso_core::project::LineQuery>
-pub oso_core::editor::SearchRequest::root: std::path::PathBuf
-impl core::clone::Clone for oso_core::editor::SearchRequest
-pub fn oso_core::editor::SearchRequest::clone(&self) -> oso_core::editor::SearchRequest
-impl core::fmt::Debug for oso_core::editor::SearchRequest
-pub fn oso_core::editor::SearchRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct oso_core::editor::SearchRow
-pub oso_core::editor::SearchRow::column: usize
-pub oso_core::editor::SearchRow::line: usize
-pub oso_core::editor::SearchRow::path: alloc::boxed::Box<str>
-pub oso_core::editor::SearchRow::secret: bool
-pub oso_core::editor::SearchRow::text: alloc::boxed::Box<str>
-impl core::clone::Clone for oso_core::editor::SearchRow
-pub fn oso_core::editor::SearchRow::clone(&self) -> oso_core::editor::SearchRow
-impl core::fmt::Debug for oso_core::editor::SearchRow
-pub fn oso_core::editor::SearchRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::SoleWindow
 impl core::clone::Clone for oso_core::editor::SoleWindow
 pub fn oso_core::editor::SoleWindow::clone(&self) -> oso_core::editor::SoleWindow

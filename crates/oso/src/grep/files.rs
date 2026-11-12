@@ -15,7 +15,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
-use oso_core::editor::{SearchRequest, SearchRow};
+use oso_core::editor::{ProjectSearchRequest, ProjectSearchRow};
 use oso_core::project::{LineQuery, MAX_ROWS, row_text};
 use oso_platform::file_meta::Directory;
 
@@ -40,9 +40,15 @@ pub(super) struct Kept {
 
 /// The row of the line `line` of the file at `path`, `bytes`, whose first match is at `first`:
 /// with no text if the file may hold secrets.
-fn row(path: &str, line: usize, bytes: &[u8], first: Range<usize>, secret: bool) -> SearchRow {
+fn row(
+    path: &str,
+    line: usize,
+    bytes: &[u8],
+    first: Range<usize>,
+    secret: bool,
+) -> ProjectSearchRow {
     let (text, column) = row_text(bytes, first);
-    SearchRow {
+    ProjectSearchRow {
         path: path.into(),
         line,
         column,
@@ -53,7 +59,7 @@ fn row(path: &str, line: usize, bytes: &[u8], first: Range<usize>, secret: bool)
 
 impl Kept {
     /// Its row, whose first match is at `first`.
-    pub(super) fn row(&self, first: Range<usize>) -> SearchRow {
+    pub(super) fn row(&self, first: Range<usize>) -> ProjectSearchRow {
         row(&self.path, self.line, &self.bytes, first, self.secret)
     }
 
@@ -71,13 +77,13 @@ impl Kept {
 /// What one search has found and not sent yet, and the lines it keeps.
 #[derive(Default)]
 pub(super) struct Collected {
-    pub(super) rows: Vec<SearchRow>,
+    pub(super) rows: Vec<ProjectSearchRow>,
     pub(super) kept: Vec<Kept>,
 }
 
 /// One search, shared by its searchers and `oso-grep`.
 pub(super) struct Search {
-    pub(super) request: SearchRequest,
+    pub(super) request: ProjectSearchRequest,
     collected: Mutex<Collected>,
     finished: Condvar,
     /// Files handed out and not finished yet.
@@ -96,7 +102,7 @@ pub(super) struct Search {
 }
 
 impl Search {
-    pub(super) fn new(request: SearchRequest) -> Self {
+    pub(super) fn new(request: ProjectSearchRequest) -> Self {
         Self {
             request,
             collected: Mutex::new(Collected::default()),
@@ -168,7 +174,7 @@ impl Search {
     }
 
     /// Takes in the rows of one file, each taken as it was found, and the lines they came from.
-    pub(super) fn file_done(&self, rows: Vec<SearchRow>, kept: Vec<Kept>) {
+    pub(super) fn file_done(&self, rows: Vec<ProjectSearchRow>, kept: Vec<Kept>) {
         let mut collected = self.collected();
         collected.rows.extend(rows);
         if self.kept_over.load(Ordering::Relaxed) {
@@ -240,7 +246,7 @@ fn search_files(queue: &Mutex<Receiver<Task>>) {
 
 impl Searcher {
     /// Searches the file of `task`, unless its search is over.
-    pub(super) fn run(&mut self, task: Task) -> (Vec<SearchRow>, Vec<Kept>) {
+    pub(super) fn run(&mut self, task: Task) -> (Vec<ProjectSearchRow>, Vec<Kept>) {
         let search = &task.search;
         if !search.live() {
             return (Vec::new(), Vec::new());
@@ -301,7 +307,7 @@ impl Searcher {
 pub(super) fn filter(
     search: &Search,
     lines: &[Kept],
-    send: &mut dyn FnMut(Vec<SearchRow>) -> bool,
+    send: &mut dyn FnMut(Vec<ProjectSearchRow>) -> bool,
 ) -> Result<Vec<Kept>, bool> {
     let query = LineQuery::clone(&search.request.query);
     let mut rows = Vec::new();

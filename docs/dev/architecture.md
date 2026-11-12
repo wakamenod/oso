@@ -519,7 +519,7 @@ The UI thread never blocks on I/O or parsing:
   matched whole. A file's rows go together into the search's batch, which `oso-grep` sends at
   most every 30 ms in batches of at most 1000 rows (`UserEvent::Grepped`, glue in
   `app/greps.rs`), with the request's generation, which every thread reads before each file and
-  each block. The editor (`editor/searches.rs`) puts the rows after those shown,
+  each block. The editor (`editor/project_search.rs`) puts the rows after those shown,
   never filtering them by the input, and each changed input asks for a new search; one that
   narrows a whole search's input sends that search's generation, and `oso-grep` looks through
   the lines it kept, at most 16 MiB, instead of walking

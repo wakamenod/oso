@@ -55,7 +55,7 @@ impl Dispatcher {
         if let Some(refused) = refused_in_a_prompt(editor) {
             return refused;
         }
-        if let Some(prompt) = open_path_prompt(editor, prompt, history) {
+        if let Some(prompt) = open_path_prompt(editor, prompt, history, false) {
             self.reading.push(Reading::run(id, prefix, prompt));
         }
         (redraw(), Ok(()))
@@ -80,7 +80,7 @@ impl Dispatcher {
                 ProjectPrompt::Search { .. } => "Search in directory:",
                 ProjectPrompt::Files { .. } => "Find file in directory:",
             };
-            if let Some(prompt) = open_path_prompt(editor, label, "project-directory") {
+            if let Some(prompt) = open_path_prompt(editor, label, "project-directory", true) {
                 self.reading.push(Reading {
                     then: Then::Directory(project),
                     ..Reading::run(id, None, prompt)
@@ -178,23 +178,29 @@ fn redraw() -> Effects {
 }
 
 /// Opens a prompt that says `label` and reads a path with `C-x C-f`'s completion, kept in the
-/// history `history`, starting at the shown buffer's directory, or the one oso started in. A
-/// relative path typed in place of it starts there too. `None` if it could not open, which the
-/// prompt beneath says.
+/// history `history`, starting at the shown buffer's directory, or the one oso started in, for a
+/// directory if `directory`. A relative path typed in place of it starts there too. `None` if it
+/// could not open, which the prompt beneath says.
 fn open_path_prompt(
     editor: &mut Editor,
     label: &'static str,
     history: &'static str,
+    directory: bool,
 ) -> Option<oso_core::minibuffer::PromptId> {
     let start = editor.start_directory().to_path_buf();
-    let directory = editor
+    let start_in = editor
         .current()
         .1
         .path()
         .and_then(std::path::Path::parent)
         .map_or(start, std::path::Path::to_path_buf);
-    let initial = oso_core::complete::typed_form(&directory, true, editor.home());
-    match editor.open_file_prompt(label, history, &initial, directory) {
+    let initial = oso_core::complete::typed_form(&start_in, true, editor.home());
+    let opened = if directory {
+        editor.open_directory_prompt(label, history, &initial, start_in)
+    } else {
+        editor.open_file_prompt(label, history, &initial, start_in)
+    };
+    match opened {
         Ok(prompt) => Some(prompt),
         Err(error) => {
             editor.prompt_says(error.to_string());

@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
-use super::{SearchHit, SearchRow, WITHHELD};
+use super::{ProjectSearchHit, ProjectSearchRow, WITHHELD};
 use crate::buffer::Buffer;
 use crate::editor::edit_tests::edit;
 use crate::editor::{Editor, NotInProject, WalkEnd};
@@ -29,8 +29,8 @@ fn typing(editor: &mut Editor, text: &str) {
     editor.match_completion();
 }
 
-fn row(path: &str, line: usize, text: &str) -> SearchRow {
-    SearchRow {
+fn row(path: &str, line: usize, text: &str) -> ProjectSearchRow {
+    ProjectSearchRow {
         path: path.into(),
         line,
         column: 4,
@@ -159,7 +159,7 @@ fn a_search_keeps_at_most_its_rows() {
 fn a_secret_files_row_shows_its_place_and_no_text() {
     let mut editor = searching();
     let generation = search_for(&mut editor, "token");
-    let secret = SearchRow {
+    let secret = ProjectSearchRow {
         path: ".env".into(),
         line: 2,
         column: 0,
@@ -195,7 +195,7 @@ fn ret_gives_the_files_whole_path_its_place_and_keeps_the_input() {
     assert_eq!(PathBuf::from(text), PathBuf::from("/w/oso/src/a.rs"));
     assert_eq!(
         editor.take_search_hit(),
-        Some(SearchHit {
+        Some(ProjectSearchHit {
             path: PathBuf::from("/w/oso/src/a.rs"),
             line: 7,
             column: 4,
