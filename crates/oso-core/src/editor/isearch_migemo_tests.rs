@@ -4,11 +4,14 @@
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
+use std::sync::atomic::Ordering;
+
 use super::test_buffers::secret_buffer;
 use super::{Editor, Status};
 use crate::buffer::Buffer;
 use crate::editor::Toward;
 use crate::jump::Kind;
+use crate::search::{Report, SearchReport};
 use crate::selection::SelectionSet;
 use crate::window::ViewSize;
 
@@ -230,4 +233,35 @@ fn a_jump_around_a_secret_keeps_no_needle() {
     assert!(editor.jump_begin(Kind::Char, false));
     editor.jump_add("ka");
     assert_eq!(editor.migemo.cached(), 1);
+}
+
+#[test]
+fn a_line_too_long_for_a_regexp_takes_the_search_on_literally() {
+    let mut editor = editor("か\nxxxxxxx ka\nka");
+    search(&mut editor, "ka");
+    assert_eq!(cursor(&editor), "か".len());
+    editor.isearch_longest_line(5);
+    editor.isearch_repeat(false);
+    drain(&mut editor);
+    // The literal string from where it stopped, with no `[migemo]` and no stop.
+    assert!(!migemo(&editor));
+    assert_eq!(cursor(&editor), "か\nxxxxxxx ka".len());
+    assert_eq!(line(&editor), "I-search: ka [1/2]");
+    // `DEL` goes back to migemo's step, as after `M-m`.
+    assert!(editor.isearch_delete());
+    assert!(migemo(&editor));
+    assert_eq!(cursor(&editor), "か".len());
+
+    // The worker's count meeting one takes it on literally too.
+    let mut editor = self::editor("か ka");
+    search(&mut editor, "ka");
+    let live = editor.search_live.load(Ordering::Relaxed);
+    let report = SearchReport(Report::LineTooLong {
+        generation: live,
+        at: 0,
+    });
+    assert!(editor.isearch_reported(report));
+    drain(&mut editor);
+    assert!(!migemo(&editor));
+    assert_eq!(line(&editor), "I-search: ka [1/1]");
 }

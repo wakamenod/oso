@@ -569,6 +569,12 @@ coordinator; the notes below are those choices as built.
   needle, never the string to compile.
 - **A key's time** is counted from the moment the key starts to build what it searches for, so
   migemo's compile and step 1's search share the key's 3 ms.
+- **A line too long for a regexp** (over 64 MiB) does not stop a migemo search, as it stops a
+  regexp's: the search, or the count, that meets it goes on with the literal string from where
+  it searched, and counts anew. Migemo is then off for that search, as after `M-m`: the
+  `[migemo]` tag drops, `M-m` turns it on again and `DEL` goes back to the step before. The
+  author chose this on 2026-11-13 over failing there and over a literal look in that line
+  alone.
 - **A key's cost**, the highlights included, in a release build on a loaded machine (the ignored
   test `migemo_key_costs`): over 20 MB of short lines with no match, 1.0 ms p50 for a literal
   string, 0.3 ms for `k`, 1.4 to 2.0 ms for `kanji`, and 2.0 to 2.3 ms for 256 characters of
@@ -671,9 +677,10 @@ at most 1 MiB in all (Q5).
 - An isearch for a lowercase string now matches more: `ka` also finds `か` and `カ`, in code with
   Japanese comments too. `M-m` takes it back to the literal string for that search, and the
   setting for every search.
-- A romaji isearch is a regexp search one line at a time, so 0113's limits hold for it: a line
-  over 64 MiB stops the search there, where the literal matcher went on. `M-m` searches it
-  literally.
+- A romaji isearch is a regexp search one line at a time, so 0113's limits hold for it. At a
+  line over 64 MiB, where a regexp is not matched, the search goes on with the literal string
+  (the author's choice of 2026-11-13, in step 2's notes): kana in that line are not found, the
+  romaji is.
 - A Japanese word that a hard wrap breaks across two lines is not found (Q6).
 - A dictionary costs about its file's size in memory once a search used it, and a read on a
   worker the first time; nothing at start-up.

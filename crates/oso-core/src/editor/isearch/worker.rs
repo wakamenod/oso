@@ -60,10 +60,13 @@ impl Editor {
             Report::Compiled { generation, regexp } if generation == live => {
                 self.isearch_compiled(regexp)
             }
-            // The search's, which fails there, or the count's, which then shows nothing.
+            // The search's, which fails there, or the count's, which then shows nothing; either
+            // takes a migemo search on literally.
             Report::LineTooLong { generation, at } if generation == live => {
-                if state.searching.is_some() {
-                    self.isearch_line_too_long(at);
+                let migemo = matches!(state.pattern, Pattern::Migemo(_));
+                if state.searching.is_some() || migemo {
+                    let again = state.searching;
+                    self.isearch_line_too_long(at, again);
                 } else {
                     state.tally = None;
                 }

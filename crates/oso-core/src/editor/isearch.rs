@@ -116,7 +116,7 @@ impl Editor {
             state.push_step(cursor);
             state.backward = backward;
             state.add(&last);
-            let started = state.rebuild_query(&mut self.migemo);
+            let started = self.isearch_rebuild();
             self.isearch_typed(started);
             return;
         }
@@ -145,7 +145,6 @@ impl Editor {
     pub fn isearch_add(&mut self, text: &str) {
         self.isearch_follow_text();
         let cursor = self.primary_cursor();
-        let secret = self.shows_secret();
         let Some(state) = &mut self.isearch else {
             return;
         };
@@ -156,8 +155,7 @@ impl Editor {
             return;
         }
         debug_assert!(state.string.len() > len);
-        state.around_secret |= secret;
-        let started = state.rebuild_query(&mut self.migemo);
+        let started = self.isearch_rebuild();
         self.isearch_typed(started);
     }
 
@@ -222,7 +220,7 @@ impl Editor {
         state.history = Some(index);
         state.string.clear();
         state.add(&entry);
-        let started = state.rebuild_query(&mut self.migemo);
+        let started = self.isearch_rebuild();
         self.isearch_typed(started);
     }
 
@@ -235,7 +233,7 @@ impl Editor {
         };
         state.push_step(cursor);
         state.flipped = !state.flipped;
-        let started = state.rebuild_query(&mut self.migemo);
+        let started = self.isearch_rebuild();
         self.isearch_typed(started);
     }
 
@@ -250,7 +248,7 @@ impl Editor {
         state.push_step(cursor);
         state.regexp = !state.regexp;
         state.history = None;
-        let started = state.rebuild_query(&mut self.migemo);
+        let started = self.isearch_rebuild();
         self.isearch_typed(started);
     }
 
@@ -265,7 +263,7 @@ impl Editor {
         };
         state.push_step(cursor);
         state.use_migemo = !state.use_migemo;
-        let started = state.rebuild_query(&mut self.migemo);
+        let started = self.isearch_rebuild();
         self.isearch_typed(started);
     }
 
@@ -453,7 +451,10 @@ impl Editor {
         state.wrapped = step.wrapped;
         state.searching = None;
         state.tally = step.tally;
-        state.rebuild_query(&mut self.migemo);
+        self.isearch_rebuild();
+        let Some(state) = &self.isearch else {
+            return;
+        };
         // A regexp the worker compiles needs its job, whatever count the step kept.
         let recount = match state.pattern {
             state::Pattern::Compiling => true,
@@ -468,6 +469,18 @@ impl Editor {
         if recount {
             self.isearch_count(None);
         }
+    }
+
+    /// Makes what the string looks for anew, as [`Isearch::rebuild_query`] does, with the
+    /// search marked around a secret first if one shows now, so its needle is not cached.
+    /// Returns when it began, which the key's time to search counts from.
+    pub(super) fn isearch_rebuild(&mut self) -> Instant {
+        let secret = self.shows_secret();
+        let Some(state) = &mut self.isearch else {
+            return Instant::now();
+        };
+        state.around_secret |= secret;
+        state.rebuild_query(&mut self.migemo)
     }
 
     /// The selected window's primary cursor.
