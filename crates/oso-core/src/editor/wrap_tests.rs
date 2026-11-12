@@ -258,7 +258,7 @@ fn a_window_too_narrow_to_wrap_shows_a_row_a_line() {
 fn nothing_scrolls_sideways_while_wrapped() {
     let text = "word ".repeat(30);
     let (mut editor, _) = wrapped(&text, ViewSize::new(5, 20));
-    assert!(!editor.scroll_view_sideways(10));
+    assert!(!editor.scroll_view_sideways(editor.tiled().0.id(), 10));
     assert_eq!(editor.window().scroll().left, 0);
 }
 
@@ -348,7 +348,10 @@ fn a_window_too_narrow_to_wrap_scrolls_sideways_to_its_cursor_and_wraps_again_wh
         editor.cursor_area(grid).is_some(),
         "the input method has a place"
     );
-    assert!(editor.scroll_view_sideways(-3), "the sideways wheel too");
+    assert!(
+        editor.scroll_view_sideways(editor.tiled().0.id(), -3),
+        "the sideways wheel too"
+    );
     // Wide enough to wrap, it shows from the left edge, the cursor on its row.
     editor.set_view_size(ViewSize::new(4, 20));
     assert!(editor.window().wrap().unwrap().wraps());

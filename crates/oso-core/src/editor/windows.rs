@@ -1,5 +1,5 @@
 //! The tiled windows of the frame (ADR 0112): splitting, deleting, selecting and resizing
-//! them, and the order they were selected in.
+//! them, the one the wheel scrolls at a cell, and the order they were selected in.
 //!
 //! Must not depend on: `command`, `keymap` or the host's window. The tree's rules are pure
 //! functions of the tree and the cells, in the frame's module; this applies them to the
@@ -11,7 +11,7 @@
 use std::fmt;
 
 use super::Editor;
-use crate::frame::{Side, Splits, TooSmall, Way};
+use crate::frame::{Part, Side, Splits, TooSmall, Way};
 use crate::window::WindowId;
 
 /// `delete-window` refused: the window is the only one.
@@ -194,6 +194,22 @@ impl Editor {
         self.recent.insert(0, id);
     }
 
+    /// The tiled window the wheel scrolls with the pointer on the frame's cell at `cell`, a
+    /// row and a column ([`PixelGrid::cell_at`]): the one whose text, gutter or modeline
+    /// holds it, as Emacs's `mouse-wheel-follow-mouse` has it (ADR 0112). Over a divider, the
+    /// echo area or past the frame, and with no cell, the selected tiled window, or the one
+    /// beneath the prompts. Floats take no wheel, so over one it is the window under it.
+    pub fn wheel_window(&self, cell: Option<(usize, usize)>) -> WindowId {
+        cell.and_then(|(row, column)| self.frame.hit(row, column))
+            .filter(|hit| hit.part != Part::Divider)
+            .map_or_else(|| self.tiled_id(), |hit| hit.window)
+    }
+
+    /// The index of the tiled window `id`, if it is one.
+    pub(super) fn tiled_window_index(&self, id: WindowId) -> Option<usize> {
+        self.window_index(id).filter(|_| self.splits.contains(id))
+    }
+
     /// Selects the tiled window `id`. Does nothing for a window that is not tiled, or that is
     /// selected already. Ends isearch, which runs in the selected window only.
     pub fn select_window(&mut self, id: WindowId) {
@@ -299,3 +315,5 @@ impl Editor {
 mod buffer_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wheel_tests;

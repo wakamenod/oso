@@ -95,7 +95,7 @@ fn the_modeline_speaks_of_the_window_beneath() {
 fn the_wheel_scrolls_the_window_beneath_and_its_cursors_stay() {
     let mut editor = editor(100);
     editor.open_prompt("Go to line: ", NUMBER).unwrap();
-    assert!(editor.scroll_view(20));
+    assert!(editor.scroll_view(editor.tiled().0.id(), 20));
     let (window, buffer) = editor.tiled();
     assert_eq!(window.top_row(&buffer.display()), 20);
     assert_eq!(
