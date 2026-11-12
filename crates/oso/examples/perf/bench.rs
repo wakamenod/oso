@@ -31,6 +31,9 @@ const GB: u64 = 1024 * MB;
 
 /// How long to wait for the first frame, or for a big file to load.
 const FRAME_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long the first launch of a new binary may take to draw. It compiles the shaders,
+/// which on a software renderer has taken from under a second to more than ten.
+const COLD_FRAME_TIMEOUT: Duration = Duration::from_secs(60);
 const LOAD_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long a key may wait for its frame once the keys have been sent.
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -227,7 +230,11 @@ fn startup(exe: &Path, scale: &Scale, report: &mut Report) -> Result<Option<Gpu>
         let mut app = App::start(exe, None)?;
         // Nothing asks the UI thread anything while it starts up.
         thread::sleep(Duration::from_millis(500));
-        let timings = app.wait_until("first frame", FRAME_TIMEOUT, has_frame)?;
+        let timings = if run == 0 {
+            app.wait_patiently_until("first frame", COLD_FRAME_TIMEOUT, has_frame)?
+        } else {
+            app.wait_until("first frame", FRAME_TIMEOUT, has_frame)?
+        };
         let spawned = timings["first_frame_unix_us"]
             .as_u64()
             .map(|us| app.spawn_to(us));

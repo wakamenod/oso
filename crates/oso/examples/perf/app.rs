@@ -21,6 +21,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 /// How often to ask whether something awaited has happened.
 const POLL: Duration = Duration::from_millis(50);
+/// What the control socket answers when the UI thread has not taken a request within its
+/// reply time, as while a cold launch compiles its shaders.
+const NO_REPLY_IN_TIME: &str = "the editor did not reply in time";
 
 /// A running app. Dropping it kills the process.
 pub struct App {
@@ -93,6 +96,16 @@ impl App {
 
     /// Sends one request and returns its result.
     pub fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {
+        self.request(method, params)?
+            .map_err(|error| format!("{method}: {error}"))
+    }
+
+    /// Sends one request and returns its result, or the error the app answered with.
+    fn request(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+    ) -> Result<Result<Value, Value>, String> {
         let id = self.next_id;
         self.next_id += 1;
         let mut request = json!({ "id": id, "method": method });
@@ -106,10 +119,10 @@ impl App {
             .map_err(|e| format!("{method}: {e}"))?;
         let mut response: Value =
             serde_json::from_str(&line).map_err(|e| format!("{method}: {e}: {line:?}"))?;
-        if let Some(error) = response.get("error") {
-            return Err(format!("{method}: {error}"));
+        if let Some(error) = response.get_mut("error") {
+            return Ok(Err(error.take()));
         }
-        Ok(response["result"].take())
+        Ok(Ok(response["result"].take()))
     }
 
     /// Sends keys in Emacs notation, without waiting for a frame.
@@ -131,11 +144,35 @@ impl App {
         timeout: Duration,
         done: impl Fn(&Value) -> bool,
     ) -> Result<Value, String> {
+        self.wait(what, timeout, false, done)
+    }
+
+    /// As [`wait_until`](Self::wait_until), but an app too busy to reply within the control
+    /// socket's reply time has not got there yet. For a cold launch, whose startup can hold
+    /// the UI thread for longer than that on a software renderer.
+    pub fn wait_patiently_until(
+        &mut self,
+        what: &str,
+        timeout: Duration,
+        done: impl Fn(&Value) -> bool,
+    ) -> Result<Value, String> {
+        self.wait(what, timeout, true, done)
+    }
+
+    fn wait(
+        &mut self,
+        what: &str,
+        timeout: Duration,
+        patient: bool,
+        done: impl Fn(&Value) -> bool,
+    ) -> Result<Value, String> {
         let started = Instant::now();
         loop {
-            let timings = self.timings()?;
-            if done(&timings) {
-                return Ok(timings);
+            match self.request("take-timings", None)? {
+                Ok(timings) if done(&timings) => return Ok(timings),
+                Ok(_) => {}
+                Err(error) if patient && error["message"] == NO_REPLY_IN_TIME => {}
+                Err(error) => return Err(format!("take-timings: {error}")),
             }
             if started.elapsed() > timeout {
                 return Err(format!(
