@@ -8,7 +8,7 @@ item notes when it must be settled.
 
 - **UI of each later feature** (before building it). The M2 UI is decided
   ([`ui.md`](ui.md), [ADR 0026](adr/0026-m2-ui-layout.md)); M3 and later
-  features (avy, the menu contents, the git status buffer,
+  features (the menu contents, the git status buffer,
   the terminal) are designed when they come up.
 
 ## M1
@@ -373,11 +373,6 @@ item notes when it must be settled.
   display model under random edits, and the streaming decoder and load
   builder (property-tested since M1-6) are the first candidates.
 - URL-opening policy: which schemes, and what confirmation.
-- Migemo dictionary source and licensing. Common dictionaries derive from GPL
-  SKK dictionaries and cannot be bundled under MIT OR Apache-2.0
-  ([ADR 0020](adr/0020-license.md)). Options: the user supplies the
-  dictionary, a permissively licensed dictionary, or generating one from
-  permissive data.
 
 ## M4
 
