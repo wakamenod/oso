@@ -6,7 +6,8 @@
 //!
 //! - A piece is whole lines of at most [`PIECE`] bytes; a longer line is cut at a character,
 //!   so a window on a long line waits only for the part it shows. In Markdown, a piece widens
-//!   to the inline nodes it meets: an edit can change a paragraph's inline text past its line.
+//!   to the inline nodes and the fences with a language it meets: an edit can change a
+//!   paragraph's inline text, or a fence's code, past its line.
 //! - A query that passes its match limit leaves its piece plain. One stopped by the slice's
 //!   end stays to do, unless it had most of a slice: then pieces halve, back up to [`PIECE`]
 //!   after a few fit in a row. The document fails as too slow, as after a slow parse, if a
@@ -26,7 +27,7 @@ use tree_sitter::{
     Node, Query, QueryCursor, QueryCursorOptions, QueryCursorState, StreamingIterator, Tree,
 };
 
-use super::inline::widen;
+use super::inline::{Nested, widen};
 use super::{Document, Failure, Parsed, until};
 use crate::language::Language;
 use crate::paint::{Capture, paint};
@@ -71,8 +72,8 @@ pub enum Highlighted {
 
 /// How a piece went.
 pub(super) enum Piece {
-    /// Its runs.
-    Done(Vec<(usize, Option<Highlight>)>),
+    /// Its runs, and the blocks of the fences a fence's grammar painted in it.
+    Done(Vec<(usize, Option<Highlight>)>, Vec<Range<usize>>),
     /// A query passed its match limit: the piece stays plain.
     Limit,
     /// The slice ran out.
@@ -144,10 +145,11 @@ impl Document {
                 return Highlighted::Failed(Failure::TooSlow);
             }
             match outcome {
-                Piece::Done(runs) => {
+                Piece::Done(runs, blocks) => {
                     self.highlights.replace(piece.clone(), runs);
                     self.changes += 1;
-                    self.pending.remove(piece);
+                    self.pending.remove(piece.clone());
+                    self.repainted(&piece, &blocks);
                     self.fits += 1;
                     if self.fits >= FITS_TO_GROW {
                         self.max_piece = (self.max_piece * 2).min(PIECE);
@@ -205,7 +207,12 @@ impl Document {
     fn prepare(&self, queries: &mut Queries) -> bool {
         let mut kinds = vec![Kind::Highlights(self.language)];
         if self.language == Language::Markdown {
-            kinds.extend([Kind::Inlines, Kind::Highlights(Language::MarkdownInline)]);
+            kinds.extend([
+                Kind::Injections,
+                Kind::Highlights(Language::MarkdownInline),
+                Kind::Highlights(Language::Rust),
+                Kind::Highlights(Language::Toml),
+            ]);
         }
         kinds.into_iter().all(|kind| queries.prepare(kind))
     }
@@ -213,7 +220,8 @@ impl Document {
     fn leave_plain(&mut self, piece: Range<usize>) {
         self.highlights.replace(piece.clone(), []);
         self.changes += 1;
-        self.pending.remove(piece);
+        self.pending.remove(piece.clone());
+        self.repainted(&piece, &[]);
     }
 
     /// The next piece to highlight: of what is to do and meets `first`, the first; or else
@@ -242,7 +250,7 @@ impl Document {
     }
 
     /// Runs the queries over `piece` until `deadline`, and says what range they ran over: in
-    /// Markdown, `piece` widened to whole inline nodes.
+    /// Markdown, `piece` widened to whole inline nodes and fences.
     fn highlight_piece(
         &mut self,
         queries: &Queries,
@@ -253,12 +261,12 @@ impl Document {
         let Some(tree) = self.tree.clone() else {
             return (piece, Piece::Limit);
         };
-        let mut inlines = Vec::new();
+        let mut nested = Nested::default();
         let piece = match self.language {
             Language::Markdown => {
                 match widen(&self.text, queries, &tree, piece.clone(), deadline) {
-                    Ok((widened, nodes)) => {
-                        inlines = nodes;
+                    Ok((widened, found)) => {
+                        nested = found;
                         widened
                     }
                     Err(outcome) => return (piece, outcome),
@@ -266,7 +274,7 @@ impl Document {
             }
             Language::Rust | Language::MarkdownInline | Language::Toml => piece,
         };
-        let outcome = self.highlight_range(queries, &tree, &inlines, piece.clone(), deadline);
+        let outcome = self.highlight_range(queries, &tree, nested, piece.clone(), deadline);
         (piece, outcome)
     }
 
@@ -274,7 +282,7 @@ impl Document {
         &mut self,
         queries: &Queries,
         tree: &Tree,
-        inlines: &[Node],
+        nested: Nested,
         piece: Range<usize>,
         deadline: Instant,
     ) -> Piece {
@@ -303,12 +311,21 @@ impl Document {
         if let Some(outcome) = outcome {
             return outcome;
         }
-        if let Some(outcome) =
-            self.highlight_inlines(queries, inlines, piece.clone(), deadline, &mut captures)
-        {
-            return outcome;
+        // An injected grammar's captures win over the block grammar's on the same span.
+        let inlines = nested
+            .inlines
+            .iter()
+            .map(|&node| (node, Language::MarkdownInline));
+        let layers = [(1, inlines.collect()), (2, nested.fences)];
+        for (layer, nodes) in layers {
+            let at = (piece.clone(), layer);
+            if let Some(outcome) =
+                self.highlight_nested(queries, nodes, at, deadline, &mut captures)
+            {
+                return outcome;
+            }
         }
-        Piece::Done(paint(&self.text, piece, captures))
+        Piece::Done(paint(&self.text, piece, captures), nested.blocks)
     }
 }
 
