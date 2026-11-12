@@ -240,8 +240,8 @@ alongside the steps above, after M2-16:
   ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)). Nothing in M3 has to wait: what
   opening or saving starts in M3 runs in oso's own process, and the release build cannot spawn.
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Later, Markdown's fenced code tagged
-  `rust` or `toml` is highlighted with those grammars.
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Markdown's fenced code tagged `rust`
+  or `toml` is highlighted with those grammars.
 - Window splits ([ADR 0112](adr/0112-window-splits.md)), indentation
   ([ADR 0115](adr/0115-indentation.md)), project trust model.
 - Project file finding and asynchronous ripgrep-style search, in-process
@@ -274,6 +274,10 @@ alongside the steps above, after M2-16:
   the official `claude` TUI in a terminal view, hooks for session identity
   and state, review and worktree tools on the `oso mcp` bridge, session
   list, notifications, worktree sessions, and restore via `--resume`.
+- Agent review ([ADR 0122](adr/0122-agent-review.md)): the changes since a
+  session's baseline, uncommitted, staged, a branch, a commit range or a PR;
+  comments re-anchored as the agent edits, sent as one message; per-hunk
+  accept, reject and viewed; review tools on `oso mcp`. Twelve steps.
 
 ### After M4
 

@@ -183,3 +183,27 @@ pub(super) fn stops(
     stops.dedup();
     stops
 }
+
+/// Whether each of `offsets`, in order, is inside a fenced code block, read in one pass. Past
+/// the budget, or where the pass cannot reach, false.
+pub(super) fn fenced(
+    rope: &Rope,
+    settings: Settings,
+    offsets: &[usize],
+    budget: &mut Budget,
+) -> Vec<bool> {
+    let mut pass = None;
+    offsets
+        .iter()
+        .map(|&at| {
+            match pass::pass_at::<Markdown>(rope, settings, at, pass.take(), false, budget) {
+                Some(reached) => {
+                    let fenced = reached.lexer.fence.is_some();
+                    pass = Some(reached);
+                    fenced
+                }
+                None => false,
+            }
+        })
+        .collect()
+}

@@ -21,8 +21,9 @@ use crate::language::Language;
 
 /// Pieces that edits insert: tokens of each language, line breaks, text of several bytes a
 /// character, so that points count bytes, a capital, which makes a Rust name a type with the
-/// same tree, and a long one, so that an edit spans chunks.
-const PIECES: [&str; 18] = [
+/// same tree, a fence and its languages, which change how its content is highlighted, and a
+/// long one, so that an edit spans chunks.
+const PIECES: [&str; 21] = [
     "fn ",
     "{",
     "}",
@@ -40,6 +41,9 @@ const PIECES: [&str; 18] = [
     " = ",
     "1",
     "é",
+    "```",
+    "rust",
+    "toml\n",
     "let long_name = \"a string of some length to cross a chunk of the rope\"; // 日本語の文\n",
 ];
 
@@ -48,7 +52,7 @@ const PIECES: [&str; 18] = [
 pub(super) type Drawn = (u32, usize, Vec<usize>);
 
 /// Texts of a few kilobytes, so that the rope's chunks of 1008 bytes split them.
-pub(super) const SEEDS: [(Language, &str, usize); 3] = [
+pub(super) const SEEDS: [(Language, &str, usize); 4] = [
     (
         Language::Rust,
         "fn main() {\n    let s = \"日本\"; // note\n    if s.is_empty() { return; }\n}\n",
@@ -58,6 +62,11 @@ pub(super) const SEEDS: [(Language, &str, usize); 3] = [
         Language::Markdown,
         "# Title\n\n- item *one* and `code`\n\n```rust\nx\n```\n\n> quote\n",
         50,
+    ),
+    (
+        Language::Markdown,
+        "- item\n\n  ```rust\n  fn f() { /* c */ }\n  ```\n\n~~~toml\na = \"s\" # c\n~~~\n> ```rs\n> x\n",
+        40,
     ),
     (
         Language::Toml,

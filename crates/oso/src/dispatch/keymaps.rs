@@ -1,6 +1,6 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
-//! argument's, a prompt's, a completion's or a question's, isearch's, a mode's, the user's and
-//! the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108).
+//! argument's, a prompt's, a completion's or a question's, a jump's, isearch's, a mode's, the
+//! user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108, ADR 0116).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -30,6 +30,8 @@ pub(super) struct Keymaps {
     pub(super) completing: Keymap,
     /// The keys of a search under way, in place of the others (ADR 0082).
     pub(super) isearch: Keymap,
+    /// The keys of a jump under way, in place of the others, isearch's too (ADR 0116).
+    pub(super) jump: Keymap,
     /// The answers of a query-replace under way, in place of the others (ADR 0113).
     pub(super) replace: Keymap,
 }
@@ -37,7 +39,7 @@ pub(super) struct Keymaps {
 impl Keymaps {
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 11] {
+    pub(super) fn all(&self) -> [&Keymap; 12] {
         let Self {
             global,
             user,
@@ -47,11 +49,12 @@ impl Keymaps {
             question,
             completing,
             isearch,
+            jump,
             replace,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            replace,
+            jump, replace,
         ]
     }
 
@@ -76,6 +79,9 @@ impl Keymaps {
             .is_some_and(|prompt| prompt.kind().is_question())
         {
             return Layers::global(&self.question);
+        }
+        if editor.jump().is_some() {
+            return Layers::global(&self.jump);
         }
         if editor.isearch().is_some() {
             return Layers::global(&self.isearch);

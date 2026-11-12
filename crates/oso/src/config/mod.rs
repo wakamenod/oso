@@ -16,6 +16,7 @@
 
 mod defaults;
 mod in_force;
+mod indentation;
 mod keys;
 mod outcome;
 mod problems;
@@ -32,6 +33,7 @@ use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
 pub use in_force::{InForce, Look};
+pub use indentation::MODES;
 pub use outcome::outcome;
 pub use problems::Problem;
 pub use settings::Settings;
@@ -144,6 +146,9 @@ fn apply(
             "aids" => settings.aids = settings::aids(value, found),
             "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
             "save" => settings.save = settings::save(value, found),
+            "jump" => settings.jump = settings::jump(value, found),
+            "indent" => settings.indent = indentation::indent(value, found),
+            "modes" => settings.modes = indentation::modes(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),
@@ -219,6 +224,8 @@ impl fmt::Display for TableName<'_> {
     }
 }
 
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod keys_tests;
 #[cfg(test)]

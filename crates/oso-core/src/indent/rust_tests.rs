@@ -220,3 +220,38 @@ fn a_chain_after_a_string_over_lines_goes_by_the_line_it_starts_on() {
         "            .into(),\n    );\n}\n",
     ));
 }
+
+#[test]
+fn a_chain_after_a_raw_string_over_lines_goes_by_the_line_it_starts_on() {
+    fixed("fn f() {\n    g(r#\"a\nb\"#)\n        .h();\n}\n");
+}
+
+#[test]
+fn the_empty_line_between_brackets_is_one_level_past_the_opener() {
+    let rope = crate::rope::Rope::from("fn f() {\n    g(x, {})\n}\n");
+    let at = "fn f() {\n    g(x, {".len();
+    let lines = [super::Line::Empty(at), super::Line::New(at)];
+    let answers = rust(
+        &rope,
+        Settings::default(),
+        &lines,
+        &mut super::Budget::new(),
+    );
+    assert_eq!(answers, [Answer::Column(8), Answer::Column(4)]);
+    // Asked alone, the closer's line is the same.
+    let alone = rust(
+        &rope,
+        Settings::default(),
+        &lines[1..],
+        &mut super::Budget::new(),
+    );
+    assert_eq!(alone, [Answer::Column(4)]);
+}
+
+#[test]
+fn a_new_line_in_a_block_comment_follows_its_text() {
+    let answers = new_lines(rust, "    /* a\n       b */", &[9]);
+    assert_eq!(answers, [Answer::Column(4)]);
+    let answers = new_lines(rust, "fn f() {\n    /*\n     * a\n\n", &[30]);
+    assert_eq!(answers, [Answer::Column(5)]);
+}

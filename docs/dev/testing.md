@@ -85,6 +85,11 @@ whitespace with `t` and the cursor flash with `f`, from `Editor::current_line_ce
 key flashes, as `Editor::flashes` says after each key. The visual aids start off in every scenario, so a
 snapshot shows only those it turns on.
 
+A jump's matches are `~` on the same line, and its labels, from `Editor::jump_cells`, are `J`
+under each one's first key and `j` under the keys after it, over every other mark. A line
+between `@` below gives the keys at their cells
+([ADR 0116](adr/0116-migemo-and-jumps.md)). A jump's matches and labels show in every window.
+
 With line numbers on, each of a window's rows begins with the gutter's text, from
 `Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
 ([ADR 0097](adr/0097-visual-aids.md)).
@@ -289,6 +294,7 @@ what you type goes into their buffers, which can fail a flow.
 | exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. On oso's own macOS layer a person's quit, as another app sends it, asks the same question, `n` stays and `y` goes with nothing written (ADR 0084). What makes it ask again is tested through the `Dispatcher` |
 | prompts | `M-g g` reads a line in a float and goes there, `C-g` runs nothing, the IME off in a prompt and on after it, the exit question on `n` and `y`, a passphrase withheld from `get-state`, screenshots and the log, and a restart held while a prompt is open (ADR 0072) |
 | projects | `C-x p f` walks a scratch project on the walker's thread and `RET` visits a file; `C-u` lists only directories, then one as a project; `M-s r` searches it and previews each row, never a file that may hold secrets; `trust-project`'s `y` writes `trusted-projects` beside the `--config` file, a new instance reads it back, and `untrust-project` removes the line, with the modeline's `restricted` following (`projects.rs`, ADR 0114) |
+| jumps | `M-j` reads a string and its labels show after `[jump] timeout`, with `get-state`'s `jump` following its stage; a label moves the cursor, also into another window, which it selects; `M-g f` labels line starts; around a secret buffer `jump` is only `{"active": true}` and the log holds nothing of it (`jump.rs`, ADR 0116) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend
@@ -451,12 +457,14 @@ OS and architecture. Nothing is built or installed there.
 | `startup_ms` | just before the process starts, to its first presented frame | 9, plus a first launch reported alone |
 | `key_p50_ms`, `key_p99_ms` | key received to first frame presented, on a screen of mixed text | 5, 400 keys each |
 | `type_p50_ms`, `type_p99_ms`, `del_p99_ms` | the same while typing there (ASCII, Japanese, an emoji and line breaks), and while `DEL` removes it | 5, 400 keys each |
-| `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; reported only (ADR 0069) | 5, 400 reports each |
-| `prompt_type_p99_ms` | digits typed into `goto-line`'s open prompt to the frames that draw them, there; reported only (ADR 0072) | 5, 400 keys each |
-| `mx_type_p99_ms` | a letter and `DEL` typed in turn into `M-x` listing every command, to the frames that draw them; reported only (ADR 0076) | 5, 400 keys each |
-| `file_prompt_type_p99_ms` | a letter, `.`, `*`, a digit and four `DEL` typed in turn into `C-x C-f` over a directory of 100,000 empty files whose names mix ASCII, accented and Japanese letters, to the frames that draw them, while a worker builds and matches the list; making the files takes about 4 s and removing them about 4 s, once per run of the benchmark; reported only (ADR 0096) | 5, 400 keys each |
-| `win4_key_p99_ms`, `win4_type_p99_ms` | the same keys and typing with four windows: the file in the left one, typed in, and on the right the file again, a 1 MB line wrapped and `*Messages*`; reported only (ADR 0112) | 5, 400 keys each |
-| `win16_key_p99_ms`, `win16_type_p99_ms`, `win16_other_p99_ms` | then with sixteen windows on the file, four columns of four, and the `o` of `C-x o` round them, paced after the prefix's frame as any key, in the same process; reported only (ADR 0112) | 5, 200 keys each, and 96 for `C-x o` |
+| `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; gated as typing (ADR 0069, ADR 0123) | 5, 400 reports each |
+| `prompt_type_p99_ms` | digits typed into `goto-line`'s open prompt to the frames that draw them, there; gated as typing (ADR 0072, ADR 0123) | 5, 400 keys each |
+| `mx_type_p99_ms` | a letter and `DEL` typed in turn into `M-x` listing every command, to the frames that draw them; gated as typing (ADR 0076, ADR 0123) | 5, 400 keys each |
+| `file_prompt_type_p99_ms` | a letter, `.`, `*`, a digit and four `DEL` typed in turn into `C-x C-f` over a directory of 100,000 empty files whose names mix ASCII, accented and Japanese letters, to the frames that draw them, while a worker builds and matches the list; making the files takes about 4 s and removing them about 4 s, once per run of the benchmark; gated as typing (ADR 0096, ADR 0123) | 5, 400 keys each |
+| `win4_key_p99_ms`, `win4_type_p99_ms` | the same keys and typing with four windows: the file in the left one, typed in, and on the right the file again, a 1 MB line wrapped and `*Messages*`; gated as the keys and typing with one window (ADR 0112, ADR 0123) | 5, 400 keys each |
+| `win16_key_p99_ms`, `win16_type_p99_ms`, `win16_other_p99_ms` | then with sixteen windows on the file, four columns of four, and the `o` of `C-x o` round them, paced after the prefix's frame as any key, in the same process; gated as the keys and typing with one window, `C-x o` as a key (ADR 0112, ADR 0123) | 5, 200 keys each, and 96 for `C-x o` |
+| `syntax_type_p99_ms`, `syntax_prepare_p99_ms` | typing in the middle of a large Rust file once highlighting has reported, to the frames that draw it, and those frames' preparation; the same with `global-font-lock-mode` off, as `syntax_off_*`, is reported only (ADR 0111) | 5, 400 keys each |
+| `indent_ret_p99_ms` | `RET` in the same file, each new line indented by Rust's rules, to the frame that draws it; gated as typing (ADR 0115, ADR 0123) | 5, 400 keys each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |
@@ -472,7 +480,12 @@ OS and architecture. Nothing is built or installed there.
   regressions. Its runners have no hardware GPU, so the budgets are read by hand
   on the author's Mac, where `just perf` lists them beside the results
   ([ADR 0046](adr/0046-performance-regression-checks.md),
-  [ADR 0024](adr/0024-dev-build-profile.md)).
+  [ADR 0024](adr/0024-dev-build-profile.md)). On a Mac with a real GPU, as
+  `just perf-remote` runs on, a result is held to tighter thresholds of its own, and
+  every key's latency fails over its 8 ms budget
+  ([ADR 0123](adr/0123-thresholds-for-the-report-only-metrics.md)). The worst key, the
+  medians, keys while a big file loads, launches beside `startup_ms` and the edits
+  without a window stay reported only.
 - Key latency ends when `present` returns, so it leaves out the GPU's work as
   well as the display and the compositor.
 - `crates/oso-core/examples/text_perf.rs` remains for looking closely at the

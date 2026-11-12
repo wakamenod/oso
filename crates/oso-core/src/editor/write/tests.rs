@@ -243,3 +243,30 @@ fn a_path_ending_in_a_slash_takes_the_buffers_file_name_there() {
         .unwrap();
     assert_eq!(job(&mut editor).path, PathBuf::from("/new/dir/a.md"));
 }
+
+#[test]
+fn a_new_name_that_changes_the_mode_gives_the_modes_indentation() {
+    use crate::buffer::Mode;
+    use crate::indent::{Settings, Style};
+
+    let mut editor = Editor::with_buffer(Buffer::from_text("a", "x\n"));
+    let id = editor.window().buffer();
+    let two = Settings::new(2, Style::Spaces, 8).unwrap();
+    let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+    editor.set_mode_indents(modes.map(|mode| {
+        (
+            mode,
+            if mode == Mode::Rust {
+                two
+            } else {
+                Settings::default()
+            },
+        )
+    }));
+    let location = PathBuf::from("/notes/a.rs");
+    let content = editor.current().1.content_id();
+    editor.written_elsewhere(id, location.clone(), content, location, stamp(2), |_| {});
+    let buffer = editor.current().1;
+    assert_eq!(buffer.mode(), Mode::Rust);
+    assert_eq!(buffer.indent_settings(), two);
+}

@@ -9,7 +9,7 @@
 //! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
-use oso_core::editor::{Editor, Gutter, MatchCells, Status};
+use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, Status};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
@@ -43,12 +43,14 @@ pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
 /// What a window's text fills and draws besides its rows, kept from frame to frame so that
 /// none of it is allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), the
 /// current line's band and trailing whitespace (ADR 0097), the other cursors' boxes
-/// (ADR 0091), its rows in view (ADR 0104) and its gutter's numbers (ADR 0097).
+/// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097) and a jump's
+/// matches and labels (ADR 0116).
 #[derive(Default)]
 pub(super) struct WindowCells {
     region: Vec<CellRect>,
     others: Vec<CellRect>,
     matches: MatchCells,
+    jump: JumpCells,
     band: Vec<CellRect>,
     trailing: Vec<CellRect>,
     screen: Screen,
@@ -65,6 +67,7 @@ impl WindowCells {
         editor.isearch_cells(id, screen, &mut self.matches);
         // A query-replace's matches in place of isearch's while one is under way (ADR 0113).
         editor.replace_cells(id, screen, &mut self.matches);
+        editor.jump_cells(id, screen, &mut self.jump);
         editor.trailing_cells(id, screen, &mut self.trailing);
         editor.gutter_into(id, screen, &mut self.gutter);
         self.band.clear();
@@ -137,16 +140,66 @@ fn modeline_face(status: &Status) -> Face {
 }
 
 /// The fills behind a window's text, from the back: the current line's band, trailing
-/// whitespace, then the current match first, so that it always has room, and the regions
-/// over the matches.
-fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); 5] {
+/// whitespace, then the current match first, so that it always has room, a jump's matches as
+/// isearch's others (ADR 0116), and the regions over the matches.
+fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
     [
         (Face::CurrentLine, &cells.band[..]),
         (Face::TrailingWhitespace, &cells.trailing[..]),
         (Face::SearchCurrent, &cells.matches.current[..]),
         (Face::SearchMatch, &cells.matches.others[..]),
+        (Face::SearchMatch, &cells.jump.matches[..]),
         (Face::Region, &cells.region[..]),
     ]
+}
+
+/// How many lists of cells a window fills behind its text.
+const FILLS: usize = 6;
+
+/// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
+/// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by
+/// row and then column (ADR 0116).
+fn labels_of<'a>(cells: &'a WindowCells, out: &mut Vec<(CellRect, Span<'a>)>) {
+    let jump = &cells.jump;
+    for label in &jump.labels {
+        let text = &jump.text[label.keys.clone()];
+        let (first, rest) = text.split_at(text.len().min(1));
+        let one = CellRect {
+            columns: 1,
+            ..label.cells
+        };
+        out.push((
+            one,
+            Span {
+                text: first,
+                face: Face::JumpLabel,
+            },
+        ));
+        if !rest.is_empty() {
+            let after = CellRect {
+                column: label.cells.column + 1,
+                columns: label.cells.columns - 1,
+                ..label.cells
+            };
+            out.push((
+                after,
+                Span {
+                    text: rest,
+                    face: Face::JumpLabelNext,
+                },
+            ));
+        }
+    }
+}
+
+/// How many entries [`labels_of`] gives for a window.
+fn label_runs(cells: &WindowCells) -> usize {
+    let labels = &cells.jump.labels;
+    labels.len()
+        + labels
+            .iter()
+            .filter(|label| label.cells.columns > 1)
+            .count()
 }
 
 /// Room for what a frame lists of the tiled windows, empty between frames, which each frame
@@ -157,7 +210,8 @@ pub(super) struct Room {
     modeline_rows: Vec<[&'static [Span<'static>]; 1]>,
     numbers: Vec<[Span<'static>; 1]>,
     gutters: Vec<&'static [Span<'static>]>,
-    fills: Vec<[(Face, &'static [CellRect]); 5]>,
+    fills: Vec<[(Face, &'static [CellRect]); FILLS]>,
+    labels: Vec<(CellRect, Span<'static>)>,
 }
 
 /// The status of the window `id`, the `index`th in the tree, among `statuses`, by its id so
@@ -201,16 +255,22 @@ pub(super) fn spans_of<'a>(
             [Span { text, face }]
         }));
     }
-    let mut fills: Vec<[(Face, &'a [CellRect]); 5]> = super::reuse(std::mem::take(&mut room.fills));
+    let mut fills: Vec<[(Face, &'a [CellRect]); FILLS]> =
+        super::reuse(std::mem::take(&mut room.fills));
     fills.extend(cells.iter().map(fills_of));
-    (modelines, numbers, fills)
+    let mut labels: Vec<(CellRect, Span<'a>)> = super::reuse(std::mem::take(&mut room.labels));
+    for window in cells {
+        labels_of(window, &mut labels);
+    }
+    (modelines, numbers, fills, labels)
 }
 
 /// Every window's modeline spans, gutter numbers and fills, as [`spans_of`] makes them.
 pub(super) type Spans<'a> = (
     Vec<[Span<'a>; 6]>,
     Vec<[Span<'a>; 1]>,
-    Vec<[(Face, &'a [CellRect]); 5]>,
+    Vec<[(Face, &'a [CellRect]); FILLS]>,
+    Vec<(CellRect, Span<'a>)>,
 );
 
 /// The rows of every window's modeline and gutter, over the spans [`spans_of`] made.
@@ -237,16 +297,19 @@ pub(super) fn give_back_rows(
 }
 
 /// Gives back the spans and fills a frame took of `room`.
-pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, fills): Spans<'_>) {
+pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, fills, labels): Spans<'_>) {
     room.modelines = super::reuse(modelines);
     room.numbers = super::reuse(numbers);
     room.fills = super::reuse(fills);
+    room.labels = super::reuse(labels);
 }
 
 /// What [`panes`] reads, per window in the tree's order.
 pub(super) struct Drawn<'a> {
     pub(super) cells: &'a [WindowCells],
-    pub(super) fills: &'a [[(Face, &'a [CellRect]); 5]],
+    pub(super) fills: &'a [[(Face, &'a [CellRect]); FILLS]],
+    /// Every window's jump labels, one window's after another's in the tree's order.
+    pub(super) labels: &'a [(CellRect, Span<'a>)],
     pub(super) modelines: &'a [[&'a [Span<'a>]; 1]],
     pub(super) gutters: &'a [&'a [Span<'a>]],
     pub(super) statuses: &'a [(WindowId, Status)],
@@ -276,10 +339,13 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
     // The selected window's text last, or the text of the one beneath the prompts.
     let tiled = editor.tiled().0.id();
     for last in [false, true] {
+        let mut runs = 0;
         for (index, ((id, regions), cells)) in shown() {
             let selected = selected(index, *id);
+            let labels = (runs..runs + label_runs(cells), index);
+            runs = labels.0.end;
             if (*id == tiled) == last {
-                let content = text(editor, (*id, selected), cells, drawn, index);
+                let content = text(editor, (*id, selected), cells, drawn, labels);
                 list.push(pane(pane_id(*id, Part::Text), regions.text, None, content));
             }
         }
@@ -338,7 +404,7 @@ fn text<'a>(
     (id, selected): (WindowId, bool),
     cells: &'a WindowCells,
     drawn: &Drawn<'a>,
-    index: usize,
+    (labels, index): (std::ops::Range<usize>, usize),
 ) -> PaneContent<'a> {
     let Some(window) = editor.window_by_id(id) else {
         return PaneContent::Lines(&[]);
@@ -367,6 +433,7 @@ fn text<'a>(
         // (ADR 0104).
         preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
         fills: drawn.fills.get(index).map_or(&[][..], |fills| &fills[..]),
+        labels: drawn.labels.get(labels).unwrap_or_default(),
         whitespace: editor.visual_aids().whitespace,
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).

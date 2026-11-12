@@ -1,5 +1,5 @@
 //! Compares a result with the baseline from `main` and decides whether it
-//! fails (ADR 0024, ADR 0025, ADR 0046). The thresholds live here.
+//! fails (ADR 0024, ADR 0025, ADR 0046, ADR 0123). The thresholds live here.
 //!
 //! Must not depend on: `app` or `bench`; it works on results alone, so it can
 //! be tested with made-up numbers.
@@ -30,12 +30,28 @@ const FREEZE: Threshold = gate(3.0, 100.0);
 /// and that of the motion metric beside it in the same runs, since both draw the
 /// same frames (ADR 0056). Typing in a highlighted file, and its frames' preparation, take
 /// plain typing's thresholds (ADR 0111, the author's choice).
-const LINUX: [(&str, Threshold); 20] = [
+///
+/// A threshold must also pass each result of the last pull requests and `main` against
+/// the baseline before it, since the two can run on different machines (ADR 0123). The
+/// other keys on the screen of mixed text, in windows, prompts and the input method, take
+/// the thresholds of the key or typing there; `DEL` takes typing's on each file.
+const LINUX: [(&str, Threshold); 34] = [
     ("key_p50_ms", gate(3.5, 0.75)),
     ("key_p99_ms", gate(5.5, 2.5)),
-    ("type_p99_ms", gate(2.0, 0.75)),
-    ("syntax_type_p99_ms", gate(2.0, 0.75)),
-    ("syntax_prepare_p99_ms", gate(2.0, 0.75)),
+    ("type_p99_ms", gate(3.0, 2.0)),
+    ("del_p99_ms", gate(3.0, 2.0)),
+    ("ime_preedit_p99_ms", gate(3.0, 2.0)),
+    ("prompt_type_p99_ms", gate(3.0, 2.0)),
+    ("mx_type_p99_ms", gate(3.0, 2.0)),
+    ("file_prompt_type_p99_ms", gate(3.0, 2.0)),
+    ("win4_key_p99_ms", gate(5.5, 2.5)),
+    ("win4_type_p99_ms", gate(3.0, 2.0)),
+    ("win16_key_p99_ms", gate(5.5, 2.5)),
+    ("win16_type_p99_ms", gate(3.0, 2.0)),
+    ("win16_other_p99_ms", gate(5.5, 2.5)),
+    ("syntax_type_p99_ms", gate(3.0, 2.0)),
+    ("syntax_prepare_p99_ms", gate(3.0, 2.0)),
+    ("indent_ret_p99_ms", gate(3.0, 2.0)),
     ("startup_ms", gate(2.25, 55.0)),
     ("open_first_screen_ms", gate(2.25, 4.75)),
     ("open_full_load_ms", gate(3.0, 370.0)),
@@ -44,20 +60,34 @@ const LINUX: [(&str, Threshold); 20] = [
     ("big_keys_max_ms", FREEZE),
     ("big_type_p99_ms", gate(5.5, 3.25)),
     ("big_type_max_ms", FREEZE),
+    ("big_del_p99_ms", gate(5.5, 3.25)),
     ("line_load_ms", gate(3.25, 235.0)),
     ("line_keys_p99_ms", gate(5.0, 2.5)),
     ("line_keys_max_ms", FREEZE),
     ("line_type_p99_ms", gate(5.0, 2.5)),
     ("line_type_max_ms", FREEZE),
+    ("line_del_p99_ms", gate(5.0, 2.5)),
     ("big_trip_max_ms", FREEZE),
+    ("line_trip_max_ms", FREEZE),
     ("dev_build_ms", gate(2.0, 1400.0)),
 ];
-const MACOS: [(&str, Threshold); 20] = [
+const MACOS: [(&str, Threshold); 34] = [
     ("key_p50_ms", gate(3.0, 1.5)),
     ("key_p99_ms", gate(6.5, 12.0)),
     ("type_p99_ms", gate(3.0, 4.0)),
+    ("del_p99_ms", gate(3.0, 4.0)),
+    ("ime_preedit_p99_ms", gate(3.0, 4.0)),
+    ("prompt_type_p99_ms", gate(3.0, 4.0)),
+    ("mx_type_p99_ms", gate(3.0, 4.0)),
+    ("file_prompt_type_p99_ms", gate(3.0, 4.0)),
+    ("win4_key_p99_ms", gate(6.5, 12.0)),
+    ("win4_type_p99_ms", gate(3.0, 4.0)),
+    ("win16_key_p99_ms", gate(6.5, 12.0)),
+    ("win16_type_p99_ms", gate(3.0, 4.0)),
+    ("win16_other_p99_ms", gate(6.5, 12.0)),
     ("syntax_type_p99_ms", gate(3.0, 4.0)),
     ("syntax_prepare_p99_ms", gate(3.0, 4.0)),
+    ("indent_ret_p99_ms", gate(3.0, 4.0)),
     ("startup_ms", gate(4.25, 1030.0)),
     ("open_first_screen_ms", gate(4.75, 44.0)),
     ("open_full_load_ms", gate(4.0, 530.0)),
@@ -66,18 +96,61 @@ const MACOS: [(&str, Threshold); 20] = [
     ("big_keys_max_ms", FREEZE),
     ("big_type_p99_ms", gate(4.5, 12.0)),
     ("big_type_max_ms", FREEZE),
+    ("big_del_p99_ms", gate(4.5, 12.0)),
     ("line_load_ms", gate(2.25, 235.0)),
     ("line_keys_p99_ms", gate(6.75, 18.0)),
     ("line_keys_max_ms", FREEZE),
     ("line_type_p99_ms", gate(6.75, 18.0)),
     ("line_type_max_ms", FREEZE),
+    ("line_del_p99_ms", gate(6.75, 18.0)),
     ("big_trip_max_ms", FREEZE),
+    ("line_trip_max_ms", FREEZE),
+    ("dev_build_ms", gate(4.25, 3500.0)),
+];
+/// A Mac with a real GPU, as `just perf-remote` runs on (ADR 0123): the same rule over 6
+/// runs of the same code there, but never under 1.5 times and 1 ms. `RET` with indentation
+/// was not measured there yet and takes typing's; the build is timed without a GPU, so its
+/// line is the runner's and stays unused.
+const REFERENCE_MAC: [(&str, Threshold); 34] = [
+    ("key_p50_ms", gate(1.5, 1.0)),
+    ("key_p99_ms", gate(1.5, 1.0)),
+    ("type_p99_ms", gate(1.5, 1.0)),
+    ("del_p99_ms", gate(1.5, 1.0)),
+    ("ime_preedit_p99_ms", gate(1.5, 1.0)),
+    ("prompt_type_p99_ms", gate(1.5, 1.0)),
+    ("mx_type_p99_ms", gate(1.5, 1.0)),
+    ("file_prompt_type_p99_ms", gate(2.25, 5.25)),
+    ("win4_key_p99_ms", gate(1.5, 1.0)),
+    ("win4_type_p99_ms", gate(1.5, 1.0)),
+    ("win16_key_p99_ms", gate(1.5, 1.0)),
+    ("win16_type_p99_ms", gate(1.5, 1.0)),
+    ("win16_other_p99_ms", gate(1.5, 1.0)),
+    ("syntax_type_p99_ms", gate(1.5, 1.0)),
+    ("syntax_prepare_p99_ms", gate(1.5, 1.0)),
+    ("indent_ret_p99_ms", gate(1.5, 1.0)),
+    ("startup_ms", gate(1.5, 17.5)),
+    ("open_first_screen_ms", gate(2.0, 5.0)),
+    ("open_full_load_ms", gate(1.5, 41.0)),
+    ("big_load_ms", gate(1.5, 160.0)),
+    ("big_keys_p99_ms", gate(1.5, 1.0)),
+    ("big_keys_max_ms", FREEZE),
+    ("big_type_p99_ms", gate(1.5, 1.0)),
+    ("big_type_max_ms", FREEZE),
+    ("big_del_p99_ms", gate(1.5, 1.0)),
+    ("line_load_ms", gate(1.5, 9.75)),
+    ("line_keys_p99_ms", gate(2.0, 1.5)),
+    ("line_keys_max_ms", FREEZE),
+    ("line_type_p99_ms", gate(1.5, 1.0)),
+    ("line_type_max_ms", FREEZE),
+    ("line_del_p99_ms", gate(1.5, 1.0)),
+    ("big_trip_max_ms", FREEZE),
+    ("line_trip_max_ms", FREEZE),
     ("dev_build_ms", gate(4.25, 3500.0)),
 ];
 /// Windows has no control socket yet (ADR 0032), so only the build is timed.
 const WINDOWS: [(&str, Threshold); 1] = [("dev_build_ms", gate(2.25, 2775.0))];
 
-/// The one budget CI enforces, on a real GPU only (ADR 0025).
+/// The budget CI holds every key's latency to, on a real GPU only (ADR 0025, ADR 0123).
 const KEY_P99: &str = "key_p99_ms";
 
 /// One line of the comparison.
@@ -165,9 +238,14 @@ fn describe(gpu: &Gpu) -> String {
     format!("{} ({})", gpu.name, gpu.kind)
 }
 
-fn threshold(os: &str, name: &str) -> Option<Threshold> {
-    let gates: &[(&str, Threshold)] = match os {
+fn hardware(report: &Report) -> bool {
+    report.gpu.as_ref().is_some_and(Gpu::is_hardware)
+}
+
+fn threshold(report: &Report, name: &str) -> Option<Threshold> {
+    let gates: &[(&str, Threshold)] = match report.os.as_str() {
         "linux" => &LINUX,
+        "macos" if hardware(report) => &REFERENCE_MAC,
         "macos" => &MACOS,
         _ => &WINDOWS,
     };
@@ -175,6 +253,15 @@ fn threshold(os: &str, name: &str) -> Option<Threshold> {
         .iter()
         .find(|(gated, _)| *gated == name)
         .map(|(_, threshold)| *threshold)
+}
+
+/// The budget `name` is held to on a real GPU: a key's latency, as every 99th percentile in
+/// [`BUDGETS`] is.
+fn key_budget(name: &str) -> Option<f64> {
+    let budget = BUDGETS.iter().find(|(budgeted, _)| *budgeted == name);
+    budget
+        .filter(|_| name.ends_with("_p99_ms"))
+        .map(|(_, budget)| *budget)
 }
 
 fn regressed(threshold: Threshold, base: f64, new: f64) -> bool {
@@ -232,12 +319,9 @@ fn usable<'a>(base: &'a Baseline, new: &Report) -> (Option<&'a Report>, String) 
 pub fn compare(base: &Baseline, new: &Report) -> Comparison {
     let (usable, note) = usable(base, new);
     let mut notes = vec![note];
-    let hardware = new.gpu.as_ref().is_some_and(Gpu::is_hardware);
-    let budget = BUDGETS
-        .iter()
-        .find(|(name, _)| *name == KEY_P99)
-        .map_or(f64::INFINITY, |(_, budget)| *budget);
+    let hardware = hardware(new);
     if !hardware && new.metrics.contains_key(KEY_P99) {
+        let budget = key_budget(KEY_P99).unwrap_or(f64::INFINITY);
         notes.push(format!(
             "No hardware GPU: the {budget} ms key latency budget is not checked here."
         ));
@@ -249,8 +333,9 @@ pub fn compare(base: &Baseline, new: &Report) -> Comparison {
             let old = usable
                 .and_then(|base| base.metrics.get(name))
                 .map(|m| m.value);
-            let gate = threshold(&new.os, name);
-            let status = if name == KEY_P99 && hardware && metric.value > budget {
+            let gate = threshold(new, name);
+            let budget = key_budget(name).filter(|_| hardware);
+            let status = if budget.is_some_and(|budget| metric.value > budget) {
                 Status::OverBudget
             } else if let (Some(gate), Some(old)) = (gate, old)
                 && regressed(gate, old, metric.value)
@@ -272,7 +357,7 @@ pub fn compare(base: &Baseline, new: &Report) -> Comparison {
     let gone = usable
         .iter()
         .flat_map(|base| &base.metrics)
-        .filter(|(name, _)| threshold(&new.os, name).is_some() && !new.metrics.contains_key(*name));
+        .filter(|(name, _)| threshold(new, name).is_some() && !new.metrics.contains_key(*name));
     rows.extend(gone.map(|(name, metric)| Row {
         name: name.clone(),
         base: Some(metric.value),
@@ -355,7 +440,44 @@ mod tests {
             gates.iter().map(|(name, _)| *name).collect()
         };
         assert_eq!(names(&super::LINUX), names(&super::MACOS));
+        assert_eq!(names(&super::LINUX), names(&super::REFERENCE_MAC));
         assert_eq!(names(&super::WINDOWS), ["dev_build_ms"]);
+    }
+
+    #[test]
+    fn a_mac_with_a_real_gpu_has_tighter_thresholds() {
+        let mac = |value, gpu| {
+            let mut report = report(&[("win16_type_p99_ms", value)], gpu);
+            report.os = "macos".into();
+            report
+        };
+        let reference = |value| mac(value, MAC);
+        let runner = |value| mac(value, ("Apple Paravirtual device", "integrated"));
+        assert!(compare(&Baseline::Report(reference(3.0)), &reference(5.0)).failed());
+        assert!(!compare(&Baseline::Report(reference(3.0)), &reference(4.5)).failed());
+        assert!(!compare(&Baseline::Report(runner(3.0)), &runner(5.0)).failed());
+    }
+
+    #[test]
+    fn every_key_budget_applies_on_a_real_gpu() {
+        let over = |name| report(&[(name, 9.0)], MAC);
+        for name in [
+            "win16_type_p99_ms",
+            "file_prompt_type_p99_ms",
+            "big_del_p99_ms",
+        ] {
+            assert_eq!(
+                status(&over(name), &over(name), name),
+                Status::OverBudget,
+                "{name}"
+            );
+            let software = report(&[(name, 9.0)], LAVAPIPE);
+            assert_eq!(status(&software, &software, name), Status::Ok, "{name}");
+        }
+        // Not a key's latency: a frame's preparation has no budget of its own.
+        let prepare = over("syntax_prepare_p99_ms");
+        let status = status(&prepare, &prepare, "syntax_prepare_p99_ms");
+        assert_eq!(status, Status::Ok);
     }
 
     #[test]

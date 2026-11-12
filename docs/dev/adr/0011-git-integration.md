@@ -1,6 +1,6 @@
 # 0011. Git integration
 
-- Status: Accepted
+- Status: Accepted, amended by 0122
 - Date: 2026-11-03
 
 ## Context

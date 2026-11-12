@@ -3,6 +3,8 @@
 //! difference is what colour costs (ADR 0111): per key, mapping the highlights through the edit
 //! and posting a job; per frame, a seek in the highlights per row and a step per run. Typing
 //! and the frames' preparation with colour are gated as plain typing is; the rest is reported.
+//! Also `RET` in the same file, which indents by Rust's rules (ADR 0115), gated as typing is
+//! (ADR 0123).
 //!
 //! Must not depend on: anything but the harness's own pacing, from the module above, and its
 //! temporary directory, which is removed however the phase ends.
@@ -95,6 +97,10 @@ pub(super) fn highlighted_typing(
             t["load"]["done_us"].is_u64()
         })?;
         middle_of_the_file(&mut app)?;
+        // RET indents in a Rust file (ADR 0115): off, the typing is what it measured before,
+        // and the text grows by what the keys type. `indent_ret_*` measures RET with it.
+        let params = json!({ "name": "electric-indent-mode", "arg": -1 });
+        app.call("run-command", Some(params))?;
         wait_for_highlights(&mut app)?;
         let mut rng = Lcg(run as u64 + 1);
         // Each phase goes first in every other run, so neither has the warmer caches.
@@ -113,6 +119,60 @@ pub(super) fn highlighted_typing(
     }
     add(report, "syntax", &on);
     add(report, "syntax_off", &off);
+    Ok(())
+}
+
+/// `RET` in the middle of a large Rust file, which indents each new line by Rust's rules
+/// (ADR 0115), in new processes, as `indent_ret_*`. Its 99th percentile is gated as typing
+/// is (ADR 0123); the rest is reported.
+pub(super) fn indented_returns(
+    exe: &std::path::Path,
+    runs: usize,
+    count: usize,
+    report: &mut Report,
+) -> Result<(), String> {
+    log_step("RET with indentation in a large Rust file");
+    let dir =
+        TempDir::new("indent").map_err(|e| format!("cannot create a temporary directory: {e}"))?;
+    let path = dir.file("big.rs");
+    let mut text = String::with_capacity(BYTES + CODE.len());
+    while text.len() < BYTES {
+        text.push_str(CODE);
+    }
+    std::fs::write(&path, text.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut all = Vec::new();
+    for run in 0..runs {
+        let mut app = App::start(exe, Some(&path))?;
+        app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
+            t["load"]["done_us"].is_u64()
+        })?;
+        middle_of_the_file(&mut app)?;
+        let mut rng = Lcg(run as u64 + 1);
+        for _ in 0..4 {
+            app.send_keys("RET")?;
+            thread::sleep(KEY_PACE);
+        }
+        settle(&mut app, &mut Samples::default())?;
+        let mut samples = Samples::default();
+        for _ in 0..count {
+            app.send_keys("RET")?;
+            let jitter = rng.below(KEY_JITTER_MS) as u64;
+            thread::sleep(KEY_PACE + Duration::from_millis(jitter));
+        }
+        settle(&mut app, &mut samples)?;
+        if samples.latency.len() != count {
+            let drew = samples.latency.len();
+            return Err(format!("{count} RET keys drew {drew} frames"));
+        }
+        all.push(samples);
+        app.stop();
+    }
+    let each = |pick: fn(&Samples) -> &Vec<f64>, at: f64| -> Vec<f64> {
+        all.iter().map(|run| percentile(pick(run), at)).collect()
+    };
+    report.add("indent_ret_p50_ms", each(|s| &s.latency, 50.0));
+    report.add("indent_ret_p99_ms", each(|s| &s.latency, 99.0));
+    report.add("indent_ret_handle_p99_ms", each(|s| &s.handled, 99.0));
     Ok(())
 }
 

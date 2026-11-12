@@ -103,6 +103,7 @@ impl App {
         self.run_held_completion(event_loop);
         self.ask_for_a_frame_if_status_changed();
         self.draw_flash_if_due();
+        self.show_jump_labels_if_due();
         // Last, once every deadline is known.
         self.set_wake(event_loop);
         self.note_logging();
@@ -178,6 +179,7 @@ impl App {
         let deadlines = [
             self.leaving.next_wake(),
             self.flash.next_wake(),
+            self.jump_timer.next_wake(),
             self.reload_deadline(),
             self.quiet_walk_deadline(),
         ];

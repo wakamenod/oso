@@ -1,14 +1,19 @@
-//! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108) and
-//! whitespace cleanup on save (ADR 0113).
+//! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108),
+//! whitespace cleanup on save (ADR 0113) and jumps' keys and timeout (ADR 0116). Indentation's
+//! are in `indentation` (ADR 0115).
 //! Each is `None` where the file leaves it out or gives a bad value, so the caller keeps its own.
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
 //! (ADR 0108's "Settings and run-time choices").
 
+use std::time::Duration;
+
+use oso_core::jump::Keys;
 use toml::Spanned;
 use toml::de::DeValue;
 
-use super::problems::{Found, quoted};
+use super::indentation::{Indent, Modes};
+use super::problems::{Found, cut, quoted};
 use super::{table, type_name, unknown};
 
 /// Every setting the file holds.
@@ -22,6 +27,21 @@ pub struct Settings {
     pub agent_channel_start: Option<bool>,
     /// `[save]`.
     pub save: Save,
+    /// `[jump]`.
+    pub jump: Jump,
+    /// `[indent]` (ADR 0115).
+    pub indent: Indent,
+    /// `[modes.<mode>]`'s indentation (ADR 0115).
+    pub modes: Modes,
+}
+
+/// `[jump]`: how jumps label and read (ADR 0116).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Jump {
+    /// `keys`: the keys labels are typed with.
+    pub keys: Option<Keys>,
+    /// `timeout`: how long a jump reads its string after the last key.
+    pub timeout: Option<Duration>,
 }
 
 /// `[save]`: what a save does besides writing (ADR 0113).
@@ -180,8 +200,78 @@ pub(super) fn save(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Save {
     save
 }
 
+/// `[jump]`.
+pub(super) fn jump(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Jump {
+    let mut jump = Jump::default();
+    let Some(entries) = table(value, "[jump]", found) else {
+        return jump;
+    };
+    for (name, value) in entries {
+        match name.get_ref().as_ref() {
+            "keys" => jump.keys = jump_keys(value, found),
+            "timeout" => jump.timeout = timeout(value, found),
+            other => unknown(found, name.span().start, other, "[jump]"),
+        }
+    }
+    jump
+}
+
+/// `[jump] keys`: 2 to 32 distinct printable ASCII characters, none of them an action's key.
+fn jump_keys(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<Keys> {
+    let at = value.span().start;
+    let DeValue::String(keys) = value.get_ref() else {
+        found.at(
+            at,
+            format_args!(
+                "[jump] keys takes a string of keys, not {}",
+                type_name(value.get_ref())
+            ),
+        );
+        return None;
+    };
+    Keys::new(keys)
+        .map_err(|error| found.at(at, format_args!("[jump] keys {}", cut(error))))
+        .ok()
+}
+
+/// The shortest and longest `[jump] timeout`, in seconds (ADR 0116).
+const TIMEOUT_SECONDS: std::ops::RangeInclusive<f64> = 0.1..=5.0;
+
+/// `[jump] timeout`: seconds, a whole number or not, from 0.1 to 5.
+fn timeout(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<Duration> {
+    let refuse = |found: &mut Found, what: &dyn std::fmt::Display| {
+        found.at(
+            value.span().start,
+            format_args!("[jump] timeout takes a number of seconds from 0.1 to 5, not {what}"),
+        );
+        None
+    };
+    let (seconds, spelled): (f64, &dyn std::fmt::Display) = match value.get_ref() {
+        // One too large for an `i32` is out of range all the same.
+        DeValue::Integer(n) => (
+            i64::from_str_radix(n.as_str(), n.radix())
+                .ok()
+                .and_then(|n| i32::try_from(n).ok())
+                .map_or(f64::INFINITY, f64::from),
+            n,
+        ),
+        DeValue::Float(n) => (n.as_str().parse().unwrap_or(f64::NAN), n),
+        other => return refuse(found, &type_name(other)),
+    };
+    if !TIMEOUT_SECONDS.contains(&seconds) {
+        // The file's own spelling of the number, cut.
+        return refuse(found, &cut(spelled));
+    }
+    Some(Duration::from_secs_f64(seconds))
+}
+
 /// A setting that is `true` or `false`.
-fn switch(value: &Spanned<DeValue<'_>>, table: &str, key: &str, found: &mut Found) -> Option<bool> {
+pub(super) fn switch(
+    value: &Spanned<DeValue<'_>>,
+    table: &str,
+    key: &str,
+    found: &mut Found,
+) -> Option<bool> {
     if let DeValue::Boolean(on) = value.get_ref() {
         return Some(*on);
     }

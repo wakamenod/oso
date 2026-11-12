@@ -15,6 +15,7 @@ pub fn oso_core::buffer::DiskState::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 impl core::marker::Copy for oso_core::buffer::DiskState
 impl core::marker::StructuralPartialEq for oso_core::buffer::DiskState
 pub enum oso_core::buffer::EditError
+pub oso_core::buffer::EditError::Abandoned
 pub oso_core::buffer::EditError::NoRedo
 pub oso_core::buffer::EditError::NoSuchBuffer
 pub oso_core::buffer::EditError::NoUndo
@@ -46,6 +47,7 @@ pub oso_core::buffer::Mode::Rust
 pub oso_core::buffer::Mode::Toml
 impl oso_core::buffer::Mode
 pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
+pub fn oso_core::buffer::Mode::indent_rules(self) -> core::option::Option<fn(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>>
 pub fn oso_core::buffer::Mode::name(self) -> &'static str
 pub fn oso_core::buffer::Mode::shows_copies(self) -> bool
 impl core::clone::Clone for oso_core::buffer::Mode
@@ -129,6 +131,7 @@ pub fn oso_core::buffer::Buffer::file_info(&self) -> oso_core::decode::FileInfo
 pub fn oso_core::buffer::Buffer::finish_empty(&mut self)
 pub fn oso_core::buffer::Buffer::from_bytes(impl core::convert::Into<alloc::string::String>, &[u8]) -> Self
 pub fn oso_core::buffer::Buffer::from_text(impl core::convert::Into<alloc::string::String>, &str) -> Self
+pub fn oso_core::buffer::Buffer::indent_settings(&self) -> oso_core::indent::Settings
 pub fn oso_core::buffer::Buffer::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::buffer::Buffer::is_modified(&self) -> bool
 pub fn oso_core::buffer::Buffer::is_saving(&self) -> bool
@@ -143,6 +146,7 @@ pub fn oso_core::buffer::Buffer::path(&self) -> core::option::Option<&std::path:
 pub fn oso_core::buffer::Buffer::read_only(&self) -> core::option::Option<oso_core::buffer::ReadOnly>
 pub fn oso_core::buffer::Buffer::revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::set_baseline(&mut self, oso_core::buffer::Baseline)
+pub fn oso_core::buffer::Buffer::set_indent_settings(&mut self, oso_core::indent::Settings)
 pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell::TabWidth
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::verdict(&self) -> oso_core::buffer::Verdict
@@ -1069,6 +1073,19 @@ impl core::fmt::Display for oso_core::editor::CannotResize
 pub fn oso_core::editor::CannotResize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CannotResize
 impl core::marker::StructuralPartialEq for oso_core::editor::CannotResize
+pub enum oso_core::editor::Chose
+pub oso_core::editor::Chose::Jumped
+pub oso_core::editor::Chose::Narrowed
+pub oso_core::editor::Chose::NoSuch
+impl core::clone::Clone for oso_core::editor::Chose
+pub fn oso_core::editor::Chose::clone(&self) -> oso_core::editor::Chose
+impl core::cmp::Eq for oso_core::editor::Chose
+impl core::cmp::PartialEq for oso_core::editor::Chose
+pub fn oso_core::editor::Chose::eq(&self, &oso_core::editor::Chose) -> bool
+impl core::fmt::Debug for oso_core::editor::Chose
+pub fn oso_core::editor::Chose::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Chose
+impl core::marker::StructuralPartialEq for oso_core::editor::Chose
 pub enum oso_core::editor::CursorError
 pub oso_core::editor::CursorError::Counting
 pub oso_core::editor::CursorError::Loading
@@ -1164,6 +1181,7 @@ impl core::fmt::Debug for oso_core::editor::ProjectPreviewRead
 pub fn oso_core::editor::ProjectPreviewRead::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_core::editor::Quit
 pub oso_core::editor::Quit::Cursors
+pub oso_core::editor::Quit::Jump
 pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
 pub oso_core::editor::Quit::Region
@@ -1351,6 +1369,13 @@ impl core::fmt::Debug for oso_core::editor::CompletionStyle
 pub fn oso_core::editor::CompletionStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CompletionStyle
 impl core::marker::StructuralPartialEq for oso_core::editor::CompletionStyle
+pub struct oso_core::editor::Crossing
+impl oso_core::editor::Crossing
+pub fn oso_core::editor::Crossing::done(&self) -> f32
+pub fn oso_core::editor::Crossing::left(&self) -> usize
+pub fn oso_core::editor::Crossing::redo(&self) -> bool
+impl core::fmt::Debug for oso_core::editor::Crossing
+pub fn oso_core::editor::Crossing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -1454,6 +1479,11 @@ pub fn oso_core::editor::Editor::tiling(&self) -> oso_core::frame::Tiling
 pub fn oso_core::editor::Editor::wheel_window(&self, core::option::Option<(usize, usize)>) -> oso_core::window::WindowId
 pub fn oso_core::editor::Editor::windmove(&mut self, oso_core::frame::Side) -> core::result::Result<(), oso_core::editor::NoWindow>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::begin_crossing(&mut self, isize) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::cancel_crossing(&mut self) -> bool
+pub fn oso_core::editor::Editor::crossing(&self) -> core::option::Option<&oso_core::editor::Crossing>
+pub fn oso_core::editor::Editor::go_on_crossing(&mut self) -> core::option::Option<core::result::Result<(), oso_core::buffer::EditError>>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::buffers_by_recency(&self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::home(&self) -> core::option::Option<&std::path::Path>
@@ -1554,6 +1584,14 @@ pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::
 pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::skip_like_this(&mut self, oso_core::editor::Toward) -> core::result::Result<(), oso_core::editor::CursorError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::electric_indent(&self) -> bool
+pub fn oso_core::editor::Editor::indent_for_tab(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::indent_typed_closers(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
+pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) -> core::result::Result<bool, oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::set_electric_indent(&mut self, bool)
+pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings); 4])
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
 pub fn oso_core::editor::Editor::file_looked(&mut self, &std::path::Path, alloc::vec::Vec<(alloc::string::String, oso_core::editor::Looked)>)
@@ -1611,6 +1649,18 @@ pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Op
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::jump(&self) -> core::option::Option<&oso_core::jump::Jump>
+pub fn oso_core::editor::Editor::jump_add(&mut self, &str)
+pub fn oso_core::editor::Editor::jump_begin(&mut self, oso_core::jump::Kind, bool) -> bool
+pub fn oso_core::editor::Editor::jump_choose(&mut self, char) -> oso_core::editor::Chose
+pub fn oso_core::editor::Editor::jump_delete(&mut self) -> bool
+pub fn oso_core::editor::Editor::jump_end(&mut self) -> bool
+pub fn oso_core::editor::Editor::jump_refuse(&mut self) -> bool
+pub fn oso_core::editor::Editor::jump_show_labels(&mut self)
+pub fn oso_core::editor::Editor::set_jump_keys(&mut self, oso_core::jump::Keys)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::jump_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::JumpCells)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::kill_list_open(&self) -> bool
 pub fn oso_core::editor::Editor::kill_preview(&self, u64, usize, usize) -> alloc::vec::Vec<alloc::string::String>
@@ -1750,6 +1800,25 @@ pub fn oso_core::editor::Isearch::string(&self) -> &str
 pub fn oso_core::editor::Isearch::wrapped(&self) -> bool
 impl core::fmt::Debug for oso_core::editor::Isearch
 pub fn oso_core::editor::Isearch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::JumpCells
+pub oso_core::editor::JumpCells::labels: alloc::vec::Vec<oso_core::editor::LabelCells>
+pub oso_core::editor::JumpCells::matches: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::JumpCells::text: alloc::string::String
+impl core::default::Default for oso_core::editor::JumpCells
+pub fn oso_core::editor::JumpCells::default() -> oso_core::editor::JumpCells
+impl core::fmt::Debug for oso_core::editor::JumpCells
+pub fn oso_core::editor::JumpCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::LabelCells
+pub oso_core::editor::LabelCells::cells: oso_core::frame::CellRect
+pub oso_core::editor::LabelCells::keys: core::ops::range::Range<usize>
+impl core::clone::Clone for oso_core::editor::LabelCells
+pub fn oso_core::editor::LabelCells::clone(&self) -> oso_core::editor::LabelCells
+impl core::cmp::Eq for oso_core::editor::LabelCells
+impl core::cmp::PartialEq for oso_core::editor::LabelCells
+pub fn oso_core::editor::LabelCells::eq(&self, &oso_core::editor::LabelCells) -> bool
+impl core::fmt::Debug for oso_core::editor::LabelCells
+pub fn oso_core::editor::LabelCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::LabelCells
 pub struct oso_core::editor::Leftover
 pub struct oso_core::editor::Looked
 pub oso_core::editor::Looked::annotation: alloc::string::String
@@ -2242,6 +2311,7 @@ pub fn oso_core::indent::Answer::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::indent::Answer
 impl core::marker::StructuralPartialEq for oso_core::indent::Answer
 pub enum oso_core::indent::Line
+pub oso_core::indent::Line::Empty(usize)
 pub oso_core::indent::Line::New(usize)
 pub oso_core::indent::Line::Row(usize)
 impl core::clone::Clone for oso_core::indent::Line
@@ -2316,6 +2386,94 @@ pub fn oso_core::indent::markdown(&oso_core::rope::Rope, oso_core::indent::Setti
 pub fn oso_core::indent::markdown_stops(&oso_core::rope::Rope, oso_core::indent::Settings, usize, &mut oso_core::indent::Budget) -> alloc::vec::Vec<usize>
 pub fn oso_core::indent::rust(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
 pub fn oso_core::indent::toml(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>
+pub mod oso_core::jump
+pub enum oso_core::jump::KeysError
+pub oso_core::jump::KeysError::Action(char)
+pub oso_core::jump::KeysError::Count(usize)
+pub oso_core::jump::KeysError::NotPrintable(char)
+pub oso_core::jump::KeysError::Twice(char)
+impl core::clone::Clone for oso_core::jump::KeysError
+pub fn oso_core::jump::KeysError::clone(&self) -> oso_core::jump::KeysError
+impl core::cmp::Eq for oso_core::jump::KeysError
+impl core::cmp::PartialEq for oso_core::jump::KeysError
+pub fn oso_core::jump::KeysError::eq(&self, &oso_core::jump::KeysError) -> bool
+impl core::error::Error for oso_core::jump::KeysError
+impl core::fmt::Debug for oso_core::jump::KeysError
+pub fn oso_core::jump::KeysError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::jump::KeysError
+pub fn oso_core::jump::KeysError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::jump::KeysError
+impl core::marker::StructuralPartialEq for oso_core::jump::KeysError
+pub enum oso_core::jump::Kind
+pub oso_core::jump::Kind::Char
+pub oso_core::jump::Kind::Isearch
+pub oso_core::jump::Kind::LineEnd
+pub oso_core::jump::Kind::LineStart
+impl core::clone::Clone for oso_core::jump::Kind
+pub fn oso_core::jump::Kind::clone(&self) -> oso_core::jump::Kind
+impl core::cmp::Eq for oso_core::jump::Kind
+impl core::cmp::PartialEq for oso_core::jump::Kind
+pub fn oso_core::jump::Kind::eq(&self, &oso_core::jump::Kind) -> bool
+impl core::fmt::Debug for oso_core::jump::Kind
+pub fn oso_core::jump::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::jump::Kind
+impl core::marker::StructuralPartialEq for oso_core::jump::Kind
+pub enum oso_core::jump::Stage
+pub oso_core::jump::Stage::Labels
+pub oso_core::jump::Stage::Reading
+impl core::clone::Clone for oso_core::jump::Stage
+pub fn oso_core::jump::Stage::clone(&self) -> oso_core::jump::Stage
+impl core::cmp::Eq for oso_core::jump::Stage
+impl core::cmp::PartialEq for oso_core::jump::Stage
+pub fn oso_core::jump::Stage::eq(&self, &oso_core::jump::Stage) -> bool
+impl core::fmt::Debug for oso_core::jump::Stage
+pub fn oso_core::jump::Stage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::jump::Stage
+impl core::marker::StructuralPartialEq for oso_core::jump::Stage
+pub struct oso_core::jump::Jump
+impl oso_core::jump::Jump
+pub fn oso_core::jump::Jump::around_secret(&self) -> bool
+pub fn oso_core::jump::Jump::count(&self) -> usize
+pub fn oso_core::jump::Jump::gives_goto_line(&self, char) -> bool
+pub fn oso_core::jump::Jump::kind(&self) -> oso_core::jump::Kind
+pub fn oso_core::jump::Jump::labelled(&self) -> usize
+pub fn oso_core::jump::Jump::stage(&self) -> oso_core::jump::Stage
+impl core::fmt::Debug for oso_core::jump::Jump
+pub fn oso_core::jump::Jump::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::jump::Keys(_)
+impl oso_core::jump::Keys
+pub fn oso_core::jump::Keys::as_str(&self) -> &str
+pub fn oso_core::jump::Keys::new(&str) -> core::result::Result<Self, oso_core::jump::KeysError>
+impl core::clone::Clone for oso_core::jump::Keys
+pub fn oso_core::jump::Keys::clone(&self) -> oso_core::jump::Keys
+impl core::cmp::Eq for oso_core::jump::Keys
+impl core::cmp::PartialEq for oso_core::jump::Keys
+pub fn oso_core::jump::Keys::eq(&self, &oso_core::jump::Keys) -> bool
+impl core::default::Default for oso_core::jump::Keys
+pub fn oso_core::jump::Keys::default() -> Self
+impl core::fmt::Debug for oso_core::jump::Keys
+pub fn oso_core::jump::Keys::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::jump::Keys
+pub struct oso_core::jump::Labels
+impl oso_core::jump::Labels
+pub fn oso_core::jump::Labels::get(&self, usize) -> core::option::Option<&[u8]>
+pub fn oso_core::jump::Labels::is_empty(&self) -> bool
+pub fn oso_core::jump::Labels::len(&self) -> usize
+pub fn oso_core::jump::Labels::new(usize, usize) -> Self
+impl core::clone::Clone for oso_core::jump::Labels
+pub fn oso_core::jump::Labels::clone(&self) -> oso_core::jump::Labels
+impl core::cmp::Eq for oso_core::jump::Labels
+impl core::cmp::PartialEq for oso_core::jump::Labels
+pub fn oso_core::jump::Labels::eq(&self, &oso_core::jump::Labels) -> bool
+impl core::default::Default for oso_core::jump::Labels
+pub fn oso_core::jump::Labels::default() -> oso_core::jump::Labels
+impl core::fmt::Debug for oso_core::jump::Labels
+pub fn oso_core::jump::Labels::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::jump::Labels
+pub const oso_core::jump::MAX_KEYS: usize
+pub const oso_core::jump::MAX_LABELLED: usize
+pub const oso_core::jump::MAX_STRING: usize
+pub const oso_core::jump::MIN_KEYS: usize
 pub mod oso_core::key
 pub enum oso_core::key::Key
 pub oso_core::key::Key::Char(char)

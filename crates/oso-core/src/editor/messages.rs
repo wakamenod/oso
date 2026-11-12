@@ -258,19 +258,27 @@ impl Editor {
                 isearch.note_secret();
             }
             self.replace_note_secret();
+            if let Some(jump) = &mut self.jump {
+                jump.around_secret = true;
+            }
         }
     }
 
     /// Whether anything the control socket would show was around a buffer that may hold
     /// secrets, as [`Editor::keys_withheld`], [`Editor::preedit_withheld`] and
-    /// [`Prompt::around_secret`](crate::minibuffer::Prompt::around_secret) say, so that a
-    /// picture of the screen is refused too.
+    /// [`Prompt::around_secret`](crate::minibuffer::Prompt::around_secret) and a jump's
+    /// [`Jump::around_secret`](crate::jump::Jump::around_secret) say, so that a picture of the
+    /// screen is refused too.
     pub fn around_secret(&self) -> bool {
         self.keys_withheld
             || self.preedit_withheld
             || self.prompts.iter().any(|prompt| prompt.around_secret)
             || self.isearch.as_ref().is_some_and(Isearch::around_secret)
             || self.replace().is_some_and(super::Replace::around_secret)
+            || self
+                .jump
+                .as_ref()
+                .is_some_and(crate::jump::Jump::around_secret)
     }
 
     /// What the echo area shows.

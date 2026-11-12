@@ -244,6 +244,7 @@ impl App {
         }
         let reads_input = self.editor.prompt().is_some()
             || self.editor.isearch().is_some()
+            || self.editor.jump().is_some()
             || self.editor.replace().is_some();
         wants_ime(
             self.editor.current().1,

@@ -128,6 +128,11 @@ pub enum Line {
     /// makes: the text before the offset is the line it leaves, the text after it,
     /// past spaces and tabs, the new line's.
     New(usize),
+    /// The empty line a break at this offset would leave between the text before it and a
+    /// new line holding the text after it, as `RET` between brackets opens (`{|}`): the text
+    /// before the offset is the line it leaves, and nothing follows on it. Asked before
+    /// `New` at the same offset, it is the line that `New`'s line leaves.
+    Empty(usize),
 }
 
 /// Where a line's indentation goes.
@@ -249,5 +254,23 @@ pub fn fundamental(
 mod fixed_point;
 #[cfg(test)]
 mod rust_tests;
+pub(crate) use pass::MAX_COLUMN;
+
+/// Whether each of `offsets`, ascending, of a Markdown buffer is inside a fenced code block,
+/// within the budget: false past it.
+pub(crate) fn markdown_fenced(rope: &Rope, settings: Settings, offsets: &[usize]) -> Vec<bool> {
+    markdown::fenced(rope, settings, offsets, &mut Budget::new())
+}
+
+/// The indentation that `pieces`, a line's text from its start in order, starts with: its
+/// length in bytes and the display column it reaches. Spaces and tabs only, never U+3000, a
+/// tab reaching the next stop of `tab_width`; the rules count indentation the same way.
+pub(crate) fn indentation<'a>(
+    pieces: impl IntoIterator<Item = &'a str>,
+    tab_width: TabWidth,
+) -> (usize, usize) {
+    pass::lead(pieces, tab_width)
+}
+
 #[cfg(test)]
 mod tests;

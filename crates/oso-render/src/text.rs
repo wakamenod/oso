@@ -58,6 +58,19 @@ pub(crate) struct GlyphInstance {
 }
 
 impl GlyphInstance {
+    /// What stays of the quad inside `rect`, or `None` if nothing does.
+    pub(crate) fn cut_to(self, rect: PixelRect) -> Option<Self> {
+        let [x, y] = self.position;
+        let (cut_x, width) = clip_axis(x, self.size[0], rect.x, rect.x + rect.width)?;
+        let (cut_y, height) = clip_axis(y, self.size[1], rect.y, rect.y + rect.height)?;
+        Some(Self {
+            position: [x + cut_x, y + cut_y],
+            size: [width, height],
+            uv: [self.uv[0] + cut_x, self.uv[1] + cut_y],
+            ..self
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn position(&self) -> [f32; 2] {
         self.position

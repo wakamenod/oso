@@ -1,6 +1,5 @@
 //! The phase of the key benchmark that types into `C-x C-f` over a directory of 100,000 names,
-//! which a worker builds and matches (ADR 0096). Only reported, until the author sets a
-//! threshold.
+//! which a worker builds and matches (ADR 0096). Gated as typing is (ADR 0123).
 //!
 //! Must not depend on: anything but the harness's own pacing and settling, from the module
 //! above, and its temporary directories, which are removed however the phase ends.

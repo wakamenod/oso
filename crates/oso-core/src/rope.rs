@@ -401,7 +401,8 @@ impl Rope {
         self.line_end(row) - self.line_start(row)
     }
 
-    fn byte_at(&self, offset: usize) -> Option<u8> {
+    /// The byte at `offset`, if there is one. O(log n).
+    pub(crate) fn byte_at(&self, offset: usize) -> Option<u8> {
         if offset >= self.len() {
             return None;
         }

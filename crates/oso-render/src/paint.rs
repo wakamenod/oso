@@ -752,4 +752,76 @@ mod tests {
         let below = i32::from(red(&pixels, 33, 72));
         assert!(below < paper, "its shadow still shows below it: {below}");
     }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_labels_cells_show_nothing_of_the_rows_beside_it() {
+        use crate::pane::{CursorStyle, TextView};
+        use oso_core::buffer::Buffer;
+        use oso_core::display_map::DisplayPoint;
+        use oso_core::window::{Screen, ViewSize, ViewTop};
+
+        // Each glyph reaches past its row, as stacked marks do: 4 px into the row above and
+        // 2 px into the row below.
+        let buffer = Buffer::from_text("t", "xxxx\nxxxx\nxxxx");
+        let mut screen = Screen::default();
+        screen.show_lines(&buffer.display(), ViewTop::default(), ViewSize::new(3, 6));
+        // On row 1, columns 0 and 1, x 8..28 and y 28..48. The space draws no key.
+        let label = (
+            CellRect {
+                row: 1,
+                column: 0,
+                rows: 1,
+                columns: 2,
+            },
+            Span {
+                text: "a ",
+                face: Face::JumpLabel,
+            },
+        );
+        let labels = [label];
+        let panes = [Pane {
+            content: PaneContent::Text(TextView {
+                display: buffer.display(),
+                buffer: oso_core::editor::Editor::default().window().buffer(),
+                revision: 1,
+                screen: &screen,
+                cursor: DisplayPoint::new(1000, 0),
+                cursor_style: CursorStyle::Box,
+                others: &[],
+                preedit: None,
+                fills: &[],
+                labels: &labels,
+                whitespace: false,
+                flash: None,
+                highlights: None,
+            }),
+            ..pane(0, (0, 0, 3, 6), 0, Some(Face::Text), &[])
+        }];
+        let pixels = draw(&panes);
+        let fill = theme().background(Face::JumpLabel);
+        assert_is(&pixels, (22, 27), INK(), "the row above, beside the label");
+        assert_is(
+            &pixels,
+            (22, 28),
+            fill,
+            "the label's top, where the row above reaches",
+        );
+        assert_is(
+            &pixels,
+            (22, 47),
+            fill,
+            "its bottom, where the row below reaches",
+        );
+        assert_is(&pixels, (22, 48), INK(), "the row below");
+        let key = theme().foreground(Face::JumpLabel);
+        assert_is(&pixels, (12, 28), key, "the key, over the row above");
+        assert_is(&pixels, (12, 47), key, "the key, over the row below");
+        assert_is(
+            &pixels,
+            (32, 47),
+            INK(),
+            "the row below reaches up past the label",
+        );
+    }
 }

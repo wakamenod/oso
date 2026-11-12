@@ -200,6 +200,12 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   the matches over an O(1) snapshot, superseded by the next job through a generation. A frame
   searches only the rows in view for the highlights. A search ends when its window shows another
   buffer or a prompt opens.
+- **Jumps by label** (`Editor::jump`, `oso_core::jump`,
+  [ADR 0116](adr/0116-migemo-and-jumps.md)) are a mode of the selected window too, with their own
+  keymap. A key finds the candidates in every tiled window's rows in view, within 256 KiB a window
+  and 1 MiB a jump, nearest the window's primary cursor first, and labels them with avy's tree; a
+  frame draws only those found. The tip crate runs the timer that shows the labels
+  (`app/jumps.rs`).
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
@@ -287,7 +293,8 @@ A panicking command is caught at the command boundary
   minor mode layer of digits while a prefix argument is typed, a major mode layer in the
   buffers that show emergency copies and in a prompt, and a layer for the user's keys, which
   the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
-  take the global layer's place, so that no other key reaches a command.
+  take the global layer's place, so that no other key reaches a command. While a jump is on, its
+  keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.
@@ -568,8 +575,10 @@ The UI thread never blocks on I/O or parsing:
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row, and a report draws a frame only
-  if a window shows runs it changed. Buffers that may hold secrets and
-  files over 2 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
+  parsed again, with their own grammars, wherever the worker highlights. Buffers that may
+  hold secrets and files over 2 MiB are not parsed
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -603,8 +612,8 @@ read. See [ADR 0019](adr/0019-configuration.md).
   value of each it leaves out) and applies only those a look changes, so a choice made at run
   time stands. The theme shown last is remembered with the configured default then, in
   `oso/theme`, and wins at start while that default is the file's.
-- Indentation ([ADR 0115](adr/0115-indentation.md); its rules are built, its keys come in later
-  steps): each buffer has an indentation setting, from the EditorConfig files that apply to it,
+- Indentation ([ADR 0115](adr/0115-indentation.md); its rules, `TAB`, `RET` and `C-j` are built,
+  the region commands and EditorConfig come in later steps): each buffer has an indentation setting, from the EditorConfig files that apply to it,
   then the configuration's `[modes.<mode>]`, then the defaults. The loader reads the EditorConfig files from the file's
   directory up, with project detection's stops, before it builds the display map; parsing and
   matching are a pure function in `oso_core::editorconfig`. Indentation itself is computed on the UI
