@@ -5,8 +5,11 @@
 //! records what it takes and feeds what this gives back; this keeps the events, their
 //! bounds, and the undo step a replay makes.
 //!
-//! - Nothing here logs an event, and no `Debug` prints one: a macro recorded around a buffer
-//!   that may hold secrets holds what was typed there.
+//! - Nothing is recorded in a buffer that may hold secrets: input that goes to one drops the
+//!   recording, as a passphrase prompt does. Nothing here logs an event, and no `Debug`
+//!   prints one.
+//! - A replay never answers a question and never types a passphrase: it does not start, and
+//!   it stops, while one is asked.
 //! - A macro lives in memory only, and `oso dev` does not carry it.
 
 use std::fmt;
@@ -14,6 +17,7 @@ use std::fmt;
 use super::Editor;
 use crate::buffer::{BufferId, ContentId};
 use crate::key::KeyPress;
+use crate::minibuffer::Kind;
 
 /// The most events a recording holds.
 pub const MAX_MACRO_EVENTS: usize = 100_000;
@@ -53,6 +57,8 @@ pub enum MacroError {
     NoMacro,
     /// A macro command while a macro is replayed.
     Replaying,
+    /// `C-x e` while a question or a passphrase is asked, which a replay never answers.
+    Asking,
 }
 
 impl fmt::Display for MacroError {
@@ -62,17 +68,19 @@ impl fmt::Display for MacroError {
             Self::NotRecording => "Not defining a keyboard macro",
             Self::NoMacro => "No keyboard macro defined",
             Self::Replaying => "A keyboard macro is running",
+            Self::Asking => "No keyboard macro while a question is asked",
         })
     }
 }
+
+/// Why a recording grown too large is dropped.
+const TOO_LONG: &str = "Keyboard macro too long; not recorded";
 
 /// A recorded macro.
 #[derive(Clone, Default)]
 struct Macro {
     events: Vec<MacroEvent>,
     text_bytes: usize,
-    /// It was recorded while a buffer that may hold secrets was shown.
-    secret: bool,
 }
 
 /// A replay under way.
@@ -115,11 +123,7 @@ impl Editor {
         if self.macros.recording.is_some() {
             return Err(MacroError::AlreadyRecording);
         }
-        let secret = self.shows_secret();
-        self.macros.recording = Some(Macro {
-            secret,
-            ..Macro::default()
-        });
+        self.macros.recording = Some(Macro::default());
         self.echo("Defining keyboard macro...");
         Ok(())
     }
@@ -153,27 +157,73 @@ impl Editor {
     }
 
     /// Adds `events` to the recording, as the dispatcher took them. Past
-    /// [`MAX_MACRO_EVENTS`] or [`MAX_MACRO_TEXT`], the recording is dropped.
+    /// [`MAX_MACRO_EVENTS`] or [`MAX_MACRO_TEXT`], or when they went to a buffer that may hold
+    /// secrets, the recording is dropped.
     pub fn macro_record(&mut self, events: impl IntoIterator<Item = MacroEvent>) {
-        let secret = self.shows_secret();
+        if self.macros.recording.is_none() {
+            return;
+        }
+        if self.typing_in_secret() {
+            self.macro_cancel(
+                "Keyboard macro not recorded: typed in a buffer that may hold secrets",
+            );
+            return;
+        }
         let Some(recording) = &mut self.macros.recording else {
             return;
         };
-        recording.secret |= secret;
         for event in events {
-            if let MacroEvent::Text { text, .. } = &event {
-                recording.text_bytes += text.len();
+            let bytes = match &event {
+                MacroEvent::Text { text, .. } => text.len(),
+                MacroEvent::Key(_) => 0,
+            };
+            if recording.events.len() >= MAX_MACRO_EVENTS
+                || recording.text_bytes + bytes > MAX_MACRO_TEXT
+            {
+                self.macro_cancel(TOO_LONG);
+                return;
             }
+            recording.text_bytes += bytes;
             recording.events.push(event);
-        }
-        if recording.events.len() > MAX_MACRO_EVENTS || recording.text_bytes > MAX_MACRO_TEXT {
-            self.macro_cancel("Keyboard macro too long; not recorded");
         }
     }
 
-    /// Whether the last macro was recorded around a buffer that may hold secrets.
-    pub fn macro_secret(&self) -> bool {
-        self.macros.last.as_ref().is_some_and(|last| last.secret)
+    /// Whether text of `bytes` would still fit in the recording: past it, the recording is
+    /// dropped now, before the text is copied.
+    pub fn macro_takes_text(&mut self, bytes: usize) -> bool {
+        let Some(recording) = &self.macros.recording else {
+            return false;
+        };
+        if recording.text_bytes.saturating_add(bytes) > MAX_MACRO_TEXT {
+            self.macro_cancel(TOO_LONG);
+            return false;
+        }
+        true
+    }
+
+    /// Whether input goes to a buffer that may hold secrets: the selected window's, or with a
+    /// prompt open, the one's it was opened over.
+    fn typing_in_secret(&self) -> bool {
+        let beneath = self.prompts.first().and_then(|prompt| {
+            self.windows
+                .iter()
+                .find(|window| window.id() == prompt.beneath)
+        });
+        self.current().1.is_secret() || beneath.is_some_and(|window| self.shown(window).is_secret())
+    }
+
+    /// Whether a question or a passphrase is asked, which a replay never answers.
+    pub(crate) fn asks_the_person(&self) -> bool {
+        self.prompts
+            .iter()
+            .any(|prompt| prompt.kind == Kind::Passphrase || prompt.kind.is_question())
+    }
+
+    /// A passphrase prompt opened: nothing typed there is recorded, and no replay types it
+    /// (ADR 0072).
+    pub(super) fn macro_passphrase_asked(&mut self) {
+        self.macro_cancel("Keyboard macro not recorded: a passphrase was asked for");
+        self.macro_stop(Some("Keyboard macro stopped at a passphrase prompt"));
     }
 
     /// Starts replaying the last macro `count` times, or with `None`, until something stops
@@ -181,11 +231,14 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// [`MacroError::NoMacro`], [`MacroError::Replaying`] or
-    /// [`MacroError::AlreadyRecording`]. Nothing changes.
+    /// [`MacroError::NoMacro`], [`MacroError::Replaying`], [`MacroError::AlreadyRecording`]
+    /// or [`MacroError::Asking`]. Nothing changes.
     pub fn macro_call(&mut self, count: Option<usize>) -> Result<(), MacroError> {
         if self.macros.replay.is_some() {
             return Err(MacroError::Replaying);
+        }
+        if self.asks_the_person() {
+            return Err(MacroError::Asking);
         }
         if self.macros.recording.is_some() {
             return Err(MacroError::AlreadyRecording);

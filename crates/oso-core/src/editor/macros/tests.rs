@@ -1,11 +1,13 @@
 //! Tests of keyboard macros on the editor (ADR 0113): recording, its bounds, replaying with a
-//! count, and what a replay changed undoing as one step.
+//! count, what a replay changed undoing as one step, and secrets, questions and passphrases.
 //!
 //! Must not depend on: `command` or `keymap`; the dispatcher records and feeds in the tip crate.
 
-use super::{MAX_MACRO_EVENTS, MacroError, MacroEvent};
+use super::super::test_buffers::secret_buffer;
+use super::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 use crate::buffer::{Buffer, Replacement};
 use crate::editor::Editor;
+use crate::minibuffer::Kind;
 
 fn text_event(text: &str) -> MacroEvent {
     MacroEvent::Text {
@@ -100,4 +102,66 @@ fn no_macro_command_runs_inside_a_replay_or_a_replay_inside_a_recording() {
     editor.macro_call(Some(1)).unwrap();
     assert_eq!(editor.macro_start(), Err(MacroError::Replaying));
     assert_eq!(format!("{:?}", text_event("secret")), "Text");
+}
+
+/// An editor with a last macro that types "x".
+fn with_macro() -> Editor {
+    let mut editor = editor();
+    editor.macro_start().unwrap();
+    editor.macro_record([text_event("x")]);
+    editor.macro_end().unwrap();
+    editor
+}
+
+#[test]
+fn text_past_the_byte_cap_drops_the_recording_before_it_is_copied() {
+    let mut editor = with_macro();
+    editor.macro_start().unwrap();
+    assert!(editor.macro_takes_text(MAX_MACRO_TEXT));
+    assert!(!editor.macro_takes_text(MAX_MACRO_TEXT + 1));
+    assert!(!editor.macro_recording());
+    editor.macro_start().unwrap();
+    editor.macro_record([text_event(&"a".repeat(MAX_MACRO_TEXT / 2))]);
+    editor.macro_record([text_event(&"a".repeat(MAX_MACRO_TEXT / 2 + 1))]);
+    assert!(!editor.macro_recording());
+    editor.macro_call(Some(1)).unwrap();
+    assert_eq!(editor.macro_next(), Some(text_event("x")), "the last stays");
+}
+
+#[test]
+fn input_to_a_buffer_that_may_hold_secrets_drops_the_recording() {
+    let mut editor = Editor::with_buffer(secret_buffer());
+    editor.macro_start().unwrap();
+    editor.macro_record([text_event("hunter2")]);
+    assert!(!editor.macro_recording());
+    assert_eq!(editor.macro_call(Some(1)), Err(MacroError::NoMacro));
+}
+
+#[test]
+fn no_replay_starts_while_a_question_or_a_passphrase_is_asked() {
+    let mut editor = with_macro();
+    editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
+    assert_eq!(editor.macro_call(Some(1)), Err(MacroError::Asking));
+    editor.quit();
+    editor
+        .open_prompt("Passphrase: ", Kind::Passphrase)
+        .unwrap();
+    assert_eq!(editor.macro_call(Some(1)), Err(MacroError::Asking));
+}
+
+#[test]
+fn a_passphrase_prompt_drops_the_recording_and_stops_a_replay_as_it_opens() {
+    let mut editor = with_macro();
+    editor.macro_start().unwrap();
+    editor
+        .open_prompt("Passphrase: ", Kind::Passphrase)
+        .unwrap();
+    assert!(!editor.macro_recording());
+    editor.quit();
+    editor.macro_call(None).unwrap();
+    assert!(editor.macro_next().is_some());
+    editor
+        .open_prompt("Passphrase: ", Kind::Passphrase)
+        .unwrap();
+    assert!(!editor.macro_replaying());
 }

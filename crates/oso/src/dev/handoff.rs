@@ -426,7 +426,11 @@ fn under_way(editor: &Editor) -> Option<&'static str> {
         None
     }
 }
+
+/// Why a restart waits for a keyboard macro: a new instance would lose the recording, or
+/// stop the replay part way (ADR 0113).
 const MACRO: &str = "cannot hand over: a keyboard macro is being recorded or run";
+
 /// Why a restart waits while the frame is split: the state carries one window until its
 /// version 4 carries the layout (ADR 0112), and a reader refuses more.
 const SPLIT: &str = "cannot hand over: the frame has more than one window";

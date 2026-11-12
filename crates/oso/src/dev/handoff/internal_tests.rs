@@ -253,3 +253,27 @@ fn a_split_frame_holds_the_handover_until_the_state_carries_its_layout() {
         Ok(json!({ "generation": before, "unsaved": false }))
     );
 }
+
+#[test]
+fn a_keyboard_macro_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = Editor::default();
+    let before = generation(&editor);
+    editor.macro_start().unwrap();
+    let held = Err("cannot hand over: a keyboard macro is being recorded or run".into());
+    assert_eq!(check(&editor), held);
+    let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+    assert!(
+        refused.ends_with("a keyboard macro is being recorded or run"),
+        "{refused}"
+    );
+    editor.macro_record([oso_core::editor::MacroEvent::Text {
+        text: "x".into(),
+        commit: false,
+    }]);
+    editor.macro_end().unwrap();
+    assert!(check(&editor).is_ok());
+    editor.macro_call(None).unwrap();
+    assert_eq!(check(&editor), held);
+    editor.macro_stop(None);
+    assert!(check(&editor).is_ok());
+}

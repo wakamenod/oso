@@ -69,6 +69,9 @@ impl Editor {
         }
         let around_secret = self.shows_secret();
         let passphrase = kind == Kind::Passphrase;
+        if passphrase {
+            self.macro_passphrase_asked();
+        }
         let buffer = self.add_buffer(Buffer::prompt(format!(" *Minibuf-{depth}*"), passphrase));
         let beneath = self.windows[self.selected].id();
         let window = self.new_window(buffer);

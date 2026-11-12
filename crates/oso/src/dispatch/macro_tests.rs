@@ -7,6 +7,9 @@
 use std::time::{Duration, Instant};
 
 use oso_core::editor::Editor;
+use oso_core::kill::{Fingerprint, FromClipboard};
+use oso_core::minibuffer::Kind;
+use oso_core::rope::Rope;
 
 use super::Dispatcher;
 use super::motion_tests::{at, send, text};
@@ -122,4 +125,100 @@ fn a_passphrase_prompt_drops_the_recording() {
     let (mut d, mut editor) = at("\n", &[0]);
     send(&mut d, &mut editor, "C-x ( a <f34>");
     assert!(!editor.macro_recording(), "nothing typed there is kept");
+}
+
+/// Runs a replay to its end, answering each clipboard read with `yanked`.
+fn replay_yanking(d: &mut Dispatcher, editor: &mut Editor, yanked: &str) {
+    let until = Instant::now() + Duration::from_secs(10);
+    while editor.macro_replaying() {
+        d.replay(editor, until);
+        if d.take_clipboard_request().is_some() {
+            d.clipboard_answered(editor, &clipboard(yanked));
+        }
+    }
+}
+
+fn clipboard(text: &str) -> FromClipboard {
+    FromClipboard::Text {
+        text: Rope::from(text),
+        concealed: false,
+        fingerprint: Fingerprint {
+            len: text.len(),
+            hash: 7,
+        },
+    }
+}
+
+#[test]
+fn a_key_held_while_the_clipboard_is_read_is_recorded_once() {
+    let (mut d, mut editor) = at("\n", &[0]);
+    send(&mut d, &mut editor, "C-x ( C-y");
+    assert!(d.take_clipboard_request().is_some());
+    send(&mut d, &mut editor, "a");
+    d.clipboard_answered(&mut editor, &clipboard("Y"));
+    send(&mut d, &mut editor, "C-x )");
+    assert_eq!(text(&editor), "Ya\n");
+    send(&mut d, &mut editor, "C-x e");
+    replay_yanking(&mut d, &mut editor, "Y");
+    assert_eq!(text(&editor), "YaYa\n");
+}
+
+#[test]
+fn e_over_a_question_answers_it_and_runs_no_macro() {
+    let (mut d, mut editor) = at("\n", &[0]);
+    send(&mut d, &mut editor, "C-x ( a C-x ) C-x e");
+    replay(&mut d, &mut editor);
+    editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
+    send(&mut d, &mut editor, "e");
+    assert!(!editor.macro_replaying());
+    assert!(editor.prompt().is_some(), "the question is still asked");
+    assert_eq!(editor.tiled().1.text().to_string(), "aa\n");
+}
+
+#[test]
+fn a_replay_feeds_nothing_once_a_question_or_a_passphrase_prompt_opened() {
+    for passphrase in [false, true] {
+        let (mut d, mut editor) = at("\n", &[0]);
+        send(&mut d, &mut editor, "C-x ( y C-x ) C-u 0 C-x e");
+        d.replay(&mut editor, Instant::now() + Duration::from_millis(1));
+        let before = text(&editor);
+        if passphrase {
+            editor
+                .open_prompt("Passphrase: ", Kind::Passphrase)
+                .unwrap();
+        } else {
+            editor
+                .ask("Let it in?", "save-buffers-kill-terminal")
+                .unwrap();
+        }
+        d.replay(&mut editor, Instant::now() + Duration::from_secs(1));
+        assert!(!editor.macro_replaying());
+        assert_eq!(editor.tiled().1.text().to_string(), before);
+        let typed = editor
+            .buffer(editor.prompt().unwrap().buffer())
+            .unwrap()
+            .text()
+            .to_string();
+        assert_eq!(typed, "", "nothing went to the prompt");
+    }
+}
+
+#[test]
+fn c_g_during_bang_in_a_replay_stops_the_replay_first() {
+    let (mut d, mut editor) = at(&"a ".repeat(3000), &[0]);
+    send(&mut d, &mut editor, "C-x ( M-% a RET b RET !");
+    while editor.replace_works() {
+        editor.replace_continue();
+    }
+    d.run_held_during_all(&mut editor);
+    send(&mut d, &mut editor, "C-x ) C-z M-<");
+    assert_eq!(text(&editor), "a ".repeat(3000));
+    send(&mut d, &mut editor, "C-x e");
+    d.replay(&mut editor, Instant::now() + Duration::from_secs(1));
+    assert!(editor.replace_works(), "`!` runs its slices");
+    send(&mut d, &mut editor, "C-g");
+    assert!(!editor.macro_replaying(), "C-g stopped the replay");
+    assert!(editor.replace_works(), "and not yet `!`");
+    send(&mut d, &mut editor, "C-g");
+    assert!(!editor.replace_works());
 }

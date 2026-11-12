@@ -58,6 +58,15 @@ impl MacroInput {
     }
 }
 
+/// Whether a question or a passphrase prompt is open, which a replay never answers and `e`
+/// never runs one over.
+fn asking(editor: &Editor) -> bool {
+    editor
+        .prompts()
+        .iter()
+        .any(|prompt| prompt.kind() == Kind::Passphrase || prompt.kind().is_question())
+}
+
 /// The key that runs the last macro again right after it ran: `e`, as Emacs's
 /// `kmacro-call-repeat-key`.
 fn repeat_key() -> Option<KeyPress> {
@@ -68,11 +77,14 @@ impl Dispatcher {
     /// Text from a key or an input method, recorded in a keyboard macro as it comes (ADR 0113),
     /// and run as one command: an undo step of its own if an input method `commit`ted it.
     pub(super) fn take_text(&mut self, editor: &mut Editor, text: &str, commit: bool) -> Effects {
-        let event = MacroEvent::Text {
+        let event = || MacroEvent::Text {
             text: text.to_owned(),
             commit,
         };
-        // Held while `!` runs, it is recorded when it runs.
+        if let Some(done) = self.macro_before(editor, (None, event)) {
+            return done;
+        }
+        // Held while `!` runs, or while a command waits, it is recorded when it runs.
         let held = super::hold_all::Held::Text {
             text: text.to_owned(),
             commit,
@@ -80,11 +92,12 @@ impl Dispatcher {
         if let Some(done) = self.hold_during_all(editor, held) {
             return done;
         }
-        if let Some(done) = self.macro_before(editor, &event) {
-            return done;
-        }
         if self.hold_text(text, commit) {
             return Effects::default();
+        }
+        if editor.macro_recording() && !self.macros.replaying && editor.macro_takes_text(text.len())
+        {
+            self.macros.group.push(event());
         }
         let step = if commit {
             super::Step::Apart
@@ -107,20 +120,21 @@ impl Dispatcher {
         }
     }
 
-    /// Before `event` from the window is taken: held while a replay runs, `C-g` stopping it,
-    /// or `e` running the last macro again right after `C-x e`. Returns what it did, if it took
-    /// the event.
+    /// Before an event from the window is taken, ahead of anything that holds it: held while
+    /// a replay runs, `C-g` stopping it, or `e` running the last macro again right after
+    /// `C-x e`. Returns what it did, if it took the event. One that goes on is recorded once
+    /// nothing holds it.
     pub(super) fn macro_before(
         &mut self,
         editor: &mut Editor,
-        event: &MacroEvent,
+        (key, event): (Option<KeyPress>, impl FnOnce() -> MacroEvent),
     ) -> Option<Effects> {
         if self.macros.replaying {
             return None;
         }
         let repeat = self.macros.repeat.take();
         if editor.macro_replaying() {
-            if matches!(event, MacroEvent::Key(key) if is_cancel(*key)) {
+            if key.is_some_and(is_cancel) {
                 editor.macro_stop(Some("Keyboard macro stopped"));
                 self.macros.held.clear();
                 return Some(Effects {
@@ -128,13 +142,15 @@ impl Dispatcher {
                     ..Effects::default()
                 });
             }
-            self.macros.held.push_back(event.clone());
+            self.macros.held.push_back(event());
             return Some(Effects::default());
         }
-        if let (MacroEvent::Key(key), Some(again), Some(call)) = (event, repeat, self.macros.call)
-            && *key == again
+        // A question or a passphrase prompt takes the key, as a replay never answers one.
+        if let (Some(key), Some(again), Some(call)) = (key, repeat, self.macros.call)
+            && key == again
             && self.resolver.pending().is_empty()
             && self.prefix.is_none()
+            && !asking(editor)
         {
             let (effects, _) = self.execute(
                 editor,
@@ -145,27 +161,26 @@ impl Dispatcher {
             );
             return Some(effects);
         }
-        self.macros.group.push(event.clone());
         None
     }
 
+    /// Notes a key as part of the current command's input, for a recording, once nothing
+    /// held it.
+    pub(super) fn macro_key(&mut self, editor: &Editor, key: KeyPress) {
+        if editor.macro_recording() && !self.macros.replaying {
+            self.macros.group.push(MacroEvent::Key(key));
+        }
+    }
+
     /// After input from the window was taken: once its command has run, what it took goes into
-    /// the recording, unless it ran a macro command. A passphrase prompt drops the recording,
-    /// so nothing typed there is kept (ADR 0072).
+    /// the recording, unless it ran a macro command. A passphrase prompt dropped the recording
+    /// as it opened, and input that went to a buffer that may hold secrets drops it here.
     pub(super) fn macro_after(&mut self, editor: &mut Editor) {
         if self.macros.replaying || !self.resolver.pending().is_empty() || self.prefix.is_some() {
             return;
         }
         let group = std::mem::take(&mut self.macros.group);
         if std::mem::take(&mut self.macros.command_ran) || !editor.macro_recording() {
-            return;
-        }
-        if editor
-            .prompts()
-            .iter()
-            .any(|prompt| prompt.kind() == Kind::Passphrase)
-        {
-            editor.macro_cancel("Keyboard macro not recorded: a passphrase was asked for");
             return;
         }
         editor.macro_record(group);
@@ -193,17 +208,7 @@ impl Dispatcher {
         if editor.isearch().is_some_and(|search| search.failing()) {
             return Some(None);
         }
-        let prompts = editor.prompts();
-        if prompts
-            .iter()
-            .any(|prompt| prompt.kind() == Kind::Passphrase)
-        {
-            return Some(Some("Keyboard macro stopped at a passphrase prompt"));
-        }
-        if prompts.iter().any(|prompt| prompt.kind().is_question()) {
-            return Some(None);
-        }
-        None
+        asking(editor).then_some(None)
     }
 
     /// Feeds the replay's events until `until`, or until one must wait or stops it. Once it
@@ -212,6 +217,11 @@ impl Dispatcher {
         let mut effects = Effects::default();
         while editor.macro_replaying() && Instant::now() < until {
             if self.replay_waits(editor) {
+                break;
+            }
+            // Whatever opened a question or a passphrase prompt, the replay answers neither.
+            if asking(editor) {
+                editor.macro_stop(None);
                 break;
             }
             let Some(event) = editor.macro_next() else {

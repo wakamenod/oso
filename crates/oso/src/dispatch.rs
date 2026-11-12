@@ -473,15 +473,17 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
-        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
+        // A replay takes a key from the window first: `C-g` stops it before anything else.
+        if let Some(done) = self.macro_before(editor, (Some(key), || MacroEvent::Key(key))) {
             return done;
         }
-        if let Some(done) = self.macro_before(editor, &MacroEvent::Key(key)) {
+        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
             return done;
         }
         if self.hold_key(key) {
             return Effects::default();
         }
+        self.macro_key(editor, key);
         let effects = self.as_input(editor, |this, editor| this.resolve_key(editor, key));
         self.macro_after(editor);
         effects

@@ -8,11 +8,19 @@ use std::time::Instant;
 
 use serde_json::Value;
 
+use oso_core::editor::Editor;
 use oso_platform::control::PeerProcess;
 
 use super::super::{App, UserEvent};
 use super::CONNECTION_VERBS;
 use crate::channel;
+
+/// Whether the question about a connection waits: for a prompt to close, for keys `typing`
+/// or a composition, and for a keyboard macro, as a replay never answers it and a recording
+/// would keep the answer.
+fn question_waits(editor: &Editor, typing: bool) -> bool {
+    editor.prompt().is_some() || typing || editor.macro_recording() || editor.macro_replaying()
+}
 
 impl App {
     /// Starts the channel at launch, as the configuration file called `file` says
@@ -110,18 +118,18 @@ impl App {
         self.editor.message("Agent channel off");
     }
 
-    /// Asks about the waiting connection once no prompt is open and no keys are in progress,
-    /// and takes the person's answer once its question has closed.
+    /// Asks about the waiting connection once no prompt is open, no keys are in progress and
+    /// no keyboard macro is recorded or replayed, and takes the person's answer once its question has closed.
     pub(super) fn ask_about_a_connection(&mut self) {
         let Some(asking) = &self.agent.asking else {
             return;
         };
         match asking.question {
             None => {
-                if self.editor.prompt().is_some()
-                    || self.dispatcher.keys_in_progress()
-                    || self.composing()
-                {
+                if question_waits(
+                    &self.editor,
+                    self.dispatcher.keys_in_progress() || self.composing(),
+                ) {
                     return;
                 }
                 let label = channel::question::connection(&asking.peer);
@@ -158,5 +166,32 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::buffer::Buffer;
+    use oso_core::editor::{Editor, MacroEvent};
+
+    use super::question_waits;
+
+    #[test]
+    fn the_question_about_a_connection_waits_for_a_keyboard_macro() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", ""));
+        assert!(!question_waits(&editor, false));
+        assert!(question_waits(&editor, true));
+        editor.macro_start().unwrap();
+        assert!(question_waits(&editor, false), "while recording");
+        editor.macro_record([MacroEvent::Text {
+            text: "y".into(),
+            commit: false,
+        }]);
+        editor.macro_end().unwrap();
+        assert!(!question_waits(&editor, false));
+        editor.macro_call(None).unwrap();
+        assert!(question_waits(&editor, false), "while replaying");
+        editor.macro_stop(None);
+        assert!(!question_waits(&editor, false));
     }
 }
