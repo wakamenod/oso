@@ -458,8 +458,9 @@ Limits for crafted input, each saying what it hides:
   `walk` in `[oso]`.
 - **`oso-syntax`** gains documents no buffer owns, for the old side and files not open (new public
   API, this ADR; its items are approved at step 8).
-- **`oso_core::window` and `oso_core::frame`** gain a pair of windows that scroll together (new
-  public API, this ADR; its items are approved at step 10).
+- **`oso_core::window` and `oso_core::editor`** gain a pair of windows that scroll together (new
+  public API, this ADR; its items were approved at step 10). `oso_core::frame` keeps the pair in
+  its tree with nothing public.
 - **`oso-platform::process`** gains a piped standard input and variables set by value.
 - **No new crate, no new crate edge, no new dependency** on the recommended options.
 
@@ -497,9 +498,9 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
    on-screen first, and reusing an open buffer's highlights.
 10. **A pair of windows that scroll together, in ADR 0112's tree** (Q7): two windows that move by
     a row map their owner gives, closed and resized together. A new public API of
-    `oso_core::window` and `oso_core::frame`; its items (expected: making and breaking a pair, the
-    row map's trait or type, and how a pair is laid out and saved across a restart) are listed for
-    the author's approval when this step starts.
+    `oso_core::window` and `oso_core::editor`, with nothing public in `oso_core::frame`; its items
+    (making and breaking a pair, the row map's type, and how a pair is laid out and saved across
+    a restart) were approved when this step started (see "As built").
 11. **The two-pane view and the automatic layout** (Q6): the filler rows, the 160 and 150 column
     rules, judging the width only on a change of it, and `|`.
 12. **Sending:** the message and its preview, and the Deliver seam's terminal implementation once
@@ -641,7 +642,7 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - Review state is written to the state directory, and holds code text from the reviewed files.
 - Two new public APIs wait for the author's approval at the start of their steps: documents no
   buffer owns in `oso-syntax` (step 8) and a pair of windows in `oso_core::window` and
-  `oso_core::frame` (step 10).
+  `oso_core::editor` (step 10, approved 2026-11-13).
 - Follow-up: the BlockMap if comments move there, ADR 0121's session and turn seams, posting to
   GitHub, and in-process review with `gix`.
 
@@ -840,3 +841,94 @@ through the coordinator).
   - Nothing is made or freed where documents open, show or close.
   - In the tip crate, two real threads: a crafted document that fails as too slow, beside a
     shown buffer that is highlighted first, and a second document that waits for it.
+
+### Step 10: a pair of windows that scroll together
+
+A pair is two tiled windows whose buffer lines line up by a row map their owner gives, closed and
+resized together, in ADR 0112's tree. It is generic: nothing in it knows of a review, whose
+two-pane view and filler rows come in step 11. The author approved the public items as listed
+in the plan, and answered its questions (a), on 2026-11-13:
+
+1. **The row map is a type,** `window::RowMap`: aligned runs of lines, `(first's line, second's
+   line, lines)`, in order and apart on both sides (`RowMap::new`, refused with `BadRowMap`), or
+   every line the same line (`RowMap::same`), which a review's filler rows give. `second_of` and
+   `first_of` find a line on the other side by halving the runs. A line only one side has goes
+   line by line into the other side's gap, its last line taking the rest, or to the line after
+   the run before it when the other side has none there.
+2. **It maps buffer lines,** display rows before any wrap, so each window wraps at its own width
+   and the map stays true.
+3. **The other window's cursor follows.** After every command (`Editor::follow_cursor`), when
+   the selected window is in a pair and moved since its windows were last in step, the other
+   window's top goes to the start of the line aligned with the selected one's top, its left
+   column with the selected one's, and its primary cursor, alone, to the line aligned with the
+   selected one's cursor, at the same display column clamped to that line, with the selected
+   one's goal kept. Then it scrolls as little as shows its cursor, which a window a row shorter
+   or wrapped narrower may need. When the other window's top is on the aligned line already, it
+   stays, so a long wrapped line keeps the rows it shows. Not while a prompt is open, as ADR
+   0112's windows follow: a pair made, turned or given a map beneath a prompt moves in step
+   after the first command once it closes.
+   The wheel (`scroll_view`) moves the other window's view with the one it turns, and its
+   cursors into that view as the wheel moves any window's, but those of the window beneath a
+   prompt and of one with a preedit; sideways (`scroll_view_sideways`), its left column alone.
+   **Nothing moves in step while either window shows a buffer that may hold secrets,** checked
+   at each step as a verdict can change after pairing, so no position in one is carried into a
+   window the dev socket and the agent channel describe (ADR 0044, ADR 0079).
+4. **A pair resizes as one,** its windows kept the same, as one child of the run around it,
+   which `balance-windows` balances with the rest.
+5. **`C-x 2` and `C-x 3` in either window split the pair's area:** the new window goes below or
+   at the right of the whole pair, outside it.
+6. **Showing another buffer in either window breaks the pair,** whatever shows it (`C-x b`,
+   killing its buffer, a restart's `show_in`): both windows stay, as windows of their own, merged
+   into the run around them when it runs their way.
+7. **The handoff stays at version 4.** A pair goes over as two windows of their own in the same
+   cells, and its owner pairs as it opens once more: it shows one side, then calls
+   `pair_window`. What becomes of the windows left over when a review is restored is step 6's
+   to decide; pairing two windows that exist already would need a new public item, such as
+   `pair_windows`, for the author's approval then (the coordinator's call, 2026-11-13).
+8. **A frame too small for every window hides both windows of a pair together,** never the
+   selected window's pair. This holds but where the area could keep no window otherwise: in an
+   area smaller than both windows need (a frame of one row, say), one window of the pair shows
+   alone, as a run's first does, since an area always keeps a window: the selected window
+   when the pair holds it, and otherwise the first.
+
+What was built:
+
+- **`Editor::pair_window(way, buffer, map)`** splits the selected tiled window into a pair, the
+  new window at the right or below showing `buffer`, and refuses with `NoPair`: `TooSmall`
+  where a split would be, `Paired` for a window in a pair already, `NoBuffer`. The selected
+  window stays selected and leads at once. `pair_of` names the other window, `set_row_map`
+  gives a new map and moves the windows in step from the selected one, or the first,
+  `turn_pair` lays a pair side by side or stacked (`TooSmall` where either window would be
+  smaller than a split leaves), and `unpair(keep)` closes the other window, `keep` taking the
+  pair's cells, and its selection if the other had it.
+- **`C-x 0` in either window deletes both,** and selects the window selected most recently
+  before them; a pair that is the whole frame stays, as the only window does. `C-x 1` keeps
+  both. `C-x o` and `windmove` go through them as through any window.
+- **The tree** (`frame::Splits`) marks a pair's run, crate-private. A pair is never merged into
+  a run of its way, so a pair side by side sits in a run side by side as one child. Nothing in
+  `frame` is public for it. A pair is a level of the tree of its own, so a layout that holds
+  pairs reaches the handoff's 16 levels (`Tiling::MAX_DEPTH`), past which a restart waits, a
+  level sooner than the same windows unpaired would.
+- **Beneath a prompt, a pair holding the window beneath stays:** `unpair` returns false and
+  `delete_window` is refused, as for the sole window, so that what the prompt acts on keeps its
+  window and buffer. The window commands refuse inside a prompt anyway (ADR 0112); this keeps
+  the API from moving a prompt's window for any other caller.
+- **No change to the app:** the host calls `follow_cursor` and the wheel's methods as before,
+  and draws each window as before, so no end-to-end flow changed in this step.
+- **Cost:** a command's end looks the pair up among the pairs, and a window that did not move
+  since leads nothing. Moving in step is two lookups in the map, a seek for each line and one
+  view set, and the other window's rows are shaped again only when its view moved. A map is
+  built where its owner builds it, off the UI thread for a large one, as `RowMap::new` checks
+  every run; giving one to the editor moves it. In a release build, over two texts of 1 GB and
+  a map of a million runs, the end of a command costs microseconds more with a pair, and so
+  does a character on a 10 MB line both windows wrap.
+- **Tests:** the tree's property test also pairs, turns, breaks and unpairs, and checks that a
+  pair shows together and shares its cells; the map's runs map exactly and back, and keep lines
+  in order; on the editor, moving, scrolling a screen, isearch, the wheel up, down and
+  sideways, a prompt and a preedit, a short line and the end of the text, a wrapped window,
+  closing, splitting, breaking, unpairing, turning, the handoff, and a buffer that may hold
+  secrets in either window, from the start or later; and a property test that, whatever is
+  done to the windows, the editor's pairs are the tree's and show what they were paired with.
+  Two ignored tests time moving in step in a release build: over two texts of 1 GB and a map
+  of a million runs, and on a 10 MB line both windows wrap.
+

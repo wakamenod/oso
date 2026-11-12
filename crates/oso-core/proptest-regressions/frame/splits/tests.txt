@@ -7,3 +7,5 @@
 cc ca04bea6e3e8e6575226b8daf49d301fd12873bd6fed2587ffb1547df7462226 # shrinks to ops = [Split(0, true), Frame(1, 0)], gutter = 0
 cc 6c48a14264fcc685642756db593f091d8cd0e175a92cfff1f6e3c94522d8ec86 # shrinks to ops = [Split(0, false), Split(5, false), Split(0, true), Frame(7, 1)], gutter = 0
 cc e376c47d7b4943bdc9447b92a5ee6947f754ad2a3278e93a2c7781fd4c4fc7fb # shrinks to ops = [Split(0, false), Split(0, true), Split(0, false), Split(0, false), Remove(0), Split(4, true), Split(4, false), Split(0, true), Remove(0), Remove(3)], gutter = 0
+cc 45a50f499beb1aef188502f38cb01b42c27244a80ed795e97e2571b80637a66b # shrinks to ops = [Split(0, false), Split(0, true), Pair(0, false), Split(0, true), Resize(0, false, 0), Frame(1, 4)], gutter = 0
+cc f25c4a5810891cf1e3687a107bb6efc9d34805bee21f04d4ae5fecac95d616b5 # shrinks to ops = [Split(0, true), Pair(0, true), Split(0, false), Frame(8, 1)], gutter = 0
