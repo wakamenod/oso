@@ -362,6 +362,19 @@ impl Editor {
             .map(|(id, buffer)| (*id, buffer))
     }
 
+    /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
+    /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
+    /// that is not tiled or a buffer that does not exist.
+    pub fn show_in(&mut self, id: WindowId, buffer: BufferId) {
+        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
+            return;
+        };
+        if self.buffer(buffer).is_some() {
+            self.window_moves_on();
+            self.window_shows(index, buffer);
+        }
+    }
+
     /// Shows `buffer` in the selected window, where the window was in it the last time, or from
     /// its start, or in the window beneath an open prompt, whose own window always shows its own
     /// buffer (ADR 0072). Does nothing for an id that does not exist.

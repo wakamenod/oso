@@ -10,7 +10,7 @@ use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::Editor;
 use oso_core::selection::{MarkRing, Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
-use oso_core::window::Scroll;
+use oso_core::window::{Scroll, WindowId};
 
 /// Positions waiting for their file to load, since a cursor or a mark cannot sit in
 /// text that has not arrived. The file may also have changed since the export, so
@@ -18,12 +18,17 @@ use oso_core::window::Scroll;
 /// its positions apply at once.
 #[derive(Debug)]
 pub struct Restore {
+    /// The window the positions are for (ADR 0112).
+    pub window: WindowId,
     pub buffer: BufferId,
     pub selections: SelectionSet,
     pub scroll: Scroll,
     /// Whether the scroll's start is a logical line, from a state before version 3, which
     /// kept the top as a row.
     pub top_is_row: bool,
+    /// Where the window was when the positions began to wait, if they are to be dropped once
+    /// a person moves it: a later load must not take it from where it was taken (ADR 0112).
+    pub untouched: Option<(SelectionSet, Scroll)>,
 }
 
 /// `offset` moved to the start of the display cluster it is in, or the end.
@@ -33,12 +38,39 @@ fn clip(display: &DisplaySnapshot, offset: usize) -> usize {
 }
 
 impl Restore {
+    /// Whether the window is still where it was in the buffer when the positions began to wait:
+    /// it shows it there, or has gone to another buffer and keeps that place for this one, so
+    /// that a person's movement there, before or after, is never undone. Whether the positions
+    /// still stand.
+    pub fn stands(&self, editor: &Editor) -> bool {
+        let Some(window) = editor.window_by_id(self.window) else {
+            return false;
+        };
+        let (selections, scroll) = if window.buffer() == self.buffer {
+            (&window.selections, window.scroll())
+        } else {
+            match window.places().find(|(buffer, _)| *buffer == self.buffer) {
+                Some((_, place)) => (&place.selections, place.scroll),
+                None => return false,
+            }
+        };
+        self.untouched
+            .as_ref()
+            .is_none_or(|(untouched, top)| selections == untouched && scroll == *top)
+    }
+
     /// Moves the window to the positions if the buffer holds them by now, or, if the
     /// window has gone to another buffer meanwhile, the place it keeps for this one, which
-    /// showing it again gives back (ADR 0090). Returns whether this is over: restored, or the
-    /// window keeps no place for the buffer.
+    /// showing it again gives back (ADR 0090). The window need not be selected (ADR 0112).
+    /// Returns whether this is over: restored, or the window is gone, keeps no place for the
+    /// buffer, or was moved meanwhile, when they no longer stand.
     pub fn try_apply(&self, editor: &mut Editor) -> bool {
-        let window = editor.tiled().0;
+        if !self.stands(editor) {
+            return true;
+        }
+        let Some(window) = editor.window_by_id(self.window) else {
+            return true;
+        };
         let shown = window.buffer() == self.buffer;
         let kept = window.places().any(|(buffer, _)| buffer == self.buffer);
         let Some(buffer) = editor.buffer(self.buffer).filter(|_| shown || kept) else {
@@ -66,9 +98,9 @@ impl Restore {
             clip(&display, scroll.start)
         };
         if shown {
-            editor.restore_positions(selections, scroll);
+            editor.restore_positions_in(self.window, selections, scroll);
         } else {
-            editor.restore_kept_place(self.buffer, selections, scroll);
+            editor.restore_kept_place_in(self.window, self.buffer, selections, scroll);
         }
         true
     }

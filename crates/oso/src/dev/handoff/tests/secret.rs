@@ -41,10 +41,36 @@ fn a_secret_file_behind_messages_comes_back_unshown_with_no_position() {
     editor.toggle_messages();
     let exported = export(&editor, &[], None, None).unwrap();
     let state = parse(&exported).unwrap();
-    assert_eq!(state.paths()[state.shown], None);
+    assert_eq!(state.paths()[state.window().shown], None);
     assert!(state.paths().contains(&Some(PathBuf::from(&path))));
-    assert_eq!(state.selections, SelectionSet::default());
-    assert_eq!(state.scroll, Scroll::default());
+    assert_eq!(state.window().selections, SelectionSet::default());
+    assert_eq!(state.window().scroll, Scroll::default());
+}
+
+#[test]
+fn a_secret_file_behind_messages_in_a_window_not_selected_comes_back_with_no_position() {
+    let path = absolute("/p/.env");
+    let mut editor = visiting(&path, &"line\n".repeat(50));
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 24,
+        columns: 81,
+    });
+    editor.restore_positions(SelectionSet::new(25), Scroll { start: 10, left: 1 });
+    editor.toggle_messages();
+    // The window on `*Messages*`, with the secret file behind it, is not the selected one.
+    editor
+        .split_window(oso_core::frame::Way::Across, true)
+        .unwrap();
+    let scratch = editor.buffer_named("*scratch*").unwrap();
+    editor.show(scratch);
+    let exported = export(&editor, &[], None, None).unwrap();
+    let state = parse(&exported).unwrap();
+    assert_eq!(state.windows.windows.len(), 2);
+    assert_eq!(state.windows.selected, 1);
+    let behind = &state.windows.windows[0];
+    assert_eq!(state.paths()[behind.shown], None, "on scratch");
+    assert_eq!(behind.selections, SelectionSet::default());
+    assert_eq!(behind.scroll, Scroll::default());
 }
 
 /// A new instance that took `state`, as `import-state` builds it, with each file judged by its
@@ -60,7 +86,7 @@ fn imported(state: &State) -> Editor {
             buffer.judge_secret(Some(std::slice::from_ref(path)));
             editor.add_buffer(buffer)
         });
-        if index == state.shown {
+        if index == state.window().shown {
             shown = id;
         }
     }
@@ -98,15 +124,17 @@ fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
     editor.restore_positions(SelectionSet::new(25), Scroll { start: 10, left: 1 });
     let other = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
     let waiting = Restore {
+        window: editor.window().id(),
         buffer: other,
         selections: SelectionSet::new(600),
         scroll: Scroll { start: 40, left: 0 },
         top_is_row: false,
+        untouched: None,
     };
     editor.toggle_messages();
     let state = parse(&export(&editor, &[], None, Some(&waiting)).unwrap()).unwrap();
-    assert_eq!(state.selections, SelectionSet::default());
-    assert_eq!(state.scroll, Scroll::default());
+    assert_eq!(state.window().selections, SelectionSet::default());
+    assert_eq!(state.window().scroll, Scroll::default());
 }
 
 #[test]

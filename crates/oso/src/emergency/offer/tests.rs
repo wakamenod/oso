@@ -370,7 +370,12 @@ fn a_view_leaves_the_editor_with_the_recovery() {
     fixture.answer(RecoveryAction::Recover(0));
     assert!(fixture.editor.buffer(view).is_none());
     assert_eq!(fixture.file_text(), "the copy\n", "the text is shared");
-    assert_eq!(fixture.editor.place_behind_internal(), None);
+    assert_eq!(
+        fixture
+            .editor
+            .place_behind_internal_of(fixture.editor.window().id()),
+        None
+    );
 }
 
 /// Recovers, with the two `r`s.

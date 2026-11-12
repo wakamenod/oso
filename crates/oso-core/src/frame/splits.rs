@@ -14,6 +14,7 @@
 use super::{CellRect, FrameLayout, WindowRegions};
 use crate::window::WindowId;
 use cells::{distribute, window_regions};
+pub use tiling::{BadTiling, Tiling};
 
 /// The fewest text rows each half of a split keeps, above its modeline.
 const SPLIT_ROWS: usize = 2;
@@ -505,3 +506,4 @@ impl Run {
 mod cells;
 #[cfg(test)]
 mod tests;
+mod tiling;
