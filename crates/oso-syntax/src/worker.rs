@@ -18,7 +18,7 @@
 //!   the epoch of the document it is of and a stamp in the order slices ended, so that the UI
 //!   drops a report from before a new start, or one that comes after a later one.
 //! - A document no buffer owns (ADR 0122), such as a review's side, has a slot of its own whose
-//!   text never changes ([`documents`]). It runs only where background buffers do, one thread
+//!   text never changes ([`unowned`]). It runs only where background buffers do, one thread
 //!   at a time, so a shown buffer always has a thread.
 
 use std::collections::HashMap;
@@ -29,8 +29,8 @@ use std::time::{Duration, Instant};
 use oso_core::rope::Rope;
 use oso_core::syntax::{Highlights, Splice, compose};
 
-pub use documents::Refused;
-use documents::{Kind, MAX_STARTED};
+pub use unowned::Refused;
+use unowned::{Kind, Stale};
 
 use crate::document::{Document, Failure, Highlighted, MAX_WAITING};
 use crate::language::Language;
@@ -177,48 +177,32 @@ struct Slot {
 }
 
 impl Slot {
-    fn is_document(&self) -> bool {
-        matches!(self.kind, Kind::Document { .. })
-    }
-
-    /// Whether it runs in the lane one thread at a time has: anything but a shown buffer.
-    fn in_lane(&self) -> bool {
-        self.is_document() || self.shown.is_empty()
-    }
-
-    /// Whether it is a document that holds a tree, or is making one: started, not finished.
-    fn holds_tree(&self) -> bool {
-        matches!(
-            self.kind,
-            Kind::Document {
-                finished: false,
-                ..
-            }
-        ) && (self.checked_out || self.document.is_some())
-    }
-
-    /// Whether it is a document that would make a tree if taken now.
-    fn would_start(&self) -> bool {
-        matches!(
-            self.kind,
-            Kind::Document {
-                finished: false,
-                ..
-            }
-        ) && !self.checked_out
-            && self.document.is_none()
-    }
-
-    /// Its rank in the lane, lower first: shown documents, background buffers, documents not
-    /// shown; among documents, one that holds a tree first, so that it finishes and frees it;
-    /// then the one waiting longest.
-    fn rank(&self) -> (u8, bool, Option<u64>) {
-        let class = match (self.is_document(), self.shown.is_empty()) {
-            (true, false) => 0,
-            (false, _) => 1,
-            (true, true) => 2,
+    /// A slot with nothing made yet, which starts from `start` at its first checkout.
+    fn fresh(
+        generation: u64,
+        language: Language,
+        start: Waiting,
+        shown: Vec<Range<usize>>,
+    ) -> Self {
+        let (revision, epoch) = match &start {
+            Waiting::Reset {
+                revision, epoch, ..
+            } => (*revision, *epoch),
+            Waiting::Nothing | Waiting::Edits { .. } => (0, 0),
         };
-        (class, self.would_start(), self.queued)
+        Self {
+            generation,
+            language,
+            document: None,
+            checked_out: false,
+            revision,
+            epoch,
+            waiting: start,
+            shown,
+            queued: None,
+            reported: None,
+            kind: Kind::Buffer,
+        }
     }
 }
 
@@ -230,6 +214,11 @@ pub struct Scheduler<Key> {
     order: u64,
     /// Documents no longer wanted, for a thread to free with nothing locked.
     doomed: Vec<Document>,
+    /// Checkouts whose slot went while a thread had it: until given back, they still hold
+    /// their lane and their tree.
+    stale: Vec<Stale>,
+    /// How many slots are documents no buffer owns, so that an open counts in O(1).
+    unowned: usize,
 }
 
 impl<Key> Default for Scheduler<Key> {
@@ -239,6 +228,8 @@ impl<Key> Default for Scheduler<Key> {
             generations: 0,
             order: 0,
             doomed: Vec::new(),
+            stale: Vec::new(),
+            unowned: 0,
         }
     }
 }
@@ -263,30 +254,20 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             shown,
         } = job;
         let slot = match self.slots.get_mut(&buffer) {
-            Some(slot) if slot.language == language && !slot.is_document() => slot,
+            Some(slot) if slot.language == language && !slot.is_unowned() => slot,
             // A new buffer, one in another language now, or a document's key.
             _ => {
                 self.generations += 1;
-                let slot = Slot {
-                    generation: self.generations,
-                    language,
-                    document: None,
-                    checked_out: false,
+                let start = Waiting::Reset {
+                    text,
                     revision,
                     epoch,
-                    waiting: Waiting::Reset {
-                        text,
-                        revision,
-                        epoch,
-                    },
-                    shown,
-                    queued: Some(order),
-                    reported: None,
-                    kind: Kind::Buffer,
                 };
-                if let Some(old) = self.slots.insert(buffer, slot) {
-                    self.doomed.extend(old.document);
-                }
+                let slot = Slot {
+                    queued: Some(order),
+                    ..Slot::fresh(self.generations, language, start, shown)
+                };
+                self.replace(buffer, slot);
                 return;
             }
         };
@@ -316,9 +297,35 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
     /// Forgets `buffer` at once: what waited for it never runs, and a slice running on it
     /// gives back nothing. Its document goes on the list to free.
     pub fn drop_buffer(&mut self, buffer: Key) {
-        if let Some(slot) = self.slots.remove(&buffer) {
-            self.doomed.extend(slot.document);
+        if let Some(slot) = self.remove(&buffer) {
+            self.retire(slot);
         }
+    }
+
+    /// Puts `slot` under `key`, retiring the one there.
+    fn replace(&mut self, key: Key, slot: Slot) {
+        self.unowned += usize::from(slot.is_unowned());
+        if let Some(old) = self.slots.insert(key, slot) {
+            self.unowned -= usize::from(old.is_unowned());
+            self.retire(old);
+        }
+    }
+
+    /// Takes `key`'s slot out: every slot leaves through here, so that the count holds.
+    fn remove(&mut self, key: &Key) -> Option<Slot> {
+        let slot = self.slots.remove(key)?;
+        self.unowned -= usize::from(slot.is_unowned());
+        Some(slot)
+    }
+
+    /// A slot no longer wanted: its document goes on the list to free, and if a thread has it,
+    /// what that checkout holds counts until it is given back.
+    fn retire(&mut self, slot: Slot) {
+        if slot.checked_out {
+            self.stale.push(Stale::of(&slot));
+        }
+        // Not freed here: the UI thread may be the caller.
+        self.doomed.extend(slot.document);
     }
 
     /// The documents to free, for a thread to drop once it has unlocked.
@@ -327,13 +334,10 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
     }
 
     /// The next document a thread works on: of those with work, the first buffer a window
-    /// shows, or else the first of the others by [`Slot::rank`], unless a thread already has
-    /// one of those. A document that would make a tree waits while [`MAX_STARTED`] hold one.
+    /// shows, or else the first of the others in the lane's order, unless a thread already has
+    /// one of those. A document no buffer owns that would make a tree waits while four hold one.
     pub fn take_next(&mut self) -> Option<Checkout<Key>> {
-        let lane_busy = self
-            .slots
-            .values()
-            .any(|slot| slot.checked_out && slot.in_lane());
+        let lane_busy = self.lane_busy();
         let ready = |slot: &&Slot| !slot.checked_out && slot.queued.is_some();
         let shown = self
             .slots
@@ -344,8 +348,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             Some((buffer, _)) => *buffer,
             None if lane_busy => return None,
             None => {
-                let room =
-                    self.slots.values().filter(|slot| slot.holds_tree()).count() < MAX_STARTED;
+                let room = self.room_for_a_tree();
                 *self
                     .slots
                     .iter()
@@ -391,6 +394,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             .get_mut(&checkout.buffer)
             .filter(|slot| slot.generation == checkout.generation)
         else {
+            self.settle(checkout.generation);
             self.doomed.extend(checkout.document);
             return None;
         };
@@ -405,7 +409,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             outcome,
         };
         if let Highlighted::Failed(failure) = outcome {
-            self.slots.remove(&checkout.buffer);
+            self.remove(&checkout.buffer);
             self.doomed.push(document);
             return Some(report(Outcome::Failed(failure)));
         }
@@ -413,7 +417,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             slot.reported = Some((document.changes(), Instant::now()));
             report(Outcome::Highlights(document.highlights().clone()))
         });
-        if let Kind::Document { place, finished } = &mut slot.kind {
+        if let Kind::Unowned { place, finished } = &mut slot.kind {
             if outcome == Highlighted::Done {
                 // Its text never changes: the tree is of no more use, and a thread frees it.
                 *finished = true;
@@ -438,6 +442,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
     /// goes.
     pub fn lost(&mut self, checkout: Checkout<Key>) -> Option<Report<Key>> {
         let stamp = self.next_order();
+        self.settle(checkout.generation);
         self.doomed.extend(checkout.document);
         let slot = self
             .slots
@@ -450,7 +455,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             revision: slot.revision,
             outcome: Outcome::Lost,
         };
-        self.slots.remove(&checkout.buffer);
+        self.remove(&checkout.buffer);
         Some(report)
     }
 
@@ -516,7 +521,7 @@ fn due(slot: &Slot, document: &Document, outcome: Highlighted) -> bool {
     }
 }
 
-mod documents;
+mod unowned;
 
 #[cfg(test)]
 mod tests;

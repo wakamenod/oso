@@ -292,10 +292,10 @@ fn documents_share_the_threads_and_a_slow_one_never_holds_a_shown_buffer_back() 
         order.dedup();
     }
     assert_eq!(order, ["buffer", "slow", "document"]);
+    // Done: showing it again starts nothing, and closing it frees nothing more.
+    pool.show(Key::Document(2), std::iter::once(0..4).collect());
     let late = received.recv_timeout(Duration::from_millis(100));
     assert!(late.is_err(), "a report after the end: {late:?}");
-    // Done, and closed: nothing more comes of it.
-    pool.show(Key::Document(2), std::iter::once(0..4).collect());
     pool.close(Key::Document(2));
 }
 

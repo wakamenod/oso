@@ -753,22 +753,27 @@ through the coordinator).
 - **The API** is three methods of `oso_syntax::Scheduler<Key>` and one enum. The key stays
   generic, and the tip crate keeps buffers and documents apart with a key of its own (step 9):
   - `open(key, language, verdict, text, shown) -> Result<(), Refused>` opens a text that never
-    changes, to parse and highlight whole, `shown` first. It is O(slots), and nothing is parsed
-    or freed in it. A key that has a slot is replaced, as a job in a new language replaces one.
+    changes, to parse and highlight whole, `shown` first. It is O(1), and nothing is parsed or
+    freed in it. A key that has a slot is replaced, as a job in a new language replaces one. A
+    refused open also closes a document open under the key, so a refresh refused as secret
+    leaves nothing of the old text running.
   - `show(key, shown)` says what windows show of an open document. `close(key)` drops a
     document at once, as `drop_buffer` drops a buffer: what waited never runs, and a slice
     running on it gives back nothing. Both leave a buffer's key alone, and a job sent for a
     document's key replaces it with a buffer.
   - `Refused` is `MayHoldSecrets`, `TooLarge` (past ADR 0111's 2 MiB) or `Full`. `Full` is the
     one to try again once another document has closed.
-  - Reports are `Report<Key>`, with epoch 0 and revision 0, since the text never changes.
+  - Reports are `Report<Key>`, with epoch 0 and revision 0, since the text never changes. So a
+    report of an earlier text under the same key looks the same as one of the new text, and the
+    caller opens each text under a key it never used before (step 9).
 - **Secrets:** `open` takes the source's `Verdict` and refuses anything but `Ordinary`, the
   same test `Buffer::is_secret` makes. So a text not judged yet, or whose path could not be
   resolved, is refused too, as a buffer not judged yet is. No tree, timing or highlight exists
   for such a text. The caller judges the source: every path a review side names (the old and the
   new path of a rename), or `Buffer::verdict` for a buffer's snapshot. Once a source turns
-  secret, the caller closes the document. Judging a path from outside `oso-core` needs a public
-  form of `secret::judge`, left to step 3 or 9.
+  secret, the caller closes the document. A slice already running on it ends, as a dropped
+  buffer's does, and gives back nothing. Judging a path from outside `oso-core` needs a public
+  form of `secret::judge`, left to step 3 or 9 (`open-questions.md`).
 - **One lane for documents:** a document, shown or not, runs only in the lane that background
   buffers use, which one thread at a time has. So a shown buffer always has a thread, even
   while a slice on crafted text runs long. In that lane, shown documents go first, then
@@ -776,22 +781,38 @@ through the coordinator).
   before one that has none, and a paused document keeps its place in the queue rather than
   going to the back, so that a started tree finishes and is freed.
 - **Bounds:** at most 1024 documents are open. Each slot holds a rope handle and the shown
-  ranges, and every checkout scans the slots under the lock the UI thread takes. At most 4
-  documents hold a tree at once, and a document that would start a fifth waits for one to finish
-  or close.
+  ranges, and every checkout scans the slots under the lock the UI thread takes: with 1023
+  documents and 16 buffers open, a checkout and its give-back cost about 5 µs together, and an
+  open and a close about 0.8 µs (release, the author's Mac). At most 4 documents hold a tree at
+  once, and a document that would start a fifth waits for one to finish or close.
+- **A checkout whose slot went** (closed, replaced or dropped while a thread has it) still holds
+  the lane, and its tree still counts, until it is given back. Otherwise the next document
+  could take the second thread while that slice runs, and a fifth tree could start.
 - **A finished document gives its tree to the list to free** when it is done, and a thread
   frees it with nothing locked. Its slot stays until `close`, holding no document, text or
   shown ranges. The caller keeps the highlights from the last report.
 - **The tip crate's pool is generic over its key** (`Pool<Key>`, `Orders<Key>`), with
   `open`, `show` and `close`, which lock only for the schedule's bookkeeping. The app keeps
   `Pool<BufferId>`, so nothing opens a document until step 9. Until then, the three methods
-  are expected to be dead code outside tests.
+  are expected to be dead code outside tests. The code is in `oso-syntax`'s private module
+  `worker/unowned.rs`.
+- **What step 9 takes on:**
+  - a key never used before for each text;
+  - closing a document whose source turns secret;
+  - not opening again a text whose document failed or was lost;
+  - calling `show` only when what windows show changed, since each call wakes the threads;
+  - opening many sides in one turn under one lock, or spread over turns;
+  - measuring the 500 ms "whole" budget with documents on one lane.
 - **Tests:**
   - Refusals: every verdict that is withheld, the size limit and the open cap.
+  - A refused open closes what was open under the key.
+  - The count of open documents through every way a slot goes.
+  - A checkout whose document closed keeps the lane and its tree until it is given back.
   - Highlights equal a fresh document's.
   - A finished document frees its tree and keeps an empty slot.
   - Closing before, during and after a slice.
-  - The lane, its order and the tree cap.
+  - The lane, its order (a document that holds a tree before one that waited longer) and the
+    tree cap.
   - Nothing is made or freed where documents open, show or close.
   - In the tip crate, two real threads: a crafted document that fails as too slow, beside a
     shown buffer that is highlighted first, and a second document that waits for it.

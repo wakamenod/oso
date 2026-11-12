@@ -5,13 +5,13 @@
 //!
 //! - Nothing under the lock calls tree-sitter: documents are made, edited and freed by a thread
 //!   with nothing locked, so the UI never waits on that, here or for the lock.
-//! - Two threads, and at most one on a buffer no window shows (`oso_syntax::Scheduler`): a
-//!   slice that runs long, as tree-sitter checks its deadline only so often, holds one thread,
-//!   and shown buffers keep the other.
+//! - Two threads, and at most one on a buffer no window shows or a document no buffer owns
+//!   (`oso_syntax::Scheduler`): a slice that runs long, as tree-sitter checks its deadline only
+//!   so often, holds one thread, and shown buffers keep the other.
 //! - The stack is set, not left to the platform: Markdown's inline grammar recurses on nested
 //!   links, and an inline node at its cap needs about 512 KiB (ADR 0111, as built).
-//! - A slice that panics loses its buffer only; its thread compiles its queries afresh and goes
-//!   on. Nothing logged names a buffer or quotes its text.
+//! - A slice that panics loses its buffer or document only; its thread compiles its queries
+//!   afresh and goes on. Nothing logged names a buffer or quotes its text.
 //! - Dropping the pool tells the threads to stop; they end at their next wait.
 //! - It is generic over the schedule's key, so that documents no buffer owns (ADR 0122) share
 //!   the threads with buffers under keys of their own.
@@ -175,7 +175,7 @@ fn work<Key: Copy + Eq + Hash>(shared: &Shared<Key>, send: &impl Fn(Report<Key>)
             let report = match outcome {
                 Ok(outcome) => state.scheduler.give_back(checkout, outcome),
                 Err(_) => {
-                    log::warn!("a syntax slice panicked; that buffer stays plain");
+                    log::warn!("a syntax slice panicked; that text stays plain");
                     queries = Queries::new();
                     state.scheduler.lost(checkout)
                 }

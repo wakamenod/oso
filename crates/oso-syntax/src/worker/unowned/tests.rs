@@ -69,6 +69,7 @@ fn drain(scheduler: &mut Scheduler<u32>, queries: &mut Queries) -> Vec<Report<u3
 #[test]
 fn a_text_that_may_hold_secrets_is_never_opened() {
     let mut scheduler = Scheduler::new();
+    // Every verdict but `Ordinary`.
     for verdict in [
         Verdict::Unjudged,
         Verdict::Unresolved,
@@ -92,7 +93,9 @@ fn a_text_past_the_size_limit_is_never_opened() {
     assert!(!scheduler.has(1));
     let text = Rope::from("a".repeat(MAX_BYTES).as_str());
     assert!(
-        (scheduler.open(1, Language::Rust, Verdict::Ordinary, text, Vec::new())).is_ok(),
+        scheduler
+            .open(1, Language::Rust, Verdict::Ordinary, text, Vec::new())
+            .is_ok(),
         "the limit itself is allowed"
     );
 }
@@ -100,19 +103,22 @@ fn a_text_past_the_size_limit_is_never_opened() {
 #[test]
 fn past_the_most_open_documents_another_waits_for_one_to_close() {
     let mut scheduler = Scheduler::new();
-    for key in 0..u32::try_from(MAX_DOCUMENTS).unwrap() {
+    let most = u32::try_from(MAX_DOCUMENTS).unwrap();
+    for key in 0..most - 1 {
         open(&mut scheduler, key, false);
     }
     scheduler.submit(buffer(5000, false));
+    open(&mut scheduler, 5001, false);
+    assert_eq!(scheduler.unowned, MAX_DOCUMENTS, "the buffer counted");
     let more = scheduler.open(
-        5001,
+        5002,
         Language::Rust,
         Verdict::Ordinary,
         Rope::new(),
         Vec::new(),
     );
-    assert_eq!(more, Err(Refused::Full), "buffers do not count");
-    assert!(!scheduler.has(5001));
+    assert_eq!(more, Err(Refused::Full));
+    assert!(!scheduler.has(5002));
     let again = scheduler.open(
         7,
         Language::Toml,
@@ -122,7 +128,37 @@ fn past_the_most_open_documents_another_waits_for_one_to_close() {
     );
     assert!(again.is_ok(), "an open document's key is replaced");
     scheduler.close(3);
-    open(&mut scheduler, 5001, false);
+    open(&mut scheduler, 5002, false);
+}
+
+#[test]
+fn the_count_of_open_documents_follows_every_way_a_slot_goes() {
+    let mut scheduler = Scheduler::new();
+    open(&mut scheduler, 1, false);
+    open(&mut scheduler, 1, false);
+    open(&mut scheduler, 2, false);
+    open(&mut scheduler, 3, false);
+    open(&mut scheduler, 4, false);
+    assert_eq!(scheduler.unowned, 4, "a replaced key counted twice");
+    scheduler.submit(buffer(1, false));
+    scheduler.close(2);
+    scheduler.drop_buffer(3);
+    assert_eq!(scheduler.unowned, 1);
+    let mut failing = loop {
+        let checkout = scheduler.take_next().unwrap();
+        if checkout.buffer == 4 {
+            break checkout;
+        }
+        scheduler.give_back(checkout, Highlighted::Done);
+    };
+    failing.follow();
+    let failure = Highlighted::Failed(crate::document::Failure::TooSlow);
+    assert!(scheduler.give_back(failing, failure).is_some());
+    assert_eq!(scheduler.unowned, 0);
+    open(&mut scheduler, 5, false);
+    let lost = scheduler.take_next().unwrap();
+    assert!(scheduler.lost(lost).is_some());
+    assert_eq!(scheduler.unowned, 0);
 }
 
 #[test]
@@ -205,7 +241,7 @@ fn close_and_show_leave_buffers_alone_and_a_job_replaces_a_document() {
     open(&mut scheduler, 2, false);
     scheduler.submit(buffer(2, false));
     assert!(
-        !scheduler.slots[&2].is_document(),
+        !scheduler.slots[&2].is_unowned(),
         "a job's key is a buffer's"
     );
     let reports = drain(&mut scheduler, &mut queries);
@@ -273,7 +309,22 @@ fn a_started_document_goes_before_one_not_started_and_keeps_its_place() {
 }
 
 #[test]
-fn at_most_four_documents_hold_a_tree_and_a_shown_one_waits_for_room() {
+fn a_document_that_holds_a_tree_goes_before_one_waiting_longer() {
+    let mut scheduler = Scheduler::new();
+    open(&mut scheduler, 1, false);
+    open(&mut scheduler, 2, false);
+    scheduler.show(2, std::iter::once(0..4).collect());
+    assert_eq!(start(&mut scheduler), 2);
+    scheduler.show(2, Vec::new());
+    assert_eq!(
+        start(&mut scheduler),
+        2,
+        "1 waited longer, but 2 holds a tree"
+    );
+}
+
+#[test]
+fn at_most_the_most_started_documents_hold_a_tree_and_a_shown_one_waits_for_room() {
     let mut scheduler = Scheduler::new();
     let started = u32::try_from(MAX_STARTED).unwrap();
     for key in 0..started {
@@ -327,4 +378,65 @@ fn nothing_is_parsed_or_freed_where_documents_open_show_and_close() {
         1,
         "the closed document waits"
     );
+}
+
+#[test]
+fn a_refused_open_closes_what_was_open_under_the_key() {
+    let mut scheduler = Scheduler::new();
+    let mut queries = Queries::new();
+    open(&mut scheduler, 1, true);
+    let mut checkout = scheduler.take_next().unwrap();
+    // The source turned secret: the caller opens its new text and is refused.
+    let refused = scheduler.open(
+        1,
+        Language::Rust,
+        Verdict::Yanked,
+        Rope::from(TEXT),
+        Vec::new(),
+    );
+    assert_eq!(refused, Err(Refused::MayHoldSecrets));
+    assert!(!scheduler.has(1), "the old document stayed open");
+    let outcome = checkout.run_for(&mut queries, LONG);
+    assert!(
+        scheduler.give_back(checkout, outcome).is_none(),
+        "it reported"
+    );
+    assert_eq!(scheduler.take_doomed().len(), 1, "its tree");
+    assert!(scheduler.take_next().is_none(), "it ran again");
+    open(&mut scheduler, 2, false);
+    let too_large = Rope::from("a".repeat(MAX_BYTES + 1).as_str());
+    let refused = scheduler.open(2, Language::Rust, Verdict::Ordinary, too_large, Vec::new());
+    assert_eq!(refused, Err(Refused::TooLarge));
+    assert!(!scheduler.has(2));
+}
+
+#[test]
+fn a_checkout_whose_document_closed_keeps_the_lane_and_its_tree_until_given_back() {
+    let mut scheduler = Scheduler::new();
+    for key in 0..u32::try_from(MAX_STARTED - 1).unwrap() {
+        open(&mut scheduler, key, true);
+        assert_eq!(start(&mut scheduler), key);
+        scheduler.show(key, Vec::new());
+    }
+    open(&mut scheduler, 10, true);
+    let running = scheduler.take_next().unwrap();
+    assert_eq!(running.buffer, 10);
+    scheduler.close(10);
+    // A refresh opens it again, beside a background buffer.
+    open(&mut scheduler, 11, true);
+    scheduler.submit(buffer(20, false));
+    assert!(
+        scheduler.take_next().is_none(),
+        "a second thread in the lane while the closed one's slice runs"
+    );
+    assert!(!scheduler.room_for_a_tree(), "its tree went uncounted");
+    scheduler.submit(buffer(21, true));
+    assert_eq!(
+        scheduler.take_next().unwrap().buffer,
+        21,
+        "a shown buffer waited"
+    );
+    assert!(scheduler.give_back(running, Highlighted::Paused).is_none());
+    assert!(scheduler.room_for_a_tree());
+    assert_eq!(scheduler.take_next().unwrap().buffer, 11);
 }
