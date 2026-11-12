@@ -76,7 +76,8 @@ impl<'a> Parts<'a> {
         let mut region = Vec::new();
         editor.prompt_region_cells(answer, &mut region);
         let preview = layout.regions.preview;
-        let kill = match editor.preview() {
+        // Only `M-y` previews a kill's text; other previews are worked out where they are drawn.
+        let kill = match editor.kill_list_open().then(|| editor.preview()).flatten() {
             Some(Preview::Text { entry }) => {
                 editor.kill_preview(entry, preview.rows, preview.columns)
             }

@@ -24,15 +24,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::buffer::BufferId;
 use crate::display_map::{DisplayMap, DisplayPoint, DisplaySnapshot, TabWidth};
-use crate::editor::visits::place_offset;
+use crate::editor::visits::{file_identity, place_offset};
 use crate::editor::{Editor, MatchCells, Preview};
 use crate::frame::{self, CellRect};
-use crate::project::{LineQuery, decoded};
+use crate::project::{CUT, LineQuery, cut_bounds, decoded, push_cut};
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
 use crate::window::Screen;
 
-/// The most bytes of a line an excerpt keeps, cut at characters.
+/// The most bytes of a line an excerpt keeps, cut at characters. The host's reader reads no
+/// more than this and a line break of each line after the row's (`PER_ROW` in the tip's
+/// `grep/preview.rs`); the two must change together.
 pub(crate) const EXCERPT_LINE: usize = 4096;
 
 /// The most lines an excerpt keeps.
@@ -41,9 +43,6 @@ pub(crate) const EXCERPT_LINES: usize = 256;
 /// How much of the selected row's line an excerpt keeps before its match, once the match is too
 /// far into the line for the line's start to be kept with it.
 const BEFORE_MATCH: usize = 1024;
-
-/// What an excerpt shows where it leaves part of a line out.
-const CUT: char = '…';
 
 /// How much of a line before and after what its rows draw is matched for the preview's
 /// highlights, so that a match that starts or ends out of view shows; one longer than this that
@@ -146,7 +145,11 @@ impl Excerpt {
             if Some(index) == hit {
                 cursor = Some(push_around(&mut text, line, column));
             } else {
-                push_cut(&mut text, line, 0, EXCERPT_LINE.min(line.len()));
+                push_cut(
+                    &mut text,
+                    line,
+                    cut_bounds(line, 0, EXCERPT_LINE.min(line.len())),
+                );
             }
         }
         let cursor = cursor.unwrap_or(text.len());
@@ -161,34 +164,6 @@ impl Excerpt {
     }
 }
 
-/// Pushes `line[start..end]` onto `text`, `start` and `end` moved off any character they cut,
-/// with [`CUT`] where part of the line is left out.
-fn push_cut(text: &mut String, line: &[u8], start: usize, end: usize) {
-    let (start, end) = boundaries(line, start, end);
-    if start > 0 {
-        text.push(CUT);
-    }
-    text.push_str(&decoded(&line[start..end]));
-    if end < line.len() {
-        text.push(CUT);
-    }
-}
-
-/// `start` and `end` within `line`, moved off a character they would cut in two: at most three
-/// bytes of it are left out.
-fn boundaries(line: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
-    let continues = |at: usize| line.get(at).is_some_and(|byte| byte & 0xC0 == 0x80);
-    for _ in 0..3 {
-        if start > 0 && continues(start) {
-            start += 1;
-        }
-        if end < line.len() && continues(end) {
-            end -= 1;
-        }
-    }
-    (start, end.max(start))
-}
-
 /// Pushes the part of `line` around its match at `column`, in characters as a row counts them,
 /// onto `text`, and gives where the match starts in `text`.
 fn push_around(text: &mut String, line: &[u8], column: usize) -> usize {
@@ -199,9 +174,9 @@ fn push_around(text: &mut String, line: &[u8], column: usize) -> usize {
         at - BEFORE_MATCH
     };
     let end = (start + EXCERPT_LINE).min(line.len());
-    let (start, end) = boundaries(line, start, end);
+    let (start, end) = cut_bounds(line, start, end);
     let before = text.len();
-    push_cut(text, line, start, end);
+    push_cut(text, line, (start, end));
     let mut cursor = before + if start > 0 { CUT.len_utf8() } else { 0 };
     cursor += decoded(&line[start..at.clamp(start, end)]).len();
     cursor
@@ -238,8 +213,6 @@ pub(super) struct SearchPreview {
     live: Arc<AtomicU64>,
     /// The row asked for last, by its search's generation and its item.
     asked: Option<(u64, usize)>,
-    /// The read to start, until the host takes it.
-    request: Option<ProjectPreviewRequest>,
     /// What came for the row asked for, and the revision the frame draws it at.
     read: Option<(ProjectPreviewRead, u64)>,
     /// The revision the last excerpt was given, so that each is shaped as its own.
@@ -251,7 +224,6 @@ impl SearchPreview {
     pub(super) fn reset(&mut self) {
         self.live.fetch_add(1, Ordering::Relaxed);
         self.asked = None;
-        self.request = None;
         self.read = None;
     }
 }
@@ -277,28 +249,15 @@ impl Editor {
     }
 
     /// An open buffer of the file at `path` from the root, as it is spelled, that shows what it
-    /// holds: none that the agent channel is still opening (ADR 0085).
+    /// holds.
     fn open_buffer_at(&self, path: &Path) -> Option<BufferId> {
         let root = &self.project_search.root;
-        self.buffers()
-            .find(|(_, buffer)| {
-                !buffer.agent_pending()
-                    && buffer
-                        .path()
-                        .and_then(|whole| whole.strip_prefix(root).ok())
-                        .is_some_and(|relative| relative == path)
-            })
-            .map(|(id, _)| id)
-    }
-
-    /// An open buffer of the file whose device and inode are `identity`.
-    fn open_buffer_of(&self, identity: (u64, u64)) -> Option<BufferId> {
-        self.buffers()
-            .find(|(_, buffer)| {
-                !buffer.agent_pending()
-                    && buffer.baseline().and_then(|base| base.file?.identity) == Some(identity)
-            })
-            .map(|(id, _)| id)
+        self.open_buffer(|_, buffer| {
+            buffer
+                .path()
+                .and_then(|whole| whole.strip_prefix(root).ok())
+                .is_some_and(|relative| relative == path)
+        })
     }
 
     /// The read the host should start for the selected row's preview, once per row selected:
@@ -307,7 +266,7 @@ impl Editor {
     pub fn take_preview_request(&mut self) -> Option<ProjectPreviewRequest> {
         let key = self.selected_search_row()?;
         if self.project_search.preview.asked == Some(key) {
-            return self.project_search.preview.request.take();
+            return None;
         }
         let rows = self
             .prompt_layout()
@@ -363,10 +322,12 @@ impl Editor {
         }
         match &preview.read {
             Some((ProjectPreviewRead::Text(excerpt), revision)) => {
-                match excerpt
-                    .identity
-                    .and_then(|identity| self.open_buffer_of(identity))
-                {
+                let same = |_, buffer: &_| {
+                    excerpt
+                        .identity
+                        .is_some_and(|identity| file_identity(buffer) == Some(identity))
+                };
+                match self.open_buffer(same) {
                     Some(id) => self.buffer_preview(id, line, column),
                     None => Some(Preview::Excerpt {
                         revision: *revision,
@@ -383,26 +344,8 @@ impl Editor {
     /// as far as its text goes, with that line about halfway down; nothing of it if it may hold
     /// secrets.
     fn buffer_preview(&self, id: BufferId, line: usize, column: usize) -> Option<Preview> {
-        let buffer = self.buffer(id)?;
-        if buffer.verdict().is_withheld() {
-            return Some(Preview::Withheld);
-        }
-        let cursor = place_offset(buffer.text(), line.saturating_sub(1), column);
-        Some(Preview::Buffer {
-            id,
-            start: self.preview_start(&buffer.display(), cursor),
-            cursor,
-        })
-    }
-
-    /// Where a preview whose cursor is at `cursor` starts: the line about halfway up the
-    /// preview's rows from the cursor's.
-    fn preview_start(&self, display: &DisplaySnapshot, cursor: usize) -> usize {
-        let rows = self
-            .prompt_layout()
-            .map_or(0, |layout| layout.regions.preview.rows);
-        let row = display.offset_to_display_point(cursor).row;
-        crate::motion::line_start(display, row.saturating_sub(rows / 2))
+        let cursor = place_offset(self.buffer(id)?.text(), line.saturating_sub(1), column);
+        self.buffer_preview_at(id, cursor)
     }
 
     /// The excerpt read for the selected row, if one was: what [`Preview::Excerpt`] shows,

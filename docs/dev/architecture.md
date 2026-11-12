@@ -510,7 +510,7 @@ The UI thread never blocks on I/O or parsing:
   runs wait for the next, so a slow job is never started over
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - A project's search for `M-s r` runs on `oso-grep` (`crates/oso/src/grep.rs`, glue in
-  `app/walks.rs`): it walks with `walk::walk_files` and hands each file, with its open directory,
+  `app/greps.rs`): it walks with `walk::walk_files` and hands each file, with its open directory,
   over a bounded queue of 16 to `min(cores - 1, 8)` searching threads, at least one
   (`grep/files.rs`). A searcher reads 256 KiB blocks cut at a line's end (`grep/read.rs`) and
   matches them with its own copy of `oso_core::project::LineQuery`, completion's orderless
@@ -539,7 +539,9 @@ The UI thread never blocks on I/O or parsing:
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
-  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`). A look at a
+  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`); in a prompt
+  for a directory it holds `RET` and `M-RET` until the listing that decides the answer has come
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)). A look at a
   row patches it, with no new list, and a long list replaced or closed is dropped on that thread
   ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)

@@ -1,5 +1,6 @@
 //! Scenario tests of `RET` and `TAB` held while the completion worker matches (ADR 0096), in a
-//! directory past 5000 names, each job run on the test's thread.
+//! directory past 5000 names, each job run on the test's thread, and of `RET` and `M-RET` held
+//! in a prompt for a directory until the listing that decides its answer has come (ADR 0114).
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU.
 
@@ -13,6 +14,7 @@ use oso_core::window::ViewSize;
 
 use super::Dispatcher;
 use super::motion_tests::send;
+use super::project_tests::{in_oso, list_directories};
 
 /// A dispatcher and an editor on `/big/a.md`, with `C-x C-f` open on `/big/` and its 6000
 /// names built.
@@ -145,4 +147,54 @@ fn ret_after_a_move_made_while_waiting_opens_the_row_moved_to() {
         editor.take_visits()[0].0,
         PathBuf::from("/big/file-0001.txt")
     );
+}
+
+#[test]
+fn ret_and_m_ret_in_a_directory_prompt_wait_for_the_listing_that_decides_the_answer() {
+    for key in ["RET", "M-RET"] {
+        let (mut d, mut editor) = in_oso(None);
+        send(&mut d, &mut editor, "C-u M-s r");
+        // `~/src/oso/` is typed, and its listing has not come.
+        assert!(editor.directory_answer_waits());
+        send(&mut d, &mut editor, key);
+        assert!(d.holds_for_completion(), "{key}");
+        assert_eq!(editor.prompt().unwrap().label(), "Search in directory:");
+        list_directories(&mut editor);
+        d.run_held_completion(&mut editor);
+        assert!(!d.holds_for_completion(), "{key}");
+        assert_eq!(editor.prompt().unwrap().label(), "Search oso:", "{key}");
+    }
+}
+
+#[test]
+fn a_directory_prompts_answer_from_the_socket_is_refused_while_it_waits() {
+    let (mut d, mut editor) = in_oso(None);
+    send(&mut d, &mut editor, "C-u M-s r");
+    for name in ["exit-minibuffer", "exit-minibuffer-input"] {
+        let (_, result) = d.run_command(&mut editor, name, None);
+        assert!(
+            result.is_err_and(|error| error.contains("still on its way")),
+            "{name}"
+        );
+        assert_eq!(editor.prompt().unwrap().label(), "Search in directory:");
+    }
+    // Once listed, it waits no more; the buffer beneath, not judged yet, refuses it for itself.
+    list_directories(&mut editor);
+    let (_, result) = d.run_command(&mut editor, "exit-minibuffer", None);
+    assert!(result.is_err_and(|error| !error.contains("still on its way")));
+}
+
+#[test]
+fn m_ret_for_a_file_is_not_held_while_its_directory_is_listed() {
+    let mut buffer = Buffer::visiting(PathBuf::from("/big/a.md"));
+    buffer.finish_empty();
+    let mut editor = Editor::with_buffer(buffer);
+    editor.set_view_size(ViewSize::new(24, 80));
+    let mut d = Dispatcher::new();
+    send(&mut d, &mut editor, "C-x C-f n e w");
+    assert!(!editor.take_file_requests().is_empty(), "not listed yet");
+    send(&mut d, &mut editor, "M-RET");
+    assert!(!d.holds_for_completion());
+    assert!(editor.prompt().is_none());
+    assert_eq!(editor.take_visits()[0].0, PathBuf::from("/big/new"));
 }

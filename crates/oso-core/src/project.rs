@@ -16,8 +16,8 @@ use std::path::{Component, Path, PathBuf};
 mod search;
 mod trust;
 
-pub(crate) use search::decoded;
 pub use search::{BLOCK, LineHit, LineQuery, MAX_LINE, MAX_ROW_BYTES, MAX_ROWS, row_text};
+pub(crate) use search::{CUT, cut_bounds, decoded, push_cut};
 pub use trust::{NotRecordable, TrustChange, TrustList};
 
 /// The most bytes of a `.git` file that are read. Git writes one short line in it.

@@ -191,6 +191,28 @@ impl Harness {
             }
         }
     }
+
+    /// The rows of the search `generation` until it ends, as their path, line and line's offset,
+    /// sorted.
+    fn places(&self, generation: u64) -> Vec<(String, usize, u64)> {
+        let mut places = Vec::new();
+        loop {
+            let found = self.found.recv_timeout(Duration::from_secs(10)).unwrap();
+            if found.generation != generation {
+                continue;
+            }
+            places.extend(
+                found
+                    .rows
+                    .into_iter()
+                    .map(|row| (row.path.to_string(), row.line, row.offset)),
+            );
+            if found.end.is_some() {
+                places.sort();
+                return places;
+            }
+        }
+    }
 }
 
 #[test]
@@ -302,6 +324,39 @@ fn a_newer_search_stops_the_one_before_and_a_narrowing_one_looks_at_its_lines() 
         }
     }
     assert!(generations.iter().all(|&generation| generation == 6));
+}
+
+#[test]
+fn a_rows_offset_is_where_its_line_starts_and_a_narrowing_search_keeps_it() {
+    let scratch = Scratch::new("search-offsets");
+    // A line ending `\r\n` with text of several bytes a character, then one past the first block.
+    let mut text = String::from("héllo foo\r\nbar\n");
+    let mut line = 3;
+    while text.len() < BLOCK + 10 {
+        text.push_str("filler line\n");
+        line += 1;
+    }
+    let far = text.len() as u64;
+    text.push_str("foobar far\n");
+    scratch.file("a.txt", &text);
+    scratch.file("b/c.txt", "x\nfoobar\n");
+    let mut harness = Harness::new();
+    harness.search(&scratch.0, "foo", 1, None);
+    let at = |path: &str, line, offset| (path.to_owned(), line, offset);
+    assert_eq!(
+        harness.places(1),
+        [
+            at("a.txt", 1, 0),
+            at("a.txt", line, far),
+            at("b/c.txt", 2, 2)
+        ]
+    );
+    // The lines a narrowing search looks through keep their offsets.
+    harness.search(&scratch.0, "foobar", 2, Some(1));
+    assert_eq!(
+        harness.places(2),
+        [at("a.txt", line, far), at("b/c.txt", 2, 2)]
+    );
 }
 
 #[test]

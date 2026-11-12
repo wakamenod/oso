@@ -18,7 +18,7 @@ use super::motion_tests::send;
 
 /// An editor on a file of the project `/home/me/src/oso`, its record of trusted projects
 /// read as `record`.
-fn in_oso(record: Option<&str>) -> (Dispatcher, Editor) {
+pub(super) fn in_oso(record: Option<&str>) -> (Dispatcher, Editor) {
     let mut buffer = Buffer::visiting(PathBuf::from("/home/me/src/oso/a.rs"));
     buffer.set_baseline(Baseline {
         location: PathBuf::from("/home/me/src/oso/a.rs"),
@@ -51,7 +51,7 @@ fn m_x(d: &mut Dispatcher, editor: &mut Editor, command: &str, then: &str) {
 
 /// Answers every listing a prompt for a directory asks for, each holding the directories `src`,
 /// `oso` and `tmp`, as the host's lister would, so that its answer can be decided.
-fn list_directories(editor: &mut Editor) {
+pub(super) fn list_directories(editor: &mut Editor) {
     use oso_core::complete::{Name, NameKind};
     for _ in 0..8 {
         let asked = editor.take_file_requests();

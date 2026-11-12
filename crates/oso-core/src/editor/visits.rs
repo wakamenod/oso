@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use super::Editor;
-use crate::buffer::BufferId;
+use crate::buffer::{Buffer, BufferId};
 use crate::rope::Rope;
 
 /// A file to go to a place in once a visit shows it, with the line and column.
@@ -21,14 +21,22 @@ impl Editor {
     /// once instead, unless the agent channel is still opening it.
     pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
         self.visit_place = None;
-        let open = self
-            .buffers()
-            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
-            .map(|(id, _)| id);
-        match open {
+        match self.open_buffer(|_, buffer| buffer.path() == Some(path.as_path())) {
             Some(id) => self.show(id),
             None => self.visits.push((path, limit)),
         }
+    }
+
+    /// The first open buffer that `wanted` picks, by its id and itself, of those that show what
+    /// they hold: none that the agent channel is still opening, as the channel checks what it
+    /// may show before it shows anything (ADR 0085). Once shown, it is like any other.
+    pub(super) fn open_buffer(
+        &self,
+        mut wanted: impl FnMut(BufferId, &Buffer) -> bool,
+    ) -> Option<BufferId> {
+        self.buffers()
+            .find(|(id, buffer)| !buffer.agent_pending() && wanted(*id, buffer))
+            .map(|(id, _)| id)
     }
 
     /// The visits commands asked for, for the host to start.
@@ -110,6 +118,11 @@ impl Editor {
 
 /// The offset of `column`, in characters from 0, on the line `row`, from 0, each as far as the
 /// text goes. O(log n), as the line may be 16 MiB long.
+/// The device and inode of the file `buffer` last loaded or saved, where the system gave them.
+pub(super) fn file_identity(buffer: &Buffer) -> Option<(u64, u64)> {
+    buffer.baseline()?.file?.identity
+}
+
 pub(super) fn place_offset(text: &Rope, row: usize, column: usize) -> usize {
     let row = row.min(text.line_count().saturating_sub(1));
     let (start, end) = (text.line_start(row), text.line_end(row));

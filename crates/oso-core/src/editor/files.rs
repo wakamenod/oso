@@ -1,6 +1,6 @@
-//! The prompt that reads a path, for `C-x C-f` and `C-x C-w` (ADR 0087): what is typed planned
-//! as segments, the directories the host must list, the candidates once they are, and the path
-//! an answer stands for.
+//! The prompt that reads a path, for `C-x C-f` and `C-x C-w` (ADR 0087) and for a directory, as
+//! `C-u` asks for a project's (ADR 0114): what is typed planned as segments, the directories the
+//! host must list, the candidates once they are, and the path an answer stands for.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window, threads or I/O; the host
 //! lists directories and says what it found.
@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use super::Editor;
 use super::completion::CompletionStyle;
+use super::visits::file_identity;
 use crate::buffer::{BufferId, Replacement};
 use crate::complete::path::{self, Found, Name, Plan, Reach, Reached};
 use crate::complete::{Build, Built, Candidate, WORKER_PAST, listed, matched_part};
@@ -67,9 +68,10 @@ pub(super) struct FileList {
 
 impl Editor {
     /// Opens a prompt that reads a directory's path, as [`Editor::open_file_prompt`] reads a
-    /// path, for a command that walks it (ADR 0114). `RET` on a file's row says it is not a
-    /// directory and keeps the prompt open, unless what is typed ends with `/`, which gives that
-    /// directory.
+    /// path, for a command that walks it (ADR 0114). It lists only directories and links; `RET`
+    /// on a row goes into it, and on a link a look found leads elsewhere says it is not a
+    /// directory and keeps the prompt open. What is typed is given only as its listings allow
+    /// ([`Editor::directory_answer_waits`] says while they have not come).
     ///
     /// # Errors
     ///
@@ -290,7 +292,7 @@ impl Editor {
                 listings.get(directory).cloned().flatten()
             }),
             hidden,
-            directories: self.file_list.wants_directory,
+            directories_only: self.file_list.wants_directory,
             most: MAX_FOUND,
             keep,
             history,
@@ -510,15 +512,8 @@ impl Editor {
     /// anything (ADR 0085); once shown, it is like any other.
     pub fn visiting_same_file(&self, id: BufferId) -> Option<BufferId> {
         let buffer = self.buffer(id).filter(|buffer| !buffer.agent_pending())?;
-        let identity = buffer.baseline()?.file?.identity?;
-        self.buffers().map(|(other, _)| other).find(|other| {
-            *other != id
-                && self
-                    .buffer(*other)
-                    .filter(|buffer| !buffer.agent_pending())
-                    .and_then(|buffer| buffer.baseline()?.file?.identity)
-                    == Some(identity)
-        })
+        let identity = file_identity(buffer)?;
+        self.open_buffer(|other, buffer| other != id && file_identity(buffer) == Some(identity))
     }
 
     /// Forgets the prompt that read a path, once it has closed.

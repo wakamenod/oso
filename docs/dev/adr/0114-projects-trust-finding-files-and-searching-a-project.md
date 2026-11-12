@@ -596,8 +596,13 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
     place of both and by its device and inode, as the search's; each directory on the way and
     the file are opened from the one before by name, following no link and waiting for nothing,
     a regular file only, a path with anything but plain names in it refused;
-  - the file is judged again as the search judges it, by its name as the path walked and as the
-    root leads, and one that may hold secrets is not read;
+  - the file is judged again as the search judges it, by its name as the path walked and by its
+    path from every place the root leads through, each link's target on the way and its real
+    place, as the loader finds them, and one that may hold secrets is not read. A root that
+    cannot be resolved counts as one that may hold secrets. The app hands the loader's resolver
+    to `grep`, which may not name `loader`, and the search's rows are judged the same way;
+  - the root opened must be, by device and inode, the place judged; the search's walk goes on
+    only then too;
   - each row now carries the offset of its line's start in its file
     (`ProjectSearchRow::offset`), kept with the lines a narrowing search looks through. The read
     starts there: at most 64 KiB before it, whole lines only, for about half the preview's rows,
@@ -606,11 +611,12 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
     the file's end shows nothing, and a file changed since shows what is there now;
   - the generation is read before the file is opened, at each directory on the way and before
     each part, and a newer selection, a new input or the prompt closing moves it on.
-- **The excerpt** (`oso_core::editor::Excerpt`) keeps at most 256 lines of at most 4 KiB each, cut
-  at characters with `…`; the row's line keeps as much from 1 KiB before its match once the match
-  is more than 3 KiB in. Each invalid byte is one U+FFFD and a `\r` before a line break goes, as
-  a row shows them, and the match's column is counted the same way. Its display model is built
-  on `oso-preview`, with the default tab width, so the UI thread measures nothing of it.
+- **The excerpt** (`oso_core::editor::Excerpt`) keeps at most 256 lines of at most 4 KiB of the
+  file's bytes each, cut at characters with `…`, as a row's text is cut; the row's line keeps as
+  much from 1 KiB before its match once the match is more than 3 KiB in. Each invalid byte is one
+  U+FFFD and a `\r` before a line break goes, as a row shows them, and the match's column is
+  counted the same way. Its display model is built on `oso-preview`, with the default tab width,
+  so the UI thread measures nothing of it.
 - **Drawing.** `Preview::Excerpt` names the excerpt's revision, a counter, and its cursor at the
   match. The float draws it as a text pane of its own, so that its rows are shaped as any
   buffer's, with the prompt's buffer id and the excerpt's revision keying them. The preview's
@@ -630,15 +636,18 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
     directory that could not be listed;
   - as typed where no listing tells, as for a directory the prompt started in.
 
-  While the listings its plan needs, or a look asked for at the link selected, have not come,
+  While the listings its plan needs, or a look at the link selected, have not come,
   `Editor::directory_answer_waits` says so and the dispatcher holds `RET` and `M-RET` until they
   have (`dispatch/held.rs`), as it holds `RET` for a worker. A command from the dev socket is
-  refused then, and `get-state`'s `pending` covers the wait. This closes step 4's gap of a file
-  typed before its directory was listed.
+  refused then, and `get-state`'s `pending` covers the wait. A key the dev socket sends
+  (`send-keys`) is never held, as for a worker: it runs on the listings the prompt has, and a
+  client waits until `pending` is false. This closes step 4's gap of a file typed before its
+  directory was listed.
 - **The dev socket.** A completion's state gains `preview_kind`: `buffer`, `excerpt`, `withheld`,
   `kill` or `null`, never what the preview shows. `preview` stays a buffer's id or `null`.
-- **Memory.** The editor keeps one excerpt, at most 1 MiB; a read holds at most its 64 KiB before
-  the line, the row's line, up to 16 MiB, and what the rows after it can show.
+- **Memory.** The editor keeps one excerpt: 256 lines of 4 KiB of the file's bytes, each invalid
+  byte three in its text, so about 3 MiB at most with its display model. A read holds at most its
+  64 KiB before the line, the row's line, up to 16 MiB, and what the rows after it can show.
 - **Public items beyond the plan:** `Editor::directory_answer_waits`, so that `completion_pending`
   keeps meaning a worker's result and `M-RET` stays unheld elsewhere.
 - **Changes to accepted ADRs.** [ADR 0096](0096-completion-on-a-worker-past-5000-candidates.md)'s

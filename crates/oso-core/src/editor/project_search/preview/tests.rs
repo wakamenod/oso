@@ -146,6 +146,22 @@ fn a_read_is_asked_for_once_per_row_and_a_stale_one_is_dropped() {
 }
 
 #[test]
+fn no_read_is_asked_for_while_the_float_has_no_room_for_a_preview() {
+    let mut editor = searching(vec![row("a.rs", 3, 40)]);
+    editor.set_frame_size(FrameSize {
+        rows: 40,
+        columns: 40,
+    });
+    assert!(editor.take_preview_request().is_none());
+    // Once it has, the row selected is read.
+    editor.set_frame_size(FrameSize {
+        rows: 40,
+        columns: 160,
+    });
+    assert!(editor.take_preview_request().is_some());
+}
+
+#[test]
 fn a_new_input_or_closing_the_prompt_stops_the_read() {
     let mut editor = searching(vec![row("a.rs", 3, 40)]);
     let request = editor.take_preview_request().unwrap();

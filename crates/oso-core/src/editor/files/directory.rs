@@ -48,9 +48,9 @@ impl Editor {
     }
 
     /// Whether `RET` or `M-RET` in the innermost prompt, if it reads a directory, waits for what
-    /// decides its answer: a listing its plan needs, or a look asked for at the link selected.
-    /// The host holds them until it has come, as it holds `RET` for a worker (ADR 0096,
-    /// ADR 0114).
+    /// decides its answer: a listing its plan needs, or a look at the link selected, asked for
+    /// or about to be, as [`Editor::take_file_looks`] asks for each row shown. The host holds
+    /// them until it has come, as it holds `RET` for a worker (ADR 0096, ADR 0114).
     pub fn directory_answer_waits(&self) -> bool {
         if !self.reads_path() || !self.file_list.wants_directory {
             return false;
@@ -59,10 +59,8 @@ impl Editor {
         if !list.waiting.is_empty() {
             return true;
         }
-        self.selected_file().is_some_and(|(found, _)| {
-            !found.directory
-                && !list.looks.contains_key(&found.path)
-                && list.looking.contains(&found.path)
-        })
+        // Its rows are directories and links: a link is decided by its look.
+        self.selected_file()
+            .is_some_and(|(found, _)| !found.directory && !list.looks.contains_key(&found.path))
     }
 }

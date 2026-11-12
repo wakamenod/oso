@@ -1,6 +1,6 @@
 # 0076. Completion and `M-x`
 
-- Status: Accepted, amended by 0089, 0096 and 0112
+- Status: Accepted, amended by 0089, 0096, 0112 and 0114
 - Date: 2026-11-08
 
 ## Context

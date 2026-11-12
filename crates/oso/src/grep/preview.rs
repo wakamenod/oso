@@ -41,7 +41,8 @@ pub const BACK: usize = 64 * 1024;
 const PART: usize = 64 * 1024;
 
 /// The most bytes past the end of the row's line read for each row after it, as an excerpt keeps
-/// no more of a line.
+/// no more of a line: `EXCERPT_LINE` in `oso_core::editor::project_search::preview`, 4 KiB, and
+/// the line's break. The two must change together.
 const PER_ROW: usize = 4096 + 1;
 
 /// What a preview's read found, for the editor. `Debug` gives its generation only.

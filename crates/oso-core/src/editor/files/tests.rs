@@ -505,9 +505,10 @@ fn a_directory_prompt_says_a_directory_it_cannot_read() {
 
 #[test]
 fn a_directory_prompt_takes_a_link_a_look_found_leads_to_a_directory() {
-    // The link selected waits for its look once asked.
+    // The link selected waits for its look, before it is asked for as after.
     let mut editor = directory_prompt();
     typing(&mut editor, "ln");
+    assert!(editor.directory_answer_waits(), "not asked yet");
     editor.take_file_looks();
     assert!(editor.directory_answer_waits());
     editor.file_looked(

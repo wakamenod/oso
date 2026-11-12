@@ -8,6 +8,7 @@
 use super::Editor;
 use super::follow::clip_selections;
 use crate::buffer::{self, Buffer, BufferId};
+use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Place, Walk};
 
@@ -275,17 +276,7 @@ impl Editor {
         // `C-.` previews the buffer it lists the marks of, unless it may hold secrets, as any
         // preview.
         if let Some((id, cursor)) = self.selected_mark() {
-            let buffer = self.buffer(id)?;
-            if buffer.verdict().is_withheld() {
-                return Some(Preview::Withheld);
-            }
-            let display = buffer.display();
-            let row = display.offset_to_display_point(cursor).row;
-            let rows = self
-                .prompt_layout()
-                .map_or(0, |layout| layout.regions.preview.rows);
-            let start = crate::motion::line_start(&display, row.saturating_sub(rows / 2));
-            return Some(Preview::Buffer { id, start, cursor });
+            return self.buffer_preview_at(id, cursor);
         }
         let prompt = self.prompt()?;
         let candidates = prompt
@@ -316,6 +307,31 @@ impl Editor {
         let len = buffer.text().len();
         let (cursor, start) = (selections.primary().cursor.min(len), scroll.start.min(len));
         Some(Preview::Buffer { id, start, cursor })
+    }
+
+    /// The preview of the open buffer `id` with its cursor at `cursor`, from the line about
+    /// halfway up the preview's rows from the cursor's, as `C-.` and a project's search show
+    /// one; or that it may hold secrets, which it never shows.
+    pub(super) fn buffer_preview_at(&self, id: BufferId, cursor: usize) -> Option<Preview> {
+        let buffer = self.buffer(id)?;
+        if buffer.verdict().is_withheld() {
+            return Some(Preview::Withheld);
+        }
+        Some(Preview::Buffer {
+            id,
+            start: self.preview_start(&buffer.display(), cursor),
+            cursor,
+        })
+    }
+
+    /// Where a preview whose cursor is at `cursor` starts: the line about halfway up the
+    /// preview's rows from the cursor's.
+    pub(super) fn preview_start(&self, display: &DisplaySnapshot, cursor: usize) -> usize {
+        let rows = self
+            .prompt_layout()
+            .map_or(0, |layout| layout.regions.preview.rows);
+        let row = display.offset_to_display_point(cursor).row;
+        crate::motion::line_start(display, row.saturating_sub(rows / 2))
     }
 
     /// The home directory, which `~` stands for, as the host read it once at startup.
