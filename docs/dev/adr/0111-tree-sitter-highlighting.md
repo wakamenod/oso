@@ -1,6 +1,6 @@
 # 0111. Tree-sitter highlighting
 
-- Status: Accepted
+- Status: Accepted, amended by 0115
 - Date: 2026-11-12
 
 ## Context

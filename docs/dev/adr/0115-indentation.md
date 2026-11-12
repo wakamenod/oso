@@ -1,6 +1,6 @@
 # 0115. Indentation
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -93,8 +93,10 @@ macro's replay depend on the worker's timing.
 
 ## Decision
 
-Draft, assuming the recommended option (a) of each question under [Questions](#questions). It
-becomes the decision when the author has answered them.
+The author chose on 2026-11-12, through the coordinator, the first option (a) of every question
+under [Questions](#questions), which the text below describes, and with them the two new public
+modules of `oso-core`, `indent` and `editorconfig`, and their rows in `guardrails/layers.txt`.
+The steps are under [Steps](#steps).
 
 ### Where the answer comes from (Q1)
 
@@ -255,9 +257,17 @@ replaced.
 - On the loader thread, before it builds the display map, so `tab_width` costs the UI nothing. Also
   when `C-x C-w` gives the buffer a new name, on a thread, applied when it comes back.
 - From the file's directory up, stopping after a file with `root = true`, after the home directory
-  (so `~/.editorconfig` counts), at a change of file system and at a directory another user owns, as
-  project detection stops (ADR 0114). A file is read only if it passes the configuration file's checks
-  (ADR 0108): regular, no link, this user's or root's, not writable by every user, at most 64 KiB.
+  (so `~/.editorconfig` counts), at a change of file system and at a directory another user owns. A
+  file is read only if it passes the configuration file's checks (ADR 0108): regular, no link, this
+  user's or root's, not writable by every user, at most 64 KiB.
+- **The walk agrees with project detection (ADR 0114)** where it can: it starts from the place the
+  file's path leads, follows no link, and stops where detection stops, through the same checks, which
+  move out of `project.rs` into a function both call, so the two never disagree about which
+  directories are "above" a file or whose they are. They differ only in where they end: detection
+  ends at the nearest marker, while EditorConfig goes on past a project's root to `root = true` or
+  the home directory, as the specification has it, so a `.editorconfig` above a repository still
+  counts. The walk runs on the loader thread, not on `oso-project`, because the tab width must be
+  known before the display map is built; it reads no marker and decides no trust.
 - In every project, trusted or restricted: EditorConfig is declarative and can run nothing, which is
   why ADR 0019 allows it.
 - Read once per visit. A changed `.editorconfig` applies to buffers visited after it, as Emacs's
@@ -303,7 +313,7 @@ replaced.
 
 ## Questions
 
-Recommended option first.
+Put to the author on 2026-11-12, the recommended option first; each answer was the first, (a).
 
 ### How indentation is computed
 
@@ -410,10 +420,36 @@ Recommended option first.
     (b) Reindented as it goes in, as Zed's `auto_indent_on_paste`. Convenient for code, but it changes
     text the person copied, also in prose and in strings.
 
+## Steps
+
+One pull request per step, each with `just ci` and its own review; the steps that change keys also run
+`just e2e` and `verify-in-app`.
+
+1. **The rules (`oso_core::indent`).** `Settings`, `Style`, the Rust, TOML, Markdown and Fundamental
+   rules with their lexers and budgets, as pure functions over a rope; the `layers.txt` row. Unit and
+   property tests, the rustfmt fixed point over this repository's `.rs` files, and `text_perf` cases
+   that set the 256 KiB, 1 MiB and `indent-region` budgets from measurements. No command changes yet.
+2. **`TAB`, `RET` and `C-j`.** `indent-for-tab-command`, `newline` with `electric-indent-mode`,
+   `electric-newline-and-maybe-indent`, `newline-and-indent`, the line between brackets, electric
+   closers, several cursors, undo, the dev restart's flag, and `[indent] electric` with
+   `[modes.<mode>]` in the configuration. A `just perf` scenario with `RET` in a Rust file, report-only
+   until the author sets its thresholds.
+3. **The region and the small commands.** `indent-region` with its budget and count,
+   `indent-rigidly` with its transient layer and the four named commands, `back-to-indentation`,
+   `M-i`, `delete-indentation`, and Markdown's `TAB` cycle and `M-RET`.
+4. **EditorConfig (`oso_core::editorconfig`).** The parser and matcher with their bounds and the
+   specification's cases, and its `layers.txt` row; the stop checks shared with project detection;
+   the walk on the loader thread before the display map is built, and again after `C-x C-w`;
+   `indent_style`, `indent_size` and `tab_width` applied over the configuration;
+   `describe-indentation`.
+
+Steps 1 to 3 need no EditorConfig: until step 4, a buffer's setting is the configuration's or the
+default.
+
 ## Changes to accepted ADRs
 
-Each passage stays in its ADR as written; what holds now follows it. When this ADR is accepted, the
-status of each ADR named gains `amended by 0115`.
+Each passage stays in its ADR as written; what holds now follows it. The status of each ADR named
+gains `amended by 0115`.
 
 - [ADR 0030](0030-m2-editing-commands.md), "indentation never inserts tabs": unless EditorConfig's
   `indent_style = tab` applies to the file (Q14).
