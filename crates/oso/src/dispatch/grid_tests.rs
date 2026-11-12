@@ -530,8 +530,17 @@ fn check_frame(name: &str, text: &str, (rows, columns): (usize, usize), steps: &
     check_editor(name, text.as_bytes(), editor, steps);
 }
 
-fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
-    let mut dispatcher = Dispatcher::new();
+fn check_editor(name: &str, bytes: &[u8], editor: Editor, steps: &[&str]) {
+    run_steps(name, bytes, editor, Dispatcher::new(), steps);
+}
+
+fn run_steps(
+    name: &str,
+    bytes: &[u8],
+    mut editor: Editor,
+    mut dispatcher: Dispatcher,
+    steps: &[&str],
+) {
     let mut frames = Vec::new();
     for &keys in steps {
         if let Some(command) = keys.strip_prefix("run:") {
@@ -570,6 +579,51 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
 #[cfg(test)]
 mod scenarios {
     use super::*;
+
+    /// The commands `M-x` lists in [`check_m_x`]: enough to fill and scroll its list and to
+    /// narrow it, and none that a new command would push out of it.
+    const M_X_COMMANDS: [&str; 28] = [
+        "undo",
+        "yank",
+        "insert",
+        "newline",
+        "find-file",
+        "goto-line",
+        "kill-line",
+        "kill-word",
+        "next-line",
+        "undo-redo",
+        "edit-lines",
+        "load-theme",
+        "write-file",
+        "beacon-mode",
+        "delete-char",
+        "kill-buffer",
+        "next-buffer",
+        "save-buffer",
+        "forward-char",
+        "forward-word",
+        "end-of-buffer",
+        "revert-buffer",
+        "isearch-forward",
+        "previous-buffer",
+        "switch-to-buffer",
+        "mark-whole-buffer",
+        "kill-buffer-anyway",
+        "beginning-of-buffer",
+    ];
+
+    /// As [`check_frame`], with `M-x` listing only [`M_X_COMMANDS`], so that a new command
+    /// changes neither the list nor its count. That `M-x` lists every command is checked in
+    /// `extended`'s tests.
+    fn check_m_x(name: &str, text: &str, (rows, columns): (usize, usize), steps: &[&str]) {
+        let mut editor = Editor::with_buffer(Buffer::from_bytes("test", text.as_bytes()));
+        aids_off(&mut editor);
+        editor.set_frame_size(FrameSize { rows, columns });
+        let mut dispatcher = Dispatcher::new();
+        dispatcher.list_only_in_m_x(&M_X_COMMANDS);
+        run_steps(name, text.as_bytes(), editor, dispatcher, steps);
+    }
 
     #[test]
     fn full_width_and_half_width() {
@@ -719,9 +773,9 @@ mod scenarios {
         let text = "日本語日本語日本語\n";
         let mut editor = open(text.as_bytes(), (1, 10));
         let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
-        editor.scroll_view_sideways(1);
+        editor.scroll_view_sideways(editor.tiled().0.id(), 1);
         frames.push(format!("sideways: 1\n{}", text_grid(&editor)));
-        editor.scroll_view_sideways(1);
+        editor.scroll_view_sideways(editor.tiled().0.id(), 1);
         frames.push(format!("sideways: 1, out of view\n{}", text_grid(&editor)));
         assert_frames("cursor_cut_at_the_left_edge", text.as_bytes(), &frames);
     }
@@ -768,8 +822,6 @@ mod scenarios {
         );
     }
 
-    // A dev build lists its own commands too, so these run in a build without them.
-    #[cfg(not(feature = "dev"))]
     #[test]
     fn m_x_lists_commands_below_the_answer_with_their_keys_and_summaries() {
         let text = "# Notes\n\nAgenda\n- budget\n";
@@ -781,7 +833,7 @@ mod scenarios {
             "C-a C-SPC C-e",
             "C-g C-g",
         ];
-        check_frame("complete_m_x", text, (30, 100), &steps);
+        check_m_x("complete_m_x", text, (30, 100), &steps);
     }
 
     #[test]
@@ -826,20 +878,16 @@ mod scenarios {
         check_frame("buffers_c_x_b", "notes\n", (24, 100), &steps);
     }
 
-    // A dev build lists its own commands too, so these run in a build without them.
-    #[cfg(not(feature = "dev"))]
     #[test]
     fn a_narrow_list_cuts_the_summary_then_drops_it_then_the_key() {
-        check_frame("complete_narrow", "notes\n", (12, 44), &["M-x b u f"]);
+        check_m_x("complete_narrow", "notes\n", (12, 44), &["M-x b u f"]);
     }
 
-    // A dev build lists its own commands too, so these run in a build without them.
-    #[cfg(not(feature = "dev"))]
     #[test]
     fn a_short_frame_gives_up_candidate_rows_first() {
-        check_frame("complete_in_9_rows", "notes\n", (9, 80), &["M-x", "C-v"]);
-        check_frame("complete_in_7_rows", "notes\n", (7, 80), &["M-x"]);
-        check_frame("complete_in_3_rows", "notes\n", (3, 80), &["M-x"]);
+        check_m_x("complete_in_9_rows", "notes\n", (9, 80), &["M-x", "C-v"]);
+        check_m_x("complete_in_7_rows", "notes\n", (7, 80), &["M-x"]);
+        check_m_x("complete_in_3_rows", "notes\n", (3, 80), &["M-x"]);
     }
 
     #[cfg(feature = "dev")]
@@ -962,7 +1010,7 @@ mod scenarios {
         let mut editor = open(text.as_bytes(), (3, 8));
         let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
         for rows in [2, 100, -1, -100] {
-            editor.scroll_view(rows);
+            editor.scroll_view(editor.tiled().0.id(), rows);
             frames.push(format!("wheel: {rows}\n{}", text_grid(&editor)));
         }
         assert_frames("wheel", text.as_bytes(), &frames);
@@ -978,12 +1026,12 @@ mod scenarios {
         let keys: KeySequence = "C-n C-e".parse().unwrap();
         dispatcher.handle_keys(&mut editor, keys.0);
         let mut frames = vec![format!("keys: C-n C-e\n{}", text_grid(&editor))];
-        editor.scroll_view(1);
+        editor.scroll_view(editor.tiled().0.id(), 1);
         frames.push(format!(
             "wheel: 1, the cursor stays\n{}",
             text_grid(&editor)
         ));
-        editor.scroll_view(1);
+        editor.scroll_view(editor.tiled().0.id(), 1);
         frames.push(format!("wheel: 1, it moves\n{}", text_grid(&editor)));
         assert_frames("wheel_with_the_view_sideways", text.as_bytes(), &frames);
     }
@@ -995,7 +1043,7 @@ mod scenarios {
         let mut editor = open(text.as_bytes(), (3, 12));
         let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
         for columns in [5, 100, -3] {
-            editor.scroll_view_sideways(columns);
+            editor.scroll_view_sideways(editor.tiled().0.id(), columns);
             frames.push(format!("sideways: {columns}\n{}", text_grid(&editor)));
         }
         let keys: KeySequence = "C-f".parse().unwrap();

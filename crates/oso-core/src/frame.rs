@@ -213,8 +213,8 @@ impl FrameLayout {
     }
 
     /// The window and part of it the cell at `row` and `column` is in, or `None` in the echo
-    /// area and past the frame. Clicks and drags will select and resize through it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "clicks come with mouse focus"))]
+    /// area and past the frame. The wheel picks its window through it (ADR 0112), and clicks
+    /// and drags will select and resize through it.
     pub(crate) fn hit(&self, row: usize, column: usize) -> Option<Hit> {
         self.windows.iter().find_map(|(window, regions)| {
             let part = [
@@ -345,6 +345,19 @@ impl PixelGrid {
             self.origin[0] + column as f32 * self.cell[0],
             self.origin[1] + row as f32 * self.cell[1],
         ]
+    }
+
+    /// The row and column of the cell that holds the physical pixel at `x` and `y`, as the
+    /// inverse of [`PixelGrid::cell`], for the pointer (ADR 0112). `None` in the margins to the
+    /// left and above the grid, and for a place that is not finite. A pixel past the frame's
+    /// last whole cell gives a cell past the frame, which no region holds.
+    pub fn cell_at(self, x: f64, y: f64) -> Option<(usize, usize)> {
+        let along = |pixel: f64, axis: usize| {
+            let cells = (pixel - f64::from(self.origin[axis])) / f64::from(self.cell[axis]);
+            // Saturates at usize::MAX, which no frame reaches.
+            (cells.is_finite() && cells >= 0.0).then_some(cells as usize)
+        };
+        Some((along(y, 1)?, along(x, 0)?))
     }
 
     /// How wide a cell is, in physical pixels.
@@ -591,6 +604,55 @@ mod tests {
         let grid = PixelGrid::new(10.0, 20.0);
         assert_eq!(grid.cell(0, 0), [8.0, 8.0]);
         assert_eq!(grid.cell(-1, -2), [-12.0, -12.0]);
+    }
+
+    #[test]
+    fn a_pixel_is_in_the_cell_whose_square_holds_it() {
+        let grid = PixelGrid::new(10.0, 20.0);
+        assert_eq!(
+            grid.cell_at(8.0, 8.0),
+            Some((0, 0)),
+            "the first cell's corner"
+        );
+        assert_eq!(grid.cell_at(17.9, 27.9), Some((0, 0)));
+        assert_eq!(grid.cell_at(18.0, 28.0), Some((1, 1)));
+        assert_eq!(grid.cell_at(43.0, 75.0), Some((3, 3)));
+        assert_eq!(
+            grid.cell_at(1e9, 1e9),
+            Some((49_999_999, 99_999_999)),
+            "past the frame, a cell no region holds"
+        );
+    }
+
+    #[test]
+    fn a_pixel_in_the_margins_or_nowhere_is_in_no_cell() {
+        let grid = PixelGrid::new(10.0, 20.0);
+        for (x, y) in [
+            (7.9, 20.0),
+            (20.0, 7.9),
+            (0.0, 0.0),
+            (-30.0, 40.0),
+            (f64::NAN, 40.0),
+            (40.0, f64::INFINITY),
+            (f64::NEG_INFINITY, 40.0),
+        ] {
+            assert_eq!(grid.cell_at(x, y), None, "at {x}, {y}");
+        }
+        assert_eq!(PixelGrid::new(0.0, 0.0).cell_at(20.0, 20.0), None);
+    }
+
+    proptest! {
+        /// Every pixel of a cell is in it, from its corner to its far edge (ADR 0112).
+        #[test]
+        fn prop_a_cell_holds_its_own_pixels(
+            row in 0usize..10_000, column in 0usize..10_000,
+            width in 1u32..40, height in 1u32..80, dx in 0.0f64..1.0, dy in 0.0f64..1.0,
+        ) {
+            let grid = PixelGrid::new(width as f32, height as f32);
+            let [x, y] = grid.cell(row as i64, column as i64);
+            let (x, y) = (f64::from(x) + dx * f64::from(width - 1).max(0.5), f64::from(y) + dy * f64::from(height - 1).max(0.5));
+            prop_assert_eq!(grid.cell_at(x, y), Some((row, column)));
+        }
     }
 
     proptest! {

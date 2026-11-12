@@ -94,9 +94,9 @@ fn recentering_counts_view_rows() {
 #[test]
 fn the_wheel_scrolls_by_view_rows_and_stops_at_the_last() {
     let (_, mut editor) = wrapped(0);
-    assert!(editor.scroll_view(5));
+    assert!(editor.scroll_view(editor.tiled().0.id(), 5));
     assert_eq!(editor.top_row(), 5);
-    assert!(editor.scroll_view(1000));
+    assert!(editor.scroll_view(editor.tiled().0.id(), 1000));
     let (window, buffer) = editor.current();
     let last = window.row_count(&buffer.display()) - 1;
     assert_eq!(
@@ -104,7 +104,7 @@ fn the_wheel_scrolls_by_view_rows_and_stops_at_the_last() {
         last + 1 - 10,
         "the last row at the bottom"
     );
-    assert!(!editor.scroll_view_sideways(5));
+    assert!(!editor.scroll_view_sideways(editor.tiled().0.id(), 5));
 }
 
 #[test]

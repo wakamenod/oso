@@ -2,7 +2,7 @@
 //! draws both, `C-x o` selects the other, a key goes to the selected one only and a
 //! composition ends there, `C-x 0` and `C-x 1` delete windows, and a buffer that may hold
 //! secrets beside the selected window keeps screenshots refused, with secure input following
-//! the selected window.
+//! the selected window. The wheel scrolls the window under the pointer and selects none.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The tree, the
 //! commands and what each window draws have their own tests in oso-core, the dispatcher's
@@ -138,4 +138,53 @@ fn a_secret_buffer_beside_keeps_screenshots_refused_and_secure_input_follows_sel
         app.send_keys("C-x o");
         app.wait_for("none back in the plain one", |state| !wanted(state));
     }
+}
+
+fn top(window: &Value) -> u64 {
+    window["scroll"]["top"]
+        .as_u64()
+        .expect("a window's top row")
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_wheel_scrolls_the_window_under_the_pointer_without_selecting_it() {
+    let scratch = Scratch::new("windows-wheel");
+    let text: String = (0..300).map(|i| format!("line {i}\n")).collect();
+    let file = scratch.write("long.txt", text.as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    app.visual_aids_off();
+    app.wait_until_ready();
+    app.send_keys("C-x 2");
+    let state = app.state();
+    let split = windows(&state);
+    assert_eq!(split[1]["selected"], true, "the lower window is selected");
+    let upper_rows = split[0]["rows"].as_u64().expect("a window's rows");
+    // Below the upper window's text and its modeline.
+    let lower_row = upper_rows + 2;
+
+    // A notch down over the upper window scrolls it and leaves the selection alone.
+    let wheel = |row: u64| json!({ "lines": [0, -1], "at": { "row": row, "column": 2 } });
+    let scrolled = app.call("wheel", Some(wheel(1)));
+    assert_eq!(scrolled["moved"], true);
+    let state = app.state();
+    let split = windows(&state);
+    assert_eq!(top(&split[0]), 3, "one notch is three rows");
+    assert_eq!(top(&split[1]), 0);
+    assert_eq!(split[1]["selected"], true, "nothing else is selected");
+
+    // Over the lower window, that one, by another id.
+    let lower = app.call("wheel", Some(wheel(lower_row)));
+    assert_ne!(lower["window"], scrolled["window"]);
+    let state = app.state();
+    assert_eq!((top(&windows(&state)[0]), top(&windows(&state)[1])), (3, 3));
+
+    // In the margin, and with no place, the selected window.
+    let margin = json!({ "lines": [0, -1], "at": { "x": 1.0, "y": 1.0 } });
+    assert_eq!(app.call("wheel", Some(margin))["window"], lower["window"]);
+    let nowhere = json!({ "lines": [0, 1] });
+    assert_eq!(app.call("wheel", Some(nowhere))["window"], lower["window"]);
+    let state = app.state();
+    assert_eq!(top(&windows(&state)[1]), 3, "down a notch, then up one");
+    assert_eq!(top(&windows(&state)[0]), 3);
 }

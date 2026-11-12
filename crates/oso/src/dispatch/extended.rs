@@ -62,11 +62,24 @@ impl Dispatcher {
             .filter(|(id, command)| {
                 command.args != ArgSpec::Key && (shortest.contains_key(id) || !bound.contains(id))
             })
+            .filter(|(_, command)| self.lists(command.name))
             .map(|(id, command)| {
                 let key = shortest.get(&id).map_or("", |(_, text)| text.as_str());
                 Candidate::new(command.name, key, command.summary())
             })
             .collect()
+    }
+
+    /// Whether `M-x` lists the command named `name`, of those it could: in a test that gave
+    /// only some, whether it is one of them.
+    #[cfg(test)]
+    fn lists(&self, name: &str) -> bool {
+        self.m_x_only.is_none_or(|names| names.contains(&name))
+    }
+
+    #[cfg(not(test))]
+    fn lists(&self, _: &str) -> bool {
+        true
     }
 }
 
@@ -107,6 +120,8 @@ pub(super) fn with_prefix(prompt: &str, prefix: Option<Prefix>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::with_prefix;
     use crate::dispatch::Dispatcher;
     use oso_core::buffer::Buffer;
@@ -135,6 +150,33 @@ mod tests {
             "exit-minibuffer",
         ] {
             assert!(find(name).is_none(), "{name}");
+        }
+    }
+
+    #[test]
+    fn m_x_lists_once_each_command_bound_globally_or_nowhere_that_reads_no_key() {
+        let dispatcher = Dispatcher::new();
+        let editor = Editor::with_buffer(Buffer::from_text("test", "text"));
+        let items = dispatcher.command_candidates(&editor);
+        let listed: HashSet<&str> = items.iter().map(Candidate::text).collect();
+        assert_eq!(listed.len(), items.len(), "a command is listed twice");
+        // Beneath a prompt over the text, only the global keymap is active, so a command
+        // bound in another keymap alone is left out.
+        let (mut global, mut elsewhere) = (HashSet::new(), HashSet::new());
+        for keymap in dispatcher.keymaps.all() {
+            let into = if std::ptr::eq(keymap, &dispatcher.keymaps.global) {
+                &mut global
+            } else {
+                &mut elsewhere
+            };
+            keymap.bindings(|_, id| {
+                into.insert(id);
+            });
+        }
+        for (id, command) in dispatcher.registry.iter() {
+            let runs =
+                command.args != ArgSpec::Key && (global.contains(&id) || !elsewhere.contains(&id));
+            assert_eq!(listed.contains(command.name), runs, "{}", command.name);
         }
     }
 

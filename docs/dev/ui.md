@@ -48,7 +48,9 @@ in the background color, so no partly shown row or column is drawn
   isearch matches or flash. Its modeline is in the inactive face. Beneath a prompt, the window
   it came from keeps its region and band, its cursor hollow and its modeline inactive.
 - The minibuffer and completion float over the whole tiled area, whatever the layout.
-- The wheel scrolls the window under the pointer without selecting it.
+- The wheel scrolls the window under the pointer without selecting it, its gutter and
+  modeline included. Over a divider, the echo area or the margins it scrolls the selected
+  window, and over a float the window under it.
 
 ## Minibuffer and completion
 
@@ -81,6 +83,8 @@ are rounded.
   of text, the label and the answer share it.
 - The window beneath keeps its text and modeline, and its cursor is drawn **hollow**. The
   float may cover it, and the view does not move. The wheel scrolls it, and its cursors stay.
+  The wheel scrolls another window too, whose cursors come into its view as without a
+  prompt.
 - Keys: `RET` gives the answer, `C-g` closes the prompt, `M-p` and `M-n` walk its history,
   and editing keys work as in any buffer. A history keeps 100 answers in memory, and an
   answer given again moves to the front. A prompt opened while a buffer that may hold secrets
