@@ -15,6 +15,7 @@ mod cursors;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+pub use edit::MAX_CROSSINGS;
 mod files;
 mod indent;
 mod isearch;

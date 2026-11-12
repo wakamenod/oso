@@ -58,6 +58,7 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
             .map(|(window, regions)| window_state(editor, window, regions))
             .collect::<Vec<_>>(),
         "text": (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &buffer.display())),
+        "undoing": undoing_state(editor),
         "prompts": editor.prompts().iter().map(|prompt| {
             let mut state = json!({
                 "kind": kind(prompt.kind()),
@@ -82,6 +83,49 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
         state["echo"] = json!(status.echo);
     }
     state
+}
+
+/// The `undoing` field of `get-state`: null, or the undo or the redo of a large step under way,
+/// which way and its share done (ADR 0119). Around a buffer that may hold secrets, only that
+/// one is under way.
+pub fn undoing_state(editor: &Editor) -> Value {
+    let Some(crossing) = editor.crossing() else {
+        return Value::Null;
+    };
+    if editor.shows_secret() || editor.current().1.is_secret() {
+        return json!({ "active": true });
+    }
+    json!({ "redo": crossing.redo(), "done": crossing.done() })
+}
+
+/// Begins undoing a step of 10,000 replacements in the selected window's buffer, which takes
+/// more than one slice, for tests elsewhere that need an undo under way.
+#[cfg(test)]
+pub(crate) fn begin_a_large_undo(editor: &mut Editor) {
+    let id = editor.current().0.buffer();
+    let text = "ab ".repeat(10_000);
+    editor.begin_undo_group();
+    editor
+        .apply_edits(
+            id,
+            &[oso_core::buffer::Replacement {
+                range: 0..0,
+                text: &text,
+            }],
+        )
+        .expect("an insertion");
+    let edits: Vec<_> = (0..10_000)
+        .map(|at| oso_core::buffer::Replacement {
+            range: at * 3..at * 3 + 2,
+            text: "c",
+        })
+        .collect();
+    editor.end_undo_group();
+    editor.begin_undo_group();
+    editor.apply_edits(id, &edits).expect("the replacements");
+    editor.end_undo_group();
+    editor.begin_crossing(1).expect("an undo");
+    assert!(editor.crossing().is_some(), "more than one slice");
 }
 
 /// A buffer's metadata, which says nothing that follows what a person does in a buffer that
@@ -249,7 +293,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_VISIBLE_TEXT, commands, state};
+    use super::{MAX_VISIBLE_TEXT, begin_a_large_undo, commands, state};
     use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
     use oso_core::window::ViewSize;
@@ -277,6 +321,32 @@ mod tests {
             .collect();
         assert!(!names.contains(&json!("plain.txt")), "{names:?}");
         assert_eq!(state["buffer_count"], names.len());
+    }
+
+    #[test]
+    fn says_how_far_an_undo_under_way_is_but_not_around_a_secret() {
+        let mut editor = editor("");
+        assert_eq!(state(&editor, 0)["undoing"], json!(null));
+        begin_a_large_undo(&mut editor);
+        let undoing = &state(&editor, 0)["undoing"];
+        assert_eq!(undoing["redo"], false);
+        assert!(
+            undoing["done"]
+                .as_f64()
+                .is_some_and(|done| done > 0.0 && done < 1.0)
+        );
+        editor.cancel_crossing();
+        let path = PathBuf::from("/tmp/.env");
+        let mut secret = Buffer::visiting(path.clone());
+        secret.apply_load(oso_core::load::decode_all(
+            b"",
+            oso_core::display_map::TabWidth::default(),
+        ));
+        secret.judge_secret(Some(&[path]));
+        let secret = editor.add_buffer(secret);
+        editor.show(secret);
+        begin_a_large_undo(&mut editor);
+        assert_eq!(state(&editor, 0)["undoing"], json!({ "active": true }));
     }
 
     #[test]

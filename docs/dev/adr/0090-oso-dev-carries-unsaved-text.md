@@ -105,6 +105,9 @@ The author chose these on 2026-11-08, through the coordinator. The author accept
 - **As before:** a save running, a prompt or a composition open, a buffer that may hold secrets
   shown ([ADR 0079](0079-state-and-restarts-around-a-secret-buffer.md)), and an instance beside
   the old one that has been edited.
+- **An undo or a redo of a large step under way**
+  ([ADR 0119](0119-undoing-large-steps-in-slices.md)): the handoff carries no history, so the
+  undo could not be made after it.
 
 ### The generation
 

@@ -109,3 +109,89 @@ fn cursors_follow_a_batch_cut_only_where_its_parts_cannot_meet_otherwise() {
     assert_eq!(steps(vec![splice(2, 2, "a"), splice(4, 2, "b")]).len(), 2);
     assert_eq!(steps(vec![splice(2, 1, "a"), splice(4, 0, "b")]).len(), 2);
 }
+
+#[test]
+fn what_cursors_follow_is_handed_out_where_it_last_may_be_cut() {
+    // Batches of 100 splices that all meet, a byte apart from one another, joined into one
+    // run; slices of three splices stop inside a batch two times in three.
+    let (batches, pairs, every) = (20, 50, 60);
+    let group: Vec<Batch> = (0..batches)
+        .map(|batch| {
+            (0..pairs)
+                .flat_map(|pair| {
+                    let at = batch * every + pair;
+                    [
+                        Splice {
+                            start: at,
+                            len: 0,
+                            text: Some(Rope::from("a")),
+                        },
+                        Splice {
+                            start: at,
+                            len: 1,
+                            text: Some(Rope::from("b")),
+                        },
+                    ]
+                })
+                .collect()
+        })
+        .collect();
+    let text = "x".repeat(batches * every);
+    let mut rope = Rope::from(text.as_str());
+    let mut display = DisplayMap::new(&rope, TabWidth::new(4));
+    let work = 3 * (SPLICE_WORK + 1);
+    let (steps, ..) = apply_in_slices(&group, &mut rope, &mut display, None, (work, PIECE));
+    let longest = steps.iter().map(Vec::len).max().unwrap_or(0);
+    assert!(longest <= 2 * pairs, "a step of {longest} splices");
+    assert_eq!(
+        steps.iter().map(Vec::len).sum::<usize>(),
+        batches * 2 * pairs
+    );
+    let mut whole = Rope::from(text.as_str());
+    let mut whole_display = DisplayMap::new(&whole, TabWidth::new(4));
+    apply_in_slices(
+        &group,
+        &mut whole,
+        &mut whole_display,
+        None,
+        (usize::MAX, PIECE),
+    );
+    assert_eq!(rope.to_string(), whole.to_string());
+}
+
+#[test]
+fn batches_past_a_run_s_splices_join_into_several_runs_that_give_the_same_text() {
+    // Batches a byte apart, each of 1000 splices, more than one run holds.
+    let batches = RUN_SPLICES / 1000 + 6;
+    let group: Vec<Batch> = (0..batches)
+        .map(|batch| {
+            (0..1000)
+                .map(|at| Splice {
+                    start: batch * 2001 + at * 2,
+                    len: 1,
+                    text: Some(Rope::from("yz")),
+                })
+                .collect()
+        })
+        .collect();
+    let text = "x".repeat(batches * 2001);
+    let mut rope = Rope::from(text.as_str());
+    let mut display = DisplayMap::new(&rope, TabWidth::new(4));
+    let (_, undo, _) = apply_in_slices(&group, &mut rope, &mut display, None, (usize::MAX, PIECE));
+    assert!(undo.len() > 1, "{} runs", undo.len());
+    assert!(undo.iter().all(|batch| batch.len() <= RUN_SPLICES));
+    // As each batch applied on its own, the last first.
+    let mut one_by_one = Rope::from(text.as_str());
+    let mut one_display = DisplayMap::new(&one_by_one, TabWidth::new(4));
+    for batch in group.iter().rev() {
+        let alone = [batch.clone()];
+        apply_in_slices(
+            &alone,
+            &mut one_by_one,
+            &mut one_display,
+            None,
+            (usize::MAX, PIECE),
+        );
+    }
+    assert_eq!(rope.to_string(), one_by_one.to_string());
+}

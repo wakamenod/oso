@@ -505,6 +505,10 @@ impl Dispatcher {
     /// so that both ask the same question (ADR 0059, ADR 0072). Pressed while a question is
     /// open, it does nothing more.
     pub fn close_requested(&mut self, editor: &mut Editor) -> Effects {
+        // It waits with the keys while `!` or an undo goes on (ADR 0119).
+        if let Some(done) = self.hold_during_all(editor, super::hold_all::Held::Close) {
+            return done;
+        }
         if editor
             .prompt()
             .is_some_and(|prompt| prompt.kind().is_question())

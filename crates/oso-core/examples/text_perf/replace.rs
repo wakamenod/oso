@@ -47,6 +47,8 @@ fn bang(label: &str, text: &str, from: &str, to: &str) {
     let started = Instant::now();
     editor.undo().expect("the session undoes");
     let undone = started.elapsed();
+    // The app frees what an undo lets go off the UI thread (ADR 0119).
+    drop(editor.take_crossing_freed());
     println!(
         "{label:<28} {count:>5} slices: first {first:>9.2?} last {last:>9.2?} p50 {p50:>9.2?} p99 {p99:>9.2?} most {most:>9.2?}; undo {undone:>9.2?}"
     );

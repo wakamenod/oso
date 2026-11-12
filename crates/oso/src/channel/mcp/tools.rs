@@ -97,7 +97,7 @@ fn reading_tools() -> Vec<Value> {
     vec![
         tool(
             "state",
-            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, and open prompts. What a buffer that may hold secrets would show is left out.",
+            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, open prompts, and `undoing`, how far an undo or a redo of a large step is. What a buffer that may hold secrets would show is left out.",
             json!({
                 "buffer_offset": { "type": "integer", "minimum": 0, "description": "Where the list of buffers starts, for more than one state holds." },
             }),

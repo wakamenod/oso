@@ -252,6 +252,8 @@ fn window_undo(label: &str, text: &str, cursors: usize, wraps: bool) {
     editor.begin_undo_group();
     let (_, undone) = time(|| editor.undo());
     editor.end_undo_group();
+    // The app frees what an undo lets go off the UI thread (ADR 0119).
+    drop(editor.take_crossing_freed());
     let how = if wraps { "wrapped" } else { "truncated" };
     println!("undo   {label:<22} {how:>9} {cursors:>5} cursors x 20 keys  {undone:>9.2?}");
 }
