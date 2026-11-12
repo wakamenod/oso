@@ -71,3 +71,46 @@ fn a_recovery_from_a_secret_copy_drops_the_highlights_and_their_log() {
     );
     assert_eq!(buffer.splices_since(revision), None);
 }
+
+#[test]
+fn shown_ranges_are_what_the_window_shows() {
+    let line = "fn f() {}\n";
+    let (mut editor, id, _) = highlighted(&line.repeat(100));
+    let mut shown = Vec::new();
+    editor.shown_ranges(&mut shown);
+    assert_eq!(shown.len(), 1);
+    let (buffer, range) = shown[0].clone();
+    assert_eq!(buffer, id);
+    assert_eq!(range.start, 0);
+    // 10 cells high, a modeline among them: a few lines, not the hundred.
+    assert!(
+        range.end > line.len() && range.end < 20 * line.len(),
+        "{range:?}"
+    );
+    editor.scroll_view(30);
+    editor.shown_ranges(&mut shown);
+    assert_eq!(shown[0].1.start, 30 * line.len(), "{:?}", shown[0].1);
+}
+
+#[test]
+fn a_visited_file_takes_its_mode_from_its_name() {
+    assert_eq!(
+        Buffer::visiting(PathBuf::from("/p/main.rs")).mode(),
+        Mode::Rust
+    );
+    assert_eq!(
+        Buffer::visiting(PathBuf::from("/p/README.md")).mode(),
+        Mode::Markdown
+    );
+    assert_eq!(
+        Buffer::visiting(PathBuf::from("/p/notes.txt")).mode(),
+        Mode::Fundamental
+    );
+}
+
+#[test]
+fn a_new_name_gives_the_mode_as_a_visit_does() {
+    let mut buffer = Buffer::visiting(PathBuf::from("/p/notes.txt"));
+    buffer.set_path(PathBuf::from("/p/notes.md"));
+    assert_eq!(buffer.mode(), Mode::Markdown);
+}

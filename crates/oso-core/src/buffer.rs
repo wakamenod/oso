@@ -259,13 +259,14 @@ impl Buffer {
     ///
     /// It is named after the file. Telling apart buffers of files with the
     /// same name (Emacs's uniquify) is left to the editor, which knows the
-    /// other buffers.
+    /// other buffers. Its mode comes from the file's name only (ADR 0111).
     pub fn visiting(path: PathBuf) -> Self {
         let name = path.file_name().map_or_else(
             || path.to_string_lossy().into_owned(),
             |name| name.to_string_lossy().into_owned(),
         );
         Self {
+            mode: Mode::for_path(&path),
             path: Some(path),
             loading: Some(Progress::default()),
             verdict: Verdict::Unjudged,
