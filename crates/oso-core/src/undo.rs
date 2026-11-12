@@ -45,8 +45,9 @@ pub(crate) struct Splice<T> {
     pub(crate) text: T,
 }
 
-/// The splices one edit call made, or what undoes them. A splice that only
-/// deletes has no text, so typing keeps no empty rope per cursor.
+/// The splices one edit call made, or several of those an undo or a redo joined
+/// (ADR 0119), or what undoes them. A splice that only deletes has no text, so
+/// typing keeps no empty rope per cursor.
 pub(crate) type Batch = Vec<Splice<Option<Rope>>>;
 
 /// What a group returns to on one of its sides.
