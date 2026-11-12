@@ -125,7 +125,8 @@ fn c_u_asks_for_a_directory_refuses_a_file_and_searches_the_one_typed() {
         state["prompts"][0]["completion"]["pending"] == false
             && state["prompts"][0]["completion"]["total"] == 2
     });
-    assert_eq!(rows(&state), ["docs/", "src/"]);
+    // Shorter first, as completion sorts (ADR 0076).
+    assert_eq!(rows(&state), ["src/", "docs/"]);
     // A directory typed whole, `/` at its end, is searched.
     app.send_keys("C-a C-k");
     let docs = scratch.path().join("proj-search/docs/");
