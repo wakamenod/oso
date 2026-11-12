@@ -11,7 +11,7 @@ use oso_core::buffer::{Baseline, Buffer, BufferId, Mode};
 use oso_core::command::{Args, Invocation};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::{Editor, ProjectRequest, Status};
-use oso_core::editorconfig::{Applied, Budget, File, Properties};
+use oso_core::editorconfig::{Applied, Budget, File};
 use oso_core::indent::{Origin, Origins, Settings, Style};
 use oso_core::key::KeySequence;
 use oso_core::load::decode_all;
@@ -60,25 +60,11 @@ fn visiting(text: &str, tab_width: u32) -> (Dispatcher, Editor, BufferId) {
 /// What the files `(path, text)`, nearest first, give `/p/src/a.rs`.
 fn applied(files: &[(&str, &str)]) -> Applied {
     let mut budget = Budget::default();
-    let parsed: Vec<File> = files
+    let parsed = files
         .iter()
-        .map(|(_, text)| File::parse(text, &mut budget))
+        .map(|(path, text)| (PathBuf::from(path), File::parse(text, &mut budget)))
         .collect();
-    let mut properties = Properties::default();
-    for (source, (path, _)) in files.iter().enumerate().rev() {
-        let dir = PathBuf::from(path).parent().unwrap().to_path_buf();
-        let relative = PathBuf::from("/p/src/a.rs");
-        let relative = relative
-            .strip_prefix(&dir)
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        properties.apply(&parsed[source], source, &relative);
-    }
-    Applied {
-        properties,
-        files: files.iter().map(|(path, _)| PathBuf::from(path)).collect(),
-    }
+    Applied::from_walk(std::path::Path::new("/p/src/a.rs"), parsed)
 }
 
 /// Each mode two spaces wide from the configuration.

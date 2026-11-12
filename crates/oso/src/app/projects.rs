@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{App, UserEvent, Waker};
 use crate::config::{Record, TrustFile};
+use crate::loader::{Home, Reader};
 use crate::project::{Detector, Trusted};
 
 /// The thread that finds projects, waking the event loop with [`UserEvent::Projects`]. It never
@@ -20,6 +21,18 @@ pub(super) fn detector(waker: &Waker) -> Detector {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .send(UserEvent::Projects)
+    })
+}
+
+/// The thread that reads EditorConfig after `C-x C-w`, waking the event loop with
+/// [`UserEvent::EditorConfig`].
+pub(super) fn editorconfig_reader(waker: &Waker, home: &Home) -> Reader {
+    let waker = Mutex::new(waker.clone());
+    Reader::new(home.clone(), move || {
+        waker
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(UserEvent::EditorConfig)
     })
 }
 
@@ -75,24 +88,14 @@ impl App {
     /// own (ADR 0115).
     pub(super) fn read_editorconfigs(&mut self) {
         for request in self.editor.take_editorconfig_requests() {
-            let waker = self.waker.clone();
-            let wake = move || {
-                let _ = waker.send(UserEvent::EditorConfig);
-            };
-            crate::loader::spawn_read(request, super::home(), &self.editorconfigs, wake);
+            self.editorconfigs.read(request);
         }
     }
 
     /// Threads read EditorConfig: gives what they found to their buffers, if their files are
     /// still where they were when asked, and says what was skipped in `*Messages*`.
     pub(super) fn editorconfigs_read(&mut self) {
-        let answers = std::mem::take(
-            &mut *self
-                .editorconfigs
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner),
-        );
-        for (request, found) in answers {
+        for (request, found) in self.editorconfigs.take() {
             let current = self
                 .editor
                 .buffer(request.buffer)

@@ -151,7 +151,16 @@ network features.
 | Org babel execution (explicit action only) | no | yes |
 
 - Inside repositories, oso reads only EditorConfig. It never reads settings
-  that name commands or executables.
+  that name commands or executables. EditorConfig sets a file's indentation and tab width
+  and nothing else, so it is read in every project, trusted or not. The walk up from the file
+  stops where project detection stops (a link, another user's directory, another file system,
+  after the home directory), and a `.editorconfig` is read only if it is a regular file, no
+  link, this user's or root's, not writable by every user, of at most 64 KiB, opened from its
+  directory once that is the one the walk saw, and never in a directory every user may write.
+  A visit reads at most 32 such files and 1 MiB of them. Parsing is bounded: 1000 sections, a
+  glob of 4 KiB with braces 8 deep, 128 bytes for one with a number range, the `regex` crate's
+  size limit, and at most 128 sections and 2 KiB of globs compiled a visit
+  ([ADR 0115](adr/0115-indentation.md)).
 - The user configuration is one per-user file, never searched for elsewhere.
   It names registered commands and values only, is read off the UI thread with
   checks on its owner and modes, and a bad one never stops a start. Its agent

@@ -8,18 +8,15 @@ use std::path::PathBuf;
 use crate::buffer::{Baseline, Buffer, BufferId, Mode};
 use crate::display_map::TabWidth;
 use crate::editor::Editor;
-use crate::editorconfig::{Applied, Budget, File, Properties};
+use crate::editorconfig::{Applied, Budget, File};
 use crate::indent::{Origin, Origins, Settings, Style};
 use crate::load::decode_all;
 
 /// What `text`, an `.editorconfig` beside the file, gives a file `a.rs`.
 fn applied(text: &str) -> Applied {
-    let mut properties = Properties::default();
-    properties.apply(&File::parse(text, &mut Budget::default()), 0, "a.rs");
-    Applied {
-        properties,
-        files: vec![PathBuf::from("/p/.editorconfig")],
-    }
+    let file = File::parse(text, &mut Budget::default());
+    let files = vec![(PathBuf::from("/p/.editorconfig"), file)];
+    Applied::from_walk(std::path::Path::new("/p/a.rs"), files)
 }
 
 /// An editor visiting `/p/a.rs`, shown with tabs `tab_width` wide.
@@ -141,4 +138,26 @@ fn a_new_name_asks_for_its_editorconfig_once() {
     assert_eq!(requests[0].buffer, id);
     assert_eq!(requests[0].location, PathBuf::from("/p/a.rs"));
     assert!(editor.take_editorconfig_requests().is_empty());
+}
+
+#[test]
+fn a_buffer_with_no_file_is_shown_with_the_default_tab_width() {
+    let mut editor = Editor::with_buffer(Buffer::from_text("*scratch*", ""));
+    let id = editor.window().buffer();
+    configure(&mut editor, 4);
+    let (settings, origins) = of(&editor, id);
+    assert_eq!(settings.tab_width(), TabWidth::new(8));
+    assert_eq!(origins.tab_width, Origin::Default);
+}
+
+#[test]
+fn a_mode_set_keeps_what_editorconfig_gives() {
+    let (mut editor, id) = visiting(8);
+    configure(&mut editor, 8);
+    editor.set_editorconfig(id, Some(applied("[*]\nindent_style = tab\n")));
+    assert!(editor.set_buffer_mode(id, Mode::Toml));
+    assert_eq!(editor.buffer(id).unwrap().mode(), Mode::Toml);
+    assert_eq!(of(&editor, id).0.style(), Style::Tabs);
+    let internal = editor.add_buffer(Buffer::internal("*x*"));
+    assert!(!editor.set_buffer_mode(internal, Mode::Rust));
 }

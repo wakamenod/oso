@@ -33,7 +33,7 @@ fn described(editor: &Editor, buffer: &Buffer) -> String {
     let from = |origin: Origin, source: Option<usize>| {
         origin_said(origin, applied, source, root.as_deref())
     };
-    let properties = applied.map(|applied| &applied.properties);
+    let properties = applied.map(Applied::properties);
     let style = match settings.style() {
         Style::Spaces => "spaces",
         Style::Tabs => "tabs",
@@ -76,7 +76,7 @@ fn origin_said(
         Origin::EditorConfig => {
             let file = applied
                 .zip(source)
-                .and_then(|(applied, source)| applied.files.get(source));
+                .and_then(|(applied, source)| applied.file(source));
             match file
                 .zip(root)
                 .and_then(|(file, root)| file.strip_prefix(root).ok())

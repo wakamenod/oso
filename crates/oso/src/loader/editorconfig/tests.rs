@@ -5,6 +5,8 @@
 use std::fs;
 
 use oso_core::editorconfig::{IndentSize, IndentStyle, VISIT_SECTIONS};
+
+use super::{VISIT_FILES, VISIT_NOTES};
 use oso_core::indent::Style;
 
 use super::*;
@@ -30,8 +32,12 @@ impl Scratch {
     }
 
     /// What the files give the file at `relative`, with this directory as home.
-    fn read(&self, relative: &str) -> Found {
-        read(&self.0.join(relative), Some(&self.0))
+    fn read(&self, relative: &str) -> EditorConfigFound {
+        read(
+            &self.0.join(relative),
+            &Home::new(Some(self.0.clone())),
+            &|| false,
+        )
     }
 }
 
@@ -41,8 +47,8 @@ impl Drop for Scratch {
     }
 }
 
-fn size(found: &Found) -> Option<(IndentSize, usize)> {
-    found.applied.as_ref()?.properties.indent_size()
+fn size(found: &EditorConfigFound) -> Option<(IndentSize, usize)> {
+    found.applied.as_ref()?.properties().indent_size()
 }
 
 #[test]
@@ -55,10 +61,13 @@ fn the_nearest_file_wins_and_each_value_names_its_file() {
     let near = scratch.file("a/.editorconfig", "[*.rs]\nindent_size = 2\n");
     let found = scratch.read("a/b/x.rs");
     let applied = found.applied.as_ref().unwrap();
-    assert_eq!(applied.files, [near, far]);
+    assert_eq!(
+        (applied.file(0), applied.file(1)),
+        (Some(near.as_path()), Some(far.as_path()))
+    );
     assert_eq!(size(&found), Some((IndentSize::Columns(2), 0)));
     assert_eq!(
-        applied.properties.indent_style(),
+        applied.properties().indent_style(),
         Some((IndentStyle::Tab, 1))
     );
     assert!(found.notes.is_empty());
@@ -71,8 +80,11 @@ fn a_root_file_ends_the_walk() {
     let near = scratch.file("a/.editorconfig", "root = true\n[*]\nindent_size = 2\n");
     let found = scratch.read("a/x.rs");
     let applied = found.applied.unwrap();
-    assert_eq!(applied.files, [near]);
-    assert_eq!(applied.properties.indent_style(), None);
+    assert_eq!(
+        (applied.file(0), applied.file(1)),
+        (Some(near.as_path()), None)
+    );
+    assert_eq!(applied.properties().indent_style(), None);
 }
 
 #[test]
@@ -81,11 +93,13 @@ fn the_walk_ends_after_the_home_directory() {
     scratch.file(".editorconfig", "[*]\nindent_size = 8\n");
     let home_file = scratch.file("home/.editorconfig", "[*]\nindent_style = tab\n");
     let location = scratch.0.join("home/p/x.rs");
-    let found = read(&location, Some(&scratch.0.join("home")));
+    let found = read(&location, &Home::new(Some(scratch.0.join("home"))), &|| {
+        false
+    });
     let applied = found.applied.unwrap();
     assert_eq!(
-        applied.files,
-        [home_file],
+        (applied.file(0), applied.file(1)),
+        (Some(home_file.as_path()), None),
         "home's own file counts, not the one above"
     );
 }
@@ -135,7 +149,7 @@ fn a_link_is_not_read_and_said() {
     assert!(found.applied.is_none());
     assert_eq!(found.notes.len(), 1);
     assert!(
-        found.notes[0].ends_with("is not read: it is a link, or not a regular file"),
+        found.notes[0].ends_with("is not read: it is a link, or not a regular file here"),
         "{:?}",
         found.notes
     );
@@ -148,7 +162,11 @@ fn a_link_on_the_way_up_ends_the_walk() {
     scratch.file(".editorconfig", "[*]\nindent_size = 2\n");
     fs::create_dir_all(scratch.0.join("real")).unwrap();
     std::os::unix::fs::symlink(scratch.0.join("real"), scratch.0.join("link")).unwrap();
-    let found = read(&scratch.0.join("link/x.rs"), Some(&scratch.0));
+    let found = read(
+        &scratch.0.join("link/x.rs"),
+        &Home::new(Some(scratch.0.clone())),
+        &|| false,
+    );
     assert!(
         found.applied.is_none(),
         "the walk goes from where a path leads"
@@ -202,25 +220,59 @@ fn the_files_of_a_visit_share_one_budget() {
         |count: usize| -> String { (0..count).map(|_| "[*]\nindent_size = 3\n").collect() };
     scratch.file(
         ".editorconfig",
-        &format!("[*]\ntab_width = 4\n{}", sections(1)),
+        &format!("[*]\ntab_width = 4\n{}", sections(2)),
     );
-    let near = scratch.file("a/.editorconfig", &sections(VISIT_SECTIONS));
+    scratch.file("a/.editorconfig", &sections(VISIT_SECTIONS - 1));
     let found = scratch.read("a/x.rs");
     assert_eq!(
         found.notes,
         [format!(
-            "EditorConfig {}: line 1: a visit compiles at most 128 sections and 2 KiB of \
+            "EditorConfig {}: line 3: a visit compiles at most 128 sections and 2 KiB of \
              globs; this section and the rest are skipped",
             scratch.0.join(".editorconfig").display()
         )]
     );
     let applied = found.applied.unwrap();
-    assert_eq!(applied.files[0], near);
     assert_eq!(
-        applied.properties.tab_width(),
+        applied.properties().tab_width(),
+        Some((4, 1)),
+        "the far file's first section"
+    );
+    // Once the near file spends it all, the walk reads nothing above.
+    scratch.file("a/.editorconfig", &sections(VISIT_SECTIONS));
+    let found = scratch.read("a/x.rs");
+    assert!(found.notes.is_empty());
+    let applied = found.applied.unwrap();
+    assert_eq!(applied.file(1), None);
+    assert_eq!(
+        applied.properties().tab_width(),
         Some((3, 0)),
         "derived from the near size"
     );
+}
+
+#[test]
+fn a_visit_reads_at_most_its_files_and_says_at_most_its_notes() {
+    let scratch = Scratch::new("files");
+    let mut dir = String::new();
+    for level in 0..40 {
+        scratch.file(
+            &format!("{dir}.editorconfig"),
+            &format!("[x{level}]\nindent_size = 2\n[*]\nindent_style = sideways\n"),
+        );
+        // Each one not UTF-8 too, for a note at each level.
+        if level % 2 == 1 {
+            std::fs::write(scratch.0.join(format!("{dir}.editorconfig")), b"\xff").unwrap();
+        }
+        dir.push_str("d/");
+    }
+    let found = scratch.read(&format!("{dir}x.rs"));
+    let applied = found.applied.unwrap();
+    // Half of those seen were read.
+    assert!(applied.file(VISIT_FILES / 2 - 1).is_some());
+    assert!(applied.file(VISIT_FILES / 2).is_none());
+    assert_eq!(found.notes.len(), VISIT_NOTES + 1);
+    assert!(found.notes[VISIT_NOTES].ends_with("more notes of this visit left out"));
 }
 
 #[test]
@@ -234,7 +286,10 @@ fn the_tab_width_is_editorconfigs_or_the_configured_one() {
 
 /// Visits `path` with home at `home`, and gives the last update with what EditorConfig gave,
 /// taken before the first update, as the UI takes it.
-fn visit(path: PathBuf, home: &Path) -> (Option<crate::loader::LoadUpdate>, Option<Found>) {
+fn visit(
+    path: PathBuf,
+    home: &Path,
+) -> (Option<crate::loader::LoadUpdate>, Option<EditorConfigFound>) {
     use crate::loader::{LoadUpdate, UNASKED, Visit, spawn};
     use std::sync::mpsc;
     use std::time::Duration;
@@ -248,7 +303,7 @@ fn visit(path: PathBuf, home: &Path) -> (Option<crate::loader::LoadUpdate>, Opti
     let visit = Visit {
         configured: Settings::default(),
         editorconfig: true,
-        home: Some(home.to_path_buf()),
+        home: Home::new(Some(home.to_path_buf())),
     };
     let handle = spawn(id, path, UNASKED, visit, move |_| tx.send(()).is_ok()).unwrap();
     let mut found = None;
@@ -283,7 +338,7 @@ fn a_visit_builds_the_display_map_with_editorconfigs_tab_width() {
     buffer.apply_load(*snapshot);
     assert_eq!(buffer.tab_width(), TabWidth::new(4));
     assert_eq!(
-        found.unwrap().applied.unwrap().properties.tab_width(),
+        found.unwrap().applied.unwrap().properties().tab_width(),
         Some((4, 0))
     );
 }
@@ -300,4 +355,48 @@ fn a_new_file_takes_what_editorconfig_gives_where_it_will_be() {
         ))
     ));
     assert_eq!(size(&found.unwrap()), Some((IndentSize::Columns(2), 0)));
+}
+
+#[cfg(all(unix, feature = "dev"))]
+#[test]
+fn a_fifo_is_not_waited_on() {
+    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+    let scratch = Scratch::new("fifo");
+    let mkfifo = Executable::from_path("mkfifo", None).expect("mkfifo is on PATH");
+    let status = spawn(&Spawn {
+        executable: &mkfifo,
+        args: &[scratch.0.join(".editorconfig").into_os_string()],
+        cwd: None,
+        project: None,
+        inherit: &[],
+        stdout: Sink::Null,
+        stderr: Sink::Null,
+        own_process_group: false,
+    })
+    .and_then(|mut child| child.wait())
+    .expect("cannot run mkfifo");
+    assert!(status.success());
+    let found = scratch.read("x.rs");
+    assert!(found.applied.is_none());
+    assert_eq!(found.notes.len(), 1, "{:?}", found.notes);
+}
+
+#[cfg(unix)]
+#[test]
+fn nothing_is_read_in_a_directory_every_user_may_write() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = Scratch::new("open-dir");
+    scratch.file("a/.editorconfig", "[*]\nindent_size = 2\n");
+    scratch.file("b/x.rs", "");
+    for dir in ["a", "b"] {
+        fs::set_permissions(scratch.0.join(dir), fs::Permissions::from_mode(0o777)).unwrap();
+    }
+    let found = scratch.read("a/x.rs");
+    assert!(found.applied.is_none());
+    assert!(found.notes[0].ends_with("is not read: every user may write its directory"));
+    assert!(
+        scratch.read("b/x.rs").notes.is_empty(),
+        "nothing there, nothing said"
+    );
 }

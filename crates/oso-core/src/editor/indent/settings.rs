@@ -6,7 +6,7 @@
 
 use super::super::{Editor, ProjectRequest};
 use crate::buffer::{Buffer, BufferId, Mode};
-use crate::editorconfig::{Applied, IndentSize};
+use crate::editorconfig::{Applied, Properties};
 use crate::indent::{self, Origin, Origins, Settings};
 
 impl Editor {
@@ -55,24 +55,13 @@ impl Editor {
             return;
         };
         let (configured, given) = self.configured_indent(buffer.mode());
-        let shown = buffer.tab_width();
-        let (mut settings, mut origins) = match buffer.editorconfig() {
-            Some(applied) => indent::with_editorconfig(configured, given, &applied.properties),
-            None => (configured, given),
-        };
-        if settings.tab_width() != shown {
-            origins.tab_width = Origin::Visited;
-            // A level of `tab` is a tab as it is shown.
-            let tab_level = buffer
-                .editorconfig()
-                .and_then(|applied| applied.properties.indent_size())
-                .is_some_and(|(size, _)| size == IndentSize::Tab);
-            let size = if tab_level {
-                shown.get()
-            } else {
-                u32::try_from(settings.indent_size()).unwrap_or(4)
-            };
-            settings = Settings::new(size, settings.style(), shown.get()).unwrap_or(settings);
+        let none = Properties::default();
+        let properties = buffer.editorconfig().map_or(&none, Applied::properties);
+        let (settings, mut origins) =
+            indent::with_editorconfig(configured, given, properties, buffer.tab_width());
+        // A buffer that visits no file is shown with the default.
+        if origins.tab_width == Origin::Visited && buffer.path().is_none() {
+            origins.tab_width = Origin::Default;
         }
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_indent_settings(settings);
@@ -80,22 +69,24 @@ impl Editor {
         }
     }
 
+    /// Sets the mode of the buffer `id`, and gives it the mode's indentation under what
+    /// EditorConfig gave it. Returns false if its mode cannot change, as an internal buffer's.
+    pub fn set_buffer_mode(&mut self, id: BufferId, mode: Mode) -> bool {
+        let set = self
+            .buffer_mut(id)
+            .is_some_and(|buffer| buffer.set_mode(mode));
+        if set {
+            self.give_mode_indent(id);
+        }
+        set
+    }
+
     /// Asks the host to read the EditorConfig of `id`'s file again, as `C-x C-w` named it.
     pub(crate) fn request_editorconfig(&mut self, id: BufferId) {
-        let Some(location) = self
-            .buffer(id)
-            .filter(|buffer| !buffer.is_internal())
-            .and_then(Buffer::baseline)
-            .map(|baseline| baseline.location.clone())
-        else {
-            return;
-        };
-        self.editorconfig_requests
-            .retain(|asked| asked.buffer != id);
-        self.editorconfig_requests.push(ProjectRequest {
-            buffer: id,
-            location,
-        });
+        let internal = self.buffer(id).is_none_or(Buffer::is_internal);
+        if let Some(request) = self.file_request(id).filter(|_| !internal) {
+            super::super::projects::ask(&mut self.editorconfig_requests, request);
+        }
     }
 
     /// The files whose EditorConfig the host should read again, the oldest first. What it

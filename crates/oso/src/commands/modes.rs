@@ -70,16 +70,11 @@ fn fundamental_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 /// Sets the current buffer's mode, and says so; the modeline names it.
 fn set_mode(ctx: &mut Ctx<'_>, mode: Mode) -> Result<(), CommandError> {
     let id = ctx.editor.window().buffer();
-    let Some(buffer) = ctx.editor.buffer_mut(id) else {
-        return Err(CommandError::new("No buffer"));
-    };
-    if !buffer.set_mode(mode) {
-        return Err(CommandError::new("This buffer's mode cannot change"));
-    }
     // The mode's indent size and style under what EditorConfig gives the file (ADR 0115); the
     // tab width stays the one it is shown with.
-    let applied = buffer.editorconfig().cloned();
-    ctx.editor.set_editorconfig(id, applied);
+    if !ctx.editor.set_buffer_mode(id, mode) {
+        return Err(CommandError::new("This buffer's mode cannot change"));
+    }
     ctx.editor.message(format!("{} mode", mode.name()));
     ctx.request_redraw();
     Ok(())

@@ -3,17 +3,23 @@
 //!
 //! Must not depend on: any other module of the crate; globs are strings.
 
-use super::{Glob, MAX_GLOB, MAX_NESTING, Refused};
+use super::{Glob, MAX_GLOB, MAX_NESTING, MAX_RANGE_GLOB, Refused};
 
 /// Asserts that `glob` matches each of `yes` and none of `no`.
 #[track_caller]
 fn check(glob: &str, yes: &[&str], no: &[&str]) {
     let compiled = Glob::new(glob).unwrap();
     for path in yes {
-        assert!(compiled.matches(path), "{glob:?} matches {path:?}");
+        assert!(
+            compiled.matches(&format!("/{path}")),
+            "{glob:?} matches {path:?}"
+        );
     }
     for path in no {
-        assert!(!compiled.matches(path), "{glob:?} does not match {path:?}");
+        assert!(
+            !compiled.matches(&format!("/{path}")),
+            "{glob:?} does not match {path:?}"
+        );
     }
 }
 
@@ -241,4 +247,16 @@ fn a_glob_too_large_to_compile_is_refused() {
         Glob::new(&large),
         Ok(_) | Err(Refused::TooComplex)
     ));
+}
+
+#[test]
+fn a_glob_with_a_number_range_is_at_most_its_bound() {
+    let at = format!("{}{{1..9}}", "a".repeat(MAX_RANGE_GLOB - 6));
+    assert!(Glob::new(&at).is_ok());
+    let past = format!("{}{{1..9}}", "a".repeat(MAX_RANGE_GLOB - 5));
+    assert_eq!(Glob::new(&past).unwrap_err(), Refused::RangeTooLong);
+    assert!(
+        Glob::new(&"a".repeat(MAX_RANGE_GLOB + 1)).is_ok(),
+        "no range, no bound"
+    );
 }

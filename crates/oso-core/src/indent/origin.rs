@@ -32,11 +32,15 @@ pub struct Origins {
 }
 
 /// The setting `properties`, from EditorConfig, give over `configured`, whose properties came
-/// from `given`, with where each came from. `indent_size = tab` is the tab width it gives.
+/// from `given`, for a buffer shown with tabs `shown` wide, with where each property came from.
+/// The tab width is the one shown: one that EditorConfig or the configuration asks for
+/// otherwise applies at the next visit, and is [`Origin::Visited`] until then. A level of
+/// `indent_size = tab` is a tab as it is shown.
 pub fn with_editorconfig(
     configured: Settings,
     given: Origins,
     properties: &Properties,
+    shown: TabWidth,
 ) -> (Settings, Origins) {
     let mut origins = given;
     let style = match properties.indent_style() {
@@ -49,24 +53,27 @@ pub fn with_editorconfig(
         }
         None => configured.style(),
     };
-    let tab_width = match properties.tab_width() {
+    let wanted = match properties.tab_width() {
         Some((width, _)) => {
             origins.tab_width = Origin::EditorConfig;
             TabWidth::new(u32::from(width))
         }
         None => configured.tab_width(),
     };
+    if wanted != shown {
+        origins.tab_width = Origin::Visited;
+    }
     let indent_size = match properties.indent_size() {
         Some((size, _)) => {
             origins.indent_size = Origin::EditorConfig;
             match size {
                 IndentSize::Columns(columns) => u32::from(columns),
-                IndentSize::Tab => tab_width.get(),
+                IndentSize::Tab => shown.get(),
             }
         }
         None => u32::try_from(configured.indent_size()).unwrap_or(4),
     };
-    match Settings::new(indent_size, style, tab_width.get()) {
+    match Settings::new(indent_size, style, shown.get()) {
         Some(settings) => (settings, origins),
         None => (configured, given),
     }

@@ -12,18 +12,23 @@
 //! visit share a [`Budget`] of what they may compile. It reads in every project, trusted or
 //! not, as EditorConfig can run nothing (security.md, T1).
 
+use std::ffi::OsStr;
 use std::fs::Metadata;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use oso_core::display_map::TabWidth;
-use oso_core::editor::ProjectRequest;
-use oso_core::editorconfig::{Applied, Budget, File, MAX_FILE, Properties};
-use oso_core::indent::{self, Settings};
+use oso_core::editorconfig::{Applied, Budget, File, MAX_FILE};
+use oso_core::indent::Settings;
+
+use oso_platform::file_meta::Directory;
+use oso_platform::privacy;
 
 use super::Shared;
 use crate::project::{Above, ours, upward};
+use crate::walk::real_home;
 
 /// The name of the files read.
 const NAME: &str = ".editorconfig";
@@ -36,7 +41,34 @@ pub struct Visit {
     /// Whether to read the EditorConfig files that apply to the file first.
     pub editorconfig: bool,
     /// The home directory, after which no EditorConfig file is read.
-    pub home: Option<PathBuf>,
+    pub home: Home,
+}
+
+/// The home directory, as the person's environment names it, and its real place, which the
+/// first read that needs it finds, off the UI thread, for all the reads that share it.
+#[derive(Clone, Debug, Default)]
+pub struct Home {
+    spelled: Option<PathBuf>,
+    /// Its real place, once found.
+    real: Arc<Mutex<Option<Option<PathBuf>>>>,
+}
+
+impl Home {
+    /// The home directory `spelled` so, if there is one.
+    pub fn new(spelled: Option<PathBuf>) -> Self {
+        Self {
+            spelled,
+            real: Arc::default(),
+        }
+    }
+
+    /// Its real place, or its spelling if that cannot be found, which the walk still stops
+    /// after.
+    fn real(&self) -> Option<PathBuf> {
+        let mut real = self.real.lock().unwrap_or_else(PoisonError::into_inner);
+        real.get_or_insert_with(|| real_home(self.spelled.as_deref()))
+            .clone()
+    }
 }
 
 impl Shared {
@@ -51,7 +83,7 @@ impl Shared {
     }
 
     /// Locks what EditorConfig gave, which is held only to swap an `Option`.
-    pub(super) fn editorconfig(&self) -> std::sync::MutexGuard<'_, Option<Found>> {
+    pub(super) fn editorconfig(&self) -> std::sync::MutexGuard<'_, Option<EditorConfigFound>> {
         self.editorconfig
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -68,8 +100,10 @@ impl Shared {
             .as_ref()
             .map(|baseline| baseline.location.clone());
         let found = match location {
-            Some(location) if visit.editorconfig => read(&location, visit.home.as_deref()),
-            _ => Found::default(),
+            Some(location) if visit.editorconfig => read(&location, &visit.home, &|| {
+                self.cancel.load(Ordering::Relaxed)
+            }),
+            _ => EditorConfigFound::default(),
         };
         let tab_width = found.tab_width(visit.configured);
         *self.editorconfig() = Some(found);
@@ -79,98 +113,161 @@ impl Shared {
 
 /// What the files found for a file give it, and what `*Messages*` should say of them.
 #[derive(Debug, Default)]
-pub struct Found {
+pub struct EditorConfigFound {
     /// `None` if no file was read.
     pub applied: Option<Applied>,
     /// What was skipped, or not read, and why. They name no buffer text.
     pub notes: Vec<String>,
 }
 
-impl Found {
+impl EditorConfigFound {
     /// The tab width the file is shown with: EditorConfig's, or the configured one.
     pub fn tab_width(&self, configured: Settings) -> TabWidth {
-        match &self.applied {
-            Some(applied) => {
-                indent::with_editorconfig(configured, Default::default(), &applied.properties)
-                    .0
-                    .tab_width()
-            }
-            None => configured.tab_width(),
-        }
+        self.applied
+            .as_ref()
+            .and_then(|applied| applied.properties().tab_width())
+            .map_or(configured.tab_width(), |(width, _)| {
+                TabWidth::new(u32::from(width))
+            })
     }
 }
 
+/// The most `.editorconfig` files one visit reads, nearest first.
+const VISIT_FILES: usize = 32;
+
+/// The most bytes of them one visit reads.
+const VISIT_BYTES: u64 = 1 << 20;
+
+/// The most notes one visit gives `*Messages*`; one more says how many were left out.
+const VISIT_NOTES: usize = 8;
+
 /// The EditorConfig files that apply to the file at `location`, the real place its path
-/// leads, with `home` the home directory as the person's environment names it.
-pub fn read(location: &Path, home: Option<&Path>) -> Found {
-    let home = home.and_then(|home| std::fs::canonicalize(home).ok());
+/// leads, the walk ending after `home`, and early once `cancelled` says so.
+pub fn read(location: &Path, home: &Home, cancelled: &dyn Fn() -> bool) -> EditorConfigFound {
     let mut budget = Budget::default();
-    let mut found = Found::default();
-    let mut files: Vec<(&Path, File)> = Vec::new();
-    let mut paths = Vec::new();
-    for Above { dir, .. } in upward(location, home.as_deref()) {
+    let mut notes = Notes::default();
+    let mut files = Vec::new();
+    let (mut seen, mut bytes) = (0, 0);
+    let home = home.real();
+    for Above { dir, metadata, .. } in upward(location, home.as_deref()) {
+        // Once nothing more can be compiled, no file above adds anything.
+        if cancelled() || budget.is_spent() {
+            break;
+        }
+        if seen == VISIT_FILES {
+            notes.push(format!(
+                "EditorConfig: a visit reads at most {VISIT_FILES} files; none from {} up",
+                dir.display()
+            ));
+            break;
+        }
         let path = dir.join(NAME);
-        let text = match read_checked(&path) {
-            Ok(Some(text)) => text,
-            Ok(None) => continue,
-            Err(why) => {
-                found.notes.push(format!(
+        let text = match read_here(dir, &metadata, VISIT_BYTES - bytes) {
+            Here::Nothing => continue,
+            Here::Refused(why) => {
+                seen += 1;
+                notes.push(format!(
                     "EditorConfig {} is not read: {why}",
                     path.display()
                 ));
                 continue;
             }
+            Here::Text(text) => text,
+            Here::PastBudget => {
+                notes.push(format!(
+                    "EditorConfig {} is not read: a visit reads at most {} KiB of them",
+                    path.display(),
+                    VISIT_BYTES >> 10
+                ));
+                break;
+            }
         };
+        seen += 1;
+        bytes += text.len() as u64;
         let file = File::parse(&text, &mut budget);
         for problem in file.problems() {
-            found
-                .notes
-                .push(format!("EditorConfig {}: {problem}", path.display()));
+            notes.push(format!("EditorConfig {}: {problem}", path.display()));
         }
         let root = file.is_root();
-        files.push((dir, file));
-        paths.push(path);
+        files.push((path, file));
         if root {
             break;
         }
     }
-    if files.is_empty() {
-        return found;
+    EditorConfigFound {
+        applied: (!files.is_empty()).then(|| Applied::from_walk(location, files)),
+        notes: notes.finish(),
     }
-    // Farthest first, so that a nearer file wins.
-    let mut properties = Properties::default();
-    for (source, (dir, file)) in files.iter().enumerate().rev() {
-        properties.apply(file, source, &relative(location, dir));
-    }
-    found.applied = Some(Applied {
-        properties,
-        files: paths,
-    });
-    found
 }
 
-/// The path of `location` from `dir`, its parts joined by `/`, as EditorConfig's globs read it.
-fn relative(location: &Path, dir: &Path) -> String {
-    let parts = location.strip_prefix(dir).unwrap_or(location).iter();
-    let parts: Vec<_> = parts.map(|part| part.to_string_lossy()).collect();
-    parts.join("/")
+/// The notes of one visit, at most [`VISIT_NOTES`] of them.
+#[derive(Default)]
+struct Notes {
+    kept: Vec<String>,
+    left_out: usize,
 }
 
-/// The text of the `.editorconfig` at `path`, or `None` if there is none, or why it is not
-/// read.
-fn read_checked(path: &Path) -> Result<Option<String>, &'static str> {
-    let (file, metadata) = match oso_platform::file_meta::open_regular_here(path) {
-        Ok(Some(opened)) => opened,
-        Ok(None) => return Err("it is a link, or not a regular file"),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err("it cannot be opened"),
+impl Notes {
+    fn push(&mut self, note: String) {
+        if self.kept.len() < VISIT_NOTES {
+            self.kept.push(note);
+        } else {
+            self.left_out += 1;
+        }
+    }
+
+    fn finish(mut self) -> Vec<String> {
+        if self.left_out > 0 {
+            let more = self.left_out;
+            self.kept.push(format!(
+                "EditorConfig: {more} more notes of this visit left out"
+            ));
+        }
+        self.kept
+    }
+}
+
+/// What a directory holds of EditorConfig.
+enum Here {
+    Nothing,
+    Text(String),
+    Refused(String),
+    /// It is larger than what the visit may still read.
+    PastBudget,
+}
+
+/// The `.editorconfig` in `dir`, which the walk saw as `walked`, read from the directory
+/// itself once it is the one the walk saw, if it is at most `left` bytes.
+fn read_here(dir: &Path, walked: &Metadata, left: u64) -> Here {
+    let name = OsStr::new(NAME);
+    // A directory that cannot be listed holds nothing to read.
+    let Ok(directory) = Directory::open(dir) else {
+        return Here::Nothing;
     };
-    if !ours(&metadata) || others_can_write(&metadata) {
-        return Err("another user owns it or can change it");
+    if !same_directory(&directory, walked) {
+        return Here::Refused("its directory changed as it was read".into());
     }
-    let too_large = "it is larger than 64 KiB";
+    if privacy::others_can_write(walked) {
+        return match directory.kind_of(name) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Here::Nothing,
+            _ => Here::Refused("every user may write its directory".into()),
+        };
+    }
+    let (file, metadata) = match directory.open_file(name) {
+        Ok(Some(opened)) => opened,
+        Ok(None) => return Here::Refused("it is a link, or not a regular file here".into()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Here::Nothing,
+        Err(_) => return Here::Refused("it cannot be opened".into()),
+    };
+    if !ours(&metadata) || privacy::others_can_write(&metadata) {
+        return Here::Refused("another user owns it or can change it".into());
+    }
+    let too_large = || Here::Refused(format!("it is larger than {} KiB", MAX_FILE >> 10));
     if metadata.len() > MAX_FILE as u64 {
-        return Err(too_large);
+        return too_large();
+    }
+    if metadata.len() > left {
+        return Here::PastBudget;
     }
     let mut bytes = Vec::new();
     if file
@@ -178,56 +275,37 @@ fn read_checked(path: &Path) -> Result<Option<String>, &'static str> {
         .read_to_end(&mut bytes)
         .is_err()
     {
-        return Err("it cannot be read");
+        return Here::Refused("it cannot be read".into());
     }
     if bytes.len() > MAX_FILE {
-        return Err(too_large);
+        return too_large();
     }
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|_| "it is not UTF-8 text")
+    match String::from_utf8(bytes) {
+        Ok(text) => Here::Text(text),
+        Err(_) => Here::Refused("it is not UTF-8 text".into()),
+    }
 }
 
-/// Whether every user may write what `metadata` describes. Windows has no modes to go by.
-fn others_can_write(metadata: &Metadata) -> bool {
+/// Whether `directory` is the one the walk saw as `walked`, by device and inode. Windows keeps
+/// no stable identity to compare, and its directories are opened by path.
+fn same_directory(directory: &Directory, walked: &Metadata) -> bool {
     #[cfg(unix)]
-    return std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o002 != 0;
+    {
+        use std::os::unix::fs::MetadataExt;
+        directory
+            .metadata()
+            .is_ok_and(|now| now.dev() == walked.dev() && now.ino() == walked.ino())
+    }
     #[cfg(not(unix))]
     {
-        let _ = metadata;
-        false
+        let _ = (directory, walked);
+        true
     }
 }
 
-/// What the threads reading after `C-x C-w` found, for the UI to take.
-pub type Answers = Arc<Mutex<Vec<(ProjectRequest, Found)>>>;
+mod reader;
 
-/// Reads the EditorConfig of `request`'s file on a thread of its own, as `C-x C-w` named it,
-/// puts what it found in `answers` and calls `wake`.
-pub fn spawn_read(
-    request: ProjectRequest,
-    home: Option<PathBuf>,
-    answers: &Answers,
-    wake: impl FnOnce() + Send + 'static,
-) {
-    let answers = Arc::clone(answers);
-    let started = std::thread::Builder::new()
-        .name("oso-editorconfig".into())
-        .spawn(move || {
-            // A panic reads nothing, and the buffer keeps what it has.
-            let found = std::panic::catch_unwind(|| read(&request.location, home.as_deref()));
-            if let Ok(found) = found {
-                answers
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push((request, found));
-                wake();
-            }
-        });
-    if let Err(e) = started {
-        log::warn!("cannot start reading EditorConfig: {e}");
-    }
-}
+pub use reader::Reader;
 
 #[cfg(test)]
 mod tests;

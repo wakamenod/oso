@@ -30,6 +30,10 @@
 //! a baseline, but its text comes whole, compared with the buffer's on this thread
 //! ([`spawn_reload`]). [`Watcher`] notices the change (ADR 0083).
 //!
+//! A visit reads the EditorConfig files that apply to the file right after opening it, before
+//! reading it, so the display map is built with their tab width (ADR 0115,
+//! [`editorconfig`]).
+//!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1). Nothing logged says how large a file is, as it may hold secrets.
 
@@ -52,7 +56,7 @@ mod identity;
 mod resolve;
 mod watch;
 
-pub use editorconfig::{Answers, Found, Visit, spawn_read};
+pub use editorconfig::{EditorConfigFound, Home, Reader, Visit};
 pub use error::LoadError;
 #[cfg(test)]
 use identity::same_stamp;
@@ -127,7 +131,7 @@ struct Shared {
     /// The visit, for a load that reads EditorConfig first.
     visit: Option<Visit>,
     /// What EditorConfig gave the file. Set before the first update, and taken once.
-    editorconfig: Mutex<Option<Found>>,
+    editorconfig: Mutex<Option<EditorConfigFound>>,
 }
 
 impl Shared {
@@ -202,7 +206,7 @@ impl LoadHandle {
 
     /// What the EditorConfig files gave a visit's file, the first time this is called after
     /// they were read. Every update comes after this is available.
-    pub fn take_editorconfig(&self) -> Option<Found> {
+    pub fn take_editorconfig(&self) -> Option<EditorConfigFound> {
         self.shared.editorconfig().take()
     }
 }

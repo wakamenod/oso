@@ -335,6 +335,24 @@ fn a_glob_too_long_spends_nothing() {
     assert_eq!(parse(&text).problems(), [Problem::GlobTooLong { line: 1 }]);
 }
 
+#[test]
+fn a_walk_applies_farthest_first_with_each_files_globs_from_its_directory() {
+    use std::path::{Path, PathBuf};
+
+    let near = parse("[*.rs]\nindent_size = 2\n");
+    let far = parse("root = true\n[src/*.rs]\nindent_style = tab\nindent_size = 8\n");
+    let files = vec![
+        (PathBuf::from("/p/src/.editorconfig"), near),
+        (PathBuf::from("/p/.editorconfig"), far),
+    ];
+    let applied = super::Applied::from_walk(Path::new("/p/src/a.rs"), files);
+    let properties = applied.properties();
+    assert_eq!(properties.indent_size(), Some((IndentSize::Columns(2), 0)));
+    assert_eq!(properties.indent_style(), Some((IndentStyle::Tab, 1)));
+    assert_eq!(applied.file(1), Some(Path::new("/p/.editorconfig")));
+    assert_eq!(applied.file(2), None);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
@@ -364,5 +382,26 @@ proptest! {
         let file = parse(&text);
         let mut properties = Properties::default();
         properties.apply(&file, 0, &path);
+    }
+
+    /// A name with no character a glob reads matches itself alone, as `regex`'s own
+    /// characters are taken as themselves.
+    #[test]
+    fn a_plain_name_matches_only_itself(
+        name in "[^*?\\[\\]{}\\\\/\\n\\r]{1,24}",
+        other in "[^*?\\[\\]{}\\\\/\\n\\r]{1,24}",
+    ) {
+        let name = name.trim();
+        prop_assume!(!name.is_empty() && !name.starts_with(['#', ';']));
+        let text = format!("[{name}]\nindent_size = 2\n");
+        let matches = |path: &str| {
+            let mut properties = Properties::default();
+            properties.apply(&parse(&text), 0, path);
+            properties.indent_size().is_some()
+        };
+        prop_assert!(matches(name));
+        let below = format!("d/{name}");
+        prop_assert!(matches(&below));
+        prop_assert_eq!(matches(&other), other == name);
     }
 }

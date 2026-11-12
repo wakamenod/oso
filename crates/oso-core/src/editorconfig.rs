@@ -20,10 +20,10 @@
 mod glob;
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use glob::{Glob, Refused};
-pub use glob::{MAX_GLOB, MAX_NESTING};
+pub use glob::{MAX_GLOB, MAX_NESTING, MAX_RANGE_GLOB};
 
 /// The most bytes of a `.editorconfig` read; a larger one is not read at all.
 pub const MAX_FILE: usize = 64 << 10;
@@ -94,6 +94,9 @@ pub enum Problem {
     NestedTooDeep { line: usize },
     /// The section at this line has a glob whose expression is too large.
     TooComplex { line: usize },
+    /// The section at this line has a glob with a number range longer than
+    /// [`MAX_RANGE_GLOB`].
+    RangeGlobTooLong { line: usize },
     /// The section at this line, and those after it, are past what one visit compiles.
     OverBudget { line: usize },
 }
@@ -119,6 +122,11 @@ impl Default for Budget {
 }
 
 impl Budget {
+    /// Whether it is spent: no later section is compiled, so no later file gives anything.
+    pub fn is_spent(&self) -> bool {
+        self.sections == 0
+    }
+
     /// Takes a section of `glob_bytes` from the budget, if it fits; once one does not, none
     /// does.
     fn take(&mut self, glob_bytes: usize) -> bool {
@@ -153,6 +161,11 @@ impl fmt::Display for Problem {
             Self::NestedTooDeep { line } => write!(
                 f,
                 "line {line}: a section with braces nested more than {MAX_NESTING} deep is skipped"
+            ),
+            Self::RangeGlobTooLong { line } => write!(
+                f,
+                "line {line}: a section name with a number range longer than {MAX_RANGE_GLOB} \
+                 bytes is skipped"
             ),
             Self::OverBudget { line } => write!(
                 f,
@@ -256,6 +269,7 @@ impl File {
                 Refused::TooLong => Problem::GlobTooLong { line },
                 Refused::NestedTooDeep => Problem::NestedTooDeep { line },
                 Refused::TooComplex => Problem::TooComplex { line },
+                Refused::RangeTooLong => Problem::RangeGlobTooLong { line },
             }),
         }
     }
@@ -318,9 +332,11 @@ pub struct Properties {
 impl Properties {
     /// Applies what `file` sets for `path`, the file's path from that file's directory, its
     /// parts joined by `/`, over what the files before it set. Files go farthest first.
-    pub fn apply(&mut self, file: &File, source: usize, path: &str) {
+    fn apply(&mut self, file: &File, source: usize, path: &str) {
+        // Matched with a `/` before it, made once for all the sections.
+        let path = format!("/{path}");
         for section in &file.sections {
-            if !section.glob.matches(path) {
+            if !section.glob.matches(&path) {
                 continue;
             }
             for pair in &section.pairs {
@@ -383,12 +399,45 @@ fn given<T>(setting: Setting<T>, source: usize) -> Option<Given<T>> {
 }
 
 /// What the `.editorconfig` files found for a file give it: the properties, each with its
-/// source, which is the index of its file in `files`.
+/// source, which is the index of its file, nearest first.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Applied {
-    pub properties: Properties,
-    /// The files applied, by their paths, nearest first.
-    pub files: Vec<PathBuf>,
+    properties: Properties,
+    files: Vec<PathBuf>,
+}
+
+impl Applied {
+    /// What the `.editorconfig` files a walk up from the file at `location` found give it:
+    /// each file by its path, nearest first, as a walk finds them. They apply farthest first,
+    /// so a nearer one wins, each with its globs read from its own directory.
+    pub fn from_walk(location: &Path, files: Vec<(PathBuf, File)>) -> Self {
+        let mut properties = Properties::default();
+        for (source, (path, file)) in files.iter().enumerate().rev() {
+            let dir = path.parent().unwrap_or(path);
+            properties.apply(file, source, &relative(location, dir));
+        }
+        Self {
+            properties,
+            files: files.into_iter().map(|(path, _)| path).collect(),
+        }
+    }
+
+    /// The properties, each with the source of the file that gave it.
+    pub fn properties(&self) -> &Properties {
+        &self.properties
+    }
+
+    /// The path of the file `source`, as the properties name it.
+    pub fn file(&self, source: usize) -> Option<&Path> {
+        self.files.get(source).map(PathBuf::as_path)
+    }
+}
+
+/// The path of `location` from `dir`, its parts joined by `/`, as the globs read it.
+fn relative(location: &Path, dir: &Path) -> String {
+    let parts = location.strip_prefix(dir).unwrap_or(location).iter();
+    let parts: Vec<_> = parts.map(|part| part.to_string_lossy()).collect();
+    parts.join("/")
 }
 
 #[cfg(test)]

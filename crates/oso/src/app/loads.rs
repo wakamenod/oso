@@ -23,7 +23,7 @@ pub(super) struct Load {
     first_screen: Option<Instant>,
     /// What EditorConfig gave its file, until the buffer is shown with the tab width the
     /// display map was built with (ADR 0115).
-    editorconfig: Option<loader::Found>,
+    editorconfig: Option<loader::EditorConfigFound>,
 }
 
 impl App {
@@ -60,7 +60,7 @@ impl App {
         let visit = loader::Visit {
             configured: self.editor.mode_indent(visiting.mode()),
             editorconfig: true,
-            home: super::home(),
+            home: self.home.clone(),
         };
         let buffer = self.editor.add_buffer(visiting);
         self.buffers_changed();
@@ -112,6 +112,16 @@ impl App {
         buffer.apply_carried(text, facts);
         let buffer = self.editor.add_buffer(buffer);
         self.editor.request_project(buffer);
+        // Its EditorConfig, as after `C-x C-w`: the tab width stays the default (ADR 0115).
+        if let Some(location) = self
+            .editor
+            .buffer(buffer)
+            .and_then(Buffer::baseline)
+            .map(|baseline| baseline.location.clone())
+        {
+            let request = oso_core::editor::ProjectRequest { buffer, location };
+            self.editorconfigs.read(request);
+        }
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
@@ -326,7 +336,11 @@ impl App {
 
     /// What EditorConfig gave the file of the load at `index`, if `update` shows it with the
     /// tab width the display map was built with, or makes it a new file (ADR 0115).
-    fn editorconfig_for(&mut self, index: usize, update: &LoadUpdate) -> Option<loader::Found> {
+    fn editorconfig_for(
+        &mut self,
+        index: usize,
+        update: &LoadUpdate,
+    ) -> Option<loader::EditorConfigFound> {
         match update {
             LoadUpdate::Snapshot(_) | LoadUpdate::Failed(LoadError::NotFound) => {
                 self.loads[index].editorconfig.take()
@@ -336,7 +350,7 @@ impl App {
     }
 
     /// Gives `id` what EditorConfig gave its file, once the update that shows it is in.
-    fn give_editorconfig(&mut self, id: BufferId, found: Option<loader::Found>) {
+    fn give_editorconfig(&mut self, id: BufferId, found: Option<loader::EditorConfigFound>) {
         if let Some(found) = found {
             self.editor.set_editorconfig(id, found.applied);
         }

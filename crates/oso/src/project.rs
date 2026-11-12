@@ -1,5 +1,6 @@
 //! Finding the project a file is in (ADR 0114), on a thread of its own, after the file's text
-//! has come.
+//! has come; and the way up from a file that detection and EditorConfig both walk
+//! ([`upward`], ADR 0115).
 //!
 //! Must not depend on: `app`, `config` or the UI thread; this touches the file system, and the
 //! trusted roots come with each request.

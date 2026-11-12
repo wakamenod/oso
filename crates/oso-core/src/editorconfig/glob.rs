@@ -20,6 +20,10 @@ pub const MAX_GLOB: usize = 4 << 10;
 /// The deepest braces may nest.
 pub const MAX_NESTING: usize = 8;
 
+/// The most bytes a glob that holds a number range may have: its range is checked on the
+/// match's captures, which cost more the longer the glob.
+pub const MAX_RANGE_GLOB: usize = 128;
+
 /// The most a glob's compiled `regex` may take, in bytes, and its lazy DFA's cache.
 const SIZE_LIMIT: usize = 1 << 20;
 
@@ -32,6 +36,8 @@ pub enum Refused {
     NestedTooDeep,
     /// Its `regex` is larger than the size limit.
     TooComplex,
+    /// It holds a number range and is longer than [`MAX_RANGE_GLOB`].
+    RangeTooLong,
 }
 
 /// A glob ready to match paths.
@@ -60,6 +66,9 @@ impl Glob {
             translation.regex.push_str("(?:/|/.*/)");
             translation.sequence(&chars, 0)?;
         }
+        if !translation.ranges.is_empty() && glob.len() > MAX_RANGE_GLOB {
+            return Err(Refused::RangeTooLong);
+        }
         let regex = RegexBuilder::new(&format!("(?s)^{}$", translation.regex))
             .size_limit(SIZE_LIMIT)
             .dfa_size_limit(SIZE_LIMIT)
@@ -72,13 +81,12 @@ impl Glob {
     }
 
     /// Whether it matches `path`, the file's path from the `.editorconfig`'s directory, its
-    /// parts joined by `/`, with no `/` before it.
+    /// parts joined by `/`, with a `/` before it.
     pub fn matches(&self, path: &str) -> bool {
-        let path = format!("/{path}");
         if self.ranges.is_empty() {
-            return self.regex.is_match(&path);
+            return self.regex.is_match(path);
         }
-        let Some(captures) = self.regex.captures(&path) else {
+        let Some(captures) = self.regex.captures(path) else {
             return false;
         };
         // A range in an alternative not taken has no capture, and asks nothing.
@@ -328,16 +336,22 @@ fn split_choices(inside: &[char]) -> Vec<&[char]> {
 
 /// `n1..n2`, two whole numbers with the first the smaller, if braces hold that.
 fn number_range(inside: &[char]) -> Option<(i64, i64)> {
-    let text: String = inside.iter().collect();
-    let (low, high) = text.split_once("..")?;
-    let number = |text: &str| {
-        let digits = text.strip_prefix('-').unwrap_or(text);
-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+    let dots = inside.windows(2).position(|pair| pair == ['.', '.'])?;
+    let number = |digits: &[char]| -> Option<i64> {
+        let (negative, digits) = match digits.split_first() {
+            Some(('-', rest)) => (true, rest),
+            _ => (false, digits),
+        };
+        // 18 digits fit an `i64`.
+        if digits.is_empty() || digits.len() > 18 {
             return None;
         }
-        text.parse::<i64>().ok()
+        let value = digits.iter().try_fold(0i64, |value, digit| {
+            Some(value * 10 + i64::from(digit.to_digit(10)?))
+        })?;
+        Some(if negative { -value } else { value })
     };
-    let (low, high) = (number(low)?, number(high)?);
+    let (low, high) = (number(&inside[..dots])?, number(&inside[dots + 2..])?);
     (low <= high).then_some((low, high))
 }
 

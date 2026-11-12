@@ -476,7 +476,9 @@ impl Buffer {
 
     /// Sets how deep a level of its indentation is and what it is made of. Its tab width
     /// stays the one it was loaded with, which the loader builds the display map with, so
-    /// that no window's layout goes stale.
+    /// that no window's layout goes stale. The editor gives a buffer its setting with where
+    /// each property came from (`Editor::set_mode_indents`); this leaves the origins as they
+    /// were, for a test or a benchmark.
     pub fn set_indent_settings(&mut self, settings: Settings) {
         self.indent = settings;
     }
