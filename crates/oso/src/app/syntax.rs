@@ -33,7 +33,7 @@ use pool::Pool;
 /// What the UI keeps of highlighting.
 #[derive(Default)]
 pub(super) struct Syntax {
-    pool: Option<Pool>,
+    pool: Option<Pool<BufferId>>,
     /// The threads could not start: no buffer is highlighted this session.
     broken: bool,
     /// What each buffer the worker has was sent last.
@@ -78,10 +78,19 @@ struct Sent {
 }
 
 /// What to tell the worker: buffers to drop first, then jobs.
-#[derive(Debug, Default)]
-pub(super) struct Orders {
-    pub(super) drops: Vec<BufferId>,
-    pub(super) jobs: Vec<Job<BufferId>>,
+#[derive(Debug)]
+pub(super) struct Orders<Key = BufferId> {
+    pub(super) drops: Vec<Key>,
+    pub(super) jobs: Vec<Job<Key>>,
+}
+
+impl<Key> Default for Orders<Key> {
+    fn default() -> Self {
+        Self {
+            drops: Vec::new(),
+            jobs: Vec::new(),
+        }
+    }
 }
 
 /// What taking a report did.
@@ -93,7 +102,7 @@ pub(super) struct Taken {
     pub(super) message: Option<String>,
 }
 
-impl Orders {
+impl<Key> Orders<Key> {
     fn is_empty(&self) -> bool {
         self.drops.is_empty() && self.jobs.is_empty()
     }

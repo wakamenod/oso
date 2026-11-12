@@ -589,7 +589,11 @@ The UI thread never blocks on I/O or parsing:
   if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
   parsed again, with their own grammars, wherever the worker highlights. Buffers that may
   hold secrets and files over 2 MiB are not parsed
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). The same schedule takes documents no
+  buffer owns, texts that never change such as a review's sides, opened with the verdict of
+  where they came from (a text that may hold secrets is refused). They run only where buffers
+  no window shows do, at most 4 hold a tree at once, and a finished one gives its tree to a
+  thread to free ([ADR 0122](adr/0122-agent-review.md), step 8).
 - A hosted agent session's state is read from its screen on `oso-sessions`
   (`crates/oso/src/sessions/`, glue in `app/sessions.rs`), never on the UI thread
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `sessions::screen::Evidence` is the last 40
