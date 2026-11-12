@@ -1523,6 +1523,7 @@ pub fn oso_core::editor::Editor::begin_crossing(&mut self, isize) -> core::resul
 pub fn oso_core::editor::Editor::cancel_crossing(&mut self) -> bool
 pub fn oso_core::editor::Editor::crossing(&self) -> core::option::Option<&oso_core::editor::Crossing>
 pub fn oso_core::editor::Editor::go_on_crossing(&mut self) -> core::option::Option<core::result::Result<(), oso_core::buffer::EditError>>
+pub fn oso_core::editor::Editor::take_crossing_freed(&mut self) -> core::option::Option<alloc::boxed::Box<dyn core::marker::Send>>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::buffers_by_recency(&self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
@@ -1743,6 +1744,7 @@ pub fn oso_core::editor::Editor::theme_name(&self) -> core::option::Option<&'sta
 pub fn oso_core::editor::Editor::toggle_theme(&mut self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::loaded(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::refill_wraps(&mut self)
 pub fn oso_core::editor::Editor::set_wraps(&mut self, oso_core::buffer::BufferId, bool) -> bool
 pub fn oso_core::editor::Editor::take_wrap_jobs(&mut self) -> alloc::vec::Vec<oso_core::display_map::wrap_map::WrapJob>
 pub fn oso_core::editor::Editor::take_wrap_report(&mut self, oso_core::display_map::wrap_map::WrapReport) -> bool

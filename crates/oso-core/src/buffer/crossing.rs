@@ -40,15 +40,16 @@ pub(crate) struct StagedCrossing {
     ended: bool,
 }
 
-/// What a crossing's commit let go: the group crossed, the text and display it replaced, and
-/// the splices the wraps followed. Dropping it may take milliseconds, so the host is to drop
-/// it off the UI thread (ADR 0119).
+/// What a crossing's commit let go: the group crossed, the groups the history's limit then
+/// dropped, the text and display it replaced, and the splices the wraps followed. Dropping it
+/// may take milliseconds, so the host drops it off the UI thread (ADR 0119).
 #[expect(
     dead_code,
     reason = "it is held only to be dropped where the editor chooses"
 )]
 pub(crate) struct Freed {
     group: Option<Group>,
+    evicted: Vec<Group>,
     highlights: Option<Highlights>,
     text: Rope,
     display: DisplayMap,
@@ -183,12 +184,17 @@ impl Buffer {
     /// Puts a crossing that ended in the buffer, and restores the content id of the state it
     /// returns to. Returns what it let go, for the caller to free. Nothing here can panic part
     /// way. A crossing that has not ended, or that the buffer changed under, changes nothing,
-    /// and `None` comes back.
-    pub(crate) fn commit_crossing(&mut self, staged: StagedCrossing) -> Option<Freed> {
+    /// and comes back.
+    pub(crate) fn commit_crossing(
+        &mut self,
+        staged: StagedCrossing,
+    ) -> Result<Freed, Box<StagedCrossing>> {
         if !staged.ended || !self.crossing_holds(&staged) {
-            return None;
+            return Err(Box::new(staged));
         }
-        let group = self.history.next(staged.direction)?;
+        let Some(group) = self.history.next(staged.direction) else {
+            return Err(Box::new(staged));
+        };
         let (batches, counts) = staged.apply.into_undo();
         let crossed = group.crossed(batches, counts);
         let highlighting = self.stage_followed(staged.highlighting, staged.text.len());
@@ -200,10 +206,11 @@ impl Buffer {
         self.revision += 1;
         self.edited = edited;
         let highlights = self.highlighting.commit(self.revision, highlighting);
-        let group = self.history.cross(staged.direction, crossed);
+        let (group, evicted) = self.history.cross(staged.direction, crossed);
         self.note_crossing();
-        Some(Freed {
+        Ok(Freed {
             group,
+            evicted,
             highlights,
             text,
             display,
@@ -218,7 +225,8 @@ impl Buffer {
         let mut budget = Budget::new(usize::MAX, None, super::PIECE);
         let ended = self.apply_slice(&mut staged, &mut budget, &mut Vec::new())?;
         assert!(ended, "a slice with no limit crosses the whole group");
-        self.commit_crossing(staged).ok_or(EditError::Abandoned)?;
+        self.commit_crossing(staged)
+            .map_err(|_| EditError::Abandoned)?;
         Ok(())
     }
 

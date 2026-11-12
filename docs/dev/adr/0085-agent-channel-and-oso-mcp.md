@@ -129,6 +129,8 @@ The author chose these on 2026-11-08, through the coordinator.
 - **The person is in the middle of something:** a prompt the person opened is innermost, keys
   are in progress, a composition is open, or a key came from the window less than 1 s ago.
 - **A question the channel opened is still open.**
+- **An undo or a redo of a large step goes on** ([ADR 0119](0119-undoing-large-steps-in-slices.md)).
+  The reply to the channel's own `undo` waits for it to end.
 
 Questions the channel causes:
 

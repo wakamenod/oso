@@ -57,7 +57,7 @@ pub(crate) use edit::{Rewrap, StagedEdit};
 pub(crate) use edited::{EditedLines, Tracking};
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
-pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE};
+pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE, SPLICE_WORK};
 use splice::normalized;
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).

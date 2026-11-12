@@ -444,6 +444,22 @@ fn positions_wait_behind_another_buffer_only_while_the_place_kept_there_is_untou
 }
 
 #[test]
+fn an_undo_under_way_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = Editor::default();
+    crate::channel::state::begin_a_large_undo(&mut editor);
+    let before = generation(&editor);
+    let held = Err("cannot hand over: an undo or a redo is under way".into());
+    assert_eq!(check(&editor), held);
+    let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+    assert!(
+        refused.ends_with("an undo or a redo is under way"),
+        "{refused}"
+    );
+    editor.cancel_crossing();
+    assert!(check(&editor).is_ok());
+}
+
+#[test]
 fn a_keyboard_macro_holds_the_handover_and_an_exit_for_a_generation() {
     let mut editor = Editor::default();
     let before = generation(&editor);

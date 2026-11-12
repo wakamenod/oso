@@ -30,6 +30,10 @@ pub(crate) const PIECE: usize = 1024 * 1024;
 /// What following an offset or a range through a part of a run costs, as [`Budget`] counts it.
 pub(crate) const FOLLOW_WORK: usize = 2;
 
+/// The most splices a run joins: what ends with a run, as the edited lines it follows, reads
+/// all of it at once, so a run of the batches of a large step is cut into several.
+const RUN_SPLICES: usize = 1 << 16;
+
 /// What a slice may still do.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Budget {
@@ -45,6 +49,9 @@ pub(crate) struct Budget {
     pub(crate) part: usize,
     /// What following each run that ends costs: the edited lines.
     pub(crate) run: usize,
+    /// Work the slice does before its time may stop it, so that a small step crosses in the
+    /// slice it begins in on any machine.
+    sure: usize,
 }
 
 impl Budget {
@@ -57,16 +64,24 @@ impl Budget {
             piece,
             part: 0,
             run: 0,
+            sure: 0,
         }
+    }
+
+    /// The same, doing `sure` work before its time may stop it.
+    pub(crate) fn with_sure(self, sure: usize) -> Self {
+        Self { sure, ..self }
     }
 
     /// Whether the slice is to stop.
     pub(crate) fn spent(&self) -> bool {
-        self.work == 0 || self.until.is_some_and(|until| Instant::now() >= until)
+        self.work == 0
+            || (self.sure == 0 && self.until.is_some_and(|until| Instant::now() >= until))
     }
 
     pub(crate) fn spend(&mut self, work: usize) {
         self.work = self.work.saturating_sub(work);
+        self.sure = self.sure.saturating_sub(work);
     }
 }
 
@@ -98,6 +113,10 @@ pub(crate) struct GroupApply {
     /// replacements meet, as they could follow an insertion that meets a splice otherwise than
     /// the batch moves them.
     chunk: Vec<OffsetEdit>,
+    /// How much of `chunk` ends where it may be cut: a slice that stops elsewhere hands that
+    /// much out and keeps the rest, so that what it keeps is never more than a stretch of
+    /// splices that meet, which the history keeps under `undo::BATCH_SPLICES`.
+    cut: usize,
     /// What cursors follow of each run that ended since [`GroupApply::take_runs`], whole.
     runs: Vec<Vec<OffsetEdit>>,
 }
@@ -180,8 +199,9 @@ impl GroupApply {
             let owed = budget.part + if fresh { budget.run } else { 0 };
             if moved && (budget.spent() || budget.work <= owed) {
                 if run.apart(group) {
-                    self.end_chunk(steps, budget);
+                    self.cut = self.chunk.len();
                 }
+                self.end_chunk(steps, budget);
                 break false;
             }
             moved = true;
@@ -195,8 +215,11 @@ impl GroupApply {
                 &mut self.chunk,
             );
             if ended {
+                self.cut = self.chunk.len();
                 self.end_chunk(steps, budget);
                 self.end_run(budget);
+            } else if self.chunk.len() > self.cut && run.piece.is_none() && run.apart(group) {
+                self.cut = self.chunk.len();
             }
         };
         settle_wraps(display, wraps);
@@ -225,7 +248,8 @@ impl GroupApply {
     }
 
     /// The next run: the next batch with a splice, from the last, and those after it that
-    /// lie apart from all before them. O(batches), each counted as a unit of work.
+    /// lie apart from all before them, up to [`RUN_SPLICES`]. O(batches), each counted as a
+    /// unit of work.
     fn plan(&mut self, group: &[Batch], counts: &[Counts], budget: &mut Budget) -> Option<Run> {
         let initial = loop {
             let index = group.len().checked_sub(self.taken + 1)?;
@@ -248,6 +272,10 @@ impl GroupApply {
         while let Some(index) = group.len().checked_sub(self.taken + 1) {
             let batch = &group[index];
             if let (Some(first), Some(last)) = (batch.first(), batch.last()) {
+                let more = counts[index];
+                if total.splices + more.splices > RUN_SPLICES {
+                    break;
+                }
                 let lies_before = last.start + last.len < front;
                 let lies_after = back
                     .checked_add_signed(grown)
@@ -261,7 +289,6 @@ impl GroupApply {
                 } else {
                     break;
                 }
-                let more = counts[index];
                 grown += more.delta();
                 total.removed += more.removed;
                 total.put += more.put;
@@ -291,14 +318,16 @@ impl GroupApply {
         })
     }
 
-    /// Hands this slice's part of the run to `steps`, ascending, and moves what earlier runs
-    /// changed along with it.
+    /// Hands this slice's part of the run to `steps`, ascending, up to where it may last be
+    /// cut, and moves what earlier runs changed along with it. The rest waits for the next.
     fn end_chunk(&mut self, steps: &mut Vec<Vec<OffsetEdit>>, budget: &mut Budget) {
-        if self.chunk.is_empty() {
+        let cut = mem::take(&mut self.cut);
+        if cut == 0 {
             return;
         }
         budget.spend(budget.part + self.changed.len() * FOLLOW_WORK);
-        let mut chunk = mem::take(&mut self.chunk);
+        let rest = self.chunk.split_off(cut);
+        let mut chunk = mem::replace(&mut self.chunk, rest);
         chunk.reverse();
         follow_ranges(&mut self.changed, &chunk);
         steps.push(chunk);

@@ -187,6 +187,8 @@ fn typing_costs(label: &str, text: &str, cursors: usize) {
         let start = Instant::now();
         editor.undo().expect("a command to undo");
         undone.push(start.elapsed());
+        // The app frees what an undo lets go off the UI thread (ADR 0119).
+        drop(editor.take_crossing_freed());
     }
     let (typed_50, typed_99) = percentiles(&mut typed);
     let (undone_50, undone_99) = percentiles(&mut undone);
@@ -225,8 +227,11 @@ fn large_deletion_costs(text: &str, killed: usize) {
         .expect("the buffer is editable");
     let (result, undo) = time(|| editor.undo());
     result.expect("the kill to undo");
+    // The app frees what an undo lets go off the UI thread (ADR 0119).
+    drop(editor.take_crossing_freed());
     let (result, redo) = time(|| editor.redo());
     result.expect("the kill to redo");
+    drop(editor.take_crossing_freed());
     let (result, evicting) = time(|| editor.apply_edits(id, &next));
     result.expect("the buffer is editable");
     let (_, dropped) = time(|| drop(editor));
@@ -245,6 +250,8 @@ fn undone_paste_costs(text: &str) {
     result.expect("the buffer is editable");
     let (result, undo) = time(|| editor.undo());
     result.expect("the paste to undo");
+    // The app frees what an undo lets go off the UI thread (ADR 0119).
+    drop(editor.take_crossing_freed());
     let next = [Replacement {
         range: 0..0,
         text: "x",

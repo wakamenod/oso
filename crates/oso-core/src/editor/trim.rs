@@ -136,6 +136,9 @@ pub(super) struct Trims {
     waiting: Vec<Waiting>,
     /// Buffers whose agent's save began to wait for a scan, not yet taken by the host.
     agent_saves: Vec<BufferId>,
+    /// Scans that reported while an undo or a redo went on in their buffer: each scans again
+    /// once it has ended (ADR 0119).
+    set_aside: Vec<TrimId>,
 }
 
 /// How what waited for a scan went on, for the host.
@@ -420,6 +423,14 @@ impl Editor {
 
     /// The scans to run, once each, for the host.
     pub fn take_trim_jobs(&mut self) -> Vec<TrimJob> {
+        if self.crossing().is_none() {
+            for scan in std::mem::take(&mut self.trims.set_aside) {
+                let found = self.trims.waiting.iter().position(|w| w.id == scan);
+                if let Some(index) = found {
+                    self.trim_again(index);
+                }
+            }
+        }
         std::mem::take(&mut self.trims.jobs)
     }
 
@@ -434,7 +445,9 @@ impl Editor {
 
     /// Takes in what a scan found, and goes on with what waited for it, in an undo step of
     /// its own: the cleanup, then for a save its final newline and its job. If the text
-    /// changed since the scan began, it scans again, and the host runs the new job. Returns,
+    /// changed since the scan began, it scans again, and the host runs the new job; while an
+    /// undo or a redo goes on in the buffer, which the cleanup would abandon, it scans again
+    /// once that has ended (ADR 0119). Returns,
     /// once what waited has gone on, how it went: whether a save it queued is the agent's,
     /// for the host to start it as such, or why a save queued nothing.
     pub fn trim_reported(&mut self, report: TrimReport) -> Option<TrimOutcome> {
@@ -448,6 +461,10 @@ impl Editor {
             self.trims.waiting.swap_remove(index);
             return None;
         };
+        if self.crossing_buffer() == Some(id) {
+            self.trims.set_aside.push(report.id);
+            return None;
+        }
         if buffer.revision() != report.revision {
             self.trim_again(index);
             return None;
