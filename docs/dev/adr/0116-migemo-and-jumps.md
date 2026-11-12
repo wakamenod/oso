@@ -452,10 +452,12 @@ coordinator; the notes below are those choices as built.
   it, and cut at the string's room between escapes, never inside one. The U+FFFD of an invalid
   byte can match `.`, as in `C-M-%`.
 - **Compiling on a key.** The UI thread compiles a key's regexp within 256 KiB, which takes about
-  1 ms at worst, also for one that fails for size. Case folding a large Unicode class, as
-  `\p{Any}` or `[\x{0}-\x{10FFFF}]`, takes about 1.4 ms however small the result, so a pattern
-  whose escapes that can name one weigh more than two (`\p` and `\P` two each, a code point
-  escape one, as a range takes two) also goes to the worker. There, up to 0113's 2 MiB, it compiles, and the
+  1 ms at worst, also for one that fails for size. Case folding a large Unicode class takes
+  up to 2.8 ms however small the result, `\p{Any}` about 1.4 ms and `[\s\S]` 2.6 ms, so a
+  pattern that may hold more than one also goes to the worker: outside brackets `\p` and `\P`
+  weigh two and a code point escape one, a bracket class that holds a negated Perl class, a
+  Unicode class, a code point escape or a character that is not ASCII weighs three, and a key
+  compiles at most two. There, up to 0113's 2 MiB, it compiles, and the
   worker searches and counts in the same job; the line says `[searching…]` until it comes, and
   a newer key takes its place between the compiles.
 - **The regexps for a cut.** 0113 makes two more regexps from a pattern for a match at a cut
@@ -463,10 +465,10 @@ coordinator; the notes below are those choices as built.
   compile. They are built when first needed: on a key only for a regexp the key compiled within
   0.5 ms, else the worker goes on with the search; on the worker with its compile; and once as
   the keys that add cursors begin from the search.
-- **Long lines.** A key never copies a line longer than 64 KiB, or than what is left of its
-  256 KiB: such a line goes to the worker at once. One look at a 64 KiB line takes about a
+- **Long lines.** A key never copies a line longer than 16 KiB, or than what is left of its
+  256 KiB: such a line goes to the worker at once. One look at a 16 KiB line takes under a
   millisecond also where the crate's fastest engine gives up, as on a `\b` beside text that is
-  not ASCII.
+  not ASCII (0.9 ms, and 3.7 ms at 64 KiB).
 - **The worker** asks whether a newer job took its place before every look for a match, not
   every 64 KiB of counted work, as one look can read to the end of a long line; query-replace's
   regexps share this.
@@ -482,7 +484,8 @@ coordinator; the notes below are those choices as built.
   bytes, so a line with no match is read about twice. In the window that holds a match, the last
   start is found by halving, as whether a match starts at a place or after it only turns false
   as the place moves on: `aa` in `aaa` from the end is 1..3, in a few looks. The bound is a cut
-  as 0113's ranges are: a match ends by it, while `$` and `\b` there see what follows. A
+  as 0113's ranges are: a match ends by it, while `$` and `\b` there see what follows; `\B`
+  there sees the haystack's end, as in 0113, so `foo\B` is not found ending at the bound. A
   repeat's match ends by the current match's start. Typing keeps the current match while the
   regexp still matches at its start and ends by where the search began, or anywhere once it went
   round, as `isearch.el` keeps it.

@@ -80,8 +80,12 @@ fn a_pattern_too_large_or_heavy_for_a_key_is_the_worker_s() {
     for pattern in [
         r"\w{30}",
         &r"\p{Any}".repeat(146),
-        r"[\x{0}-\x{10FFFF}]\p{L}",
-        r"\p{Greek}\p{Han}",
+        r"[\x{0}-\x{10FFFF}]",
+        r"\pL\p{Lu}",
+        r"[\s\S]",
+        r"a[\w\W]",
+        "[!-\u{10FFFF}]",
+        &r"[\s\S]".repeat(170),
     ] {
         let started = Instant::now();
         let compiled = compile_isearch(pattern, true, On::Key);
@@ -89,8 +93,14 @@ fn a_pattern_too_large_or_heavy_for_a_key_is_the_worker_s() {
         // Told apart before compiling, or by a compile that fails for size early.
         assert!(started.elapsed().as_millis() < 100, "{pattern}");
     }
-    // One large class, or an escaped backslash before a `p`, a key takes.
-    for pattern in [r"\p{Any}x", r"\\p\\p\\p", r"[\x{0}-\x{10FFFF}]"] {
+    // One large class, an escaped backslash before a `p`, or classes that fold quickly, a
+    // key takes.
+    for pattern in [
+        r"\p{Any}x",
+        r"\\p\\p\\p",
+        r"\S+[^\s]\W[a-z\d]",
+        r"[^a]\[\S\]",
+    ] {
         assert!(compile_isearch(pattern, true, On::Key).is_ok(), "{pattern}");
     }
     let full = compile_isearch(r"\w{30}", true, On::Worker).unwrap();
@@ -418,6 +428,25 @@ fn naive_back(pattern: &str, text: &str, start_at_most: usize) -> Option<Range<u
         }
         last = line_start - 1;
         line_start = text[..last].rfind('\n').map_or(0, |at| at + 1);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// Lines longer than the first window, so that the windows double.
+    #[test]
+    fn backward_agrees_on_long_lines(
+        text in "[ab x]{200,1500}",
+        pattern in prop::sample::select(vec!["ab", "b+", "a.*", r"\bab", "x(a|b)"]),
+        at in 0usize..1500,
+    ) {
+        let at = at.min(text.len());
+        let found = match back(pattern, &text, text.len(), at) {
+            Found::Match(range) => Some(range),
+            _ => None,
+        };
+        prop_assert_eq!(found, naive_back(pattern, &text, at));
     }
 }
 

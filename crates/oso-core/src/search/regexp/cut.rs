@@ -1,6 +1,7 @@
 //! A regexp's match in a range that ends inside a line (ADR 0113), or before a backward
-//! search's bound (ADR 0116), as Emacs's bounded search takes it: the match ends by the range's end, and `$` and `\b` there see the text after it,
-//! so the range's end is neither a line's end nor a word's.
+//! search's bound (ADR 0116), as Emacs's bounded search takes it: the match ends by the
+//! range's end, and `$` and `\b` there see the text after it, so the range's end is neither a
+//! line's end nor a word's. `\B` there sees the haystack's end.
 //!
 //! Must not depend on: `buffer`, `editor` or a log.
 //!

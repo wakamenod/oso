@@ -37,27 +37,47 @@ pub(crate) enum On {
 /// take about twice as long.
 const QUICK: std::time::Duration = std::time::Duration::from_micros(500);
 
-/// The most weight of escapes a key compiles: case folding a class as large as `\p{Any}` or
-/// `[\x{0}-\x{10FFFF}]` takes about 1.4 ms, and every other part of a pattern far less.
+/// The most weight a key compiles: case folding a class as large as `\p{Any}` takes about
+/// 1.4 ms, and every part of a pattern that weighs nothing far less.
 const KEY_WEIGHT: usize = 2;
 
-/// Whether `pattern` may take a key too long to compile: it holds more than one escape that
-/// can name a large Unicode class, `\p` and `\P` weighing two and each code point (`\x`,
-/// `\u`, `\U`) one, as a range needs two.
+/// What a bracket class weighs that holds a negated Perl class (`[\s\S]`), a Unicode class or
+/// code point escape, or a character that is not ASCII, as a range to one: as much as 2.8 ms
+/// each, so one is the worker's.
+const HEAVY_CLASS: usize = KEY_WEIGHT + 1;
+
+/// Whether `pattern` may take a key too long to compile, for the large Unicode classes case
+/// folding goes through: outside brackets, `\p` and `\P` weigh two and a code point escape
+/// (`\x`, `\u`, `\U`) one, as a range needs two, and a bracket class that may be large
+/// weighs [`HEAVY_CLASS`].
 fn heavy(pattern: &str) -> bool {
     let mut chars = pattern.chars();
-    let mut weight = 0;
+    let (mut weight, mut depth) = (0, 0usize);
     while let Some(c) = chars.next() {
-        if c != '\\' {
-            continue;
-        }
-        weight += match chars.next() {
-            Some('p' | 'P') => 2,
-            Some('x' | 'u' | 'U') => 1,
+        let inside = depth > 0;
+        weight += match c {
+            '[' => {
+                depth += 1;
+                0
+            }
+            ']' => {
+                depth = depth.saturating_sub(1);
+                0
+            }
+            '\\' => match (chars.next(), inside) {
+                (Some('S' | 'W' | 'D' | 'p' | 'P' | 'x' | 'u' | 'U'), true) => HEAVY_CLASS,
+                (Some('p' | 'P'), false) => 2,
+                (Some('x' | 'u' | 'U'), false) => 1,
+                _ => 0,
+            },
+            c if inside && !c.is_ascii() => HEAVY_CLASS,
             _ => 0,
         };
+        if weight > KEY_WEIGHT {
+            return true;
+        }
     }
-    weight > KEY_WEIGHT
+    false
 }
 
 /// How many characters of an escape follow `\` and its letter: the hex digits of `\x41`,

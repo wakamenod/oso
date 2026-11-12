@@ -53,9 +53,9 @@ pub(crate) const KEY_SIZE_LIMIT: usize = 256 * 1024;
 const PER_LINE: usize = 64;
 
 /// The longest line an isearch key looks in on the UI thread: one look at a line this long
-/// takes about a millisecond even where the crate's fastest engine gives up, as on a `\b`
+/// takes under a millisecond even where the crate's fastest engine gives up, as on a `\b`
 /// beside text that is not ASCII.
-const KEY_LINE: usize = 64 * 1024;
+const KEY_LINE: usize = 16 * 1024;
 
 /// What a match found costs besides the text it spans.
 const PER_MATCH: usize = 16;

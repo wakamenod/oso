@@ -6,7 +6,8 @@
 //! runs the job; this only makes it and takes in what it reports.
 //!
 //! A newer job supersedes the one before through a generation, which the worker checks
-//! every block of text, and whose reports are dropped here once it is not the live one.
+//! every block of text, and before every look for a regexp's match, and whose reports are
+//! dropped here once it is not the live one.
 //! A report is also dropped once the search no longer keeps to the window it began in.
 
 use std::ops::Range;

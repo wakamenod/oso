@@ -4,8 +4,9 @@
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
-//! Only the rows in view are searched, each widened by what the string can reach, within
-//! [`FRAME_BUDGET`], so a frame costs as much as the view and the string, not the buffer.
+//! Only the rows in view are searched, each widened by what a literal string can reach, and a
+//! regexp's read a little around them, within [`FRAME_BUDGET`], so a frame costs as much as the
+//! view and the string, not the buffer.
 
 use std::ops::Range;
 
