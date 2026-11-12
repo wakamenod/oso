@@ -70,7 +70,7 @@ fn unsaved_text_its_region_and_its_kills_move_to_a_new_instance_and_save_there()
     let mut new = App::start(None, scratch.path());
     new.wait_until_ready();
     let (state, _) = hand_over(&mut old, &mut new);
-    assert_eq!(state["version"], 3);
+    assert_eq!(state["version"], 4);
 
     // The import replied only once the file was judged, so the emergency save covers it.
     let after = new.state();

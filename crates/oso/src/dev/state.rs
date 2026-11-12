@@ -87,10 +87,11 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             .map(|(id, buffer)| buffer_state(id, buffer, shows_secret))
             .collect::<Vec<_>>(),
         "windows": editor
+            .frame()
             .windows()
-            .take(editor.windows().len() - editor.prompts().len())
-            .enumerate()
-            .map(|(index, window)| window_state(editor, window, index))
+            .iter()
+            .filter_map(|(id, regions)| Some((editor.window_by_id(*id)?, regions)))
+            .map(|(window, regions)| window_state(editor, window, regions))
             .collect::<Vec<_>>(),
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
@@ -404,12 +405,22 @@ fn columns(editor: &Editor, window: &Window) -> usize {
         .map_or(window.size().columns, |regions| regions.area().columns)
 }
 
-fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
+/// A tiled window, in the tree's order (ADR 0112): its id, its cells, gutter, text and modeline
+/// together, so that a secret buffer's gutter says nothing of its lines (ADR 0097), and its
+/// positions only if what it shows may hold no secrets. The selected one is the selected tiled
+/// window, also beneath a prompt.
+fn window_state(
+    editor: &Editor,
+    window: &Window,
+    regions: &oso_core::frame::WindowRegions,
+) -> Value {
     let size = window.size();
     let shown = editor.shown(window);
     let mut state = json!({
+        "id": window.id().get(),
+        "area": area_state(regions),
         "buffer": window.buffer().get(),
-        "selected": index == editor.selected_window(),
+        "selected": window.id() == editor.tiled().0.id(),
         "rows": size.rows,
         "columns": columns(editor, window),
     });
@@ -426,6 +437,17 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
         state["mark_ring"] = selections.mark_ring().iter().collect();
     }
     state
+}
+
+/// A window's cells: its gutter, text and modeline together, from the frame's top left.
+fn area_state(regions: &oso_core::frame::WindowRegions) -> Value {
+    let area = regions.area();
+    json!({
+        "row": area.row,
+        "column": area.column,
+        "rows": area.rows + regions.modeline.rows,
+        "columns": area.columns,
+    })
 }
 
 fn selection_state(selection: &Selection, display: &DisplaySnapshot) -> Value {
@@ -643,6 +665,26 @@ mod tests {
                 .collect()
         };
         assert_eq!(widths(&few), widths(&many), "the columns do not");
+        let areas = |windows: &[serde_json::Value]| -> Vec<serde_json::Value> {
+            windows
+                .iter()
+                .map(|window| window["area"].clone())
+                .collect()
+        };
+        assert_eq!(areas(&few), areas(&many), "nor the cells (ADR 0112)");
+        // In the tree's order, by their ids, the secret one at the left giving no positions.
+        let ids: Vec<_> = few.iter().map(|window| window["id"].clone()).collect();
+        assert_eq!(ids, [serde_json::json!(0), serde_json::json!(1)]);
+        assert_eq!(few[1]["selected"], true);
+        for withheld in [
+            "scroll",
+            "selections",
+            "primary",
+            "mark_ring",
+            "mark_active",
+        ] {
+            assert!(few[0].get(withheld).is_none(), "{withheld}");
+        }
     }
 
     #[test]
@@ -691,6 +733,8 @@ mod tests {
                 },
                 "buffers": [buffer],
                 "windows": [{
+                    "id": 0,
+                    "area": { "row": 0, "column": 0, "rows": 6, "columns": 2 },
                     "buffer": 0,
                     "selected": true,
                     "rows": 5,
