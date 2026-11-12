@@ -4,6 +4,7 @@
 //! Must not depend on: `app`, winit or the UI thread; these read files they make in a scratch
 //! directory.
 
+#[cfg(unix)]
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
