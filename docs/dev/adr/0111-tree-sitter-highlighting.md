@@ -758,10 +758,17 @@ Built:
 - **Perf:** `just perf` types into a generated 1 MiB Rust file with highlighting on and with
   font-lock off, each first in every other run, and fails if highlighting stopped while it
   was on or stayed while it was off. It reports `syntax_*` and `syntax_off_*`: key latency,
-  handling and the frame's preparation. They have no thresholds until the author sets them.
-- **The mode commands now start parsing:** `rust-mode`, `markdown-mode` and `toml-mode`
-  keep reach `Look`. Over the agent channel they make a buffer parsed whatever its name,
-  within the same limits as a visit: size, time, secrets and the retry.
+  handling and the frame's preparation. On the author's Mac, five runs each, highlighted
+  against plain: typing p50 0.43 and 0.48 ms, p99 0.62 and 1.09 ms; preparation p50 0.19 and
+  0.21 ms, p99 0.29 and 0.50 ms; handling a key p99 0.10 and 0.13 ms. Colour costs nothing
+  that shows. The author's choice: `syntax_type_p99_ms` and `syntax_prepare_p99_ms` are gated
+  with `type_p99_ms`'s thresholds on each runner, and `syntax_type_p99_ms` has its 8 ms budget;
+  the rest is reported only.
+- **The mode commands stay `Look`** (the author's choice), though they now start parsing:
+  over the agent channel, `rust-mode`, `markdown-mode` and `toml-mode` make a buffer parsed
+  whatever its name. That is no more than visiting a file of that name does: the same size and
+  time limits, a buffer that may hold secrets is never parsed, and a buffer whose highlighting
+  stopped tries again at most once every 10 s however often a mode is set.
 
 ## Alternatives considered
 

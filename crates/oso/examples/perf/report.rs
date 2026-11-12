@@ -60,9 +60,10 @@ impl Gpu {
 /// The budgets in `docs/dev/roadmap.md`, with "no freeze" as 100 ms. They are
 /// read by hand on the author's Mac; CI runners say nothing about them, apart from
 /// key latency on a real GPU (ADR 0025, ADR 0046).
-pub const BUDGETS: [(&str, f64); 11] = [
+pub const BUDGETS: [(&str, f64); 12] = [
     ("key_p99_ms", 8.0),
     ("type_p99_ms", 8.0),
+    ("syntax_type_p99_ms", 8.0),
     ("big_type_p99_ms", 8.0),
     ("line_type_p99_ms", 8.0),
     ("startup_ms", 100.0),

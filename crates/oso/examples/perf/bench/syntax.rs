@@ -1,9 +1,8 @@
 //! The phase of the key benchmark that types into a large Rust file once highlighting has
 //! reported, and with `global-font-lock-mode` off, each first in every other run, so that the
-//! difference is what
-//! colour costs (ADR 0111): per key, mapping the highlights through the edit and posting a
-//! job; per frame, a seek in the highlights per row and a step per run. Only reported, until
-//! the author sets thresholds.
+//! difference is what colour costs (ADR 0111): per key, mapping the highlights through the edit
+//! and posting a job; per frame, a seek in the highlights per row and a step per run. Typing
+//! and the frames' preparation with colour are gated as plain typing is; the rest is reported.
 //!
 //! Must not depend on: anything but the harness's own pacing, from the module above, and its
 //! temporary directory, which is removed however the phase ends.
