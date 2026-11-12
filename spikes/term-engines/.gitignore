@@ -1,0 +1,7 @@
+/target
+# The Ghostty source tarball, extracted and built here, is never committed.
+/vendor
+# Recorded program output. Not committed: htop and Claude Code show local process and
+# account details. Regenerate with record.sh.
+/recordings
+/target-safe

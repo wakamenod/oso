@@ -1,0 +1,33 @@
+# ADR 0120 step 1: the engine comparison. A standalone workspace, never merged into
+# oso's (the author approved it on 2026-11-13). See README.md.
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+engine = { path = "crates/engine" }
+engine-alacritty = { path = "crates/engine-alacritty" }
+engine-ghostty = { path = "crates/engine-ghostty" }
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+vte = { version = "0.15", default-features = false, features = ["std"] }
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+# oso's release settings (ADR 0004), with line tables for profiling.
+[profile.release]
+lto = true
+codegen-units = 1
+debug = 1
+
+# For binary size: what a release build of oso would ship.
+[profile.size]
+inherits = "release"
+debug = 0
+strip = true
