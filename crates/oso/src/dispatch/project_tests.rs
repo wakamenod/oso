@@ -49,6 +49,25 @@ fn m_x(d: &mut Dispatcher, editor: &mut Editor, command: &str, then: &str) {
     send(d, editor, &format!("M-x {} RET {then}", typed.join(" ")));
 }
 
+/// Answers every listing a prompt for a directory asks for, each holding the directories `src`,
+/// `oso` and `tmp`, as the host's lister would, so that its answer can be decided.
+fn list_directories(editor: &mut Editor) {
+    use oso_core::complete::{Name, NameKind};
+    for _ in 0..8 {
+        let asked = editor.take_file_requests();
+        if asked.is_empty() {
+            return;
+        }
+        for directory in asked {
+            let names = ["src", "oso", "tmp"].map(|name| Name {
+                name: name.to_owned(),
+                kind: NameKind::Directory,
+            });
+            editor.file_listed(directory, Some(names.into()), false);
+        }
+    }
+}
+
 fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
     editor.status_into(editor.tiled().0.id(), &mut status);
@@ -257,6 +276,7 @@ fn m_s_r_and_c_x_p_g_search_the_project_and_ret_visits_the_line() {
         let row = oso_core::editor::ProjectSearchRow {
             path: "src/main.rs".into(),
             line: 3,
+            offset: 0,
             column: 4,
             text: "let needle".into(),
             secret: false,
@@ -296,7 +316,10 @@ fn c_u_asks_for_the_directory_first_and_refuses_home() {
         let prompt = editor.prompt().unwrap().buffer();
         let typed = editor.buffer(prompt).unwrap().text().to_string();
         assert_eq!(typed, "~/src/oso/");
-        send(&mut d, &mut editor, "DEL DEL DEL DEL RET");
+        list_directories(&mut editor);
+        send(&mut d, &mut editor, "DEL DEL DEL DEL");
+        list_directories(&mut editor);
+        send(&mut d, &mut editor, "RET");
         assert_eq!(
             editor.prompt().map(|p| p.label().to_owned()).as_deref(),
             Some(opened)
@@ -309,7 +332,9 @@ fn c_u_asks_for_the_directory_first_and_refuses_home() {
         }
         send(&mut d, &mut editor, "C-g");
         send(&mut d, &mut editor, key);
-        send(&mut d, &mut editor, "C-a C-k ~ / RET");
+        send(&mut d, &mut editor, "C-a C-k ~ /");
+        list_directories(&mut editor);
+        send(&mut d, &mut editor, "RET");
         assert!(editor.prompt().is_none());
         assert!(echo(&editor).starts_with("Cannot "), "{}", echo(&editor));
     }
@@ -330,11 +355,9 @@ fn c_u_refuses_the_root_of_the_file_system_and_a_path_that_climbs() {
         let (mut d, mut editor) = in_oso(None);
         send(&mut d, &mut editor, "C-u M-s r");
         let keys: Vec<String> = typed.chars().map(String::from).collect();
-        send(
-            &mut d,
-            &mut editor,
-            &format!("C-a C-k {} RET", keys.join(" ")),
-        );
+        send(&mut d, &mut editor, &format!("C-a C-k {}", keys.join(" ")));
+        list_directories(&mut editor);
+        send(&mut d, &mut editor, "RET");
         assert!(editor.prompt().is_none(), "{typed}");
         assert!(editor.take_search_request().is_none());
         assert_eq!(echo(&editor), said);

@@ -217,7 +217,7 @@ pub(crate) fn real_home(home: Option<&Path>) -> Option<PathBuf> {
 /// whatever the root's path says, and however it was reached since its path was looked at. One
 /// that cannot be told is taken to.
 #[cfg(unix)]
-fn opened_holds_home(opened: &Directory, home: Option<&Path>) -> bool {
+pub(crate) fn opened_holds_home(opened: &Directory, home: Option<&Path>) -> bool {
     use std::os::unix::fs::MetadataExt;
     let Some(home) = home else {
         return false;
@@ -232,7 +232,7 @@ fn opened_holds_home(opened: &Directory, home: Option<&Path>) -> bool {
 }
 
 #[cfg(not(unix))]
-fn opened_holds_home(_: &Directory, _: Option<&Path>) -> bool {
+pub(crate) fn opened_holds_home(_: &Directory, _: Option<&Path>) -> bool {
     false
 }
 

@@ -18,7 +18,7 @@ use std::sync::{Mutex, PoisonError};
 fn lines_in(query: &str, text: &[u8]) -> Vec<(usize, String)> {
     let query = LineQuery::parse(query);
     let mut found = Vec::new();
-    let mut hit = |line, bytes: &[u8], _| {
+    let mut hit = |line, _, bytes: &[u8], _| {
         found.push((line, String::from_utf8_lossy(bytes).into_owned()));
         true
     };
@@ -86,7 +86,7 @@ fn a_search_that_is_over_reads_no_more_blocks() {
             reads.set(reads.get() + 1);
             reads.get() < 2
         },
-        &mut |_, _, _| true,
+        &mut |_, _, _, _| true,
         &mut Vec::new(),
     );
     assert_eq!(reads.get(), 2, "one block, then it stops");
@@ -277,6 +277,7 @@ fn debug_of_a_batch_names_no_row() {
         rows: vec![ProjectSearchRow {
             path: "secret/path.txt".into(),
             line: 1,
+            offset: 0,
             column: 0,
             text: "hunter2".into(),
             secret: false,

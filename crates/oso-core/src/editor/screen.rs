@@ -85,32 +85,53 @@ impl Editor {
         screen
     }
 
-    /// The rows a frame shows of the buffer the innermost prompt previews, in the preview's
-    /// region, into `out`; none while no buffer is previewed (ADR 0088).
+    /// The rows a frame shows of the buffer the innermost prompt previews, or of the excerpt a
+    /// project's search previews, in the preview's region, into `out`; none while neither is
+    /// previewed (ADR 0088, ADR 0114). A search's preview that does not wrap scrolls left as far
+    /// as its match needs to show.
     pub fn preview_screen(&self, out: &mut Screen) {
-        let previewed = match self.preview() {
-            Some(Preview::Buffer { id, start, cursor }) => Some((id, start, cursor)),
-            _ => None,
-        };
-        let region = self.prompt_layout().map(|layout| layout.regions.preview);
-        let (Some((id, start, cursor)), Some(region)) = (previewed, region) else {
+        let Some(region) = self.prompt_layout().map(|layout| layout.regions.preview) else {
             out.clear();
             return;
         };
-        let Some(buffer) = self.buffer(id) else {
-            out.clear();
-            return;
-        };
-        let display = buffer.display();
-        let revision = buffer.revision();
-        let wrap = self.preview_wrap_of(id, revision, region.columns);
-        let source = ScreenSource {
-            rows: Rows::new(&display, wrap.map(|wrap| (wrap, revision))),
-            scroll: Scroll { start, left: 0 },
-            size: region.view_size(),
-            cursor,
-        };
-        out.fill(source, &display, None);
+        match self.preview() {
+            Some(Preview::Buffer { id, start, cursor }) => {
+                let Some(buffer) = self.buffer(id) else {
+                    out.clear();
+                    return;
+                };
+                let display = buffer.display();
+                let revision = buffer.revision();
+                let wrap = self.preview_wrap_of(id, revision, region.columns);
+                let left = if wrap.is_none() && self.searches_project() {
+                    Self::preview_left(&display, cursor, region.columns)
+                } else {
+                    0
+                };
+                let source = ScreenSource {
+                    rows: Rows::new(&display, wrap.map(|wrap| (wrap, revision))),
+                    scroll: Scroll { start, left },
+                    size: region.view_size(),
+                    cursor,
+                };
+                out.fill(source, &display, None);
+            }
+            Some(Preview::Excerpt { cursor, .. }) => {
+                let Some((_, display, start)) = self.shown_excerpt() else {
+                    out.clear();
+                    return;
+                };
+                let left = Self::preview_left(&display, cursor, region.columns);
+                let source = ScreenSource {
+                    rows: Rows::new(&display, None),
+                    scroll: Scroll { start, left },
+                    size: region.view_size(),
+                    cursor,
+                };
+                out.fill(source, &display, None);
+            }
+            _ => out.clear(),
+        }
     }
 }
 

@@ -1,30 +1,36 @@
-//! The preview beside a float's list (ADR 0088, ADR 0091): the column that divides them, and
-//! the selected buffer, a kill's lines, or what is said in place of what may hold secrets.
+//! The preview beside a float's list (ADR 0088, ADR 0091, ADR 0114): the column that divides
+//! them, and the selected buffer, a kill's lines, the lines read around a project search's row,
+//! or what is said in place of what may hold secrets.
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
-use oso_core::window::Screen;
 use oso_render::{Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, TextView};
 
-use super::{Lines, Parts};
+use super::{Lines, Parts, Screens};
 
 /// The base of a preview pane's id: each previewed buffer's pane has its own, so that the rows
 /// shaped for it are kept while that buffer stays selected (ADR 0088).
 const PREVIEW_PANES: u32 = 1 << 20;
 
+/// The pane of the lines read around a project search's row, each read at a revision of its own
+/// (ADR 0114).
+const EXCERPT_PANE: u32 = 13;
+
 /// Adds a preview's panes to `list`: the column that divides it from the candidates, and the
 /// selected buffer from where its window was, read-only with its cursor hollow, or what is
-/// said of a buffer that may hold secrets in its place (ADR 0088).
+/// said of a buffer that may hold secrets in its place (ADR 0088), with a project search's
+/// matches filled behind its text (ADR 0114).
 pub(super) fn preview_panes<'a>(
     editor: &'a Editor,
-    (parts, screen): (&'a Parts<'a>, &'a Screen),
+    (parts, screens): (&'a Parts<'a>, Screens<'a>),
     lines: &'a Lines<'a>,
     list: &mut Vec<Pane<'a>>,
 ) {
     let regions = parts.layout.regions;
     let preview = regions.preview;
+    let screen = screens.preview;
     if parts.list.is_none() || preview.rows == 0 || preview.columns == 0 {
         return;
     }
@@ -48,6 +54,28 @@ pub(super) fn preview_panes<'a>(
         None => return,
         Some(Preview::Withheld) => pane(11, preview, PaneContent::Lines(&lines.withheld)),
         Some(Preview::Text { .. }) => pane(12, preview, PaneContent::Lines(&lines.kill)),
+        Some(Preview::Excerpt { revision, cursor }) => {
+            let (Some(display), Some(prompt)) = (editor.preview_excerpt_display(), editor.prompt())
+            else {
+                return;
+            };
+            let cursor = display.offset_to_display_point(cursor);
+            // Its rows are shaped in a pane of their own, so the prompt's id only names them.
+            let view = TextView {
+                display,
+                buffer: prompt.buffer(),
+                revision,
+                screen,
+                cursor,
+                cursor_style: CursorStyle::Hollow,
+                others: &[],
+                preedit: None,
+                fills: screens.preview_fills,
+                whitespace: false,
+                flash: None,
+            };
+            pane(EXCERPT_PANE, preview, PaneContent::Text(view))
+        }
         Some(Preview::Buffer { id, cursor, .. }) => {
             let Some(buffer) = editor.buffer(id) else {
                 return;
@@ -65,7 +93,7 @@ pub(super) fn preview_panes<'a>(
                 cursor_style: CursorStyle::Hollow,
                 others: &[],
                 preedit: None,
-                fills: &[],
+                fills: screens.preview_fills,
                 // Floats have no visual aids (ADR 0097).
                 whitespace: false,
                 flash: None,

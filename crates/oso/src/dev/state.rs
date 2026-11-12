@@ -273,16 +273,25 @@ fn prompts_state(editor: &Editor) -> Value {
 /// How many candidates match of how many, which is selected, the names of those in the rows
 /// shown, as the float shows them (ADR 0076), whether what is typed is selected, and which
 /// buffer the preview shows, by id and never its text, or `null` when it shows none or withholds
-/// it (ADR 0088).
+/// it (ADR 0088), and what kind of thing it shows: `buffer`, `excerpt`, `withheld`, `kill` or
+/// `null` (ADR 0114).
 fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
     let rows = candidates
         .shown(editor.candidate_rows())
         .map(|(_, candidate)| candidate.text())
         .collect::<Vec<_>>();
-    let preview = match editor.preview() {
+    let shown = editor.preview();
+    let preview = match shown {
         Some(Preview::Buffer { id, .. }) => Some(id.get()),
-        Some(Preview::Withheld | Preview::Text { .. }) | None => None,
+        Some(Preview::Withheld | Preview::Text { .. } | Preview::Excerpt { .. }) | None => None,
     };
+    // What kind of thing it shows, for a flow to wait on; never what it shows (ADR 0114).
+    let preview_kind = shown.map(|shown| match shown {
+        Preview::Buffer { .. } => "buffer",
+        Preview::Withheld => "withheld",
+        Preview::Text { .. } => "kill",
+        Preview::Excerpt { .. } => "excerpt",
+    });
     json!({
         "count": candidates.len(),
         "total": candidates.total(),
@@ -290,12 +299,15 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         "typed": candidates.on_input(),
         "rows": rows,
         "preview": preview,
+        "preview_kind": preview_kind,
         // A prompt that reads a path: the directory it starts from, and whether a listing is
         // on its way (ADR 0087).
         "directory": editor
             .file_directory()
             .map(|directory| oso_core::complete::typed_form(directory, true, editor.home())),
-        "pending": editor.files_pending() || editor.completion_pending(),
+        "pending": editor.files_pending()
+            || editor.completion_pending()
+            || editor.directory_answer_waits(),
     })
 }
 

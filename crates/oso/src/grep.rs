@@ -40,7 +40,10 @@ use crate::walk::{self, Ended, File, Limits, Visit};
 use files::{Kept, Search, Searcher, Task, filter, searchers};
 
 mod files;
+mod preview;
 mod read;
+
+pub use preview::{Previewed, Previewer};
 
 /// How often a search sends the rows it found.
 pub const BATCH_EVERY: Duration = Duration::from_millis(30);

@@ -34,15 +34,16 @@ pub const MAX_KEPT: usize = 16 * 1024 * 1024;
 pub(super) struct Kept {
     path: Arc<str>,
     line: usize,
+    offset: u64,
     pub(super) bytes: Arc<[u8]>,
     secret: bool,
 }
 
-/// The row of the line `line` of the file at `path`, `bytes`, whose first match is at `first`:
-/// with no text if the file may hold secrets.
+/// The row of the line `line` of the file at `path`, `bytes` from `offset`, whose first match
+/// is at `first`: with no text if the file may hold secrets.
 fn row(
     path: &str,
-    line: usize,
+    (line, offset): (usize, u64),
     bytes: &[u8],
     first: Range<usize>,
     secret: bool,
@@ -51,6 +52,7 @@ fn row(
     ProjectSearchRow {
         path: path.into(),
         line,
+        offset,
         column,
         text: if secret { "".into() } else { text },
         secret,
@@ -60,7 +62,13 @@ fn row(
 impl Kept {
     /// Its row, whose first match is at `first`.
     pub(super) fn row(&self, first: Range<usize>) -> ProjectSearchRow {
-        row(&self.path, self.line, &self.bytes, first, self.secret)
+        row(
+            &self.path,
+            (self.line, self.offset),
+            &self.bytes,
+            first,
+            self.secret,
+        )
     }
 
     /// The same line, kept again, sharing its bytes.
@@ -68,6 +76,7 @@ impl Kept {
         Self {
             path: Arc::clone(&self.path),
             line: self.line,
+            offset: self.offset,
             bytes: Arc::clone(&self.bytes),
             secret: self.secret,
         }
@@ -275,17 +284,18 @@ impl Searcher {
         let path: Arc<str> = Arc::from(&*task.path);
         let mut rows = Vec::new();
         let mut kept = Vec::new();
-        let mut hit = |line, bytes: &[u8], first| {
+        let mut hit = |line, offset, bytes: &[u8], first| {
             // A file stops at what is left of the search's rows, which every searcher shares.
             if !search.take_row() {
                 return false;
             }
-            rows.push(row(&path, line, bytes, first, task.secret));
+            rows.push(row(&path, (line, offset), bytes, first, task.secret));
             // A line past what may be kept is not copied.
             if search.may_keep(bytes.len() + path.len()) {
                 kept.push(Kept {
                     path: Arc::clone(&path),
                     line,
+                    offset,
                     bytes: bytes.into(),
                     secret: task.secret,
                 });

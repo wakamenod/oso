@@ -173,6 +173,8 @@ pub(crate) struct Build {
     pub(crate) reached: Vec<(Reached, Arc<[Name]>)>,
     /// Names starting with `.` are kept.
     pub(crate) hidden: bool,
+    /// Only directories and links are kept, for a prompt that reads a directory (ADR 0114).
+    pub(crate) directories: bool,
     /// The most names kept.
     pub(crate) most: usize,
     /// The path of the row selected, which stays selected if the new list has it.
@@ -208,7 +210,8 @@ impl Build {
             .iter()
             .map(|((directory, shown), names)| (directory.as_path(), shown.as_str(), &names[..]));
         // One past the most, to tell some were left out, and never a name more (ADR 0096).
-        let mut found = path::found_in(listed, self.hidden, self.most + 1, stop)?;
+        let mut found =
+            path::found_in(listed, (self.hidden, self.directories), self.most + 1, stop)?;
         let more = found.len() > self.most;
         found.truncate(self.most);
         // What a look found of a row is kept beside the list and patches it (ADR 0096).

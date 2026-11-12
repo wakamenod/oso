@@ -61,11 +61,12 @@ impl Dispatcher {
         // A command from the socket drops a key held for a result, as a key does, and does not
         // take a candidate of the rows of an older input (ADR 0096).
         self.completion_held = None;
-        if editor.completion_pending() && super::held::takes_the_selected(name) {
+        if super::held::waits(editor, name) {
             return (
                 Effects::default(),
                 Err(
-                    "the list is still being matched; wait until get-state says nothing is pending"
+                    "the list or a listing is still on its way; wait until get-state says nothing is \
+                     pending"
                         .into(),
                 ),
             );

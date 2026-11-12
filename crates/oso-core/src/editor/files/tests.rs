@@ -357,26 +357,21 @@ fn a_buffer_that_loaded_the_file_another_has_is_found_by_its_identity() {
 }
 
 #[test]
-fn a_directory_prompt_refuses_a_files_row_unless_what_is_typed_names_a_directory() {
+fn a_directory_prompt_lists_no_file_and_gives_a_directory_typed_with_a_slash() {
     let mut editor = Editor::default();
     editor.set_home(Some(PathBuf::from("/home/me")));
     editor
         .open_directory_prompt("Search in directory:", "dir", "~/", PathBuf::from("/work"))
         .unwrap();
     editor.take_file_requests();
-    use NameKind::{Directory as D, File as F};
+    use NameKind::{Directory as D, File as F, Link as L, Other as O};
     editor.file_listed(
         PathBuf::from("/home/me"),
-        names(&[("notes", D), ("todo.md", F)]),
+        names(&[("notes", D), ("todo.md", F), ("ln", L), ("pipe", O)]),
         false,
     );
-    // A file's row is refused, and the prompt stays open saying why.
-    typing(&mut editor, "tod");
-    assert!(editor.submit_prompt().is_err());
-    assert_eq!(
-        editor.prompt().and_then(|prompt| prompt.message()),
-        Some("Not a directory: ~/todo.md")
-    );
+    // Only directories and links, which may lead to one, as `read-directory-name` lists.
+    assert_eq!(rows(&editor), ["ln", "notes/"]);
     // What is typed with `/` at its end is the directory, whatever row is selected.
     let id = editor.prompt().unwrap().buffer();
     let end = editor.buffer(id).unwrap().text().len();
@@ -388,7 +383,7 @@ fn a_directory_prompt_refuses_a_files_row_unless_what_is_typed_names_a_directory
         names(&[("a.md", F)]),
         false,
     );
-    assert_eq!(rows(&editor), ["a.md"]);
+    assert!(rows(&editor).is_empty(), "a directory of files lists none");
     editor.submit_prompt().unwrap();
     let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
         panic!("answered");
@@ -406,13 +401,17 @@ fn directory_prompt() -> Editor {
         .open_directory_prompt("Search in directory:", "dir", "~/", PathBuf::from("/work"))
         .unwrap();
     editor.take_file_requests();
-    use NameKind::{Directory as D, File as F};
+    use NameKind::{Directory as D, File as F, Link as L};
     editor.file_listed(
         PathBuf::from("/home/me"),
-        names(&[("notes", D), ("todo.md", F)]),
+        names(&[("notes", D), ("todo.md", F), ("ln", L)]),
         false,
     );
     editor
+}
+
+fn message(editor: &Editor) -> Option<&str> {
+    editor.prompt().and_then(|prompt| prompt.message())
 }
 
 #[test]
@@ -425,26 +424,108 @@ fn a_directory_prompt_goes_into_a_directorys_row() {
 }
 
 #[test]
-fn a_directory_prompt_refuses_a_file_typed_whole_with_or_without_its_row() {
+fn a_directory_prompt_refuses_a_file_typed_whole_and_a_name_its_listing_lacks() {
     for typed in [true, false] {
         let mut editor = directory_prompt();
         typing(&mut editor, "todo.md");
         let submitted = if typed {
             editor.submit_typed()
         } else {
-            // What is typed is selected, not a row.
-            editor.move_completion(-1).unwrap();
+            // No row matches, so what is typed is taken.
             editor.submit_prompt()
         };
         assert!(submitted.is_err(), "typed: {typed}");
-        assert_eq!(
-            editor.prompt().and_then(|prompt| prompt.message()),
-            Some("Not a directory: ~/todo.md")
-        );
+        assert_eq!(message(&editor), Some("Not a directory: ~/todo.md"));
     }
-    // A name no listing knows is given as typed: the walk finds what it is.
     let mut editor = directory_prompt();
     typing(&mut editor, "elsewhere");
+    assert!(editor.submit_typed().is_err());
+    assert_eq!(message(&editor), Some("No such directory: ~/elsewhere"));
+    assert!(editor.prompt().is_some(), "it stays open");
+    // A directory typed whole is given.
+    let mut editor = directory_prompt();
+    typing(&mut editor, "notes");
+    editor.submit_typed().unwrap();
+    let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
+        panic!("answered");
+    };
+    assert_eq!(PathBuf::from(&text), Path::new("/home/me").join("notes"));
+}
+
+#[test]
+fn a_directory_prompt_waits_for_the_listing_that_decides_its_answer() {
+    let mut editor = Editor::default();
+    editor.set_home(Some(PathBuf::from("/home/me")));
+    editor
+        .open_directory_prompt("Search in directory:", "dir", "~/", PathBuf::from("/work"))
+        .unwrap();
+    editor.take_file_requests();
+    // Typed before `~/` is listed: `RET` and `M-RET` wait, as the host holds them.
+    typing(&mut editor, "todo.md");
+    assert!(editor.directory_answer_waits());
+    editor.file_listed(
+        PathBuf::from("/home/me"),
+        names(&[("todo.md", NameKind::File)]),
+        false,
+    );
+    assert!(!editor.directory_answer_waits());
+    assert!(editor.submit_typed().is_err());
+    assert_eq!(message(&editor), Some("Not a directory: ~/todo.md"));
+    // A prompt for a file never waits so.
+    let mut editor = Editor::default();
+    editor
+        .open_file_prompt("Find file:", "file", "/r/", PathBuf::from("/"))
+        .unwrap();
+    editor.take_file_requests();
+    assert!(!editor.directory_answer_waits());
+}
+
+#[test]
+fn a_directory_prompt_says_a_directory_it_cannot_read() {
+    let mut editor = Editor::default();
+    editor.set_home(Some(PathBuf::from("/home/me")));
+    editor
+        .open_directory_prompt("Search in directory:", "dir", "~/", PathBuf::from("/work"))
+        .unwrap();
+    editor.take_file_requests();
+    editor.file_listed(PathBuf::from("/home/me"), None, false);
+    typing(&mut editor, "x");
+    assert!(editor.submit_typed().is_err());
+    assert_eq!(message(&editor), Some("Cannot read directory: ~/"));
+    let mut editor = directory_prompt();
+    let id = editor.prompt().unwrap().buffer();
+    let end = editor.buffer(id).unwrap().text().len();
+    editor.apply_edits(id, &[edit(0..end, "~/notes/")]).unwrap();
+    editor.match_completion();
+    editor.take_file_requests();
+    editor.file_listed(PathBuf::from("/home/me/notes"), None, false);
+    assert!(editor.submit_prompt().is_err());
+    assert_eq!(message(&editor), Some("Cannot read directory: ~/notes/"));
+}
+
+#[test]
+fn a_directory_prompt_takes_a_link_a_look_found_leads_to_a_directory() {
+    // The link selected waits for its look once asked.
+    let mut editor = directory_prompt();
+    typing(&mut editor, "ln");
+    editor.take_file_looks();
+    assert!(editor.directory_answer_waits());
+    editor.file_looked(
+        Path::new("/home/me"),
+        vec![("ln".to_owned(), looked("l", 0, false))],
+    );
+    assert!(!editor.directory_answer_waits());
+    assert!(editor.submit_prompt().is_err());
+    assert_eq!(message(&editor), Some("Not a directory: ~/ln"));
+    assert!(editor.submit_typed().is_err(), "typed whole too");
+    // One a look found leads to a directory is gone into, or given typed whole.
+    let mut editor = directory_prompt();
+    typing(&mut editor, "ln");
+    editor.take_file_looks();
+    editor.file_looked(
+        Path::new("/home/me"),
+        vec![("ln".to_owned(), looked("l", 0, true))],
+    );
     editor.submit_typed().unwrap();
     assert!(editor.prompt().is_none());
 }

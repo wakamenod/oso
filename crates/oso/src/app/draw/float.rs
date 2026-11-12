@@ -315,6 +315,8 @@ pub(super) struct Screens<'a> {
     pub(super) answer: &'a Screen,
     /// The buffer it previews, wrapped at the preview's width while that buffer wraps.
     pub(super) preview: &'a Screen,
+    /// What the preview fills behind its text: a project search's matches (ADR 0114).
+    pub(super) preview_fills: &'a [(Face, &'a [CellRect])],
 }
 
 /// Adds the float's panes to `list`, after the tiled ones.
@@ -405,7 +407,7 @@ pub(super) fn panes<'a>(
         ));
     }
     list_panes(parts, lines, list);
-    preview_panes(editor, (parts, screens.preview), lines, list);
+    preview_panes(editor, (parts, screens), lines, list);
 }
 
 /// Adds a list's panes to `list`: its count, and its candidates' rows, which keep the padding

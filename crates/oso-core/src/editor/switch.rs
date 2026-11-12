@@ -31,6 +31,10 @@ pub enum Preview {
     Withheld,
     /// The kill ring's entry `entry`, as [`Editor::kill_preview`] gives its lines (ADR 0091).
     Text { entry: u64 },
+    /// What the host read of a project search's row's file, as
+    /// [`Editor::preview_excerpt_display`] gives it, at its own `revision`, with a cursor at the
+    /// offset `cursor`, where the row's match starts (ADR 0114).
+    Excerpt { revision: u64, cursor: usize },
 }
 
 /// Why a person's kill of a buffer did not happen (ADR 0088).
@@ -255,6 +259,10 @@ impl Editor {
     /// the buffer that candidate names, from where the tiled window last was in it, or that
     /// it may hold secrets, which it never shows (ADR 0088).
     pub fn preview(&self) -> Option<Preview> {
+        // A project's search previews its row's file, never by a buffer's name (ADR 0114).
+        if self.searches_project() {
+            return self.search_preview();
+        }
         // `M-y` previews the kill its selected row names, never a secret one (ADR 0091).
         if self.kill_list_open() {
             let entry = self.selected_kill()?;

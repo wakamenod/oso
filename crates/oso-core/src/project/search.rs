@@ -402,7 +402,7 @@ fn ceil_boundary(text: &str, at: usize) -> usize {
 }
 
 /// The bytes of `line` as text, as a buffer reads them: each invalid byte one U+FFFD.
-fn decoded(line: &[u8]) -> String {
+pub(crate) fn decoded(line: &[u8]) -> String {
     let mut text = String::with_capacity(line.len());
     for chunk in line.utf8_chunks() {
         text.push_str(chunk.valid());

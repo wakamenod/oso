@@ -9,9 +9,9 @@ use std::ops::Range;
 
 use oso_core::project::{BLOCK, LineQuery, MAX_LINE};
 
-/// What a matching line is handed to: its number from 1, its bytes and where its first match
-/// is. It says whether to go on.
-pub(crate) type Hit<'a> = dyn FnMut(usize, &[u8], Range<usize>) -> bool + 'a;
+/// What a matching line is handed to: its number from 1, the offset of its start in the file,
+/// its bytes and where its first match is. It says whether to go on.
+pub(crate) type Hit<'a> = dyn FnMut(usize, u64, &[u8], Range<usize>) -> bool + 'a;
 
 /// The most bytes a searcher's block keeps between files; one grown for a long line gives the
 /// rest back.
@@ -48,6 +48,8 @@ fn read_blocks(
 ) -> bool {
     // The number of the block's first line, from 1.
     let mut first_line = 1;
+    // The offset of the block's first byte in the file.
+    let mut start: u64 = 0;
     let mut ended = false;
     // How much of the block was looked at for a NUL and a line break.
     let mut scanned = 0;
@@ -92,13 +94,15 @@ fn read_blocks(
         let breaks = query.find_in_block(&block[..searched], |found| {
             if more {
                 let bytes = &block[found.range.clone()];
-                more = hit(first_line + found.line, bytes, found.first);
+                let offset = start + found.range.start as u64;
+                more = hit(first_line + found.line, offset, bytes, found.first);
             }
         });
         if last || !more {
             return true;
         }
         first_line += breaks;
+        start += searched as u64;
         block.drain(..searched);
         scanned = block.len();
     }

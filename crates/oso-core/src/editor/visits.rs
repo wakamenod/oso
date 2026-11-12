@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::Editor;
 use crate::buffer::BufferId;
+use crate::rope::Rope;
 
 /// A file to go to a place in once a visit shows it, with the line and column.
 pub(super) type VisitPlace = (PathBuf, usize, usize);
@@ -93,21 +94,7 @@ impl Editor {
         if buffer.loading().is_some() && row + 1 >= text.line_count() {
             return;
         }
-        let row = row.min(text.line_count() - 1);
-        let (start, end) = (text.line_start(row), text.line_end(row));
-        // The column's offset, counted through the line's chunks rather than a copy of it, which
-        // may be 16 MiB long.
-        let mut offset = end;
-        let mut left = *column;
-        let mut at = start;
-        for chunk in text.chunks_in_range(start..end) {
-            if let Some((index, _)) = chunk.char_indices().nth(left) {
-                offset = at + index;
-                break;
-            }
-            left -= chunk.chars().count();
-            at += chunk.len();
-        }
+        let offset = place_offset(text, row, *column);
         self.visit_place = None;
         let index = self.selected;
         if index >= self.tiled_count() || self.windows[index].buffer() != id {
@@ -119,6 +106,24 @@ impl Editor {
         selections.move_primary(offset);
         self.follow_window(index);
     }
+}
+
+/// The offset of `column`, in characters from 0, on the line `row`, from 0, each as far as the
+/// text goes. The column is counted through the line's chunks rather than a copy of it, which
+/// may be 16 MiB long.
+pub(super) fn place_offset(text: &Rope, row: usize, column: usize) -> usize {
+    let row = row.min(text.line_count().saturating_sub(1));
+    let (start, end) = (text.line_start(row), text.line_end(row));
+    let mut left = column;
+    let mut at = start;
+    for chunk in text.chunks_in_range(start..end) {
+        if let Some((index, _)) = chunk.char_indices().nth(left) {
+            return at + index;
+        }
+        left -= chunk.chars().count();
+        at += chunk.len();
+    }
+    end
 }
 
 #[cfg(test)]
