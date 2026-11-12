@@ -224,6 +224,9 @@ coordinator.
   there does. The last slice of a large `!` takes a few milliseconds more, joining its undo steps.
 - **The undo limit of 64 MiB bounds what undo brings back.** Past it, the oldest slices of a large
   `!` are dropped, and the one undo step goes back only to the oldest one kept.
+- **Known:** where `!` goes on from is an offset, so an edit before it from outside the session,
+  such as another window's on the same buffer, moves the text under it, and one match can be
+  skipped or asked again.
 - **The two prompts** are read by `ArgSpec::Replace`, which `Ctx::replace_pair` gives back, and
   take Japanese as the prompt for a file's name does.
 
@@ -240,12 +243,14 @@ coordinator.
   goes, also within one line.
 - **Empty matches go as `Regex::replace_all` takes them,** for `!`, the answers and the count: one
   right where a match ended is skipped, and one at the end of the scope counts.
-- **A leftmost match that runs past the scope's end** does not hide a later one inside it.
+- **Each range of the scope is the haystack,** as in Emacs's search of a narrowed buffer: a match
+  ends within it, so a greedy pattern stops at its end, and that end counts as a line's end for
+  `$`.
 - **What is searched for is a `Needle`,** the literal query or the regexp, for the session, the
   scoped job and the highlights. A regexp's highlights read each line in view, up to 64 KiB, and
   look from a little before the view to a little after; a match the window cuts at its end is
   not shown, and the current match always is.
-- **A regexp is at most 1024 characters, and compiles within 1 MiB.** The first prompt checks it,
+- **A regexp is at most 1024 characters, and compiles within 2 MiB.** The first prompt checks it,
   so one that does not compile keeps the prompt open, saying why, as a number prompt does with
   `Not a number` (`Editor::prompt_takes_regexp`), and the session takes the regexp it compiled.
 - **The replacement's groups** are read from the match and the character before it, not its whole
@@ -256,6 +261,9 @@ coordinator.
   fewer matches a slice on a long line, so it takes longer in all while each slice stays within
   its time; a count with such a pattern takes longer on the worker, where a newer job can still
   take its place.
+  The first slice on a line copies the line, so on a very long line it passes the 4 ms target:
+  about 40 ms on a 60 MB line with no match. The name of a group, `(?P<Name>…)`, says nothing of
+  case.
 
 ### 2. Keyboard macros
 

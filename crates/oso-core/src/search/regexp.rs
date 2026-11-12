@@ -24,8 +24,8 @@ pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
 /// The most characters of a regexp, as isearch's string (ADR 0082).
 pub(crate) const MAX_PATTERN_CHARS: usize = 1024;
 
-/// The most memory a compiled regexp takes.
-const SIZE_LIMIT: usize = 1024 * 1024;
+/// The most memory a compiled regexp takes: enough for `\w{30}` and `[\p{L}\d]{25}`.
+const SIZE_LIMIT: usize = 2 * 1024 * 1024;
 
 /// What reading a line costs besides its bytes, as a line's seek and copy take time of
 /// their own.
@@ -76,6 +76,23 @@ fn escape_tail(letter: char) -> usize {
 pub(crate) fn smart_case(pattern: &str) -> bool {
     let mut chars = pattern.chars().peekable();
     while let Some(c) = chars.next() {
+        // A group's name, `(?P<Name>…)` or `(?<Name>…)`, says nothing of case.
+        if c == '(' && chars.peek() == Some(&'?') {
+            let mut rest = chars.clone();
+            rest.next();
+            if rest.peek() == Some(&'P') {
+                rest.next();
+            }
+            if rest.next() == Some('<') {
+                for c in rest.by_ref() {
+                    if c == '>' {
+                        break;
+                    }
+                }
+                chars = rest;
+            }
+            continue;
+        }
         if c == '\\' {
             let Some(letter) = chars.next() else {
                 break;
@@ -265,6 +282,23 @@ impl<'a> Scan<'a> {
         false
     }
 
+    /// Whether to stop here: past the limit or `until`, or as `stop` says, looked at every
+    /// [`LOOK_EVERY`] of work. The next turn of a search looks before it reads on.
+    fn over(&mut self, stop: &dyn Fn() -> bool) -> bool {
+        if self.work > self.limit
+            || self
+                .until
+                .is_some_and(|until| std::time::Instant::now() >= until)
+        {
+            return true;
+        }
+        if self.work - self.looked > LOOK_EVERY {
+            self.looked = self.work;
+            return stop();
+        }
+        false
+    }
+
     /// The next match: [`Found::Match`], [`Found::None`] past the last range, or
     /// [`Found::Stopped`] where it would go on, past its limit or as `stop` says.
     ///
@@ -276,10 +310,7 @@ impl<'a> Scan<'a> {
             let Some(range) = self.ranges.get(self.range).cloned() else {
                 return Ok(Found::None);
             };
-            let late = self
-                .until
-                .is_some_and(|until| std::time::Instant::now() >= until);
-            if self.work > self.limit || late {
+            if self.over(stop) {
                 return Ok(Found::Stopped { resume: self.at });
             }
             if self.at < range.start {
@@ -303,33 +334,33 @@ impl<'a> Scan<'a> {
             };
             let (start, next) = (line.start, line.next);
             let mut from = self.at - start;
+            // The range is the haystack, as in a narrowed search: a match ends within it, so a
+            // greedy pattern stops at its end, and that end counts as a line's end.
+            let mut cut = (range.end - start).min(line.text.len());
+            while !line.text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let haystack = &line.text[..cut];
             let found = loop {
-                let found = self.regexp.regex.find_at(&line.text, from);
-                // A look that finds nothing read to the line's end; one that finds a match read
-                // about to its end, and a pattern that reads further is what `until` is for.
-                let cost = found.map_or(line.text.len() - from, |found| found.end() - from);
+                if from > cut {
+                    break None;
+                }
+                let found = self.regexp.regex.find_at(haystack, from);
+                // A look that finds nothing read to the haystack's end; one that finds a match
+                // read about to its end, and a pattern that reads further is what `until` is for.
+                let cost = found.map_or(cut - from, |found| found.end() - from);
                 self.work = self.work.saturating_add(cost + PER_MATCH);
                 let Some(found) = found else {
                     break None;
                 };
                 let matched = start + found.start()..start + found.end();
-                if matched.is_empty() && self.skip_empty_at == Some(matched.start) {
-                    from = char_after(&line.text, found.start());
-                } else if matched.end > range.end && matched.start < range.end {
-                    // The leftmost match runs past the range; one starting later may not.
-                    from = char_after(&line.text, found.start());
-                } else {
+                if !(matched.is_empty() && self.skip_empty_at == Some(matched.start)) {
                     break Some(matched);
                 }
-                if from > line.text.len() {
-                    break None;
-                }
+                // An empty match right where a match ended is skipped, once.
+                self.skip_empty_at = None;
+                from = char_after(haystack, found.start());
             };
-            let over = self.work > self.limit
-                || (self.work - self.looked > LOOK_EVERY && {
-                    self.looked = self.work;
-                    stop()
-                });
             match found {
                 Some(matched) if matched.end <= range.end => {
                     self.at = if !matched.is_empty() {
@@ -345,13 +376,16 @@ impl<'a> Scan<'a> {
                 }
                 // Past the range's end: on to the next range.
                 Some(_) => self.at = range.end + 1,
+                // Nothing more in the range's part of this line: on past the range if it ends
+                // in the line, as another range may start further along it, or to the next.
+                None if cut < line.text.len() => {
+                    self.at = range.end + 1;
+                    self.skip_empty_at = None;
+                }
                 None => {
                     self.at = next;
                     self.skip_empty_at = None;
                 }
-            }
-            if over {
-                return Ok(Found::Stopped { resume: self.at });
             }
         }
     }

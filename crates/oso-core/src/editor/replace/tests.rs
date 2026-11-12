@@ -522,3 +522,51 @@ fn the_count_of_a_long_line_s_matches_comes_from_the_worker() {
     drain(&mut editor);
     assert_eq!(editor.replace().unwrap().count(), Some((1, 200_000)));
 }
+
+/// An editor on `text` with the region `0..end`.
+fn with_region(text: &str, end: usize) -> Editor {
+    let mut editor = editor(text);
+    editor.current_mut().0.selections = SelectionSet::from_parts(
+        vec![Selection {
+            cursor: end,
+            mark: Some(0),
+            goal: None,
+        }],
+        0,
+    )
+    .unwrap();
+    editor
+        .current_mut()
+        .0
+        .selections
+        .set_mark_active(MarkActive::Active);
+    editor
+}
+
+#[test]
+fn a_greedy_regexp_replaces_within_a_region_that_ends_mid_line() {
+    let mut editor = with_region("aaaa aa", 2);
+    begin_regexp(&mut editor, "a+", "b");
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((1, 1)));
+    answer(&mut editor, All);
+    finish_all(&mut editor);
+    assert_eq!(text(&editor), "baa aa");
+}
+
+#[test]
+fn a_greedy_regexp_on_a_long_line_with_a_region_ending_in_it_is_quick() {
+    let long = "a".repeat(512 * 1024);
+    let mut editor = with_region(&long, 256 * 1024);
+    let started = std::time::Instant::now();
+    begin_regexp(&mut editor, "a+", "b");
+    drain(&mut editor);
+    answer(&mut editor, All);
+    finish_all(&mut editor);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(text(&editor).len(), 256 * 1024 + 1);
+}
