@@ -14,6 +14,7 @@ mod config;
 mod dev;
 mod dispatch;
 mod emergency;
+mod grep;
 mod keys;
 mod lister;
 mod loader;

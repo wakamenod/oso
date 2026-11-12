@@ -24,6 +24,7 @@ mod kill;
 mod macros;
 mod mark;
 mod png;
+mod projects;
 mod prompts;
 mod recovery;
 mod reload;

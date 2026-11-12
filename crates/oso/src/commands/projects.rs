@@ -1,5 +1,5 @@
-//! Commands of the project a buffer's file is in (ADR 0114): visiting one of its files, trusting
-//! it to run its code, and taking that back.
+//! Commands of the project a buffer's file is in (ADR 0114): visiting one of its files or a line
+//! found by searching them, trusting it to run its code, and taking that back.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -18,12 +18,21 @@ const ROOT_CELLS: usize = 60;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "project-find-file",
-        doc: "Visit a file of the current buffer's project, read with completion over its files.\n\nThe files show as paths from the project's root, and the list grows while the project is walked. Hidden files are listed, less what the project's ignore files leave out, as `rg` reads them; nothing inside `.git`, `.jj`, `.hg` or a project inside this one is. Links are not followed, but a link to a file is listed. Outside a project the buffer's directory stands in for one, but not the home directory. A file that may hold secrets opens as `C-x C-f` opens it.",
+        doc: "Visit a file of the current buffer's project, read with completion over its files.\n\nThe files show as paths from the project's root, and the list grows while the project is walked. Hidden files are listed, less what the project's ignore files leave out, as `rg` reads them; nothing inside `.git`, `.jj`, `.hg` or a project inside this one is. Links are not followed, but a link to a file is listed. Outside a project the buffer's directory stands in for one, but not the home directory. With `C-u`, it asks for the directory first. A file that may hold secrets opens as `C-x C-f` opens it.",
         args: ArgSpec::ProjectFile {
             history: "project-file",
         },
         reach: Reach::Person,
         run: project_find_file,
+    },
+    Command {
+        name: "project-search",
+        doc: "Search the files of the current buffer's project, line by line, and visit the line picked.\n\nWhat is typed is split at spaces, and a line matches when every part does, in any order: each part as typed or, if it holds a character an expression reads, as that expression too. `=` before a part keeps it as typed, and `!` before one leaves out the lines holding it. Case is ignored unless an upper-case letter is typed. A search starts once a part has two characters, and the rows come while it runs, each `path:line: text`. It searches the files `project-find-file` lists, on disk, and no link. A file that may hold secrets is searched, but its rows show no text. With `C-u`, it asks for the directory first. `RET` visits the line, with the place before on the mark ring.",
+        args: ArgSpec::ProjectSearch {
+            history: "project-search",
+        },
+        reach: Reach::Person,
+        run: project_search,
     },
     Command {
         name: "trust-project",
@@ -46,6 +55,22 @@ fn project_find_file(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let path = PathBuf::from(ctx.answer().unwrap_or_default());
     super::files::visit(ctx, path)
+}
+
+/// Visits the file of the row the search's prompt gave, through the loader's verdict, and goes
+/// to its line once it shows.
+fn project_search(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let Some(hit) = ctx.editor.take_search_hit() else {
+        return Err(CommandError::new("No line was picked"));
+    };
+    if ctx.editor.large_file(&hit.path).is_some() {
+        return super::files::visit(ctx, hit.path);
+    }
+    ctx.editor
+        .request_visit_at(hit.path, oso_core::load::UNASKED, hit.line, hit.column);
+    ctx.request_redraw();
+    Ok(())
 }
 
 /// Trusts the current buffer's project once the person said `y` to a question about it, which

@@ -127,6 +127,15 @@ impl Editor {
             return;
         }
         let revision = buffer.revision();
+        // A project's search takes the answer as what to look for, and the rows stay its own.
+        if self.searches_project() {
+            if let Some((_, seen)) = self.completion_mut() {
+                *seen = revision;
+            }
+            self.search_input_changed();
+            self.relayout_prompt();
+            return;
+        }
         // An answer too long to match, such as a whole file yanked into it, is never read.
         let text = (buffer.text().len() <= MAX_INPUT_BYTES).then(|| buffer.text().to_string());
         let unmerged = self.has_pending_batches();
@@ -231,6 +240,10 @@ impl Editor {
     ///
     /// As [`Editor::move_completion`].
     pub fn insert_completion(&mut self) -> Result<(), PromptError> {
+        // A search's input is what it looks for, which a row's text would replace (ADR 0114).
+        if self.searches_project() {
+            return Ok(());
+        }
         let text = self.selected_completion()?;
         // A path goes in whole, the segments it expanded too, as `~/` from the home directory.
         let text = self.selected_file().map_or(text, |(_, form)| form);

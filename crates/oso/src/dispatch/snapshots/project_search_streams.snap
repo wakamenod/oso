@@ -1,0 +1,158 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: "
+---
+step: M-s r, nothing typed
+│                                                                                                    │
+:o                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ 0/0 Search oso:                                              │
+:                 ^                                            :
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+step: f n, nothing found yet
+│                                                                                                    │
+:o                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ …/… Search oso: fn                                           │
+:                   ^                                          :
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+step: a file's rows, a control boxed
+│                                                                                                    │
+:o                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ …/… Search oso: fn                                           │
+:                   ^                                          :
+│>src/main.rs:1: fn main() {                                   │
+│ src/main.rs:9: fn run(U+202Ex) {}                            │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+step: C-n, then more: the row moved to stays, a secret row has no text
+│                                                                                                    │
+:o                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ …/… Search oso: fn                                           │
+:                   ^                                          :
+│ src/main.rs:1: fn main() {                                   │
+│>src/main.rs:9: fn run(U+202Ex) {}                            │
+│ .env:2                        may hold secrets               │
+│ src/lib.rs:40:     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+step: the search ends at a limit
+│                                                                                                    │
+:o                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- main.rs  oso  restricted  1:0  Rust  UTF-8 LF                                                    -
+"                                                                                                    "
+float at row 0, column 19: 12 x 62
+│ 2/4+ Search oso: fn                                          │
+:                    ^                                         :
+│ src/main.rs:1: fn main() {                                   │
+│>src/main.rs:9: fn run(U+202Ex) {}                            │
+│ .env:2                        may hold secrets               │
+│ src/lib.rs:40:     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │

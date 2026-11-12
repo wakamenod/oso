@@ -14,7 +14,7 @@
 //! directory.
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -114,18 +114,33 @@ impl Editor {
             .baseline()
             .and_then(|baseline| baseline.location.parent())
             .ok_or(NotInProject)?;
+        self.listable_root(directory)
+    }
+
+    /// The root and the name `dir`, a directory the person named, is searched or listed as:
+    /// itself, named after its last component.
+    ///
+    /// # Errors
+    ///
+    /// [`NotInProject`] for the home directory, one that holds it, or the root of the file
+    /// system, which no one lists whole (ADR 0114), and for a path with `..` in it, whose words
+    /// do not say which it is. The host refuses them by their real places too.
+    pub fn listable_root(&self, dir: &Path) -> Result<(PathBuf, String), NotInProject> {
         let holds_home = self
             .home
             .as_deref()
-            .is_some_and(|home| home.starts_with(directory));
-        if directory.parent().is_none() || holds_home {
+            .is_some_and(|home| home.starts_with(dir));
+        let climbs = dir
+            .components()
+            .any(|component| component == std::path::Component::ParentDir);
+        if dir.parent().is_none() || holds_home || climbs {
             return Err(NotInProject);
         }
-        let name = directory.file_name().map_or_else(
-            || directory.display().to_string(),
+        let name = dir.file_name().map_or_else(
+            || dir.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
-        Ok((directory.to_path_buf(), name))
+        Ok((dir.to_path_buf(), name))
     }
 
     /// Opens a prompt that lists the files of the project at `root`, named `name`, as paths

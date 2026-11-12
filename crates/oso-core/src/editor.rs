@@ -51,6 +51,7 @@ mod kill;
 mod macros;
 mod marks;
 mod messages;
+mod project_search;
 mod projects;
 mod prompts;
 mod reload;
@@ -64,6 +65,7 @@ mod themes;
 mod trim;
 mod undo_group;
 mod view;
+mod visits;
 mod walks;
 mod windows;
 mod wraps;
@@ -82,6 +84,7 @@ pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
+pub use project_search::{ProjectSearchHit, ProjectSearchRequest, ProjectSearchRow};
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
@@ -156,6 +159,10 @@ pub struct Editor {
     file_list: files::FileList,
     /// What the prompt that lists a project's files keeps beside its candidates (ADR 0114).
     project_files: walks::ProjectFiles,
+    /// What the prompt that searches a project keeps beside its rows (ADR 0114).
+    project_search: project_search::ProjectSearch,
+    /// Where a visit a search's row asked for goes once it shows (ADR 0114).
+    visit_place: Option<visits::VisitPlace>,
     /// What a prompt that completes waits for from the worker (ADR 0096).
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
@@ -283,6 +290,8 @@ impl Editor {
             kill_list: None,
             file_list: files::FileList::default(),
             project_files: walks::ProjectFiles::default(),
+            project_search: project_search::ProjectSearch::default(),
+            visit_place: None,
             completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,

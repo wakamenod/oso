@@ -21,7 +21,10 @@ use macos as backend;
 mod other;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use other as backend;
+mod directory;
 mod posix_list;
+
+pub use directory::{Directory, Entries, Entry, EntryKind};
 
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use macos::test_list;

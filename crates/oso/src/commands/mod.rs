@@ -185,6 +185,96 @@ mod tests {
         "replace-undo",
     ];
 
+    /// The commands, beside query-replace's, that need a person at the keyboard (ADR 0085).
+    const PERSON: &[&str] = &[
+        // Who may drive the editor.
+        "agent-channel-allow",
+        "agent-channel-start",
+        "agent-channel-stop",
+        // Answering a prompt, choosing what it answers, and running a command by name
+        // (ADR 0076).
+        "answer-no",
+        "answer-yes",
+        "execute-extended-command",
+        "exit-minibuffer",
+        "exit-minibuffer-input",
+        "first-completion",
+        "insert-completion",
+        "last-completion",
+        "next-completion",
+        "previous-completion",
+        "scroll-completions-down",
+        "scroll-completions-up",
+        "next-history-element",
+        "previous-history-element",
+        "project-find-file",
+        "project-search",
+        // Emergency copies.
+        "emergency-copies-back",
+        "emergency-copies-refresh",
+        "emergency-copy-compare",
+        "emergency-copy-delete",
+        "emergency-copy-recover",
+        "emergency-copy-view",
+        "recover-session",
+        "revert-buffer",
+        // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
+        "consult-mark",
+        // Opening and writing files by a path the person typed (ADR 0087); the channel has
+        // its own `open`.
+        "find-file",
+        "open-large-file",
+        "write-file",
+        "write-file-over",
+        // Killing a buffer, which can lose unsaved text (ADR 0088).
+        "kill-buffer",
+        "kill-buffer-anyway",
+        // Trusting a project to run its code, and taking that back (ADR 0114).
+        "trust-project",
+        "untrust-project",
+        // Exiting, and leaving what the person is doing.
+        "keyboard-quit",
+        "save-buffers-kill-terminal",
+        // Whitespace's marks, which show lookalike spaces (ADR 0097).
+        "global-whitespace-mode",
+        // The theme, which is the person's and is remembered on disk (ADR 0089).
+        "load-theme",
+        "toggle-theme",
+        // The person's yes to the agent's question about saving.
+        "save-buffer-the-agent-opened",
+        // Keys: the channel passes a count or text instead.
+        "digit-argument",
+        "negative-argument",
+        "self-insert-command",
+        "universal-argument",
+        // The OS clipboard.
+        "yank",
+        // Pick a kill from a list, or go through them right after a yank (ADR 0091).
+        "consult-yank-pop",
+        "yank-pop",
+        // isearch, which reads keys (ADR 0082).
+        "isearch-backward",
+        "isearch-delete-char",
+        "isearch-exit",
+        "isearch-forward",
+        "isearch-mark-all",
+        "isearch-mark-next",
+        "isearch-mark-previous",
+        "isearch-printing-char",
+        "isearch-repeat-backward",
+        "isearch-repeat-forward",
+        "isearch-ring-advance",
+        "isearch-ring-retreat",
+        "isearch-toggle-case-fold",
+        "isearch-yank-pop",
+        "isearch-yank-kill",
+        "isearch-yank-word-or-char",
+        // Keyboard macros, whose replay types keys (ADR 0113).
+        "kmacro-end-and-call-macro",
+        "kmacro-end-macro",
+        "kmacro-start-macro",
+    ];
+
     /// The commands the agent channel refuses (ADR 0085). A change here is a change to what an
     /// agent may do in a person's editor, so it shows in review.
     #[test]
@@ -195,93 +285,7 @@ mod tests {
             .map(|(_, command)| command.name)
             .collect();
         person.sort_unstable();
-        let mut expected = vec![
-            // Who may drive the editor.
-            "agent-channel-allow",
-            "agent-channel-start",
-            "agent-channel-stop",
-            // Answering a prompt, choosing what it answers, and running a command by name
-            // (ADR 0076).
-            "answer-no",
-            "answer-yes",
-            "execute-extended-command",
-            "exit-minibuffer",
-            "exit-minibuffer-input",
-            "first-completion",
-            "insert-completion",
-            "last-completion",
-            "next-completion",
-            "previous-completion",
-            "scroll-completions-down",
-            "scroll-completions-up",
-            "next-history-element",
-            "previous-history-element",
-            "project-find-file",
-            // Emergency copies.
-            "emergency-copies-back",
-            "emergency-copies-refresh",
-            "emergency-copy-compare",
-            "emergency-copy-delete",
-            "emergency-copy-recover",
-            "emergency-copy-view",
-            "recover-session",
-            "revert-buffer",
-            // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
-            "consult-mark",
-            // Opening and writing files by a path the person typed (ADR 0087); the channel has
-            // its own `open`.
-            "find-file",
-            "open-large-file",
-            "write-file",
-            "write-file-over",
-            // Killing a buffer, which can lose unsaved text (ADR 0088).
-            "kill-buffer",
-            "kill-buffer-anyway",
-            // Trusting a project to run its code, and taking that back (ADR 0114).
-            "trust-project",
-            "untrust-project",
-            // Exiting, and leaving what the person is doing.
-            "keyboard-quit",
-            "save-buffers-kill-terminal",
-            // Whitespace's marks, which show lookalike spaces (ADR 0097).
-            "global-whitespace-mode",
-            // The theme, which is the person's and is remembered on disk (ADR 0089).
-            "load-theme",
-            "toggle-theme",
-            // The person's yes to the agent's question about saving.
-            "save-buffer-the-agent-opened",
-            // Keys: the channel passes a count or text instead.
-            "digit-argument",
-            "negative-argument",
-            "self-insert-command",
-            "universal-argument",
-            // The OS clipboard.
-            "yank",
-            // Pick a kill from a list, or go through them right after a yank (ADR 0091).
-            "consult-yank-pop",
-            "yank-pop",
-            // isearch, which reads keys (ADR 0082).
-            "isearch-backward",
-            "isearch-delete-char",
-            "isearch-exit",
-            "isearch-forward",
-            "isearch-mark-all",
-            "isearch-mark-next",
-            "isearch-mark-previous",
-            "isearch-printing-char",
-            "isearch-repeat-backward",
-            "isearch-repeat-forward",
-            "isearch-ring-advance",
-            "isearch-ring-retreat",
-            "isearch-toggle-case-fold",
-            "isearch-yank-pop",
-            "isearch-yank-kill",
-            "isearch-yank-word-or-char",
-            // Keyboard macros, whose replay types keys (ADR 0113).
-            "kmacro-end-and-call-macro",
-            "kmacro-end-macro",
-            "kmacro-start-macro",
-        ];
+        let mut expected = PERSON.to_vec();
         expected.extend(QUERY_REPLACE);
         #[cfg(feature = "dev")]
         expected.extend(["dev-panic", "dev-read-passphrase"]);
