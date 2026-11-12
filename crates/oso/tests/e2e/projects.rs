@@ -1,5 +1,6 @@
 //! A project's search in the running app (ADR 0114): `M-s r` over a real directory on the
-//! searching threads, `RET` visiting the line found, and `C-u`'s directory prompt.
+//! searching threads, the preview of each row, `RET` visiting the line found, and `C-u`'s
+//! directory prompt.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The query, the
 //! walk and the reading of files have their own tests.
@@ -105,8 +106,10 @@ fn c_u_asks_for_a_directory_refuses_a_file_and_searches_the_one_typed() {
             .as_str()
             .is_some_and(|text| text.ends_with("src/"))
     );
-    // A file's row is no directory: the prompt stays open and says so.
-    app.send_keys(&typing("main"));
+    // It lists no file: `src/` holds only one.
+    assert_eq!(rows(&state), Vec::<String>::new());
+    // A file typed whole is no directory: the prompt stays open and says so.
+    app.send_keys(&typing("main.rs"));
     app.send_keys("RET");
     let state = app.wait_for("the refusal", |state| {
         state["prompts"][0]["message"]
@@ -114,6 +117,16 @@ fn c_u_asks_for_a_directory_refuses_a_file_and_searches_the_one_typed() {
             .is_some_and(|message| message.starts_with("Not a directory: "))
     });
     assert_eq!(state["prompts"][0]["prompt"], "Search in directory:");
+    // The project's directories are listed, and none of its files.
+    app.send_keys("C-a C-k");
+    let root = scratch.path().join("proj-search/");
+    app.send_keys(&typing(root.to_str().expect("a UTF-8 scratch path")));
+    let state = app.wait_for("the project's listing", |state| {
+        state["prompts"][0]["completion"]["pending"] == false
+            && state["prompts"][0]["completion"]["total"] == 2
+    });
+    // Shorter first, as completion sorts (ADR 0076).
+    assert_eq!(rows(&state), ["src/", "docs/"]);
     // A directory typed whole, `/` at its end, is searched.
     app.send_keys("C-a C-k");
     let docs = scratch.path().join("proj-search/docs/");
@@ -124,4 +137,51 @@ fn c_u_asks_for_a_directory_refuses_a_file_and_searches_the_one_typed() {
     });
     app.send_keys(&typing("needle"));
     assert_eq!(searched(&mut app), ["notes.md:3: A needle here."]);
+}
+
+/// The kind of thing the preview shows once it has settled on `kind`.
+fn previewed(app: &mut App, kind: &str) -> Value {
+    app.wait_for(kind, |state| {
+        state["prompts"][0]["completion"]["preview_kind"] == kind
+    })
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn m_s_r_previews_each_row_but_never_a_file_that_may_hold_secrets() {
+    let scratch = Scratch::new("projects-preview");
+    let main = project(&scratch);
+    let mut app = App::start(Some(&main), scratch.path());
+    app.wait_until_ready();
+    app.wait_for("the project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("  proj-search  "))
+    });
+    app.send_keys("M-s r");
+    app.send_keys(&typing("needle"));
+    let found = searched(&mut app);
+    // Each row, from the first down: the open buffer of `main.rs` from memory, `notes.md` read
+    // from disk, and `.env` never.
+    for (place, row) in found.iter().enumerate() {
+        let kind = if row.starts_with("src/") {
+            "buffer"
+        } else if row.starts_with("docs/") {
+            "excerpt"
+        } else {
+            "withheld"
+        };
+        let state = previewed(&mut app, kind);
+        assert_eq!(state["prompts"][0]["completion"]["selected"], place);
+        if kind != "buffer" {
+            assert!(state["prompts"][0]["completion"]["preview"].is_null());
+        }
+        app.send_keys("C-n");
+    }
+    app.send_keys("C-g");
+    let log = app.stop_and_read_log();
+    assert!(
+        !log.contains("needle") && !log.contains("TOKEN"),
+        "nothing read is logged"
+    );
 }

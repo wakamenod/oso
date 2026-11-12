@@ -217,7 +217,7 @@ pub(crate) fn real_home(home: Option<&Path>) -> Option<PathBuf> {
 /// whatever the root's path says, and however it was reached since its path was looked at. One
 /// that cannot be told is taken to.
 #[cfg(unix)]
-fn opened_holds_home(opened: &Directory, home: Option<&Path>) -> bool {
+pub(crate) fn opened_holds_home(opened: &Directory, home: Option<&Path>) -> bool {
     use std::os::unix::fs::MetadataExt;
     let Some(home) = home else {
         return false;
@@ -232,7 +232,7 @@ fn opened_holds_home(opened: &Directory, home: Option<&Path>) -> bool {
 }
 
 #[cfg(not(unix))]
-fn opened_holds_home(_: &Directory, _: Option<&Path>) -> bool {
+pub(crate) fn opened_holds_home(_: &Directory, _: Option<&Path>) -> bool {
     false
 }
 
@@ -315,6 +315,12 @@ pub(crate) trait Visit {
     fn lists_links(&self) -> bool {
         true
     }
+
+    /// Whether the root opened is the one to walk; a search compares it with the place it
+    /// judged (ADR 0114).
+    fn root_opened(&mut self, _root: &Directory) -> bool {
+        true
+    }
 }
 
 /// Walks the files under `root` as the module says, listing at most `limits` and nothing of a
@@ -379,7 +385,7 @@ pub(crate) fn walk_files(
     let Ok(opened) = Directory::open(root) else {
         return Ok(());
     };
-    if opened_holds_home(&opened, home) {
+    if opened_holds_home(&opened, home) || !visit.root_opened(&opened) {
         return Ok(());
     }
     let opened = Arc::new(opened);

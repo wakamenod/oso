@@ -26,7 +26,7 @@ often, so it must rebuild within 2 s.
   keeps: no guard test checks it.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it uses `ignore`, which
   review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same
-  walk.
+  walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

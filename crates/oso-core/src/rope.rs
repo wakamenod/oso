@@ -110,6 +110,16 @@ impl Dimension<TextSummary> for usize {
     }
 }
 
+/// A count of characters, Unicode scalar values, to seek a rope by.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Chars(pub(crate) usize);
+
+impl Dimension<TextSummary> for Chars {
+    fn add_summary(&mut self, summary: &TextSummary) {
+        self.0 += summary.chars;
+    }
+}
+
 impl Dimension<TextSummary> for Point {
     fn add_summary(&mut self, summary: &TextSummary) {
         if summary.lines > 0 {
@@ -291,6 +301,37 @@ impl Rope {
             }
         }
         point
+    }
+
+    /// The characters before `offset`, clipped to a character's start. O(log n).
+    pub(crate) fn chars_before(&self, offset: usize) -> usize {
+        let offset = self.clip_offset(offset, Bias::Left);
+        let mut cursor = self.tree.cursor::<(usize, Chars)>();
+        cursor.seek(&offset, Bias::Right);
+        let (start, chars) = *cursor.start();
+        let within = cursor
+            .item()
+            .map_or(0, |chunk| chunk.as_str()[..offset - start].chars().count());
+        chars.0 + within
+    }
+
+    /// The offset of the character `chars`, counted from the start; the end past the last.
+    /// O(log n).
+    pub(crate) fn char_to_offset(&self, chars: usize) -> usize {
+        let mut cursor = self.tree.cursor::<(Chars, usize)>();
+        cursor.seek(&Chars(chars), Bias::Right);
+        let (start, offset) = *cursor.start();
+        match cursor.item() {
+            Some(chunk) => {
+                let text = chunk.as_str();
+                let index = text
+                    .char_indices()
+                    .nth(chars - start.0)
+                    .map_or(text.len(), |(index, _)| index);
+                offset + index
+            }
+            None => self.len(),
+        }
     }
 
     /// Converts a line and byte column to a byte offset. O(log n).
@@ -728,6 +769,22 @@ pub(crate) mod tests {
     use super::*;
     use proptest::prelude::*;
     use std::borrow::Cow;
+
+    #[test]
+    fn characters_convert_to_offsets_and_back() {
+        let text = "a日本\n\u{1F600}b".repeat(500);
+        let rope = Rope::from(text.as_str());
+        for (chars, (offset, _)) in text.char_indices().enumerate() {
+            assert_eq!(rope.char_to_offset(chars), offset);
+            assert_eq!(rope.chars_before(offset), chars);
+        }
+        let all = text.chars().count();
+        assert_eq!(rope.char_to_offset(all), text.len());
+        assert_eq!(rope.char_to_offset(all + 10), text.len());
+        assert_eq!(rope.chars_before(text.len()), all);
+        // Inside a character, its start.
+        assert_eq!(rope.chars_before(2), 1);
+    }
 
     /// Pieces of text that random tests are built from: ASCII, Japanese,
     /// emoji sequences, combining marks, tabs and every line ending.
