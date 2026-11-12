@@ -351,4 +351,12 @@ pub(crate) fn undo_costs() {
         100_000,
     );
     one_batch("200k splices in one edit", 100_000);
+    let full = ("a".repeat(1000) + "\n").repeat(2000);
+    bang(
+        "2M bytes deleted, 1000 a line",
+        &full,
+        "a",
+        "",
+        With::Highlights,
+    );
 }

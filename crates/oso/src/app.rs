@@ -37,6 +37,7 @@ mod projects;
 mod reloads;
 mod saves;
 mod searches;
+mod slices;
 mod syntax;
 mod theme_file;
 mod trims;

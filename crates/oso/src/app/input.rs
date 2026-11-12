@@ -197,22 +197,6 @@ impl App {
         }
         Some((window, moved))
     }
-
-    /// Scrolls as the wheel did while `!` or an undo went on, once it has ended and the keys
-    /// held with it have run (ADR 0119). A window gone meanwhile scrolls nothing.
-    pub(super) fn run_held_wheel(&mut self) {
-        if crate::dispatch::holds_input(&self.editor) {
-            return;
-        }
-        let mut moved = false;
-        for (window, rows, columns) in std::mem::take(&mut self.held_wheel) {
-            moved |= rows != 0 && self.editor.scroll_view(window, rows);
-            moved |= columns != 0 && self.editor.scroll_view_sideways(window, columns);
-        }
-        if moved {
-            self.request_redraw();
-        }
-    }
 }
 
 #[cfg(test)]

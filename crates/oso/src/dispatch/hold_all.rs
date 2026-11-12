@@ -6,6 +6,7 @@
 //! Must not depend on: `app` or winit; the host asks for each slice and says when to go on.
 
 use std::collections::VecDeque;
+use std::panic::{self, AssertUnwindSafe};
 
 use oso_core::buffer::EditError;
 use oso_core::command::Effects;
@@ -14,6 +15,11 @@ use oso_core::key::KeyPress;
 use oso_core::keymap::is_cancel;
 
 use super::Dispatcher;
+use crate::emergency::Publisher;
+
+/// What the echo area says when a slice of an undo panicked; the payload is dropped unread
+/// (ADR 0028).
+const PANICKED: &str = "Undo or redo panicked";
 
 /// The most input held while work goes on; past it, input is dropped, as a key held too long.
 const MOST_HELD: usize = 256;
@@ -33,7 +39,8 @@ pub(super) enum Held {
 #[derive(Default)]
 pub(super) struct HeldDuringAll {
     held: VecDeque<Held>,
-    /// `C-g` cancelled an undo or a redo since the host last asked.
+    /// `C-g` dropped what was held, and cancelled an undo or a redo or stopped `!`, since the
+    /// host last asked.
     cancelled: bool,
 }
 
@@ -53,7 +60,6 @@ impl Dispatcher {
             match editor.crossing().map(oso_core::editor::Crossing::redo) {
                 Some(redo) => {
                     editor.cancel_crossing();
-                    self.held_during_all.cancelled = true;
                     editor.message(if redo {
                         "Redo cancelled"
                     } else {
@@ -64,13 +70,15 @@ impl Dispatcher {
                     editor.replace_exit();
                 }
             }
+            self.held_during_all.cancelled = true;
             self.held_during_all.held.clear();
             return Some(Effects {
                 redraw: true,
                 ..Effects::default()
             });
         }
-        if self.held_during_all.held.len() < MOST_HELD {
+        // A close request is never dropped, however many keys came before it.
+        if self.held_during_all.held.len() < MOST_HELD || matches!(input, Held::Close) {
             self.held_during_all.held.push_back(input);
         }
         Some(Effects::default())
@@ -97,9 +105,10 @@ impl Dispatcher {
         effects
     }
 
-    /// Whether `C-g` cancelled an undo or a redo since the last call, for the agent whose
-    /// command began it (ADR 0119).
-    pub fn take_crossing_cancelled(&mut self) -> bool {
+    /// Whether `C-g` dropped what was held since the last call, cancelling an undo or a redo or
+    /// stopping `!`: what the host holds goes too, and the agent whose command began the undo
+    /// hears it (ADR 0119).
+    pub fn take_cancelled(&mut self) -> bool {
         std::mem::take(&mut self.held_during_all.cancelled)
     }
 
@@ -116,7 +125,21 @@ impl Dispatcher {
             return (Effects::default(), None);
         }
         editor.refill_wraps();
-        let ended = editor.go_on_crossing();
+        // A panic in a slice drops the crossing and nothing else, as the editor holds none
+        // while a slice runs; outside a command, this is its boundary (ADR 0014, ADR 0119).
+        let boundary = self.publisher.as_ref().map(Publisher::enter_command);
+        let ran = panic::catch_unwind(AssertUnwindSafe(|| editor.go_on_crossing()));
+        drop(boundary);
+        let (ended, panicked) = match ran {
+            Ok(ended) => (ended, false),
+            Err(_) => (Some(Err(EditError::Abandoned)), true),
+        };
+        if panicked {
+            editor.message(PANICKED);
+            if let Some(publisher) = &self.publisher {
+                publisher.command_panicked(editor);
+            }
+        }
         editor.follow_cursor();
         let mut effects = Effects {
             redraw: true,
@@ -124,7 +147,9 @@ impl Dispatcher {
         };
         if let Some(result) = &ended {
             if let Err(error) = result {
-                editor.message(error.to_string());
+                if !panicked {
+                    editor.message(error.to_string());
+                }
                 editor.macro_stop(None);
             }
             effects = effects.union(self.run_held_during_all(editor));

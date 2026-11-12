@@ -68,8 +68,8 @@ fn c_g_cancels_a_large_undo_and_drops_the_keys_that_waited() {
     send(&mut d, &mut editor, "C-z");
     send(&mut d, &mut editor, "M-> x C-g");
     assert!(editor.crossing().is_none());
-    assert!(d.take_crossing_cancelled());
-    assert!(!d.take_crossing_cancelled(), "said once");
+    assert!(d.take_cancelled());
+    assert!(!d.take_cancelled(), "said once");
     assert_eq!(text(&editor), "c ".repeat(10_000), "nothing undone");
     assert_eq!(cursors(&editor), before, "nor moved");
     assert_eq!(

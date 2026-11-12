@@ -587,16 +587,20 @@ the first, (a).
 - **The commands.** `undo` and `undo-redo` call `Editor::begin_crossing` with a count of at most
   256, and say "Count too large" at once past it (decision 4). They ask for a frame only if a step
   crossed or one goes on, as before. query-replace's `u` still undoes at once.
-- **Each turn.** `App::undo_slice` runs in `before_waiting` after `!`'s slice. Through
-  `Dispatcher::go_on_crossing` it gives the wraps their budget, runs a slice, makes the windows
-  follow their cursors and asks for a frame; the emergency copy then reads the buffer. When the
-  crossing ends, an error is said and stops a keyboard macro's replay, as a failing command
-  does, and the input held meanwhile runs, then the wheel's.
+- **Each turn.** `app/slices.rs` runs, before the loop waits, `!`'s slice, then the undo's, then
+  a replay's. Through `Dispatcher::go_on_crossing` the undo's gives the wraps their budget, runs
+  a slice, makes the windows follow their cursors and asks for a frame; the emergency copy then
+  reads the buffer. When the crossing ends, an error is said and stops a keyboard macro's
+  replay, as a failing command does, and the input held meanwhile runs, then the wheel's.
+- **A panic in a later slice** is caught there, inside the emergency publisher's command scope,
+  as `Registry::execute` catches a command's: the editor holds no crossing while a slice runs,
+  so it drops the crossing and nothing else, and the echo area says "Undo or redo panicked".
 - **Held input** (`dispatch/hold_all.rs`) is held while `!` replaces or a crossing goes on, in one
   queue of at most 256. `C-g` cancels the crossing, says "Undo cancelled" or "Redo cancelled",
-  and drops the queue. The window's close button is held with the keys and asks its question
-  after them; so does it now while `!` replaces. The wheel is summed for each window and scrolls
-  after the keys, while `!` replaces too; a window gone meanwhile scrolls nothing.
+  and drops the queue and the wheel held with it. The window's close button is held with the
+  keys, past the 256 too, and asks its question after them; so does it now while `!` replaces.
+  The wheel is summed for each window and scrolls after the keys, while `!` replaces too; a
+  window gone meanwhile scrolls nothing.
 - **The echo row** shows the progress line first while a crossing goes on; what a command said
   shows once it ends.
 - **What waits.** The channel refuses `run`, `open` and `insert` with "an undo or a redo goes on;
@@ -609,8 +613,10 @@ the first, (a).
 - **The channel's own undo.** If the command leaves a crossing under way, the reply waits
   (`app/agent/undoing.rs`): once it ends, the command's own reply, or the error that ended it;
   "Undo cancelled by the person" (or "Redo") after the person's `C-g`. Past 8 s, under the
-  channel's 10 s wait for a reply, it replies that the undo goes on and `undoing` says how far. A
-  connection that goes, or a channel turned off, forgets the reply; the undo goes on.
+  channel's 10 s wait for a reply, it replies that the undo goes on and `state`'s `undoing` says
+  how far; the reply to a save waits as long, from the same constant
+  (`channel::server::ANSWER_WITHIN`). A connection that goes, or a channel turned off, forgets
+  the reply; the undo goes on. The `state` tool of `oso mcp` names `undoing`.
 - **Freeing.** The editor keeps what each commit lets go, now with the groups the history's
   limit drops at that commit, and what a crossing cancelled, abandoned or replaced held, until
   the host takes it with `Editor::take_crossing_freed`. `App::apply` hands it to the thread that
@@ -620,28 +626,44 @@ the first, (a).
   lowest first, so that they apply from the highest back as the whole did. The text, the content
   id and every offset come out as before, and a crossing at once and in slices cross the same
   group. What may differ is where another window's cursor lands when it sits exactly where two
-  parts meet, as it follows the parts one after the other rather than the batch whole.
+  parts meet, as it follows the parts one after the other rather than the batch whole. A batch
+  that fits is recorded as before, with nothing allocated beside it.
+- **A slice hands out what cursors follow up to where it may last be cut.** Step 2 handed out
+  the part of a run applied in a slice only when the slice stopped where it could be cut, and
+  otherwise kept all of it for the next. Now a slice keeps only what it applied after the last
+  place it could be cut.
+- **A run joins at most 65,536 splices** (`RUN_SPLICES` in `buffer/sliced.rs`). What ends with a
+  run, as the edited lines it follows, reads all of it at once, which step 2 left for this step;
+  a large step's batches that lie apart now make several runs, each ending in a slice of its own.
 - **Measured** with `text_perf -- undo`, release build, with what a commit lets go dropped
   outside the times as the host frees it:
 
   | Case | Slices | p50 | p99 | Max | Last | Whole |
   |---|---|---|---|---|---|---|
-  | `!` over 4M short lines | 167 | 3.00 ms | 3.00 ms | 3.02 ms | 1.62 ms | 500 ms |
-  | the same, wrapped | 168 | 3.00 ms | 3.01 ms | 5.35 ms | 5.35 ms | 506 ms |
-  | the same, two windows | 165 | 3.00 ms | 3.00 ms | 3.01 ms | 2.87 ms | 495 ms |
-  | `!` over 2 MiB, highlighted | 217 | 3.00 ms | 3.11 ms | 4.12 ms | 3.98 ms | 653 ms |
-  | 20,000 answers far apart in 100 MB | 14 | 3.00 ms | 3.00 ms | 3.02 ms | 1.22 ms | 40 ms |
-  | 20 commands joined at 1000 cursors | 10 | 3.00 ms | 3.01 ms | 3.01 ms | 1.75 ms | 29 ms |
-  | an 89 MB kill | 21 | 2.39 ms | 2.99 ms | 3.02 ms | 1.79 ms | 53 ms |
-  | 200k splices in one edit, highlighted, 1000 cursors in a second window | 199 | 3.00 ms | 3.96 ms | 3.97 ms | 2.40 ms | 596 ms |
+  | `!` over 4M short lines | 172 | 3.00 ms | 3.16 ms | 3.17 ms | 1.10 ms | 514 ms |
+  | the same, wrapped | 169 | 3.00 ms | 3.16 ms | 5.09 ms | 5.09 ms | 509 ms |
+  | the same, two windows | 176 | 3.00 ms | 3.16 ms | 3.16 ms | 0.71 ms | 526 ms |
+  | `!` over 2 MiB, highlighted | 233 | 3.00 ms | 3.23 ms | 4.13 ms | 0.80 ms | 698 ms |
+  | 20,000 answers far apart in 100 MB | 14 | 3.00 ms | 3.01 ms | 3.01 ms | 1.90 ms | 41 ms |
+  | 20 commands joined at 1000 cursors | 10 | 3.00 ms | 3.01 ms | 3.01 ms | 2.63 ms | 30 ms |
+  | an 89 MB kill | 21 | 2.36 ms | 2.94 ms | 3.01 ms | 1.78 ms | 52 ms |
+  | 200k splices in one edit, highlighted, 1000 cursors in a second window | 201 | 3.00 ms | 4.12 ms | 4.18 ms | 3.79 ms | 604 ms |
+  | `!` deleting 2M bytes, 1000 a line, highlighted | 280 | 3.00 ms | 4.09 ms | 9.30 ms | 2.35 ms | 844 ms |
 
-  The last slice, which commits, took 15.8 to 23.5 ms in step 2, almost all of it freeing. In a
-  wrapped window it still takes 5.4 ms, rewrapping the rows in view. The last case's longest
-  slice took 47 ms with the batch kept whole.
+  Redo's slices take about what undo's do. The last slice, which commits, took 15.8 to 23.5 ms in step 2, almost
+  all of it freeing; in a wrapped window it still takes about 5 to 6 ms, rewrapping the rows in
+  view with the command's budget. A run that ends follows the edited lines, which puts p99 at
+  3.16 ms where runs end often. The longest slice of the last case was 4.3 to 5.0 ms in three
+  more runs; the 9.3 ms came once. Before the cut and run changes above, the "200k splices"
+  case's longest slice took 47 ms with the batch kept whole, and the last case's 17 ms.
+
 - **Tests.** Unit tests in `oso-core`: what a commit, a cancel, a replaced and an abandoned
   crossing let go waits to be taken; the progress comes before a message until the end; a
   reload waits; a batch of more than two parts, of replacements that meet and of deletions apart,
-  crosses back and forth at once and in slices. Through the `Dispatcher`: keys and a close request
+  crosses back and forth at once and in slices; a batch is cut into parts each no larger than one,
+  lowest first; slices that stop where cursors may not be cut hand out no step longer than a
+  batch (it handed out three batches' worth before); and batches past a run's splices make
+  several runs that give the text one batch after another gives. Through the `Dispatcher`: keys and a close request
   wait and run in order, `C-g` cancels an undo and a redo and drops the keys, a replay waits for
   an undo its own key began, and the count limit. In the app: the channel's wait, `get-state`'s
   `undoing` beside a secret buffer, and the restart's and the exit's refusals. End to end
@@ -649,7 +671,8 @@ the first, (a).
   run after it, the progress shows, a restart waits for it, `C-g` cancels an undo and a redo, and
   an agent's undo replies when it ends and hears the person's `C-g`.
 - **Left:** the windows' old wraps are dropped at the commit; query-replace's `u` undoes at once,
-  as its step is one replacement.
+  as its step is one replacement; `!`'s later slices still run outside a panic boundary; the
+  input held meanwhile runs in the turn that commits, as after `!`.
 
 ## Changes to accepted ADRs
 

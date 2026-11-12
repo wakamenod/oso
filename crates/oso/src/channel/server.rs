@@ -54,6 +54,10 @@ pub const MAX_RATE: f64 = 30.0;
 /// bound by it.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long the UI holds back a reply that waits for work a command started, a save or an
+/// undo, before it says the work goes on: well within [`REPLY_TIMEOUT`].
+pub const ANSWER_WITHIN: Duration = REPLY_TIMEOUT.saturating_sub(Duration::from_secs(2));
+
 /// How long writing a response may block on a client that does not read.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 

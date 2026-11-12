@@ -6,7 +6,7 @@
 //! Must not depend on: `command` or `keymap`, or the host's threads; the host asks for each
 //! slice.
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::time::{Duration, Instant};
 
 use super::Editor;
@@ -422,9 +422,9 @@ impl Editor {
             reason = "a share from 0 to 1 in whole percents"
         )]
         let percent = (crossing.done() * 100.0).floor() as u32;
-        out.push_str(&format!("{percent}%"));
+        let _ = write!(out, "{percent}%");
         if crossing.left > 0 {
-            out.push_str(&format!(" ({} more)", crossing.left));
+            let _ = write!(out, " ({} more)", crossing.left);
         }
     }
 

@@ -9,11 +9,12 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::EditError;
 
 use super::super::App;
+use crate::channel::server::ANSWER_WITHIN;
 use crate::channel::{Connection, Reply};
 
 /// How long a reply waits for the undo, under the channel's wait for a reply: then it says the
-/// undo goes on, and `get-state`'s `undoing` says how far.
-const UNDO_WITHIN: Duration = Duration::from_secs(8);
+/// undo goes on, and `state`'s `undoing` says how far.
+const UNDO_WITHIN: Duration = ANSWER_WITHIN;
 
 /// A request whose reply waits until the undo or the redo its command began has ended.
 #[derive(Debug)]
@@ -51,8 +52,11 @@ impl App {
 
     /// After a turn of the undo under way: replies to the request that began it once it has
     /// ended, as `ended` says, or `C-g` cancelled it; past [`UNDO_WITHIN`], says it goes on.
-    pub(in crate::app) fn agent_undo_turn(&mut self, ended: Option<Result<(), EditError>>) {
-        let cancelled = self.dispatcher.take_crossing_cancelled();
+    pub(in crate::app) fn agent_undo_turn(
+        &mut self,
+        ended: Option<Result<(), EditError>>,
+        cancelled: bool,
+    ) {
         let Some(waiting) = &self.agent.undoing else {
             return;
         };
@@ -71,7 +75,7 @@ impl App {
             None if waiting.started.elapsed() >= UNDO_WITHIN => (
                 "goes on past the reply",
                 Ok(serde_json::json!({
-                    "waiting": format!("the {what} goes on; get-state's undoing says how far"),
+                    "waiting": format!("the {what} goes on; state's `undoing` says how far"),
                 })),
             ),
             None => return,

@@ -150,20 +150,26 @@ fn batch_cost(batch: &Batch) -> usize {
     Counts::of(batch).cost
 }
 
-/// `batch` as batches of at most [`BATCH_SPLICES`] splices, the lowest first, so that they
-/// apply from the highest back, as the batch does: the splices of each lie below those of the
-/// next, so their offsets hold. O(splices) when it is cut, O(1) otherwise.
-fn parts(mut batch: Batch) -> Vec<Batch> {
+/// `batch` as batches of at most [`BATCH_SPLICES`] splices: those below the last, the lowest
+/// first, and the last, so that they apply from the highest back, as the batch does. The splices
+/// of each lie below those of the next, so their offsets hold. Cut from the end, each splice
+/// moves once; a batch that fits stays as it is, with nothing below it and no list allocated.
+fn parts(mut batch: Batch) -> (Vec<Batch>, Batch) {
     if batch.len() <= BATCH_SPLICES {
-        return vec![batch];
+        return (Vec::new(), batch);
     }
-    let mut parts = Vec::with_capacity(batch.len().div_ceil(BATCH_SPLICES));
+    let at = (batch.len() - 1) / BATCH_SPLICES * BATCH_SPLICES;
+    let last = batch.split_off(at);
+    let mut below = Vec::with_capacity(batch.len() / BATCH_SPLICES);
     while batch.len() > BATCH_SPLICES {
-        let rest = batch.split_off(BATCH_SPLICES);
-        parts.push(mem::replace(&mut batch, rest));
+        let at = batch.len() - BATCH_SPLICES;
+        below.push(batch.split_off(at));
     }
-    parts.push(batch);
-    parts
+    // What is left keeps the whole batch's room otherwise.
+    batch.shrink_to_fit();
+    below.push(batch);
+    below.reverse();
+    (below, last)
 }
 
 impl Group {
@@ -276,17 +282,20 @@ impl History {
         self.bytes -= self.redo.iter().map(|group| group.bytes).sum::<usize>();
         self.redo.clear();
         self.changes += 1;
-        let batches = parts(batch);
-        let counts: Vec<Counts> = batches.iter().map(Counts::of).collect();
-        let cost = counts.iter().map(|counts| counts.cost).sum::<usize>();
+        let (below, last) = parts(batch);
+        let below_counts: Vec<Counts> = below.iter().map(Counts::of).collect();
+        let last_counts = Counts::of(&last);
+        let cost = below_counts.iter().map(|counts| counts.cost).sum::<usize>() + last_counts.cost;
         let newest = match opening {
             Opening::New(_) => None,
             Opening::Continue | Opening::Join => self.undo.back_mut(),
         };
         if let Some(group) = newest {
             let (old, new) = (group.source.cost(), after.cost() + cost);
-            group.batches.extend(batches);
-            group.counts.extend(counts);
+            group.batches.extend(below);
+            group.batches.push(last);
+            group.counts.extend(below_counts);
+            group.counts.push(last_counts);
             group.source = after;
             group.bytes = group.bytes + new - old;
             group.joined += usize::from(matches!(opening, Opening::Join));
@@ -300,6 +309,9 @@ impl History {
                 content,
                 selections,
             };
+            let (mut batches, mut counts) = (below, below_counts);
+            batches.push(last);
+            counts.push(last_counts);
             let group = Group::counted(batches, counts, target, after);
             self.bytes += group.bytes;
             self.undo.push_back(group);
@@ -731,5 +743,36 @@ mod tests {
         assert_eq!(history.lens(), (0, 0));
         assert_eq!(history.bytes(), 0);
         assert_eq!(history.limit, 7);
+    }
+
+    #[test]
+    fn a_large_batch_is_kept_in_parts_each_no_larger_than_one() {
+        let batch: Batch = (0..BATCH_SPLICES * 3 + 5)
+            .map(|at| Splice {
+                start: at * 2,
+                len: 1,
+                text: None,
+            })
+            .collect();
+        let (below, last) = parts(batch);
+        assert_eq!(below.len(), 3);
+        assert_eq!(last.len(), 5);
+        for part in &below {
+            assert_eq!(part.len(), BATCH_SPLICES);
+            assert!(part.capacity() <= BATCH_SPLICES, "{}", part.capacity());
+        }
+        // Lowest first, each below the next.
+        let starts: Vec<usize> = below
+            .iter()
+            .chain([&last])
+            .map(|part| part[0].start)
+            .collect();
+        assert!(starts.is_sorted(), "{starts:?}");
+        let small = vec![Splice {
+            start: 0,
+            len: 1,
+            text: None,
+        }];
+        assert!(parts(small).0.is_empty(), "a batch that fits stays whole");
     }
 }
