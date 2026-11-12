@@ -165,6 +165,12 @@ impl<T: fmt::Display> fmt::Display for Quoted<T> {
     }
 }
 
+/// `text` cut and escaped as [`quoted`] does, without the quotes: for the file's own text that a
+/// message gives as it is, such as a number.
+pub(super) fn cut<T: fmt::Display>(text: T) -> impl fmt::Display {
+    Escaped::new(text, MAX_QUOTED)
+}
+
 /// Text cut at so many characters, with an ellipsis if cut, and escaped as the display escapes
 /// control and invisible characters; inside quotes, `"` and `\` too.
 struct Escaped<T> {

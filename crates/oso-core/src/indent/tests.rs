@@ -469,7 +469,9 @@ fn lines_strategy() -> impl Strategy<Value = Vec<(bool, usize)>> {
 fn start(rope: &Rope, line: Line) -> usize {
     match line {
         Line::Row(row) => rope.line_start(row),
-        Line::New(offset) => rope.clip_offset(offset, crate::sum_tree::Bias::Left),
+        Line::New(offset) | Line::Empty(offset) => {
+            rope.clip_offset(offset, crate::sum_tree::Bias::Left)
+        }
     }
 }
 
@@ -536,4 +538,25 @@ proptest! {
         }
     }
 
+}
+
+#[test]
+fn an_empty_line_between_is_asked_in_every_mode() {
+    let cases: [(Rules, &str, usize, [Answer; 2]); 3] = [
+        // After an indented empty line, Markdown copies it.
+        (markdown, "- a", 3, [Answer::Column(2), Answer::Column(2)]),
+        (toml, "x = []", 5, [Answer::Column(4), Answer::Column(0)]),
+        (
+            fundamental,
+            "  a",
+            3,
+            [Answer::Column(2), Answer::Column(0)],
+        ),
+    ];
+    for (rules, text, at, expected) in cases {
+        let rope = Rope::from(text);
+        let lines = [Line::Empty(at), Line::New(at)];
+        let answers = rules(&rope, Settings::default(), &lines, &mut Budget::new());
+        assert_eq!(answers, expected, "{text:?}");
+    }
 }

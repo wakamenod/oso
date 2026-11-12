@@ -10,9 +10,11 @@
 
 use std::fmt;
 
-use super::Editor;
-use crate::frame::{BadTiling, Part, Side, Splits, Tiling, TooSmall, Way};
-use crate::window::WindowId;
+use super::{Editor, FIRST_WINDOW};
+use crate::frame::{
+    self, BadTiling, FrameLayout, FrameSize, Part, Side, Splits, Tiling, TooSmall, Way,
+};
+use crate::window::{ViewSize, WindowId};
 
 /// `delete-window` refused: the window is the only one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +64,16 @@ impl fmt::Display for CannotResize {
 }
 
 impl std::error::Error for CannotResize {}
+
+/// The frame of an editor's first window, before the host gives its size.
+pub(super) fn first_frame() -> FrameLayout {
+    frame::layout(
+        FrameSize::holding(ViewSize::default()),
+        &Splits::new(FIRST_WINDOW),
+        FIRST_WINDOW,
+        |_| 0,
+    )
+}
 
 impl Editor {
     /// The position of the window named `id` in [`Editor::windows`].

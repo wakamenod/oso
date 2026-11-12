@@ -156,8 +156,8 @@ then a space; its content column is where the text after the marker starts.
 
 - `RET` indents the new line to the content column of the item it is in, as markdown-mode's
   `markdown-indent-on-enter` does, and to the previous line's indentation elsewhere. Inside a fenced
-  code block it copies the previous line's indentation: fenced Rust gets no Rust rules until
-  injections come (ADR 0111).
+  code block it copies the previous line's indentation: fenced Rust gets no Rust rules. ADR
+  0111's step 7 highlights fenced Rust, but indentation does not read it yet.
 - `TAB` cycles the line through the positions it could take, as markdown-mode's
   `markdown-indent-line` does: the content columns of the items above it that it could belong to,
   from the innermost out, then column 0, then the innermost again.
@@ -533,8 +533,9 @@ gains `amended by 0115`.
   cursors gives 4, then 8, as the second opener's line is the new one; and a line the command
   moves off column 0 is no anchor, so reindenting pasted code that starts at the margin keeps its
   brackets. A break at a line's start leaves an empty line behind it, so the new line takes no
-  indentation in Fundamental and Markdown. A line a string goes on to, past a `\` at a line's end,
-  lays out what follows as the line the string starts on.
+  indentation in Fundamental and Markdown. A line that starts inside a string, a multi-line one or
+  a raw one, or one that a `\` at a line's end goes on, lays out what follows as the line the
+  string starts on (step 2 widened this wording; the rule was so from step 1).
 - **Rust's continuation follows rustfmt more closely than rule 4.** The repository's fixed point
   needed:
   - continuation inside every bracket, not only `{` and top level, with an opener at a line's end
@@ -598,7 +599,7 @@ gains `amended by 0115`.
     step 3 measures it with the edit and gives `Budget::with_limit` what the region needs.
 - **The rustfmt fixed point** runs with `just ci`: reindenting every `.rs` file of the repository
   takes 0.6 s in a debug build. It reads only files under the workspace's root, past directories
-  whose names start with `.` or `target`, and follows no link, and it gives each file the budget a
+  whose names start with `.` and those named `target` or `target-*` (step 2), and follows no link, and it gives each file the budget a
   region of its size needs, so no line falls back. Five files have lines the rules indent
   otherwise, listed in the test with the count and the reason; a listed file that is gone or has
   none fails it:
@@ -614,10 +615,105 @@ gains `amended by 0115`.
   A change that makes the rules indent another line of the repository otherwise fails the test,
   in `oso-core`, whichever crate the line is in; the fix is in the rules, or a new entry with its
   reason.
-- **For step 2's plan:**
-  - a line's current indentation in bytes, which the module measures privately with spaces and
-    tabs only, needs a public helper, while `motion`'s blank test (`C-a`) also counts U+3000:
-    step 2 says which rule `M-m` and `RET`'s trimming follow;
-  - `RET` between brackets (Q4) makes two lines at one offset, and `Line::New` answers only the
-    closer's: step 2 adds a way to ask for the empty line between, or derives it from the
-    opener's line.
+- **Left to step 2** (taken up there, below): a crate-private helper for a line's current
+  indentation, and asking for the empty line between brackets.
+
+### Step 2: `TAB`, `RET` and `C-j`
+
+The author chose, on 2026-11-12 through the coordinator, the recommended option of each question
+step 2's plan put:
+
+- **The empty line between brackets** is asked with a new `Line::Empty(offset)`, which every mode's
+  rules answer as a new line with nothing after the break; asked before `Line::New` at the same
+  offset, it is the line `New`'s line leaves.
+- **`TAB` with a region shown** reindents the cursors' lines, as with none; step 3 makes it run
+  `indent-region`.
+- **The indentation helper** stays `pub(crate)` (`indent::indentation`, over a line's pieces):
+  spaces and tabs only, so `RET` never trims a U+3000, and step 3's `M-m` follows it; `C-a` keeps
+  `motion`'s test.
+- **A new line inside a block comment** that does not start with `*` takes the indentation of the
+  nearest non-blank line above, the comment's text, not of the blank line a break leaves.
+- **The `just perf` scenario** `indent_ret_*` (`RET` in the middle of a 1 MiB Rust file) is wired
+  into the benchmark with one call in `bench.rs`, reported only; the author sets its thresholds.
+- **The public items:** `Line::Empty`, `Buffer::indent_settings` and `set_indent_settings`,
+  `Mode::indent_rules`, and on `Editor` `electric_indent`, `set_electric_indent`,
+  `indent_for_tab`, `newline`, `indent_typed_closers`, `set_mode_indents` and `mode_indent`.
+
+As built:
+
+- **The tab width has one owner, the display map.** `Buffer::indent_settings` gives the indent
+  size and style set on it with the tab width the buffer is shown with; `set_indent_settings`
+  changes the size and style only. The tab width comes from the loader, which builds the display
+  map with the mode's configured `tab-width` when a file is visited, and with the buffer's own when
+  it is read again, so nothing rebuilds a display map, or a window's wrap, on the UI thread. A
+  configuration change gives open buffers the new indent size and style at once; a new tab width
+  applies to files visited after it (the author's choice). A buffer carried over a dev restart
+  keeps the default tab width until visited again.
+- **Each mode's indentation is the editor's** (`Editor::set_mode_indents`, `mode_indent`; the
+  author's choice): the app sets the table when the configuration applies, which gives every open
+  buffer of the person's its mode's indent size and style; a visit, a mode command (`rust-mode`
+  and the others) and a new name that changes the mode (`C-x C-w`) give it the same.
+- **The file named on the command line** is visited before the configuration's first look, so its
+  display map is built with the default tab width of 8 even with a mode's `tab-width` set, while
+  its indent size and style follow when the look applies. With `indent-style = "tab"`,
+  `tab-width = 4` and `indent-size = 4`, a level there is then four spaces, not a tab, so
+  indentation mixes tabs and spaces in that file until it is visited again. A known limit;
+  rebuilding the display map, or reading the file again, when the first look changes a mode's
+  tab width would remove it.
+- **Every buffer added** (`Editor::add_buffer`) takes its mode's indent size and style, unless it
+  is internal: a visit, `C-x b` to a new name, a new `*scratch*`.
+- **`RET`** (`newline`, `newline-and-indent`, and `C-j`'s `electric-newline-and-maybe-indent`) is
+  `Editor::newline(ending, count, indent, limit)`: a shown region goes first; at each cursor the
+  spaces and tabs before and after it go, at most 4 KiB each way and never past the next cursor,
+  and `count` breaks then the last new line's indentation go in, as one batched edit; inside a
+  string, the break alone, with nothing trimmed. A space a combining mark is on stays, as the
+  mark's base. All the cursors share one call to the rules, on the text before the edit, so a
+  cursor's answer counts the lines the ones before it make. The 16 MiB limit is checked before
+  anything changes, with each cursor's indentation counted at its deepest (twice 4096 columns),
+  so whether `RET` fits depends only on the count, the line ending and the cursors; past it,
+  nothing changes and it signals "Too much text to insert".
+- **In Markdown, `RET` keeps a line break of spaces:** two spaces or more after text, at the
+  line's end and outside a fenced code block, break the line, as whitespace cleanup on save
+  (ADR 0113) keeps them; whether the cursor is in a fence is read in one pass for all such
+  cursors. Other blanks before the cursor go, as in other modes.
+- **The line between brackets** is opened in Rust and TOML only (the author's choice): in Markdown
+  `[|]` is a link's text, and `RET` there breaks the line alone. In TOML only between `[` and
+  `]`: an inline table cannot span lines in TOML 1.0, and `(` means nothing in it. Two cursors
+  between the same brackets (`{  |  |  }`) open no line between, and the closer goes on the
+  second cursor's line; a known limit.
+- **The limit counts the deepest indentation** only when `RET` indents: `C-j`, and `RET` with
+  `electric-indent-mode` off, reserve nothing for it.
+- **`C-j` in a prompt** answers it (`exit-minibuffer`), and **in a search** adds a line break to
+  the search string (`isearch-newline`), as in Emacs, so the global `C-j` reaches neither.
+- **`TAB`** in Rust and TOML asks the rules for each cursor's line once and replaces only
+  indentation that differs. In Markdown it stays `tab-to-tab-stop` until step 3 brings its cycle
+  through `markdown_stops`, as in Fundamental mode and internal buffers; `tab-to-tab-stop` keeps
+  its name for `M-i` in step 3.
+- **A typed closer** reindents its line inside the typing command, so it undoes with the typing;
+  `insert` and a yank do not. It is a second batched edit after the typing's.
+- **`TAB` moves a cursor** to the end of the indentation only on lines the rules answered a
+  column; in a string it stays.
+- **Where the code is:** the configuration's indentation is read in `config/indentation.rs`, not
+  `config/settings.rs`; `newline` moved from `commands/edit.rs` to `commands/indent.rs`, with the
+  keys `TAB`, `RET` and `C-j` in `bindings/indent.rs`.
+- **Measured** with `text_perf -- indent`, release, the author's Mac, in the 2 MiB Rust file, the
+  whole command through the editor:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | `RET` at 1 cursor | 5.6 µs | 85 µs |
+  | `RET` at 1000 cursors (breaks alone: 1.6 ms; the rules alone: 1.5 ms) | 4.1 ms | 4.5 ms |
+  | `TAB` at 1000 cursors | 2.9 ms | 3.0 ms |
+  | `}` typed at 1000 cursors, each dedenting its line (the typing alone: 0.9 ms) | 3.2 ms | 3.7 ms |
+
+  `RET` at 1000 cursors is a little past ADR 0092's 4 ms share of an edit, and within a frame;
+  folding a typed closer's reindent into the typing's edit would save about 0.9 ms of its 2.3 ms.
+  Both are left for when a frame needs them.
+- **`[indent] electric`** and **`[modes.<mode>]`** with `indent-size`, `indent-style` (`"space"` or
+  `"tab"`) and `tab-width`, each 1 to 32, for `rust`, `markdown`, `toml` and `fundamental`. Another
+  name in `[modes]` or in a mode's table is reported and skipped. `electric` applies when its value
+  in the file changes, and a dev restart's handed-over flag wins at the next look, as the theme's
+  does.
+- **A bracket opened on a line a string goes on to** takes that line's own indentation, as its
+  opener's line: `g("a \⏎     b", vec![⏎1,⏎]);` gives 11 and 7. rustfmt never writes this shape,
+  so it stays a limit of the rules.

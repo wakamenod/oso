@@ -64,6 +64,13 @@ pub const COMMANDS: &[Command] = &[
         run: isearch_printing_char,
     },
     Command {
+        name: "isearch-newline",
+        doc: "Add a line break to the search string and search again, as `C-j` does in an Emacs search.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_newline,
+    },
+    Command {
         name: "isearch-delete-char",
         doc: "Undo the last step of the search: the string and the place go back together.",
         args: ArgSpec::None,
@@ -201,6 +208,10 @@ fn isearch_printing_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError>
         return Err(CommandError::new("No text to search for"));
     }
     searching(ctx, |ctx| ctx.editor.isearch_add(input))
+}
+
+fn isearch_newline(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    searching(ctx, |ctx| ctx.editor.isearch_add("\n"))
 }
 
 fn isearch_delete_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

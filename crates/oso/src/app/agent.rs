@@ -127,7 +127,7 @@ struct Now {
     persons_prompt: bool,
     keys_in_progress: bool,
     composing: bool,
-    /// An isearch or a query-replace is on (ADR 0082, ADR 0113).
+    /// An isearch, a jump or a query-replace is on (ADR 0082, ADR 0113, ADR 0116).
     searching: bool,
     /// A keyboard macro is being recorded or replayed (ADR 0113).
     macro_running: bool,
@@ -153,7 +153,7 @@ fn waits(now: &Now) -> Option<&'static str> {
         return Some("the person is composing text");
     }
     if now.searching {
-        return Some("the person is searching or replacing");
+        return Some("the person is searching, jumping or replacing");
     }
     if now.macro_running {
         return Some("the person is recording or running a keyboard macro");
@@ -467,7 +467,9 @@ impl App {
             persons_prompt: !prompts.is_empty(),
             keys_in_progress: self.dispatcher.keys_in_progress(),
             composing: self.composing(),
-            searching: self.editor.isearch().is_some() || self.editor.replace().is_some(),
+            searching: self.editor.isearch().is_some()
+                || self.editor.jump().is_some()
+                || self.editor.replace().is_some(),
             macro_running: self.editor.macro_recording() || self.editor.macro_replaying(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),
         })

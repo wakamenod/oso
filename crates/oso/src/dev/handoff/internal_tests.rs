@@ -9,6 +9,7 @@ use super::{
 use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
+use oso_core::jump::Kind;
 use oso_core::load::decode_all;
 use oso_core::selection::SelectionSet;
 use oso_core::window::Scroll;
@@ -232,6 +233,29 @@ fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
         check(&editor),
         Ok(json!({ "generation": before, "unsaved": false }))
     );
+}
+
+#[test]
+fn a_jump_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = scratch_with("ab ab\n");
+    let before = generation(&editor);
+    for labels in [false, true] {
+        assert!(editor.jump_begin(Kind::Char, false));
+        editor.jump_add("a");
+        if labels {
+            editor.jump_show_labels();
+        }
+        assert_eq!(
+            check(&editor),
+            Err("cannot hand over: a jump is under way".into())
+        );
+        assert!(export(&editor, &[], None, None).is_err());
+        let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+        assert!(refused.ends_with("a jump is under way"), "{refused}");
+        assert!(editor.jump_end());
+        assert!(check(&editor).is_ok());
+    }
+    assert!(exit_allowed(&editor, Some(before)).is_ok());
 }
 
 /// An editor on `*scratch*` holding `text`, which a handoff carries.

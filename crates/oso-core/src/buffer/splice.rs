@@ -1,5 +1,6 @@
 //! Applying a batch of replacements to a rope and its display map, and the batch
-//! that undoes it (ADR 0053).
+//! that undoes it (ADR 0053). An undo group applies a slice at a time in `sliced`
+//! (ADR 0119).
 //!
 //! Must not depend on: `window`, `editor` or `command`; this sees only text.
 
@@ -133,23 +134,7 @@ pub(super) fn apply_marking<T: SpliceText>(
         let range = splice.start..splice.start + splice.len;
         let removed = (!range.is_empty()).then(|| text.slice(range.clone()));
         let edit = splice.text.replace_in(text, range);
-        let read = wraps
-            .as_ref()
-            .is_some_and(|wraps| wraps.len() < SPLICES_READ);
-        let before = read.then(|| display.snapshot());
-        display.sync(text, &edit);
-        if let Some(wraps) = wraps.as_deref_mut() {
-            let (before, after) = match (before, wraps.last()) {
-                (Some(before), _) => (before, display.snapshot()),
-                (None, Some(last)) => (last.after.clone(), last.after.clone()),
-                (None, None) => (display.snapshot(), display.snapshot()),
-            };
-            wraps.push(WrapSplice {
-                before,
-                after,
-                edit: edit.clone(),
-            });
-        }
+        sync(text, display, &edit, wraps.as_deref_mut());
         let start = splice.start - old_below + new_below;
         let after = edit.new.end.saturating_sub(splice.start + new_len);
         starts.push(edit.new.start..edit.new.start);
@@ -161,10 +146,7 @@ pub(super) fn apply_marking<T: SpliceText>(
         });
     }
     undo.reverse();
-    // The last one's display is the real one, whatever stood in before it.
-    if let Some(last) = wraps.and_then(|wraps| wraps.last_mut()) {
-        last.after = display.snapshot();
-    }
+    settle_wraps(display, wraps);
     // A splice's chunks can reach back past those of the splices below it, so their
     // starts go through the whole batch, in order.
     let mut order: Vec<usize> = (0..starts.len()).collect();
@@ -188,43 +170,54 @@ pub(super) fn apply_marking<T: SpliceText>(
     undo
 }
 
-/// Applies the batches of an undo group, last first, as an undo or a redo crosses it.
-/// Returns what cursors follow, batch by batch, the batches that undo them, and where
-/// [`apply_marking`] says clusters may have changed, once all have applied.
-pub(super) fn apply_group(
-    group: &[Batch],
-    text: &mut Rope,
+/// Brings `display` along with `text` after `edit`. With `wraps`, the splice goes there
+/// too, with the display before and after it; past [`SPLICES_READ`] of them, with the
+/// snapshot from there as a placeholder, as [`apply_marking`] says.
+pub(super) fn sync(
+    text: &Rope,
     display: &mut DisplayMap,
-    mut wraps: Option<&mut Vec<WrapSplice>>,
-) -> (Vec<Vec<OffsetEdit>>, Vec<Batch>, Vec<Range<usize>>) {
-    let mut steps = Vec::with_capacity(group.len());
-    let mut batches = Vec::with_capacity(group.len());
-    let (mut changed, mut more) = (Vec::new(), Vec::new());
-    for batch in group.iter().rev() {
-        let step: Vec<_> = batch.iter().map(offset_edit).collect();
-        // What earlier batches changed moves with this one.
-        follow_ranges(&mut changed, &step);
-        steps.push(step);
-        batches.push(apply_marking(
-            batch,
-            text,
-            display,
-            &mut more,
-            wraps.as_deref_mut(),
-        ));
-        changed = union(changed, std::mem::take(&mut more));
+    edit: &RopeEdit,
+    wraps: Option<&mut Vec<WrapSplice>>,
+) {
+    let read = wraps
+        .as_ref()
+        .is_some_and(|wraps| wraps.len() < SPLICES_READ);
+    let before = read.then(|| display.snapshot());
+    display.sync(text, edit);
+    if let Some(wraps) = wraps {
+        let (before, after) = match (before, wraps.last()) {
+            (Some(before), _) => (before, display.snapshot()),
+            (None, Some(last)) => (last.after.clone(), last.after.clone()),
+            (None, None) => (display.snapshot(), display.snapshot()),
+        };
+        wraps.push(WrapSplice {
+            before,
+            after,
+            edit: edit.clone(),
+        });
     }
-    (steps, batches, changed)
+}
+
+/// Makes the last splice's display the real one, whatever stood in before it.
+pub(super) fn settle_wraps(display: &DisplayMap, wraps: Option<&mut Vec<WrapSplice>>) {
+    if let Some(last) = wraps.and_then(|wraps| wraps.last_mut()) {
+        last.after = display.snapshot();
+    }
 }
 
 /// The union of two lists of ranges that are each ascending and apart, also ascending
-/// and apart.
-fn union(a: Vec<Range<usize>>, b: Vec<Range<usize>>) -> Vec<Range<usize>> {
-    let mut all = a;
-    all.extend(b);
-    all.sort_unstable_by_key(|range| range.start);
-    let mut merged: Vec<Range<usize>> = Vec::with_capacity(all.len());
-    for range in all {
+/// and apart. O(ranges).
+pub(super) fn union(a: Vec<Range<usize>>, b: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    if a.is_empty() {
+        return b;
+    }
+    let mut merged: Vec<Range<usize>> = Vec::with_capacity(a.len() + b.len());
+    let (mut a, mut b) = (a.into_iter().peekable(), b.into_iter().peekable());
+    while let Some(range) = match (a.peek(), b.peek()) {
+        (Some(x), Some(y)) if y.start < x.start => b.next(),
+        (Some(_), _) => a.next(),
+        (None, _) => b.next(),
+    } {
         match merged.last_mut() {
             Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
             _ => merged.push(range),
@@ -234,164 +227,4 @@ fn union(a: Vec<Range<usize>>, b: Vec<Range<usize>>) -> Vec<Range<usize>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use proptest::prelude::*;
-
-    use super::*;
-    use crate::display_map::TabWidth;
-    use crate::rope::tests::{ATOMS, floor_boundary, text_strategy};
-
-    /// Each chunk of `rope`, with where it starts.
-    fn chunks(rope: &Rope) -> Vec<(usize, String)> {
-        let mut at = 0;
-        rope.chunk_texts(0..rope.len())
-            .map(|text| {
-                let start = at;
-                at += text.len();
-                (start, text.to_string())
-            })
-            .collect()
-    }
-
-    /// Splices from `raw`, at character boundaries of `text`, sorted and apart.
-    fn batch<'a>(text: &str, raw: Vec<(usize, usize, &'a str)>) -> Vec<Splice<Cow<'a, str>>> {
-        let mut cut: Vec<(usize, usize, &str)> = raw
-            .into_iter()
-            .map(|(at, len, new)| {
-                let start = floor_boundary(text, at);
-                (start, floor_boundary(text, start + len), new)
-            })
-            .collect();
-        cut.sort_by_key(|&(start, end, _)| (start, end));
-        let mut splices: Vec<Splice<Cow<'a, str>>> = Vec::new();
-        for (start, end, new) in cut {
-            let apart = splices
-                .last()
-                .is_none_or(|last| start > last.start + last.len);
-            if apart && (start < end || !new.is_empty()) {
-                splices.push(Splice {
-                    start,
-                    len: end - start,
-                    text: Cow::Borrowed(new),
-                });
-            }
-        }
-        splices
-    }
-
-    /// Where `offset`, outside every splice, is once they have applied; `None` inside one,
-    /// or at its end if `inclusive`.
-    fn moved<T: SpliceText>(
-        splices: &[Splice<T>],
-        offset: usize,
-        inclusive: bool,
-    ) -> Option<usize> {
-        let mut delta = 0isize;
-        for splice in splices {
-            let (start, end) = (splice.start, splice.start + splice.len);
-            if offset < start {
-                break;
-            }
-            let after = if inclusive {
-                offset > end
-            } else {
-                offset >= end
-            };
-            if !after {
-                return None;
-            }
-            delta += splice.text.byte_len() as isize - splice.len as isize;
-        }
-        offset.checked_add_signed(delta)
-    }
-
-    /// Checks that every chunk the batch rebuilt is in `changed`.
-    fn rebuilt_chunks_are_changed(text: &str, splices: &[Splice<Cow<'_, str>>]) {
-        let mut rope = Rope::from(text);
-        let kept: HashSet<(usize, String)> = chunks(&rope)
-            .into_iter()
-            .filter_map(|(start, chunk)| {
-                let end = start + chunk.len();
-                let outside = splices
-                    .iter()
-                    .all(|splice| end <= splice.start || start >= splice.start + splice.len);
-                outside
-                    .then(|| moved(splices, start, false))
-                    .flatten()
-                    .map(|start| (start, chunk))
-            })
-            .collect();
-        let mut display = DisplayMap::new(&rope, TabWidth::new(4));
-        let mut changed = Vec::new();
-        apply_marking(splices, &mut rope, &mut display, &mut changed, None);
-        for (start, chunk) in chunks(&rope) {
-            if kept.contains(&(start, chunk.clone())) {
-                continue;
-            }
-            let end = start + chunk.len();
-            assert!(
-                changed
-                    .iter()
-                    .any(|range| range.start <= start && end <= range.end),
-                "chunk {start}..{end} is not in {changed:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn chunks_rebuilt_back_past_the_splice_below_are_changed() {
-        let text = "aのaのaa👍\r\na👍\r\n\r\n\u{7f}\r\n\u{e0041}🇯🇵\r\n日本語aaa\r\na\u{200b}\r\n\r\nの\r\nの\r\na日本語\u{e0041}の👨\u{200d}👩\u{200d}👧日本語a";
-        rebuilt_chunks_are_changed(text, &batch(text, vec![(95, 0, "a"), (109, 0, "a")]));
-    }
-
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(512))]
-
-        /// Every chunk a batch rebuilt is in what it says changed (ADR 0091).
-        #[test]
-        fn every_rebuilt_chunk_is_changed(
-            text in text_strategy(60),
-            raw in prop::collection::vec((0usize..400, 0usize..6, prop::sample::select(ATOMS)), 1..6),
-        ) {
-            let splices = batch(&text, raw);
-            prop_assume!(!splices.is_empty());
-            rebuilt_chunks_are_changed(&text, &splices);
-        }
-
-        /// A cluster start outside every splice and outside what changed is still one,
-        /// also among long runs of marks and of regional indicators.
-        #[test]
-        fn what_did_not_change_still_starts_its_clusters(
-            text in prop::collection::vec(
-                prop_oneof![
-                    3 => prop::sample::select(ATOMS).prop_map(str::to_owned),
-                    3 => (10usize..60).prop_map(|n| format!("a{}", "\u{301}".repeat(n))),
-                    1 => (40usize..160).prop_map(|n| "\u{1f1ef}".repeat(n)),
-                ],
-                0..30,
-            ).prop_map(|atoms| atoms.concat()),
-            raw in prop::collection::vec((0usize..1200, 0usize..6, prop::sample::select(ATOMS)), 1..8),
-        ) {
-            let splices = batch(&text, raw);
-            let mut rope = Rope::from(text.as_str());
-            let mut display = DisplayMap::new(&rope, TabWidth::new(4));
-            let before = display.snapshot();
-            let starts: Vec<usize> = (0..=text.len())
-                .filter(|&at| text.is_char_boundary(at) && before.cluster_at(at).0 == at)
-                .filter_map(|at| moved(&splices, at, true))
-                .collect();
-            let mut changed = Vec::new();
-            apply_marking(&splices, &mut rope, &mut display, &mut changed, None);
-            let after = display.snapshot();
-            for at in starts {
-                let index = changed.partition_point(|range| range.end < at);
-                if changed.get(index).is_some_and(|range| range.start <= at) {
-                    continue;
-                }
-                prop_assert_eq!(after.cluster_at(at).0, at, "changed {:?}", changed);
-            }
-        }
-    }
-}
+pub(super) mod tests;

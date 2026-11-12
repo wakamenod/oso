@@ -4,7 +4,8 @@
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`: per-query costs do not grow
 //! with file size or line length. CI's budgets are in `crates/oso/examples/perf`. A part's name
-//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap`, `screen` or `indent`) runs only that part.
+//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap`, `screen`, `indent` or `undo`)
+//! runs only that part.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -29,6 +30,8 @@ mod indent;
 mod replace;
 #[path = "text_perf/trim.rs"]
 mod trim;
+#[path = "text_perf/undo.rs"]
+mod undo;
 #[path = "text_perf/words.rs"]
 mod words;
 #[path = "text_perf/wrap.rs"]
@@ -284,7 +287,7 @@ fn old_map_slot(map: &mut DisplayMap) -> DisplayMap {
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
-    let parts: [(&str, fn()); 8] = [
+    let parts: [(&str, fn()); 9] = [
         ("words", words::word_motion_costs),
         ("trim", trim::trim_costs),
         ("replace", replace::replace_costs),
@@ -293,6 +296,7 @@ fn main() {
         ("wrap", wrap::wrap_costs),
         ("screen", wrap::screen_costs),
         ("indent", indent::indent_costs),
+        ("undo", undo::undo_costs),
     ];
     for (name, part) in parts {
         if std::env::args().any(|arg| arg == name) {

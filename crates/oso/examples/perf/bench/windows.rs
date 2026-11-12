@@ -1,7 +1,7 @@
 //! The phases of the key benchmark in a split frame (ADR 0112): moving and typing with four
 //! windows, two of them on the file typed in and one wrapping a long line, then with sixteen
-//! on that file, and `C-x o` among the sixteen. Only reported, until the author sets
-//! thresholds.
+//! on that file, and `C-x o` among the sixteen. Each is gated as the key or typing it
+//! repeats is (ADR 0123).
 //!
 //! Must not depend on: anything but the harness's own pacing and settling, from the module
 //! above, and the files it writes.

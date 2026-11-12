@@ -91,6 +91,22 @@ fn an_incomplete_regexp_says_so_and_the_cursor_stays() {
 }
 
 #[test]
+fn a_newline_in_a_regexp_matches_nothing_as_a_match_keeps_to_a_line() {
+    let mut editor = editor("foo\nbar");
+    search(&mut editor, "foo");
+    // `C-j` adds a line break, which compiles and fails, as no match crosses a line.
+    editor.isearch_add("\n");
+    drain(&mut editor);
+    let state = editor.isearch().unwrap();
+    assert!(state.failing());
+    assert_eq!(line(&editor), "Failing regexp I-search: foo\n [0/0]");
+    assert_eq!(cursor(&editor), 3);
+    editor.isearch_add("bar");
+    drain(&mut editor);
+    assert!(editor.isearch().unwrap().failing());
+}
+
+#[test]
 fn a_wrong_regexp_says_why() {
     let mut editor = editor("a) b");
     search(&mut editor, "a)");
