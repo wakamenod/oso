@@ -544,10 +544,11 @@ The UI thread never blocks on I/O or parsing:
   shown buffers first, and at most one thread on a buffer no window shows, so a slice that runs
   long never holds the shown ones. The UI thread never calls tree-sitter, and nothing under the
   lock makes or frees a document; the UI sends a job after each command and drops a buffer that
-  turned secret at once. It is off until colour is drawn (ADR 0111, step 4a). A buffer's highlights are a map of runs
+  turned secret at once. A buffer's highlights are a map of runs
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
-  instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
+  instances are built, so a highlight never reshapes a row, and a report draws a frame only
+  if a window shows runs it changed. Buffers that may hold secrets and
   files over 2 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
@@ -582,6 +583,13 @@ read. See [ADR 0019](adr/0019-configuration.md).
   value of each it leaves out) and applies only those a look changes, so a choice made at run
   time stands. The theme shown last is remembered with the configured default then, in
   `oso/theme`, and wins at start while that default is the file's.
+- Indentation (planned, [ADR 0115](adr/0115-indentation.md)): each buffer has an indentation
+  setting, from the EditorConfig files that apply to it, then the configuration's
+  `[modes.<mode>]`, then the defaults. The loader reads the EditorConfig files from the file's
+  directory up, with project detection's stops, before it builds the display map; parsing and
+  matching are a pure function in `oso_core::editorconfig`. Indentation itself is computed on the UI
+  thread at the key by per-mode rules in `oso_core::indent`, from the text alone, within a budget:
+  no tree and no worker.
 
 ### Persistence
 
@@ -732,6 +740,11 @@ Full details are in [`security.md`](security.md).
     as given. A reload of a file the channel opened checks it as `open` does, and a reload
     that finds the file elsewhere makes the agent's save of it ask. An `oso dev` restart keeps
     the mark: the buffer's handoff entry says `"opened_by_agent": true`, only when it is.
+  - What opening or saving starts runs for the channel only when it is oso's own work in its
+    process, such as the final newline and the whitespace cleanup. From M4, each kind of thing
+    opening or saving starts declares `Runs::InOso` or `Runs::Program` in `oso-core`; a
+    `Program` kind for an agent's open or save marks the buffer instead, and the person's next
+    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.

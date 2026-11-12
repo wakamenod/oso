@@ -1,6 +1,6 @@
 # 0051. M2 plan: scope, safety and display decisions
 
-- Status: Accepted, amended by 0087
+- Status: Accepted, amended by 0087 and 0115
 - Date: 2026-11-04
 
 ## Context

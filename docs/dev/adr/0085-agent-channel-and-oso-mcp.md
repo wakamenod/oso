@@ -1,6 +1,6 @@
 # 0085. An agent channel in release builds, and the `oso mcp` bridge
 
-- Status: Accepted, amended by 0082, 0087, 0093, 0094, 0112, 0113 and 0116
+- Status: Accepted, amended by 0082, 0087, 0093, 0094, 0112, 0113, 0116 and 0118
 - Date: 2026-11-08
 
 ## Context

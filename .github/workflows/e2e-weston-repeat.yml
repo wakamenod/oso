@@ -1,0 +1,95 @@
+# The headless-Wayland flows again and again, each run under a new Weston, to catch a crash
+# such as the one Weston's pixman renderer had (.github/scripts/e2e-weston.sh). A job stops at
+# the first crash and prints its backtrace. It runs by hand, or on a pull request
+# labelled weston-repeat, and gates nothing. The token stays read-only (ADR 0021).
+name: E2E under Weston, repeated
+
+on:
+  workflow_dispatch:
+    inputs:
+      copies:
+        description: "Jobs side by side, as a JSON list of numbers"
+        default: "[1, 2, 3, 4]"
+      runs:
+        description: "Runs in each job, each under a new Weston"
+        default: "20"
+      flows:
+        description: "Filters for the flows, separated by spaces; empty runs them all"
+        default: "handover"
+      renderer:
+        description: "Weston's renderer: gl, or pixman, which crashed now and then"
+        type: choice
+        options: [gl, pixman]
+        default: gl
+      protocol_log:
+        description: "Log every Wayland message Weston handles (WAYLAND_DEBUG=server)"
+        type: boolean
+        default: true
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  repeat:
+    name: e2e under Weston, repeated (${{ matrix.copy }})
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'weston-repeat')
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: ${{ fromJSON(inputs.copies || '[1, 2, 3, 4]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          save-if: false
+      - name: Install a headless Wayland compositor and lavapipe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            weston mesa-vulkan-drivers libvulkan1 libwayland-client0 libwayland-cursor0 libxkbcommon0 \
+            libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
+          weston --version
+          dpkg-query -W -f '${Package} ${Version}\n' weston 'libweston-*' libpixman-1-0 \
+            libwayland-server0 mesa-vulkan-drivers libegl-mesa0
+      - name: Build the flows
+        run: cargo test --locked -p oso --features dev --test e2e --no-run
+      - name: The flows, repeated under headless Weston
+        env:
+          RUNS: ${{ inputs.runs || '20' }}
+          FLOWS: ${{ github.event_name == 'workflow_dispatch' && inputs.flows || 'handover' }}
+          WESTON_RENDERER: ${{ inputs.renderer || 'gl' }}
+          WESTON_PROTOCOL_LOG: ${{ (github.event_name != 'workflow_dispatch' || inputs.protocol_log) && '1' || '0' }}
+          # As `just e2e` sets it.
+          RUST_LOG: oso=debug,wgpu=warn
+        run: |
+          [[ "$RUNS" =~ ^[0-9]+$ ]] || { echo "::error::not a number of runs: $RUNS"; exit 1; }
+          [[ "$FLOWS" =~ ^[A-Za-z0-9_:\ ]*$ ]] || { echo "::error::not a list of filters: $FLOWS"; exit 1; }
+          read -ra filters <<< "$FLOWS"
+          failed=0
+          for run in $(seq 1 "$RUNS"); do
+            echo "--- run $run of $RUNS"
+            dir="$RUNNER_TEMP/weston-$run"
+            bash .github/scripts/e2e-weston.sh "$dir" \
+              cargo test --locked -p oso --features dev --test e2e -- --ignored --test-threads=1 \
+              "${filters[@]}" || failed=$((failed + 1))
+            if [ -e "$dir/crashed" ]; then
+              echo "::error::weston crashed in run $run of $RUNS"
+              exit 1
+            fi
+          done
+          echo "no crash in $RUNS runs; $failed of them failed otherwise"
+          [ "$failed" -eq 0 ]

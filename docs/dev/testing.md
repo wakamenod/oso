@@ -338,7 +338,8 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   and panics come back as error responses.
 - `get-state` reads the state as JSON: every buffer (name, path, whether it may
   hold secrets, read-only reason, whether it is modified or being saved, line ending,
-  BOM, invalid-byte count, loading progress, size), every window with its selections, the selected window's
+  BOM, invalid-byte count, loading progress, size, whether highlighting has reported),
+  every window with its selections, the selected window's
   buffer, cursor and scroll position, its visible text, the keys of a pending
   prefix, what the modeline and the echo area say, and the surface size. The visible
   text stops at 128 KiB and says so with `truncated`. A secret buffer has no text, no
@@ -450,7 +451,7 @@ OS and architecture. Nothing is built or installed there.
 | `mx_type_p99_ms` | a letter and `DEL` typed in turn into `M-x` listing every command, to the frames that draw them; reported only (ADR 0076) | 5, 400 keys each |
 | `file_prompt_type_p99_ms` | a letter, `.`, `*`, a digit and four `DEL` typed in turn into `C-x C-f` over a directory of 100,000 empty files whose names mix ASCII, accented and Japanese letters, to the frames that draw them, while a worker builds and matches the list; making the files takes about 4 s and removing them about 4 s, once per run of the benchmark; reported only (ADR 0096) | 5, 400 keys each |
 | `win4_key_p99_ms`, `win4_type_p99_ms` | the same keys and typing with four windows: the file in the left one, typed in, and on the right the file again, a 1 MB line wrapped and `*Messages*`; reported only (ADR 0112) | 5, 400 keys each |
-| `win16_key_p99_ms`, `win16_type_p99_ms`, `win16_other_p99_ms` | then with sixteen windows on the file, four columns of four, and the `o` of `C-x o` round them, in the same process; reported only (ADR 0112) | 5, 200 keys each, and 96 for `C-x o` |
+| `win16_key_p99_ms`, `win16_type_p99_ms`, `win16_other_p99_ms` | then with sixteen windows on the file, four columns of four, and the `o` of `C-x o` round them, paced after the prefix's frame as any key, in the same process; reported only (ADR 0112) | 5, 200 keys each, and 96 for `C-x o` |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |

@@ -322,8 +322,14 @@ item notes when it must be settled.
 
 - After query-replace, keyboard macros and whitespace cleanup: regexp isearch (`C-M-s`) on
   query-replace's per-line matcher; the kmacro ring, counters, naming and editing; `E`, `C-r`, `Y`
-  and `N` in query-replace; whitespace settings per mode once modes exist; and whether to read
-  `.editorconfig` ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+  and `N` in query-replace; whitespace settings per mode once modes exist; and EditorConfig's
+  `trim_trailing_whitespace` and `insert_final_newline`, which ADR 0115 parses but does not apply yet
+  ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+
+- After indentation: a query-based indenter on the worker for `indent-region` in more languages;
+  fenced code in Markdown indented by its language's rules; detecting a file's indentation when
+  nothing gives it; formatting on save with a program the person approved
+  ([ADR 0115](adr/0115-indentation.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration

@@ -1,6 +1,6 @@
 # 0113. query-replace, keyboard macros and whitespace cleanup on save
 
-- Status: Accepted
+- Status: Accepted, amended by 0115
 - Date: 2026-11-12
 
 ## Context
