@@ -279,19 +279,28 @@ fn documents_share_the_threads_and_a_slow_one_never_holds_a_shown_buffer_back() 
         drops: Vec::new(),
         jobs,
     });
-    let mut order = Vec::new();
-    while order.len() < 3 {
+    // Reports are sent after the lock, so two threads' may arrive in either order; their stamps
+    // are given under it, in the order slices ended.
+    let (mut buffer, mut document, mut slow) = (None, None, None);
+    while buffer.is_none() || document.is_none() || slow.is_none() {
         let report = received.recv_timeout(Duration::from_secs(30)).unwrap();
+        let stamp = Some(report.stamp);
         match (report.buffer, report.outcome) {
-            (Key::Buffer(id), Outcome::Highlights(_)) if id == shown => order.push("buffer"),
-            (Key::Document(2), Outcome::Highlights(_)) => order.push("document"),
-            (Key::Document(1), Outcome::Failed(Failure::TooSlow)) => order.push("slow"),
+            (Key::Buffer(id), Outcome::Highlights(_)) if id == shown => buffer = buffer.or(stamp),
+            (Key::Document(2), Outcome::Highlights(_)) => document = document.or(stamp),
+            (Key::Document(1), Outcome::Failed(Failure::TooSlow)) => slow = stamp,
             (_, Outcome::Highlights(_)) => {}
             (key, outcome) => panic!("{key:?}: {outcome:?}"),
         }
-        order.dedup();
     }
-    assert_eq!(order, ["buffer", "slow", "document"]);
+    assert!(
+        buffer < slow,
+        "the slow document held the shown buffer back"
+    );
+    assert!(
+        slow < document,
+        "the second document took the lane's thread"
+    );
     // Done: showing it again starts nothing, and closing it frees nothing more.
     pool.show(Key::Document(2), std::iter::once(0..4).collect());
     let late = received.recv_timeout(Duration::from_millis(100));
