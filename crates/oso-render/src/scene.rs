@@ -30,10 +30,12 @@ use crate::text::{GlyphInstance, Layout};
 use crate::theme::Theme;
 
 mod highlight;
+mod labels;
 mod panel;
 mod text_pane;
 
 use highlight::{Plain, RowFaces};
+use labels::{Covered, Keys, draw_labels};
 
 use text_pane::{cursor_cells, draw_text, preedit_lines, underline_preedit};
 
@@ -75,6 +77,8 @@ struct Draws {
     theme: Theme,
     /// Where a text pane's text keeps its plain colour, for the pane being drawn.
     plain: Plain,
+    /// The glyphs of a jump's label keys (ADR 0116).
+    keys: Keys,
 }
 
 impl Draws {
@@ -100,13 +104,13 @@ impl Draws {
         }
     }
 
-    /// Adds what `row` shows, its plain text in what `faces` says. Returns false once there is
-    /// no room for more.
+    /// Adds what `row` shows, its plain text in what `faces` says, but the glyphs a label in
+    /// `covered` covers even in part (ADR 0116). Returns false once there is no room for more.
     fn row<G: GlyphSource>(
         &mut self,
         (layout, row): (&Layout, usize),
         shaped: &ShapedRow,
-        mut faces: Option<RowFaces<'_>>,
+        (mut faces, mut covered): (Option<RowFaces<'_>>, Covered<'_>),
         system: &mut dyn TextSystem,
         glyphs: &mut G,
     ) -> bool {
@@ -138,13 +142,18 @@ impl Draws {
             if self.quads.len() >= self.limits.quads {
                 return false;
             }
+            let [_, column] = layout.frame_cell(row, glyph.column);
+            let cells = column..column + i64::from(glyph.cells);
+            // Hidden whole, and never looked up, under a label.
+            if covered.any(&cells) {
+                continue;
+            }
             let Some(entry) = glyphs.get(system, glyph.key) else {
                 continue;
             };
             let mut glyph = *glyph;
             if let Some(faces) = faces.as_mut().filter(|_| glyph.face == Face::Text) {
-                let [_, column] = layout.frame_cell(row, glyph.column);
-                glyph.face = faces.face(glyph.column, column..column + i64::from(glyph.cells));
+                glyph.face = faces.face(glyph.column, cells);
             }
             if let Some(quad) = layout.quad(row, &glyph, &entry, &self.theme) {
                 self.quads.push(quad);
@@ -179,6 +188,7 @@ impl Scene {
                 held: 0,
                 theme,
                 plain: Plain::default(),
+                keys: Keys::default(),
             },
             layers: Vec::new(),
         }
@@ -198,6 +208,7 @@ impl Scene {
         for (_, rows) in &mut self.rows {
             rows.invalidate();
         }
+        self.draws.keys.clear();
     }
 
     /// Rows shaped so far by the panes still here, for logs.
@@ -380,6 +391,8 @@ fn draw_pane<G: GlyphSource>(
             if let Some(cells) = cursor {
                 fill_cursor(draws, &layout, cells, hollow, metrics);
             }
+            // Over all of it, the cursor box too (ADR 0116).
+            draw_labels(draws, view.labels, (pane, metrics), system, glyphs);
         }
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
@@ -519,7 +532,7 @@ fn draw_lines<G: GlyphSource>(
     let end = layout.columns().end;
     for (row, spans) in lines.iter().enumerate().take(shown) {
         let shaped = rows.line(row, spans, end, system);
-        if !draws.row((layout, row), shaped, None, system, glyphs) {
+        if !draws.row((layout, row), shaped, (None, Covered::NONE), system, glyphs) {
             break;
         }
     }
@@ -623,6 +636,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -729,6 +743,7 @@ mod tests {
                     others: &[],
                     preedit: None,
                     fills: &[],
+                    labels: &[],
                     whitespace: false,
                     flash: None,
                     highlights: None,
@@ -822,6 +837,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1075,6 +1091,7 @@ mod tests {
             others: &others,
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1112,6 +1129,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1208,6 +1226,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1244,6 +1263,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1274,6 +1294,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[(Face::CurrentLine, &band)],
+            labels: &[],
             whitespace: false,
             flash: Some(FlashFill {
                 cells: rect(1, 1, 1, 7),
@@ -1310,6 +1331,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: Some(FlashFill {
                 cells: rect(0, 0, 1, 12),
@@ -1344,6 +1366,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[(Face::Region, &region)],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1393,6 +1416,7 @@ mod tests {
             others: &[],
             preedit: Some(&preedit),
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1435,6 +1459,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1487,6 +1512,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1536,6 +1562,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1599,6 +1626,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1643,6 +1671,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1678,6 +1707,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1712,6 +1742,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace,
                 flash: None,
                 highlights: None,
@@ -1754,6 +1785,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,
@@ -1789,6 +1821,7 @@ mod tests {
                 others: &[],
                 preedit: None,
                 fills: &[],
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 highlights: None,
@@ -1953,6 +1986,7 @@ mod tests {
             others: &[],
             preedit: None,
             fills: &[],
+            labels: &[],
             whitespace: false,
             flash: None,
             highlights: None,

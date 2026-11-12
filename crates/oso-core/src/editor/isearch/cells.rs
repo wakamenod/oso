@@ -63,6 +63,13 @@ impl Editor {
         self.match_cells(id, state.buffer, screen, (&needle, current, None), cells);
     }
 
+    /// What isearch looks for, for `avy-isearch`, whose candidates are its matches in view
+    /// (ADR 0116).
+    pub(in crate::editor) fn isearch_needle(&self) -> Option<search::Needle> {
+        let state = self.isearch.as_ref()?;
+        Some(search::Needle::Literal(state.query.clone()?))
+    }
+
     /// The cells of a query's matches in view in the tiled window `id`, if it is the selected
     /// one and shows `buffer`, within a scope if given, the current one apart, into `cells`,
     /// emptied first: isearch's and query-replace's (ADR 0113).

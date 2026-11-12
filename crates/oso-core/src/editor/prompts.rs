@@ -19,6 +19,8 @@ use crate::window::{ViewSize, Window};
 /// What one `C-g` did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quit {
+    /// It ended a jump, with nothing moved, whatever else was under way (ADR 0116).
+    Jump,
     /// It hid the selected window's region, on every cursor (ADR 0071).
     Region,
     /// It closed the innermost prompt, and ran nothing.
@@ -487,6 +489,10 @@ impl Editor {
     /// steps (ADR 0082). M2-21 (extra cursors) adds its part after them. Closing a question runs nothing and forgets
     /// a refused exit.
     pub fn quit(&mut self) -> Quit {
+        // A jump reads every key while it is on, so one `C-g` ends it first (ADR 0116).
+        if self.jump_quit() {
+            return Quit::Jump;
+        }
         // A region in a prompt goes before the prompt, as with Emacs's
         // `delete-selection-mode`.
         if self.deactivate_mark() {

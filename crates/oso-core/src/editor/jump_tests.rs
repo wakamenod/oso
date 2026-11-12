@@ -1,0 +1,329 @@
+//! Tests of jumps on the editor (ADR 0116): what each kind finds in view and in what order,
+//! the labels and their keys, where a jump goes in which window, how it ends, and what it
+//! keeps from a buffer that may hold secrets.
+//!
+//! Must not depend on: `command` or `keymap`; these run on the editor alone.
+
+use super::test_buffers::secret_buffer;
+use super::{Chose, Editor, JumpCells, Quit, Status};
+use crate::buffer::{Buffer, Replacement};
+use crate::frame::{FrameSize, Way};
+use crate::jump::{Keys, Kind, MAX_LABELLED, Stage};
+use crate::minibuffer::Kind as PromptKind;
+use crate::selection::{MarkActive, Selection, SelectionSet};
+use crate::window::Screen;
+
+fn editor(text: &str) -> Editor {
+    let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", text));
+    editor.set_frame_size(FrameSize {
+        rows: 12,
+        columns: 40,
+    });
+    editor
+}
+
+fn cursor(editor: &Editor) -> usize {
+    editor.window().selections.primary().cursor
+}
+
+fn line(editor: &Editor) -> String {
+    let mut status = Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    status.echo
+}
+
+/// The candidates' starts, in label order.
+fn targets(editor: &Editor) -> Vec<usize> {
+    let jump = editor.jump().unwrap();
+    jump.candidates.iter().map(|c| c.range.start).collect()
+}
+
+fn jump_for(editor: &mut Editor, string: &str) {
+    assert!(editor.jump_begin(Kind::Char, false));
+    editor.jump_add(string);
+    editor.jump_show_labels();
+}
+
+fn cells(editor: &Editor) -> JumpCells {
+    let mut screen = Screen::default();
+    let id = editor.window().id();
+    editor.screen_of(id, &mut screen);
+    let mut cells = JumpCells::default();
+    editor.jump_cells(id, &screen, &mut cells);
+    cells
+}
+
+#[test]
+fn a_string_is_read_then_its_matches_are_labelled_nearest_first() {
+    let mut editor = editor("ab ab\nxx ab\nab\n");
+    editor.current_mut().0.selections = SelectionSet::new(9);
+    assert!(editor.jump_begin(Kind::Char, false));
+    assert_eq!(line(&editor), "Jump: ");
+    editor.jump_add("ab");
+    let jump = editor.jump().unwrap();
+    assert_eq!(
+        (jump.stage(), jump.count(), jump.labelled()),
+        (Stage::Reading, 4, 0)
+    );
+    assert_eq!(line(&editor), "Jump: ab");
+    assert_eq!(cells(&editor).matches.len(), 4, "highlighted while read");
+    editor.jump_show_labels();
+    assert_eq!(editor.jump().unwrap().labelled(), 4);
+    // The cursor's row first, then a row away either way by columns from the cursor's.
+    assert_eq!(targets(&editor), [9, 3, 0, 12]);
+    assert_eq!(editor.jump_choose('s'), Chose::Jumped);
+    assert!(editor.jump().is_none());
+    assert_eq!(cursor(&editor), 3);
+    let primary = editor.window().selections.primary();
+    assert_eq!(primary.mark, Some(9), "where it left, with no message");
+    assert_eq!(line(&editor), "");
+}
+
+#[test]
+fn delete_takes_a_character_back_and_the_string_has_a_limit() {
+    let mut editor = editor("abc abd\n");
+    editor.jump_begin(Kind::Char, false);
+    editor.jump_add("abc");
+    assert_eq!(editor.jump().unwrap().count(), 1);
+    assert!(editor.jump_delete());
+    assert_eq!(editor.jump().unwrap().count(), 2);
+    editor.jump_add(&"x".repeat(100));
+    assert_eq!(line(&editor).chars().count(), "Jump: ".len() + 64);
+    let mut editor = self::editor("a");
+    editor.jump_begin(Kind::Char, false);
+    assert!(!editor.jump_delete());
+}
+
+#[test]
+fn a_label_of_two_keys_narrows_at_its_first() {
+    let mut editor = editor("a a a\n");
+    editor.set_jump_keys(Keys::new("xy").unwrap());
+    jump_for(&mut editor, "a");
+    // Three candidates on two keys: `x`, then `yx` and `yy`.
+    assert_eq!(targets(&editor), [0, 2, 4]);
+    assert!(editor.jump().unwrap().takes('y'));
+    assert!(!editor.jump().unwrap().takes('z'));
+    assert_eq!(editor.jump_choose('y'), Chose::Narrowed);
+    let shown = cells(&editor);
+    assert_eq!(shown.labels.len(), 2, "only those that start with `y`");
+    assert_eq!(shown.text, "xy", "what is left of each");
+    assert_eq!(editor.jump_choose('y'), Chose::Jumped);
+    assert_eq!(cursor(&editor), 4);
+}
+
+#[test]
+fn a_key_no_label_goes_on_with_ends_the_jump_with_nothing_moved() {
+    let mut editor = editor("a a\n");
+    jump_for(&mut editor, "a");
+    assert_eq!(editor.jump_choose('z'), Chose::NoSuch);
+    assert!(editor.jump().is_none());
+    assert_eq!(cursor(&editor), 0);
+    assert_eq!(line(&editor), "No such candidate");
+}
+
+#[test]
+fn nothing_to_label_ends_the_jump() {
+    let mut editor = editor("abc\n");
+    jump_for(&mut editor, "zz");
+    assert!(editor.jump().is_none());
+    assert_eq!(line(&editor), "No candidates");
+}
+
+#[test]
+fn a_line_jump_labels_each_line_in_view_at_once() {
+    let text: String = (0..30).map(|i| format!("line {i}\n")).collect();
+    let mut editor = editor(&text);
+    let row = |n: usize| text.lines().take(n).map(|l| l.len() + 1).sum::<usize>();
+    editor.current_mut().0.selections = SelectionSet::new(row(3) + 2);
+    assert!(editor.jump_begin(Kind::LineStart, false));
+    let jump = editor.jump().unwrap();
+    assert_eq!(jump.stage(), Stage::Labels);
+    assert_eq!(jump.count(), 10, "the rows in view");
+    assert_eq!(&targets(&editor)[..3], [row(3), row(2), row(4)]);
+    assert_eq!(line(&editor), "Jump to a line");
+    editor.jump_end();
+    assert!(editor.jump_begin(Kind::LineEnd, false));
+    assert_eq!(targets(&editor)[0], row(4) - 1);
+}
+
+#[test]
+fn a_label_is_cut_where_the_next_begins_and_shows_after_an_empty_lines_end() {
+    let mut editor = editor("aaa\n\n");
+    editor.set_jump_keys(Keys::new("xy").unwrap());
+    jump_for(&mut editor, "a");
+    // `x`, `yx`, `yy`: the second is cut at the third.
+    let shown = cells(&editor);
+    let at: Vec<_> = (shown.labels.iter())
+        .map(|label| {
+            (
+                label.cells.column,
+                label.cells.columns,
+                &shown.text[label.keys.clone()],
+            )
+        })
+        .collect();
+    let left = shown.labels[0].cells.column;
+    assert_eq!(
+        at,
+        [(left, 1, "x"), (left + 1, 1, "y"), (left + 2, 2, "yy")]
+    );
+    editor.jump_end();
+    editor.current_mut().0.selections = SelectionSet::new(4);
+    assert!(editor.jump_begin(Kind::LineEnd, false));
+    let shown = cells(&editor);
+    let first = shown.labels[0].cells;
+    let empty = shown
+        .labels
+        .iter()
+        .find(|label| label.cells.row == first.row + 1);
+    assert_eq!(empty.unwrap().cells.column, left);
+    assert_eq!(empty.unwrap().cells.columns, 1, "the cell after the text");
+}
+
+#[test]
+fn every_window_is_labelled_and_a_jump_into_another_selects_it() {
+    let mut editor = editor("aa\n");
+    let first = editor.window().id();
+    let other = editor.split_window(Way::Down, false).unwrap();
+    jump_for(&mut editor, "a");
+    let jump = editor.jump().unwrap();
+    assert_eq!(jump.count(), 4);
+    let windows: Vec<_> = jump.candidates.iter().map(|c| c.window).collect();
+    assert_eq!(
+        windows,
+        [first, first, other, other],
+        "the selected window first"
+    );
+    assert_eq!(editor.jump_choose('d'), Chose::Jumped);
+    assert_eq!(editor.window().id(), other);
+    assert_eq!(cursor(&editor), 0);
+    editor.select_window(first);
+    // `C-u` keeps to the selected window.
+    assert!(editor.jump_begin(Kind::Char, true));
+    editor.jump_add("a");
+    assert_eq!(editor.jump().unwrap().count(), 2);
+}
+
+#[test]
+fn c_g_ends_a_jump_before_anything_else() {
+    let mut editor = editor("a a\n");
+    editor
+        .current_mut()
+        .0
+        .selections
+        .set_mark_active(MarkActive::Active);
+    jump_for(&mut editor, "a");
+    assert_eq!(editor.quit(), Quit::Jump);
+    assert!(editor.jump().is_none());
+    assert!(editor.window().selections.mark_active().is_active());
+    assert_eq!(editor.quit(), Quit::Region);
+}
+
+#[test]
+fn a_jump_does_not_work_in_a_prompt_and_a_prompt_ends_one() {
+    let mut editor = editor("a\n");
+    let number = PromptKind::Number { history: None };
+    editor.open_prompt("Go to line: ", number).unwrap();
+    assert!(!editor.jump_begin(Kind::Char, false));
+    let mut editor = self::editor("a\n");
+    jump_for(&mut editor, "a");
+    editor.open_prompt("Go to line: ", number).unwrap();
+    assert!(editor.isearch_follow_text());
+    assert!(editor.jump().is_none());
+}
+
+#[test]
+fn a_shown_region_is_extended_and_the_other_cursors_stay() {
+    let mut editor = editor("a b a b a\n");
+    let selections = vec![Selection::at(0), Selection::at(4)];
+    editor.current_mut().0.selections = SelectionSet::from_parts(selections, 1).unwrap();
+    editor.current_mut().0.selections.push_primary_mark(4);
+    editor
+        .current_mut()
+        .0
+        .selections
+        .set_mark_active(MarkActive::Active);
+    jump_for(&mut editor, "a");
+    let label = targets(&editor).iter().position(|&at| at == 8).unwrap();
+    let key = ['a', 's', 'd'][label];
+    assert_eq!(editor.jump_choose(key), Chose::Jumped);
+    let selections = &editor.window().selections;
+    assert_eq!(selections.primary().cursor, 8);
+    assert_eq!(
+        selections.primary().mark,
+        Some(4),
+        "the region's mark, not where it left"
+    );
+    assert!(selections.mark_active().is_active());
+    assert!(
+        selections.iter().any(|s| s.cursor == 0),
+        "the other cursor stays"
+    );
+}
+
+#[test]
+fn a_change_under_the_labels_ends_the_jump_saying_so() {
+    let mut editor = editor("a a\n");
+    jump_for(&mut editor, "a");
+    let id = editor.window().buffer();
+    let edit = Replacement {
+        range: 0..1,
+        text: "b",
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
+    assert!(editor.isearch_follow_text());
+    assert!(editor.jump().is_none());
+    assert_eq!(line(&editor), "Jump ended: the text changed");
+}
+
+#[test]
+fn past_the_most_labelled_the_farthest_have_none_and_the_line_says_so() {
+    let text = format!("{}\n", "a".repeat(99)).repeat(60);
+    let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", &text));
+    editor.set_frame_size(FrameSize {
+        rows: 62,
+        columns: 100,
+    });
+    jump_for(&mut editor, "a");
+    let jump = editor.jump().unwrap();
+    assert_eq!((jump.count(), jump.labelled()), (5940, MAX_LABELLED));
+    assert_eq!(line(&editor), "Jump: a  [4096 of 5940 labelled]");
+    assert!(
+        targets(&editor)
+            .iter()
+            .all(|&at| at < 4096 / 99 * 100 + 100),
+        "the nearest"
+    );
+}
+
+#[test]
+fn avy_isearch_ends_the_search_at_the_match_chosen() {
+    let mut editor = editor("foo bar foo\n");
+    assert!(!editor.jump_begin(Kind::Isearch, false), "only in a search");
+    editor.isearch_begin(false);
+    editor.isearch_add("foo");
+    assert!(editor.jump_begin(Kind::Isearch, false));
+    assert_eq!(targets(&editor), [0, 8]);
+    assert_eq!(editor.jump_choose('s'), Chose::Jumped);
+    assert!(editor.isearch().is_none());
+    assert_eq!(cursor(&editor), 8);
+    assert_eq!(
+        editor.window().selections.primary().mark,
+        Some(0),
+        "where it began"
+    );
+}
+
+#[test]
+fn around_a_secret_the_jump_says_so_and_debug_holds_no_string() {
+    let mut editor = Editor::with_buffer(secret_buffer());
+    editor.set_frame_size(FrameSize {
+        rows: 12,
+        columns: 40,
+    });
+    editor.jump_begin(Kind::Char, false);
+    editor.jump_add("hunter2");
+    let jump = editor.jump().unwrap();
+    assert!(jump.around_secret());
+    assert!(!format!("{jump:?}").contains("hunter2"));
+}

@@ -71,6 +71,7 @@ pub(super) fn preview_panes<'a>(
                 others: &[],
                 preedit: None,
                 fills: screens.preview_fills,
+                labels: &[],
                 whitespace: false,
                 flash: None,
                 // An excerpt is not parsed, so it shows uncoloured.
@@ -96,6 +97,7 @@ pub(super) fn preview_panes<'a>(
                 others: &[],
                 preedit: None,
                 fills: screens.preview_fills,
+                labels: &[],
                 // Floats have no visual aids (ADR 0097).
                 whitespace: false,
                 flash: None,

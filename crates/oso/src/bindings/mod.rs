@@ -10,6 +10,7 @@ mod cursors;
 mod edit;
 mod files;
 mod isearch;
+mod jump;
 mod kill;
 mod macros;
 mod mark;
@@ -41,6 +42,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
     files::BINDINGS,
     isearch::BINDINGS,
+    jump::BINDINGS,
     kill::BINDINGS,
     macros::BINDINGS,
     mark::BINDINGS,
@@ -109,6 +111,16 @@ pub fn isearch_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
+/// The keymap of a jump under way, in place of the others (ADR 0116), with its text command.
+/// Empty for a registry without its commands, as in tests that bring their own.
+pub fn jump_keymap(registry: &Registry) -> Keymap {
+    let mut keymap = Keymap::from_table(registry, jump::JUMP).unwrap_or_default();
+    if let Some(typing) = registry.lookup(jump::TEXT_COMMAND) {
+        keymap.set_text_command(typing);
+    }
+    keymap
+}
+
 /// The keymap of a query-replace under way, in place of the others (ADR 0113). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn replace_keymap(registry: &Registry) -> Keymap {
@@ -121,6 +133,17 @@ pub fn replace_commands(registry: &Registry) -> Vec<oso_core::command::CommandId
     replace::REPLACE
         .iter()
         .filter_map(|&(_, name)| registry.lookup(name))
+        .collect()
+}
+
+/// The commands that run in a jump rather than end it: those of its keymap and its text
+/// command (ADR 0116).
+#[cfg(any(test, feature = "dev"))]
+pub fn jump_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    let names = jump::JUMP.iter().map(|&(_, name)| name);
+    names
+        .chain([jump::TEXT_COMMAND])
+        .filter_map(|name| registry.lookup(name))
         .collect()
 }
 
@@ -149,8 +172,9 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 #[cfg(test)]
 mod tests {
     use super::{
-        TABLES, complete, global_keymap, isearch, isearch_commands, isearch_keymap, minibuffer,
-        prefix, prefix_keymaps, prompt_keymaps, recovery, recovery_keymaps,
+        TABLES, complete, global_keymap, isearch, isearch_commands, isearch_keymap, jump,
+        jump_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps, recovery,
+        recovery_keymaps,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -212,6 +236,14 @@ mod tests {
         );
         let wanted = isearch::ISEARCH.len() + isearch::BINDINGS.len() + 1;
         assert_eq!(isearch_commands(&registry).len(), wanted);
+    }
+
+    #[test]
+    fn the_jump_keymap_binds_all_its_rows_and_types() {
+        let registry = commands::registry();
+        let keymap = jump_keymap(&registry);
+        assert_eq!(keymap.len(), jump::JUMP.len());
+        assert_eq!(keymap.text_command(), registry.lookup(jump::TEXT_COMMAND));
     }
 
     /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means

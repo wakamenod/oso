@@ -31,6 +31,7 @@ mod clipboard;
 mod extended;
 mod held;
 mod hold_all;
+mod jump;
 mod keymaps;
 mod macros;
 mod prompts;
@@ -62,6 +63,9 @@ pub struct Dispatcher {
     /// (ADR 0113).
     #[cfg(any(test, feature = "dev"))]
     replace_commands: Vec<CommandId>,
+    /// The commands that run in a jump rather than end it, for `run-command` (ADR 0116).
+    #[cfg(any(test, feature = "dev"))]
+    jump_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -114,12 +118,15 @@ impl Dispatcher {
         let (list, copy) = bindings::recovery_keymaps(&registry);
         let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
         let isearch = bindings::isearch_keymap(&registry);
+        let jump = bindings::jump_keymap(&registry);
         let replace = bindings::replace_keymap(&registry);
         let macros = macros::MacroInput::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]
         let replace_commands = bindings::replace_commands(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let jump_commands = bindings::jump_commands(&registry);
         Self {
             keymaps: Keymaps {
                 global,
@@ -130,12 +137,15 @@ impl Dispatcher {
                 question,
                 completing,
                 isearch,
+                jump,
                 replace,
             },
             #[cfg(any(test, feature = "dev"))]
             isearch_commands,
             #[cfg(any(test, feature = "dev"))]
             replace_commands,
+            #[cfg(any(test, feature = "dev"))]
+            jump_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -492,6 +502,9 @@ impl Dispatcher {
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
         let dropped = self.drop_held_completion();
+        if let Some(effects) = self.jump_digit(editor, key) {
+            return effects;
+        }
         let reading = self.keymaps.reading();
         let mut layers = self.keymaps.active(&reading, self.prefix, editor);
         // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
@@ -512,6 +525,9 @@ impl Dispatcher {
             Resolution::Pending => {
                 log::debug!("{}-", masked(self.resolver.pending(), true));
                 return Effects::default();
+            }
+            Resolution::Unbound(_) if editor.jump().is_some() => {
+                return self.jump_unbound(editor);
             }
             Resolution::Unbound(keys)
                 if editor.isearch().is_some() || editor.replace().is_some() =>
@@ -615,6 +631,8 @@ mod held_tests;
 mod ime_tests;
 #[cfg(test)]
 mod isearch_tests;
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod kill_tests;
 #[cfg(test)]

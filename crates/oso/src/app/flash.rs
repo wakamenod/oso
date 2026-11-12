@@ -83,9 +83,10 @@ impl Flash {
 
 impl App {
     /// After an input the dispatcher handled: the cursor flashes if the view jumped, and a
-    /// flash fading ends if it did not.
-    pub(super) fn flash_after_input(&mut self) {
-        let redraw = match self.dispatcher.take_jump() {
+    /// flash fading ends if it did not. Returns whether an input came.
+    pub(super) fn flash_after_input(&mut self) -> bool {
+        let jumped = self.dispatcher.take_jump();
+        let redraw = match jumped {
             Some(true) => {
                 self.flash.begin(Instant::now());
                 true
@@ -96,6 +97,7 @@ impl App {
         if redraw {
             self.request_redraw();
         }
+        jumped.is_some()
     }
 
     /// After an agent showed a buffer: the cursor flashes if the view `jumped`, so the person

@@ -464,10 +464,15 @@ const PROMPTING: &str = "cannot hand over: a prompt is open";
 /// mid-typing (ADR 0082).
 const SEARCHING: &str = "cannot hand over: a search is under way";
 
-/// Why a handover waits for what the person is doing: a search or a query-replace, or a
-/// keyboard macro being recorded or run (ADR 0082, ADR 0113).
+/// Why a restart waits for a jump to end, as for a search (ADR 0116).
+const JUMPING: &str = "cannot hand over: a jump is under way";
+
+/// Why a handover waits for what the person is doing: a search, a jump or a query-replace, or
+/// a keyboard macro being recorded or run (ADR 0082, ADR 0113, ADR 0116).
 fn under_way(editor: &Editor) -> Option<&'static str> {
-    if editor.isearch().is_some() || editor.replace().is_some() {
+    if editor.jump().is_some() {
+        Some(JUMPING)
+    } else if editor.isearch().is_some() || editor.replace().is_some() {
         Some(SEARCHING)
     } else if editor.macro_recording() || editor.macro_replaying() {
         Some(MACRO)
@@ -537,6 +542,7 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
         Some(_) if editor.macro_recording() || editor.macro_replaying() => Err(format!(
             "{EXIT_REFUSED}: a keyboard macro is being recorded or run"
         )),
+        Some(_) if editor.jump().is_some() => Err(format!("{EXIT_REFUSED}: a jump is under way")),
         Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
             Err(format!("{EXIT_REFUSED}: a search is under way"))
         }

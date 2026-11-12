@@ -185,6 +185,13 @@ impl App {
         configuration.applied = true;
         self.editor
             .set_trim_whitespace(configuration.in_force.trim_whitespace);
+        // On every look, as neither has a run-time switch: one the file leaves out goes back to
+        // the default (ADR 0116).
+        let jump = &configuration.in_force.jump;
+        self.editor
+            .set_jump_keys(jump.keys.clone().unwrap_or_default());
+        self.jump_timer
+            .set_timeout(jump.timeout.unwrap_or(super::jumps::DEFAULT_TIMEOUT));
         if let Some(aids) = changes.aids {
             self.editor.set_visual_aids(aids);
         }

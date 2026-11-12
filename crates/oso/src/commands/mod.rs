@@ -17,6 +17,7 @@ mod dev_tools;
 mod edit;
 mod files;
 mod isearch;
+mod jump;
 mod kill;
 mod macros;
 mod mark;
@@ -56,6 +57,7 @@ const TABLES: &[&[Command]] = &[
     edit::COMMANDS,
     files::COMMANDS,
     isearch::COMMANDS,
+    jump::COMMANDS,
     kill::COMMANDS,
     macros::COMMANDS,
     mark::COMMANDS,
@@ -269,6 +271,14 @@ mod tests {
         "isearch-yank-pop",
         "isearch-yank-kill",
         "isearch-yank-word-or-char",
+        // Jumps, which read keys (ADR 0116).
+        "avy-delete-char",
+        "avy-goto-char-timer",
+        "avy-goto-end-of-line",
+        "avy-goto-line",
+        "avy-isearch",
+        "avy-printing-char",
+        "avy-show-labels",
         // Keyboard macros, whose replay types keys (ADR 0113).
         "kmacro-end-and-call-macro",
         "kmacro-end-macro",
