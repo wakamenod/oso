@@ -12,7 +12,7 @@ use std::time::Instant;
 use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
 use oso_core::editor::{Editor, Status};
-use oso_core::window::WheelRemainder;
+use oso_core::window::{WheelRemainder, WindowId};
 
 mod agent;
 mod clipboard;
@@ -35,6 +35,7 @@ mod projects;
 mod reloads;
 mod saves;
 mod searches;
+mod syntax;
 mod theme_file;
 mod trims;
 mod wraps;
@@ -86,6 +87,8 @@ pub enum UserEvent {
     Wrap(oso_core::display_map::wrap_map::WrapReport),
     /// A wrap job panicked, so its window asks for it again.
     WrapLost,
+    /// The syntax worker highlighted a buffer, or stopped (ADR 0111).
+    Syntax(oso_syntax::Report<BufferId>),
     /// The completion worker built a list or matched an input (ADR 0096).
     Completion(oso_core::complete::CompletionReport),
     /// A completion job panicked on the worker.
@@ -94,6 +97,8 @@ pub enum UserEvent {
     Listed,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
+    /// The record of trusted projects was read, or written and read back (ADR 0114).
+    Trust,
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -145,10 +150,10 @@ pub struct App {
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
     wheel: WheelRemainder,
-    /// What the modeline and the echo area said when a frame was last drawn or asked
-    /// for, and room to compare it with what they would say now.
-    status: Status,
-    next_status: Status,
+    /// What each tiled window's modeline and the echo area said when a frame was last drawn
+    /// or asked for, and room to compare it with what they would say now (ADR 0112).
+    statuses: Vec<(WindowId, Status)>,
+    next_statuses: Vec<(WindowId, Status)>,
     /// What oso has told the OS about the input method (ADR 0069).
     ime: ime::ImeState,
     /// The OS clipboard's threads, or none if they could not start (ADR 0074).
@@ -157,6 +162,8 @@ pub struct App {
     searcher: searches::Searcher,
     /// Soft wrap's worker (ADR 0100).
     wrapper: wraps::Wrapper,
+    /// Syntax highlighting's worker (ADR 0111).
+    syntax: syntax::Syntax,
     /// The completion worker, for a list past 5000 candidates (ADR 0096).
     completer: completions::Completer,
     /// The theme remembered from before, being read until the window opens, what writes the
@@ -172,6 +179,8 @@ pub struct App {
     lister: crate::lister::Lister,
     /// The thread that finds each file's project (ADR 0114).
     projects: crate::project::Detector,
+    /// The thread that reads and writes the record of trusted projects, if there is one.
+    trust_file: Option<crate::config::TrustFile>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -223,6 +232,16 @@ impl Freer {
     }
 }
 
+/// The home directory as the environment names it: `HOME`, and `USERPROFILE` on Windows. It is
+/// what `~` stands for, and never a project (ADR 0114).
+fn home() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    let name = "USERPROFILE";
+    #[cfg(not(windows))]
+    let name = "HOME";
+    std::env::var_os(name).map(std::path::PathBuf::from)
+}
+
 impl App {
     /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
     /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
@@ -247,7 +266,7 @@ impl App {
         let projects = projects::detector(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
-        editor.set_home(std::env::var_os("HOME").map(std::path::PathBuf::from));
+        editor.set_home(home());
         if let Ok(directory) = std::env::current_dir() {
             editor.set_start_directory(directory);
         }
@@ -275,12 +294,13 @@ impl App {
             scan_for_copies: false,
             started: Some(started),
             wheel: WheelRemainder::default(),
-            status: Status::default(),
-            next_status: Status::default(),
+            statuses: Vec::new(),
+            next_statuses: Vec::new(),
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
             wrapper: wraps::Wrapper::default(),
+            syntax: syntax::Syntax::default(),
             completer: completions::Completer::default(),
             theme_read: Some(theme_read),
             theme_writer: theme_file::Writer::start(theme_directory),
@@ -288,6 +308,7 @@ impl App {
             remembered_theme,
             lister,
             projects,
+            trust_file: None,
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),

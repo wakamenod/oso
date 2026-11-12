@@ -29,6 +29,7 @@ mod reload;
 mod replace;
 #[cfg(target_os = "macos")]
 mod secure;
+mod windows;
 mod wrap;
 mod yank_pop;
 

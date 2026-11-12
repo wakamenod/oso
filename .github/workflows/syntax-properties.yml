@@ -1,0 +1,35 @@
+# Weekly run of oso-syntax's property tests with many cases (ADR 0111): random
+# edits, slices that resume, and crafted nesting for every grammar. `just ci`
+# runs them with few cases, in its 30 s budget (ADR 0050); this run is not in
+# it. A failure prints the case that failed, as proptest shrinks it.
+name: Syntax properties
+
+on:
+  schedule:
+    # Sundays, 20:00 UTC: after mutation testing, before the design health report.
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  # proptest reads it through `ProptestConfig::default()`; the tests use it when set.
+  PROPTEST_CASES: "4096"
+
+jobs:
+  # Builds and runs repository code, with a read-only token.
+  properties:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo test --locked -p oso-syntax --lib

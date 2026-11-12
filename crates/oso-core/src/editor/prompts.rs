@@ -250,12 +250,15 @@ impl Editor {
             return Err(PromptError::Invalid);
         }
         // An empty answer takes the last pair (ADR 0113).
-        if prompt.regexp
-            && !text.is_empty()
-            && let Err(why) = crate::search::compile_regexp(&text)
-        {
-            self.prompt_says(why);
-            return Err(PromptError::Invalid);
+        if prompt.regexp && !text.is_empty() {
+            match crate::search::compile_regexp(&text) {
+                // Kept, so that query-replace compiles it once.
+                Ok(regexp) => self.replace_checked(text.clone(), regexp),
+                Err(why) => {
+                    self.prompt_says(why);
+                    return Err(PromptError::Invalid);
+                }
+            }
         }
         self.give_answer(text)
     }

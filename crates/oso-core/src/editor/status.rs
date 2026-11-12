@@ -22,6 +22,7 @@ use super::messages::CUT;
 use crate::buffer::{Buffer, Verdict};
 use crate::decode::{FileInfo, LineEnding};
 use crate::display_map::text_clusters;
+use crate::frame::CellRect;
 use crate::window::{Window, WindowId};
 
 /// Says that the buffer holds bidirectional controls (`ui.md`, Trojan Source).
@@ -46,6 +47,8 @@ const AGENT: &str = "Agent  ";
 const DEFINING: &str = "  Def";
 /// The most cells a project's name takes (ADR 0114).
 const PROJECT_CELLS: usize = 24;
+/// Says that the buffer's project is not trusted to run its code (ADR 0114).
+const RESTRICTED: &str = "restricted  ";
 
 /// The text of the modeline and the echo area. Comparing two says whether a frame
 /// would differ there.
@@ -63,6 +66,9 @@ pub struct Status {
     /// The name of the project the buffer's file is in, cut to [`PROJECT_CELLS`], or nothing
     /// (ADR 0114).
     pub project: String,
+    /// `restricted` while that project is not trusted, which the host draws dim, or nothing
+    /// (ADR 0114). It comes from the record of trusted projects alone, never from a name.
+    pub restricted: &'static str,
     /// Loading progress, the position, the major mode, the encoding and line endings.
     pub state: String,
     /// The echo area's line, as it comes from a message.
@@ -81,8 +87,8 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}",
-            self.agent, self.warnings, self.name, self.project, self.state
+            "{}{}{}{}{}{}",
+            self.agent, self.warnings, self.name, self.project, self.restricted, self.state
         )
     }
 
@@ -204,12 +210,13 @@ impl Editor {
         };
         let agent = self.agent_channel();
         status.selected = id == tiled && self.prompts.is_empty();
-        status.agent = if agent == super::AgentChannel::Off || id != tiled {
+        let frame_segments = self.shows_frame_segments(id, tiled);
+        status.agent = if agent == super::AgentChannel::Off || !frame_segments {
             ""
         } else {
             AGENT
         };
-        status.agent_connected = id == tiled && agent == super::AgentChannel::Connected;
+        status.agent_connected = frame_segments && agent == super::AgentChannel::Connected;
         status.warnings.clear();
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
@@ -229,9 +236,15 @@ impl Editor {
             status.state.push_str(DEFINING);
         }
         status.project.clear();
-        if let Some(project) = self.buffer_project(window.buffer()) {
+        status.restricted = "";
+        if let Some(id) = buffer.project()
+            && let Some(project) = self.project(id)
+        {
             push_cut(&mut status.project, project.name(), PROJECT_CELLS);
             status.project.push_str(GAP);
+            if !self.project_trusted(id) {
+                status.restricted = RESTRICTED;
+            }
         }
 
         let marker = marker(buffer);
@@ -242,6 +255,7 @@ impl Editor {
             + 1
             + GAP.len()
             + text_cells(&status.project)
+            + status.restricted.len()
             + status.state.len();
         let columns = regions.modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
@@ -256,6 +270,38 @@ impl Editor {
         status.warnings_on_echo_row = regions.modeline.rows == 0;
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
+    }
+
+    /// Whether the modeline of the window `id` says what is about the frame, as `Agent`: the
+    /// selected tiled window's, `tiled`, and while a prompt's float covers that one, the
+    /// bottom-most window's too, the left-most of those on the bottom row, so that it stays in
+    /// sight (ADR 0085, ADR 0112).
+    fn shows_frame_segments(&self, id: WindowId, tiled: WindowId) -> bool {
+        if id == tiled {
+            return true;
+        }
+        let Some(float) = self.prompt_layout().map(|layout| layout.regions.outer) else {
+            return false;
+        };
+        let meets = |a: CellRect, b: CellRect| {
+            a.row < b.row + b.rows
+                && b.row < a.row + a.rows
+                && a.column < b.column + b.columns
+                && b.column < a.column + a.columns
+        };
+        let covered = self
+            .regions(tiled)
+            .is_some_and(|regions| meets(regions.modeline, float));
+        let bottom = self
+            .frame
+            .windows()
+            .iter()
+            .filter(|(_, regions)| regions.modeline.rows > 0 && regions.modeline.columns > 0)
+            .min_by_key(|(_, regions)| {
+                let modeline = regions.modeline;
+                (std::cmp::Reverse(modeline.row), modeline.column)
+            });
+        covered && bottom.is_some_and(|(bottom, _)| *bottom == id)
     }
 
     /// What the echo area says: a message, or isearch's line until a message takes its place
@@ -334,6 +380,7 @@ mod tests {
                 identity: Some((1, 2)),
             },
             worktree_of: None,
+            checked_main: None,
         };
         editor.set_buffer_project(id, Some(found));
     }
@@ -344,7 +391,7 @@ mod tests {
         in_project(&mut editor, "/w/oso");
         assert_eq!(
             status(&editor).modeline(),
-            "%% notes.md  oso  Loading 0 MiB  1:0  Fundamental  UTF-8 LF"
+            "%% notes.md  oso  restricted  Loading 0 MiB  1:0  Markdown  UTF-8 LF"
         );
         in_project(&mut editor, "/w/a-very-long-project-name-that-goes-on");
         let long = status(&editor).project;
@@ -355,6 +402,24 @@ mod tests {
     fn a_buffer_in_no_project_shows_none() {
         let editor = file("notes.md", 80);
         assert_eq!(status(&editor).project, "");
+        assert_eq!(status(&editor).restricted, "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restricted_goes_once_the_record_trusts_the_root() {
+        let mut editor = file("notes.md", 80);
+        in_project(&mut editor, "/w/oso");
+        assert_eq!(status(&editor).restricted, RESTRICTED, "not read yet");
+        let (list, _) = crate::project::TrustList::parse("/w/oso\tdev=1 ino=3\n");
+        editor.set_trust_list(Some(list));
+        assert_eq!(status(&editor).restricted, RESTRICTED, "another directory");
+        let (list, _) = crate::project::TrustList::parse("/w/oso\tdev=1 ino=2\n");
+        editor.set_trust_list(Some(list));
+        assert_eq!(status(&editor).restricted, "");
+        assert_eq!(status(&editor).project, "oso  ");
+        editor.set_trust_list(None);
+        assert_eq!(status(&editor).restricted, RESTRICTED, "refused");
     }
 
     #[test]

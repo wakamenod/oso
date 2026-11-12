@@ -492,6 +492,154 @@ decision above. The options not taken are listed with their trade-offs.
 - **Edits that wait for a stopped parse are one batch,** composed as they come. Past 4096
   splices, the first batch too, or if they do not compose, the next parse starts from nothing.
 
+### Step 3: queries and highlighting
+
+- **The API** (the author's choice, through the coordinator, before it was written): `Queries`,
+  the compiled queries, which the worker owns and lends to each document, as there are no
+  statics; `Document::highlight(&mut Queries, first, slice) -> Highlighted { Done, Paused,
+  Failed }`, which parses first and then highlights, the ranges in `first` (what windows show)
+  first; and `Document::highlights`, which always covers the newest text, plain once the
+  document failed. `Document::parse` stays public. A document of Markdown's inline grammar
+  takes the inline cap below as its size limit, so no caller parses past it.
+- **The module layers** of `oso-syntax` gain one line (the author's approval, in
+  `guardrails/layers.txt`): `queries`, `paint` and `pending`, below `document` and above
+  `edit` and `language`.
+- **The queries** are in `crates/oso-syntax/queries/`, each crediting its upstream. Every
+  capture names one of the eleven classes itself (`@string`, `@keyword`, ...), so the table's
+  prefix match was done once, when the files were written, and a capture maps by its name. A
+  unit test checks that every capture names a class and that the only predicates are `#eq?`,
+  `#match?` and `#any-of?`. Where they differ from upstream:
+  - Rust: a field's pattern comes after the method calls', as of two patterns on one node the
+    first wins, so `x.len()` is a function; a lifetime is a keyword whole; upstream's all-caps
+    regex had a stray quote and never matched.
+  - TOML: only a pair's key is a property (upstream captures the whole pair), and a table's
+    name is a type.
+  - Markdown: code blocks and their fences stay plain until injection; heading and list
+    markers are `Markup`, as Emacs's markdown-mode draws them.
+- **Pieces** are whole lines of at most 16 KiB, a longer line cut at a character, so a window
+  on a long line waits only for its part; the pending ranges within a piece's reach join it, so
+  a command at many cursors costs a piece a reach, not a piece a cursor. 64 KiB pieces cost
+  Markdown a quarter more slices, as a piece the slice stops runs again from its start.
+- **What is highlighted again:** the lines each edit touched, and the ranges each parse
+  changed, mapped through the edits that waited for it. In the property tests, the edited lines
+  never mattered beside `changed_ranges`, which counts a token lexed again; they are kept, as
+  they cost a line each. In Markdown, a piece widens to the whole inline nodes it meets: an
+  edit can change a paragraph's inline text past its line (a backtick that opens a code span)
+  while the block tree's ranges stay the same, which the property test found.
+- **Limits** (the author's choice, after the review found that some crafted texts make every
+  query slow): a query past 256 matches in progress leaves its piece plain, and a predicate
+  reads at most 1 KiB of a node, so a longer name matches none. A piece the slice stops stays
+  to do, which the Decision did not say: it is done again from its start. If it had most of a
+  slice, pieces halve, and grow back after four fit in a row. The document fails as too slow
+  (`Failure::TooSlow`) and stays plain, as after a slow parse, when:
+  - a piece of 1 KiB, or a Markdown piece widened past the limit, still outlasts a slice;
+  - a piece runs past its slice's end by more than a slice (at least 10 ms): tree-sitter asks
+    the progress callback only every so many steps, and on such text a step can cost much;
+  - highlighting takes 2 s of the worker's time in all before it is done, as a parse has its
+    limits. A whole 2 MiB file takes 0.2 to 0.7 s (below).
+
+  A slice shorter than 10 ms fails no piece, as it is too short to judge one by, though pieces
+  shrink in it. Measured on crafted texts of 2 MiB in a release build, a document failed after
+  at most about 2.5 s of the worker's time, and its longest call took about 1 s: one piece runs
+  until the callback is asked, which no slice can cut shorter.
+- **Painting:** an inner capture paints over an outer one; of two on one span, the first
+  pattern wins, and an injected grammar's over the block grammar's. One sweep over the captures
+  with a stack of those open costs O(k log k) for k captures, however deeply they nest. Line
+  breaks are never highlighted; a piece's are read from the rope once.
+- **Markdown's inline text:** each `inline` and `pipe_table_cell` node is parsed in its range
+  less its named children, the block continuations. Its unnamed children are delimiters in the
+  text and stay in: leaving them out, as a first version did, parsed no emphasis at all.
+- **The inline cap is 16 KiB:** a longer inline node stays plain. Measured on the author's Mac
+  in a release build, the worst crafted input (deeply nested inline links) overflows inside
+  `Parser::parse`: at 16 KiB it needs about 512 KiB of stack (256 KiB overflows), and a 2 MiB
+  stack overflows between 64 and 96 KiB. An overflow aborts the process, with no emergency
+  save. A slice of 20 ms stops such a parse before it gets deep, but a faster machine could
+  finish one, so the cap stays. Step 4 runs the worker on a thread with an 8 MiB stack.
+- **Measured** with `cargo run --release -p oso-syntax --example syntax_perf`, on the author's
+  Mac, on 2 MiB of oso's Rust sources, of its docs and of `Cargo.lock` repeated; the first
+  highlight includes compiling the query, and one key is a character typed mid-file:
+
+  | Input, 2 MiB | Parse | Parse and highlight | In 20 ms slices | After one key |
+  |---|---|---|---|---|
+  | Rust | 98 ms | 187 ms | 9–10 | 4.7 ms |
+  | Markdown | 200 ms | 642 ms | 35 | 35 ms |
+  | TOML | 55 ms | 90 ms | 5 | 5.0 ms |
+
+  Slices of 20 ms gave the same runs as one call, and none passed 20.1 ms.
+- **Tests:** unit tests of each language's captures; property tests that an incremental
+  highlight equals a fresh one wherever neither tree holds an error, and that slices of any
+  length keep the highlights over the text, leave line breaks plain and end where one long
+  slice does; random text in every grammar (Q12's random bytes, as characters, since a buffer
+  holds UTF-8); and crafted nesting for every grammar, built from a few atoms repeated, on a
+  thread with a 1 MiB stack, which aborts without the inline cap and fits it just under the
+  cap. The property tests take their number of cases from `PROPTEST_CASES`. They run weekly
+  with 4096 in a workflow of their own, `syntax-properties.yml`, not in the mutation testing
+  one that Q12 named: the two need different tools and time limits, and either can fail alone.
+
+### Step 4a: the worker
+
+The author's choices: a pool of two threads, the schedule in `oso-syntax`, the mode commands
+and `global-font-lock-mode` in a step 4b of their own, and, after the review, **highlighting off
+until step 5 draws colour**: the worker ships, but in normal use no thread starts and no job is
+sent; tests turn it on, and step 5 turns it on for every session.
+
+- **Two threads, each on an 8 MiB stack** (`app/syntax/pool.rs`), 16 times what the inline cap
+  needs. They start at the first job; if they cannot, highlighting is off for the session, and
+  the echo area says so once.
+- **The schedule** (`oso_syntax::Scheduler`, new module `worker`, a layer above `document` in
+  `guardrails/layers.txt`, approved) keeps one slot per buffer, behind a lock the UI thread
+  takes too. **Nothing under the lock calls tree-sitter, makes, edits or frees a document:**
+  freeing a parsed 2 MiB Rust tree takes 22.6 ms (release), so the review found a kill of such a
+  buffer would have held the UI that long. Jobs only wait in their slot; a thread follows them
+  when it checks the document out, with nothing locked (`Checkout::run`); a document no longer
+  wanted goes on a list a thread frees after it unlocks. Then:
+  - shown buffers go first, then the one waiting longest; a document given back with work left
+    goes to the back, so buffers take turns;
+  - at most one thread at a time has a buffer no window shows now, counted afresh at each
+    checkout. One call can run about 1 s on crafted text (step 3), so it holds one thread at
+    most, and shown buffers keep the other. Two shown buffers of such text at once can make
+    others wait that long, once each, before both fail as too slow;
+  - jobs that come while a document is checked out compose into one batch, or start from
+    nothing past 4096 splices;
+  - each slot has a generation: a buffer dropped, or sent anew, while a slice runs on it gives
+    back nothing, and what waited for it never runs.
+- **Jobs** go after each command and when what windows show moves, for a buffer
+  `Buffer::can_highlight` (new) allows: a language mode, not internal, at most 2 MiB, and not one
+  that may hold secrets, which includes one not judged yet. A job carries the splices since the
+  last (`Buffer::splices_since`), or none to start from nothing, an O(1) snapshot, the shown
+  ranges and an epoch, which each new start moves on. While a file loads, its first snapshot is
+  sent, then the loaded text.
+- **What windows show** (`Editor::shown_ranges`, `Window::shown_bytes`, new) is two seeks a
+  window, with no row laid out, and is looked at only when a window, its buffer's revision, its
+  scroll, size or wrap moved, and only when some buffer can be highlighted. On 2 MiB of Rust, 16
+  windows with wrap took 187 µs a call laying rows out, and take 5.3 µs.
+- **Drops** go after every event, before the loop waits: a buffer killed, in another mode, or no
+  longer allowed, as one that turned secret is. A slice already running on it ends, and its
+  result is dropped; nothing that waited for it runs. One walk over the buffers, and none while
+  the worker has no buffer.
+- **Reports** (`UserEvent::Syntax`) carry the revision their highlights are for, the epoch of
+  the document's start and a stamp in the order slices ended. The UI takes one only for the
+  buffer's current epoch and newer than the last it took, so a report from before a new start,
+  or one a thread sent after a later one, changes nothing. They go only when the highlights
+  changed: at the end, when the shown ranges are done, and at most every 50 ms after that.
+  `Buffer::take_highlights` maps them through the edits since. Nothing is drawn yet (step 5).
+- **A failure** (too large, too slow, a grammar or query the build cannot use, or a slice that
+  panicked, `Outcome::Lost`) drops the buffer's highlights, and it stays plain until its mode
+  changes. The echo area and `*Messages*` say "Highlighting stopped in NAME: WHY", naming the
+  buffer only: no path, no text. A panic loses that buffer alone; its thread compiles its
+  queries again and goes on.
+- **Modes from names:** `Buffer::visiting` takes its mode from the file's name, and a write
+  under a new name sets it again, as the Decision says.
+- **Tests** pin the drops first: a job for a buffer dropped before it ran never runs, edits that
+  came for one dropped during a slice never run, and a buffer that may hold secrets, or is not
+  judged yet, or turns secret, gets no job. Others pin that nothing is made or freed where jobs
+  and drops come in, that stale and late reports are dropped, and that highlighting is off by
+  default. The pool runs end to end with a crafted buffer that fails as too slow beside a shown
+  one that is highlighted.
+- **A flaky property, fixed** (#170): the step 3 property comparing sliced and whole
+  highlighting compared them also where both trees held errors, which tree-sitter does not
+  promise to agree on; it now compares only clean trees, as the incremental one does.
+
 ## Alternatives considered
 
 - **Highlighting the whole buffer after every parse:** simplest, but a query over a large file

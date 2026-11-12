@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use crate::buffer::{BufferId, ContentId, Tracking};
 use crate::minibuffer;
-use crate::search::{Counting, Needle};
+use crate::search::{Counting, Line, Needle};
 use crate::selection::SelectionSet;
 
 /// The most cells each string takes on the echo line.
@@ -63,8 +63,10 @@ pub struct Replace {
     pub(super) current: Option<Range<usize>>,
     /// After `,` or `^`: the text the cursor stays at; the next answer moves on from its end.
     pub(super) stay: Option<Range<usize>>,
+    /// The match the session stays at was empty.
+    pub(super) stay_empty: bool,
     /// A worker looks for the next match from this offset.
-    pub(super) searching: Option<usize>,
+    pub(super) searching: Option<(usize, bool)>,
     /// Answers given while a worker looks, run in order once it finds.
     pub(super) pending: VecDeque<ReplaceAnswer>,
     /// The matches in the scope when the session began, once counted.
@@ -80,7 +82,9 @@ pub struct Replace {
     pub(super) revision: u64,
     pub(super) around_secret: bool,
     /// `!` is under way: replacing from this offset on, a slice a turn.
-    pub(super) all_from: Option<usize>,
+    pub(super) all_from: Option<(usize, bool)>,
+    /// The line `!`'s last slice read, kept while the buffer is at this revision.
+    pub(super) line_kept: Option<(Line, u64)>,
     /// `?` was the last answer: the line shows the keys.
     pub(super) help: bool,
     /// The scope as the session began, for the count, until it has come.

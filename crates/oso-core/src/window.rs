@@ -69,6 +69,11 @@ impl WindowId {
     pub(crate) const fn new(n: u64) -> Self {
         Self(n)
     }
+
+    /// Its number, by which the host names what it keeps for the window, as its panes.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
 }
 
 /// How many rows and columns a window shows in full. Both at least 1.
@@ -290,6 +295,20 @@ impl Window {
     /// The view row at the top.
     pub fn top_row(&self, display: &DisplaySnapshot) -> usize {
         self.rows(display).row_of(self.scroll.start)
+    }
+
+    /// The bytes its rows in view hold, from its top row's start to where the row after its
+    /// last starts: a few seeks, with no row laid out (ADR 0111).
+    pub fn shown_bytes(&self, display: &DisplaySnapshot) -> std::ops::Range<usize> {
+        let rows = self.rows(display);
+        let top = rows.row_of(self.scroll.start);
+        let after = top.saturating_add(self.size.rows);
+        let end = if after < rows.count() {
+            rows.start(after)
+        } else {
+            display.len()
+        };
+        rows.start(top)..end
     }
 
     /// The view row of the primary cursor.

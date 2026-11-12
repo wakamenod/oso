@@ -61,5 +61,7 @@ channel project
 
 [oso-syntax]
 crate
+worker
 document
+queries paint pending
 edit language

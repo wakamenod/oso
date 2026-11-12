@@ -73,7 +73,7 @@ impl Editor {
             ReplaceAnswer::Help => {}
             ReplaceAnswer::Exit => self.replace_end(true),
             ReplaceAnswer::Replace | ReplaceAnswer::Skip if stay.is_some() => {
-                let at = stay.map_or(0, |stay| stay.end);
+                let at = self.after_stay(stay.as_ref());
                 self.replace_find(at);
             }
             ReplaceAnswer::Replace => {
@@ -84,12 +84,7 @@ impl Editor {
                 // even an empty one, it goes on at its end.
                 let empty = range.is_empty();
                 if let Some(now) = self.replace_one(range) {
-                    // An empty match at the replacement's end would be the same one again.
-                    let next = if empty {
-                        self.next_from(&(now.end..now.end))
-                    } else {
-                        now.end
-                    };
+                    let next = self.moved_on(&(now.end..now.end), !empty);
                     self.replace_find(next);
                 }
             }
@@ -102,7 +97,7 @@ impl Editor {
                             replaced: None,
                         });
                     }
-                    let next = self.next_from(&range);
+                    let next = self.moved_on(&(range.end..range.end), !range.is_empty());
                     self.replace_find(next);
                 }
             }
@@ -113,16 +108,20 @@ impl Editor {
                 self.replace_end(true);
             }
             ReplaceAnswer::ReplaceAndStay => {
-                if let Some(now) = current.and_then(|range| self.replace_one(range)) {
-                    self.replace_stay(now);
+                let Some(range) = current else {
+                    return;
+                };
+                let empty = range.is_empty();
+                if let Some(now) = self.replace_one(range) {
+                    self.replace_stay(now, empty);
                 }
             }
             ReplaceAnswer::Back => self.replace_back(),
             ReplaceAnswer::Undo => self.replace_undo(),
             ReplaceAnswer::All => {
                 let from = match (current, stay) {
-                    (Some(range), _) => range.start,
-                    (None, Some(stay)) => stay.end,
+                    (Some(range), _) => (range.start, false),
+                    (None, Some(stay)) => self.after_stay(Some(&stay)),
                     (None, None) => return,
                 };
                 if let Some(state) = &mut self.replacing.session {
@@ -135,15 +134,42 @@ impl Editor {
     }
 
     /// Stays at `range`: the cursor at its end, and the next answer moves on from there.
-    fn replace_stay(&mut self, range: Range<usize>) {
+    /// With `empty`, the match there was empty, so moving on goes past the next character.
+    fn replace_stay(&mut self, range: Range<usize>, empty: bool) {
         if let Some(state) = &mut self.replacing.session {
             state.current = None;
             state.stay = Some(range.clone());
+            state.stay_empty = empty;
         }
         let display = self.current().1.display();
         let cursor = motion::cluster_start(&display, range.end);
         self.windows[self.selected].selections.move_primary(cursor);
         self.follow_cursor();
+    }
+
+    /// Where the next search starts once the session has moved on from a match that ended at
+    /// `end`, as `Regex::replace_all` goes on: past a match, an empty one where it ended is
+    /// skipped; past an empty match, on at the next character.
+    fn moved_on(&self, end: &Range<usize>, matched: bool) -> (usize, bool) {
+        if matched {
+            (end.end, true)
+        } else {
+            (self.next_from(end), false)
+        }
+    }
+
+    /// Where the next search starts after the place the session stays at: its end, or past an
+    /// empty match there, the next character, or the same empty match would be asked again.
+    fn after_stay(&self, stay: Option<&Range<usize>>) -> (usize, bool) {
+        let Some(stay) = stay else {
+            return (0, false);
+        };
+        let empty = self.replace().is_some_and(|state| state.stay_empty);
+        if empty {
+            (self.next_from(&(stay.end..stay.end)), false)
+        } else {
+            (stay.end, true)
+        }
     }
 
     /// `^`: back to the match before, as it is now, without undoing it.
@@ -161,7 +187,7 @@ impl Editor {
             // Shown as it is now; the next `^` goes further back.
             Some(now) => {
                 state.back += 1;
-                self.replace_stay(now);
+                self.replace_stay(now, visit.found.is_empty());
             }
             // Asked again: it is no longer skipped, and the next `^` goes to the one before.
             None => {

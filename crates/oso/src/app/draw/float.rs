@@ -27,9 +27,6 @@ use preview::preview_panes;
 /// What a line break in a `M-y` row reads as, drawn in the annotation's face (ADR 0091).
 const LINE_BREAK: &str = "⤶";
 
-/// The most panes a float takes.
-pub(super) const MAX_PANES: usize = 9;
-
 /// What the innermost prompt shows, worked out for one frame.
 pub(super) struct Parts<'a> {
     layout: &'a PromptLayout,

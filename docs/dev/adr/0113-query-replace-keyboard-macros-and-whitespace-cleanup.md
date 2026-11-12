@@ -229,17 +229,33 @@ coordinator.
 
 #### As built (step 3, 2026-11-12)
 
-- **A regexp is matched a line at a time,** each line copied into a string the search reuses,
-  and a line that would take a search past its budget is not read: a key leaves it to the
-  worker, and `!` gives it a slice of its own. A regexp's first match on a 10 MB line takes
-  0.5 ms of a key, and the rest the worker.
+- **A regexp is matched a line at a time,** and a search keeps the line it is in, going on in it
+  match after match, so a line is read once however many matches it holds. `!` keeps the line
+  across its slices while only its own edits change it.
+- **What a search does is counted:** each line read, by its bytes and a fixed cost for the line,
+  and each look for a match, by what it read. A key's search, and a slice of `!`, also stop after
+  3 ms on the UI thread, as some patterns read far past each match they find; the worker goes
+  on for the key, and the next slice for `!`. A line longer than a slice's budget is read whole
+  in a slice of its own. The worker's count looks at whether a newer job took its place as it
+  goes, also within one line.
+- **Empty matches go as `Regex::replace_all` takes them,** for `!`, the answers and the count: one
+  right where a match ended is skipped, and one at the end of the scope counts.
+- **A leftmost match that runs past the scope's end** does not hide a later one inside it.
 - **What is searched for is a `Needle`,** the literal query or the regexp, for the session, the
-  scoped job and the highlights. A regexp's highlights read the lines in view whole, up to
-  64 KiB each; a longer line shows only the current match.
-- **The first prompt checks the regexp** (`Editor::prompt_takes_regexp`), so one that does not
-  compile keeps it open, saying why, as a number prompt does with `Not a number`.
+  scoped job and the highlights. A regexp's highlights read each line in view, up to 64 KiB, and
+  look from a little before the view to a little after; a match the window cuts at its end is
+  not shown, and the current match always is.
+- **A regexp is at most 1024 characters, and compiles within 1 MiB.** The first prompt checks it,
+  so one that does not compile keeps the prompt open, saying why, as a number prompt does with
+  `Not a number` (`Editor::prompt_takes_regexp`), and the session takes the regexp it compiled.
+- **The replacement's groups** are read from the match and the character before it, not its whole
+  line.
 - **Case follows the match whenever the search folds,** also where an inline `(?-i)` makes a part
   of the regexp case-sensitive, as Emacs looks only at the regexp's letters.
+- **Limits:** a pattern that reads to the end of its line for each match it finds makes `!` take
+  fewer matches a slice on a long line, so it takes longer in all while each slice stays within
+  its time; a count with such a pattern takes longer on the worker, where a newer job can still
+  take its place.
 
 ### 2. Keyboard macros
 

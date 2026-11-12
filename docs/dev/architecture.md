@@ -482,9 +482,12 @@ The UI thread never blocks on I/O or parsing:
 - A file's project is found on a thread of its own once the loader knows where its path leads
   (`crates/oso/src/project.rs`): the metadata of `.git`, `.jj` and `.hg` from its directory up,
   following no link and stopping at the home directory, another user's directory and a change
-  of file system. A worktree's `.git` file is read, and what it names is kept by its words. The
-  editor keeps a table of projects that buffers point into (`oso_core::project`,
-  [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+  of file system. A worktree's `.git` file is read, and what it names is kept by its words;
+  only when those words name a trusted root is the main repository's record of the worktree
+  read, by the record's spelling of that root, to check the claim. The editor keeps a table of
+  projects that buffers point into (`oso_core::project`), and each request carries the trusted
+  roots of its moment, so the thread never reads the record itself
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
@@ -500,8 +503,12 @@ The UI thread never blocks on I/O or parsing:
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - The event loop's user event is an enum: loader wake-ups, save reports, the watcher's
   reports and what threads find of emergency copies in every build, and control socket requests in dev builds.
-- Tree-sitter parsing (M3) will run on one worker thread of the tip crate, which owns every
-  buffer's tree; the UI thread never calls tree-sitter. A buffer's highlights are a map of runs
+- Tree-sitter parsing runs on two worker threads of the tip crate (`app/syntax.rs`), each on an
+  8 MiB stack, which share one schedule of every buffer's document (`oso_syntax::Scheduler`):
+  shown buffers first, and at most one thread on a buffer no window shows, so a slice that runs
+  long never holds the shown ones. The UI thread never calls tree-sitter, and nothing under the
+  lock makes or frees a document; the UI sends a job after each command and drops a buffer that
+  turned secret at once. It is off until colour is drawn (ADR 0111, step 4a). A buffer's highlights are a map of runs
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
@@ -518,11 +525,17 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 - One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
   (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
-  without it.
+  without it, and without the record of trusted projects.
 - A thread in the tip crate's `config` (`config::Reader`) reads, parses and builds it at
   start and when a `stat` once a second, on focus or after a save sees it change, and the UI
   thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap
   on another thread. A bad file leaves the last good one, with messages.
+- The record of trusted projects, `trusted-projects` beside the file, has a thread of its own
+  (`config::TrustFile`, `oso-trust`): it reads the record with the file's checks, refusing a
+  group too, and makes what `trust-project` and `untrust-project` changed in the file as it is
+  then, through a part file renamed over it, and reads it back. The editor holds the record
+  (`Editor::set_trust_list`) and asks it in `Editor::project_trusted`
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - `config::parse` is a pure function from the file's text to the user keymap, the settings
   and the problems, with their lines. A syntax error rejects the file; a bad entry is skipped
   and the rest applies. See [ADR 0110](adr/0110-adr-0108-as-built.md).

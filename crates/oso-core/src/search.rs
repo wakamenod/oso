@@ -29,7 +29,7 @@ pub(crate) use job::{Counting, Find, MatchWork, Matched, Report, after};
 pub use job::{SearchJob, SearchReport};
 pub(crate) use needle::Needle;
 pub(crate) use regexp::{
-    LineTooLong, MAX_LINE, compile as compile_regexp, smart_case as regexp_smart_case,
+    Line, LineTooLong, MAX_LINE, Regexp, compile as compile_regexp, smart_case as regexp_smart_case,
 };
 
 /// The most characters a search string holds. What is added past it is cut, so that what a

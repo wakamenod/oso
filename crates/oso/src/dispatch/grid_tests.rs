@@ -29,8 +29,8 @@
 //! With several tiled windows, each comes in the tree's order after a line that says where it
 //! is and whether it is selected; a divider at a window's right ends its rows and modeline with
 //! `┃`, and the modeline of a window that is not selected, as every window beneath a prompt,
-//! is between `-`. Only the selected window has a region, a band, a flash and isearch's
-//! matches, and the others' cursors are `o` (ADR 0112).
+//! is between `-`. Only the selected window, or the one a prompt came from, has a region, a
+//! band, a flash and isearch's matches, and the others' cursors are `o` (ADR 0112).
 //!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
@@ -99,6 +99,7 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
             &status.warnings[..],
             &status.name[..],
             &status.project[..],
+            status.restricted,
             &status.state[..],
         ];
         let edge = if status.selected { '=' } else { '-' };
@@ -534,12 +535,7 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
     let mut frames = Vec::new();
     for &keys in steps {
         if let Some(command) = keys.strip_prefix("run:") {
-            // A command by its name and a count, for those with no keys yet. The window
-            // commands are registered only here until ADR 0112's step 3 draws every window.
-            if dispatcher.registry.lookup("split-window-below").is_none() {
-                let windows = crate::commands::windows::COMMANDS;
-                dispatcher.registry.register_all(windows).unwrap();
-            }
+            // A command by its name and a count, for those with no keys.
             let mut words = command.split(' ');
             let name = words.next().unwrap_or_default();
             let count = words.next().map(|count| count.parse().unwrap());
@@ -1140,6 +1136,7 @@ mod scenarios {
                 identity: None,
             },
             worktree_of: None,
+            checked_main: None,
         };
         editor.project_found(&request, Some(found));
         editor.set_frame_size(FrameSize {

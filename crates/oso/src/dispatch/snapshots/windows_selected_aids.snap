@@ -2,71 +2,18 @@
 source: crates/oso/src/dispatch/grid_tests.rs
 description: "text: line 1\\nline 2\\nline 3\\nline 4\\nline 5\\nline 6\\n"
 ---
-keys: run:split-window-right
-WindowId(0) at row 0, column 0: 9 x 24, selected
-│  1 ┆line 1             │┃
-:     ^                  :
-+     lllllllllllllllllll+
-│  2 ┆line 2             │┃
-│  3 ┆line 3             │┃
-│  4 ┆line 4             │┃
-│  5 ┆line 5             │┃
-│  6 ┆line 6             │┃
-│  7 ┆                   │┃
-│    ┆                   │┃
-=-- test  1:0  Fundament=┃
-WindowId(1) at row 0, column 24: 9 x 23
-│  1 ┆line 1             │
-:     o                  :
-│  2 ┆line 2             │
-│  3 ┆line 3             │
-│  4 ┆line 4             │
-│  5 ┆line 5             │
-│  6 ┆line 6             │
-│  7 ┆                   │
-│    ┆                   │
---- test  1:0  Fundament-
-"                                               "
-
-keys: C-SPC C-n C-f
-WindowId(0) at row 0, column 0: 9 x 24, selected
-│  1 ┆line 1             │┃
-+     *******************+
-│  2 ┆line 2             │┃
-:      ^                 :
-+     *llllllllllllllllll+
-│  3 ┆line 3             │┃
-│  4 ┆line 4             │┃
-│  5 ┆line 5             │┃
-│  6 ┆line 6             │┃
-│  7 ┆                   │┃
-│    ┆                   │┃
-=-- test  2:1  Fundament=┃
-WindowId(1) at row 0, column 24: 9 x 23
-│  1 ┆line 1             │
-:     o                  :
-│  2 ┆line 2             │
-│  3 ┆line 3             │
-│  4 ┆line 4             │
-│  5 ┆line 5             │
-│  6 ┆line 6             │
-│  7 ┆                   │
-│    ┆                   │
---- test  1:0  Fundament-
-"                                               "
-
-keys: run:other-window
+keys: C-x 3
 WindowId(0) at row 0, column 0: 9 x 24
 │  1 ┆line 1             │┃
+:     o                  :
 │  2 ┆line 2             │┃
-:      o                 :
 │  3 ┆line 3             │┃
 │  4 ┆line 4             │┃
 │  5 ┆line 5             │┃
 │  6 ┆line 6             │┃
 │  7 ┆                   │┃
 │    ┆                   │┃
---- test  2:1  Fundament-┃
+--- test  1:0  Fundament-┃
 WindowId(1) at row 0, column 24: 9 x 23, selected
 │  1 ┆line 1             │
 :     ^                  :
@@ -81,33 +28,146 @@ WindowId(1) at row 0, column 24: 9 x 23, selected
 =-- test  1:0  Fundament=
 "                                               "
 
-keys: C-s l i n e
+keys: C-SPC C-n C-f
 WindowId(0) at row 0, column 0: 9 x 24
 │  1 ┆line 1             │┃
+:     o                  :
 │  2 ┆line 2             │┃
-:      o                 :
 │  3 ┆line 3             │┃
 │  4 ┆line 4             │┃
 │  5 ┆line 5             │┃
 │  6 ┆line 6             │┃
 │  7 ┆                   │┃
 │    ┆                   │┃
---- test  2:1  Fundament-┃
+--- test  1:0  Fundament-┃
 WindowId(1) at row 0, column 24: 9 x 23, selected
 │  1 ┆line 1             │
-:         ^              :
-+     ####lllllllllllllll+
++     *******************+
 │  2 ┆line 2             │
-+     ~~~~               +
+:      ^                 :
++     *llllllllllllllllll+
 │  3 ┆line 3             │
-+     ~~~~               +
 │  4 ┆line 4             │
-+     ~~~~               +
 │  5 ┆line 5             │
-+     ~~~~               +
 │  6 ┆line 6             │
-+     ~~~~               +
 │  7 ┆                   │
 │    ┆                   │
-=-- test  1:4  Fundament=
+=-- test  2:1  Fundament=
+"                                               "
+
+keys: C-x o
+WindowId(0) at row 0, column 0: 9 x 24, selected
+│  1 ┆line 1             │┃
+:     ^                  :
++     lllllllllllllllllll+
+│  2 ┆line 2             │┃
+│  3 ┆line 3             │┃
+│  4 ┆line 4             │┃
+│  5 ┆line 5             │┃
+│  6 ┆line 6             │┃
+│  7 ┆                   │┃
+│    ┆                   │┃
+=-- test  1:0  Fundament=┃
+WindowId(1) at row 0, column 24: 9 x 23
+│  1 ┆line 1             │
+│  2 ┆line 2             │
+:      o                 :
+│  3 ┆line 3             │
+│  4 ┆line 4             │
+│  5 ┆line 5             │
+│  6 ┆line 6             │
+│  7 ┆                   │
+│    ┆                   │
+--- test  2:1  Fundament-
+"                                               "
+
+keys: C-s l i n e
+WindowId(0) at row 0, column 0: 9 x 24, selected
+│  1 ┆line 1             │┃
+:         ^              :
++     ####lllllllllllllll+
+│  2 ┆line 2             │┃
++     ~~~~               +
+│  3 ┆line 3             │┃
++     ~~~~               +
+│  4 ┆line 4             │┃
++     ~~~~               +
+│  5 ┆line 5             │┃
++     ~~~~               +
+│  6 ┆line 6             │┃
++     ~~~~               +
+│  7 ┆                   │┃
+│    ┆                   │┃
+=-- test  1:4  Fundament=┃
+WindowId(1) at row 0, column 24: 9 x 23
+│  1 ┆line 1             │
+│  2 ┆line 2             │
+:      o                 :
+│  3 ┆line 3             │
+│  4 ┆line 4             │
+│  5 ┆line 5             │
+│  6 ┆line 6             │
+│  7 ┆                   │
+│    ┆                   │
+--- test  2:1  Fundament-
 "I-search: line [1/6]                           "
+
+keys: RET C-SPC C-n
+WindowId(0) at row 0, column 0: 9 x 24, selected
+│  1 ┆line 1             │┃
++         ***************+
+│  2 ┆line 2             │┃
+:         ^              :
++     ****lllllllllllllll+
+│  3 ┆line 3             │┃
+│  4 ┆line 4             │┃
+│  5 ┆line 5             │┃
+│  6 ┆line 6             │┃
+│  7 ┆                   │┃
+│    ┆                   │┃
+=-- test  2:4  Fundament=┃
+WindowId(1) at row 0, column 24: 9 x 23
+│  1 ┆line 1             │
+│  2 ┆line 2             │
+:      o                 :
+│  3 ┆line 3             │
+│  4 ┆line 4             │
+│  5 ┆line 5             │
+│  6 ┆line 6             │
+│  7 ┆                   │
+│    ┆                   │
+--- test  2:1  Fundament-
+"                                               "
+
+keys: M-g g
+WindowId(0) at row 0, column 0: 9 x 24, selected
+│  1 ┆line 1             │┃
++         ***************+
+│  2 ┆line 2             │┃
+:         o              :
++     ****lllllllllllllll+
+│  3 ┆line 3             │┃
+│  4 ┆line 4             │┃
+│  5 ┆line 5             │┃
+│  6 ┆line 6             │┃
+│  7 ┆                   │┃
+│    ┆                   │┃
+--- test  2:4  Fundament-┃
+WindowId(1) at row 0, column 24: 9 x 23
+│  1 ┆line 1             │
+│  2 ┆line 2             │
+:      o                 :
+│  3 ┆line 3             │
+│  4 ┆line 4             │
+│  5 ┆line 5             │
+│  6 ┆line 6             │
+│  7 ┆                   │
+│    ┆                   │
+--- test  2:1  Fundament-
+"                                               "
+float at row 0, column 3: 4 x 40
+│  Go to line:                           │
+│                                        │
+│ [                                    ] │
+:  ^                                     :
+└────────────────────────────────────────┘
