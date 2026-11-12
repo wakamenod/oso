@@ -22,6 +22,7 @@ use crate::report::{Gpu, Report, max, median, percentile};
 mod compose;
 mod edits;
 mod finding;
+mod syntax;
 
 use compose::composing;
 use edits::{deleting, extended_command, prompting};
@@ -146,6 +147,7 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     wrote.map_err(|e| format!("{}: {e}", mixed.display()))?;
     key_latency(exe, &mixed, scale, &mut report)?;
     finding::finding(exe, scale.key_runs, scale.keys, &mut report)?;
+    syntax::highlighted_typing(exe, scale.key_runs, scale.keys, &mut report)?;
 
     log_step("opening a large file");
     let open = dir.file("open.txt");
