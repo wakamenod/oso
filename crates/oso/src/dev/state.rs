@@ -1033,6 +1033,12 @@ mod tests {
         editor.isearch_begin(false, false);
         let state = get_state(&editor, &[], None);
         assert_eq!(state["isearch"], json!({ "active": true }));
+        // A regexp's search says no more, not even that it is one.
+        editor.isearch_exit();
+        editor.isearch_begin(false, true);
+        editor.isearch_add("a.c");
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"], json!({ "active": true }));
     }
 
     #[test]

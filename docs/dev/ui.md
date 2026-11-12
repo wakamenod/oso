@@ -427,10 +427,10 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - `C-g` first takes away a failing part, then goes back where the search began. Any other key
   ends the search and runs.
 - `C-M-s` and `C-M-r` search for a regexp in the `regex` crate's syntax, one line at a time, and
-  the line says `Regexp I-search:`. `M-r` turns a search from literal to a regexp or back. A
-  regexp still being typed says `[incomplete input]` and a wrong one `[Invalid regexp: …]`, and
-  the cursor stays at the last match. Regexps have their own history
-  ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+  the line says `Regexp I-search:`; in any search they repeat it, as `C-s` and `C-r` do. `M-r`
+  turns a search from literal to a regexp or back. A regexp still being typed says
+  `[incomplete input]` and a wrong one `[Invalid regexp: …]`, and the cursor stays at the last
+  match. Regexps have their own history ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case

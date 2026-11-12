@@ -1,5 +1,5 @@
-//! A regexp's match in a range that ends inside a line (ADR 0113), as Emacs's bounded search
-//! takes it: the match ends by the range's end, and `$` and `\b` there see the text after it,
+//! A regexp's match in a range that ends inside a line (ADR 0113), or before a backward
+//! search's bound (ADR 0116), as Emacs's bounded search takes it: the match ends by the range's end, and `$` and `\b` there see the text after it,
 //! so the range's end is neither a line's end nor a word's.
 //!
 //! Must not depend on: `buffer`, `editor` or a log.
@@ -13,7 +13,12 @@ use std::ops::Range;
 
 use regex::Regex;
 
-use super::{PER_MATCH, Regexp, builder};
+use super::{Effort, PER_MATCH, Regexp, builder};
+
+/// The regexps for a cut are not built, and an isearch key leaves building them to the worker,
+/// as for a regexp it did not compile quickly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Unbuilt;
 
 /// The two regexps made from a pattern, for a match at a range's end.
 #[derive(Clone)]
@@ -44,7 +49,8 @@ fn build(pattern: &str, then: &str, insensitive: bool) -> Result<Regex, regex::E
 }
 
 /// Where the first match from an offset that ends at a cut starts, kept for one cut of one
-/// line, as the offsets a search asks from only grow.
+/// line while the offsets a search asks from grow; a search backward, which asks from lower
+/// ones as it goes, finds it again then.
 #[derive(Default)]
 pub(super) struct Ending {
     /// The line's start and the cut, the offset asked from, and the answer.
@@ -53,39 +59,51 @@ pub(super) struct Ending {
 
 /// The first match of `regexp` from `from` in `text[..cut]`, a line's text, as if the text
 /// went on past `cut`, the line starting at `line_start`: it ends by `cut`, and an assertion
-/// at `cut` sees the text after it. `work` counts what it reads.
+/// at `cut` sees the text after it. `effort` counts what it reads.
+///
+/// # Errors
+///
+/// [`Unbuilt`] where a match ends at the cut, the regexps for a cut are not built, and
+/// `effort` may not build them.
 pub(super) fn find(
     regexp: &Regexp,
     (text, line_start, cut): (&str, usize, usize),
     mut from: usize,
     ending: &mut Ending,
-    work: &mut usize,
-) -> Option<Range<usize>> {
+    effort: &mut Effort,
+) -> Result<Option<Range<usize>>, Unbuilt> {
     let haystack = &text[..cut];
+    let may_build = effort.may_build(regexp);
+    let work = &mut effort.work;
     loop {
         if from > cut {
-            return None;
+            return Ok(None);
         }
         let found = regexp.regex.find_at(haystack, from);
         // A look that finds nothing read to the haystack's end; one that finds a match read
         // about to its end, and a pattern that reads further is what `until` is for.
         *work =
             work.saturating_add(found.map_or(cut - from, |found| found.end() - from) + PER_MATCH);
-        let found = found?.range();
-        // A match that ends before the cut, or at the line's end, is one. So is one at the
-        // cut if the regexps for a cut do not compile, which only a pattern near the size
-        // limit can make so.
-        let Some(at_cut) = regexp
-            .at_cut()
-            .filter(|_| found.end == cut && cut < text.len())
-        else {
-            return Some(found);
+        let Some(found) = found.map(|found| found.range()) else {
+            return Ok(None);
+        };
+        // A match that ends before the cut, or at the line's end, is one.
+        if found.end < cut || cut == text.len() {
+            return Ok(Some(found));
+        }
+        if !may_build && !regexp.cut_ready() {
+            return Err(Unbuilt);
+        }
+        // So is one at the cut if the regexps for a cut do not compile, which only a pattern
+        // near the size limit can make so.
+        let Some(at_cut) = regexp.at_cut() else {
+            return Ok(Some(found));
         };
         // It ends at the cut, before the line does: whether it is a match depends on what
         // follows, as `$` or `\b` there may hold only at the haystack's end.
         let ends_at = ending_from(at_cut, (text, line_start, cut), found.start, ending, work);
         if ends_at == Some(found.start) {
-            return Some(found);
+            return Ok(Some(found));
         }
         // A match from its start that ends before the cut, or the next to start anywhere.
         let short = at_cut.short.find_at(haystack, found.start);
@@ -99,14 +117,18 @@ pub(super) fn find(
             short.start()..short.end() - last
         });
         match (short, ends_at) {
-            (Some(short), _) if short.start == found.start => return Some(short),
-            (None, None) => return None,
+            (Some(short), _) if short.start == found.start => return Ok(Some(short)),
+            (None, None) => return Ok(None),
             (short, ends_at) => {
-                from = short
+                let next = short
                     .map(|short| short.start)
                     .into_iter()
                     .chain(ends_at)
-                    .min()?;
+                    .min();
+                let Some(next) = next else {
+                    return Ok(None);
+                };
+                from = next;
             }
         }
     }

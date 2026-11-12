@@ -5,46 +5,22 @@
 //!
 //! - A line is looked in from its end, in windows that double, so a line with no match is
 //!   read about twice, and a match near the end is found in the first window.
-//! - Every start in a window is tried, so a match that starts inside an earlier one is found,
-//!   as Emacs tries each place.
+//! - In the window that holds a match, the last start is found by halving: whether a match
+//!   starts at a place or after it (and before the window's end) only turns false as the place
+//!   moves on, so a few looks find it, not one a start.
 //! - The end bound is a cut, as a range's end is forward (`cut`): a match ends by it, while
 //!   `$` and `\b` there see what follows.
 
 use std::ops::Range;
-use std::time::Instant;
 
-use super::cut::{self, Ending};
-use super::{LOOK_EVERY, LineTooLong, PER_LINE, Regexp, char_after};
+use super::cut::{self, Ending, Unbuilt};
+use super::{Effort, Line, LineTooLong, Regexp, char_after, floor_boundary};
 use crate::rope::Rope;
-use crate::search::Found;
+use crate::search::{Found, Limits};
 use crate::sum_tree::Bias;
 
 /// How many bytes of starts the first window at a line's end holds.
 const FIRST_WINDOW: usize = 256;
-
-/// The work a search does, as `Scan` counts it, and when it must stop.
-struct Effort<'a> {
-    work: usize,
-    limit: usize,
-    looked: usize,
-    until: Option<Instant>,
-    stop: &'a dyn Fn() -> bool,
-}
-
-impl Effort<'_> {
-    /// Whether to stop: past the limit or `until`, or as `stop` says, looked at every
-    /// [`LOOK_EVERY`] of work.
-    fn over(&mut self) -> bool {
-        if self.work > self.limit || self.until.is_some_and(|until| Instant::now() >= until) {
-            return true;
-        }
-        if self.work - self.looked > LOOK_EVERY {
-            self.looked = self.work;
-            return (self.stop)();
-        }
-        false
-    }
-}
 
 /// How a look in one line ended.
 enum InLine {
@@ -54,9 +30,9 @@ enum InLine {
 }
 
 /// The last match of `regexp` in `text` that starts at `start_at_most` or before and ends by
-/// `before`, doing at most `limit` of work, until `until` if given, and stopping before a
-/// line longer than the work left if `short_lines`. [`Found::Stopped`] gives the `before` to
-/// go on with, `start_at_most` staying as it was.
+/// `before`, within `limits`. `kept` is a line a search before this one read, which it takes
+/// if it is the one to look in, and the line it read last goes back there. [`Found::Stopped`]
+/// gives the `before` to go on with, `start_at_most` staying as it was.
 ///
 /// # Errors
 ///
@@ -65,40 +41,31 @@ pub(crate) fn find_backward(
     regexp: &Regexp,
     text: &Rope,
     (before, start_at_most): (usize, usize),
-    (limit, until, short_lines): (usize, Option<Instant>, bool),
-    stop: &dyn Fn() -> bool,
+    (limits, stop): (Limits, &dyn Fn() -> bool),
+    kept: &mut Option<Line>,
 ) -> Result<Found, LineTooLong> {
     let before = text.clip_offset(before.min(text.len()), Bias::Left);
     let start_at_most = text.clip_offset(start_at_most.min(before), Bias::Left);
-    let mut effort = Effort {
-        work: 0,
-        limit,
-        looked: 0,
-        until,
-        stop,
-    };
+    let mut effort = Effort::new(limits);
     let mut ending = Ending::default();
-    let mut line = String::new();
     let mut row = text.offset_to_point(start_at_most).row;
     loop {
         let (start, end) = (text.line_start(row), text.line_end(row));
         // The first line ends at `before` if it is in it; the lines before it at their ends.
         let cut = before.min(end);
-        if effort.over() {
+        if effort.over(stop) {
             return Ok(Found::Stopped { resume: cut });
         }
-        if end - start > regexp.longest {
-            return Err(LineTooLong(start));
-        }
-        if short_lines && end - start + PER_LINE > effort.limit.saturating_sub(effort.work) {
+        let unread = kept.as_ref().is_none_or(|line| line.start != start);
+        if unread && !Line::read(text, start, (regexp.longest, &mut effort), kept)? {
             return Ok(Found::Stopped { resume: cut });
         }
-        line.clear();
-        line.extend(text.chunks_in_range(start..end));
-        effort.work = effort.work.saturating_add(end - start + PER_LINE);
+        let Some(line) = kept.as_ref() else {
+            return Ok(Found::Stopped { resume: cut });
+        };
         let last = start_at_most.min(cut) - start;
-        let cut_here = (&line[..], start, cut - start);
-        match last_in_line(regexp, cut_here, last, &mut ending, &mut effort) {
+        let here = (&line.text[..], start, cut - start);
+        match last_in_line(regexp, here, last, &mut ending, (&mut effort, stop)) {
             InLine::Match(found) => {
                 return Ok(Found::Match(start + found.start..start + found.end));
             }
@@ -119,45 +86,44 @@ fn last_in_line(
     (line, line_start, cut): (&str, usize, usize),
     last: usize,
     ending: &mut Ending,
-    effort: &mut Effort<'_>,
+    (effort, stop): (&mut Effort, &dyn Fn() -> bool),
 ) -> InLine {
-    let floor = |at: usize| {
-        let mut at = at.min(cut);
-        while !line.is_char_boundary(at) {
-            at -= 1;
+    // The first match from `from`; `Err` where the search stops here, as `effort` says, or
+    // for the worker to build the regexps for a cut.
+    let mut look = |from: usize| -> Result<Option<Range<usize>>, Unbuilt> {
+        if effort.over(stop) {
+            return Err(Unbuilt);
         }
-        at
+        cut::find(regexp, (line, line_start, cut), from, ending, effort)
     };
     // The starts looked at are below `end`, and at `lo` or after.
     let mut end = last + 1;
     let mut width = FIRST_WINDOW;
     loop {
-        let lo = floor((end - 1).saturating_sub(width));
-        let (mut from, mut best) = (lo, None);
+        let lo = floor_boundary(&line[..cut], (end - 1).saturating_sub(width));
+        let mut best = match look(lo) {
+            Err(Unbuilt) => return InLine::Stopped,
+            Ok(Some(found)) if found.start < end => found,
+            Ok(_) if lo == 0 => return InLine::None,
+            Ok(_) => {
+                end = lo;
+                width = width.saturating_mul(2);
+                continue;
+            }
+        };
+        // No match starts in `hi..end`; halve what lies between `best` and it.
+        let mut hi = end;
         loop {
-            if effort.over() {
-                return InLine::Stopped;
+            let after = char_after(&line[..cut], best.start);
+            if after >= hi {
+                return InLine::Match(best);
             }
-            let at = (line, line_start, cut);
-            let Some(found) = cut::find(regexp, at, from, ending, &mut effort.work) else {
-                break;
-            };
-            if found.start >= end {
-                break;
-            }
-            from = char_after(&line[..cut], found.start);
-            best = Some(found);
-            if from >= end {
-                break;
+            let mid = floor_boundary(&line[..cut], after + (hi - after) / 2).max(after);
+            match look(mid) {
+                Err(Unbuilt) => return InLine::Stopped,
+                Ok(Some(found)) if found.start < hi => best = found,
+                Ok(_) => hi = mid,
             }
         }
-        if let Some(found) = best {
-            return InLine::Match(found);
-        }
-        if lo == 0 {
-            return InLine::None;
-        }
-        end = lo;
-        width = width.saturating_mul(2);
     }
 }

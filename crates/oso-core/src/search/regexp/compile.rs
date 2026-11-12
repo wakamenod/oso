@@ -1,10 +1,10 @@
 //! Compiling a regexp (ADR 0113, ADR 0116): smart case, which looks past escapes, the
-//! limits on its length and size, and what is wrong with one that does not compile, with
-//! Emacs's `incomplete input` for one that is still being typed.
+//! limits on its length and size, which patterns an isearch key compiles on the UI thread,
+//! and what is wrong with one that does not compile, with Emacs's `incomplete input` for one
+//! that is still being typed.
 //!
 //! Must not depend on: `buffer`, `editor` or a log. No error says the pattern itself.
 
-use std::cell::OnceCell;
 use std::sync::Arc;
 
 use regex::{Regex, RegexBuilder};
@@ -14,13 +14,50 @@ use super::{MAX_LINE, MAX_PATTERN_CHARS, Regexp, SIZE_LIMIT};
 
 /// Why a pattern did not compile for isearch.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Invalid {
+pub(crate) enum CompileError {
     /// It ends before what it opened is closed, as a `[` being typed: more of it may compile.
     Incomplete,
-    /// It is larger than the limit it was compiled with, which a larger one may take.
-    TooBig,
+    /// It may take longer to compile than a key has, and the worker compiles it.
+    ForWorker,
     /// What is wrong with it, on one line.
-    Wrong(String),
+    Invalid(String),
+}
+
+/// Where an isearch's pattern is compiled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum On {
+    /// On a key, on the UI thread: within [`KEY_SIZE_LIMIT`](super::KEY_SIZE_LIMIT), and
+    /// with at most one large Unicode class.
+    Key,
+    /// On the worker: within [`SIZE_LIMIT`].
+    Worker,
+}
+
+/// How long a key's compile may take for the key to build the regexps for a cut too, which
+/// take about twice as long.
+const QUICK: std::time::Duration = std::time::Duration::from_micros(500);
+
+/// The most weight of escapes a key compiles: case folding a class as large as `\p{Any}` or
+/// `[\x{0}-\x{10FFFF}]` takes about 1.4 ms, and every other part of a pattern far less.
+const KEY_WEIGHT: usize = 2;
+
+/// Whether `pattern` may take a key too long to compile: it holds more than one escape that
+/// can name a large Unicode class, `\p` and `\P` weighing two and each code point (`\x`,
+/// `\u`, `\U`) one, as a range needs two.
+fn heavy(pattern: &str) -> bool {
+    let mut chars = pattern.chars();
+    let mut weight = 0;
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            continue;
+        }
+        weight += match chars.next() {
+            Some('p' | 'P') => 2,
+            Some('x' | 'u' | 'U') => 1,
+            _ => 0,
+        };
+    }
+    weight > KEY_WEIGHT
 }
 
 /// How many characters of an escape follow `\` and its letter: the hex digits of `\x41`,
@@ -103,35 +140,41 @@ pub(crate) fn compile(pattern: &str) -> Result<Regexp, String> {
     Ok(regexp)
 }
 
-/// Compiles `pattern` for isearch, case-insensitive if `insensitive`, within `limit` bytes
-/// at most [`SIZE_LIMIT`]: the regexps for a cut wait until a search needs them, unless
-/// `eager`, as for a compile on the worker.
+/// Compiles `pattern` for isearch, case-insensitive if `insensitive`, `on` a key or the
+/// worker. The regexps for a cut wait until a search needs them, and a key builds them only
+/// for a regexp it compiled quickly.
 ///
 /// # Errors
 ///
-/// [`Invalid::Incomplete`] while what it opened is not closed, [`Invalid::TooBig`] past a
-/// `limit` under [`SIZE_LIMIT`], and otherwise what is wrong with it.
+/// [`CompileError::Incomplete`] while what it opened is not closed,
+/// [`CompileError::ForWorker`] on a key for one larger or heavier than a key compiles, and
+/// otherwise what is wrong with it.
 pub(crate) fn compile_isearch(
     pattern: &str,
     insensitive: bool,
-    (limit, eager): (usize, bool),
-) -> Result<Regexp, Invalid> {
+    on: On,
+) -> Result<Regexp, CompileError> {
     if pattern.chars().count() > MAX_PATTERN_CHARS {
-        return Err(Invalid::Wrong(too_long()));
+        return Err(CompileError::Invalid(too_long()));
     }
-    let limit = limit.min(SIZE_LIMIT);
+    if on == On::Key && heavy(pattern) {
+        return Err(CompileError::ForWorker);
+    }
+    let limit = match on {
+        On::Key => super::KEY_SIZE_LIMIT,
+        On::Worker => SIZE_LIMIT,
+    };
     let mut built = builder(pattern, insensitive);
+    let started = std::time::Instant::now();
     match built.size_limit(limit).build() {
         Ok(regex) => {
-            let regexp = Regexp::new(regex, pattern, insensitive);
-            if eager {
-                regexp.at_cut();
-            }
+            let mut regexp = Regexp::new(regex, pattern, insensitive);
+            regexp.quick = on == On::Key && started.elapsed() <= QUICK;
             Ok(regexp)
         }
-        Err(regex::Error::CompiledTooBig(_)) if limit < SIZE_LIMIT => Err(Invalid::TooBig),
-        Err(error) if incomplete(&error) => Err(Invalid::Incomplete),
-        Err(error) => Err(Invalid::Wrong(why(&error))),
+        Err(regex::Error::CompiledTooBig(_)) if on == On::Key => Err(CompileError::ForWorker),
+        Err(error) if incomplete(&error) => Err(CompileError::Incomplete),
+        Err(error) => Err(CompileError::Invalid(why(&error))),
     }
 }
 
@@ -166,13 +209,29 @@ fn incomplete(error: &regex::Error) -> bool {
 }
 
 impl Regexp {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a lazy part of one value, not global state (ADR 0038)"
+    )]
     fn new(regex: Regex, pattern: &str, insensitive: bool) -> Self {
         Self {
             regex,
-            at_cut: OnceCell::new(),
+            at_cut: std::sync::OnceLock::new(),
             source: Arc::new((pattern.to_owned(), insensitive)),
+            quick: false,
             longest: MAX_LINE,
         }
+    }
+
+    /// Builds the regexps for a match at a cut, if they are not built yet, where there is
+    /// time: on the worker, or once as the keys that add cursors begin.
+    pub(crate) fn build_cut(&self) {
+        self.at_cut();
+    }
+
+    /// Whether the regexps for a cut are built, or found not to compile.
+    pub(super) fn cut_ready(&self) -> bool {
+        self.at_cut.get().is_some()
     }
 
     /// The regexps for a match at a cut, built the first time, `None` if they do not compile.

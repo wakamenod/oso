@@ -13,9 +13,9 @@ use std::ops::Range;
 use std::sync::atomic::Ordering;
 
 use super::Tally;
-use super::state::{Asked, Problem};
+use super::state::{Asked, Bad, Pattern};
 use crate::editor::Editor;
-use crate::search::{Find, Needle, Report, SearchJob, SearchReport};
+use crate::search::{Find, Needle, Regexp, Report, SearchJob, SearchReport};
 
 impl Editor {
     /// The job a worker is to do, once, for the host.
@@ -56,19 +56,7 @@ impl Editor {
                 true
             }
             Report::Compiled { generation, regexp } if generation == live => {
-                if !state.compiling {
-                    return false;
-                }
-                state.compiling = false;
-                match regexp {
-                    Ok(regexp) => state.needle = Some(Needle::Regexp(regexp)),
-                    Err(why) => {
-                        state.searching = None;
-                        state.tally = None;
-                        state.problem = Some(Problem::Invalid(why));
-                    }
-                }
-                true
+                self.isearch_compiled(regexp)
             }
             // The search's, which fails there, or the count's, which then shows nothing.
             Report::LineTooLong { generation, at } if generation == live => {
@@ -102,6 +90,26 @@ impl Editor {
             }
             _ => false,
         }
+    }
+
+    /// Takes in the regexp a worker compiled for the search, or why it could not; the search
+    /// and count of the same job follow it. Returns whether what shows changed.
+    fn isearch_compiled(&mut self, regexp: Result<Regexp, String>) -> bool {
+        let Some(state) = &mut self.isearch else {
+            return false;
+        };
+        if !matches!(state.pattern, Pattern::Compiling) {
+            return false;
+        }
+        state.pattern = match regexp {
+            Ok(regexp) => Pattern::Ready(Needle::Regexp(regexp)),
+            Err(why) => {
+                state.searching = None;
+                state.tally = None;
+                Pattern::Bad(Bad::Invalid(why))
+            }
+        };
+        true
     }
 
     /// Keeps the search true to its window and its text: ends it if the selected window no

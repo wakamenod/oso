@@ -324,8 +324,7 @@ item notes when it must be settled.
   and editing; `E`, `C-r`, `Y` and `N` in query-replace; whitespace settings per mode once modes
   exist; and EditorConfig's `trim_trailing_whitespace` and `insert_final_newline`, which ADR 0115
   parses but does not apply yet
-  ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)). Regexp isearch
-  was built in ADR 0116's step 1.
+  ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
 - query-replace's search after an answer copies a line longer than a key's budget on the UI
   thread, about 40 ms on a 60 MB line; regexp isearch leaves such a line to the worker, and
   query-replace could too, as a chore

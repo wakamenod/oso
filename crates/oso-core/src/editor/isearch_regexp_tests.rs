@@ -127,17 +127,21 @@ fn backward_takes_the_match_that_starts_last_and_typing_keeps_it() {
     // A repeat's match ends by this one's start, as `re-search-backward`'s ends by the point,
     // so the one at 1 is not taken.
     editor.isearch_repeat(true);
+    drain(&mut editor);
     assert!(editor.isearch().unwrap().failing());
     // A longer regexp that still matches at the match's start stays there.
     let mut editor = self::editor("foo x foo yz");
     editor.window_mut(0).0.selections = SelectionSet::new(11);
     editor.isearch_begin(true, true);
     editor.isearch_add("f");
+    drain(&mut editor);
     assert_eq!(cursor(&editor), 6);
     editor.isearch_add("o+");
+    drain(&mut editor);
     assert_eq!(cursor(&editor), 6);
     // One that would end past where the search began does not.
     editor.isearch_add(" y.");
+    drain(&mut editor);
     assert!(editor.isearch().unwrap().failing());
 }
 
@@ -156,10 +160,13 @@ fn empty_matches_go_as_the_count_takes_them() {
     assert_eq!(line(&editor), "Regexp I-search: x* [3/3]");
     editor.isearch_repeat(false);
     assert!(editor.isearch().unwrap().failing());
-    // Backward from an empty match goes a character back first.
+    // Backward from an empty match goes a character back first. A key whose regexp took
+    // long to compile leaves a match at the bound to the worker.
     editor.isearch_repeat(true);
+    drain(&mut editor);
     assert_eq!(cursor(&editor), 3);
     editor.isearch_repeat(true);
+    drain(&mut editor);
     assert_eq!(cursor(&editor), 2);
 }
 
@@ -184,6 +191,34 @@ fn the_regexp_history_is_kept_apart() {
     assert_eq!(editor.isearch().unwrap().string(), "a.c");
     editor.isearch_history(true);
     assert_eq!(editor.isearch().unwrap().string(), "a.c", "only regexps");
+}
+
+#[test]
+fn m_p_goes_past_a_regexp_that_does_not_compile() {
+    let mut editor = editor("foo ab");
+    for pattern in ["foo", "ab["] {
+        search(&mut editor, pattern);
+        editor.isearch_exit();
+    }
+    editor.isearch_begin(false, true);
+    editor.isearch_history(true);
+    assert_eq!(editor.isearch().unwrap().string(), "ab[");
+    editor.isearch_history(true);
+    assert_eq!(editor.isearch().unwrap().string(), "foo");
+}
+
+#[test]
+fn del_back_to_a_step_that_met_a_long_line_says_why_again() {
+    let mut editor = editor("foo\na longer line\nbar o");
+    search(&mut editor, "o");
+    editor.isearch_longest_line(5);
+    editor.isearch_repeat(false);
+    editor.isearch_repeat(false);
+    let said = line(&editor);
+    assert!(said.contains("Regexp search stops at line 2"), "{said}");
+    editor.isearch_repeat(false);
+    editor.isearch_delete();
+    assert_eq!(line(&editor), said);
 }
 
 #[test]
@@ -333,4 +368,50 @@ fn a_secret_buffer_keeps_a_regexp_out_of_the_history_and_debug() {
     editor.isearch_begin(false, true);
     editor.isearch_history(true);
     assert_eq!(editor.isearch().unwrap().string(), "");
+}
+
+/// What a key costs on the UI thread, its highlights with it, for ADR 0116's notes: run with
+/// `cargo test -p oso-core --release --lib key_costs -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measure, in a release build"]
+#[expect(clippy::disallowed_macros, reason = "the measure prints its timings")]
+fn key_costs() {
+    use std::time::Instant;
+    let line = "the quick brown fox jumps over the lazy dog 0123456789\n";
+    let lines = line.repeat(20 * 1024 * 1024 / line.len());
+    let japanese = format!("{}\n", "日本語のテキスト123 ".repeat(250 * 1024 / 30));
+    let long = format!("{}\n", "y".repeat(8 * 1024 * 1024));
+    let cases: &[(&str, &str, bool, bool)] = &[
+        (&lines, "zzq", false, false),
+        (&lines, "zzq", false, true),
+        (&lines, r"z\w+q", true, false),
+        (&lines, r"z\w+q", true, true),
+        (&lines, r"[\p{L}\d]{25}q", true, false),
+        (&lines, r"(?i)\w+ \w+ \w+ \w+ \w+ zq", true, false),
+        (&lines, &r"\p{Any}".repeat(146), true, false),
+        (&japanese, r"\b\d{8}\b", true, false),
+        (&long, r"z.*q", true, false),
+        (&long, r"z.*q", true, true),
+    ];
+    for &(text, pattern, regexp, backward) in cases {
+        let mut times = Vec::new();
+        for _ in 0..30 {
+            let mut editor = editor(text);
+            editor.set_view_size(ViewSize::new(40, 120));
+            if backward {
+                let len = editor.current().1.text().len();
+                editor.window_mut(0).0.selections = SelectionSet::new(len);
+            }
+            editor.isearch_begin(backward, regexp);
+            let started = Instant::now();
+            editor.isearch_add(pattern);
+            let mut cells = super::MatchCells::default();
+            editor.isearch_cells(editor.tiled().0.id(), &editor.screen_now(), &mut cells);
+            times.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        times.sort_by(f64::total_cmp);
+        let name: String = pattern.chars().take(28).collect();
+        let (p50, max) = (times[15], times[29]);
+        println!("{name:28} regexp={regexp:5} back={backward:5} p50={p50:.3} max={max:.3} ms");
+    }
 }

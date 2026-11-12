@@ -7,22 +7,25 @@
 //!
 //! - A search keeps the line it is in and goes on in it match after match, so a line is read
 //!   once however many matches it holds, and what it costs is counted: each line read, and
-//!   each look for a match from where the last ended to the line's end.
+//!   each look for a match from where the last ended to the line's end. It asks whether to
+//!   stop before each look, as one look can read to the end of a long line.
+//! - For an isearch key on the UI thread ([`Limits::on_key`]), a line longer than the work left
+//!   or than [`KEY_LINE`], and a regexp for a cut not built yet, are left to the worker.
 //! - Empty matches go as `Regex::replace_all` takes them: one right where a match ended is
 //!   skipped, and one at the end of a range counts.
 //! - Backward, in [`back`], a search takes the match that starts last, as Emacs's
 //!   `re-search-backward` does.
 
-use std::cell::OnceCell;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 
 use regex::Regex;
 
-use super::Found;
+use super::{Found, Limits};
 use crate::rope::Rope;
-use cut::{AtCut, Ending};
+use cut::{AtCut, Ending, Unbuilt};
 
 mod back;
 mod compile;
@@ -30,7 +33,7 @@ mod cut;
 
 pub(crate) use back::find_backward;
 use compile::builder;
-pub(crate) use compile::{Invalid, compile, compile_isearch, smart_case};
+pub(crate) use compile::{CompileError, On, compile, compile_isearch, smart_case};
 
 /// The longest line a regexp is matched in: past it, a search stops at the line.
 pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
@@ -49,14 +52,20 @@ pub(crate) const KEY_SIZE_LIMIT: usize = 256 * 1024;
 /// their own.
 const PER_LINE: usize = 64;
 
-/// How much work a search does between looks at whether to stop.
-const LOOK_EVERY: usize = 64 * 1024;
+/// The longest line an isearch key looks in on the UI thread: one look at a line this long
+/// takes about a millisecond even where the crate's fastest engine gives up, as on a `\b`
+/// beside text that is not ASCII.
+const KEY_LINE: usize = 64 * 1024;
 
 /// What a match found costs besides the text it spans.
 const PER_MATCH: usize = 16;
 
 /// How far past the view a frame's highlights look on a line.
 const VIEW_REACH: usize = 256;
+
+/// The most time a frame's highlights look for a regexp's matches: what is left of a frame
+/// beside a key's search.
+const FRAME_TIME: std::time::Duration = std::time::Duration::from_millis(2);
 
 /// A line too long to match a regexp in, which starts at this offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,12 +75,19 @@ pub(crate) struct LineTooLong(pub(crate) usize);
 #[derive(Clone)]
 pub(crate) struct Regexp {
     regex: Regex,
-    /// For a match at a range's end inside a line, built when one is first needed; `None` if
-    /// it would not compile. Each clone builds its own until one is built, so no thread ever
-    /// waits for another's.
-    at_cut: OnceCell<Option<AtCut>>,
+    /// For a match at a range's end inside a line, built when one is first needed, never on
+    /// an isearch key; `None` if it would not compile. A clone made before it is built builds
+    /// its own, and no two threads share one regexp, so none waits on another's.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a lazy part of one value, not global state (ADR 0038)"
+    )]
+    at_cut: std::sync::OnceLock<Option<AtCut>>,
     /// The pattern and whether it folds case, for `at_cut`.
     source: Arc<(String, bool)>,
+    /// A key compiled it quickly, so a key may build the regexps for a cut, which take about
+    /// twice as long.
+    quick: bool,
     /// The longest line it is matched in.
     longest: usize,
 }
@@ -90,6 +106,52 @@ impl PartialEq for Regexp {
 }
 
 impl Eq for Regexp {}
+
+/// What a search may do and what it has done: its work as counted, against its limit, and
+/// when it stops.
+pub(super) struct Effort {
+    pub(super) work: usize,
+    limit: usize,
+    until: Option<Instant>,
+    on_key: bool,
+}
+
+impl Effort {
+    pub(super) fn new(limits: Limits) -> Self {
+        Self {
+            work: 0,
+            limit: limits.work,
+            until: limits.until,
+            on_key: limits.on_key,
+        }
+    }
+
+    /// Whether to stop: past the limit or `until`, or as `stop` says, asked before each look,
+    /// as one look can read a whole line.
+    pub(super) fn over(&self, stop: &dyn Fn() -> bool) -> bool {
+        self.work > self.limit || self.until.is_some_and(|until| Instant::now() >= until) || stop()
+    }
+
+    /// Whether the regexps for a cut of `regexp` may be built here: on an isearch key, only
+    /// for one it compiled quickly.
+    pub(super) fn may_build(&self, regexp: &Regexp) -> bool {
+        !self.on_key || regexp.quick
+    }
+
+    /// Whether a line of `len` bytes is left to the worker rather than read here.
+    fn leaves(&self, len: usize) -> bool {
+        self.on_key && (len > KEY_LINE || len + PER_LINE > self.limit.saturating_sub(self.work))
+    }
+}
+
+/// `at` in `text`, or its end, stepped back to a character's start.
+pub(super) fn floor_boundary(text: &str, at: usize) -> usize {
+    let mut at = at.min(text.len());
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    at
+}
 
 /// A line's text, read from a rope, which a search keeps while it is in the line, and which
 /// `!` keeps across its slices while the text does not change but by its own edits.
@@ -110,24 +172,37 @@ pub(super) fn span(text: &Rope, offset: usize) -> (usize, usize, usize) {
 }
 
 impl Line {
-    /// The line `offset` is on.
-    fn read(text: &Rope, offset: usize, longest: usize) -> Result<Self, LineTooLong> {
+    /// Reads the line `offset` is on into `slot`, in the room of the line it held, with its
+    /// cost added to `effort`. Returns false, and leaves `slot` as it was, if `effort` leaves
+    /// a line that long to the worker.
+    pub(super) fn read(
+        text: &Rope,
+        offset: usize,
+        (longest, effort): (usize, &mut Effort),
+        slot: &mut Option<Self>,
+    ) -> Result<bool, LineTooLong> {
         let (row, start, end) = span(text, offset);
         if end - start > longest {
             return Err(LineTooLong(start));
+        }
+        if effort.leaves(end - start) {
+            return Ok(false);
         }
         let next = if row >= text.summary().lines {
             text.len() + 1
         } else {
             text.line_start(row + 1)
         };
-        let mut line = String::with_capacity(end - start);
+        let mut line = slot.take().map(|line| line.text).unwrap_or_default();
+        line.clear();
         line.extend(text.chunks_in_range(start..end));
-        Ok(Self {
+        effort.work = effort.work.saturating_add(end - start + PER_LINE);
+        *slot = Some(Self {
             start,
             next,
             text: line,
-        })
+        });
+        Ok(true)
     }
 
     /// Whether `offset` is in it, its end included.
@@ -169,17 +244,7 @@ pub(crate) struct Scan<'a> {
     line: Option<Line>,
     /// Where a match that ends at a range's end inside its line starts, kept.
     ending: Ending,
-    /// The work done, against `limit`.
-    work: usize,
-    limit: usize,
-    /// The work at the last look at whether to stop.
-    looked: usize,
-    /// When it stops, whatever its work, for a search on the UI thread: a pattern can read
-    /// far past each match it finds.
-    until: Option<std::time::Instant>,
-    /// It stops before a line longer than the work it has left, rather than read it, so that
-    /// an isearch key leaves a long line to the worker.
-    short_lines: bool,
+    effort: Effort,
 }
 
 impl<'a> Scan<'a> {
@@ -203,22 +268,22 @@ impl<'a> Scan<'a> {
             skip_empty_at: after_match.then_some(from),
             line,
             ending: Ending::default(),
-            work: 0,
-            limit,
-            looked: 0,
-            until: None,
-            short_lines: false,
+            effort: Effort::new(Limits {
+                work: limit,
+                ..Limits::NONE
+            }),
         }
     }
 
     /// Stops at `until` too.
-    pub(crate) fn until(&mut self, until: std::time::Instant) {
-        self.until = Some(until);
+    pub(crate) fn until(&mut self, until: Instant) {
+        self.effort.until = Some(until);
     }
 
-    /// Stops before a line longer than the work left, rather than read it.
-    pub(crate) fn short_lines(&mut self) {
-        self.short_lines = true;
+    /// Searches for an isearch key on the UI thread: it leaves a long line, and a regexp for
+    /// a cut not built yet, to the worker.
+    pub(crate) fn on_key(&mut self) {
+        self.effort.on_key = true;
     }
 
     /// Where it would go on, and whether a match ended there.
@@ -229,37 +294,6 @@ impl<'a> Scan<'a> {
     /// The line it is in, for the caller to keep.
     pub(crate) fn into_line(self) -> Option<Line> {
         self.line
-    }
-
-    /// Adds `work`, and says whether the search must stop: past its limit, or as `stop`
-    /// says, looked at every [`LOOK_EVERY`] of work.
-    fn spend(&mut self, work: usize, stop: &dyn Fn() -> bool) -> bool {
-        self.work = self.work.saturating_add(work);
-        if self.work > self.limit {
-            return true;
-        }
-        if self.work - self.looked > LOOK_EVERY {
-            self.looked = self.work;
-            return stop();
-        }
-        false
-    }
-
-    /// Whether to stop here: past the limit or `until`, or as `stop` says, looked at every
-    /// [`LOOK_EVERY`] of work. The next turn of a search looks before it reads on.
-    fn over(&mut self, stop: &dyn Fn() -> bool) -> bool {
-        if self.work > self.limit
-            || self
-                .until
-                .is_some_and(|until| std::time::Instant::now() >= until)
-        {
-            return true;
-        }
-        if self.work - self.looked > LOOK_EVERY {
-            self.looked = self.work;
-            return stop();
-        }
-        false
     }
 
     /// The next match: [`Found::Match`], [`Found::None`] past the last range, or
@@ -273,7 +307,7 @@ impl<'a> Scan<'a> {
             let Some(range) = self.ranges.get(self.range).cloned() else {
                 return Ok(Found::None);
             };
-            if self.over(stop) {
+            if self.effort.over(stop) {
                 return Ok(Found::Stopped { resume: self.at });
             }
             if self.at < range.start {
@@ -285,19 +319,13 @@ impl<'a> Scan<'a> {
                 continue;
             }
             if !self.line.as_ref().is_some_and(|line| line.holds(self.at)) {
-                if self.short_lines {
-                    let (_, start, end) = span(self.text, self.at);
-                    let left = self.limit.saturating_sub(self.work);
-                    if end - start <= self.regexp.longest && end - start + PER_LINE > left {
-                        return Ok(Found::Stopped { resume: self.at });
-                    }
-                }
-                let line = Line::read(self.text, self.at, self.regexp.longest)?;
-                let cost = line.text.len() + PER_LINE;
-                if self.spend(cost, stop) {
+                let limits = (self.regexp.longest, &mut self.effort);
+                if !Line::read(self.text, self.at, limits, &mut self.line)? {
                     return Ok(Found::Stopped { resume: self.at });
                 }
-                self.line = Some(line);
+                if self.effort.over(stop) {
+                    return Ok(Found::Stopped { resume: self.at });
+                }
             }
             let Some(line) = self.line.as_ref() else {
                 continue;
@@ -306,18 +334,23 @@ impl<'a> Scan<'a> {
             let mut from = self.at - start;
             // The range is the haystack, as in Emacs's bounded search: a match ends within it,
             // so a greedy pattern stops at its end, while `$` and `\b` there see what follows.
-            let mut cut = (range.end - start).min(line.text.len());
-            while !line.text.is_char_boundary(cut) {
-                cut -= 1;
-            }
+            let cut = floor_boundary(&line.text, range.end - start);
+            let skip_empty_at = self.skip_empty_at;
             let found = loop {
-                let Some(found) = cut::find(
+                let looked = cut::find(
                     self.regexp,
                     (&line.text, start, cut),
                     from,
                     &mut self.ending,
-                    &mut self.work,
-                ) else {
+                    &mut self.effort,
+                );
+                let Some(found) = (match looked {
+                    Ok(found) => found,
+                    Err(Unbuilt) => {
+                        self.skip_empty_at = skip_empty_at;
+                        return Ok(Found::Stopped { resume: self.at });
+                    }
+                }) else {
                     break None;
                 };
                 let matched = start + found.start..start + found.end;
@@ -380,52 +413,52 @@ impl Regexp {
         out
     }
 
-    /// The matches within `spans`, the parts of lines a frame shows, at most `most`: each line
-    /// at most `longest` bytes is read, and looked in from a little before its span to a little
-    /// after, so a frame costs as much as its view, for the highlights. A match the window cuts
-    /// at its end is left out, as it may be longer or none.
+    /// The matches within `spans`, the parts of lines a frame shows, at most `most`, for the
+    /// highlights: each line is read and looked in from a little before its span to a little
+    /// after, from one character before that, so `^` and `\b` see what is there, reading at
+    /// most `limit` bytes in all and for at most [`FRAME_TIME`], so a frame costs as much as its
+    /// view. A match the window cuts at its end is left out, as it may be longer or none.
     pub(crate) fn matches_in(
         &self,
         text: &Rope,
         spans: &[Range<usize>],
-        (most, longest): (usize, usize),
+        (most, limit): (usize, usize),
         out: &mut Vec<Range<usize>>,
     ) {
-        let mut line = String::new();
-        for span in spans {
-            let row = text.offset_to_point(span.start).row;
-            let (start, end) = (text.line_start(row), text.line_end(row));
-            if end - start > longest || span.start > end {
+        let until = Instant::now() + FRAME_TIME;
+        let (mut left, mut line) = (limit, String::new());
+        for shown in spans {
+            let (_, start, end) = span(text, shown.start);
+            if shown.start > end || Instant::now() >= until {
                 continue;
             }
-            line.clear();
-            line.extend(text.chunks_in_range(start..end));
-            let floor = |at: usize| {
-                let mut at = at.min(line.len());
-                while !line.is_char_boundary(at) {
-                    at -= 1;
-                }
-                at
+            let clip = |at: usize| text.clip_offset(at, crate::sum_tree::Bias::Left);
+            let look = clip(shown.start.saturating_sub(VIEW_REACH).max(start));
+            let read_from = if look > start { clip(look - 1) } else { start };
+            let read_to = clip(shown.end.min(end).saturating_add(VIEW_REACH).min(end));
+            let Some(rest) = left.checked_sub(read_to - read_from) else {
+                return;
             };
-            let from = floor((span.start - start).saturating_sub(VIEW_REACH));
-            let cut = floor((span.end.min(end) - start).saturating_add(VIEW_REACH));
-            let haystack = &line[..cut];
-            let mut at = from;
+            left = rest;
+            line.clear();
+            line.extend(text.chunks_in_range(read_from..read_to));
+            let (cut, at_end) = (line.len(), read_to == end);
+            let mut at = look - read_from;
             let mut last_end = None;
             while at <= cut {
-                let Some(found) = self.regex.find_at(haystack, at) else {
+                let Some(found) = self.regex.find_at(&line, at) else {
                     break;
                 };
-                let matched = start + found.start()..start + found.end();
-                let cut_off = found.end() == cut && cut < line.len();
+                let matched = read_from + found.start()..read_from + found.end();
+                let cut_off = found.end() == cut && !at_end;
                 let skipped = found.is_empty() && last_end == Some(found.start());
                 at = if found.is_empty() {
-                    char_after(haystack, found.start())
+                    char_after(&line, found.start())
                 } else {
                     found.end()
                 };
                 last_end = (!found.is_empty()).then_some(found.end());
-                if matched.end <= span.start || matched.start >= span.end {
+                if matched.end <= shown.start || matched.start >= shown.end {
                     continue;
                 }
                 if !cut_off && !skipped && !matched.is_empty() {
@@ -437,6 +470,22 @@ impl Regexp {
             }
         }
     }
+}
+
+/// `text` escaped for a regexp, as Emacs's `regexp-quote` does, cut to at most `room`
+/// characters, never inside an escape.
+pub(crate) fn quote(text: &str, room: usize) -> String {
+    let (mut out, mut left) = (String::new(), room);
+    let mut one = [0; 4];
+    for c in text.chars() {
+        let escaped = regex::escape(c.encode_utf8(&mut one));
+        let Some(rest) = left.checked_sub(escaped.chars().count()) else {
+            break;
+        };
+        left = rest;
+        out.push_str(&escaped);
+    }
+    out
 }
 
 #[cfg(test)]

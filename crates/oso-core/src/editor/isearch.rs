@@ -1,6 +1,7 @@
 //! isearch on the editor (ADR 0082, ADR 0116): starting a search in the selected window,
-//! literal or a regexp's, its keys, where each search goes from, and how it ends. What it holds is in [`state`], its worker in
-//! [`worker`] and the cells of its matches in [`cells`].
+//! literal or a regexp's, its keys, and how it ends. What it holds is in [`state`], where
+//! each key searches from in [`find`], its worker in [`worker`], the cells of its matches in
+//! [`cells`], and `C-y` and `M-y` in [`yank`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -20,8 +21,7 @@ use std::ops::Range;
 use super::Editor;
 use crate::kill::KillEntry;
 use crate::motion::{self, WalkBudget};
-use crate::search::{self, Find, Needle};
-use crate::sum_tree::Bias;
+use crate::search::{self, Needle};
 use crate::word;
 use state::{Asked, Step};
 
@@ -100,7 +100,6 @@ impl Editor {
     pub fn isearch_repeat(&mut self, backward: bool) {
         self.isearch_follow_text();
         let cursor = self.primary_cursor();
-        let len = self.current().1.text().len();
         let Some(state) = &self.isearch else {
             return;
         };
@@ -123,33 +122,8 @@ impl Editor {
         if state.searching.is_some() || !state.has_needle() {
             return;
         }
-        let here = state.current.clone();
         let wrap = state.failing && state.backward == backward;
-        let text = self.current().1.text();
-        // Past an empty match, a step on, as Emacs's isearch moves a character first.
-        let back_from = |range: &Range<usize>| match range.start.checked_sub(1) {
-            _ if !range.is_empty() => Some(range.start),
-            Some(before) => Some(text.clip_offset(before, Bias::Left)),
-            None => None,
-        };
-        let find = if backward {
-            let before = if wrap {
-                Some(len)
-            } else {
-                here.as_ref().map_or(Some(cursor), back_from)
-            };
-            before.map(|before| Find::Backward {
-                before,
-                start_at_most: before,
-            })
-        } else {
-            let (from, after_match) = match &here {
-                _ if wrap => (0, false),
-                None => (cursor, false),
-                Some(range) => (search::after(text, range), !range.is_empty()),
-            };
-            Some(Find::Forward { from, after_match })
-        };
+        let find = self.isearch_repeat_find(backward, wrap);
         let Some(state) = &mut self.isearch else {
             return;
         };
@@ -189,10 +163,9 @@ impl Editor {
     /// literal string, and with its special characters escaped to a regexp, as Emacs's
     /// `isearch-yank-string` quotes it.
     fn isearch_add_taken(&mut self, text: &str) {
-        if self.isearch.as_ref().is_some_and(|state| state.regexp) {
-            self.isearch_add(&regex::escape(text));
-        } else {
-            self.isearch_add(text);
+        match &self.isearch {
+            Some(state) if state.regexp => self.isearch_add(&search::quote(text, state.room())),
+            _ => self.isearch_add(text),
         }
     }
 
@@ -330,7 +303,7 @@ impl Editor {
         &self,
     ) -> Option<(Needle, Range<usize>, Option<usize>, bool)> {
         let state = self.isearch.as_ref()?;
-        if state.failing || state.searching.is_some() || state.problem.is_some() {
+        if state.failing || state.searching.is_some() {
             return None;
         }
         let total = match state.tally {
@@ -338,7 +311,7 @@ impl Editor {
             _ => None,
         };
         Some((
-            state.needle.clone()?,
+            state.needle()?.clone(),
             state.current.clone()?,
             total,
             state.backward,
@@ -360,7 +333,8 @@ impl Editor {
     pub(super) fn isearch_quit(&mut self) -> Option<super::Quit> {
         self.isearch_follow_text();
         let state = self.isearch.as_mut()?;
-        if state.failing || state.searching.is_some() || state.problem.is_some() {
+        let bad = matches!(state.pattern, state::Pattern::Bad(_));
+        if state.failing || state.searching.is_some() || bad {
             // The newest step that did not fail, restored once.
             let mut last = None;
             while let Some(step) = state.steps.pop_back() {
@@ -376,7 +350,7 @@ impl Editor {
                     // What remains is the place it began.
                     state.failing = false;
                     state.searching = None;
-                    state.problem = None;
+                    state.too_long = None;
                     self.supersede_search();
                 }
             }
@@ -457,13 +431,17 @@ impl Editor {
         state.regexp = step.regexp;
         state.current = step.current;
         state.failing = step.failing;
+        state.too_long = step.too_long;
         state.wrapped = step.wrapped;
         state.searching = None;
         state.tally = step.tally;
         state.rebuild_query();
         // A regexp the worker compiles needs its job, whatever count the step kept.
-        let recount = state.compiling
-            || (state.needle.is_some() && !matches!(state.tally, Some(Tally::Known { .. })));
+        let recount = match state.pattern {
+            state::Pattern::Compiling => true,
+            state::Pattern::Ready(_) => !matches!(state.tally, Some(Tally::Known { .. })),
+            state::Pattern::Empty | state::Pattern::Bad(_) => false,
+        };
         let buffer = self.current().1;
         let cursor = motion::cluster_start(&buffer.display(), step.cursor);
         self.windows[self.selected].selections.move_primary(cursor);

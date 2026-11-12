@@ -18,7 +18,7 @@ use crate::decode::InvalidBytes;
 use crate::display_map::{DisplaySnapshot, MAX_CLUSTER_BYTES};
 use crate::motion::{BACK_WINDOW, SEEK_COST, WalkBudget};
 use crate::rope::Rope;
-use crate::search::{Found, Limits, Matched, Needle};
+use crate::search::{Found, Limits, Line, Matched, Needle};
 use crate::selection::MAX_CURSORS;
 use crate::sum_tree::Bias;
 use crate::word;
@@ -88,7 +88,7 @@ impl Text {
         Limits {
             work: left,
             until: self.until,
-            short_lines: self.until.is_some(),
+            on_key: self.until.is_some(),
         }
     }
 
@@ -164,12 +164,12 @@ impl Text {
     }
 
     /// The next occurrence of `wanted` that starts at `from` or after, taking what it reads
-    /// from `left`.
+    /// from `left`. A regexp's search keeps the line it read in `kept`, for the next.
     fn next(
         &self,
         wanted: &Wanted,
         mut from: usize,
-        left: &mut usize,
+        (left, kept): (&mut usize, &mut Option<Line>),
         stop: &dyn Fn() -> bool,
     ) -> Found {
         loop {
@@ -179,9 +179,10 @@ impl Text {
             let snapshot = (&self.rope, &self.invalid);
             let limits = self.limits(*left);
             // Past a line too long for a regexp, there is none that way.
-            let Ok(found) = wanted
-                .needle
-                .find_forward(snapshot, (from, false), limits, stop)
+            let Ok(found) =
+                wanted
+                    .needle
+                    .find_forward(snapshot, (from, false), (limits, stop), kept)
             else {
                 return Found::None;
             };
@@ -198,12 +199,13 @@ impl Text {
 
     /// The last occurrence of `wanted` that ends at `before` or earlier, taking what it
     /// reads from `left`. After a match it does not take, it reads again only as far back
-    /// as a match that starts before that one can end.
+    /// as a match that starts before that one can end. A regexp's search keeps the line it
+    /// read in `kept`, for the next.
     fn previous(
         &self,
         wanted: &Wanted,
         mut before: usize,
-        left: &mut usize,
+        (left, kept): (&mut usize, &mut Option<Line>),
         stop: &dyn Fn() -> bool,
     ) -> Found {
         let mut start_at_most = before;
@@ -213,11 +215,12 @@ impl Text {
             }
             let snapshot = (&self.rope, &self.invalid);
             let limits = self.limits(*left);
-            let Ok(found) =
-                wanted
-                    .needle
-                    .find_backward(snapshot, (before, start_at_most), limits, stop)
-            else {
+            let Ok(found) = wanted.needle.find_backward(
+                snapshot,
+                (before, start_at_most),
+                (limits, stop),
+                kept,
+            ) else {
                 return Found::None;
             };
             let Found::Match(range) = found else {
@@ -249,11 +252,11 @@ impl Text {
         stop: &dyn Fn() -> bool,
         out: &mut Vec<Range<usize>>,
     ) -> Option<usize> {
-        let mut at = from;
+        let (mut at, mut kept) = (from, None);
         while out.len() < most {
             let found = match toward {
-                Toward::Next => self.next(wanted, at, left, stop),
-                Toward::Previous => self.previous(wanted, at, left, stop),
+                Toward::Next => self.next(wanted, at, (left, &mut kept), stop),
+                Toward::Previous => self.previous(wanted, at, (left, &mut kept), stop),
             };
             match found {
                 Found::Match(range) => {
@@ -278,9 +281,9 @@ impl Text {
             ranges: Vec::new(),
             total: 0,
         };
-        let mut from = 0;
+        let (mut from, mut kept) = (0, None);
         loop {
-            match self.next(wanted, from, left, stop) {
+            match self.next(wanted, from, (left, &mut kept), stop) {
                 Found::Match(range) => {
                     from = range.end;
                     if matched.ranges.len() < MAX_CURSORS {

@@ -1,6 +1,7 @@
-//! Default key bindings of isearch (ADR 0033, ADR 0082, ADR 0116): the keys that start it, and its own
-//! keymap, which takes the place of the others while it is on. A key that keymap does not
-//! bind, or a sequence under its `C-c`, ends the search and then runs, in the dispatcher.
+//! Default key bindings of isearch (ADR 0033, ADR 0082, ADR 0116): the keys that start it,
+//! and its own keymap, which takes the place of the others while it is on. A key that keymap
+//! does not bind, or a sequence under its `C-c`, ends the search and then runs, in the
+//! dispatcher.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 

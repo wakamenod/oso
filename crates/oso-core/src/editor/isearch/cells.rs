@@ -1,5 +1,6 @@
-//! The cells isearch's matches in view take (ADR 0082), a literal string's or a regexp's, for the renderer and the text-grid
-//! snapshots, as the region's are in `view`, over the view rows a frame shows (ADR 0104).
+//! The cells isearch's matches in view take (ADR 0082), a literal string's or a regexp's,
+//! for the renderer and the text-grid snapshots, as the region's are in `view`, over the
+//! view rows a frame shows (ADR 0104).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -52,7 +53,7 @@ impl Editor {
         let Some(state) = &self.isearch else {
             return;
         };
-        let Some(needle) = &state.needle else {
+        let Some(needle) = state.needle() else {
             return;
         };
         let current = state.current.as_ref().filter(|_| !state.failing);

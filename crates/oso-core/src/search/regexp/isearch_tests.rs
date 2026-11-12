@@ -1,33 +1,51 @@
-//! Tests of what regexp isearch adds to the regexps (ADR 0116): compiling within a key's
-//! limit, incomplete patterns, the search backward and its budget, and a long line left to
-//! the worker.
+//! Tests of what regexp isearch adds to the regexps (ADR 0116): compiling on a key or the
+//! worker, incomplete patterns, the search backward and what it costs, what a key leaves to
+//! the worker, a newer job's place, the highlights' bound, and quoting.
 //!
 //! Must not depend on: `buffer` or `editor`.
 
+use std::cell::Cell;
+use std::ops::Range;
 use std::time::Instant;
 
 use proptest::prelude::*;
 
 use super::{
-    Invalid, KEY_SIZE_LIMIT, LineTooLong, PER_LINE, Regexp, Scan, compile_isearch, find_backward,
+    CompileError, Line, LineTooLong, On, PER_LINE, Regexp, Scan, compile_isearch, find_backward,
+    quote,
 };
 use crate::rope::Rope;
-use crate::search::Found;
+use crate::search::{Found, Limits};
 
 fn regexp(pattern: &str) -> Regexp {
-    compile_isearch(pattern, true, (KEY_SIZE_LIMIT, false)).unwrap()
+    compile_isearch(pattern, true, On::Key).unwrap()
 }
 
-/// The last match that starts at `start_at_most` or before and ends by `before`, unbounded.
+/// A worker's limits: none.
+fn worker() -> (Limits, &'static dyn Fn() -> bool) {
+    (Limits::NONE, &|| false)
+}
+
+/// A key's limits with `work` of budget and no time limit, as a test cannot keep to one.
+fn key(work: usize) -> Limits {
+    Limits {
+        work,
+        until: None,
+        on_key: true,
+    }
+}
+
+/// The last match that starts at `start_at_most` or before and ends by `before`, on the
+/// worker.
 fn back(pattern: &str, text: &str, before: usize, start_at_most: usize) -> Found {
     let rope = Rope::from(text);
-    let limits = (usize::MAX, None, false);
+    let compiled = compile_isearch(pattern, true, On::Worker).unwrap();
     find_backward(
-        &regexp(pattern),
+        &compiled,
         &rope,
         (before, start_at_most),
-        limits,
-        &|| false,
+        worker(),
+        &mut None,
     )
     .unwrap()
 }
@@ -37,59 +55,79 @@ fn an_unclosed_pattern_is_incomplete_and_a_wrong_one_says_why() {
     for pattern in [
         "[", "[a-", "(", "(a|b", "a{2", r"\", "(?", "(?P<name", r"\p{", "x{",
     ] {
-        let compiled = compile_isearch(pattern, true, (KEY_SIZE_LIMIT, false));
-        assert_eq!(compiled.err(), Some(Invalid::Incomplete), "{pattern}");
+        let compiled = compile_isearch(pattern, true, On::Key);
+        assert_eq!(compiled.err(), Some(CompileError::Incomplete), "{pattern}");
     }
     for (pattern, why) in [(")", "unopened group"), ("*", "missing expression")] {
-        let Err(Invalid::Wrong(said)) = compile_isearch(pattern, true, (KEY_SIZE_LIMIT, false))
-        else {
+        let Err(CompileError::Invalid(said)) = compile_isearch(pattern, true, On::Key) else {
             panic!("{pattern}");
         };
         assert!(
             said.starts_with("Invalid regexp: ") && said.contains(why),
             "{said}"
         );
-        assert!(!said.contains('\n'));
     }
+    // What it says never holds the pattern, whose text can be a secret's.
+    let pattern = "(?P<token>hunter2)\n(?P<token>x)";
+    let Err(CompileError::Invalid(said)) = compile_isearch(pattern, true, On::Key) else {
+        panic!("compiled");
+    };
+    assert!(!said.contains("hunter2") && !said.contains('\n'), "{said}");
 }
 
 #[test]
-fn a_pattern_too_large_for_a_key_compiles_at_the_full_limit() {
-    let big = r"\w{30}";
-    assert_eq!(
-        compile_isearch(big, true, (KEY_SIZE_LIMIT, false)).err(),
-        Some(Invalid::TooBig)
-    );
-    let full = compile_isearch(big, true, (usize::MAX, true)).unwrap();
-    assert!(full.cut_built(), "the worker builds the cut's too");
-    // Past the full limit, it says why.
+fn a_pattern_too_large_or_heavy_for_a_key_is_the_worker_s() {
+    for pattern in [
+        r"\w{30}",
+        &r"\p{Any}".repeat(146),
+        r"[\x{0}-\x{10FFFF}]\p{L}",
+        r"\p{Greek}\p{Han}",
+    ] {
+        let started = Instant::now();
+        let compiled = compile_isearch(pattern, true, On::Key);
+        assert_eq!(compiled.err(), Some(CompileError::ForWorker), "{pattern}");
+        // Told apart before compiling, or by a compile that fails for size early.
+        assert!(started.elapsed().as_millis() < 100, "{pattern}");
+    }
+    // One large class, or an escaped backslash before a `p`, a key takes.
+    for pattern in [r"\p{Any}x", r"\\p\\p\\p", r"[\x{0}-\x{10FFFF}]"] {
+        assert!(compile_isearch(pattern, true, On::Key).is_ok(), "{pattern}");
+    }
+    let full = compile_isearch(r"\w{30}", true, On::Worker).unwrap();
+    assert!(!full.cut_built());
     let huge = r"\w{30}\w{30}\w{30}\w{30}";
-    let Err(Invalid::Wrong(why)) = compile_isearch(huge, true, (usize::MAX, true)) else {
+    let Err(CompileError::Invalid(why)) = compile_isearch(huge, true, On::Worker) else {
         panic!("compiled");
     };
     assert!(why.starts_with("Invalid regexp"));
 }
 
 #[test]
-fn a_key_compiles_small_patterns_quickly_and_leaves_the_cut_regexps_for_later() {
-    for pattern in [r"[\p{L}\d]{25}", r"(?i)\p{L}{20}x", r"\w{8}"] {
-        let started = Instant::now();
-        let compiled = compile_isearch(pattern, true, (KEY_SIZE_LIMIT, false));
-        // Whether it compiles or is left to the worker, the key's compile is bounded.
-        assert!(started.elapsed().as_millis() < 100, "{pattern}");
-        if let Ok(compiled) = compiled {
-            assert!(!compiled.cut_built());
-        }
-    }
-    let compiled = regexp("a+");
-    assert!(!compiled.cut_built());
-    // A match at a cut inside a line needs them.
+fn a_key_leaves_the_regexps_for_a_cut_of_a_slow_regexp_to_the_worker() {
+    // One large class takes a key about a millisecond to compile.
+    let compiled = regexp(r"\p{Any}a|a+");
     let rope = Rope::from("aaa aaa");
-    let found = find_backward(&compiled, &rope, (5, 5), (usize::MAX, None, false), &|| {
-        false
-    });
+    // A match that ends at the cut inside the line needs them.
+    let found = find_backward(
+        &compiled,
+        &rope,
+        (5, 5),
+        (key(1 << 20), &|| false),
+        &mut None,
+    );
+    assert_eq!(found, Ok(Found::Stopped { resume: 5 }));
+    assert!(!compiled.cut_built());
+    let found = find_backward(&compiled, &rope, (5, 5), worker(), &mut None);
     assert_eq!(found, Ok(Found::Match(4..5)));
     assert!(compiled.cut_built());
+    // Once built, a key uses them, also in a copy made after.
+    let copy = compiled.clone();
+    let found = find_backward(&copy, &rope, (5, 5), (key(1 << 20), &|| false), &mut None);
+    assert_eq!(found, Ok(Found::Match(4..5)));
+    // A quick one, a key builds them.
+    let quick = regexp("a+");
+    let found = find_backward(&quick, &rope, (5, 5), (key(1 << 20), &|| false), &mut None);
+    assert_eq!(found, Ok(Found::Match(4..5)));
 }
 
 #[test]
@@ -133,27 +171,74 @@ fn backward_goes_up_through_lines_one_at_a_time() {
     assert_eq!(back("^t", text, 12, 12), Found::Match(8..9));
 }
 
-#[test]
-fn backward_finds_a_match_far_from_the_end_of_a_long_line() {
-    let text = format!("needle{}", "x".repeat(300_000));
-    let rope = Rope::from(text.as_str());
-    let asked = std::cell::Cell::new(0);
-    let limits = (usize::MAX, None, false);
+/// How many times a search asked whether to stop, which it does before each look.
+fn looks(text: &str, pattern: &str, backward: bool) -> (Found, usize) {
+    let rope = Rope::from(text);
+    let compiled = compile_isearch(pattern, true, On::Worker).unwrap();
+    let asked = Cell::new(0);
     let stop = || {
         asked.set(asked.get() + 1);
         false
     };
-    let found = find_backward(
-        &regexp("needle"),
+    let len = rope.len();
+    let found = if backward {
+        find_backward(
+            &compiled,
+            &rope,
+            (len, len),
+            (Limits::NONE, &stop),
+            &mut None,
+        )
+    } else {
+        let whole = 0..len;
+        let ranges = std::slice::from_ref(&whole);
+        Scan::new(&compiled, &rope, ranges, (0, false), usize::MAX, None).next(&stop)
+    };
+    (found.unwrap(), asked.get())
+}
+
+#[test]
+fn backward_halves_its_way_to_the_last_start_in_a_long_line() {
+    let n = 64 * 1024;
+    // Every start of the `a`s matches and reads to the line's end.
+    let text = format!("{}{}", "a".repeat(n), "x".repeat(n));
+    let (found, asked) = looks(&text, "a.*", true);
+    assert_eq!(found, Found::Match(n - 1..2 * n));
+    assert!(asked < 200, "{asked}");
+    let text = format!("needle{}", "x".repeat(300_000));
+    let (found, asked) = looks(&text, "needle", true);
+    assert_eq!(found, Found::Match(0..6));
+    assert!(asked < 64, "{asked}");
+}
+
+#[test]
+fn a_newer_job_stops_a_search_within_a_look() {
+    // Each match is short, but each look reads to the line's end.
+    let text = format!("{}{}", "a".repeat(4000), "x".repeat(1 << 20));
+    let rope = Rope::from(text.as_str());
+    let compiled = compile_isearch("(a.*b)?", true, On::Worker).unwrap();
+    let asked = Cell::new(0);
+    let stop = || {
+        asked.set(asked.get() + 1);
+        asked.get() > 1
+    };
+    let whole = 0..rope.len();
+    let ranges = std::slice::from_ref(&whole);
+    let mut scan = Scan::new(&compiled, &rope, ranges, (0, false), usize::MAX, None);
+    let mut found = 0;
+    while let Ok(Found::Match(_)) = scan.next(&stop) {
+        found += 1;
+    }
+    assert!(found <= 2, "{found}");
+    let len = rope.len();
+    let back = find_backward(
+        &compiled,
         &rope,
-        (text.len(), text.len()),
-        limits,
-        &stop,
+        (len, len),
+        (Limits::NONE, &|| true),
+        &mut None,
     );
-    assert_eq!(found, Ok(Found::Match(0..6)));
-    // Windows that double read the line a few times at most, so `stop` is asked about as
-    // often as a forward search's.
-    assert!(asked.get() < 64, "{}", asked.get());
+    assert_eq!(back, Ok(Found::Stopped { resume: len }));
 }
 
 #[test]
@@ -161,35 +246,44 @@ fn backward_stops_at_its_budget_where_it_can_go_on() {
     let text = format!("{}\nfoo\n{}", "a\n".repeat(50_000), "b\n".repeat(50_000));
     let rope = Rope::from(text.as_str());
     let compiled = regexp("^a");
-    let limits = (64 * 1024, None, true);
     let len = text.len();
-    let Ok(Found::Stopped { resume }) =
-        find_backward(&compiled, &rope, (len, len), limits, &|| false)
-    else {
+    let at_key = (key(64 * 1024), &|| false);
+    let Ok(Found::Stopped { resume }) = find_backward(
+        &compiled,
+        &rope,
+        (len, len),
+        (at_key.0, at_key.1),
+        &mut None,
+    ) else {
         panic!("not stopped");
     };
     assert!(resume < len && resume > 50_000 * 2);
-    let unbounded = (usize::MAX, None, false);
-    let rest = find_backward(&compiled, &rope, (resume, len), unbounded, &|| false);
+    let rest = find_backward(&compiled, &rope, (resume, len), worker(), &mut None);
     assert_eq!(rest, Ok(Found::Match(99_998..99_999)));
 }
 
 #[test]
-fn backward_stops_at_its_time_and_when_asked() {
+fn backward_stops_at_its_time() {
     let text = format!("{}needle", "x".repeat(2_000_000));
     let rope = Rope::from(text.as_str());
     let compiled = regexp("needle$|^q");
     let len = text.len();
-    let past = (usize::MAX, Some(Instant::now()), false);
-    let found = find_backward(&compiled, &rope, (len - 6, len - 6), past, &|| false);
-    assert_eq!(found, Ok(Found::Stopped { resume: len - 6 }));
-    let unbounded = (usize::MAX, None, false);
-    let found = find_backward(&compiled, &rope, (len - 6, len - 6), unbounded, &|| true);
+    let past = Limits {
+        until: Some(Instant::now()),
+        ..Limits::NONE
+    };
+    let found = find_backward(
+        &compiled,
+        &rope,
+        (len - 6, len - 6),
+        (past, &|| false),
+        &mut None,
+    );
     assert_eq!(found, Ok(Found::Stopped { resume: len - 6 }));
 }
 
 #[test]
-fn a_key_leaves_a_line_longer_than_its_budget_unread() {
+fn a_key_leaves_a_line_longer_than_its_budget_or_its_line_unread() {
     let text = format!("short\n{}foo\n", "x".repeat(10_000));
     let rope = Rope::from(text.as_str());
     let compiled = regexp("foo");
@@ -202,19 +296,63 @@ fn a_key_leaves_a_line_longer_than_its_budget_unread() {
         4096,
         None,
     );
-    scan.short_lines();
+    scan.on_key();
     assert_eq!(scan.next(&|| false), Ok(Found::Stopped { resume: 6 }));
     let kept = scan.into_line().map(|line| line.start);
     assert_eq!(kept, Some(0), "the long line is not read");
-    // Backward too.
-    let limits = (4096, None, true);
     let len = rope.len();
-    let found = find_backward(&compiled, &rope, (len - 1, len - 1), limits, &|| false);
+    let found = find_backward(
+        &compiled,
+        &rope,
+        (len - 1, len - 1),
+        (key(4096), &|| false),
+        &mut None,
+    );
     assert_eq!(found, Ok(Found::Stopped { resume: len - 1 }));
     // With room for it, and for looking in it, it is read.
-    let room = (4 * (10_003 + PER_LINE), None, true);
-    let found = find_backward(&compiled, &rope, (len - 1, len - 1), room, &|| false);
+    let room = key(4 * (10_003 + PER_LINE));
+    let found = find_backward(
+        &compiled,
+        &rope,
+        (len - 1, len - 1),
+        (room, &|| false),
+        &mut None,
+    );
     assert_eq!(found, Ok(Found::Match(10_006..10_009)));
+    // A line longer than a key looks in goes to the worker, whatever the budget.
+    let text = format!("{}foo", "x".repeat(100_000));
+    let rope = Rope::from(text.as_str());
+    let len = rope.len();
+    let found = find_backward(
+        &compiled,
+        &rope,
+        (len, len),
+        (key(usize::MAX), &|| false),
+        &mut None,
+    );
+    assert_eq!(found, Ok(Found::Stopped { resume: len }));
+}
+
+#[test]
+fn a_kept_line_is_not_read_again() {
+    let text = format!("{}foo foo", "x".repeat(10_000));
+    let rope = Rope::from(text.as_str());
+    let compiled = regexp("foo");
+    let mut kept: Option<Line> = None;
+    let len = rope.len();
+    let first = find_backward(&compiled, &rope, (len, len), worker(), &mut kept);
+    assert_eq!(first, Ok(Found::Match(len - 3..len)));
+    assert_eq!(kept.as_ref().map(|line| line.start), Some(0));
+    // With the line kept, a budget too small to read it finds the one before.
+    let small = key(4096);
+    let next = find_backward(
+        &compiled,
+        &rope,
+        (len - 3, len - 3),
+        (small, &|| false),
+        &mut kept,
+    );
+    assert_eq!(next, Ok(Found::Match(len - 7..len - 4)));
 }
 
 #[test]
@@ -222,19 +360,38 @@ fn backward_stops_at_a_line_too_long() {
     let mut compiled = regexp("o");
     compiled.set_longest_line(3);
     let rope = Rope::from("foo\nlonger\nbar");
-    let found = find_backward(
-        &compiled,
-        &rope,
-        (14, 14),
-        (usize::MAX, None, false),
-        &|| false,
-    );
+    let found = find_backward(&compiled, &rope, (14, 14), worker(), &mut None);
     assert_eq!(found, Err(LineTooLong(4)));
+}
+
+#[test]
+fn highlights_read_around_the_view_and_within_their_budget() {
+    let text = format!("{} ab ab", "x".repeat(1000));
+    let rope = Rope::from(text.as_str());
+    let shown = std::slice::from_ref(&(1001..1006));
+    let mut out = Vec::new();
+    // `^` holds only at the line's start, though what is read starts near the view.
+    regexp("^ab").matches_in(&rope, shown, (100, 1 << 20), &mut out);
+    assert!(out.is_empty());
+    regexp(r"\bab\b").matches_in(&rope, shown, (100, 1 << 20), &mut out);
+    assert_eq!(out, [1001..1003, 1004..1006]);
+    // Past the budget, nothing more is read.
+    out.clear();
+    regexp("ab").matches_in(&rope, shown, (100, 8), &mut out);
+    assert!(out.is_empty());
+}
+
+#[test]
+fn quoting_never_cuts_an_escape() {
+    assert_eq!(quote("a.b", 10), r"a\.b");
+    assert_eq!(quote("a.b", 2), "a");
+    assert_eq!(quote("a.b", 3), r"a\.");
+    assert_eq!(quote("日[", 2), "日");
 }
 
 /// The match that starts last at `start_at_most` or before in `text`, with `start_at_most`
 /// on a line that ends by the text's end: each start tried from there back, as Emacs does.
-fn naive_back(pattern: &str, text: &str, start_at_most: usize) -> Option<std::ops::Range<usize>> {
+fn naive_back(pattern: &str, text: &str, start_at_most: usize) -> Option<Range<usize>> {
     let regex = regex::RegexBuilder::new(pattern)
         .case_insensitive(true)
         .build()
@@ -246,7 +403,10 @@ fn naive_back(pattern: &str, text: &str, start_at_most: usize) -> Option<std::op
             .find('\n')
             .map_or(text.len(), |at| line_start + at);
         let line = &text[line_start..line_end];
-        for start in (0..=last - line_start).rev() {
+        for start in (0..=last - line_start)
+            .rev()
+            .filter(|&at| line.is_char_boundary(at))
+        {
             if let Some(found) = regex.find_at(line, start)
                 && found.start() == start
             {
@@ -264,11 +424,16 @@ fn naive_back(pattern: &str, text: &str, start_at_most: usize) -> Option<std::op
 proptest! {
     #[test]
     fn backward_agrees_with_trying_each_start(
-        text in "[ab \n]{0,60}",
-        pattern in prop::sample::select(vec!["a", "ab*", "b+", "a|ab", "^a", "b$", r"\bab", "a*", "(a|b)b"]),
-        at in 0usize..61,
+        text in "[ab é日\n]{0,60}",
+        pattern in prop::sample::select(vec![
+            "a", "ab*", "b+", "a|ab", "^a", "b$", r"\bab", "a*", "(a|b)b", "é.", "日|b",
+        ]),
+        at in 0usize..200,
     ) {
-        let at = at.min(text.len());
+        let mut at = at.min(text.len());
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
         let found = match back(pattern, &text, text.len(), at) {
             Found::Match(range) => Some(range),
             _ => None,

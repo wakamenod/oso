@@ -315,17 +315,10 @@ impl SearchJob {
                 pattern,
                 insensitive,
             } => {
-                let compiled = regexp::compile_isearch(&pattern, insensitive, (usize::MAX, true))
-                    .map_err(|invalid| match invalid {
-                        regexp::Invalid::Wrong(why) => why,
-                        // Neither at the full limit, once the UI thread found it complete.
-                        regexp::Invalid::Incomplete | regexp::Invalid::TooBig => {
-                            "Invalid regexp".to_owned()
-                        }
-                    });
-                if stop() {
+                let compiled = compile_on_worker(&pattern, insensitive, &stop);
+                let Some(compiled) = compiled else {
                     return;
-                }
+                };
                 report(SearchReport(Report::Compiled {
                     generation,
                     regexp: compiled.clone(),
@@ -348,6 +341,33 @@ impl SearchJob {
     }
 }
 
+/// Compiles an isearch's `pattern` too large or heavy for a key, and builds the regexps for a
+/// cut with it, as the worker has time for them: `None` if `stop` said so first, or the
+/// pattern's error.
+fn compile_on_worker(
+    pattern: &str,
+    insensitive: bool,
+    stop: &dyn Fn() -> bool,
+) -> Option<Result<Regexp, String>> {
+    let compiled =
+        regexp::compile_isearch(pattern, insensitive, regexp::On::Worker).map_err(|error| {
+            match error {
+                regexp::CompileError::Invalid(why) => why,
+                // Neither on the worker, once the UI thread found it complete.
+                regexp::CompileError::Incomplete | regexp::CompileError::ForWorker => {
+                    "Invalid regexp".to_owned()
+                }
+            }
+        });
+    if stop() {
+        return None;
+    }
+    if let Ok(regexp) = &compiled {
+        regexp.build_cut();
+    }
+    (!stop()).then_some(compiled)
+}
+
 /// Does an isearch job's work once its needle is compiled: the search to go on with, then the
 /// count, each reported as it ends, unless `stop` says so first. A line too long for a
 /// regexp ends it with a report of its own.
@@ -361,13 +381,21 @@ fn run_isearch(
 ) {
     if let Some(find) = find {
         let found = match find {
-            Find::Forward { from, after_match } => {
-                needle.find_forward(snapshot, (from, after_match), Limits::NONE, stop)
-            }
+            Find::Forward { from, after_match } => needle.find_forward(
+                snapshot,
+                (from, after_match),
+                (Limits::NONE, stop),
+                &mut None,
+            ),
             Find::Backward {
                 before,
                 start_at_most,
-            } => needle.find_backward(snapshot, (before, start_at_most), Limits::NONE, stop),
+            } => needle.find_backward(
+                snapshot,
+                (before, start_at_most),
+                (Limits::NONE, stop),
+                &mut None,
+            ),
         };
         let at = match found {
             Ok(Found::Match(range)) => Some(range),

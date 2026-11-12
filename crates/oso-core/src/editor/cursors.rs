@@ -228,6 +228,10 @@ impl Editor {
         let (needle, current, total, backward) = self
             .isearch_current_match()
             .ok_or(CursorError::NoCurrentMatch)?;
+        // Once, for every key of the run, which keeps this copy: no key builds them.
+        if let Needle::Regexp(regexp) = &needle {
+            regexp.build_cut();
+        }
         if toward.is_none() {
             if self.current().1.loading().is_some() {
                 return Err(CursorError::Loading);

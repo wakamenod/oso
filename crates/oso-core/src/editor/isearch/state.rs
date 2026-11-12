@@ -11,9 +11,7 @@ use std::fmt::{self, Write};
 use std::ops::Range;
 
 use crate::buffer::BufferId;
-use crate::search::{
-    self, Find, Invalid, KEY_SIZE_LIMIT, MAX_QUERY_CHARS, Needle, Prepared, Query,
-};
+use crate::search::{self, CompileError, Find, MAX_QUERY_CHARS, Needle, On, Prepared, Query};
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
 
@@ -39,15 +37,25 @@ pub(super) enum Asked {
     Repeat { wrapped: bool },
 }
 
-/// Why a regexp search cannot go on, which the line says after the string.
+/// What the string looks for.
+#[derive(Clone, Debug)]
+pub(super) enum Pattern {
+    /// Nothing: the string is empty.
+    Empty,
+    Ready(Needle),
+    /// A regexp too large or heavy for a key to compile, which the worker compiles.
+    Compiling,
+    /// A regexp that does not compile, and why, which the line says after the string.
+    Bad(Bad),
+}
+
+/// Why a regexp does not compile.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Problem {
-    /// The regexp is not complete yet, as a `[` being typed: `incomplete input`.
+pub(super) enum Bad {
+    /// It is not complete yet, as a `[` being typed: `incomplete input`.
     Incomplete,
-    /// What is wrong with the regexp, on one line.
+    /// What is wrong with it, on one line.
     Invalid(String),
-    /// A line too long to match a regexp in stopped the search, at this row from 1.
-    LineTooLong(usize),
 }
 
 /// What `DEL` goes back to.
@@ -63,6 +71,7 @@ pub(super) struct Step {
     pub(super) failing: bool,
     /// The regexp did not compile, so `C-g` goes back past it as past a failing step.
     pub(super) invalid: bool,
+    pub(super) too_long: Option<usize>,
     pub(super) wrapped: bool,
     pub(super) cursor: usize,
     pub(super) tally: Option<Tally>,
@@ -77,13 +86,10 @@ pub struct Isearch {
     pub(super) flipped: bool,
     /// The string is a regexp, as `C-M-s` and `M-r` make it (ADR 0116).
     pub(super) regexp: bool,
-    /// What the string looks for: `None` while it is empty, its regexp does not compile, or
-    /// the worker compiles it.
-    pub(super) needle: Option<Needle>,
-    /// The regexp is too large to compile on the UI thread, and the worker compiles it.
-    pub(super) compiling: bool,
-    /// Why the regexp cannot search, for the line.
-    pub(super) problem: Option<Problem>,
+    pub(super) pattern: Pattern,
+    /// A line too long to match a regexp in stopped the search, at this row from 1, which the
+    /// line says.
+    pub(super) too_long: Option<usize>,
     /// The match the cursor is at. While failing, the last that matched, of a shorter string.
     pub(super) current: Option<Range<usize>>,
     pub(super) failing: bool,
@@ -133,9 +139,8 @@ impl Isearch {
             backward,
             flipped: false,
             regexp,
-            needle: None,
-            compiling: false,
-            problem: None,
+            pattern: Pattern::Empty,
+            too_long: None,
             current: None,
             failing: false,
             wrapped: false,
@@ -250,19 +255,25 @@ impl Isearch {
         out[start..=start].make_ascii_uppercase();
         out.push_str(": ");
         out.push_str(&self.string);
-        if let Some(problem) = &self.problem {
-            let _ = match problem {
-                Problem::Incomplete => write!(out, " [incomplete input]"),
-                Problem::Invalid(why) => write!(out, " [{why}]"),
-                Problem::LineTooLong(row) => {
-                    let limit = search::MAX_LINE / (1024 * 1024);
-                    write!(
-                        out,
-                        " [Regexp search stops at line {row}: it is longer than {limit} MiB]"
-                    )
-                }
-            };
-            return;
+        // Why a regexp cannot search, in place of where it got to.
+        match (&self.pattern, self.too_long) {
+            (Pattern::Bad(Bad::Incomplete), _) => {
+                out.push_str(" [incomplete input]");
+                return;
+            }
+            (Pattern::Bad(Bad::Invalid(why)), _) => {
+                let _ = write!(out, " [{why}]");
+                return;
+            }
+            (_, Some(row)) => {
+                let limit = search::MAX_LINE / (1024 * 1024);
+                let _ = write!(
+                    out,
+                    " [Regexp search stops at line {row}: it is longer than {limit} MiB]"
+                );
+                return;
+            }
+            _ => {}
         }
         if self.searching.is_some() {
             out.push_str(" [searching…]");
@@ -297,53 +308,58 @@ impl Isearch {
             regexp: self.regexp,
             current: self.current.clone(),
             failing: self.failing,
-            invalid: matches!(
-                self.problem,
-                Some(Problem::Incomplete | Problem::Invalid(_))
-            ),
+            invalid: matches!(self.pattern, Pattern::Bad(_)),
+            too_long: self.too_long,
             wrapped: self.wrapped,
             cursor,
             tally: self.tally,
         });
     }
 
-    /// Makes what the string looks for anew: a literal query, or a regexp compiled within
-    /// [`KEY_SIZE_LIMIT`], one larger left for the worker to compile, or why it cannot.
+    /// Makes what the string looks for anew: a literal query, or a regexp a key compiles,
+    /// one larger or heavier left for the worker to compile, or why it cannot.
     pub(super) fn rebuild_query(&mut self) {
-        self.compiling = false;
-        self.problem = None;
-        self.needle = None;
-        if self.string.is_empty() {
-            return;
-        }
-        if !self.regexp {
-            self.needle = Query::new(&self.string, self.case_sensitive()).map(Needle::Literal);
-            return;
-        }
-        let insensitive = !self.case_sensitive();
-        match search::compile_isearch(&self.string, insensitive, (KEY_SIZE_LIMIT, false)) {
-            Ok(regexp) => self.needle = Some(Needle::Regexp(regexp)),
-            Err(Invalid::TooBig) => self.compiling = true,
-            Err(Invalid::Incomplete) => self.problem = Some(Problem::Incomplete),
-            Err(Invalid::Wrong(why)) => self.problem = Some(Problem::Invalid(why)),
+        self.pattern = if self.string.is_empty() {
+            Pattern::Empty
+        } else if !self.regexp {
+            Query::new(&self.string, self.case_sensitive()).map_or(Pattern::Empty, |query| {
+                Pattern::Ready(Needle::Literal(query))
+            })
+        } else {
+            let insensitive = !self.case_sensitive();
+            match search::compile_isearch(&self.string, insensitive, On::Key) {
+                Ok(regexp) => Pattern::Ready(Needle::Regexp(regexp)),
+                Err(CompileError::ForWorker) => Pattern::Compiling,
+                Err(CompileError::Incomplete) => Pattern::Bad(Bad::Incomplete),
+                Err(CompileError::Invalid(why)) => Pattern::Bad(Bad::Invalid(why)),
+            }
+        };
+    }
+
+    /// The needle it searches with, once there is one.
+    pub(super) fn needle(&self) -> Option<&Needle> {
+        match &self.pattern {
+            Pattern::Ready(needle) => Some(needle),
+            _ => None,
         }
     }
 
     /// Whether the string has something to search for: a needle, or a regexp the worker
     /// compiles.
     pub(super) fn has_needle(&self) -> bool {
-        self.needle.is_some() || self.compiling
+        matches!(self.pattern, Pattern::Ready(_) | Pattern::Compiling)
     }
 
     /// What a worker's job looks for: the needle, or the pattern it is to compile.
     pub(super) fn prepared(&self) -> Option<Prepared> {
-        if let Some(needle) = &self.needle {
-            return Some(Prepared::Ready(needle.clone()));
+        match &self.pattern {
+            Pattern::Ready(needle) => Some(Prepared::Ready(needle.clone())),
+            Pattern::Compiling => Some(Prepared::Compile {
+                pattern: self.string.clone(),
+                insensitive: !self.case_sensitive(),
+            }),
+            Pattern::Empty | Pattern::Bad(_) => None,
         }
-        self.compiling.then(|| Prepared::Compile {
-            pattern: self.string.clone(),
-            insensitive: !self.case_sensitive(),
-        })
     }
 
     /// How many characters the string still has room for.
