@@ -402,6 +402,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "bytes": size_shown.then(|| buffer.text().len()),
         "lines": size_shown.then(|| buffer.display().row_count()),
         "wrapped": state_shown.then(|| buffer.wraps()),
+        // Whether it holds highlights now (ADR 0111): never one that may hold secrets.
+        "highlighted": buffer.highlights().is_some(),
         "loading": buffer.loading().map(|progress| json!({
             "read": size_shown.then_some(progress.read),
             "total": if size_shown { progress.total } else { None },
@@ -722,6 +724,7 @@ mod tests {
             "lines": 2,
             "loading": null,
             "wrapped": false,
+            "highlighted": false,
         });
         assert_eq!(
             state,

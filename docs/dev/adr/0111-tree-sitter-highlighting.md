@@ -261,12 +261,20 @@ question (Q1–Q13), listed under the author's choices with the options not take
   Everything else (variables, punctuation, operators) is plain text. A theme maps each token to a
   palette name, and several may share one: the default look stays subdued, as
   [ADR 0027](0027-theme.md) asks.
+  - Erratum (2026-11-12, as built in step 5, the author's choice): the default look is vivid,
+    not subdued, and its colours are provisional until the author's own syntax theme. See
+    step 5's As built.
 - **`Face` gains one variant per class,** and `theme.rs` maps each in all three themes.
 - **Contrast (Q10):** every syntax face is text that is read, so it meets 7:1 on every fill a
   line of text sits on: the background, the current line, the flash, the region and both search
   fills, as `Text` does today. It keeps the OKLab distances that hold for `Text`: `question` from
   every syntax face, so a question's words never look like buffer text, and the whitespace and
   wrap marks from every syntax face.
+  - Erratum (2026-11-12, as built in step 5, the author's choice): 7:1 on every fill could not
+    be met with colour (dusk would have needed luminance 0.90, dark 0.84). Under the region,
+    both search fills, trailing whitespace's fill and the flash, highlighted text is drawn in
+    `Text`'s colour instead, as the glyph under the cursor takes `Cursor`'s. A syntax face
+    meets 7:1 on the background and the current line's band. See step 5's As built.
 - The colours are picked as ADR 0089 picks them: sample frames for each theme, with ratios, and
   the author's choice among candidates.
 
@@ -338,6 +346,8 @@ question (Q1–Q13), listed under the author's choices with the options not take
 - **ADR 0089:** "Syntax faces join the table, and its contrast rules" is the table and the rules
   above.
 - **ADR 0030:** comment-aware `C-e` reads the highlight map, not the tree.
+- **ADR 0027:** "Syntax colors are subdued by default" no longer holds: the author picked a
+  vivid look (step 5). Its rule that no palette data is copied from the modus themes holds.
 
 ## Consequences
 
@@ -622,7 +632,7 @@ sent; tests turn it on, and step 5 turns it on for every session.
   buffer's current epoch and newer than the last it took, so a report from before a new start,
   or one a thread sent after a later one, changes nothing. They go only when the highlights
   changed: at the end, when the shown ranges are done, and at most every 50 ms after that.
-  `Buffer::take_highlights` maps them through the edits since. Nothing is drawn yet (step 5).
+  `Buffer::take_highlights` maps them through the edits since. Step 5 draws them.
 - **A failure** (too large, too slow, a grammar or query the build cannot use, or a slice that
   panicked, `Outcome::Lost`) drops the buffer's highlights, and it stays plain until its mode
   is set again. The echo area and `*Messages*` say "Highlighting stopped in NAME: WHY", naming the
@@ -666,13 +676,106 @@ The author's choices, with the plan:
   it keeps highlighting on. Modes set by hand are not handed over yet: a visit sets them from the
   name again, until the configuration's per-mode tables.
 - **Nothing is parsed yet:** highlighting stays off until step 5 (step 4a), so in normal use
-  the commands change the mode and the modeline, and font-lock only the flag.
+  the commands change the mode and the modeline, and font-lock only the flag. Step 5 turned it
+  on.
 - **Whitespace cleanup reads the mode** (ADR 0113 said "by its name ... until major modes
   come"): a save and `delete-trailing-whitespace` keep Markdown's hard breaks by the buffer's
   mode, so `markdown-mode` in `notes.txt` keeps them and `rust-mode` in `README.md` does not; a
   write under a new name follows the mode that name gives.
 - **While font-lock is off,** edits still compose and log their splices on the buffer, which the
   log bounds (64 revisions, 4096 splices); nothing reaches the worker.
+
+### Step 5: drawing and themes
+
+The author's choices (2026-11-12):
+
+- **Colour gives way under the fills.** Under the region, both search fills, trailing
+  whitespace's fill and the flash, highlighted text is drawn in `Text`'s colour, as the glyph
+  under the cursor takes `Cursor`'s. A syntax face meets 7:1 on the background and the current
+  line's band, and the fills keep the floors they have for `Text` (the erratum to Q10). Not
+  taken: 4.5:1 for syntax faces under the fills, which lowers Q10 for selected text, and darker
+  fills, which change ADR 0089's picks and still leave dusk near white.
+- **A vivid look, provisional.** Three candidate sets were sampled in each theme with their
+  ratios, and the author picked the vivid one over the faint one that ADR 0027's subdued
+  default had suggested, and over a quieter set with only comments, strings, keywords, headings
+  and links coloured. The candidates had been built from the modus themes' syntax colours,
+  which ADR 0027 and ADR 0089 forbid copying, as the review found; the author then chose oso's
+  own colours with the picked look. Each class keeps the picked look's hue in OKLab, its
+  chroma, hue and lightness moved as little as needed for 7:1 and to stand at least 0.04 OKLab
+  from every colour of modus-operandi's and modus-vivendi's palettes (235 colours), and 0.10
+  from the escape colour. That was checked offline against the palettes as Emacs ships them;
+  the repository holds no copy of them, not even as test data. **They are a bridge: the
+  author's own syntax theme replaces them.** Not taken: the picked colours as they were,
+  with a new ADR to amend 0027, 0089 and 0020. Fields are drawn as text in every theme.
+- **Dusk stays nearly plain.** 7:1 on its band (`#4a4a52`) needs a luminance of 0.78 at least,
+  which leaves pale tints; dark is the theme for colour. Comments, strings, keywords,
+  functions, macros and headings are drawn as text there: every tint light enough is within
+  0.04 OKLab of a pale modus-operandi colour, and they were hardly apart from text anyway.
+  Not taken: a darker band in dusk, and 4.5:1 on dusk's band.
+
+Built:
+
+- **Faces:** `Face` has one variant per class (`SyntaxComment` to `SyntaxMarkup`) and
+  `Face::of_highlight`, all public. Each takes a palette name of its own (`SynComment` and
+  so on), which every theme maps; the palettes moved to `theme/palettes.rs` for the file size
+  limit. Each syntax face's foreground sits on the text's background; fields take `FgMain`.
+- **Contrast tests:** each syntax face is a pair at 7:1 on `Text`, on the fills of
+  `SYNTAX_FILLS` (the current line's band) and on `Float`, where the preview draws it, in
+  every theme. The renderer reads the same constant for the fills colour shows on, so the two
+  cannot part. Each syntax face also keeps 0.05 OKLab from `Question` and the whitespace and
+  wrap marks, and 0.10 from the escape colour, as an escape's label has no box: neither a
+  question's words, a mark nor a label reads as highlighted text. Another test pins the
+  colours.
+- **`TextView::highlights`** (public) carries the buffer's highlights, or `None`: font-lock off
+  drops them, and a buffer that may hold secrets shows none. The tiled windows and the preview
+  float (of `switch-to-buffer` and the mark list) pass them; the minibuffer's answer is
+  plain.
+- **Colour after shaping:** a shaped row keeps each cluster's first column and buffer offset
+  (`ShapedRow::clusters`) apart from what the cache compares, read again whenever the row is
+  read. So text that moves in the buffer, as every row below a typed character does, is
+  not shaped again, and a row reused while the revision holds has offsets of that revision.
+  `scene/highlight.rs` gives each glyph of `Face::Text` its face as instances are built: one
+  seek in `Highlights` at the row's first cluster, then a walk over the clusters and runs
+  with the glyphs, in column order. An escape, a box, a whitespace mark, the wrap mark, the
+  preedit and the glyph under the cursor keep their faces. A ligature takes its first
+  cluster's face, and the preedit's clusters have no offset. The fills' cells are read once a
+  frame into a list kept from frame to frame, sorted by row, those that meet merged. A row
+  costs a binary search in it, and its glyphs walk its part once. Each row seeks in the
+  highlights rather than going on from the row before, so the part of a long line out of view
+  costs nothing; the seek's cursor is the one allocation a row.
+- **A frame on a report:** `Syntax::take` compares the runs before and after over what windows
+  show of that buffer, read afresh (a wrap may have settled rows since the last job), and over
+  the whole buffer when the preview float shows it. It asks for a frame only if they
+  differ. A range compares at most 4096 runs, past which it counts as changed: a window that
+  shows long lines whole, unwrapped, may show far more runs than it draws, and a frame costs
+  less than the walk. A failure asks for a frame too, for its message.
+- **On by default:** the gate from step 4a is gone; `global-font-lock-mode` is the switch.
+- **`get-state`** says of each buffer whether it holds highlights now (`highlighted`), which a
+  buffer that may hold secrets never does. The benchmark and the e2e flows wait on it.
+- **Tests:** the scene's tests pin which glyphs take a syntax face, the fills and the band, a
+  ligature, and that a report, or text that moved, reshapes nothing. The glue's tests pin that
+  a report asks for a frame only for a shown or previewed run it changed, and that a comparison
+  stops at its cap. With highlighting on by default, the tests that a buffer that may hold
+  secrets, or is not judged yet, gets no job fail if `can_highlight` leaves the check. A
+  scene test pins that a boxed code point and the wrap mark keep their faces inside a
+  highlighted run. An e2e flow checks that a Rust file is drawn in colour while font-lock is
+  on, and plain when it is off. `theme_samples` also draws a frame of highlighted Rust and
+  Markdown in each theme. `rows.rs` gave its piece cache to `rows/pieces.rs` for the size
+  limit.
+- **Perf:** `just perf` types into a generated 1 MiB Rust file with highlighting on and with
+  font-lock off, each first in every other run, and fails if highlighting stopped while it
+  was on or stayed while it was off. It reports `syntax_*` and `syntax_off_*`: key latency,
+  handling and the frame's preparation. On the author's Mac, five runs each, highlighted
+  against plain: typing p50 0.43 and 0.48 ms, p99 0.62 and 1.09 ms; preparation p50 0.19 and
+  0.21 ms, p99 0.29 and 0.50 ms; handling a key p99 0.10 and 0.13 ms. Colour costs nothing
+  that shows. The author's choice: `syntax_type_p99_ms` and `syntax_prepare_p99_ms` are gated
+  with `type_p99_ms`'s thresholds on each runner, and `syntax_type_p99_ms` has its 8 ms budget;
+  the rest is reported only.
+- **The mode commands stay `Look`** (the author's choice), though they now start parsing:
+  over the agent channel, `rust-mode`, `markdown-mode` and `toml-mode` make a buffer parsed
+  whatever its name. That is no more than visiting a file of that name does: the same size and
+  time limits, a buffer that may hold secrets is never parsed, and a buffer whose highlighting
+  stopped tries again at most once every 10 s however often a mode is set.
 
 ## Alternatives considered
 

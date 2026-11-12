@@ -236,9 +236,9 @@ alongside the steps above, after M2-16:
   [ADR 0051](adr/0051-m2-plan-decisions.md)).
   A setting starts the agent channel at launch
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
-- Whatever opening or saving starts, such as a format on save, waits in a buffer the agent
-  channel opened or saved until the person acts there
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Decided: what an agent's open or save starts waits in that buffer for the person, from M4
+  ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)). Nothing in M3 has to wait: what
+  opening or saving starts in M3 runs in oso's own process, and the release build cannot spawn.
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Later, Markdown's fenced code tagged
   `rust` or `toml` is highlighted with those grammars.
@@ -254,6 +254,10 @@ alongside the steps above, after M2-16:
 
 ### M4 — Self-hosting (develop oso in oso)
 
+- First, with the first program that opening or saving starts (format on save or language
+  servers): what an agent's open or save starts waits for the person in that buffer, a `waits`
+  modeline segment, and the agent told so
+  ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)).
 - Language servers: diagnostics, go to definition, completion.
 - A git-porcelain subset: status, staging hunks, commit, push/pull, log,
   conflict resolution.

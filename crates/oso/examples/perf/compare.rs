@@ -28,11 +28,14 @@ const FREEZE: Threshold = gate(3.0, 100.0);
 /// a threshold is at least twice the spread seen there, as a ratio over 1 and
 /// as a difference (ADR 0046). A typing metric takes the wider of its own spread
 /// and that of the motion metric beside it in the same runs, since both draw the
-/// same frames (ADR 0056).
-const LINUX: [(&str, Threshold); 18] = [
+/// same frames (ADR 0056). Typing in a highlighted file, and its frames' preparation, take
+/// plain typing's thresholds (ADR 0111, the author's choice).
+const LINUX: [(&str, Threshold); 20] = [
     ("key_p50_ms", gate(3.5, 0.75)),
     ("key_p99_ms", gate(5.5, 2.5)),
     ("type_p99_ms", gate(2.0, 0.75)),
+    ("syntax_type_p99_ms", gate(2.0, 0.75)),
+    ("syntax_prepare_p99_ms", gate(2.0, 0.75)),
     ("startup_ms", gate(2.25, 55.0)),
     ("open_first_screen_ms", gate(2.25, 4.75)),
     ("open_full_load_ms", gate(3.0, 370.0)),
@@ -49,10 +52,12 @@ const LINUX: [(&str, Threshold); 18] = [
     ("big_trip_max_ms", FREEZE),
     ("dev_build_ms", gate(2.0, 1400.0)),
 ];
-const MACOS: [(&str, Threshold); 18] = [
+const MACOS: [(&str, Threshold); 20] = [
     ("key_p50_ms", gate(3.0, 1.5)),
     ("key_p99_ms", gate(6.5, 12.0)),
     ("type_p99_ms", gate(3.0, 4.0)),
+    ("syntax_type_p99_ms", gate(3.0, 4.0)),
+    ("syntax_prepare_p99_ms", gate(3.0, 4.0)),
     ("startup_ms", gate(4.25, 1030.0)),
     ("open_first_screen_ms", gate(4.75, 44.0)),
     ("open_full_load_ms", gate(4.0, 530.0)),

@@ -97,6 +97,7 @@ pub(super) fn preview_panes<'a>(
                 // Floats have no visual aids (ADR 0097).
                 whitespace: false,
                 flash: None,
+                highlights: buffer.highlights(),
             };
             let number = u32::try_from(id.get()).unwrap_or(u32::MAX);
             pane(

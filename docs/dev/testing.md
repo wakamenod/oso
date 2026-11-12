@@ -342,7 +342,8 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   and panics come back as error responses.
 - `get-state` reads the state as JSON: every buffer (name, path, whether it may
   hold secrets, read-only reason, whether it is modified or being saved, line ending,
-  BOM, invalid-byte count, loading progress, size), every window with its selections, the selected window's
+  BOM, invalid-byte count, loading progress, size, whether highlighting has reported),
+  every window with its selections, the selected window's
   buffer, cursor and scroll position, its visible text, the keys of a pending
   prefix, what the modeline and the echo area say, and the surface size. The visible
   text stops at 128 KiB and says so with `truncated`. A secret buffer has no text, no

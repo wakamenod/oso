@@ -231,6 +231,12 @@ form, in every script
 A glyph paints only the cells of its cluster, in its row and in narrow bands above
 and below the row, and a label's glyphs keep their own cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+Syntax colours only colour glyphs that would be drawn as text: an escape, a box or a
+whitespace mark keeps its own colour, and every syntax colour stays apart from the escape
+colour and the marks', so highlighted text never passes for a label
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Syntax colour is advisory: it comes from
+a parser's guess, which may differ from the compiler's, and never decides how a character is
+shown, boxed or escaped.
 
 ### Persistence (T4, T5)
 
@@ -351,8 +357,13 @@ and below the row, and a label's glyphs keep their own cells
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
     `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
     copies, passphrases, and later trusting a project, spawning processes, secret buffers and
-    secure input. A channel action never starts a process by itself: what opening or saving
-    would start waits until the person acts in that buffer (M3 onward).
+    secure input. A channel action never starts a process by itself (M4 onward, as nothing that opening or
+    saving starts in M3 runs one): what an agent's open would start waits for the person's
+    first command in that buffer, and what its save would start, such as a format on save or a
+    language server's check, for the person's next save of it. oso's own work, such as the
+    whitespace cleanup, runs at once. Each kind of thing opening or saving starts declares
+    whether it runs a program, with no default, and the modeline and the agent's reply say what
+    waits ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)).
   - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
     prompt, a key sequence, a composition or an isearch (ADR 0082), within 1 s of the person's
     last key, or while a

@@ -29,8 +29,11 @@ use crate::shape::{MAX_ROUNDED, Rect, Rounded};
 use crate::text::{GlyphInstance, Layout};
 use crate::theme::Theme;
 
+mod highlight;
 mod panel;
 mod text_pane;
+
+use highlight::{Plain, RowFaces};
 
 use text_pane::{cursor_cells, draw_text, preedit_lines, underline_preedit};
 
@@ -70,6 +73,8 @@ struct Draws {
     held: usize,
     /// What colours the faces take (ADR 0089). Switching it reshapes and rasterizes nothing.
     theme: Theme,
+    /// Where a text pane's text keeps its plain colour, for the pane being drawn.
+    plain: Plain,
 }
 
 impl Draws {
@@ -95,12 +100,13 @@ impl Draws {
         }
     }
 
-    /// Adds what `row` shows. Returns false once there is no room for more.
+    /// Adds what `row` shows, its plain text in what `faces` says. Returns false once there is
+    /// no room for more.
     fn row<G: GlyphSource>(
         &mut self,
-        layout: &Layout,
-        row: usize,
+        (layout, row): (&Layout, usize),
         shaped: &ShapedRow,
+        mut faces: Option<RowFaces<'_>>,
         system: &mut dyn TextSystem,
         glyphs: &mut G,
     ) -> bool {
@@ -135,7 +141,12 @@ impl Draws {
             let Some(entry) = glyphs.get(system, glyph.key) else {
                 continue;
             };
-            if let Some(quad) = layout.quad(row, glyph, &entry, &self.theme) {
+            let mut glyph = *glyph;
+            if let Some(faces) = faces.as_mut().filter(|_| glyph.face == Face::Text) {
+                let [_, column] = layout.frame_cell(row, glyph.column);
+                glyph.face = faces.face(glyph.column, column..column + i64::from(glyph.cells));
+            }
+            if let Some(quad) = layout.quad(row, &glyph, &entry, &self.theme) {
                 self.quads.push(quad);
             }
         }
@@ -167,6 +178,7 @@ impl Scene {
                 quads: Vec::new(),
                 held: 0,
                 theme,
+                plain: Plain::default(),
             },
             layers: Vec::new(),
         }
@@ -507,7 +519,7 @@ fn draw_lines<G: GlyphSource>(
     let end = layout.columns().end;
     for (row, spans) in lines.iter().enumerate().take(shown) {
         let shaped = rows.line(row, spans, end, system);
-        if !draws.row(layout, row, shaped, system, glyphs) {
+        if !draws.row((layout, row), shaped, None, system, glyphs) {
             break;
         }
     }
@@ -526,7 +538,7 @@ mod tests {
     use oso_core::window::{Screen, ViewSize, ViewTop};
     use oso_platform::text::GlyphFormat;
 
-    const LIMITS: Limits = Limits {
+    pub(super) const LIMITS: Limits = Limits {
         rects: 1000,
         quads: 1000,
     };
@@ -535,9 +547,9 @@ mod tests {
     /// first coordinate says which clearing the glyph is from, so a stale one
     /// shows, and it can run out of room or budget once.
     #[derive(Default)]
-    struct FakeAtlas {
+    pub(super) struct FakeAtlas {
         generation: u32,
-        looked_up: Vec<GlyphKey>,
+        pub(super) looked_up: Vec<GlyphKey>,
         /// Reports full once, after this many glyphs.
         full_after: Option<usize>,
         full: bool,
@@ -575,11 +587,11 @@ mod tests {
         }
     }
 
-    fn theme() -> Theme {
+    pub(super) fn theme() -> Theme {
         crate::theme::themes()[0]
     }
 
-    fn rect(row: usize, column: usize, rows: usize, columns: usize) -> CellRect {
+    pub(super) fn rect(row: usize, column: usize, rows: usize, columns: usize) -> CellRect {
         CellRect {
             row,
             column,
@@ -588,13 +600,13 @@ mod tests {
         }
     }
 
-    fn id() -> BufferId {
+    pub(super) fn id() -> BufferId {
         oso_core::editor::Editor::default().window().buffer()
     }
 
     /// The logical lines of `display` from `top`, as a large window shows them, kept for as
     /// long as the test runs.
-    fn screen_of(display: &DisplaySnapshot, top: ViewTop) -> &'static Screen {
+    pub(super) fn screen_of(display: &DisplaySnapshot, top: ViewTop) -> &'static Screen {
         let mut screen = Screen::default();
         screen.show_lines(display, top, ViewSize::new(2048, 1024));
         Box::leak(Box::new(screen))
@@ -613,10 +625,16 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         })
     }
 
-    fn pane<'a>(id: u32, region: CellRect, layer: u8, content: PaneContent<'a>) -> Pane<'a> {
+    pub(super) fn pane<'a>(
+        id: u32,
+        region: CellRect,
+        layer: u8,
+        content: PaneContent<'a>,
+    ) -> Pane<'a> {
         Pane {
             id: PaneId(id),
             region,
@@ -628,7 +646,7 @@ mod tests {
         }
     }
 
-    fn build(scene: &mut Scene, panes: &[Pane<'_>], atlas: &mut FakeAtlas) -> Recorder {
+    pub(super) fn build(scene: &mut Scene, panes: &[Pane<'_>], atlas: &mut FakeAtlas) -> Recorder {
         let mut system = Recorder::default();
         scene.build(panes, &mut system, atlas);
         system
@@ -713,6 +731,7 @@ mod tests {
                     fills: &[],
                     whitespace: false,
                     flash: None,
+                    highlights: None,
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -805,6 +824,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
@@ -1057,6 +1077,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1093,6 +1114,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1188,6 +1210,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 120), 0, content)];
         let limits = Limits {
@@ -1223,6 +1246,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1255,6 +1279,7 @@ mod tests {
                 cells: rect(1, 1, 1, 7),
                 strength: 0.25,
             }),
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, 2, 8), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1290,6 +1315,7 @@ mod tests {
                 cells: rect(0, 0, 1, 12),
                 strength: 1.0,
             }),
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 12), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1320,6 +1346,7 @@ mod tests {
             fills: &[(Face::Region, &region)],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
@@ -1368,6 +1395,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1409,6 +1437,7 @@ mod tests {
                 fills: &[],
                 whitespace: false,
                 flash: None,
+                highlights: None,
             })
         };
         let mut scene = Scene::new(LIMITS, theme());
@@ -1460,6 +1489,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let mut scene = Scene::new(LIMITS, theme());
         let system = build(
@@ -1508,6 +1538,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let panes = [pane(0, rect(0, 0, rows, columns), 0, content)];
         build(scene, &panes, &mut FakeAtlas::default());
@@ -1570,6 +1601,7 @@ mod tests {
                 fills: &[],
                 whitespace: false,
                 flash: None,
+                highlights: None,
             });
             let panes = [pane(0, rect(0, 0, 40, 20), 0, content)];
             let before = scene.shaped_count();
@@ -1613,6 +1645,7 @@ mod tests {
                 fills: &[],
                 whitespace: false,
                 flash: None,
+                highlights: None,
             });
             let panes = [pane(0, rect(0, 0, 40, 20), 0, content)];
             let before = scene.shaped_count();
@@ -1647,6 +1680,7 @@ mod tests {
                 fills: &[],
                 whitespace: false,
                 flash: None,
+                highlights: None,
             });
             let panes = [pane(0, rect(0, 0, 20, 40), 0, content)];
             let before = scene.shaped_count();
@@ -1680,6 +1714,7 @@ mod tests {
                 fills: &[],
                 whitespace,
                 flash: None,
+                highlights: None,
             })
         };
         let mut scene = Scene::new(LIMITS, theme());
@@ -1721,6 +1756,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let mut scene = Scene::new(LIMITS, theme());
         build(
@@ -1755,6 +1791,7 @@ mod tests {
                 fills: &[],
                 whitespace: false,
                 flash: None,
+                highlights: None,
             })
         };
         let panes = |first, second_id| {
@@ -1918,6 +1955,7 @@ mod tests {
             fills: &[],
             whitespace: false,
             flash: None,
+            highlights: None,
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);
