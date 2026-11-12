@@ -35,19 +35,14 @@ impl Editor {
         window.screen_into(&buffer.display(), preedit, out);
     }
 
-    /// What each tiled window shows of its buffer, as the bytes from its first row's start to
-    /// its last row's end, into `out`, which is emptied first: the syntax worker highlights
-    /// these first (ADR 0111). A window with no rows shows nothing.
+    /// What each tiled window shows of its buffer, as the bytes of its rows in view, into
+    /// `out`, which is emptied first: the syntax worker highlights these first (ADR 0111). A
+    /// few seeks a window, with no row laid out.
     pub fn shown_ranges(&self, out: &mut Vec<(BufferId, Range<usize>)>) {
         out.clear();
-        let mut screen = Screen::default();
         for window in &self.windows {
-            let Some((window, buffer, _)) = self.window_in_tree(window.id()) else {
-                continue;
-            };
-            window.screen_into(&buffer.display(), None, &mut screen);
-            if let (Some(first), Some(last)) = (screen.rows().first(), screen.rows().last()) {
-                out.push((window.buffer(), first.start..last.end.max(first.start)));
+            if let Some((window, buffer, _)) = self.window_in_tree(window.id()) {
+                out.push((window.buffer(), window.shown_bytes(&buffer.display())));
             }
         }
     }

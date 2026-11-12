@@ -3123,6 +3123,7 @@ pub fn oso_core::window::Window::id(&self) -> oso_core::window::WindowId
 pub fn oso_core::window::Window::row_count(&self, &oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::window::Window::scroll(&self) -> oso_core::window::Scroll
 pub fn oso_core::window::Window::set_top(&mut self, usize, &oso_core::display_map::DisplaySnapshot) -> bool
+pub fn oso_core::window::Window::shown_bytes(&self, &oso_core::display_map::DisplaySnapshot) -> core::ops::range::Range<usize>
 pub fn oso_core::window::Window::size(&self) -> oso_core::window::ViewSize
 pub fn oso_core::window::Window::top_row(&self, &oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::window::Window::wrap(&self) -> core::option::Option<&oso_core::display_map::wrap_map::WrapSnapshot>

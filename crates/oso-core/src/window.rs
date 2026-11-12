@@ -292,6 +292,20 @@ impl Window {
         self.rows(display).row_of(self.scroll.start)
     }
 
+    /// The bytes its rows in view hold, from its top row's start to where the row after its
+    /// last starts: a few seeks, with no row laid out (ADR 0111).
+    pub fn shown_bytes(&self, display: &DisplaySnapshot) -> std::ops::Range<usize> {
+        let rows = self.rows(display);
+        let top = rows.row_of(self.scroll.start);
+        let after = top.saturating_add(self.size.rows);
+        let end = if after < rows.count() {
+            rows.start(after)
+        } else {
+            display.len()
+        };
+        rows.start(top)..end
+    }
+
     /// The view row of the primary cursor.
     pub fn cursor_row(&self, display: &DisplaySnapshot) -> usize {
         self.rows(display).row_of(self.selections.primary().cursor)
