@@ -442,6 +442,39 @@ fn avy_isearch_labels_a_regexp_search_s_matches() {
 }
 
 #[test]
+fn avy_isearch_with_a_regexp_on_a_long_line_reads_around_the_view() {
+    // One line of 4 MiB, the cursor in its middle.
+    let text = "foo bar ".repeat(512 * 1024);
+    let mut editor = editor(&text);
+    let middle = text.len() / 2;
+    editor.window_mut(0).0.selections = SelectionSet::new(middle);
+    editor.follow_cursor();
+    editor.isearch_begin(false, true);
+    editor.isearch_add("fo+ ");
+    // A line this long is the worker's for the search itself.
+    while let Some(job) = editor.take_isearch_job() {
+        let mut reports = Vec::new();
+        job.run(|report| reports.push(report));
+        for report in reports {
+            editor.isearch_reported(report);
+        }
+    }
+    let at = cursor(&editor);
+    assert_eq!(at, middle + 4);
+    let started = std::time::Instant::now();
+    assert!(editor.jump_begin(Kind::Isearch, false));
+    let took = started.elapsed();
+    let found = targets(&editor);
+    assert!(!found.is_empty());
+    // Only what the view shows is read, a few rows of 40 columns around the cursor.
+    assert!(
+        found.iter().all(|&start| start.abs_diff(at) < 4096),
+        "{found:?}"
+    );
+    assert!(took.as_millis() < 50, "{took:?}");
+}
+
+#[test]
 fn around_a_secret_the_jump_says_so_and_debug_holds_no_string() {
     let mut editor = Editor::with_buffer(secret_buffer());
     editor.set_frame_size(FrameSize {
