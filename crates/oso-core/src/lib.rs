@@ -17,6 +17,7 @@ pub mod decode;
 pub mod display_map;
 pub mod editor;
 pub mod frame;
+pub mod indent;
 pub mod key;
 pub mod keymap;
 pub mod kill;
