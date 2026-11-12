@@ -195,6 +195,12 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   the matches over an O(1) snapshot, superseded by the next job through a generation. A frame
   searches only the rows in view for the highlights. A search ends when its window shows another
   buffer or a prompt opens.
+- **Jumps by label** (`Editor::jump`, `oso_core::jump`,
+  [ADR 0116](adr/0116-migemo-and-jumps.md)) are a mode of the selected window too, with their own
+  keymap. A key finds the candidates in every tiled window's rows in view, within 256 KiB a window
+  and 1 MiB a jump, nearest the window's primary cursor first, and labels them with avy's tree; a
+  frame draws only those found. The tip crate runs the timer that shows the labels
+  (`app/jumps.rs`).
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
@@ -284,7 +290,8 @@ A panicking command is caught at the command boundary
   ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
   copies, in a prompt and in a Markdown buffer (`M-RET`), and a layer for the user's keys, which
   the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
-  take the global layer's place, so that no other key reaches a command.
+  take the global layer's place, so that no other key reaches a command. While a jump is on, its
+  keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.

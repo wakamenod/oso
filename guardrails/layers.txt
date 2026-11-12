@@ -23,7 +23,7 @@ oso-core oso-platform
 keymap
 command
 editor
-minibuffer
+minibuffer jump
 frame
 window word
 buffer motion search

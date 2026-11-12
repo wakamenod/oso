@@ -71,6 +71,12 @@ pub(super) enum Name {
     SynHeading,
     SynLink,
     SynMarkup,
+    /// A jump's label (ADR 0116): its first key, and the keys after it. Each a strong fill of a
+    /// hue no other fill takes, its text at 7:1 on it.
+    FgJump,
+    BgJump,
+    FgJumpNext,
+    BgJumpNext,
 }
 
 /// Near-black, with a high-contrast foreground: the default.
@@ -123,6 +129,11 @@ pub(super) fn dark(name: Name) -> Color {
         SynHeading => rgb(0xe69292),
         SynLink => rgb(0x0bbcb9),
         SynMarkup => rgb(0xbbaa0c),
+        // A bright magenta and a bright cyan, far from the escape's orange and the matches' fills.
+        FgJump => rgb(0x0d0e12),
+        BgJump => rgb(0xff6ad5),
+        FgJumpNext => rgb(0x0d0e12),
+        BgJumpNext => rgb(0x4fe0d0),
     }
 }
 
@@ -174,6 +185,11 @@ pub(super) fn light(name: Name) -> Color {
         SynHeading => rgb(0x76273f),
         SynLink => rgb(0x06525e),
         SynMarkup => rgb(0x504f2e),
+        // A deep magenta and a deep teal, white on them.
+        FgJump => rgb(0xffffff),
+        BgJump => rgb(0x9c1a80),
+        FgJumpNext => rgb(0xffffff),
+        BgJumpNext => rgb(0x005c5a),
     }
 }
 
@@ -227,5 +243,10 @@ pub(super) fn dusk(name: Name) -> Color {
         SynHeading => rgb(0xf3f3f6),
         SynLink => rgb(0x76fffb),
         SynMarkup => rgb(0xe2fb68),
+        // As `dark`'s, a little lighter on the grey.
+        FgJump => rgb(0x1a1a22),
+        BgJump => rgb(0xff7ae0),
+        FgJumpNext => rgb(0x1a1a22),
+        BgJumpNext => rgb(0x5ee8d6),
     }
 }

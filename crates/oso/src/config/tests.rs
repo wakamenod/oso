@@ -5,15 +5,17 @@
 //! Must not depend on: `app`, `dispatch` or the file system; these run on strings alone.
 
 use std::fmt::Write;
+use std::time::Duration;
 
 use oso_core::command::Registry;
 use oso_core::display_map::cell::escape;
+use oso_core::jump::Keys;
 use oso_core::key::KeySequence;
 use oso_core::keymap::{Binding, Keymap};
 use proptest::prelude::*;
 
 use super::problems::{MAX_PROBLEMS, MAX_QUOTED};
-use super::settings::{Aids, ThemeSetting};
+use super::settings::{Aids, Jump, ThemeSetting};
 use super::{Loaded, STACK, parse};
 use crate::{bindings, commands};
 
@@ -92,6 +94,10 @@ start = true
 
 [save]
 trim-whitespace = true
+
+[jump]
+keys = "hjkl"
+timeout = 0.3
 "#,
     );
     assert_eq!(messages(&loaded), Vec::<String>::new());
@@ -118,6 +124,13 @@ trim-whitespace = true
     );
     assert_eq!(settings.agent_channel_start, Some(true));
     assert_eq!(settings.save.trim_whitespace, Some(true));
+    assert_eq!(
+        settings.jump,
+        Jump {
+            keys: Some(Keys::new("hjkl").unwrap()),
+            timeout: Some(Duration::from_millis(300)),
+        }
+    );
 }
 
 #[test]
@@ -167,6 +180,8 @@ colour = "dusk"
 stop = true
 [save]
 trim = true
+[jump]
+labels = "asdf"
 "#,
     );
     assert_eq!(
@@ -177,6 +192,7 @@ trim = true
             r#"7:1: unknown name "colour" in [theme], skipped"#,
             r#"9:1: unknown name "stop" in [agent-channel], skipped"#,
             r#"11:1: unknown name "trim" in [save], skipped"#,
+            r#"13:1: unknown name "labels" in [jump], skipped"#,
         ]
     );
     assert_eq!(loaded.settings.aids.flash, Some(true));
@@ -297,6 +313,9 @@ fn configish() -> impl Strategy<Value = String> {
         Just("[theme]\n".to_owned()),
         Just("[aids]\n".to_owned()),
         Just("[agent-channel]\n".to_owned()),
+        Just("[jump]\n".to_owned()),
+        Just("keys = \"asdf\"\n".to_owned()),
+        Just("timeout = 0.5\n".to_owned()),
         Just("[[keys.global]]\n".to_owned()),
         Just("pair = [\"dusk\", \"light\"]\n".to_owned()),
         Just("default = \"dusk\"\n".to_owned()),

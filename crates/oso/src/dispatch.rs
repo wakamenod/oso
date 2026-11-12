@@ -31,6 +31,7 @@ mod clipboard;
 mod extended;
 mod held;
 mod hold_all;
+mod jump;
 mod keymaps;
 mod macros;
 mod prompts;
@@ -62,6 +63,9 @@ pub struct Dispatcher {
     /// (ADR 0113).
     #[cfg(any(test, feature = "dev"))]
     replace_commands: Vec<CommandId>,
+    /// The commands that run in a jump rather than end it, for `run-command` (ADR 0116).
+    #[cfg(any(test, feature = "dev"))]
+    jump_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -69,8 +73,6 @@ pub struct Dispatcher {
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
-    /// The key just read runs a command of the layer of `C-x TAB`, which stays open for it.
-    rigid_key: bool,
     /// The user's keymap given while a prefix key was pending, which goes in once none is
     /// (ADR 0108).
     user_waiting: Option<Keymap>,
@@ -93,7 +95,7 @@ pub struct Dispatcher {
     /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
     completion_held: Option<held::HeldTake>,
     /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
-    jump: Option<bool>,
+    view_jumped: Option<bool>,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -112,46 +114,27 @@ impl Dispatcher {
 
     /// A dispatcher over `registry`, with `global` as the global keymap.
     pub fn with(registry: Registry, global: Keymap) -> Self {
-        let (digits, minus) = bindings::prefix_keymaps(&registry);
-        let (list, copy) = bindings::recovery_keymaps(&registry);
-        let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
-        let isearch = bindings::isearch_keymap(&registry);
-        let replace = bindings::replace_keymap(&registry);
-        let (rigid, markdown) = (
-            bindings::rigid_keymap(&registry),
-            bindings::markdown_keymap(&registry),
-        );
-        let rigid_commands = bindings::rigid_commands(&registry);
+        let keymaps = Keymaps::new(&registry, global);
         let macros = macros::MacroInput::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]
         let replace_commands = bindings::replace_commands(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let jump_commands = bindings::jump_commands(&registry);
         Self {
-            keymaps: Keymaps {
-                global,
-                user: Keymap::new(),
-                prefix: [digits, minus],
-                copy: [list, copy],
-                minibuffer,
-                question,
-                completing,
-                isearch,
-                replace,
-                rigid,
-                rigid_commands,
-                markdown,
-            },
+            keymaps,
             #[cfg(any(test, feature = "dev"))]
             isearch_commands,
             #[cfg(any(test, feature = "dev"))]
             replace_commands,
+            #[cfg(any(test, feature = "dev"))]
+            jump_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
             resolver: KeyResolver::new(),
             prefix: None,
-            rigid_key: false,
             user_waiting: None,
             replaced: Vec::new(),
             last: None,
@@ -161,7 +144,7 @@ impl Dispatcher {
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             completion_held: None,
-            jump: None,
+            view_jumped: None,
             ran_for_agent: false,
             #[cfg(test)]
             m_x_only: None,
@@ -242,7 +225,7 @@ impl Dispatcher {
         let out = work(self, editor);
         // Before the view is sampled: another digit of line numbers narrows the text area.
         editor.fit_gutter();
-        self.jump = Some(editor.flashes(&before, &editor.view_sample()));
+        self.view_jumped = Some(editor.flashes(&before, &editor.view_sample()));
         self.take_waiting_user();
         self.show_keys_in_progress(editor);
         out
@@ -287,8 +270,8 @@ impl Dispatcher {
     /// Whether the last input since this was last asked made the view jump, so the cursor
     /// flashes, or none came. An input that did not jump ends a flash; an agent's never
     /// does, so after one only a jump is reported.
-    pub fn take_jump(&mut self) -> Option<bool> {
-        self.jump.take()
+    pub fn take_view_jumped(&mut self) -> Option<bool> {
+        self.view_jumped.take()
     }
 
     /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.
@@ -427,8 +410,9 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
-        // Any other command closes the layer of `C-x TAB` first, joining its keys' edits.
-        if !std::mem::take(&mut self.rigid_key) {
+        // Any command but the person's of the layer of `C-x TAB` closes it first, joining its
+        // keys' edits.
+        if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
             editor.set_indent_rigidly_layer(false);
         }
         editor.begin_command();
@@ -508,6 +492,9 @@ impl Dispatcher {
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
         let dropped = self.drop_held_completion();
+        if let Some(effects) = self.jump_digit(editor, key) {
+            return effects;
+        }
         let reading = self.keymaps.reading();
         let mut layers = self.keymaps.active(&reading, self.prefix, editor);
         // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
@@ -528,6 +515,9 @@ impl Dispatcher {
             Resolution::Pending => {
                 log::debug!("{}-", masked(self.resolver.pending(), true));
                 return Effects::default();
+            }
+            Resolution::Unbound(_) if editor.jump().is_some() => {
+                return self.jump_unbound(editor);
             }
             Resolution::Unbound(keys)
                 if editor.isearch().is_some() || editor.replace().is_some() =>
@@ -583,7 +573,6 @@ impl Dispatcher {
         if self.hold_for_completion(editor, id, args, dropped) {
             return Effects::default();
         }
-        self.rigid_key = self.keymaps.rigid_commands.contains(&id);
         let invocation = Invocation {
             input,
             key_char,
@@ -634,6 +623,8 @@ mod ime_tests;
 mod indent_tests;
 #[cfg(test)]
 mod isearch_tests;
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod kill_tests;
 #[cfg(test)]

@@ -494,6 +494,7 @@ fn answer<'a>(
         // Where the answer's rows were laid out with it (ADR 0104).
         preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
         fills: &lines.fills,
+        labels: &[],
         whitespace: false,
         flash: None,
         highlights: None,

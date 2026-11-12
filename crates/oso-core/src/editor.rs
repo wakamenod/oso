@@ -48,6 +48,7 @@ mod follow;
 mod gutter;
 mod indent;
 mod isearch;
+mod jump;
 mod kill;
 mod macros;
 mod marks;
@@ -83,6 +84,7 @@ pub use files::Looked;
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
+pub use jump::{Chose, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
@@ -234,6 +236,11 @@ pub struct Editor {
     agent: agent::Agent,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
+    /// The jump under way, and the keys its labels are typed with (ADR 0116).
+    jump: Option<crate::jump::Jump>,
+    jump_keys: crate::jump::Keys,
+    /// Room a jump finds its candidates in, kept from key to key.
+    jump_scratch: jump::Scratch,
     /// The generation of the search job that may run, which a worker checks to stop.
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
@@ -330,6 +337,9 @@ impl Editor {
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
             isearch: None,
+            jump: None,
+            jump_keys: crate::jump::Keys::default(),
+            jump_scratch: jump::Scratch::default(),
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
             marking: None,
@@ -1054,6 +1064,8 @@ mod edit_tests;
 mod highlight_tests;
 #[cfg(test)]
 mod isearch_tests;
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]

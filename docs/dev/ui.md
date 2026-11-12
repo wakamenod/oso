@@ -449,6 +449,35 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   every match, with the search's string and case
   ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 
+## Jumps
+
+- `M-j` (`avy-goto-char-timer`) reads a string on the echo row, `Jump: ka`, and highlights its
+  matches in view as isearch's other matches. `DEL` takes a character away. Half a second after
+  the last key, or at `RET`, each match shows a label; with no string yet, it waits
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+- `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit that no label
+  takes, typed before any of a label, opens `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key. `M-j` in
+  isearch (`avy-isearch`) labels the search's matches in the selected window, and ends the search
+  at the one chosen, as `RET` does.
+- Labels show in every tiled window, nearest the window's cursor first, over the first cells of
+  each target in two faces of their own: the key to type next, and the keys after it. A label is
+  cut at the row's end and at the next label. Typing a label's keys jumps; its first key keeps the
+  labels that start with it. At most 4096 are labelled, and the echo row then says how many
+  there were.
+- The primary cursor jumps and the others stay. A jump into another window selects it. With a
+  region shown, the jump extends it; otherwise the place left is pushed onto the mark ring.
+  `C-u` keeps to the selected window.
+- `C-g` ends a jump with nothing moved, before anything else it would do. A key that is not a
+  label, `DEL` and `RET` among them, says `No such candidate` and does not run; while the string
+  is read, a key the jump does not bind ends it silently. A change to the text or a scroll under
+  the labels ends the jump, saying which, and the next key types nothing; while the string is
+  read, its matches are found again.
+- Labels are drawn over everything in their cells, the text of the rows beside them too, and
+  under floats. A keyboard macro replays a jump as it was recorded, labels and all.
+- `[jump] keys` sets the label keys, `asdfghjl` by default: 2 to 32 distinct printable ASCII
+  characters, none of `W K Y T c`. `[jump] timeout` sets the wait in seconds, 0.1 to 5, 0.5 by
+  default.
+
 ## query-replace
 
 - `M-%` reads the string and its replacement in two prompts, which take Japanese as the prompt

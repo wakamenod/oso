@@ -210,7 +210,7 @@ impl App {
             );
         }
         // Showing the buffer is no input of the dispatcher's, so it is compared here.
-        let jumped = self.dispatcher.take_jump() == Some(true)
+        let jumped = self.dispatcher.take_view_jumped() == Some(true)
             || self.editor.flashes(&before, &self.editor.view_sample());
         self.flash_after_agent(jumped);
         self.request_redraw();

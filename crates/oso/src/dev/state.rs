@@ -22,6 +22,7 @@ use oso_core::complete::Candidates;
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::editor::{Editor, Isearch, Preview, Replace, Status};
 use oso_core::frame::{CellRect, PixelRect};
+use oso_core::jump::{Jump, Stage};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::minibuffer::MAX_ENTRY_BYTES;
@@ -96,6 +97,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
         "isearch": isearch_state(editor),
+        "jump": jump_state(editor),
         "replace": replace_state(editor),
         "macro": { "recording": editor.macro_recording(), "replaying": editor.macro_replaying() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
@@ -118,6 +120,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         state["modeline"] = json!(status.modeline());
         // isearch's line holds its string, and query-replace's both of its.
         let search_withheld = editor.isearch().is_some_and(Isearch::around_secret)
+            || editor.jump().is_some_and(Jump::around_secret)
             || editor.replace().is_some_and(Replace::around_secret);
         if keys_shown && !search_withheld {
             state["echo"] = json!(status.echo);
@@ -125,6 +128,23 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     }
     state["kill_ring"] = kill_ring_state(editor);
     state
+}
+
+/// The `jump` field of `get-state`: null, or the jump under way, where it has got to and how
+/// many candidates it found (ADR 0116). While a buffer that may hold secrets is shown, or for a
+/// jump around one, only that one is under way. Nothing gives the labels' places.
+fn jump_state(editor: &Editor) -> Value {
+    let Some(jump) = editor.jump() else {
+        return Value::Null;
+    };
+    if editor.shows_secret() || jump.around_secret() {
+        return json!({ "active": true });
+    }
+    let stage = match jump.stage() {
+        Stage::Reading => "reading",
+        Stage::Labels => "labels",
+    };
+    json!({ "active": true, "stage": stage, "count": jump.count() })
 }
 
 /// The `isearch` field of `get-state`: null, or the search under way, its string, where it
@@ -767,6 +787,7 @@ mod tests {
                 "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
                 "isearch": null,
+                "jump": null,
                 "replace": null,
                 "macro": { "recording": false, "replaying": false },
                 "surface": { "width": 800, "height": 600 },
@@ -988,6 +1009,34 @@ mod tests {
             Some(("ab", "c")),
             "no pair from around it"
         );
+    }
+
+    #[test]
+    fn a_jump_reads_back_its_stage_and_count_unless_around_a_secret() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("plain.txt", "ab ab"));
+        assert_eq!(
+            get_state(&editor, &[], None)["jump"],
+            serde_json::Value::Null
+        );
+        editor.jump_begin(oso_core::jump::Kind::Char, false);
+        editor.jump_add("ab");
+        let state = get_state(&editor, &[], None);
+        assert_eq!(
+            state["jump"],
+            json!({ "active": true, "stage": "reading", "count": 2 })
+        );
+        assert_eq!(state["echo"], "Jump: ab");
+        editor.jump_end();
+        let path = PathBuf::from("/tmp/.env");
+        let mut key = Buffer::visiting(path.clone());
+        key.judge_secret(Some(&[path]));
+        let key = editor.add_buffer(key);
+        editor.show(key);
+        editor.jump_begin(oso_core::jump::Kind::Char, false);
+        editor.jump_add("TOKEN");
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["jump"], json!({ "active": true }));
+        assert!(!state.to_string().contains("TOKEN"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 //! A tiled window's rows in a text-grid snapshot (ADR 0045, ADR 0112): each row, then the
-//! lines that mark its cells, the fills behind it and a preedit's underline.
+//! lines that mark its cells, the fills behind it, a jump's labels and a preedit's underline.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every OS with no
 //! window.
@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use oso_core::display_map::Preedit;
-use oso_core::editor::{Editor, Gutter};
+use oso_core::editor::{Editor, Gutter, JumpCells};
 use oso_core::frame::{self, CellRect, WindowRegions};
 use oso_core::motion;
 use oso_core::window::{Screen, WindowId};
@@ -66,6 +66,8 @@ pub(super) fn draw_text_area(
     let mut found = oso_core::editor::MatchCells::default();
     editor.isearch_cells(id, screen, &mut found);
     let (current, matches) = (found.current, found.others);
+    let mut jump = JumpCells::default();
+    editor.jump_cells(id, screen, &mut jump);
     let (mut trailing, band) = (Vec::new(), editor.current_line_cells(id, screen));
     editor.trailing_cells(id, screen, &mut trailing);
     let whitespace = editor.visual_aids().whitespace;
@@ -97,7 +99,6 @@ pub(super) fn draw_text_area(
             let marks: String = marks.into_iter().collect();
             lines.push(format!(":{pad}{marks}:"));
         }
-        let mut marks = vec![' '; area.columns];
         // In the renderer's order, so a region shows over a match, and both over the band.
         let (band, flash) = (band.as_slice(), flash.as_slice());
         let fills = [
@@ -105,17 +106,11 @@ pub(super) fn draw_text_area(
             (&trailing[..], 't'),
             (&current, '#'),
             (&matches, '~'),
+            (&jump.matches, '~'),
             (&region, '*'),
+            (flash, 'f'),
         ];
-        for (cells, mark) in fills.into_iter().chain([(flash, 'f')]) {
-            for cells in cells.iter().filter(|cells| cells.row == area.row + index) {
-                let start = cells.column - area.column;
-                marks[start..start + cells.columns].fill(mark);
-            }
-        }
-        if marks.iter().any(|&mark| mark != ' ') {
-            lines.push(format!("+{pad}{}+", marks.into_iter().collect::<String>()));
-        }
+        draw_fills(&fills, &jump, (area, index), pad.as_str(), lines);
         let on_row = screen
             .rows()
             .get(index)
@@ -127,6 +122,60 @@ pub(super) fn draw_text_area(
             }
         }
     }
+}
+
+/// The line between `+` that marks the cells of `fills` on the area's row `index`, each over
+/// the ones before it, then a jump's labels over them all, as the renderer draws them, and the
+/// line between `@` with the labels' keys.
+fn draw_fills(
+    fills: &[(&[CellRect], char)],
+    jump: &JumpCells,
+    (area, index): (CellRect, usize),
+    pad: &str,
+    lines: &mut Vec<String>,
+) {
+    let mut marks = vec![' '; area.columns];
+    for &(cells, mark) in fills {
+        for cells in cells.iter().filter(|cells| cells.row == area.row + index) {
+            let start = cells.column - area.column;
+            marks[start..start + cells.columns].fill(mark);
+        }
+    }
+    let keys = draw_labels(jump, area, index, &mut marks);
+    if marks.iter().any(|&mark| mark != ' ') {
+        lines.push(format!("+{pad}{}+", marks.into_iter().collect::<String>()));
+    }
+    if let Some(keys) = keys {
+        lines.push(format!("@{pad}{keys}@"));
+    }
+}
+
+/// The labels of `jump` on the area's row `index`: `J` in `marks` under each label's first
+/// key and `j` under the keys after it, as their two faces, and the keys at their cells, if
+/// the row has a label.
+fn draw_labels(
+    jump: &JumpCells,
+    area: CellRect,
+    index: usize,
+    marks: &mut [char],
+) -> Option<String> {
+    let mut keys = vec![' '; area.columns];
+    let on_row = jump
+        .labels
+        .iter()
+        .filter(|label| label.cells.row == area.row + index);
+    let mut any = false;
+    for label in on_row {
+        let start = label.cells.column - area.column;
+        let cells = start..start + label.cells.columns;
+        for (column, key) in cells.clone().zip(jump.text[label.keys.clone()].chars()) {
+            keys[column] = key;
+        }
+        marks[cells].fill('j');
+        marks[start] = 'J';
+        any = true;
+    }
+    any.then(|| keys.into_iter().collect())
 }
 
 /// The line under a row with `preedit` at column `at`: `-` under its cells and `=`

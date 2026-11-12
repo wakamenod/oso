@@ -1,15 +1,19 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
-//! argument's, the layer `C-x TAB` opens, a prompt's, a completion's or a question's, isearch's,
-//! a mode's, the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108,
-//! ADR 0115).
+//! argument's, the layer `C-x TAB` opens, a prompt's, a completion's or a question's, a jump's,
+//! isearch's, a mode's, the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082,
+//! ADR 0108, ADR 0115, ADR 0116).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
+//!
+//! The default keymaps come from `bindings`.
 
 use oso_core::buffer::Mode;
-use oso_core::command::{CommandId, Prefix};
+use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
 use oso_core::keymap::{Keymap, Layers};
 use oso_core::minibuffer::Kind;
+
+use crate::bindings;
 
 /// Every keymap a dispatcher holds.
 pub(super) struct Keymaps {
@@ -31,6 +35,8 @@ pub(super) struct Keymaps {
     pub(super) completing: Keymap,
     /// The keys of a search under way, in place of the others (ADR 0082).
     pub(super) isearch: Keymap,
+    /// The keys of a jump under way, in place of the others, isearch's too (ADR 0116).
+    pub(super) jump: Keymap,
     /// The answers of a query-replace under way, in place of the others (ADR 0113).
     pub(super) replace: Keymap,
     /// The keys of the layer `C-x TAB` opens, first while it is open (ADR 0115).
@@ -42,9 +48,32 @@ pub(super) struct Keymaps {
 }
 
 impl Keymaps {
+    /// The default keymaps over the commands in `registry`, with `global` as the global keymap
+    /// and no user keys.
+    pub(super) fn new(registry: &Registry, global: Keymap) -> Self {
+        let (digits, minus) = bindings::prefix_keymaps(registry);
+        let (list, copy) = bindings::recovery_keymaps(registry);
+        let [minibuffer, question, completing] = bindings::prompt_keymaps(registry);
+        Self {
+            global,
+            user: Keymap::new(),
+            prefix: [digits, minus],
+            copy: [list, copy],
+            minibuffer,
+            question,
+            completing,
+            isearch: bindings::isearch_keymap(registry),
+            jump: bindings::jump_keymap(registry),
+            replace: bindings::replace_keymap(registry),
+            rigid: bindings::rigid_keymap(registry),
+            rigid_commands: bindings::rigid_commands(registry),
+            markdown: bindings::markdown_keymap(registry),
+        }
+    }
+
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 13] {
+    pub(super) fn all(&self) -> [&Keymap; 14] {
         let Self {
             global,
             user,
@@ -54,6 +83,7 @@ impl Keymaps {
             question,
             completing,
             isearch,
+            jump,
             replace,
             rigid,
             rigid_commands: _,
@@ -61,7 +91,7 @@ impl Keymaps {
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            replace, rigid, markdown,
+            jump, replace, rigid, markdown,
         ]
     }
 
@@ -88,6 +118,9 @@ impl Keymaps {
             .is_some_and(|prompt| prompt.kind().is_question())
         {
             return Layers::global(&self.question);
+        }
+        if editor.jump().is_some() {
+            return Layers::global(&self.jump);
         }
         if editor.isearch().is_some() {
             return Layers::global(&self.isearch);

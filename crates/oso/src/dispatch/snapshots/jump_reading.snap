@@ -1,0 +1,55 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: xab ab\\nab abc\\n"
+---
+keys: M-j a
+│xab ab      │
+:^           :
++ ~  ~       +
+│ab abc      │
++~  ~        +
+=-- test  1:0=
+"Jump: a     "
+
+keys: b
+│xab ab      │
+:^           :
++ ~~ ~~      +
+│ab abc      │
++~~ ~~       +
+=-- test  1:0=
+"Jump: ab    "
+
+keys: DEL
+│xab ab      │
+:^           :
++ ~  ~       +
+│ab abc      │
++~  ~        +
+=-- test  1:0=
+"Jump: a     "
+
+keys: b RET
+│xab ab      │
+:^           :
++ J  J       +
+@ a  s       @
+│ab abc      │
++J  J        +
+@d  f        @
+=-- test  1:0=
+"Jump: ab    "
+
+keys: s
+│xab ab      │
+:    ^       :
+│ab abc      │
+=-- test  1:4=
+"            "
+
+keys: M-j a b RET C-g
+│xab ab      │
+:    ^       :
+│ab abc      │
+=-- test  1:4=
+"Quit        "
