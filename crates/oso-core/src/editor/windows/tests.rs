@@ -381,3 +381,58 @@ fn a_deleted_window_gives_its_cells_to_the_one_before_it_or_after_the_first() {
     editor.delete_window().unwrap();
     assert_eq!(rows(&editor, c), 39, "after the first: all of it");
 }
+
+#[test]
+fn a_tiling_taken_from_one_editor_lays_another_out_the_same() {
+    let mut editor = editor(&lines(10), (40, 81));
+    editor.split_window(Way::Across, false).unwrap();
+    editor.split_window(Way::Down, true).unwrap();
+    editor.resize_window(Way::Down, 4).unwrap();
+    let tiling = editor.tiling();
+    assert_eq!(tiling.windows(), 3);
+
+    let mut other = super::super::Editor::with_buffer(Buffer::from_text("t", &lines(10)));
+    other.set_frame_size(FrameSize {
+        rows: 40,
+        columns: 81,
+    });
+    let ids = other.set_tiling(&tiling).unwrap();
+    assert_eq!(ids.len(), 3);
+    assert_eq!(ids[0], other.window().id(), "the window it had comes first");
+    assert_eq!(other.tiling(), tiling);
+    let cells = |editor: &Editor| -> Vec<_> {
+        editor
+            .frame()
+            .windows()
+            .iter()
+            .map(|(_, regions)| *regions)
+            .collect()
+    };
+    assert_eq!(cells(&other), cells(&editor), "the same cells");
+    let buffer = other.window().buffer();
+    assert!(other.windows().all(|window| window.buffer() == buffer));
+    assert_eq!(
+        other.set_tiling(&tiling),
+        Err(crate::frame::BadTiling::Split),
+        "only from one window"
+    );
+}
+
+#[test]
+fn a_tiling_waits_for_the_prompts_to_close() {
+    let mut editor = editor("text", (24, 80));
+    let tiling = crate::frame::Tiling::Run {
+        way: Way::Down,
+        children: vec![
+            (1, crate::frame::Tiling::Window),
+            (1, crate::frame::Tiling::Window),
+        ],
+    };
+    editor.ask("Exit?", "keyboard-quit").unwrap();
+    assert_eq!(
+        editor.set_tiling(&tiling),
+        Err(crate::frame::BadTiling::Split)
+    );
+    editor.quit();
+    assert_eq!(editor.set_tiling(&tiling).map(|ids| ids.len()), Ok(2));
+}

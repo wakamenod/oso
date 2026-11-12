@@ -234,7 +234,8 @@ The new commands are in `crates/oso/src/commands/windows.rs`, bound in `bindings
   - `layout`: the tree, as nested `{"across": [...]}` or `{"down": [...]}` of
     `{"weight": n, "window": i}` or `{"weight": n, "run": {...}}`, at most 16 deep;
   - `selected`: the index of the selected window, as today.
-- **A reader takes version 4 and version 3** (ADR 0090), a version 3 state as one window.
+- **A reader takes version 4 and version 3** (ADR 0090), a version 3 state as one window. As
+  built, it also keeps reading version 2, as it did before (the author's choice, 2026-11-12).
 - Places stay out of the handoff, as ADR 0088 has it. Each window's internal buffer falls back
   as the one window's does (ADR 0063, ADR 0079).
 - A state that does not fit its line, with many windows of many cursors, is refused as one too
@@ -318,6 +319,30 @@ file or a 10 MB line.
   its region, its current line's band and its flash, as Emacs keeps them in the minibuffer's
   selected window, so ADR 0072 and ADR 0097 hold as written. Its cursor is hollow and its
   modeline inactive, as every window's beneath a prompt.
+- **As built, step 4:**
+  - `frame::Tiling` is the tree as data, each child with its weight, its windows in the tree's
+    order, with `windows()`, `depth()` and `Tiling::MAX_DEPTH` (16). `Editor::tiling()` gives
+    it, and `Editor::set_tiling()` lays a frame of one window out as one says, refusing with
+    `BadTiling`: `Split` (a frame split already, or a prompt open), `LonelyRun` (a run of fewer
+    than two children), `NoWeight`, `TooDeep` (runs deeper than 16) and `TooHeavy` (weights that
+    overflow when merged). A run inside one of the same way is merged, its weights scaled so
+    every share stays.
+  - The dev socket's `get-state` and the agent channel's `state` list the tiled windows in the
+    tree's order, each with `id` and `area`, its gutter, text and modeline together; `selected`
+    is the selected tiled window, also beneath a prompt. The channel's state stays version 1.
+  - The handoff is version 4: every window, `layout` and `selected`. A layout of more windows
+    than the new instance's frame can show comes back as one window. Each window is shown and
+    its positions put back where it is (`Editor::show_in`, `restore_positions_in`,
+    `restore_kept_place_in`), none selected but the selected one, also once its file has
+    loaded; positions still waiting are dropped once a person moves that window, there or in
+    the place it keeps for the buffer after going to another.
+    `Editor::place_behind_internal_of()` gives each window's way back, in place of the
+    selected window's alone.
+  - A state holds at most 256 windows. Taking 256 back costs about 20 ms in a release build,
+    with line numbers on and each window's gutter changing. A frame looks a window's regions
+    up by its id in O(log n).
+  - A restart waits, with that reason, while windows are split more than 16 deep, or into more
+    than 256, which a state cannot say.
 - **The modelines' colours (the author's choice, 2026-11-12):** the selected window's
   modeline is blue, far apart from the others', as Emacs's mode-line is from
   mode-line-inactive. Dark: `#2c3f6e` with white text, the others `#15171e` with `#8e95ad`;

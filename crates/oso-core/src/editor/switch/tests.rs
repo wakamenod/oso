@@ -241,7 +241,9 @@ fn walking_off_an_internal_buffer_empties_the_way_back() {
     assert_ne!(on, a, "not where the way back began");
     editor.toggle_copies();
     assert_eq!(
-        editor.place_behind_internal().map(|(id, _, _)| id),
+        editor
+            .place_behind_internal_of(editor.window().id())
+            .map(|(id, _, _)| id),
         Some(on)
     );
     editor.leave_all_internal();

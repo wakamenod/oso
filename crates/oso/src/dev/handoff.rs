@@ -31,6 +31,7 @@ use std::hash::{Hash, Hasher};
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
 use oso_core::editor::{Editor, SCRATCH, VisualAids};
+use oso_core::frame::Tiling;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::kill::KillEntry;
@@ -43,6 +44,7 @@ use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
 
 pub mod carry;
 mod format;
+mod layout;
 mod restore;
 
 use carry::{Exported, Item, MAX_CARRIED};
@@ -51,11 +53,13 @@ use carry::{Exported, Item, MAX_CARRIED};
 use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
 use format::{MAX_HISTORIES, MAX_HISTORY_NAME, MAX_KILL_PIECES, facts_state, selections_state};
 pub use format::{MAX_ITEMS, State, parse};
+use layout::MAX_WINDOWS;
+pub use layout::Windows;
 pub use restore::Restore;
 
 /// The version of the state format. Bump it on any change that the previous
 /// reader would get wrong, and keep reading the one before.
-pub const STATE_VERSION: u64 = 3;
+pub const STATE_VERSION: u64 = 4;
 
 /// The longest state, leaving room for the request line that carries it.
 const MAX_STATE: usize = MAX_LINE - 256;
@@ -70,13 +74,14 @@ pub struct Frame {
 }
 
 /// The result of `export-state`, and the snapshot `export-text` reads its items from.
-/// `restore` is what the window has yet to take from the previous instance: if its file
-/// is still loading, those positions are the real ones. `number` names this export.
+/// `restores` are what the windows have yet to take from the previous instance: if a file
+/// is still loading, those positions are the real ones. `number` names this export. Every
+/// tiled window goes, in the tree's order, with the layout and which is selected (ADR 0112).
 pub fn export(
     editor: &Editor,
     pending: &[KeyPress],
     frame: Option<Frame>,
-    restore: Option<&Restore>,
+    restores: &[Restore],
     number: u64,
 ) -> Result<(Value, Exported), String> {
     if shows_judged_secret(editor) {
@@ -96,39 +101,23 @@ pub fn export(
     }
     // Internal buffers are not handed over (ADR 0051). A window on one with nothing to go
     // back to comes back on `*scratch*`, which this entry stands for.
+    // Once each, however many windows show it.
+    let mut stand_ins = Vec::new();
     for window in editor.windows() {
-        if editor.shown(window).is_internal() && behind_internal(editor, window).is_none() {
-            buffers.push(json!({ "id": window.buffer().get(), "path": null }));
+        let id = window.buffer();
+        if editor.shown(window).is_internal()
+            && behind_internal(editor, window).is_none()
+            && !stand_ins.contains(&id)
+        {
+            stand_ins.push(id);
+            buffers.push(json!({ "id": id.get(), "path": null }));
         }
     }
     let histories = histories_state(editor, &mut items);
     // The buffers' texts and the histories come first; kills fill what is left.
     let room = MAX_CARRIED.saturating_sub(items.iter().map(Item::len).sum());
     let kills = kills_state(editor, room, &mut items);
-    let at_the_top = SelectionSet::default();
-    let windows: Vec<Value> = editor
-        .windows()
-        .map(|window| {
-            let (buffer, selections, scroll) = handed_over(editor, window);
-            // Positions still waiting came in with the import, and so say nothing
-            // of the text, even while a file counts as secret until it is judged.
-            let waiting = restore.filter(|r| r.buffer == buffer);
-            let withheld = editor
-                .buffer(buffer)
-                .is_none_or(|shown| shown.is_secret() || shown.is_internal());
-            let (selections, scroll, row) = match waiting {
-                Some(restore) => (&restore.selections, restore.scroll, restore.top_is_row),
-                None if withheld => (&at_the_top, Scroll::default(), false),
-                None => (selections, scroll, false),
-            };
-            let mut state = selections_state(selections);
-            state["buffer"] = json!(buffer.get());
-            // A top still waiting as a row, from a state before version 3, goes on as one.
-            let top = if row { "top" } else { "start" };
-            state["scroll"] = json!({ top: scroll.start, "left": scroll.left });
-            state
-        })
-        .collect();
+    let (windows, selected) = windows_state(editor, restores);
     let state = json!({
         "version": STATE_VERSION,
         "generation": generation(editor),
@@ -136,7 +125,8 @@ pub fn export(
         "items": items.iter().map(Item::len).collect::<Vec<_>>(),
         "buffers": buffers,
         "windows": windows,
-        "selected": editor.selected_window(),
+        "layout": layout::layout_state(&editor.tiling(), &mut 0),
+        "selected": selected,
         "pending_keys": if editor.keys_withheld() {
             String::new()
         } else {
@@ -165,6 +155,49 @@ pub fn export(
     Ok((state, Exported::new(number, items)))
 }
 
+/// Every tiled window as the state keeps it, in the tree's order, and the selected one's place
+/// among them. `restores` are positions still waiting for their files, which go on as they
+/// came; a window on a buffer that may hold secrets goes at its start (ADR 0090, ADR 0112).
+fn windows_state(editor: &Editor, restores: &[Restore]) -> (Vec<Value>, usize) {
+    let at_the_top = SelectionSet::default();
+    let tiled: Vec<&Window> = editor
+        .frame()
+        .windows()
+        .iter()
+        .filter_map(|(id, _)| editor.window_by_id(*id))
+        .collect();
+    let windows: Vec<Value> = tiled
+        .iter()
+        .map(|window| {
+            let (buffer, selections, scroll) = handed_over(editor, window);
+            // Positions still waiting came in with the import, and so say nothing
+            // of the text, even while a file counts as secret until it is judged.
+            let waiting = restores
+                .iter()
+                .find(|r| r.window == window.id() && r.buffer == buffer && r.stands(editor));
+            let withheld = editor
+                .buffer(buffer)
+                .is_none_or(|shown| shown.is_secret() || shown.is_internal());
+            let (selections, scroll, row) = match waiting {
+                Some(restore) => (&restore.selections, restore.scroll, restore.top_is_row),
+                None if withheld => (&at_the_top, Scroll::default(), false),
+                None => (selections, scroll, false),
+            };
+            let mut state = selections_state(selections);
+            state["buffer"] = json!(buffer.get());
+            // A top still waiting as a row, from a state before version 3, goes on as one.
+            let top = if row { "top" } else { "start" };
+            state["scroll"] = json!({ top: scroll.start, "left": scroll.left });
+            state
+        })
+        .collect();
+    let selected = tiled
+        .iter()
+        .position(|window| window.id() == editor.tiled().0.id())
+        .unwrap_or(0);
+    (windows, selected)
+}
+
 /// Where `window` goes back to, if it is on an internal buffer and has somewhere to go that
 /// cannot hold secrets.
 fn behind_internal<'a>(
@@ -176,7 +209,7 @@ fn behind_internal<'a>(
     editor
         .shown(window)
         .is_internal()
-        .then(|| editor.place_behind_internal())
+        .then(|| editor.place_behind_internal_of(window.id()))
         .flatten()
         .filter(|(buffer, ..)| {
             editor
@@ -388,8 +421,8 @@ pub fn check(editor: &Editor) -> Reply {
     Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
 }
 
-/// What holds a handover back whatever the buffers hold: a prompt, a search, or a frame of
-/// more than one window.
+/// What holds a handover back whatever the buffers hold: a prompt, a search, or windows
+/// split deeper or into more than a state may say.
 fn held(editor: &Editor) -> Result<(), String> {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
@@ -397,11 +430,23 @@ fn held(editor: &Editor) -> Result<(), String> {
     if editor.isearch().is_some() || editor.replace().is_some() {
         return Err(SEARCHING.into());
     }
-    if editor.frame().windows().len() > 1 {
-        return Err(SPLIT.into());
+    let tiling = editor.tiling();
+    if tiling.depth() > Tiling::MAX_DEPTH {
+        return Err(NESTED.into());
+    }
+    if tiling.windows() > MAX_WINDOWS {
+        return Err(MANY.into());
     }
     Ok(())
 }
+
+/// Why a restart waits while windows are split inside each other deeper than a state keeps:
+/// deleting some lets it go (ADR 0112).
+const NESTED: &str = "cannot hand over: the windows are split more than 16 deep";
+
+/// Why a restart waits while the frame has more windows than a state keeps: deleting some
+/// lets it go (ADR 0112).
+const MANY: &str = "cannot hand over: the frame has more than 256 windows";
 
 /// Why a restart waits for a composition to end: its text is in no buffer, so a new
 /// instance would lose it (ADR 0069).
@@ -414,10 +459,6 @@ const PROMPTING: &str = "cannot hand over: a prompt is open";
 /// Why a restart waits for isearch to end: a new instance would take the search away
 /// mid-typing (ADR 0082).
 const SEARCHING: &str = "cannot hand over: a search is under way";
-
-/// Why a restart waits while the frame is split: the state carries one window until its
-/// version 4 carries the layout (ADR 0112), and a reader refuses more.
-const SPLIT: &str = "cannot hand over: the frame has more than one window";
 
 /// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
 /// whatever that buffer holds.
@@ -476,9 +517,6 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
         Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
             Err(format!("{EXIT_REFUSED}: a search is under way"))
         }
-        Some(_) if editor.frame().windows().len() > 1 => Err(format!(
-            "{EXIT_REFUSED}: the frame has more than one window"
-        )),
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),
@@ -514,7 +552,8 @@ fn export_value(
     frame: Option<Frame>,
     restore: Option<&Restore>,
 ) -> Reply {
-    export(editor, pending, frame, restore, 1).map(|(state, _)| state)
+    let restores = restore.map(std::slice::from_ref).unwrap_or_default();
+    export(editor, pending, frame, restores, 1).map(|(state, _)| state)
 }
 
 #[cfg(test)]

@@ -1321,6 +1321,7 @@ pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::show_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
@@ -1393,8 +1394,9 @@ pub fn oso_core::editor::Editor::keys_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::note(&mut self, impl core::convert::Into<alloc::string::String>)
-pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
+pub fn oso_core::editor::Editor::place_behind_internal_of(&self, oso_core::window::WindowId) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::restore_kept_place(&mut self, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
+pub fn oso_core::editor::Editor::restore_kept_place_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
 pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
 pub fn oso_core::editor::Editor::shows_keys_in_progress(&self) -> bool
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
@@ -1405,7 +1407,9 @@ pub fn oso_core::editor::Editor::delete_window(&mut self) -> core::result::Resul
 pub fn oso_core::editor::Editor::other_window(&mut self, isize)
 pub fn oso_core::editor::Editor::resize_window(&mut self, oso_core::frame::Way, isize) -> core::result::Result<(), oso_core::editor::CannotResize>
 pub fn oso_core::editor::Editor::select_window(&mut self, oso_core::window::WindowId)
+pub fn oso_core::editor::Editor::set_tiling(&mut self, &oso_core::frame::Tiling) -> core::result::Result<alloc::vec::Vec<oso_core::window::WindowId>, oso_core::frame::BadTiling>
 pub fn oso_core::editor::Editor::split_window(&mut self, oso_core::frame::Way, bool) -> core::result::Result<oso_core::window::WindowId, oso_core::frame::TooSmall>
+pub fn oso_core::editor::Editor::tiling(&self) -> oso_core::frame::Tiling
 pub fn oso_core::editor::Editor::wheel_window(&self, core::option::Option<(usize, usize)>) -> oso_core::window::WindowId
 pub fn oso_core::editor::Editor::windmove(&mut self, oso_core::frame::Side) -> core::result::Result<(), oso_core::editor::NoWindow>
 impl oso_core::editor::Editor
@@ -1476,6 +1480,7 @@ pub fn oso_core::editor::Editor::recenter(&mut self, oso_core::window::Recenter)
 pub fn oso_core::editor::Editor::region_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::regions(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::frame::WindowRegions>
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
+pub fn oso_core::editor::Editor::restore_positions_in(&mut self, oso_core::window::WindowId, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_lines(&mut self, isize) -> core::result::Result<bool, oso_core::motion::Edge>
 pub fn oso_core::editor::Editor::scroll_view(&mut self, oso_core::window::WindowId, isize) -> bool
 pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, oso_core::window::WindowId, isize) -> bool
@@ -1936,6 +1941,24 @@ pub fn oso_core::editor::WalkRequest::fmt(&self, &mut core::fmt::Formatter<'_>) 
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
 pub mod oso_core::frame
+pub enum oso_core::frame::BadTiling
+pub oso_core::frame::BadTiling::LonelyRun
+pub oso_core::frame::BadTiling::NoWeight
+pub oso_core::frame::BadTiling::Split
+pub oso_core::frame::BadTiling::TooDeep
+pub oso_core::frame::BadTiling::TooHeavy
+impl core::clone::Clone for oso_core::frame::BadTiling
+pub fn oso_core::frame::BadTiling::clone(&self) -> oso_core::frame::BadTiling
+impl core::cmp::Eq for oso_core::frame::BadTiling
+impl core::cmp::PartialEq for oso_core::frame::BadTiling
+pub fn oso_core::frame::BadTiling::eq(&self, &oso_core::frame::BadTiling) -> bool
+impl core::error::Error for oso_core::frame::BadTiling
+impl core::fmt::Debug for oso_core::frame::BadTiling
+pub fn oso_core::frame::BadTiling::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::frame::BadTiling
+pub fn oso_core::frame::BadTiling::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::frame::BadTiling
+impl core::marker::StructuralPartialEq for oso_core::frame::BadTiling
 pub enum oso_core::frame::Side
 pub oso_core::frame::Side::Down
 pub oso_core::frame::Side::Left
@@ -1952,6 +1975,23 @@ impl core::hash::Hash for oso_core::frame::Side
 pub fn oso_core::frame::Side::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::frame::Side
 impl core::marker::StructuralPartialEq for oso_core::frame::Side
+pub enum oso_core::frame::Tiling
+pub oso_core::frame::Tiling::Run
+pub oso_core::frame::Tiling::Run::children: alloc::vec::Vec<(usize, oso_core::frame::Tiling)>
+pub oso_core::frame::Tiling::Run::way: oso_core::frame::Way
+pub oso_core::frame::Tiling::Window
+impl oso_core::frame::Tiling
+pub const oso_core::frame::Tiling::MAX_DEPTH: usize
+pub fn oso_core::frame::Tiling::depth(&self) -> usize
+pub fn oso_core::frame::Tiling::windows(&self) -> usize
+impl core::clone::Clone for oso_core::frame::Tiling
+pub fn oso_core::frame::Tiling::clone(&self) -> oso_core::frame::Tiling
+impl core::cmp::Eq for oso_core::frame::Tiling
+impl core::cmp::PartialEq for oso_core::frame::Tiling
+pub fn oso_core::frame::Tiling::eq(&self, &oso_core::frame::Tiling) -> bool
+impl core::fmt::Debug for oso_core::frame::Tiling
+pub fn oso_core::frame::Tiling::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::frame::Tiling
 pub enum oso_core::frame::Way
 pub oso_core::frame::Way::Across
 pub oso_core::frame::Way::Down
