@@ -15,7 +15,9 @@ mod language;
 mod paint;
 mod pending;
 mod queries;
+mod worker;
 
 pub use document::{Document, Failure, Highlighted, MAX_BYTES, Parsed};
 pub use language::Language;
 pub use queries::Queries;
+pub use worker::{Checkout, Job, Outcome, Report, SLICE, Scheduler};

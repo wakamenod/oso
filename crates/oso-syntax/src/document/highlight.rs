@@ -146,6 +146,7 @@ impl Document {
             match outcome {
                 Piece::Done(runs) => {
                     self.highlights.replace(piece.clone(), runs);
+                    self.changes += 1;
                     self.pending.remove(piece);
                     self.fits += 1;
                     if self.fits >= FITS_TO_GROW {
@@ -179,6 +180,27 @@ impl Document {
         &self.highlights
     }
 
+    /// A number that changes whenever the highlights may have, so that a report is sent only
+    /// for a change.
+    pub(crate) fn changes(&self) -> u64 {
+        self.changes
+    }
+
+    /// Whether the tree is for the newest text and nothing that meets `ranges` is still to
+    /// highlight.
+    pub(crate) fn is_highlighted(&self, ranges: &[Range<usize>]) -> bool {
+        if !self.current || self.waiting.is_some() || self.tree.is_none() {
+            return false;
+        }
+        let pending = self.pending.ranges();
+        ranges.iter().all(|range| {
+            let at = pending.partition_point(|pending| pending.end <= range.start);
+            pending
+                .get(at)
+                .is_none_or(|pending| pending.start >= range.end.max(range.start + 1))
+        })
+    }
+
     /// Compiles the queries the document's language needs, and says whether they compiled.
     fn prepare(&self, queries: &mut Queries) -> bool {
         let mut kinds = vec![Kind::Highlights(self.language)];
@@ -190,6 +212,7 @@ impl Document {
 
     fn leave_plain(&mut self, piece: Range<usize>) {
         self.highlights.replace(piece.clone(), []);
+        self.changes += 1;
         self.pending.remove(piece);
     }
 

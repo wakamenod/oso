@@ -39,7 +39,7 @@ const LATER_LIMIT: Duration = Duration::from_secs(1);
 
 /// The most splices that wait for a stopped parse as one batch. Past it, the next parse starts
 /// from nothing, which costs a parse and keeps no more.
-const MAX_WAITING: usize = 4096;
+pub(crate) const MAX_WAITING: usize = 4096;
 
 /// What a call to [`Document::parse`] came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +63,8 @@ pub enum Failure {
     /// The grammar, or oso's query for it, does not fit the tree-sitter runtime oso was built
     /// with.
     Incompatible,
+    /// A slice panicked, and the worker dropped the document; only the worker reports it.
+    Lost,
 }
 
 /// One buffer's parse state. It lives on the worker, never on the UI thread.
@@ -87,6 +89,8 @@ pub struct Document {
     spent: Duration,
     /// How many pieces fitted in a row since pieces last shrank or grew.
     fits: u32,
+    /// How many times the highlights changed, so that the worker reports only a change.
+    changes: u64,
     /// What the newest text is, as far as it is highlighted: it covers the text after every
     /// edit, waiting ones too.
     highlights: Highlights,
@@ -119,6 +123,7 @@ impl Document {
             limits: (FIRST_LIMIT, LATER_LIMIT, highlight::HIGHLIGHT_LIMIT),
             spent: Duration::ZERO,
             fits: 0,
+            changes: 0,
             pending: Pending::default(),
             inline: None,
             max_piece: highlight::PIECE,
@@ -136,6 +141,7 @@ impl Document {
     ///
     /// The highlights follow at once, and the lines the splices touched are to highlight again.
     pub fn edit(&mut self, splices: &[Splice], after: &Rope) {
+        self.changes += 1;
         if self.failed.is_some() {
             // Plain, but still the newest text's length.
             self.highlights = Highlights::new(after.len());
@@ -278,6 +284,7 @@ impl Document {
         self.parser.reset();
         self.inline = None;
         self.highlights = Highlights::new(self.highlights.len());
+        self.changes += 1;
         self.pending.clear();
         Parsed::Failed(failure)
     }

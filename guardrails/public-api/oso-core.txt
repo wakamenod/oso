@@ -159,6 +159,7 @@ pub fn oso_core::buffer::Buffer::set_copy_waits(&mut self, bool)
 pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::can_highlight(&self) -> bool
 pub fn oso_core::buffer::Buffer::drop_highlights(&mut self)
 pub fn oso_core::buffer::Buffer::highlights(&self) -> core::option::Option<&oso_core::syntax::Highlights>
 pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
@@ -1526,6 +1527,7 @@ pub fn oso_core::editor::Editor::preview_screen(&self, &mut oso_core::window::Sc
 pub fn oso_core::editor::Editor::prompt_screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::screen_of(&self, oso_core::window::WindowId, &mut oso_core::window::Screen)
+pub fn oso_core::editor::Editor::shown_ranges(&self, &mut alloc::vec::Vec<(oso_core::buffer::BufferId, core::ops::range::Range<usize>)>)
 pub fn oso_core::editor::Editor::text_screen(&self, &mut oso_core::window::Screen)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>

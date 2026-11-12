@@ -1,6 +1,7 @@
 pub mod oso_syntax
 pub enum oso_syntax::Failure
 pub oso_syntax::Failure::Incompatible
+pub oso_syntax::Failure::Lost
 pub oso_syntax::Failure::TooLarge
 pub oso_syntax::Failure::TooSlow
 impl core::clone::Clone for oso_syntax::Failure
@@ -44,6 +45,13 @@ impl core::hash::Hash for oso_syntax::Language
 pub fn oso_syntax::Language::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_syntax::Language
 impl core::marker::StructuralPartialEq for oso_syntax::Language
+pub enum oso_syntax::Outcome
+pub oso_syntax::Outcome::Failed(oso_syntax::Failure)
+pub oso_syntax::Outcome::Highlights(oso_core::syntax::highlights::Highlights)
+impl core::clone::Clone for oso_syntax::Outcome
+pub fn oso_syntax::Outcome::clone(&self) -> oso_syntax::Outcome
+impl core::fmt::Debug for oso_syntax::Outcome
+pub fn oso_syntax::Outcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_syntax::Parsed
 pub oso_syntax::Parsed::Done
 pub oso_syntax::Parsed::Failed(oso_syntax::Failure)
@@ -57,6 +65,9 @@ impl core::fmt::Debug for oso_syntax::Parsed
 pub fn oso_syntax::Parsed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_syntax::Parsed
 impl core::marker::StructuralPartialEq for oso_syntax::Parsed
+pub struct oso_syntax::Checkout<Key>
+impl<Key> oso_syntax::Checkout<Key>
+pub fn oso_syntax::Checkout<Key>::run(&mut self, &mut oso_syntax::Queries) -> oso_syntax::Highlighted
 pub struct oso_syntax::Document
 impl oso_syntax::Document
 pub fn oso_syntax::Document::edit(&mut self, &[oso_core::syntax::Splice], &oso_core::rope::Rope)
@@ -66,9 +77,40 @@ pub fn oso_syntax::Document::parse(&mut self, core::time::Duration) -> oso_synta
 impl oso_syntax::Document
 pub fn oso_syntax::Document::highlight(&mut self, &mut oso_syntax::Queries, &[core::ops::range::Range<usize>], core::time::Duration) -> oso_syntax::Highlighted
 pub fn oso_syntax::Document::highlights(&self) -> &oso_core::syntax::highlights::Highlights
+pub struct oso_syntax::Job<Key>
+pub oso_syntax::Job::buffer: Key
+pub oso_syntax::Job::edits: core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
+pub oso_syntax::Job::language: oso_syntax::Language
+pub oso_syntax::Job::revision: u64
+pub oso_syntax::Job::shown: alloc::vec::Vec<core::ops::range::Range<usize>>
+pub oso_syntax::Job::text: oso_core::rope::Rope
+impl<Key: core::clone::Clone> core::clone::Clone for oso_syntax::Job<Key>
+pub fn oso_syntax::Job<Key>::clone(&self) -> oso_syntax::Job<Key>
+impl<Key: core::fmt::Debug> core::fmt::Debug for oso_syntax::Job<Key>
+pub fn oso_syntax::Job<Key>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_syntax::Queries
 impl oso_syntax::Queries
 pub fn oso_syntax::Queries::new() -> Self
 impl core::default::Default for oso_syntax::Queries
 pub fn oso_syntax::Queries::default() -> oso_syntax::Queries
+pub struct oso_syntax::Report<Key>
+pub oso_syntax::Report::buffer: Key
+pub oso_syntax::Report::outcome: oso_syntax::Outcome
+pub oso_syntax::Report::revision: u64
+impl<Key: core::clone::Clone> core::clone::Clone for oso_syntax::Report<Key>
+pub fn oso_syntax::Report<Key>::clone(&self) -> oso_syntax::Report<Key>
+impl<Key: core::fmt::Debug> core::fmt::Debug for oso_syntax::Report<Key>
+pub fn oso_syntax::Report<Key>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_syntax::Scheduler<Key>
+impl<Key: core::marker::Copy + core::cmp::Eq + core::hash::Hash> oso_syntax::Scheduler<Key>
+pub fn oso_syntax::Scheduler<Key>::drop_buffer(&mut self, Key)
+pub fn oso_syntax::Scheduler<Key>::give_back(&mut self, oso_syntax::Checkout<Key>, oso_syntax::Highlighted) -> core::option::Option<oso_syntax::Report<Key>>
+pub fn oso_syntax::Scheduler<Key>::has(&self, Key) -> bool
+pub fn oso_syntax::Scheduler<Key>::lost(&mut self, oso_syntax::Checkout<Key>) -> core::option::Option<oso_syntax::Report<Key>>
+pub fn oso_syntax::Scheduler<Key>::new() -> Self
+pub fn oso_syntax::Scheduler<Key>::submit(&mut self, oso_syntax::Job<Key>)
+pub fn oso_syntax::Scheduler<Key>::take_next(&mut self) -> core::option::Option<oso_syntax::Checkout<Key>>
+impl<Key> core::default::Default for oso_syntax::Scheduler<Key>
+pub fn oso_syntax::Scheduler<Key>::default() -> Self
 pub const oso_syntax::MAX_BYTES: usize
+pub const oso_syntax::SLICE: core::time::Duration

@@ -126,6 +126,12 @@ fn splice_of(edit: &OffsetEdit) -> Splice {
 }
 
 impl Buffer {
+    /// Whether the syntax worker may have the buffer now: as [`Self::highlightable`] says of
+    /// its text as it is. A buffer that may hold secrets never may, nor one still unjudged.
+    pub fn can_highlight(&self) -> bool {
+        self.highlightable(self.text.len())
+    }
+
     /// Whether the buffer can be highlighted with a text of `len` bytes: a language mode, not an
     /// internal buffer, no larger than [`MAX_BYTES`], and not one that may hold secrets, which is
     /// never parsed (ADR 0111). Any other keeps no highlights and no log.

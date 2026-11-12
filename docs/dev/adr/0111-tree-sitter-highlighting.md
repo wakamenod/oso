@@ -576,6 +576,55 @@ decision above. The options not taken are listed with their trade-offs.
   with 4096 in a workflow of their own, `syntax-properties.yml`, not in the mutation testing
   one that Q12 named: the two need different tools and time limits, and either can fail alone.
 
+### Step 4a: the worker
+
+The author's choices, before it was written: a pool of two threads, the schedule in
+`oso-syntax`, and the mode commands and `global-font-lock-mode` in a step 4b of their own.
+
+- **Two threads, each on an 8 MiB stack** (`app/syntax/pool.rs`), 16 times what the inline cap
+  needs. They start at the first job; if they cannot, highlighting is off for the session, and
+  the echo area says so once.
+- **The schedule** (`oso_syntax::Scheduler`, new module `worker`, a layer above `document` in
+  `guardrails/layers.txt`, approved) keeps one slot per buffer. A thread holds the lock only to
+  take a document or give it back, never during a slice:
+  - shown buffers go first, then the one waiting longest; a document given back with work left
+    goes to the back, so buffers take turns;
+  - at most one thread at a time has a buffer no window shows. One call can run about 1 s on
+    crafted text (step 3), so it holds one thread at most, and shown buffers keep the other.
+    Two shown buffers of such text at once can make others wait that long, once each, before
+    both fail as too slow;
+  - jobs that come while a document is checked out wait in its slot, composed into one batch,
+    or start from nothing past 4096 splices;
+  - each slot has a generation: a buffer dropped, or sent anew, while a slice runs on it gives
+    back nothing, and what waited for it never runs.
+- **Jobs** go after each command and when what windows show moves (`Editor::shown_ranges`, new),
+  for a buffer `Buffer::can_highlight` (new) allows: a language mode, not internal, at most
+  2 MiB, and not one that may hold secrets, which includes one not judged yet. A job carries the
+  splices since the last (`Buffer::splices_since`), or none to start from nothing, an O(1)
+  snapshot, and the shown ranges. While a file loads, its first snapshot is sent, then the
+  loaded text.
+- **Drops** go after every event, before the loop waits: a buffer killed, in another mode, or no
+  longer allowed, as one that turned secret is. A slice already running on it ends, and its
+  result is dropped; nothing that waited for it runs.
+- **Reports** (`UserEvent::Syntax`) carry the revision their highlights are for, and go only when
+  the highlights changed: at the end, when the shown ranges are done, and at most every 50 ms
+  after that. `Buffer::take_highlights` maps them through the edits since. Nothing is drawn yet
+  (step 5).
+- **A failure** (too large, too slow, a grammar or query the build cannot use, or a slice that
+  panicked) drops the buffer's highlights, and it stays plain until its mode changes. The echo
+  area and `*Messages*` say "Highlighting stopped in NAME: WHY", naming the buffer only: no
+  path, no text. A panic loses that buffer alone; its thread compiles its queries again and
+  goes on.
+- **Modes from names:** `Buffer::visiting` takes its mode from the file's name, and a write
+  under a new name sets it again, as the Decision says.
+- **Tests** pin the drops first: a job for a buffer dropped before it ran never runs, edits that
+  came for one dropped during a slice never run, and a buffer that may hold secrets, or is not
+  judged yet, or turns secret, gets no job. The pool runs end to end with a crafted buffer that
+  fails as too slow beside a shown one that is highlighted.
+- **A flaky property, fixed:** the step 3 property comparing sliced and whole highlighting
+  compared them also where both trees held errors, which tree-sitter does not promise to
+  agree on; it now compares only clean trees, as the incremental one does.
+
 ## Alternatives considered
 
 - **Highlighting the whole buffer after every parse:** simplest, but a query over a large file

@@ -30,6 +30,8 @@ impl App {
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
         self.sync_ime_after_event(event_loop);
         self.sync_agent();
+        // At once, not at the next wait: a buffer that turned secret gets no slice after this.
+        self.drop_syntax();
     }
 
     /// A thread sent the event loop something.
@@ -52,6 +54,7 @@ impl App {
             UserEvent::Trim(report) => self.trim_reported(report),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Wrap(report) => self.wrap_reported(report),
+            UserEvent::Syntax(report) => self.syntax_reported(report),
             // `before_waiting` asks for the job again.
             UserEvent::WrapLost => {}
             UserEvent::Completion(report) => self.completion_reported(event_loop, report),
@@ -81,6 +84,8 @@ impl App {
         self.start_searches();
         // Commands, a resize or a load may have left rows to wrap.
         self.start_wraps();
+        // And text to highlight, or buffers to drop.
+        self.start_syntax();
         self.start_completions(event_loop);
         // A list built here after a listing ends a wait with no report.
         self.run_held_completion(event_loop);
