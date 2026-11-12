@@ -532,6 +532,29 @@ fn a_directory_prompt_takes_a_link_a_look_found_leads_to_a_directory() {
 }
 
 #[test]
+fn a_name_a_look_in_its_directory_left_out_is_asked_for_again() {
+    // The host keeps one look waiting per directory, so a newer one may take an older's place.
+    let mut editor = directory_prompt();
+    typing(&mut editor, "ln");
+    assert!(!editor.take_file_looks().is_empty());
+    editor.file_looked(
+        Path::new("/home/me"),
+        vec![("notes".to_owned(), looked("d", 0, true))],
+    );
+    assert!(editor.directory_answer_waits());
+    let again = editor.take_file_looks();
+    assert!(
+        again.contains(&(PathBuf::from("/home/me"), vec!["ln".to_owned()])),
+        "{again:?}"
+    );
+    editor.file_looked(
+        Path::new("/home/me"),
+        vec![("ln".to_owned(), looked("l", 0, true))],
+    );
+    assert!(!editor.directory_answer_waits());
+}
+
+#[test]
 fn a_link_typed_whole_waits_for_a_look_of_its_own() {
     let mut editor = directory_prompt();
     // `M-RET` answers `~/ln` as typed, which its look decides, whatever row is selected.

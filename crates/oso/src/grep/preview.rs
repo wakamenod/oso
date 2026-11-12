@@ -270,7 +270,9 @@ fn read_around(
         // Past the row's line, no more is read than an excerpt can keep of the rows left: a line
         // longer than that ends the read.
         let room = line_end.map_or(usize::MAX, |_| {
-            ((after - breaks + 1) * PER_ROW).saturating_sub(line_read)
+            (after - breaks + 1)
+                .saturating_mul(PER_ROW)
+                .saturating_sub(line_read)
         });
         let wanted = PART.min(limit - read).min(room);
         if wanted == 0 {

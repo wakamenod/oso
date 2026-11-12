@@ -269,10 +269,22 @@ fn serve(shared: &Shared, wake: &(dyn Fn() -> bool + Send + Sync)) {
             return;
         };
         let directory = request.directory().to_path_buf();
+        // A look that panics answers each of its names as not looked at, so nothing waits.
+        let asked = match &request {
+            Request::Look(_, names, generation) => Some((names.clone(), *generation)),
+            Request::List(..) => None,
+        };
         let answer = std::panic::catch_unwind(|| answer(request));
         lock(&shared.queue).done(&directory);
-        let Ok(answer) = answer else {
-            continue;
+        let answer = match (answer, asked) {
+            (Ok(answer), _) => answer,
+            (Err(_), Some((missed, generation))) => Answer::Looked {
+                directory,
+                generation,
+                looks: Vec::new(),
+                missed,
+            },
+            (Err(_), None) => continue,
         };
         lock(&shared.answers).push(answer);
         if !wake() {

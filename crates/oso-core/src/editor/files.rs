@@ -510,16 +510,20 @@ impl Editor {
         asked
     }
 
-    /// Takes in what looking at the names in `directory` found, and shows it on their rows.
+    /// Takes in what looking at the names in `directory` found, and shows it on their rows. A
+    /// name asked for in `directory` that it does not answer was in a look the host replaced
+    /// with this one, as it keeps one waiting per directory: it is asked for again while shown,
+    /// so that nothing waits for it.
     pub fn file_looked(&mut self, directory: &Path, looks: Vec<(String, Looked)>) {
         if self.file_list.prompt.is_none() {
             return;
         }
         for (name, looked) in looks {
-            let path = directory.join(name);
-            self.file_list.looking.remove(&path);
-            self.file_list.looks.insert(path, looked);
+            self.file_list.looks.insert(directory.join(name), looked);
         }
+        self.file_list
+            .looking
+            .retain(|path| path.parent() != Some(directory));
         self.patch_looks();
     }
 

@@ -629,7 +629,8 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 - **The directory prompt.** `C-u`'s prompt lists only directories and links, as Emacs's
   `read-directory-name` does; `RET` on a row goes into it, and on a link a look found leads
   elsewhere, or could not look at, says `Not a directory`: the lister names each name it could
-  not look at, which the host answers as no directory, so nothing waits for it. What is typed is given:
+  not look at, which the host answers as no directory, and a name whose look a newer one in its
+  directory replaced is asked for again while shown, so nothing waits for it. What is typed is given:
   - with `/` at its end, unless its own listing could not be read: `Cannot read directory`;
   - without, if its directory's listing names it as a directory, or as a link no look found
     leads elsewhere: `Not a directory` for a file or anything else, `No such directory` for a
