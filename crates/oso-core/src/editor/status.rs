@@ -311,6 +311,7 @@ impl Editor {
         if out.is_empty() {
             self.write_isearch_line(out);
             self.write_replace_line(out);
+            self.write_crossing_line(out);
         }
     }
 }

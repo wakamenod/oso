@@ -230,7 +230,8 @@ touches nothing until its last move.
   crossing, and `buffer/splice.rs` gains a resumable `apply_group`, which merges the changed ranges
   once per slice, not once per batch. `editor/undo_group.rs` keeps the crossing under way, with
   `Editor::go_on_crossing` and `Editor::cancel_crossing`. All of it is private to the crate except
-  those two and `Editor::crossing` for the host, which step 2 asks the author for.
+  those two and `Editor::crossing` for the host, which step 2 asks the author for. As built, the
+  files and the public items differ; see "As built (step 2)".
 - `crates/oso` holds the keys, cancels on `C-g`, asks for the next slice each turn as for `!`,
   waits the channel, the replay, the reload and the restart, and adds `undoing` to `get-state`.
 
@@ -410,6 +411,142 @@ wait for the coordinator's go.
     joined at 1000 cursors take 29 ms. Both are sliced in step 2.
   - Freeing the group crossed, and the copy of a run, comes off the UI thread in step 3.
 
+### Step 2 decisions
+
+Put to the author with step 2 on 2026-11-12, the recommended option first; each answer was the
+first, (a).
+
+1. **What `undo` and `redo` do.**
+   (a) `Editor::undo` and `Editor::redo` keep crossing one step whole, now running the slices back
+   to back in one call, and `begin_crossing`, `crossing`, `go_on_crossing` and `cancel_crossing`
+   come beside them. Step 2 changes no behaviour of the app; step 3 switches the commands.
+   (b) `undo` and `redo` start a crossing and return while it goes on. Every caller changes in
+   step 2.
+2. **How the end is told.**
+   (a) `go_on_crossing` returns `Option<Result<(), EditError>>`: `None` while it goes on, the
+   result when it ended, with a new `EditError::Abandoned`.
+   (b) An enum of its own for going on, done, cancelled and abandoned.
+3. **Who writes the echo line.**
+   (a) The editor, from the second slice: `Undoing… 42%`, `Redoing… 42%`, and with a count
+   `Undoing… 42% (3 more)`, through `write_crossing_line` from `write_echo_line`, as `!` writes
+   `Replacing…`. The host only redraws.
+   (b) The host, from `Crossing::done`.
+4. **What `done` is.**
+   (a) An `f32` share of the current step's work, from 0 to 1.
+   (b) Work done and work in all, as counts.
+5. **query-replace's `u`.**
+   (a) Keeps calling `undo`, crossing at once: its step is a single replacement.
+   (b) Starts a crossing too.
+6. **What the commit lets go.**
+   (a) The commit hands the group crossed, the old rope and the old display map to a value private
+   to the crate. Step 3 frees it on a background thread; step 2 drops it where it is dropped today.
+   (b) Step 2 frees it off the UI thread already.
+
+### As built (step 2, 2026-11-12)
+
+- **The crossing is in three parts.** `buffer/sliced.rs` applies a group a slice at a time
+  (`GroupApply`). `buffer/crossing.rs` holds the clones of the rope and the display map, the copies
+  of the highlights and the edited lines it follows, and the commit (`StagedCrossing`).
+  `editor/crossing.rs` keeps the crossing under way, follows every window's cursors and top on
+  copies, commits each step, and writes the echo line (`Crossing`). `Editor::undo` and
+  `Editor::redo` begin a crossing and run its slices back to back. The stage that applied a whole
+  group at once, and `joined_apart`, are gone; step 1's tests now run through the sliced apply,
+  at random slice and piece sizes.
+- **A group counts each batch** (`undo::Counts`: its splices, the bytes they replace and put back,
+  and its cost to the history), kept beside the batches as they are recorded and joined. A run is
+  then planned from the counts and each batch's first and last splice, in O(batches): what lies
+  apart, the order its batches apply in, and what the splices below each take. No run is copied,
+  and a run that lies after needs no scan of its splices. The share done is the work applied over
+  the group's, so it never goes back.
+- **A slice stops after any unit of work:** a splice, a piece of at most 1 MiB of one splice's
+  text, or the deletion before the pieces. Each slice applies at least one. A splice longer than a
+  piece has its range deleted once and its text put back at increasing offsets; the batch that
+  undoes it holds it as one splice, and cursors follow it once its last piece is in.
+- **The redo group is the one crossing at once gives.** Each run gives back one batch, however
+  the slices cut it, so a crossing builds the same group in any slices. This replaces Q2's batch
+  cut in two that becomes two batches, and Q12's redo group with the undo's cuts.
+- **What cursors follow is cut only where a byte lies between splices, or two replacements
+  meet.** The property tests found that an insertion that meets a splice inside a batch, as one at
+  the start of a replacement, can move a cursor otherwise when followed in two parts than in one.
+  So a part of a run waits for the next slice when it ends at such a meeting; between batches the
+  runs already need a byte. The highlights and the changed ranges of earlier runs follow the same
+  parts. The edited lines follow each run once, when it ends, as at once: following them reads
+  every edited range, which after a save is one a line `!` changed, so following them every slice
+  cost the square of the step.
+- **The changed ranges** (where a cursor may no longer be at a cluster's start, ADR 0091) are
+  worked out splice by splice in the offsets after the run: where a splice's rebuilt chunks start
+  is put in those offsets when the splice below it applies, or at that splice's start if it falls
+  inside it, which holds as much or more. A run's ranges join the others when it ends. They may be
+  wider than at once; clipping a cursor more is clipping it to where it already is.
+- **The budget:** a splice costs 1024 units and the bytes it puts back, and a slice does at most
+  4 MiB of them or applies for 3 ms. Highlights cost about 430 ns a splice to follow after the
+  slice has applied, so a slice applies for 3 ms less however long the one before went on past
+  its time, but at least 1 ms. Tests set the work and the piece size with
+  `Editor::set_crossing_slices` and no time, so that the slices are the same every run.
+- **What may change meanwhile, and what abandons it.** Each slice checks the buffer's revision, its
+  history's count of changes (`History::changes`, bumped by every record, join, crossing and clear),
+  that the buffer can still be edited and still wraps or not as it did, that the window it began in
+  is still selected and that the same windows show the buffer. The editor's commit checks that no
+  window's cursors changed, and the buffer's checks all this again and commits nothing that has not
+  all applied. A save taking the edited lines, or a scope tracked for cleanup or query-replace, also
+  abandons it. What the host may do between turns is taken in at the commit instead: a save that
+  ended (what it took is forgotten, or edited again if it failed), a cleanup scan that ended, and
+  highlights a report brought or that were dropped, which are mapped through the slices' batch; past
+  the log's 4096 splices the crossing's own copy stays, as when the report comes after the commit. A
+  window that scrolled meanwhile, by a resize or a wrap report, gets the top that followed the
+  crossing.
+- **A panic in a slice** drops the crossing and nothing else: the editor holds no crossing while a
+  slice runs. No test makes a slice panic, as nothing but a bug can.
+- **`begin_crossing` drops a crossing under way once its first step can begin;** a count of 0, or an
+  error, leaves it. `Editor::undo` and `redo` begin one too. `go_on_crossing` with none under way
+  returns `Some(Ok(()))`. A step it commits outside a command leaves the wraps' budget and following
+  the cursors to the host, as the dispatcher does them after a command; doing them in the editor
+  made the top depend on how the step was sliced. It and `!` share `SLICE_TIME`. An error at a later
+  step met in the first slice comes back from `begin_crossing`, after the steps before it.
+  `Crossing` has a `Debug` that prints only `redo`, `done` and `left`, which the API snapshot shows
+  too.
+- **Tests:** a property test crosses random histories (two windows, several cursors, marks, soft
+  wrap, highlights, joined steps, counts both ways) in slices of random work and pieces of 1 to 23
+  bytes, and checks text, content id, revision, every window's cursors, marks, ring, top and
+  settled rows, every group of the history, the highlights and the edited lines against crossing at
+  once. Another cancels at a random slice and checks that nothing changed. Unit tests cover a kill
+  put back in pieces over turns, a count that meets `NoUndo` at a later step, `Abandoned` after an
+  edit and after another window is selected, the echo line, and a report and a save that end
+  meanwhile.
+- **Measured** with `text_perf -- undo`, release build. Each slice is the time
+  `begin_crossing` or `go_on_crossing` took; the last one commits.
+
+  | Case | At once, undo / redo | Slices | p50 | p99 | Last | Whole |
+  |---|---|---|---|---|---|---|
+  | `!` over 4M short lines | 524 / 506 ms | 168 | 3.00 ms | 3.01 ms | 15.8 ms | 517 ms |
+  | the same, wrapped | 529 / 512 ms | 167 | 3.00 ms | 3.02 ms | 23.5 ms | 522 ms |
+  | the same, two windows | 518 / 503 ms | 165 | 3.00 ms | 3.01 ms | 18.6 ms | 511 ms |
+  | `!` over 2 MiB, highlighted | 679 / 677 ms | 219 | 3.00 ms | 3.11 ms | 19.0 ms | 674 ms |
+  | 20,000 answers far apart in 100 MB | 48 / 45 ms | 14 | 3.00 ms | 3.06 ms | 5.8 ms | 45 ms |
+  | 20 commands joined at 1000 cursors | 29 / 28 ms | 10 | 3.00 ms | 3.01 ms | 2.7 ms | 30 ms |
+  | an 89 MB kill | 61 ms | 20 | 2.92 ms | 2.99 ms | 2.2 ms | 55 ms |
+
+  Runs vary by about 10% with other work on the machine. Undoing at once costs what it did after
+  step 1, and typing and undoing at 1000 cursors costs what
+  it does on main (p99 3.3 ms over 100 MB). Every slice but the last stays within 3 ms and one
+  unit. The last is long because it frees the group crossed: with the free left out, it took 1.3 to
+  1.7 ms for `!` over 4M lines.
+- **Left for step 3:**
+  - Freeing what the commit lets go (`buffer::Freed`: the group crossed, the old text, display
+    map and highlights, and the wrap splices) off the UI thread; it is dropped in the commit for
+    now. A group the history's limit evicts at the commit, and the windows' old wraps, are still
+    freed there too. So is a crossing cancelled or abandoned late in a large step, which holds
+    nearly a whole group: `C-g` must hand it to the same thread.
+  - What a slice does that the work count leaves out, which only the time bounds: planning a run
+    reads each batch that joins it, all at once (microseconds for 20,000 batches); a step of many
+    runs that do not lie apart follows every earlier run's changed ranges a part at a time; and a
+    run that ends follows the edited lines once over all its splices.
+  - The host: holding keys and clicks, `C-g`, asking for a slice each turn and redrawing, the
+    channel's wait and reply, `get-state`'s `undoing`, the waits of a restart, a reload and a
+    replay, and switching the `undo` and `undo-redo` commands to `begin_crossing`.
+  - The commit's wrap edit and the clip read every splice's wrap edit and every window's cursors
+    once; both are inside the 1.3 to 1.7 ms above.
+
 ## Changes to accepted ADRs
 
 - [ADR 0113](0113-query-replace-keyboard-macros-and-whitespace-cleanup.md): the exception for
@@ -431,8 +568,9 @@ wait for the coordinator's go.
   person waits with keys held, as for `!`.
 - The buffer is never half undone, so saving, crashing and restarting need no new rule.
 - A large crossing holds about twice the step's memory while it runs.
-- `Editor::undo` no longer always ends the crossing before it returns; callers that undo inside a
-  command (a count, query-replace's `u`, a replay's `C-z`) must allow a crossing still going on.
+- A caller that begins a crossing must allow one still going on when it returns. `Editor::undo`
+  and `Editor::redo` still cross a whole step (step 2 decision 1), as query-replace's `u` needs;
+  the `undo` and `undo-redo` commands switch to `Editor::begin_crossing` in step 3.
 
 ## Alternatives considered
 

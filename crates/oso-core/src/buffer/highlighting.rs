@@ -1,6 +1,7 @@
 //! A buffer's highlights, and the batches of edits since recent revisions, for the syntax
 //! worker's jobs and reports (ADR 0111). An edit maps the highlights on the clones it is made
-//! on (ADR 0053), and a report made for an older revision is mapped through the batches since.
+//! on (ADR 0053), and an undo staged over several turns slice by slice on its own copy
+//! (ADR 0119). A report made for an older revision is mapped through the batches since.
 //!
 //! Must not depend on: `window`, `editor` or `command`.
 
@@ -25,6 +26,72 @@ pub(super) struct Highlighting {
     log: VecDeque<(u64, Vec<Splice>)>,
     /// The splices in `log`.
     logged: usize,
+    /// How many times the highlights were taken from a report or dropped, ever, so that an
+    /// undo staged meanwhile takes them too.
+    changes: u64,
+}
+
+/// Highlighting followed a slice at a time on a copy, as an undo staged over several turns
+/// follows it (ADR 0119).
+#[derive(Debug)]
+pub(super) struct FollowedHighlighting {
+    highlights: Option<Highlights>,
+    /// The slices' batches composed, or `None` once they do not compose or pass
+    /// [`LOG_SPLICES`] (`too_large`).
+    batch: Option<Vec<Splice>>,
+    too_large: bool,
+    /// The buffer's count of changes as it began.
+    changes: u64,
+}
+
+impl FollowedHighlighting {
+    /// Maps the copy through one more batch of edits, and composes it into the log's batch.
+    pub(super) fn follow(&mut self, step: &[OffsetEdit]) {
+        let step: Vec<Splice> = step.iter().map(splice_of).collect();
+        if let Some(highlights) = &mut self.highlights {
+            highlights.splice(&step);
+        }
+        if self.too_large {
+            return;
+        }
+        self.batch = self.batch.take().and_then(|batch| compose(&batch, &step));
+        if self
+            .batch
+            .as_ref()
+            .is_some_and(|batch| batch.len() > LOG_SPLICES)
+        {
+            (self.batch, self.too_large) = (None, true);
+        }
+    }
+
+    /// What it all does to `now`, the buffer's highlighting, to commit, if the buffer can be
+    /// highlighted afterwards (`keep`). Highlights a report brought meanwhile are taken too,
+    /// mapped through the batch; past the log, the copy stays, as when the report comes after.
+    pub(super) fn staged(self, now: &Highlighting, keep: bool) -> StagedHighlighting {
+        if !keep {
+            return StagedHighlighting {
+                batch: None,
+                highlights: None,
+            };
+        }
+        let highlights = if now.changes == self.changes {
+            self.highlights
+        } else {
+            match (&now.highlights, &self.batch) {
+                (None, _) => None,
+                (Some(highlights), Some(batch)) => {
+                    let mut highlights = highlights.clone();
+                    highlights.splice(batch);
+                    Some(highlights)
+                }
+                (Some(_), None) => self.highlights,
+            }
+        };
+        StagedHighlighting {
+            highlights: highlights.filter(|_| self.batch.is_some() || self.too_large),
+            batch: self.batch,
+        }
+    }
 }
 
 /// What an edit, an undo or a redo made on clones does to highlighting, to commit with it.
@@ -42,43 +109,34 @@ impl Highlighting {
     /// and no highlights. A batch past [`LOG_SPLICES`], which the log could not hold, stops
     /// composing and leaves no batch, but the highlights follow it.
     fn stage(&self, steps: &[Vec<OffsetEdit>], keep: bool) -> StagedHighlighting {
-        if !keep {
-            return StagedHighlighting {
-                batch: None,
-                highlights: None,
-            };
+        let mut followed = self.follow(keep);
+        if keep {
+            steps.iter().for_each(|step| followed.follow(step));
         }
-        let mut batch = Some(Vec::new());
-        let mut too_large = false;
-        let mut highlights = self.highlights.clone();
-        for step in steps {
-            let step: Vec<Splice> = step.iter().map(splice_of).collect();
-            if let Some(highlights) = &mut highlights {
-                highlights.splice(&step);
-            }
-            if too_large {
-                continue;
-            }
-            batch = batch.and_then(|batch| compose(&batch, &step));
-            if batch
-                .as_ref()
-                .is_some_and(|batch| batch.len() > LOG_SPLICES)
-            {
-                (batch, too_large) = (None, true);
-            }
-        }
-        StagedHighlighting {
-            highlights: highlights.filter(|_| batch.is_some() || too_large),
-            batch,
+        followed.staged(self, keep)
+    }
+
+    /// A copy to follow edits on, slice by slice, if the buffer can be highlighted (`may`).
+    fn follow(&self, may: bool) -> FollowedHighlighting {
+        FollowedHighlighting {
+            highlights: self.highlights.clone().filter(|_| may),
+            batch: may.then(Vec::new),
+            too_large: false,
+            changes: self.changes,
         }
     }
 
-    /// Puts a staged change in, as the content becomes `revision`. Moves only, and cannot panic.
-    pub(super) fn commit(&mut self, revision: u64, staged: StagedHighlighting) {
-        self.highlights = staged.highlights;
+    /// Puts a staged change in, as the content becomes `revision`, and returns the highlights it
+    /// replaced, for the caller to free. Moves only, and cannot panic.
+    pub(super) fn commit(
+        &mut self,
+        revision: u64,
+        staged: StagedHighlighting,
+    ) -> Option<Highlights> {
+        let old = std::mem::replace(&mut self.highlights, staged.highlights);
         let Some(batch) = staged.batch else {
             self.forget_log();
-            return;
+            return old;
         };
         self.logged += batch.len();
         self.log.push_back((revision, batch));
@@ -88,11 +146,13 @@ impl Highlighting {
             };
             self.logged -= oldest.len();
         }
+        old
     }
 
     /// Drops the highlights and the log, as for a buffer that can no longer be highlighted.
     pub(super) fn forget(&mut self) {
         self.highlights = None;
+        self.changes += 1;
         self.forget_log();
     }
 
@@ -136,11 +196,31 @@ impl Buffer {
     /// internal buffer, no larger than [`MAX_BYTES`], and not one that may hold secrets, which is
     /// never parsed (ADR 0111). Any other keeps no highlights and no log.
     fn highlightable(&self, len: usize) -> bool {
+        self.may_highlight() && len <= MAX_BYTES
+    }
+
+    /// Whether the buffer can be highlighted at some length: a language mode, not an internal
+    /// buffer, and not one that may hold secrets.
+    fn may_highlight(&self) -> bool {
         let language = match self.mode {
             Mode::Rust | Mode::Markdown | Mode::Toml => true,
             Mode::Fundamental | Mode::CopyList | Mode::CopyView => false,
         };
-        language && !self.internal && len <= MAX_BYTES && !self.is_secret()
+        language && !self.internal && !self.is_secret()
+    }
+
+    /// A copy of the highlighting to follow an undo staged over several turns (ADR 0119).
+    pub(super) fn follow_highlighting(&self) -> FollowedHighlighting {
+        self.highlighting.follow(self.may_highlight())
+    }
+
+    /// What a crossing that followed `followed` and leaves `len` bytes does to highlighting.
+    pub(super) fn stage_followed(
+        &self,
+        followed: FollowedHighlighting,
+        len: usize,
+    ) -> StagedHighlighting {
+        followed.staged(&self.highlighting, self.highlightable(len))
     }
 
     /// What an edit's steps, which leave `len` bytes, do to highlighting, made on clones while
@@ -186,6 +266,7 @@ impl Buffer {
             return false;
         }
         self.highlighting.highlights = Some(highlights);
+        self.highlighting.changes += 1;
         true
     }
 
@@ -198,6 +279,7 @@ impl Buffer {
     /// Stops showing highlights, as when highlighting is turned off.
     pub fn drop_highlights(&mut self) {
         self.highlighting.highlights = None;
+        self.highlighting.changes += 1;
     }
 
     /// One batch that takes the text at `revision` to the text now, for the worker's parse, or

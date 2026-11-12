@@ -72,7 +72,9 @@ impl Side {
 #[derive(Clone)]
 pub(crate) struct Group {
     /// Applied from the last batch to the first, they lead to `target`.
-    pub(crate) batches: Vec<Batch>,
+    batches: Vec<Batch>,
+    /// What each batch holds, in step with `batches`.
+    counts: Vec<Counts>,
     /// The side this group leads to when crossed.
     pub(crate) target: Side,
     /// The side it leaves when crossed.
@@ -90,28 +92,74 @@ const SPLICE_COST: usize = mem::size_of::<Splice<Option<Rope>>>();
 /// its tree node.
 const ROPE_COST: usize = 128;
 
+/// What a batch costs the history, besides its splices: the list and its counts.
+const BATCH_COST: usize = mem::size_of::<Batch>() + mem::size_of::<Counts>();
+
+/// What a batch holds, counted as it is recorded, so that an undo or a redo knows how much
+/// work a group is, and which of its batches lie apart, without reading every splice
+/// (ADR 0119).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Counts {
+    pub(crate) splices: usize,
+    /// The bytes its splices replace.
+    pub(crate) removed: usize,
+    /// The bytes of text they put in their place.
+    pub(crate) put: usize,
+    /// What the history counts for it.
+    pub(crate) cost: usize,
+}
+
+impl Counts {
+    /// The counts of a batch with no splice yet.
+    pub(crate) const fn new() -> Self {
+        Self {
+            splices: 0,
+            removed: 0,
+            put: 0,
+            cost: BATCH_COST,
+        }
+    }
+
+    pub(crate) fn of(batch: &Batch) -> Self {
+        let mut counts = Self::new();
+        batch.iter().for_each(|splice| counts.add(splice));
+        counts
+    }
+
+    /// Counts one more splice of the batch.
+    pub(crate) fn add(&mut self, splice: &Splice<Option<Rope>>) {
+        let text = splice.text.as_ref().map_or(0, Rope::len);
+        self.splices += 1;
+        self.removed += splice.len;
+        self.put += text;
+        self.cost += SPLICE_COST + splice.text.as_ref().map_or(0, |_| ROPE_COST + text);
+    }
+
+    /// How much longer the batch makes the text.
+    pub(crate) fn delta(&self) -> isize {
+        self.put.cast_signed() - self.removed.cast_signed()
+    }
+}
+
+#[cfg(test)]
 fn batch_cost(batch: &Batch) -> usize {
-    batch
-        .iter()
-        .map(|splice| {
-            SPLICE_COST
-                + splice
-                    .text
-                    .as_ref()
-                    .map_or(0, |text| ROPE_COST + text.len())
-        })
-        .sum::<usize>()
-        + mem::size_of::<Batch>()
+    Counts::of(batch).cost
 }
 
 impl Group {
-    fn new(batches: Vec<Batch>, target: Side, source: Side) -> Self {
+    /// A group of `batches`, which `counts` count. O(batches).
+    fn counted(batches: Vec<Batch>, mut counts: Vec<Counts>, target: Side, source: Side) -> Self {
+        // As many counts as batches, whatever the caller gave.
+        if counts.len() != batches.len() {
+            counts = batches.iter().map(Counts::of).collect();
+        }
         let bytes = mem::size_of::<Self>()
-            + batches.iter().map(batch_cost).sum::<usize>()
+            + counts.iter().map(|counts| counts.cost).sum::<usize>()
             + target.cost()
             + source.cost();
         Self {
             batches,
+            counts,
             target,
             source,
             joined: 0,
@@ -119,9 +167,15 @@ impl Group {
         }
     }
 
-    /// The group that crosses back, once `batches` undid this one's.
-    pub(crate) fn crossed(&self, batches: Vec<Batch>) -> Self {
-        Self::new(batches, self.source.clone(), self.target.clone())
+    /// The batches, applied from the last to the first, with what each holds: as many of
+    /// one as of the other.
+    pub(crate) fn batches(&self) -> (&[Batch], &[Counts]) {
+        (&self.batches, &self.counts)
+    }
+
+    /// The group that crosses back, once `batches`, which `counts` count, undid this one's.
+    pub(crate) fn crossed(&self, batches: Vec<Batch>, counts: Vec<Counts>) -> Self {
+        Self::counted(batches, counts, self.source.clone(), self.target.clone())
     }
 }
 
@@ -154,6 +208,9 @@ pub(crate) struct History {
     limit: usize,
     /// How many undo groups the limit has dropped, oldest first, ever.
     evicted: u64,
+    /// How many times a group was recorded, joined, crossed or dropped, ever, so that an undo
+    /// staged over several turns sees that its group is still the one it began on.
+    changes: u64,
 }
 
 impl Default for History {
@@ -170,12 +227,21 @@ impl History {
             bytes: 0,
             limit,
             evicted: 0,
+            changes: 0,
         }
     }
 
     /// Forgets everything, for a buffer whose content was replaced.
     pub(crate) fn clear(&mut self) {
+        let changes = self.changes + 1;
         *self = Self::new(self.limit);
+        self.changes = changes;
+    }
+
+    /// How many times the groups changed, ever: an undo staged over several turns crosses the
+    /// group it began on only while this stays.
+    pub(crate) fn changes(&self) -> u64 {
+        self.changes
     }
 
     /// Records an edit that led from `content` to `after`, discarding the
@@ -189,14 +255,16 @@ impl History {
     ) {
         self.bytes -= self.redo.iter().map(|group| group.bytes).sum::<usize>();
         self.redo.clear();
-        let cost = batch_cost(&batch);
+        self.changes += 1;
+        let counts = Counts::of(&batch);
         let newest = match opening {
             Opening::New(_) => None,
             Opening::Continue | Opening::Join => self.undo.back_mut(),
         };
         if let Some(group) = newest {
-            let (old, new) = (group.source.cost(), after.cost() + cost);
+            let (old, new) = (group.source.cost(), after.cost() + counts.cost);
             group.batches.push(batch);
+            group.counts.push(counts);
             group.source = after;
             group.bytes = group.bytes + new - old;
             group.joined += usize::from(matches!(opening, Opening::Join));
@@ -210,7 +278,7 @@ impl History {
                 content,
                 selections,
             };
-            let group = Group::new(vec![batch], target, after);
+            let group = Group::counted(vec![batch], vec![counts], target, after);
             self.bytes += group.bytes;
             self.undo.push_back(group);
         }
@@ -255,9 +323,15 @@ impl History {
             target.selections = selections;
         }
         let source = joined[joined.len() - 1].source.clone();
-        let batches = joined.into_iter().flat_map(|group| group.batches).collect();
-        let mut group = Group::new(batches, target, source);
+        let mut batches = Vec::new();
+        let mut counts = Vec::new();
+        for group in joined {
+            batches.extend(group.batches);
+            counts.extend(group.counts);
+        }
+        let mut group = Group::counted(batches, counts, target, source);
         group.joined = commands;
+        self.changes += 1;
         self.bytes = self.bytes - old + group.bytes;
         self.undo.push_back(group);
         true
@@ -298,13 +372,15 @@ impl History {
         }
     }
 
-    /// Moves the group crossed to the other stack, as `crossed`.
-    pub(crate) fn cross(&mut self, direction: Direction, crossed: Group) {
+    /// Moves the group crossed to the other stack, as `crossed`, and returns the one it
+    /// replaces, for the caller to free.
+    pub(crate) fn cross(&mut self, direction: Direction, crossed: Group) -> Option<Group> {
         let left = match direction {
             Direction::Undo => self.undo.pop_back(),
             Direction::Redo => self.redo.pop_back(),
         };
-        self.bytes -= left.map_or(0, |group| group.bytes);
+        self.changes += 1;
+        self.bytes -= left.as_ref().map_or(0, |group| group.bytes);
         self.bytes += crossed.bytes;
         // The group crossed lands on the other stack, and must stay.
         let newest = match direction {
@@ -318,6 +394,7 @@ impl History {
             }
         };
         self.evict(newest);
+        left
     }
 
     /// Drops the redo groups furthest away, then the oldest undo groups, until
@@ -338,6 +415,12 @@ impl History {
             };
             self.bytes -= dropped.bytes;
         }
+    }
+
+    /// The undo groups, oldest first, and the redo groups, the next to redo last.
+    #[cfg(test)]
+    pub(crate) fn groups(&self) -> (&VecDeque<Group>, &VecDeque<Group>) {
+        (&self.undo, &self.redo)
     }
 
     #[cfg(test)]
@@ -373,7 +456,13 @@ mod tests {
     /// The cost of a batch of one splice of `bytes` text.
     fn one_batch(bytes: usize) -> usize {
         let text = if bytes == 0 { 0 } else { ROPE_COST + bytes };
-        SPLICE_COST + text + mem::size_of::<Batch>()
+        SPLICE_COST + text + BATCH_COST
+    }
+
+    /// The group that crosses back over `group`, once `batches` undid it.
+    fn back(group: &Group, batches: Vec<Batch>) -> Group {
+        let counts = batches.iter().map(Counts::of).collect();
+        group.crossed(batches, counts)
     }
 
     /// The cost of a group with one such batch and no cursors.
@@ -402,13 +491,10 @@ mod tests {
 
     #[test]
     fn a_splice_with_no_text_costs_no_rope() {
-        assert_eq!(
-            batch_cost(&splice(0, 1, "")),
-            SPLICE_COST + mem::size_of::<Batch>()
-        );
+        assert_eq!(batch_cost(&splice(0, 1, "")), SPLICE_COST + BATCH_COST);
         assert_eq!(
             batch_cost(&splice(0, 1, "abc")),
-            SPLICE_COST + ROPE_COST + 3 + mem::size_of::<Batch>()
+            SPLICE_COST + ROPE_COST + 3 + BATCH_COST
         );
     }
 
@@ -474,7 +560,7 @@ mod tests {
         let mut history = History::default();
         record(&mut history, Opening::New(None), 0, 1, "abc");
         let group = history.next(Direction::Undo).unwrap().clone();
-        history.cross(Direction::Undo, group.crossed(vec![splice(0, 3, "xy")]));
+        history.cross(Direction::Undo, back(&group, vec![splice(0, 3, "xy")]));
         assert_eq!(history.lens(), (0, 1));
         assert_eq!(history.bytes(), group_cost(2));
         record(&mut history, Opening::New(None), 0, 2, "z");
@@ -489,12 +575,12 @@ mod tests {
         let group = history.next(Direction::Undo).unwrap().clone();
         assert_eq!(group.target.content, ContentId(5));
         assert_eq!(group.source.content, ContentId(6));
-        history.cross(Direction::Undo, group.crossed(vec![splice(0, 3, "")]));
+        history.cross(Direction::Undo, back(&group, vec![splice(0, 3, "")]));
         assert!(history.next(Direction::Undo).is_none());
         let group = history.next(Direction::Redo).unwrap().clone();
         assert_eq!(group.target.content, ContentId(6));
         assert_eq!(group.source.content, ContentId(5));
-        history.cross(Direction::Redo, group.crossed(vec![splice(0, 0, "abc")]));
+        history.cross(Direction::Redo, back(&group, vec![splice(0, 0, "abc")]));
         assert_eq!(history.lens(), (1, 0));
         assert_eq!(history.bytes(), recompute(&history));
     }
@@ -507,7 +593,7 @@ mod tests {
         let group = history.next(Direction::Undo).unwrap().clone();
         // Undoing brings back what the group inserted: more than the bound.
         let big = splice(0, 0, &"b".repeat(1000));
-        history.cross(Direction::Undo, group.crossed(vec![big]));
+        history.cross(Direction::Undo, back(&group, vec![big]));
         assert_eq!(history.lens(), (1, 1));
     }
 
@@ -519,7 +605,7 @@ mod tests {
         }
         for _ in 0..3 {
             let group = history.next(Direction::Undo).unwrap().clone();
-            history.cross(Direction::Undo, group.crossed(vec![splice(0, 0, "abc")]));
+            history.cross(Direction::Undo, back(&group, vec![splice(0, 0, "abc")]));
         }
         assert_eq!(history.lens(), (1, 3));
         history.limit = group_cost(3) + group_cost(0);
@@ -544,12 +630,12 @@ mod tests {
         record(&mut history, Opening::New(None), 1, 2, "");
         for _ in 0..2 {
             let group = history.next(Direction::Undo).unwrap().clone();
-            history.cross(Direction::Undo, group.crossed(vec![splice(0, 0, "")]));
+            history.cross(Direction::Undo, back(&group, vec![splice(0, 0, "")]));
         }
         history.limit = 0;
         let group = history.next(Direction::Redo).unwrap().clone();
         let big = splice(0, 0, &"a".repeat(1000));
-        history.cross(Direction::Redo, group.crossed(vec![big]));
+        history.cross(Direction::Redo, back(&group, vec![big]));
         assert_eq!(history.lens(), (1, 0), "the redo furthest away goes");
         assert_eq!(history.undo[0].target.content, ContentId(0));
     }
@@ -578,7 +664,7 @@ mod tests {
         history.set_after(set.clone());
         record(&mut history, Opening::New(None), 1, 2, "");
         let group = history.next(Direction::Undo).unwrap().clone();
-        history.cross(Direction::Undo, group.crossed(vec![splice(0, 0, "")]));
+        history.cross(Direction::Undo, back(&group, vec![splice(0, 0, "")]));
         assert!(!history.can_join(ContentId(1), Some(&set)));
     }
 

@@ -1,5 +1,5 @@
 //! Tests of applying batches (ADR 0053): what a batch rebuilt and changed, and an undo group's
-//! batches that lie apart applied as one (ADR 0119).
+//! batches that lie apart applied as one, in slices of any size (ADR 0119).
 //!
 //! Must not depend on: `window`, `editor` or `command`; these see only text.
 
@@ -8,9 +8,11 @@ use std::collections::HashSet;
 use proptest::prelude::*;
 
 use super::super::edited::Edited;
+use super::super::sliced::{Budget, GroupApply, PIECE};
 use super::*;
 use crate::display_map::TabWidth;
 use crate::rope::tests::{ATOMS, floor_boundary, text_strategy};
+use crate::undo::Counts;
 
 /// Each chunk of `rope`, with where it starts.
 fn chunks(rope: &Rope) -> Vec<(usize, String)> {
@@ -123,6 +125,68 @@ fn chunks_rebuilt_back_past_the_splice_below_are_changed() {
     rebuilt_chunks_are_changed(text, &batch(text, vec![(95, 0, "a"), (109, 0, "a")]));
 }
 
+/// What cursors follow, the batches that undo `group`, and where clusters may have changed,
+/// once it applied in slices of `work` and pieces of `piece` bytes, as an undo crosses it.
+pub(in crate::buffer) fn apply_in_slices(
+    group: &[Batch],
+    text: &mut Rope,
+    display: &mut DisplayMap,
+    mut wraps: Option<&mut Vec<WrapSplice>>,
+    (work, piece): (usize, usize),
+) -> (Vec<Vec<OffsetEdit>>, Vec<Batch>, Vec<Range<usize>>) {
+    let counts: Vec<Counts> = group.iter().map(Counts::of).collect();
+    let mut apply = GroupApply::default();
+    let mut steps = Vec::new();
+    loop {
+        let mut budget = Budget {
+            work,
+            until: None,
+            piece,
+        };
+        let wraps = wraps.as_deref_mut();
+        if apply.go_on(
+            group,
+            &counts,
+            text,
+            display,
+            wraps,
+            &mut budget,
+            &mut steps,
+        ) {
+            break;
+        }
+    }
+    let changed = apply.changed().to_vec();
+    let (undo, _) = apply.into_undo();
+    (steps, undo, changed)
+}
+
+/// As [`apply_in_slices`], in one slice.
+fn apply_group(
+    group: &[Batch],
+    text: &mut Rope,
+    display: &mut DisplayMap,
+    wraps: Option<&mut Vec<WrapSplice>>,
+) -> (Vec<Vec<OffsetEdit>>, Vec<Batch>, Vec<Range<usize>>) {
+    apply_in_slices(group, text, display, wraps, (usize::MAX, PIECE))
+}
+
+/// A batch as starts, lengths and texts, to compare.
+pub(in crate::buffer) fn plain(batches: &[Batch]) -> Vec<Vec<(usize, usize, String)>> {
+    batches
+        .iter()
+        .map(|batch| {
+            batch
+                .iter()
+                .map(|splice| {
+                    let text = splice.text.as_ref().map(Rope::to_string);
+                    (splice.start, splice.len, text.unwrap_or_default())
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// A batch that deletes `len` bytes at each of `starts` and puts `new` there.
 fn replacing(starts: &[usize], len: usize, new: &str) -> Batch {
     starts
@@ -139,39 +203,40 @@ fn replacing(starts: &[usize], len: usize, new: &str) -> Batch {
 fn batches_apart_join_and_those_that_meet_do_not() {
     // Undoing answers made forward applies each before the last; the group holds them
     // first to last, and applies them last first.
+    let text = "x".repeat(1200);
+    let steps = |group: &[Batch]| {
+        let mut rope = Rope::from(text.as_str());
+        let mut display = DisplayMap::new(&rope, TabWidth::new(4));
+        apply_group(group, &mut rope, &mut display, None).0
+    };
     let back: Vec<Batch> = (0..100)
         .map(|line| replacing(&[line * 10], 6, "abcdef"))
         .collect();
-    assert_eq!(joined_apart(&back).len(), 1);
+    assert_eq!(steps(&back).len(), 1);
     // Redoing them applies each after what the last became, put in the offsets before.
     let on: Vec<Batch> = (0..100)
         .rev()
         .map(|line| replacing(&[line * 10], 6, "ab"))
         .collect();
-    let runs = joined_apart(&on);
-    assert_eq!(runs.len(), 1);
-    assert_eq!((runs[0][1].start, runs[0][1].len), (14, 6));
+    let joined = steps(&on);
+    assert_eq!(joined.len(), 1);
+    assert_eq!((joined[0][1].start, joined[0][1].old_len), (14, 6));
     // A batch that touches what was joined, or overlaps it, starts a run of its own.
     let touching = vec![
         replacing(&[8], 0, "a"),
         replacing(&[8], 2, ""),
         replacing(&[10], 2, ""),
     ];
-    assert_eq!(joined_apart(&touching).len(), 3);
+    assert_eq!(steps(&touching).len(), 3);
     // An insertion right where the text the batch before put in ends meets it, so it is
     // not joined, and the group still gives the text one after another would.
     let meeting = vec![replacing(&[4], 0, "b"), replacing(&[2], 2, "XY")];
-    assert_eq!(joined_apart(&meeting).len(), 2);
+    assert_eq!(steps(&meeting).len(), 2);
     let mut rope = Rope::from("0123456789");
     let mut display = DisplayMap::new(&rope, TabWidth::new(4));
     apply_group(&meeting, &mut rope, &mut display, None);
     assert_eq!(rope.to_string(), "01XYb456789");
-    let one = vec![replacing(&[1, 5], 1, "x")];
-    assert!(
-        matches!(joined_apart(&one)[0], Cow::Borrowed(_)),
-        "one batch is not copied"
-    );
-    assert!(joined_apart(&[Vec::new(), Vec::new()]).is_empty());
+    assert!(steps(&[Vec::new(), Vec::new()]).is_empty());
 }
 
 proptest! {
@@ -188,6 +253,8 @@ proptest! {
             1..10,
         ),
         marks in prop::collection::vec(0usize..140, 0..8),
+        work in 1usize..3000,
+        piece in 1usize..12,
     ) {
         // The batches in the order they apply, each on the text the ones before left.
         let mut now = text.clone();
@@ -220,9 +287,13 @@ proptest! {
                 applied.iter().try_fold(at, |at, batch| moved(batch, at, true))
             })
             .collect();
-        let (steps, back, changed) = apply_group(&group, &mut rope, &mut display, None);
+        let (whole, at_once, _) = apply_group(&group, &mut rope.clone(), &mut display.clone(), None);
+        prop_assert!(whole.len() <= applied.len());
+        let (steps, back, changed) =
+            apply_in_slices(&group, &mut rope, &mut display, None, (work, piece));
         prop_assert_eq!(rope.to_string(), now.clone());
-        prop_assert!(steps.len() <= applied.len());
+        // Cut anywhere, it gives back what it gives at once.
+        prop_assert_eq!(plain(&back), plain(&at_once));
         // What the joined batches say changed holds every start that may have moved.
         let after = display.snapshot();
         for at in starts {
@@ -255,9 +326,9 @@ proptest! {
         prop_assert_eq!(joined, marks);
         prop_assert_eq!(edited_joined.ranges(), edited.ranges());
         // Undone and redone, as an undo and a redo cross a group and the one it gives back.
-        let (_, again, _) = apply_group(&back, &mut rope, &mut display, None);
+        let (_, again, _) = apply_in_slices(&back, &mut rope, &mut display, None, (work, piece));
         prop_assert_eq!(rope.to_string(), text);
-        apply_group(&again, &mut rope, &mut display, None);
+        apply_in_slices(&again, &mut rope, &mut display, None, (work, piece));
         prop_assert_eq!(rope.to_string(), now);
     }
 

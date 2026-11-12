@@ -36,11 +36,17 @@ use crate::window::{ViewSize, Window, WindowId};
 use follow::Selected;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::time::Duration;
+
+/// The most time a turn gives work that goes on over turns: a slice of `!`, which a pattern
+/// can make read far past each match (ADR 0113), or of an undo (ADR 0119).
+const SLICE_TIME: Duration = Duration::from_millis(3);
 
 mod agent;
 mod aids;
 mod completion;
 mod copies;
+mod crossing;
 mod cursors;
 mod excerpt;
 mod files;
@@ -77,6 +83,7 @@ pub use agent::AgentChannel;
 pub use aids::{ViewSample, VisualAids};
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
+pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
 pub use gutter::Gutter;
@@ -148,6 +155,11 @@ pub struct Editor {
     /// the command, which follow their cursors when it ends (ADR 0112).
     moved_windows: Vec<WindowId>,
     undo_scope: Option<UndoScope>,
+    /// An undo or a redo under way, a slice at a time (ADR 0119).
+    crossing: Option<Crossing>,
+    /// What each slice of a crossing does in tests: its work and the bytes of a piece.
+    #[cfg(test)]
+    crossing_slices: Option<(usize, usize)>,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
     /// The internal buffer that keeps every message.
@@ -285,6 +297,9 @@ impl Editor {
             wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
             moved_windows: Vec::new(),
             undo_scope: None,
+            crossing: None,
+            #[cfg(test)]
+            crossing_slices: None,
             join_ready: false,
             messages_buffer: BufferId(0),
             command_left_secret: None,
