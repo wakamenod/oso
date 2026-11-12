@@ -1195,6 +1195,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::ReplaceAnswer
 pub enum oso_core::editor::ReplaceError
 pub oso_core::editor::ReplaceError::EmptyString
 pub oso_core::editor::ReplaceError::ReadOnly(oso_core::buffer::ReadOnly)
+pub oso_core::editor::ReplaceError::Regexp(alloc::string::String)
 impl core::clone::Clone for oso_core::editor::ReplaceError
 pub fn oso_core::editor::ReplaceError::clone(&self) -> oso_core::editor::ReplaceError
 impl core::cmp::Eq for oso_core::editor::ReplaceError
@@ -1204,7 +1205,6 @@ impl core::fmt::Debug for oso_core::editor::ReplaceError
 pub fn oso_core::editor::ReplaceError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for oso_core::editor::ReplaceError
 pub fn oso_core::editor::ReplaceError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::editor::ReplaceError
 impl core::marker::StructuralPartialEq for oso_core::editor::ReplaceError
 pub enum oso_core::editor::SaveRefused
 pub oso_core::editor::SaveRefused::AlreadySaving
@@ -1372,6 +1372,7 @@ pub fn oso_core::editor::Editor::open_prompt(&mut self, impl core::convert::Into
 pub fn oso_core::editor::Editor::prompt(&self) -> core::option::Option<&oso_core::minibuffer::Prompt>
 pub fn oso_core::editor::Editor::prompt_layout(&self) -> core::option::Option<&oso_core::minibuffer::PromptLayout>
 pub fn oso_core::editor::Editor::prompt_says(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::prompt_takes_regexp(&mut self)
 pub fn oso_core::editor::Editor::prompt_windows(&self) -> impl core::iter::traits::iterator::Iterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::prompts(&self) -> &[oso_core::minibuffer::Prompt]
 pub fn oso_core::editor::Editor::quit(&mut self) -> oso_core::editor::Quit

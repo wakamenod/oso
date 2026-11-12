@@ -71,6 +71,20 @@ fn c_g_ends_it_and_keeps_what_it_replaced() {
 }
 
 #[test]
+fn c_m_percent_keeps_its_prompt_open_for_a_regexp_that_does_not_compile() {
+    let (mut d, mut editor) = at("k=v\n", &[0]);
+    send(&mut d, &mut editor, "C-M-% ( RET");
+    let prompt = editor.prompt().expect("still open");
+    assert_eq!(prompt.label(), "Query replace regexp: ");
+    send(
+        &mut d,
+        &mut editor,
+        "DEL ( \\ w ) = ( \\ w ) RET $ 2 = $ 1 RET !",
+    );
+    assert_eq!(text(&editor), "v=k\n");
+}
+
+#[test]
 fn input_during_bang_waits_for_it_and_c_g_stops_it() {
     let many = "ab ".repeat(3000);
     let (mut d, mut editor) = at(&many, &[0]);

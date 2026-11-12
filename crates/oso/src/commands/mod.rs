@@ -167,8 +167,9 @@ mod tests {
     }
 
     /// query-replace's commands, which read keys at each match (ADR 0113).
-    const QUERY_REPLACE: [&str; 10] = [
+    const QUERY_REPLACE: [&str; 11] = [
         "query-replace",
+        "query-replace-regexp",
         "replace-all",
         "replace-back",
         "replace-end",

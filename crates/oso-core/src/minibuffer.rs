@@ -181,6 +181,9 @@ pub struct Prompt {
     /// Its candidates, for a prompt that completes, and the revision of its buffer they
     /// were last matched against.
     pub(crate) completion: Option<(Candidates, u64)>,
+    /// Its answer must be a regexp that compiles, or the prompt stays open saying why
+    /// (ADR 0113).
+    pub(crate) regexp: bool,
     /// The history its answers go to in place of its kind's, as one for each project of a
     /// history its kind names (ADR 0114).
     pub(crate) history_key: Option<String>,
