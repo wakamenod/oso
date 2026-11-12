@@ -157,7 +157,7 @@ fn sixteen_windows(app: &mut App, mixed: u64) -> Result<(), String> {
 }
 
 /// Key press to presented frame for the `o` of `C-x o`, `count` times among the windows,
-/// after a warm-up of one round. Its p99. Fails unless each drew a frame and the round ends on
+/// after a warm-up of one round, each key paced as the other phases pace theirs. Its p99. Fails unless each drew a frame and the round ends on
 /// the window it began on.
 fn other_window(app: &mut App, count: usize, rng: &mut Lcg) -> Result<f64, String> {
     let windows = shown(&app.call("get-state", None)?)?.len();
@@ -177,11 +177,15 @@ fn other_window(app: &mut App, count: usize, rng: &mut Lcg) -> Result<f64, Strin
     let count = (count / windows).max(1) * windows;
     for index in 0..windows + count {
         app.send_keys("C-x")?;
-        // What the prefix draws is not this key's.
+        // What the prefix draws is not this key's. Then `o` waits as any key does: sent right
+        // after that frame, its own would wait for the display's next refresh to be presented,
+        // which measured the pacing and not the key (ADR 0112).
         settle(app)?;
+        let pace =
+            |rng: &mut Lcg| KEY_PACE + Duration::from_millis(rng.below(KEY_JITTER_MS) as u64);
+        thread::sleep(pace(rng));
         app.send_keys("o")?;
-        let jitter = rng.below(KEY_JITTER_MS) as u64;
-        thread::sleep(KEY_PACE + Duration::from_millis(jitter));
+        thread::sleep(pace(rng));
         let drawn = settle(app)?;
         if index >= windows {
             samples.extend(drawn);

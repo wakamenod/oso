@@ -381,10 +381,13 @@ file or a 10 MB line.
   - The first numbers, from `just perf-remote` on the benchmark Mac, before the keys were
     halved: with four windows moving 3.1 ms and typing 3.8 ms at p99, with sixteen 3.7 ms and
     4.9 ms, against 2.7 ms and 3.0 ms with one.
-  - **A known gap:** `C-x o` among sixteen takes 18.9 ms at p99, past the 8 ms budget, and
-    main before this step measures the same. `select_window` lays nothing out for a window
-    with cells, so the time is in the frame drawn after it; where in it is not measured yet,
-    and a follow-up takes it.
+  - **`C-x o` first measured 18.9 ms** at p99 among sixteen, past the 8 ms budget, and 17.5 ms
+    among four. The app's own spans of each key put nearly all of it in waiting for a drawable,
+    up to one 60 Hz refresh, while preparing the frame took under 1 ms: the phase sent `o` at
+    once after the prefix's frame was presented, so `o`'s frame waited for the next refresh.
+    Paced as any key since, it takes 3.5 ms among sixteen and 2.7 ms among four, in five runs
+    on the benchmark Mac. A frame asked for within one refresh of the last still waits for the
+    next, whatever the windows.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.
 
