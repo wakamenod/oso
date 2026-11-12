@@ -318,6 +318,7 @@ fn reusable(buffer: &oso_core::buffer::Buffer) -> Option<&'static str> {
         Unshowable::Opening => "the file is still opening for the agent; try again",
         Unshowable::Loading => "the file is open and still loading; try again",
         Unshowable::OwnKeys => "the file is open in a buffer whose keys are the person's",
+        Unshowable::Withheld => "the file is open in a buffer only the person reads",
     })
 }
 

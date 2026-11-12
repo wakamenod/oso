@@ -1,0 +1,29 @@
+ ▝▝   ▝▝   ~/src/project
+
+❯ Run this exact shell command with the Bash tool and nothing else: date > now.txt
+
+⏺ Bash(date > now.txt)
+  ⎿  (No output)
+
+⏺ I ran date > now.txt with the Bash tool. It finished with no output, which is expected because the
+  date went into now.txt in the working directory.
+
+✻ Sautéed for 2s · done 12:00 PM
+
+❯ Use the AskUserQuestion tool to ask me one question: which colour do I prefer, red or blue. Do
+  nothing else.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Colour
+
+Which colour do you prefer, red or blue?
+
+❯ 1. Red
+     You prefer red.
+  2. Blue
+     You prefer blue.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+

@@ -37,6 +37,7 @@ mod projects;
 mod reloads;
 mod saves;
 mod searches;
+mod sessions;
 mod slices;
 mod syntax;
 mod theme_file;
@@ -101,6 +102,8 @@ pub enum UserEvent {
     Listed,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
+    /// A thread read the EditorConfig of a file `C-x C-w` named (ADR 0115).
+    EditorConfig,
     /// The walker found a project's files, or ended (ADR 0114).
     Walked(crate::walk::Walked),
     /// A project's search found rows, or ended (ADR 0114).
@@ -118,6 +121,8 @@ pub enum UserEvent {
     AgentDeadline,
     /// The agent channel started, or could not, off the UI thread.
     AgentStarted(std::io::Result<crate::channel::Channel>),
+    /// The sessions worker found something (ADR 0121).
+    Sessions(crate::sessions::worker::Out),
 }
 
 /// Top-level application state.
@@ -194,6 +199,10 @@ pub struct App {
     lister: crate::lister::Lister,
     /// The thread that finds each file's project (ADR 0114).
     projects: crate::project::Detector,
+    /// The home directory, after which no EditorConfig is read (ADR 0115).
+    home: crate::loader::Home,
+    /// The thread that reads EditorConfig after `C-x C-w` (ADR 0115).
+    editorconfigs: crate::loader::EditorConfigReader,
     /// The thread that walks a project's files for `project-find-file` (ADR 0114).
     walker: crate::walk::Walker,
     /// When the rows a walk sent are added if it sends nothing more.
@@ -204,6 +213,11 @@ pub struct App {
     previewer: crate::grep::Previewer,
     /// The thread that reads and writes the record of trusted projects, if there is one.
     trust_file: Option<crate::config::TrustFile>,
+    /// The sessions worker, which judges hosted sessions' screens (ADR 0121).
+    sessions: Option<crate::sessions::worker::Worker>,
+    /// The internal `*Session explain*` buffer, once there is one (ADR 0121). Kept by its id,
+    /// never found by its name, which anyone may give a buffer of their own.
+    explain: Option<oso_core::buffer::BufferId>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -289,9 +303,11 @@ impl App {
         let disk = reloads::Disk::start(waker.clone());
         let lister = files::lister(&waker);
         let projects = projects::detector(&waker);
+        let (home_dir, editorconfigs) = projects::editorconfig_reader(&waker);
         let walker = walks::walker(&waker);
         let grep = greps::grep(&waker);
         let previewer = greps::previewer(&waker);
+        let sessions = sessions::worker(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
         editor.set_home(home());
@@ -321,6 +337,8 @@ impl App {
             answering: None,
             scan_for_copies: false,
             started: Some(started),
+            home: home_dir,
+            editorconfigs,
             wheel: input::Wheeling::default(),
             held_wheel: Vec::new(),
             pace: slices::Pace::default(),
@@ -343,6 +361,8 @@ impl App {
             grep,
             previewer,
             trust_file: None,
+            sessions,
+            explain: None,
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),

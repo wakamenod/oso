@@ -7,7 +7,7 @@
 use super::super::edit_tests::{cursors, set_at, text};
 use crate::buffer::{Buffer, BufferId, EditError, Mode};
 use crate::editor::Editor;
-use crate::indent::{Settings, Style};
+use crate::indent::{Origins, Settings, Style};
 
 pub(super) const LIMIT: usize = 16 << 20;
 
@@ -219,7 +219,7 @@ fn each_mode_has_its_configured_indentation_or_the_default() {
     assert_eq!(editor.mode_indent(Mode::Rust), Settings::default());
     let two = Settings::new(2, Style::Spaces, 8).unwrap();
     let mut indents = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
-        .map(|mode| (mode, Settings::default()));
+        .map(|mode| (mode, Settings::default(), Origins::default()));
     indents[1].1 = two;
     editor.set_mode_indents(indents);
     assert_eq!(editor.mode_indent(Mode::Markdown), two);
@@ -239,7 +239,7 @@ fn a_new_mode_table_reaches_the_open_buffers_of_the_person() {
     let (mut editor, id) = editor_in(Mode::Rust, "|");
     let two = Settings::new(2, Style::Tabs, 8).unwrap();
     let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
-    editor.set_mode_indents(modes.map(|mode| (mode, two)));
+    editor.set_mode_indents(modes.map(|mode| (mode, two, Origins::default())));
     assert_eq!(editor.buffer(id).unwrap().indent_settings(), two);
 }
 
@@ -395,7 +395,7 @@ fn a_buffer_added_takes_its_modes_indentation() {
     let (mut editor, _) = editor_in(Mode::Rust, "|");
     let two = Settings::new(2, Style::Spaces, 8).unwrap();
     let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
-    editor.set_mode_indents(modes.map(|mode| (mode, two)));
+    editor.set_mode_indents(modes.map(|mode| (mode, two, Origins::default())));
     let id = editor.add_buffer(Buffer::from_text("new", ""));
     assert_eq!(editor.buffer(id).unwrap().indent_settings(), two);
 }

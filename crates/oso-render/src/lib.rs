@@ -243,10 +243,11 @@ impl RenderState {
 
         // Fifo is the only present mode every backend must support, and it
         // never tears. Frames are drawn on demand, so vsync costs nothing while
-        // idle. A frame latency of 1 keeps at most one frame queued, aiming at
-        // the p99 <= 8 ms key-to-photon budget. A second frame within one
-        // refresh may still wait for vblank. Once ADR 0025 measures this,
-        // Mailbox, Immediate or a latency of 2 can be revisited.
+        // idle. A frame latency of 2 gives three drawables (ADR 0124): a key
+        // that draws twice, its own frame and then a worker's result, leaves
+        // the next key's frame a free drawable while the compositor still holds
+        // the one before, where with two that frame waited, on the UI thread,
+        // for up to a refresh.
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -255,7 +256,7 @@ impl RenderState {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: 1,
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
 

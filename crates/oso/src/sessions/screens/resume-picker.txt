@@ -1,0 +1,26 @@
+ ▐▛███▛█   Claude Code vX.Y.Z
+▝▜██████▀  Model · Plan
+ ▝▝   ▝▝   ~/src/project
+
+❯ /help
+  ⎿  Help dialog dismissed
+
+❯ /model
+  ⎿  Kept model as Model
+
+❯ /resume
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Resume session
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ⌕ Search…                                                                                    │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+    proj
+
+   No conversations found in this project.
+   Ctrl+A to show all projects
+
+    Ctrl+A to show all projects · Ctrl+B to only show current branch · Type to search · Esc to
+    cancel
+
+

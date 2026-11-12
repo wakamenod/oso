@@ -22,8 +22,13 @@ often, so it must rebuild within 2 s.
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.
 - `src/config/` reads the user configuration file and turns its text into the user keymap and
   settings (ADR 0108, ADR 0110), and reads and writes the record of trusted projects beside it
-  (`config/trust.rs`, ADR 0114). Its parsing does no I/O. Only it uses `toml`, which review
-  keeps: no guard test checks it.
+  (`config/trust.rs`, ADR 0114). Its parsing does no I/O. Only it and `sessions::rules`, which
+  parses the agent rules files (ADR 0121), use `toml`, which review keeps: no guard test checks
+  it.
+- `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
+  hosted session's state from its screen, the tracker, and the `oso-sessions` worker. Their
+  patterns use `regex`, compiled with size limits; the screen is untrusted text. `app/sessions.rs`
+  carries out what the worker finds.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it uses `ignore`, which

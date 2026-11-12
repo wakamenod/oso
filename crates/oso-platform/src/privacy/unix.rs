@@ -48,6 +48,11 @@ pub(super) fn has_one_name(metadata: &fs::Metadata) -> bool {
     metadata.nlink() == 1
 }
 
+/// Whether every user may write what `metadata` describes.
+pub(super) fn others_can_write(metadata: &fs::Metadata) -> bool {
+    metadata.mode() & 0o002 != 0
+}
+
 /// Whether a file with `metadata` is this user's.
 pub(super) fn is_this_users(metadata: &fs::Metadata) -> bool {
     metadata.uid() == euid()
@@ -451,6 +456,18 @@ mod tests {
     impl Drop for Scratch {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn others_can_write_goes_by_the_mode_bit_for_every_user() {
+        let scratch = Scratch::new();
+        let file = scratch.join("f");
+        fs::write(&file, "").unwrap();
+        for (mode, others) in [(0o644, false), (0o664, false), (0o666, true), (0o602, true)] {
+            fs::set_permissions(&file, Permissions::from_mode(mode)).unwrap();
+            let metadata = fs::symlink_metadata(&file).unwrap();
+            assert_eq!(super::others_can_write(&metadata), others, "{mode:o}");
         }
     }
 

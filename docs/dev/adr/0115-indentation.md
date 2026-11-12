@@ -845,3 +845,136 @@ As built:
   | `M-^` over 15,000 lines of 105 bytes, 2 MiB read (the most it takes) | 40.5 ms | 41.1 ms |
   | Markdown `TAB` at 1000 cursors in a 2 MiB document | 1.7 ms | 1.8 ms |
   | `M-RET` at 1000 cursors | 1.3 ms | 1.3 ms |
+
+### Step 4: EditorConfig
+
+The author chose, on 2026-11-13 through the coordinator, the recommended option of each question
+step 4's plan and its reviews put:
+
+- **Where each property came from:** `Editor::set_mode_indents` takes, for each mode, where each
+  property of its setting came from, the configuration or the default
+  (`[(Mode, Settings, Origins); 4]`), so that `describe-indentation` can tell them apart.
+- **A tab width read after `C-x C-w`** applies at the next visit, as a configured one does since
+  step 2: the indent size and style apply when the read comes back, and the display map is not
+  rebuilt. `describe-indentation` says the tab width shown is the visit's.
+- **The cores' derived values** apply, as editorconfig-core-test's `properties/` has them and
+  Emacs's `editorconfig` package does: `tab_width` defaults to a number given as
+  `indent_size`, and `indent_style = tab` with no `indent_size` makes it `tab`. A derived value
+  counts as EditorConfig's, over the configuration.
+- **`describe-indentation` names a file** by its path in the buffer's project; one outside it,
+  or with no project, is "EditorConfig outside the project".
+- **A buffer carried over a dev restart** reads EditorConfig as after `C-x C-w`: its indent size
+  and style apply when the read comes back, and it keeps the default tab width until visited
+  again (step 2). This replaced the first answer, that it read none, after the review of the
+  step: with none, `TAB` in a project that indents with tabs turned them into spaces.
+- **What a visit compiles:** at most **128 sections and 2 KiB of globs**, across all the files of
+  its walk, nearest first; the sections past either are skipped with a note in `*Messages*`.
+  The bounds the Decision gives a file stay. The walk runs before a file's first screen, so a
+  visit compiles no more than this, whatever the files above it hold.
+- **What a visit reads:** it looks in at most **64 directories**, from the file's own up, and
+  reads at most **32 `.editorconfig` files and 1 MiB** of them, nearest first, read or
+  refused; the walk stops there, and once the compile budget is spent, as no file above
+  could then add anything, and when the load is cancelled. Stopped by a bound, it notes the
+  first file it does not read. At most **8 notes** go to
+  `*Messages*` a visit, then one that says how many more there were.
+- **A glob that holds a number range** is at most **128 bytes**; a longer one is skipped with a
+  note. Its range is checked on the match's captures, which cost more the longer the glob.
+- **Each `.editorconfig` is opened from its directory** (`oso_platform::file_meta::Directory`),
+  once that directory is the one the walk saw, by device and inode, as ADR 0114's walker opens
+  a project's files. So a link is never followed, and a file whose contents a sync service
+  keeps elsewhere is not fetched.
+- **No `.editorconfig` is read in a directory every user may write,** such as `/tmp`; a note
+  says so when one is there.
+- **A file not read ends the walk** (the author's choice, on the coordinator's review): a link,
+  a file too large, not UTF-8, or one another user may change could have said `root = true`, so
+  no file farther up counts either, and its note says so.
+- **The combining is in `oso-core`:** `Applied::from_walk(location, files)` takes the files a
+  walk found, nearest first, and applies them farthest first, each with its globs read from its
+  own directory. So is the check that a read after `C-x C-w` is still for the buffer's file:
+  `Editor::editorconfig_read(&request, applied)` applies it only then, as `project_found` does,
+  and `Editor::request_editorconfig` asks for one, as `C-x C-w` and a carried buffer do. The
+  request is a `ProjectRequest`, a buffer and the place its path leads, whose name stays.
+- **The public items:** the module `editorconfig` (`File` with `parse`, `is_root` and
+  `problems`; `Problem`; `Budget` with `is_spent`; `Properties` with `indent_style`,
+  `indent_size` and `tab_width`, each with the index of the file that gave it; `IndentStyle`,
+  `IndentSize`; `Applied` with `from_walk`, `properties` and `file`; `MAX_FILE`,
+  `MAX_SECTIONS`, `MAX_GLOB`, `MAX_NESTING`, `MAX_RANGE_GLOB`, `VISIT_SECTIONS`,
+  `VISIT_GLOBS`), in `indent` `Origin`, `Origins` and `with_editorconfig(configured, given,
+  properties, shown)`, `Buffer::editorconfig` and `indent_origins`, on `Editor`
+  `set_editorconfig`, `set_buffer_mode`, `request_editorconfig`, `take_editorconfig_requests`
+  and `editorconfig_read`, and
+  `oso_platform::privacy::others_can_write`.
+
+As built:
+
+- **The parser** follows the specification 0.17.2, and editorconfig-core-test where the two
+  differ: a set takes ranges (`[a-c]`), a `-` first or last in it is itself, and `\]` escapes;
+  a `[` whose set would hold a `/` is itself, and no set matches a `/`, even through a range
+  (`[.-0]`) or an escape. `{a}` and `{}` are themselves, so are braces with
+  no `}`, and so is `{3..1}`; a number range takes no `+` and no leading zero, as `{3..120}` does
+  not match `060`. Comments are whole lines (`#` or `;`); a `;` or `#` in a value is part of it.
+  A comment after a section's header, a `;` or `#` after a space, is passed over, as
+  editorconfig-core-c's reader does. Keys are taken in any case, and the values of the three
+  properties too. A line that is no
+  comment, section or pair is passed over; a pair before the first section counts only for
+  `root`. A UTF-8 BOM and CRLF lines are read.
+- **A glob of 2 to 4 KiB** is within the Decision's bound for a glob but larger than what a
+  visit compiles, so it, and every section after it, is skipped as past the visit's budget; one
+  over 4 KiB is skipped alone.
+- **Only sections that set an indentation property are compiled;** the others are passed over
+  whatever their glob, so `[*.md] trim_trailing_whitespace = false` costs nothing.
+- **A value a property does not take** (`indent_size = 0`, `33`, `abc`) hides the farther files'
+  values, as a core reports the nearest, and gives nothing itself, as a plugin ignores it: the
+  property then comes from the configuration.
+- **A number range in a choice** (`{a,b{1..3}}`) is checked on the match the `regex` crate
+  chooses; when that match took a number out of range, another way through the choices is not
+  tried, as in editorconfig-core-c. Real globs do not put a range beside an alternative that
+  matches the same text. Likewise a `*` before a range takes as many characters as it can, so
+  `*{10..13}` does not match `x13`: the `*` takes `x1` and leaves `3`, as in editorconfig-core-c.
+- **The walk** is `project::upward`, which project detection now calls too; it stayed in
+  `project.rs`, beside detection, rather than in a module of its own. From the file's real
+  place up, directories missing below the first one there are passed over (a new file's), and
+  the walk ends at a link, another user's directory, another file system, and after the home
+  directory. Detection stops *at* home without looking for markers in it, as before.
+  EditorConfig reads home's own `.editorconfig`, then stops; it also stops after a file with
+  `root = true`. The home's real place is found once, by the first read, off the UI thread. A
+  `.editorconfig` is read only if it is a regular file, this user's or root's, that every user
+  may not write (a group may, as for the configuration file), of at most 64 KiB of UTF-8 text,
+  and no more of it than it held when opened. Its directory's owner and mode are taken from the
+  directory opened. A load that will not read its file (one too large, or not a file) reads no
+  EditorConfig; a new file's does.
+  A link to one, as a dotfiles setup makes, is not read, and `*Messages*` says so. A directory
+  that cannot be listed holds nothing to read.
+- **What `*Messages*` gets:** a note for each file not read and each section skipped, naming the
+  file and the line, with nothing of the file's text; nothing goes to the echo area.
+- **A visit** reads the files right after it opens the file and resolves its place, before it
+  reads the file, for a file not there yet too, so a new file indents as the project says: it
+  is shown with EditorConfig's tab width, or the mode's configured one, from the start. The
+  display map is built with EditorConfig's tab width, or the mode's configured one. The buffer
+  takes the rest when its first text, or its emptiness, is in, so that the tab width it is
+  shown with is the one the origins are judged against. A file read again keeps its visit's
+  setting. The file named on the command line now gets EditorConfig's tab width; the limit of
+  step 2 stays for a configured `tab-width`.
+- **The origins** have a fourth value besides the three the Decision names: a tab width that
+  differs from the one shown, after a configuration's change or a new name, is
+  `Origin::Visited`, "as visited; another applies at the next visit", and `indent_size = tab`
+  is then a tab as shown. A buffer that visits no file, as `*scratch*`, is shown with the
+  default tab width, which it says. A configuration's change, a mode command
+  (`Editor::set_buffer_mode`) and a new name that changes the mode give a buffer its mode's
+  setting under what EditorConfig gave it, so EditorConfig's properties stay.
+- **After `C-x C-w`,** and for a carried buffer, the read runs on one thread, `oso-editorconfig`,
+  started with the first request, and applies when it comes back only if the buffer's file is
+  still where it was asked about, as a project's answer does.
+- **`describe-indentation`** says, for example, "Rust mode: indent size 4 (EditorConfig
+  .editorconfig), tabs (EditorConfig src/.editorconfig), tab width 4 (the configuration)". Its
+  reach is `Look`: it reads the buffer's setting, never its text.
+- **Measured** with `text_perf -- editorconfig`, release, the author's Mac, parsing a file and
+  applying it to a path five directories deep, unless the case names another:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | A typical file, four sections | 69 µs | |
+  | 128 sections of `*`, the most a visit compiles | 2.6 ms | 2.9 ms |
+  | 128 sections of 16 `?`, the most glob a visit compiles | 6.4 ms | 6.8 ms |
+  | One section of 2 KiB of `**/` | 1.7 ms | 1.9 ms |
+  | 2 KiB of globs with a number range, against a 4 KiB path they match | 2.0 ms | 2.3 ms |
