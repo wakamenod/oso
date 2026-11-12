@@ -582,5 +582,6 @@ fn answer<'a>(
         fills: &lines.fills,
         whitespace: false,
         flash: None,
+        highlights: None,
     })
 }

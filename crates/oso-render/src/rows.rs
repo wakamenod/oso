@@ -46,6 +46,10 @@ use oso_platform::text::{ShapedGlyph, TextSystem};
 use crate::grid::{Grapheme, PlacedGlyph, Placer};
 use crate::pane::{Face, Span};
 
+mod pieces;
+
+use pieces::{KEPT_PIECE_BYTES, Pieces, shape_pieces};
+
 /// The characters shaped per row, per column shaped. Real text has at most
 /// three or so; past this budget, a cluster of several characters is shaped by
 /// its first one, in a box, so that what is left out shows (ADR 0068). A row's
@@ -60,82 +64,6 @@ const CHARS_PER_COLUMN: usize = 4;
 fn visible_part(text: &str, columns: usize) -> &str {
     let bytes = columns.saturating_mul(MAX_CLUSTER_BYTES);
     &text[..text.floor_char_boundary(bytes)]
-}
-
-/// The longest piece of a row whose shaping is kept by its text, in bytes, and
-/// how many are kept. A shaper's output depends only on its text and the font,
-/// so a short piece, such as a label, a cut cluster's character or a name on
-/// the modeline, is shaped once and not again for each row or frame it is in.
-const KEPT_PIECE_BYTES: usize = 64;
-const KEPT_PIECES: usize = 1024;
-
-/// Shaped pieces of a row, by their text, for pieces of up to
-/// [`KEPT_PIECE_BYTES`]. They hold buffer text, so they go with the rows they
-/// came from and at each revision (ADR 0028). No `Debug` for the same reason.
-#[derive(Default)]
-struct Pieces {
-    /// Where each piece's glyphs are in `shaped`.
-    index: HashMap<Box<str>, usize>,
-    shaped: Vec<Vec<ShapedGlyph>>,
-    /// Scratch space for a piece that is too long to keep.
-    long: Vec<ShapedGlyph>,
-}
-
-impl Pieces {
-    /// The glyphs of `text` shaped alone.
-    fn shape(&mut self, system: &mut dyn TextSystem, text: &str) -> &[ShapedGlyph] {
-        if text.len() > KEPT_PIECE_BYTES {
-            system.shape(text, &mut self.long);
-            return &self.long;
-        }
-        if let Some(&at) = self.index.get(text) {
-            return &self.shaped[at];
-        }
-        if self.shaped.len() >= KEPT_PIECES {
-            self.clear();
-        }
-        let mut glyphs = Vec::new();
-        system.shape(text, &mut glyphs);
-        self.index.insert(text.into(), self.shaped.len());
-        self.shaped.push(glyphs);
-        &self.shaped[self.shaped.len() - 1]
-    }
-
-    fn clear(&mut self) {
-        self.index.clear();
-        self.shaped.clear();
-    }
-}
-
-/// Shapes `text` into `out`. Each piece from a start in `breaks` is shaped on its
-/// own, through `pieces`, and with no breaks the text is one piece.
-fn shape_pieces(
-    system: &mut dyn TextSystem,
-    text: &str,
-    breaks: &[u32],
-    pieces: &mut Pieces,
-    out: &mut Vec<ShapedGlyph>,
-) {
-    if breaks.is_empty() {
-        system.shape(text, out);
-        return;
-    }
-    out.clear();
-    let mut pen = 0.0;
-    for (index, &start) in breaks.iter().enumerate() {
-        let end = breaks
-            .get(index + 1)
-            .map_or(text.len(), |&end| end as usize);
-        let piece = pieces.shape(system, &text[start as usize..end]);
-        for glyph in piece {
-            out.push(ShapedGlyph {
-                cluster: glyph.cluster + start,
-                x: glyph.x + pen,
-                ..*glyph
-            });
-        }
-        pen += piece.iter().map(|glyph| glyph.advance).sum::<f32>();
-    }
 }
 
 /// What a view row that continues ends with (ADR 0100).
@@ -183,6 +111,10 @@ pub(crate) struct ShapedRow {
     /// Boxed characters and cut clusters: their first column, from [`ShapedRow::base`],
     /// and cells.
     pub(crate) boxes: Vec<(usize, usize)>,
+    /// The buffer's clusters: their first column, from [`ShapedRow::base`], and offset in the
+    /// buffer at `revision`, for their highlights (ADR 0111). Read each time, and never
+    /// compared, so text that moves in the buffer is not shaped again.
+    pub(crate) clusters: Vec<(usize, usize)>,
 }
 
 /// Shaped rows of one pane, by logical line and start column, or by row for text that
@@ -208,6 +140,7 @@ pub(crate) struct Rows {
     graphemes: Vec<Grapheme>,
     breaks: Vec<u32>,
     boxes: Vec<(usize, usize)>,
+    clusters: Vec<(usize, usize)>,
     /// Where the last box of a cut cluster ends, while it is the last box.
     cut_end: Option<usize>,
     glyphs: Vec<ShapedGlyph>,
@@ -428,6 +361,7 @@ impl Rows {
             shaped.breaks.clone_from(&self.breaks);
         }
         shaped.boxes.clone_from(&self.boxes);
+        shaped.clusters.clone_from(&self.clusters);
         shaped.columns = columns;
         shaped.revision = revision;
         shaped.base = self.base;
@@ -462,6 +396,10 @@ impl Rows {
                 self.base = cluster.column.min(columns.start);
             }
             let first = self.graphemes.len();
+            if !own {
+                self.clusters
+                    .push((cluster.column.saturating_sub(self.base), cluster.offset));
+            }
             let shown = if own { Face::Preedit } else { Face::Text };
             let cut = self.push_cluster(&cluster, shown, budget, &mut spent);
             self.break_at(first, cut, &mut face);
@@ -529,6 +467,7 @@ impl Rows {
         self.graphemes.clear();
         self.breaks.clear();
         self.boxes.clear();
+        self.clusters.clear();
         self.cut_end = None;
     }
 

@@ -7,6 +7,10 @@
 
 use crate::pane::Face;
 
+mod palettes;
+
+use palettes::{Name, dark, dusk, light};
+
 /// Whether a theme is drawn on a dark background or a light one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -37,60 +41,6 @@ impl Color {
         let channel = |shift: u32| decode(((self.rgb >> shift) & 0xff) as f32 / 255.0);
         [channel(16), channel(8), channel(0), self.alpha]
     }
-}
-
-/// The names of a palette's colours. A face map refers to these, and each theme's palette
-/// gives every one a colour (ADR 0027's two layers).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Name {
-    BgMain,
-    BgFloat,
-    BgKey,
-    BgMode,
-    BgRegion,
-    BgEscape,
-    BgMatch,
-    BgCurrent,
-    BgSelected,
-    FgMain,
-    FgPrompt,
-    FgKey,
-    /// A question's words, apart from every colour buffer text is drawn in.
-    FgQuestion,
-    Escape,
-    Warning,
-    FieldOutline,
-    /// A completion's matched characters.
-    Gold,
-    /// What is said of a candidate.
-    Slate,
-    /// A candidate's key binding.
-    Azure,
-    /// A completion's count and label.
-    Teal,
-    Hairline,
-    Border,
-    Shadow,
-    /// Whitespace's marks: dim, to notice rather than read.
-    FgWhitespace,
-    /// Trailing whitespace's fill.
-    BgTrailing,
-    /// The current line's band.
-    BgCurrentLine,
-    /// The cursor flash, at full strength.
-    BgFlash,
-    /// Line numbers, dim, and the current line's, bright.
-    FgLineNumber,
-    FgLineNumberCurrent,
-    /// The wrap mark: dim, as whitespace's marks, in a hue of its own.
-    FgWrapMark,
-    /// The selected window's modeline text.
-    FgMode,
-    /// A modeline of a window that is not selected: dimmer than the selected one's.
-    FgModeInactive,
-    BgModeInactive,
-    /// The line between side by side windows.
-    Divider,
 }
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
@@ -231,8 +181,13 @@ impl Theme {
     }
 }
 
+/// The fills a syntax face is drawn on, besides the background. On every other fill, and
+/// under the flash, highlighted text keeps [`Face::Text`]'s colour, so a syntax face is checked
+/// on these only (ADR 0111).
+pub(crate) const SYNTAX_FILLS: [Face; 1] = [Face::CurrentLine];
+
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 31] = [
+const FACES: [Face; 42] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -264,6 +219,17 @@ const FACES: [Face; 31] = [
     Face::WrapMark,
     Face::ModelineInactive,
     Face::Divider,
+    Face::SyntaxComment,
+    Face::SyntaxString,
+    Face::SyntaxKeyword,
+    Face::SyntaxType,
+    Face::SyntaxFunction,
+    Face::SyntaxConstant,
+    Face::SyntaxProperty,
+    Face::SyntaxMacro,
+    Face::SyntaxHeading,
+    Face::SyntaxLink,
+    Face::SyntaxMarkup,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -301,6 +267,17 @@ const fn index(face: Face) -> usize {
         Face::WrapMark => 28,
         Face::ModelineInactive => 29,
         Face::Divider => 30,
+        Face::SyntaxComment => 31,
+        Face::SyntaxString => 32,
+        Face::SyntaxKeyword => 33,
+        Face::SyntaxType => 34,
+        Face::SyntaxFunction => 35,
+        Face::SyntaxConstant => 36,
+        Face::SyntaxProperty => 37,
+        Face::SyntaxMacro => 38,
+        Face::SyntaxHeading => 39,
+        Face::SyntaxLink => 40,
+        Face::SyntaxMarkup => 41,
     }
 }
 
@@ -343,133 +320,19 @@ fn faces(face: Face) -> (Name, Name) {
         Face::ModelineInactive => (FgModeInactive, BgModeInactive),
         // A line, drawn as a fill.
         Face::Divider => (Divider, Divider),
-    }
-}
-
-/// Near-black, with a high-contrast foreground: the default.
-fn dark(name: Name) -> Color {
-    use Name::*;
-    match name {
-        BgMain => rgb(0x0d0e12),
-        BgFloat => rgb(0x181a22),
-        BgKey => rgb(0x2b2e3b),
-        // The selected window's modeline in blue, far apart from the others' (ADR 0112).
-        BgMode => rgb(0x2c3f6e),
-        BgRegion => rgb(0x26365c),
-        BgEscape => rgb(0x3a2718),
-        BgMatch => rgb(0x3a2e10),
-        // The current match in teal, apart from the others' amber by hue.
-        BgCurrent => rgb(0x00566a),
-        BgSelected => rgb(0x1e3366),
-        FgMain => rgb(0xeceef4),
-        FgPrompt => rgb(0xa6b0d0),
-        FgKey => rgb(0xe2e6f2),
-        FgQuestion => rgb(0xb8dcff),
-        Escape => rgb(0xfab06e),
-        Warning => rgb(0xf5c84c),
-        FieldOutline => rgb(0x5a76c2),
-        Gold => rgb(0xf7c96e),
-        Slate => rgb(0x9fabd2),
-        Azure => rgb(0x6cc4ff),
-        Teal => rgb(0x5ad6ae),
-        FgWhitespace => rgb(0x9aa0b8),
-        BgTrailing => rgb(0x3a1b22),
-        BgCurrentLine => rgb(0x181a22),
-        BgFlash => rgb(0x4a2a5a),
-        FgLineNumber => rgb(0x767c93),
-        FgLineNumberCurrent => rgb(0xd8dbe6),
-        FgWrapMark => rgb(0x6aa6c4),
-        FgMode => rgb(0xffffff),
-        FgModeInactive => rgb(0x8e95ad),
-        BgModeInactive => rgb(0x15171e),
-        Divider => rgb(0x60667e),
-        Hairline => rgba(0xffffff, 0.05),
-        Border => rgb(0x30344a),
-        Shadow => rgba(0x000000, 0.6),
-    }
-}
-
-/// Near-white, with a near-black foreground: `dark`'s pair.
-fn light(name: Name) -> Color {
-    use Name::*;
-    match name {
-        BgMain => rgb(0xfbfbf8),
-        BgFloat => rgb(0xeff0f5),
-        BgKey => rgb(0xdadeea),
-        BgMode => rgb(0xb8cdf2),
-        BgRegion => rgb(0xc8d6f5),
-        BgEscape => rgb(0xf7e2cf),
-        BgMatch => rgb(0xf6e6b4),
-        BgCurrent => rgb(0x8fdcd0),
-        BgSelected => rgb(0xccdcff),
-        FgMain => rgb(0x15161b),
-        FgPrompt => rgb(0x46507a),
-        FgKey => rgb(0x15161b),
-        FgQuestion => rgb(0x1a3a8c),
-        Escape => rgb(0x8a3f00),
-        Warning => rgb(0x6e4600),
-        FieldOutline => rgb(0x4a6cc4),
-        Gold => rgb(0x623c00),
-        Slate => rgb(0x46507a),
-        Azure => rgb(0x0058b0),
-        Teal => rgb(0x006b52),
-        FgWhitespace => rgb(0x5f6577),
-        BgTrailing => rgb(0xf5d6d6),
-        BgCurrentLine => rgb(0xeeefe8),
-        BgFlash => rgb(0xebc9ef),
-        FgLineNumber => rgb(0x6e7385),
-        FgLineNumberCurrent => rgb(0x272a33),
-        FgWrapMark => rgb(0x2f6684),
-        FgMode => rgb(0x0b0c10),
-        FgModeInactive => rgb(0x5a6178),
-        BgModeInactive => rgb(0xeef0f4),
-        Divider => rgb(0x858a9b),
-        Hairline => rgba(0x000000, 0.08),
-        Border => rgb(0xc2c6d4),
-        Shadow => rgba(0x1a1f33, 0.18),
-    }
-}
-
-/// The M2 steps' dark grey, with the float's colours as ADR 0075 and ADR 0076 picked them.
-/// Where those missed a floor, the nearest colour that meets it, its hue kept (ADR 0089).
-fn dusk(name: Name) -> Color {
-    use Name::*;
-    match name {
-        BgMain => rgb(0x3f3f4b),
-        BgFloat => rgb(0x474959),
-        BgKey => rgb(0x555769),
-        BgMode => rgb(0x44507a),
-        BgRegion => rgb(0x3f5375),
-        BgEscape => rgb(0x6b452b),
-        BgMatch => rgb(0x613f10),
-        BgCurrent => rgb(0x005c4c),
-        BgSelected => rgb(0x233670),
-        FgMain => rgb(0xf3f3f6),
-        FgPrompt => rgb(0xbfc7df),
-        FgKey => rgb(0xdee3f1),
-        // A pale green: no buffer text is drawn in it.
-        FgQuestion => rgb(0xc8f7c0),
-        Escape => rgb(0xf4ba83),
-        Warning => rgb(0xffdd6f),
-        FieldOutline => rgb(0x6f86bd),
-        Gold => rgb(0xffce7c),
-        Slate => rgb(0xaeb8de),
-        Azure => rgb(0x4fc3ff),
-        Teal => rgb(0x5fd7af),
-        FgWhitespace => rgb(0xa3a7bd),
-        BgTrailing => rgb(0x5d3a46),
-        BgCurrentLine => rgb(0x4a4a52),
-        BgFlash => rgb(0x603c6c),
-        FgLineNumber => rgb(0xb0b3c4),
-        FgLineNumberCurrent => rgb(0xf3f3f6),
-        FgWrapMark => rgb(0x94cde6),
-        FgMode => rgb(0xf3f3f6),
-        FgModeInactive => rgb(0xb8bccc),
-        BgModeInactive => rgb(0x35353f),
-        Divider => rgb(0x8c8fa3),
-        Hairline => rgba(0xffffff, 0.035),
-        Border => rgb(0x505265),
-        Shadow => rgba(0x08090e, 0.55),
+        // A foreground only: the text's background is behind it (ADR 0111).
+        Face::SyntaxComment => (SynComment, BgMain),
+        Face::SyntaxString => (SynString, BgMain),
+        Face::SyntaxKeyword => (SynKeyword, BgMain),
+        Face::SyntaxType => (SynType, BgMain),
+        Face::SyntaxFunction => (SynFunction, BgMain),
+        Face::SyntaxConstant => (SynConstant, BgMain),
+        // Fields are drawn as text.
+        Face::SyntaxProperty => (FgMain, BgMain),
+        Face::SyntaxMacro => (SynMacro, BgMain),
+        Face::SyntaxHeading => (SynHeading, BgMain),
+        Face::SyntaxLink => (SynLink, BgMain),
+        Face::SyntaxMarkup => (SynMarkup, BgMain),
     }
 }
 
@@ -568,6 +431,20 @@ pub(crate) mod tests {
         ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
     }
 
+    /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
+    const TEXT: [(Face, f32); 7] = [
+        (Face::Text, 7.0),
+        (Face::CurrentLine, 7.0),
+        (Face::Flash, 7.0),
+        (Face::Region, 7.0),
+        (Face::SearchMatch, 7.0),
+        (Face::SearchCurrent, 7.0),
+        (Face::CompletionSelected, 7.0),
+    ];
+
+    /// Highlighted text is read on the background and on [`SYNTAX_FILLS`].
+    const SYNTAX_PAIRS: [(Face, f32); 2] = [(Face::Text, 7.0), (SYNTAX_FILLS[0], 7.0)];
+
     /// What each face's foreground must reach on which background (ADR 0089). A match with no
     /// wildcard, so that a new face does not compile until it has its pairs.
     fn pairs(face: Face) -> &'static [(Face, f32)] {
@@ -577,15 +454,7 @@ pub(crate) mod tests {
         const MARK: f32 = 3.0;
         const LIST: [Face; 2] = [Face::Text, Face::CompletionSelected];
         match face {
-            Face::Text => &[
-                (Face::Text, READ),
-                (Face::CurrentLine, READ),
-                (Face::Flash, READ),
-                (Face::Region, READ),
-                (Face::SearchMatch, READ),
-                (Face::SearchCurrent, READ),
-                (Face::CompletionSelected, READ),
-            ],
+            Face::Text => &TEXT,
             Face::Cursor => &[(Face::Cursor, READ)],
             Face::Modeline => &[(Face::Modeline, READ)],
             Face::ModelineInactive => &[(Face::ModelineInactive, LABEL)],
@@ -638,6 +507,19 @@ pub(crate) mod tests {
                 (Face::SearchMatch, MARK),
                 (Face::SearchCurrent, MARK),
             ],
+            // Text that is read, on what is behind a line. Under the fills and the flash it is
+            // drawn in `Text`'s colour (ADR 0111, the author's choice).
+            Face::SyntaxComment
+            | Face::SyntaxString
+            | Face::SyntaxKeyword
+            | Face::SyntaxType
+            | Face::SyntaxFunction
+            | Face::SyntaxConstant
+            | Face::SyntaxProperty
+            | Face::SyntaxMacro
+            | Face::SyntaxHeading
+            | Face::SyntaxLink
+            | Face::SyntaxMarkup => &SYNTAX_PAIRS,
             // Drawn as fills or lines, checked as such below.
             Face::Preedit
             | Face::FloatBorder
@@ -919,6 +801,102 @@ pub(crate) mod tests {
                 assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
             }
         }
+    }
+
+    /// The syntax faces, in the order of [`index`].
+    pub(crate) const SYNTAX: [Face; 11] = [
+        Face::SyntaxComment,
+        Face::SyntaxString,
+        Face::SyntaxKeyword,
+        Face::SyntaxType,
+        Face::SyntaxFunction,
+        Face::SyntaxConstant,
+        Face::SyntaxProperty,
+        Face::SyntaxMacro,
+        Face::SyntaxHeading,
+        Face::SyntaxLink,
+        Face::SyntaxMarkup,
+    ];
+
+    /// Highlighted text keeps the distances plain text keeps: a question's words, the marks
+    /// and an escape's label are never taken for it (ADR 0111).
+    #[test]
+    fn highlighted_text_is_in_no_colour_a_question_a_mark_or_an_escape_is_drawn_in() {
+        for theme in &themes() {
+            for syntax in SYNTAX {
+                let ink = theme.foreground(syntax);
+                for face in [
+                    Face::Question,
+                    Face::Whitespace,
+                    Face::WrapMark,
+                    Face::Escape,
+                ] {
+                    let apart = distance(ink, theme.foreground(face));
+                    assert!(
+                        apart >= 0.05,
+                        "{}: {syntax:?} and {face:?} {apart:.3}",
+                        theme.name()
+                    );
+                }
+            }
+        }
+    }
+
+    /// The syntax colours as the author accepted them (ADR 0111), in the order of [`SYNTAX`].
+    #[test]
+    fn the_syntax_faces_keep_the_authors_pick() {
+        let picked = [
+            (
+                "dark",
+                [
+                    0xb4b4b0, 0x98a4ef, 0xbc9ae2, 0x3cbd93, 0xe091b4, 0x15b6e3, 0xeceef4, 0xf881bb,
+                    0xec8e8f, 0x04bcb9, 0xbbaa0d,
+                ],
+            ),
+            (
+                "light",
+                [
+                    0x4e4a4b, 0x2c3ac1, 0x5536a8, 0x065179, 0x882757, 0x002fe0, 0x15161b, 0x8d2738,
+                    0x961e01, 0x2b544c, 0x614905,
+                ],
+            ),
+            (
+                "dusk",
+                [
+                    0xeceee8, 0xe0ebff, 0xebe8ff, 0x90ffdf, 0xffe3ee, 0xd1efff, 0xf3f3f6, 0xffe4e8,
+                    0xffe4e4, 0x77fffb, 0xffed64,
+                ],
+            ),
+        ];
+        for (theme, (name, colours)) in themes().iter().zip(picked) {
+            assert_eq!(theme.name(), name);
+            for (face, colour) in SYNTAX.iter().zip(colours) {
+                assert_eq!(
+                    theme.foreground(*face),
+                    rgb(colour).linear(),
+                    "{name}: {face:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_highlight_has_its_own_face() {
+        use oso_core::syntax::Highlight;
+        let all = [
+            Highlight::Comment,
+            Highlight::String,
+            Highlight::Keyword,
+            Highlight::Type,
+            Highlight::Function,
+            Highlight::Constant,
+            Highlight::Property,
+            Highlight::Macro,
+            Highlight::Heading,
+            Highlight::Link,
+            Highlight::Markup,
+        ];
+        assert_eq!(all.map(Face::of_highlight), SYNTAX);
     }
 
     /// OKLab's hue of a linear colour, in degrees.
