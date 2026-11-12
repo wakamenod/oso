@@ -739,6 +739,11 @@ Full details are in [`security.md`](security.md).
     as given. A reload of a file the channel opened checks it as `open` does, and a reload
     that finds the file elsewhere makes the agent's save of it ask. An `oso dev` restart keeps
     the mark: the buffer's handoff entry says `"opened_by_agent": true`, only when it is.
+  - What opening or saving starts runs for the channel only when it is oso's own work in its
+    process, such as the final newline and the whitespace cleanup. From M4, each kind of thing
+    opening or saving starts declares `Runs::InOso` or `Runs::Program` in `oso-core`; a
+    `Program` kind for an agent's open or save marks the buffer instead, and the person's next
+    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.
