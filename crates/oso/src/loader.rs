@@ -119,6 +119,8 @@ struct Shared {
     baseline: Mutex<Option<Baseline>>,
     /// The file's own spelling. Set before the first update, and taken once.
     spelling: Mutex<Option<PathBuf>>,
+    /// The tab width the display map is built with: the buffer's (ADR 0115).
+    tab_width: TabWidth,
 }
 
 impl Shared {
@@ -194,11 +196,17 @@ impl Drop for LoadHandle {
 /// `limit` bytes before reading any of it: [`UNASKED`], or the size the person agreed to.
 /// `wake` tells the UI thread that an update waits in the handle, and returns false once the
 /// UI is gone, which stops the load.
-pub fn spawn<W>(buffer: BufferId, path: PathBuf, limit: u64, wake: W) -> io::Result<LoadHandle>
+pub fn spawn<W>(
+    buffer: BufferId,
+    path: PathBuf,
+    limit: u64,
+    tab_width: TabWidth,
+    wake: W,
+) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, wake, move |shared, post| {
+    spawn_reading(buffer, tab_width, wake, move |shared, post| {
         load(&path, limit, shared, post, false)
     })
 }
@@ -211,12 +219,13 @@ pub fn spawn_one_name<W>(
     buffer: BufferId,
     path: PathBuf,
     limit: u64,
+    tab_width: TabWidth,
     wake: W,
 ) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, wake, move |shared, post| {
+    spawn_reading(buffer, tab_width, wake, move |shared, post| {
         load(&path, limit, shared, post, true)
     })
 }
@@ -260,12 +269,13 @@ pub fn spawn_reload<W>(
     path: PathBuf,
     old: Rope,
     for_agent: bool,
+    tab_width: TabWidth,
     wake: W,
 ) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, wake, move |shared, post| {
+    spawn_reading(buffer, tab_width, wake, move |shared, post| {
         let (file, metadata) = open_and_record(&path, shared, || {})?;
         // A buffer the agent opened is read again only as it may be opened (ADR 0085).
         if for_agent {
@@ -283,12 +293,20 @@ where
 }
 
 /// Starts `read` on a background thread, with what the thread and the UI share.
-fn spawn_reading<W, R>(buffer: BufferId, wake: W, read: R) -> io::Result<LoadHandle>
+fn spawn_reading<W, R>(
+    buffer: BufferId,
+    tab_width: TabWidth,
+    wake: W,
+    read: R,
+) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
     R: FnOnce(&Shared, &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> + Send + 'static,
 {
-    let shared = Arc::new(Shared::default());
+    let shared = Arc::new(Shared {
+        tab_width,
+        ..Shared::default()
+    });
     let thread_shared = Arc::clone(&shared);
     thread::Builder::new()
         .name("oso-load".into())
@@ -328,7 +346,7 @@ where
     O: FnOnce() -> io::Result<File> + Send + 'static,
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, wake, move |shared, post| {
+    spawn_reading(buffer, TabWidth::default(), wake, move |shared, post| {
         let file = open().map_err(LoadError::Io)?;
         read_into(file, limit, shared, post)
     })
@@ -520,7 +538,7 @@ fn read_all(
     mut each: impl FnMut(&Builder) -> bool,
 ) -> Result<Option<(Builder, bool)>, LoadError> {
     let mut file = file.take(total);
-    let mut builder = Builder::new(Some(total), TabWidth::default());
+    let mut builder = Builder::new(Some(total), shared.tab_width);
     let mut piece = vec![0; READ_SIZE];
     loop {
         if shared.cancel.load(Ordering::Relaxed) {
@@ -573,7 +591,10 @@ mod tests {
     /// [`events`], with a load that reads at most `limit` bytes.
     fn events_up_to(path: PathBuf, limit: u64) -> Vec<LoadUpdate> {
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path, limit, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path, limit, TabWidth::default(), move |_| {
+            tx.send(()).is_ok()
+        })
+        .unwrap();
         let mut updates = Vec::new();
         while rx.recv_timeout(Duration::from_secs(10)).is_ok() {
             // Slow down, as a busy UI would, so updates pile up.
@@ -670,7 +691,14 @@ mod tests {
     fn the_resolved_path_is_there_before_the_first_update() {
         let path = scratch_file("resolved.txt", b"abc");
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(
+            id(),
+            path.clone(),
+            UNASKED,
+            TabWidth::default(),
+            move |_| tx.send(()).is_ok(),
+        )
+        .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let resolved = handle.take_resolved().unwrap();
         // Where the system cannot name an open file, nobody can tell.
@@ -689,7 +717,10 @@ mod tests {
     fn a_missing_file_is_resolved_too() {
         let (tx, rx) = mpsc::channel();
         let path = std::env::temp_dir().join("oso-no-such-file-here");
-        let handle = spawn(id(), path, UNASKED, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path, UNASKED, TabWidth::default(), move |_| {
+            tx.send(()).is_ok()
+        })
+        .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(matches!(
             handle.take_resolved(),
@@ -702,7 +733,14 @@ mod tests {
         let path = scratch_file("baseline.txt", b"abc");
         let metadata = std::fs::metadata(&path).unwrap();
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(
+            id(),
+            path.clone(),
+            UNASKED,
+            TabWidth::default(),
+            move |_| tx.send(()).is_ok(),
+        )
+        .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert_eq!(
             handle.take_baseline(),
@@ -896,7 +934,14 @@ mod tests {
     fn a_missing_file_has_a_baseline_with_no_file() {
         let (tx, rx) = mpsc::channel();
         let path = std::env::temp_dir().join("oso-no-such-file-here");
-        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(
+            id(),
+            path.clone(),
+            UNASKED,
+            TabWidth::default(),
+            move |_| tx.send(()).is_ok(),
+        )
+        .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let directory = std::fs::canonicalize(std::env::temp_dir()).unwrap();
         assert_eq!(
@@ -912,10 +957,16 @@ mod tests {
     fn a_closed_ui_stops_the_load() {
         let path = scratch_file("closed.txt", &vec![b'a'; READ_SIZE * 4]);
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path.clone(), UNASKED, move |_| {
-            let _ = tx.send(());
-            false
-        })
+        let handle = spawn(
+            id(),
+            path.clone(),
+            UNASKED,
+            TabWidth::default(),
+            move |_| {
+                let _ = tx.send(());
+                false
+            },
+        )
         .unwrap();
         assert_eq!(rx.iter().count(), 1, "one wake, then it stopped");
         let Some(LoadUpdate::Snapshot(snapshot)) = handle.take() else {
@@ -931,8 +982,15 @@ mod tests {
         let path = scratch_file("reload.txt", content.as_bytes());
         let old = Rope::from("head\nother\n");
         let (tx, rx) = mpsc::channel();
-        let handle =
-            spawn_reload(id(), path.clone(), old, false, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn_reload(
+            id(),
+            path.clone(),
+            old,
+            false,
+            TabWidth::default(),
+            move |_| tx.send(()).is_ok(),
+        )
+        .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(handle.take_resolved().is_some());
         assert!(handle.take_baseline().unwrap().file.is_some());
@@ -975,7 +1033,15 @@ mod tests {
         std::fs::hard_link(&path, &second).unwrap();
         let (tx, rx) = mpsc::channel();
         let wake = move |_| tx.send(()).is_ok();
-        let handle = spawn_reload(id(), path.clone(), Rope::from(""), true, wake).unwrap();
+        let handle = spawn_reload(
+            id(),
+            path.clone(),
+            Rope::from(""),
+            true,
+            TabWidth::default(),
+            wake,
+        )
+        .unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let update = handle.take().unwrap();
         assert!(

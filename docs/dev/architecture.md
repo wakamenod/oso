@@ -603,8 +603,8 @@ read. See [ADR 0019](adr/0019-configuration.md).
   value of each it leaves out) and applies only those a look changes, so a choice made at run
   time stands. The theme shown last is remembered with the configured default then, in
   `oso/theme`, and wins at start while that default is the file's.
-- Indentation ([ADR 0115](adr/0115-indentation.md); its rules are built, its keys come in later
-  steps): each buffer has an indentation setting, from the EditorConfig files that apply to it,
+- Indentation ([ADR 0115](adr/0115-indentation.md); its rules, `TAB`, `RET` and `C-j` are built,
+  the region commands and EditorConfig come in later steps): each buffer has an indentation setting, from the EditorConfig files that apply to it,
   then the configuration's `[modes.<mode>]`, then the defaults. The loader reads the EditorConfig files from the file's
   directory up, with project detection's stops, before it builds the display map; parsing and
   matching are a pure function in `oso_core::editorconfig`. Indentation itself is computed on the UI

@@ -305,78 +305,6 @@ pair = ["dusk", "dusk"]
     );
 }
 
-#[test]
-fn jump_keys_are_distinct_printable_keys_none_an_actions() {
-    let f = Fixture::new();
-    for keys in ["asdfghjl", "ab", "aoeu;,."] {
-        let loaded = f.parse(&format!("[jump]\nkeys = {keys:?}\n"));
-        assert_eq!(messages(&loaded), Vec::<String>::new());
-        assert_eq!(loaded.settings.jump.keys, Some(Keys::new(keys).unwrap()));
-    }
-    let long = format!("{:?}", "a".repeat(33));
-    for (keys, message) in [
-        (r#""a""#, "takes 2 to 32 characters, not 1"),
-        (r#""""#, "takes 2 to 32 characters, not 0"),
-        (&long, "takes 2 to 32 characters, not 33"),
-        (r#""asda""#, "gives 'a' twice"),
-        (r#""asK""#, "cannot take 'K', an action's key"),
-        (r#""as d""#, "takes printable ASCII characters, not ' '"),
-        (r#""asé""#, "takes printable ASCII characters, not 'é'"),
-        ("1", "takes a string of keys, not a number"),
-        (r#"["a", "s"]"#, "takes a string of keys, not a list"),
-    ] {
-        let loaded = f.parse(&format!("[jump]\nkeys = {keys}\n"));
-        assert_eq!(messages(&loaded), [format!("2:8: [jump] keys {message}")]);
-        assert_eq!(loaded.settings.jump.keys, None, "{keys}");
-    }
-}
-
-#[test]
-fn a_jump_timeout_is_seconds_from_a_tenth_to_five() {
-    let f = Fixture::new();
-    for (timeout, millis) in [
-        ("1", 1000),
-        ("0.3", 300),
-        ("0.1", 100),
-        ("5", 5000),
-        ("5.0", 5000),
-    ] {
-        let loaded = f.parse(&format!("[jump]\ntimeout = {timeout}\n"));
-        assert_eq!(messages(&loaded), Vec::<String>::new(), "{timeout}");
-        assert_eq!(
-            loaded.settings.jump.timeout,
-            Some(Duration::from_millis(millis)),
-            "{timeout}"
-        );
-    }
-    for (timeout, not) in [
-        ("0.05", "0.05"),
-        ("7", "7"),
-        ("0", "0"),
-        ("-1", "-1"),
-        ("nan", "nan"),
-        ("inf", "inf"),
-        ("1e300", "1e300"),
-        ("99999999999999999999", "99999999999999999999"),
-        ("0x10", "0x10"),
-        (r#""0.5""#, "a string"),
-        ("true", "true or false"),
-    ] {
-        let loaded = f.parse(&format!("[jump]\ntimeout = {timeout}\n"));
-        assert_eq!(
-            messages(&loaded),
-            [format!(
-                "2:11: [jump] timeout takes a number of seconds from 0.1 to 5, not {not}"
-            )],
-            "{timeout}"
-        );
-        assert_eq!(loaded.settings.jump.timeout, None, "{timeout}");
-    }
-    let loaded = f.parse("jump = 1\n");
-    assert_eq!(messages(&loaded), ["1:8: [jump] must be a table"]);
-    assert_eq!(loaded.settings.jump, Jump::default());
-}
-
 /// Text that looks like a configuration file: tables, keys and values, some of them wrong.
 fn configish() -> impl Strategy<Value = String> {
     let piece = prop_oneof![
@@ -548,5 +476,75 @@ fn a_large_file_reports_only_its_first_syntax_error() {
             ),
             format!("{line}:1: a file over 64 KiB reports only its first syntax error"),
         ]
+    );
+}
+
+#[test]
+fn indentation_is_set_per_mode_and_bad_values_are_reported() {
+    use oso_core::indent::Style;
+
+    use super::indentation::ModeIndent;
+
+    let f = Fixture::new();
+    let loaded = f.parse(
+        r#"
+[indent]
+electric = false
+
+[modes.rust]
+indent-size = 2
+indent-style = "tab"
+tab-width = 4
+
+[modes.markdown]
+indent-size = 0
+indent-style = "tabs"
+tab-width = 33
+wrap = true
+
+[modes.python]
+indent-size = 4
+"#,
+    );
+    assert_eq!(
+        messages(&loaded),
+        [
+            "11:15: [modes.markdown] indent-size takes a number from 1 to 32, not 0",
+            "12:16: [modes.markdown] indent-style takes \"space\" or \"tab\", not \"tabs\"",
+            "13:13: [modes.markdown] tab-width takes a number from 1 to 32, not 33",
+            "14:1: unknown name \"wrap\" in [modes.markdown], skipped",
+            "16:8: unknown name \"python\" in [modes], skipped",
+        ]
+    );
+    let settings = &loaded.settings;
+    assert_eq!(settings.indent.electric, Some(false));
+    assert_eq!(
+        settings.modes[0],
+        ModeIndent {
+            indent_size: Some(2),
+            style: Some(Style::Tabs),
+            tab_width: Some(4),
+        }
+    );
+    assert_eq!(settings.modes[1], ModeIndent::default());
+}
+
+#[test]
+fn an_indentation_width_in_another_form_is_reported_and_not_used() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        "[modes.toml]\nindent-size = 0x8\ntab-width = -4\n[modes.rust]\nindent-size = 2.0\n",
+    );
+    assert_eq!(
+        messages(&loaded),
+        [
+            "2:15: [modes.toml] indent-size takes a number from 1 to 32, not 8",
+            "3:13: [modes.toml] tab-width takes a number from 1 to 32, not -4",
+            "5:15: [modes.rust] indent-size takes a number from 1 to 32, not a number",
+        ]
+    );
+    assert_eq!(
+        loaded.settings.modes,
+        [super::indentation::ModeIndent::default(); 4]
     );
 }

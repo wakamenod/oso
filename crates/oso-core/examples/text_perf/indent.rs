@@ -7,6 +7,10 @@
 
 use std::time::{Duration, Instant};
 
+use oso_core::buffer::{Buffer, Mode, Replacement};
+use oso_core::editor::Editor;
+use oso_core::selection::{Selection, SelectionSet};
+
 use oso_core::indent::{
     self, Answer, Budget, COMMAND_READ, LINE_COST, LINE_LOOKBACK, Line, Settings,
 };
@@ -184,6 +188,110 @@ fn crafted_costs() {
     println!("100K lines of x, every line: deepest column {deepest:?}");
 }
 
+/// An editor showing `text` as Rust, with a cursor at each of `at`.
+fn rust_editor(text: &str, at: &[usize]) -> Editor {
+    let mut buffer = Buffer::from_text("big.rs", text);
+    buffer.set_mode(Mode::Rust);
+    let mut editor = Editor::with_buffer(buffer);
+    let parts = at.iter().map(|&at| Selection::at(at)).collect();
+    editor.current_mut().0.selections = SelectionSet::from_parts(parts, 0).expect("a cursor");
+    editor
+}
+
+/// p50 and p99 over `runs` of one command's `key` on a fresh editor from `make`.
+fn command_costs(
+    runs: usize,
+    make: impl Fn() -> Editor,
+    key: impl Fn(&mut Editor),
+) -> (Duration, Duration) {
+    let mut samples: Vec<Duration> = (0..runs)
+        .map(|_| {
+            let mut editor = make();
+            editor.begin_undo_group();
+            let started = Instant::now();
+            key(&mut editor);
+            let elapsed = started.elapsed();
+            editor.end_undo_group();
+            elapsed
+        })
+        .collect();
+    percentiles(&mut samples)
+}
+
+/// `RET`, `TAB` and a typed `}` through the editor, the rules, the edit and the cursors'
+/// moves, at 1 and 1000 cursors in a 2 MiB Rust file; a `}` that dedents is typed first
+/// with no reindent, for the cost of the second edit.
+fn editor_costs() {
+    let text = rust_file(2 * MB);
+    let rope = Rope::from(text.as_str());
+    for cursors in [1, 1000] {
+        let ends = line_ends(&rope, cursors);
+        let (p50, p99) = command_costs(
+            20,
+            || rust_editor(&text, &ends),
+            |editor| {
+                editor.newline("\n", 1, true, 16 << 20).expect("editable");
+            },
+        );
+        println!("editor RET at {cursors:>4} cursors      p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+        let (p50, p99) = command_costs(
+            20,
+            || rust_editor(&text, &ends),
+            |editor| {
+                editor.newline("\n", 1, false, 16 << 20).expect("editable");
+            },
+        );
+        println!("editor RET at {cursors:>4}, no indent  p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+        let lines: Vec<_> = ends.iter().map(|&at| Line::New(at)).collect();
+        let (p50, p99) = command_costs(
+            20,
+            || rust_editor(&text, &ends),
+            |_| {
+                ask(&rope, &lines, &mut Budget::new());
+            },
+        );
+        println!("rules alone at {cursors:>4} cursors    p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+        let (p50, p99) = command_costs(
+            20,
+            || rust_editor(&text, &ends),
+            |editor| {
+                editor.indent_for_tab().expect("editable");
+            },
+        );
+        println!("editor TAB at {cursors:>4} cursors      p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+    }
+    // Each cursor on a blank line indented too far, inside a block: `}` there dedents.
+    let block = "fn f() {\n    x();\n        \n";
+    let closers = block.repeat(1000);
+    let at: Vec<usize> = (0..1000)
+        .map(|index| (index + 1) * block.len() - 1)
+        .collect();
+    let typed = |editor: &mut Editor| {
+        let id = editor.window().buffer();
+        let edits: Vec<_> = editor
+            .window()
+            .selections
+            .iter()
+            .map(|s| Replacement {
+                range: s.cursor..s.cursor,
+                text: "}",
+            })
+            .collect();
+        editor.apply_edits(id, &edits).expect("editable");
+    };
+    let (p50, p99) = command_costs(20, || rust_editor(&closers, &at), typed);
+    println!("editor }} typed at 1000, no reindent  p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+    let (p50, p99) = command_costs(
+        20,
+        || rust_editor(&closers, &at),
+        |editor| {
+            typed(editor);
+            editor.indent_typed_closers().expect("editable");
+        },
+    );
+    println!("editor }} typed at 1000, reindented  p50 {p50:>9.2?}  p99 {p99:>9.2?}");
+}
+
 pub(crate) fn indent_costs() {
     println!("== Indentation rules (ADR 0115)");
     println!(
@@ -194,6 +302,7 @@ pub(crate) fn indent_costs() {
     cursor_costs();
     worst_costs();
     crafted_costs();
+    editor_costs();
     // Every line, as `indent-region` asks.
     for size in [2 * MB, 4 * MB, 8 * MB] {
         let rope = Rope::from(rust_file(size).as_str());

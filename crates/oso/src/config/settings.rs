@@ -1,5 +1,6 @@
 //! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108),
-//! whitespace cleanup on save (ADR 0113) and jumps' keys and timeout (ADR 0116).
+//! whitespace cleanup on save (ADR 0113) and jumps' keys and timeout (ADR 0116). Indentation's
+//! are in `indentation` (ADR 0115).
 //! Each is `None` where the file leaves it out or gives a bad value, so the caller keeps its own.
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
@@ -11,6 +12,7 @@ use oso_core::jump::Keys;
 use toml::Spanned;
 use toml::de::DeValue;
 
+use super::indentation::{Indent, Modes};
 use super::problems::{Found, cut, quoted};
 use super::{table, type_name, unknown};
 
@@ -27,6 +29,10 @@ pub struct Settings {
     pub save: Save,
     /// `[jump]`.
     pub jump: Jump,
+    /// `[indent]` (ADR 0115).
+    pub indent: Indent,
+    /// `[modes.<mode>]`'s indentation (ADR 0115).
+    pub modes: Modes,
 }
 
 /// `[jump]`: how jumps label and read (ADR 0116).
@@ -260,7 +266,12 @@ fn timeout(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<Duration> 
 }
 
 /// A setting that is `true` or `false`.
-fn switch(value: &Spanned<DeValue<'_>>, table: &str, key: &str, found: &mut Found) -> Option<bool> {
+pub(super) fn switch(
+    value: &Spanned<DeValue<'_>>,
+    table: &str,
+    key: &str,
+    found: &mut Found,
+) -> Option<bool> {
     if let DeValue::Boolean(on) = value.get_ref() {
         return Some(*on);
     }

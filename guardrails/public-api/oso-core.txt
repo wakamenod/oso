@@ -46,6 +46,7 @@ pub oso_core::buffer::Mode::Rust
 pub oso_core::buffer::Mode::Toml
 impl oso_core::buffer::Mode
 pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
+pub fn oso_core::buffer::Mode::indent_rules(self) -> core::option::Option<fn(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>>
 pub fn oso_core::buffer::Mode::name(self) -> &'static str
 pub fn oso_core::buffer::Mode::shows_copies(self) -> bool
 impl core::clone::Clone for oso_core::buffer::Mode
@@ -129,6 +130,7 @@ pub fn oso_core::buffer::Buffer::file_info(&self) -> oso_core::decode::FileInfo
 pub fn oso_core::buffer::Buffer::finish_empty(&mut self)
 pub fn oso_core::buffer::Buffer::from_bytes(impl core::convert::Into<alloc::string::String>, &[u8]) -> Self
 pub fn oso_core::buffer::Buffer::from_text(impl core::convert::Into<alloc::string::String>, &str) -> Self
+pub fn oso_core::buffer::Buffer::indent_settings(&self) -> oso_core::indent::Settings
 pub fn oso_core::buffer::Buffer::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::buffer::Buffer::is_modified(&self) -> bool
 pub fn oso_core::buffer::Buffer::is_saving(&self) -> bool
@@ -143,6 +145,7 @@ pub fn oso_core::buffer::Buffer::path(&self) -> core::option::Option<&std::path:
 pub fn oso_core::buffer::Buffer::read_only(&self) -> core::option::Option<oso_core::buffer::ReadOnly>
 pub fn oso_core::buffer::Buffer::revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::set_baseline(&mut self, oso_core::buffer::Baseline)
+pub fn oso_core::buffer::Buffer::set_indent_settings(&mut self, oso_core::indent::Settings)
 pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell::TabWidth
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::verdict(&self) -> oso_core::buffer::Verdict
@@ -1568,6 +1571,14 @@ pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::
 pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::skip_like_this(&mut self, oso_core::editor::Toward) -> core::result::Result<(), oso_core::editor::CursorError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::electric_indent(&self) -> bool
+pub fn oso_core::editor::Editor::indent_for_tab(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::indent_typed_closers(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::mode_indent(&self, oso_core::buffer::Mode) -> oso_core::indent::Settings
+pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) -> core::result::Result<bool, oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::set_electric_indent(&mut self, bool)
+pub fn oso_core::editor::Editor::set_mode_indents(&mut self, [(oso_core::buffer::Mode, oso_core::indent::Settings); 4])
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
 pub fn oso_core::editor::Editor::file_looked(&mut self, &std::path::Path, alloc::vec::Vec<(alloc::string::String, oso_core::editor::Looked)>)
@@ -2287,6 +2298,7 @@ pub fn oso_core::indent::Answer::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::indent::Answer
 impl core::marker::StructuralPartialEq for oso_core::indent::Answer
 pub enum oso_core::indent::Line
+pub oso_core::indent::Line::Empty(usize)
 pub oso_core::indent::Line::New(usize)
 pub oso_core::indent::Line::Row(usize)
 impl core::clone::Clone for oso_core::indent::Line

@@ -141,6 +141,8 @@ pub fn export(
         "visual_aids": aids_state(editor.visual_aids()),
         // Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
         "font_lock": editor.font_lock(),
+        // Whether `RET` indents (`electric-indent-mode`, ADR 0115).
+        "electric_indent": editor.electric_indent(),
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
