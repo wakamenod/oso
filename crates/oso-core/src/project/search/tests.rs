@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: `editor`, threads or the file system.
 
-use super::{LineHit, LineQuery, MAX_ROW_BYTES, row_text};
+use super::{LineHit, LineQuery, MAX_ROW_BYTES, compile, row_text};
 
 fn hits(input: &str, block: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
@@ -59,6 +59,44 @@ fn a_component_is_a_literal_and_an_expression_and_equals_keeps_it_literal() {
     assert_eq!(hits("1;$", block), [(3, "x = 1;".into())]);
     assert_eq!(hits("x =", block), [(3, "x = 1;".into())]);
     assert_eq!(hits(",xy", ",xy\n"), [(0, ",xy".into())]);
+}
+
+#[test]
+fn an_expression_that_compiles_only_joined_to_its_literal_is_a_literal() {
+    let block = "a\nb\na)|(b\n)(\n";
+    // Neither compiles alone, so each matches only itself, though the two joined would.
+    assert_eq!(hits("a)|(b", block), [(2, "a)|(b".into())]);
+    assert_eq!(hits(")(", block), [(3, ")(".into())]);
+}
+
+#[test]
+fn an_expression_whose_comment_runs_to_its_end_is_still_an_expression() {
+    // `(?x)` ignores spaces and reads `#` to the line's end as a comment: `(?x)a b #x` is `ab`,
+    // and as a literal itself.
+    let block = "ab\na b\n(?x)a b #x\n";
+    assert_eq!(
+        hits("(?x)a\\ b\\ #x", block),
+        [(0, "ab".into()), (2, "(?x)a b #x".into())]
+    );
+}
+
+#[test]
+fn a_comment_does_not_end_inside_the_literal_at_its_line_break() {
+    // A yanked line break: the comment would end at the literal's, and read the rest of the
+    // literal as `(?x)` does, matching neither.
+    let pattern = "x\n(?x)y #";
+    let (regex, expression) = compile(pattern, true, false).unwrap();
+    assert!(expression);
+    assert!(regex.is_match(pattern.as_bytes()), "as a literal");
+    assert!(regex.is_match(b"x\ny"), "as an expression");
+}
+
+#[test]
+fn a_component_that_is_no_expression_narrows_as_a_literal() {
+    let narrows =
+        |before: &str, after: &str| LineQuery::parse(after).narrows(&LineQuery::parse(before));
+    assert!(narrows("foo(", "foo(x"));
+    assert!(!narrows("foo(", "foo()"), "now an expression too");
 }
 
 #[test]
