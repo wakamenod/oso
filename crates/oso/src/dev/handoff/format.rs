@@ -1,5 +1,6 @@
-//! The state's JSON (ADR 0047, ADR 0090): what is written of a carried buffer's file and of
-//! a window's selections, and reading a whole state back, checked before anything changes.
+//! The state's JSON (ADR 0047, ADR 0090): what is written of a carried buffer's file, and of
+//! a window's selections (in `selections`), and reading a whole state back, checked before
+//! anything changes.
 //!
 //! Must not depend on: `app`, `server` or the editor; these are pure functions of values.
 //!
@@ -15,13 +16,13 @@ use oso_core::decode::{FileInfo, LineEnding};
 use oso_core::key::{KeyPress, KeySequence};
 use oso_core::kill;
 use oso_core::minibuffer::{HISTORY_LENGTH, MAX_ENTRY_BYTES};
-use oso_core::selection::{Goal, MARK_RING_SIZE, MarkActive, MarkRing, Selection, SelectionSet};
 use serde_json::{Map, Value, json};
 
 use super::carry::MAX_CARRIED;
 use super::layout::{Windows, parse_windows};
 use super::{Frame, STATE_VERSION};
-use crate::dev::state::goal_state;
+pub(super) use selections::parse_selections;
+pub use selections::selections_state;
 
 /// The most buffers one state may open, each with a loading thread.
 pub const MAX_BUFFERS: usize = 1024;
@@ -46,6 +47,8 @@ pub const MAX_ITEMS: usize = MAX_BUFFERS + kill::MAX_ENTRIES + MAX_HISTORIES;
 /// limits allow, since the surface follows the window.
 pub const MAX_FRAME_SIDE: u32 = 8192;
 
+mod selections;
+
 /// A parsed state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
@@ -62,6 +65,8 @@ pub struct State {
     pub theme: Option<String>,
     /// The visual aids the previous instance drew with, if it said (ADR 0097).
     pub visual_aids: Option<oso_core::editor::VisualAids>,
+    /// Whether buffers were highlighted, if the previous instance said (ADR 0111).
+    pub font_lock: Option<bool>,
     /// The kill ring's entries, the newest first.
     pub kills: Vec<KillState>,
     pub histories: Vec<HistoryState>,
@@ -165,24 +170,6 @@ fn stamp_state(stamp: FileStamp) -> Value {
     })
 }
 
-/// A window's selections, marks and whether the region shows, and its mark ring.
-pub fn selections_state(selections: &SelectionSet) -> Value {
-    json!({
-        "primary": selections.primary_index(),
-        "selections": selections.iter().map(|selection| json!({
-            "cursor": selection.cursor,
-            "mark": selection.mark,
-            "goal": goal_state(selection.goal),
-        })).collect::<Vec<_>>(),
-        "mark_active": match selections.mark_active() {
-            MarkActive::Inactive => "inactive",
-            MarkActive::Active => "active",
-            MarkActive::Shifted => "shifted",
-        },
-        "mark_ring": selections.mark_ring().iter().collect::<Vec<_>>(),
-    })
-}
-
 /// Reads a state, checking everything before anything changes.
 pub fn parse(state: &Value) -> Result<State, String> {
     let state = state.as_object().ok_or("the state is not an object")?;
@@ -230,8 +217,9 @@ pub fn parse(state: &Value) -> Result<State, String> {
         windows,
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
-        theme: super::parse_theme(state)?,
-        visual_aids: super::parse_aids(state)?,
+        theme: super::look::parse_theme(state)?,
+        visual_aids: super::look::parse_aids(state)?,
+        font_lock: super::look::parse_font_lock(state)?,
         kills,
         histories,
     })
@@ -459,55 +447,6 @@ fn optional_path(object: &Map<String, Value>, name: &str) -> Result<Option<PathB
         return Err(format!("a buffer's {name} is not absolute"));
     }
     Ok(Some(path))
-}
-
-pub(super) fn parse_selections(window: &Map<String, Value>) -> Result<SelectionSet, String> {
-    let selections = array(window, "selections")?;
-    if selections.len() > MAX_SELECTIONS {
-        return Err(format!(
-            "a window has more than {MAX_SELECTIONS} selections"
-        ));
-    }
-    let selections = selections
-        .iter()
-        .map(|selection| {
-            let selection = selection
-                .as_object()
-                .ok_or("a selection is not an object")?;
-            let goal = match selection.get("goal") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(goal)) if goal == "line-end" => Some(Goal::LineEnd),
-                Some(Value::Object(goal)) => Some(Goal::Column(size(goal, "column")?)),
-                Some(_) => return Err("a selection's goal is not understood".to_owned()),
-            };
-            let mark = match selection.get("mark") {
-                None | Some(Value::Null) => None,
-                Some(_) => Some(size(selection, "mark")?),
-            };
-            Ok(Selection {
-                cursor: size(selection, "cursor")?,
-                mark,
-                goal,
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let mut set = SelectionSet::from_parts(selections, size(window, "primary")?)
-        .ok_or_else(|| "a window's primary selection does not exist".to_owned())?;
-    let active = match window.get("mark_active").and_then(Value::as_str) {
-        None | Some("inactive") => MarkActive::Inactive,
-        Some("active") => MarkActive::Active,
-        Some("shifted") => MarkActive::Shifted,
-        Some(_) => return Err("a window's mark_active is not understood".into()),
-    };
-    set.set_mark_active(active);
-    let ring = match window.get("mark_ring") {
-        None | Some(Value::Null) => Vec::new(),
-        Some(_) => sizes(window, "mark_ring")?,
-    };
-    if ring.len() > MARK_RING_SIZE {
-        return Err(format!("a mark ring holds at most {MARK_RING_SIZE} marks"));
-    }
-    Ok(set.with_ring(MarkRing::from_newest(ring)))
 }
 
 fn parse_keys(state: &Map<String, Value>) -> Result<Vec<KeyPress>, String> {
