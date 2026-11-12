@@ -341,7 +341,9 @@ file or a 10 MB line.
   so every other window keeps its cursor in its view. Each event goes to the window under the
   pointer then, and the app starts the rows and columns left over anew when that window
   changes (the author's choices, 2026-11-12). The dev socket gains `wheel`, so a flow
-  scrolls at a pixel or a cell.
+  scrolls at a pixel or a cell; its reply says whether the view moved, but not of a buffer
+  that may hold secrets. A real wheel and trackpad, momentum across a divider among them, are
+  left to the author's daily use after the merge.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.
 
