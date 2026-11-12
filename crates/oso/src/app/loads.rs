@@ -53,7 +53,7 @@ impl App {
         let mut visiting = Buffer::visiting(path.clone());
         // The mode's indentation, and its tab width, which the loader builds the display
         // map with (ADR 0115).
-        let settings = self.mode_indent(visiting.mode());
+        let settings = self.editor.mode_indent(visiting.mode());
         visiting.set_indent_settings(settings);
         let tab_width = settings.tab_width();
         let buffer = self.editor.add_buffer(visiting);

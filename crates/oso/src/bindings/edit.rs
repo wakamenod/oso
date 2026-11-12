@@ -9,12 +9,9 @@ pub const TEXT_COMMAND: &str = "self-insert-command";
 
 /// Key sequences and the commands they run.
 pub const BINDINGS: &[(&str, &str)] = &[
-    ("RET", "newline"),
     ("DEL", "delete-backward-char"),
     ("C-d", "delete-char"),
     ("<delete>", "delete-char"),
-    ("TAB", "indent-for-tab-command"),
-    ("C-j", "electric-newline-and-maybe-indent"),
     // Option-Space: `SPC` stays half-width with a Japanese input source (ADR 0069).
     ("s-SPC", "insert-full-width-space"),
     ("C-z", "undo"),

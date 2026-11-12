@@ -9,6 +9,7 @@ use toml::Spanned;
 use toml::de::DeValue;
 
 use super::problems::{Found, quoted};
+use super::settings::switch;
 use super::{table, type_name, unknown};
 
 /// `[indent]`.
@@ -57,7 +58,7 @@ pub(super) fn indent(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Indent 
     };
     for (name, value) in entries {
         match name.get_ref().as_ref() {
-            "electric" => indent.electric = switch(value, found),
+            "electric" => indent.electric = switch(value, "[indent]", "electric", found),
             other => unknown(found, name.span().start, other, "[indent]"),
         }
     }
@@ -136,21 +137,6 @@ fn style(value: &Spanned<DeValue<'_>>, table: &str, found: &mut Found) -> Option
             None
         }
     }
-}
-
-/// `true` or `false`.
-fn switch(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<bool> {
-    if let DeValue::Boolean(on) = value.get_ref() {
-        return Some(*on);
-    }
-    found.at(
-        value.span().start,
-        format_args!(
-            "[indent] electric takes true or false, not {}",
-            type_name(value.get_ref())
-        ),
-    );
-    None
 }
 
 /// A value for a message: a string quoted, anything else by its kind.

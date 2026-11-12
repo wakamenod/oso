@@ -88,13 +88,10 @@ fn set_mode(ctx: &mut Ctx<'_>, mode: Mode) -> Result<(), CommandError> {
 /// positive one turns it on and zero or a negative one off. Says what it is now.
 fn global_font_lock_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let was = ctx.editor.font_lock();
-    let now = match args.raw() {
-        None => !was,
-        Some(_) => args.count() > 0,
-    };
+    let now = super::minor_mode_on(args, was);
     ctx.editor.set_font_lock(now);
-    let state = if now { "enabled" } else { "disabled" };
-    ctx.editor.message(format!("Global Font-Lock mode {state}"));
+    ctx.editor
+        .message(super::minor_mode_said("Global Font-Lock", now));
     if now != was {
         ctx.request_redraw();
     }

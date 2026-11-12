@@ -149,3 +149,14 @@ fn a_mode_command_gives_the_buffer_its_modes_indentation() {
     send(&mut dispatcher, &mut editor, "TAB");
     assert_eq!(marked(&editor), "fn f() {\n  |x\n}");
 }
+
+#[test]
+fn newline_and_indent_indents_whether_electric_indent_is_on_or_not() {
+    let (mut dispatcher, mut editor) = at(Mode::Rust, "fn f() {|");
+    editor.set_electric_indent(false);
+    run(&mut dispatcher, &mut editor, "newline-and-indent", None);
+    assert_eq!(marked(&editor), "fn f() {\n    |");
+    editor.set_electric_indent(true);
+    run(&mut dispatcher, &mut editor, "newline-and-indent", Some(2));
+    assert_eq!(marked(&editor), "fn f() {\n\n\n    |");
+}

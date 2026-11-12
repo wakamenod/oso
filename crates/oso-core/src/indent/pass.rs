@@ -71,7 +71,7 @@ const MAX_LEAD: usize = 4096;
 
 /// The deepest column answered: a deeper line keeps its indentation, so that no command
 /// inserts more than this for one line.
-pub(super) const MAX_COLUMN: usize = 4096;
+pub(crate) const MAX_COLUMN: usize = 4096;
 
 /// The start of a line asked about: its first bytes past its spaces and tabs.
 pub(super) struct Head {
@@ -113,27 +113,39 @@ pub(super) fn is_word_byte(byte: u8) -> bool {
 
 /// A line's indentation as it stands: spaces and tabs only, never U+3000 (ADR 0115).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Indentation {
+pub(super) struct Indentation {
     /// Its length in bytes.
-    pub(crate) bytes: usize,
+    pub(super) bytes: usize,
     /// The display column it reaches.
-    pub(crate) column: usize,
+    pub(super) column: usize,
     /// Whether the line holds nothing else.
-    pub(crate) blank: bool,
+    pub(super) blank: bool,
+}
+
+/// The indentation `pieces`, a line's text in order, start with: its length in bytes and the
+/// column it reaches.
+pub(super) fn lead<'a>(
+    pieces: impl IntoIterator<Item = &'a str>,
+    tab_width: TabWidth,
+) -> (usize, usize) {
+    let mut column = 0usize;
+    let mut bytes = 0;
+    for piece in pieces {
+        for byte in piece.bytes() {
+            match byte {
+                b' ' => column = column.saturating_add(1),
+                b'\t' => column = tab_width.next_stop(column),
+                _ => return (bytes, column),
+            }
+            bytes += 1;
+        }
+    }
+    (bytes, column)
 }
 
 /// The indentation `text`, a line without its line break, starts with.
 pub(super) fn measure(text: &str, tab_width: TabWidth) -> Indentation {
-    let mut column = 0usize;
-    let mut bytes = 0;
-    for &byte in text.as_bytes() {
-        match byte {
-            b' ' => column = column.saturating_add(1),
-            b'\t' => column = tab_width.next_stop(column),
-            _ => break,
-        }
-        bytes += 1;
-    }
+    let (bytes, column) = lead([text], tab_width);
     let blank = text.as_bytes()[bytes..].iter().all(|&byte| byte == b'\r');
     Indentation {
         bytes,

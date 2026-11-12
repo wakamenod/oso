@@ -186,7 +186,12 @@ pub(super) fn save(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Save {
 }
 
 /// A setting that is `true` or `false`.
-fn switch(value: &Spanned<DeValue<'_>>, table: &str, key: &str, found: &mut Found) -> Option<bool> {
+pub(super) fn switch(
+    value: &Spanned<DeValue<'_>>,
+    table: &str,
+    key: &str,
+    found: &mut Found,
+) -> Option<bool> {
     if let DeValue::Boolean(on) = value.get_ref() {
         return Some(*on);
     }

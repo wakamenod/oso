@@ -628,7 +628,7 @@ step 2's plan put:
   offset, it is the line `New`'s line leaves.
 - **`TAB` with a region shown** reindents the cursors' lines, as with none; step 3 makes it run
   `indent-region`.
-- **The indentation helper** stays `pub(crate)` (`indent::indentation`, `indent::Indentation`):
+- **The indentation helper** stays `pub(crate)` (`indent::indentation`, over a line's pieces):
   spaces and tabs only, so `RET` never trims a U+3000, and step 3's `M-m` follows it; `C-a` keeps
   `motion`'s test.
 - **A new line inside a block comment** that does not start with `*` takes the indentation of the
@@ -650,15 +650,22 @@ As built:
   applies to files visited after it (the author's choice). A buffer carried over a dev restart
   keeps the default tab width until visited again.
 - **Each mode's indentation is the editor's** (`Editor::set_mode_indents`, `mode_indent`; the
-  author's choice): the app sets the table when the configuration applies, and a visit and a mode
-  command (`rust-mode` and the others) give the buffer its mode's indent size and style.
+  author's choice): the app sets the table when the configuration applies, which gives every open
+  buffer of the person's its mode's indent size and style; a visit, a mode command (`rust-mode`
+  and the others) and a new name that changes the mode (`C-x C-w`) give it the same.
+- **The file named on the command line** is visited before the configuration's first look, so it
+  takes the default tab width of 8 even with a mode's `tab-width` set; its indent size and style
+  follow when the look applies. Visiting it again takes the configured width. A known limit.
 - **`RET`** (`newline`, `newline-and-indent`, and `C-j`'s `electric-newline-and-maybe-indent`) is
   `Editor::newline(ending, count, indent, limit)`: a shown region goes first; at each cursor the
-  spaces and tabs before and after it go, at most 4 KiB each way, and `count` breaks then the last
-  new line's indentation go in, as one batched edit; inside a string, the break alone, with
-  nothing trimmed. All the cursors share one call to the rules, on the text before the edit, so a
-  cursor's answer counts the lines the ones before it make. More than 16 MiB, indentation
-  included, changes nothing and signals "Too much text to insert".
+  spaces and tabs before and after it go, at most 4 KiB each way and never past the next cursor,
+  and `count` breaks then the last new line's indentation go in, as one batched edit; inside a
+  string, the break alone, with nothing trimmed. A space a combining mark is on stays, as the
+  mark's base. All the cursors share one call to the rules, on the text before the edit, so a
+  cursor's answer counts the lines the ones before it make. The 16 MiB limit is checked before
+  anything changes, with each cursor's indentation counted at its deepest (twice 4096 columns),
+  so whether `RET` fits depends only on the count, the line ending and the cursors; past it,
+  nothing changes and it signals "Too much text to insert".
 - **In Markdown, `RET` keeps the spaces before the cursor:** two at a line's end break the line,
   as whitespace cleanup on save (ADR 0113) keeps them too; those after it still go.
 - **The line between brackets** is opened in Rust and TOML only (the author's choice): in Markdown
@@ -668,7 +675,25 @@ As built:
   through `markdown_stops`, as in Fundamental mode and internal buffers; `tab-to-tab-stop` keeps
   its name for `M-i` in step 3.
 - **A typed closer** reindents its line inside the typing command, so it undoes with the typing;
-  `insert` and a yank do not.
+  `insert` and a yank do not. It is a second batched edit after the typing's.
+- **`TAB` moves a cursor** to the end of the indentation only on lines the rules answered a
+  column; in a string it stays.
+- **Where the code is:** the configuration's indentation is read in `config/indentation.rs`, not
+  `config/settings.rs`; `newline` moved from `commands/edit.rs` to `commands/indent.rs`, with the
+  keys `TAB`, `RET` and `C-j` in `bindings/indent.rs`.
+- **Measured** with `text_perf -- indent`, release, the author's Mac, in the 2 MiB Rust file, the
+  whole command through the editor:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | `RET` at 1 cursor | 5.6 µs | 85 µs |
+  | `RET` at 1000 cursors (breaks alone: 1.6 ms; the rules alone: 1.5 ms) | 4.1 ms | 4.5 ms |
+  | `TAB` at 1000 cursors | 2.9 ms | 3.0 ms |
+  | `}` typed at 1000 cursors, each dedenting its line (the typing alone: 0.9 ms) | 3.2 ms | 3.7 ms |
+
+  `RET` at 1000 cursors is a little past ADR 0092's 4 ms share of an edit, and within a frame;
+  folding a typed closer's reindent into the typing's edit would save about 0.9 ms of its 2.3 ms.
+  Both are left for when a frame needs them.
 - **`[indent] electric`** and **`[modes.<mode>]`** with `indent-size`, `indent-style` (`"space"` or
   `"tab"`) and `tab-width`, each 1 to 32, for `rust`, `markdown`, `toml` and `fundamental`. Another
   name in `[modes]` or in a mode's table is reported and skipped. `electric` applies when its value

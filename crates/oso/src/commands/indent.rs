@@ -1,5 +1,6 @@
 //! The indentation commands of ADR 0115 step 2: `TAB` reindenting by the buffer's mode, the
-//! line breaks that indent and the one that does not, and `electric-indent-mode`.
+//! line breaks, `RET`'s `newline` among them, that indent and the one that does not, and
+//! `electric-indent-mode`.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -9,10 +10,17 @@
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 
-use super::edit::MAX_INSERT;
+use super::MAX_INSERT;
 
 /// The indentation commands.
 pub const COMMANDS: &[Command] = &[
+    Command {
+        name: "newline",
+        doc: "Insert a line break at every cursor, N times, and with `electric-indent-mode` on, indent the new line.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. While indenting, the spaces and tabs around each cursor go, the last new line takes the indentation its mode's rules give, and between an opener and its closer in Rust and TOML the closer goes to a line of its own. Each is an undo step of its own. A negative N signals an error.",
+        args: ArgSpec::Count,
+        reach: Reach::Change,
+        run: newline,
+    },
     Command {
         name: "indent-for-tab-command",
         doc: "Indent the line of every cursor as the buffer's mode says.\n\nIn Rust and TOML the line goes to its rules' column, wherever the cursor is on it: a cursor in the indentation goes to its end, one in the text keeps its place. A line already right does not change. In Markdown, Fundamental mode and internal buffers it runs `tab-to-tab-stop`.",
@@ -51,11 +59,7 @@ fn indent_for_tab_command(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError
 
 /// Inserts `count` line breaks at every cursor, the file's own, indenting the last new line
 /// if `indent` (ADR 0115).
-pub(super) fn line_breaks(
-    ctx: &mut Ctx<'_>,
-    count: isize,
-    indent: bool,
-) -> Result<(), CommandError> {
+fn line_breaks(ctx: &mut Ctx<'_>, count: isize, indent: bool) -> Result<(), CommandError> {
     let times = usize::try_from(count)
         .map_err(|_| CommandError::new(format!("Negative repetition argument {count}")))?;
     if times == 0 {
@@ -75,6 +79,11 @@ pub(super) fn line_breaks(
     Ok(())
 }
 
+fn newline(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let indent = ctx.editor.electric_indent();
+    line_breaks(ctx, args.count(), indent)
+}
+
 fn electric_newline_and_maybe_indent(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let indent = !ctx.editor.electric_indent();
     line_breaks(ctx, args.count(), indent)
@@ -87,12 +96,9 @@ fn newline_and_indent(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError>
 /// Turns `RET`'s indentation on or off as Emacs's minor modes read their argument: none
 /// toggles, a positive one turns it on and zero or a negative one off. Says what it is now.
 fn electric_indent_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    let now = match args.raw() {
-        None => !ctx.editor.electric_indent(),
-        Some(_) => args.count() > 0,
-    };
+    let now = super::minor_mode_on(args, ctx.editor.electric_indent());
     ctx.editor.set_electric_indent(now);
-    let state = if now { "enabled" } else { "disabled" };
-    ctx.editor.message(format!("Electric-Indent mode {state}"));
+    ctx.editor
+        .message(super::minor_mode_said("Electric-Indent", now));
     Ok(())
 }

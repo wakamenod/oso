@@ -509,3 +509,23 @@ indent-size = 4
     );
     assert_eq!(settings.modes[1], ModeIndent::default());
 }
+
+#[test]
+fn an_indentation_width_in_another_form_is_reported_and_not_used() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        "[modes.toml]\nindent-size = 0x8\ntab-width = -4\n[modes.rust]\nindent-size = 2.0\n",
+    );
+    assert_eq!(
+        messages(&loaded),
+        [
+            "2:15: [modes.toml] indent-size takes a number from 1 to 32, not 8",
+            "3:13: [modes.toml] tab-width takes a number from 1 to 32, not -4",
+            "5:15: [modes.rust] indent-size takes a number from 1 to 32, not a number",
+        ]
+    );
+    assert_eq!(
+        loaded.settings.modes,
+        [super::indentation::ModeIndent::default(); 4]
+    );
+}

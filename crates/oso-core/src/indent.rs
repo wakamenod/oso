@@ -254,12 +254,16 @@ pub fn fundamental(
 mod fixed_point;
 #[cfg(test)]
 mod rust_tests;
-pub(crate) use pass::Indentation;
+pub(crate) use pass::MAX_COLUMN;
 
-/// The indentation `text`, a line without its line break, starts with: spaces and tabs only,
-/// never U+3000, a tab reaching the next stop of `tab_width`.
-pub(crate) fn indentation(text: &str, tab_width: TabWidth) -> Indentation {
-    pass::measure(text, tab_width)
+/// The indentation that `pieces`, a line's text from its start in order, starts with: its
+/// length in bytes and the display column it reaches. Spaces and tabs only, never U+3000, a
+/// tab reaching the next stop of `tab_width`; the rules count indentation the same way.
+pub(crate) fn indentation<'a>(
+    pieces: impl IntoIterator<Item = &'a str>,
+    tab_width: TabWidth,
+) -> (usize, usize) {
+    pass::lead(pieces, tab_width)
 }
 
 #[cfg(test)]
