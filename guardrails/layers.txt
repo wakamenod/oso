@@ -26,7 +26,7 @@ editor
 minibuffer
 frame
 window word
-buffer motion search
+buffer indent motion search
 undo kill
 load selection
 display_map syntax

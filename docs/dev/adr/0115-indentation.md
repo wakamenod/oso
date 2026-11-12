@@ -493,3 +493,117 @@ gains `amended by 0115`.
   place, and a trait can come with modes from outside the crate.
 - **Expanding EditorConfig's `{n1..n2}` into alternatives:** a crafted `{1..999999999}` would build a
   huge regex; a number checked against the range costs nothing.
+
+## As built
+
+### Step 1: the rules
+
+- **One function per mode, chosen by the editor.** `oso_core::indent` sits on the row of
+  `buffer`, `motion` and `search` in `layers.txt`, so it cannot name `buffer::Mode`. It has one
+  function per mode with the same signature, `rust`, `toml`, `markdown` and `fundamental`, and
+  step 2's `editor::indent` chooses one with the match on `Mode`. Inside, the four share one pass
+  through a private trait; there is no public trait.
+- **The public items:** `Settings` (`new(indent_size, style, tab_width)`, which refuses a value
+  outside 1 to `Settings::MAX`, 32; the three getters; `indentation(column)`, the text that
+  indents to a column), `Style`, `Answer` (`Column` or `Keep`), `Line` (`Row(row)`, an existing
+  line, or `New(offset)`, the line a break at that offset would start), `Budget` (`new`,
+  `with_limit(bytes)`, as `motion::WalkBudget` names it, and `is_spent`), the constants
+  `LINE_LOOKBACK`, `COMMAND_READ` and `LINE_COST`, the four rule functions, and
+  `markdown_stops(rope, settings, row, budget)` for step 3's `TAB` cycle. The lines asked are in
+  the order of where they start; one out of order gets the fallback, and one asked twice the
+  same answer.
+- **The fallback:** past the budget or the lookback, or where the rules cannot tell (inside
+  brackets deeper than they keep), a new line takes the indentation of the nearest non-blank
+  line before it, looking 128 bytes back, then 1 KiB; an existing line keeps its own, as
+  Decision says for `TAB`. What the fallbacks read comes from a reserve of 64 KiB a command apart
+  from the budget; past it, a new line gets no indentation. Markdown's existing lines always
+  keep: `TAB` cycles through `markdown_stops` instead. `Keep` for a new line means insert no
+  indentation and delete no space around the break.
+- **No answer past column 4096:** a line that would go deeper keeps its indentation, so that no
+  command inserts more than that for one line, whatever the text.
+- **Each answer counts for the next:** a line the command reindents, or a new line it starts,
+  has the answered indentation for the lines after it. So `foo(|bar(|x))` with `RET` at both
+  cursors gives 4, then 8, as the second opener's line is the new one.
+- **Rust's continuation follows rustfmt more closely than rule 4.** The repository's fixed point
+  needed:
+  - continuation inside every bracket, not only `{` and top level, with an opener at a line's end
+    ending it: rustfmt indents a chain inside a call's arguments too;
+  - a line that starts with `.` sits with the chain's call before it, or one level past the line
+    its chain starts on; one that starts with an operator and a space (`&&`, `||`, `+`, `==`) sits
+    with the operand before it; any other line that goes on sits with the one before it, if that
+    one went on too; after a line of closers only (`})`, `)?`), a chain sits with the closers and
+    an operand with the line that opened them; a value on the line after `=` keeps the operands'
+    place. So continuation does not stack: ten `.call()` lines, or ten lines of a macro's body
+    that end no statement, stay one level in;
+  - a `match` guard's operands one level past the `if` line, `| Pat` lines in a `match`'s arms
+    with the first pattern, and `else` with no continuation, for `let ... else {`;
+  - a `}` that closes a non-empty `{` opened on the same line, as `Foo { a }` or
+    `unsafe { f() }`, ends no statement; an empty `{}` does.
+- **The shared pass:** every cursor carries the state on, and the pass starts afresh at each
+  anchor it passes outside a string or comment. A line within 1 KiB of the one before reads on to
+  it, as does the row right after the row before; a farther one looks back for its own anchor, in
+  windows from 256 bytes up to 4 KiB, no farther than the line before. When the line before ends
+  inside a string or comment, the pass first reads on to where it closes, as a line inside one
+  that looks like an anchor proves nothing. 1 KiB measured best of 512 bytes, 1 KiB and 4 KiB for
+  1000 cursors: at 4 KiB they read on through the whole file and ran out of budget.
+- **What the budget counts:** each byte read once, the lookback's too, and at least `LINE_COST`,
+  32 bytes, a line, as reading a line costs about as much as lexing 32 bytes; so short lines are
+  bounded in time too. A region of `bytes` and `lines` needs at most
+  `bytes + lines * LINE_COST`, plus its first line's lookback. At most 4 KiB of spaces and tabs is
+  read at the start of a line asked about.
+- **Bounded memory:** the lexer keeps 256 open brackets and counts any deeper; 100,000 brackets
+  deep is tested. Nothing recurses. A line longer than one of the rope's chunks is copied once,
+  within the budget. The column a block comment opens at is measured once, at the end of its
+  line.
+- **Measured** with `cargo run --release -p oso-core --example text_perf -- indent` on the
+  author's Mac. "Rust" is a 2 MiB file of items as rustfmt writes them, with an anchor every
+  ~900 bytes; "impl" is one `impl` of 2 MiB, with no anchor past its first line:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | Rust, `RET` at 1 cursor (5000 random lines; max 39 µs) | 1.5 µs | 3.0 µs |
+  | Rust, `RET` at 1000 cursors, one pass | 1.4 ms | 1.4 ms |
+  | impl, `RET` at 1000 cursors (the budget runs out) | 1.6 ms | 1.6 ms |
+  | impl, one cursor whose anchor is at the lookback (64 KiB lexed) | 153 µs | 171 µs |
+  | impl, one cursor with no anchor in the lookback | 23 µs | 35 µs |
+  | Markdown, one cursor 64 KiB from the start | 108 µs | 130 µs |
+  | A 64 KiB line of `/**/` after a tab and a wide character, `RET` after it | 70 µs | 84 µs |
+  | 64 KiB of blank lines, `RET` after them | 103 µs | 127 µs |
+  | 2 MiB of blank, `x` or `{` lines, 1000 cursors (the budget runs out) | 0.8–2.0 ms | 2.1 ms |
+  | Rust, every line of 2 / 4 / 8 MiB, as `indent-region` asks, within the budget above | 8.6 / 17 / 35 ms | |
+
+- **The bounds set from them:**
+  - `LINE_LOOKBACK` is **64 KiB**, not 256 KiB. In this repository the farthest any line is from
+    its anchor is 60 KiB (99% within 30 KiB, 90% within 9 KiB), and one line's lexing runs at
+    about 400 MiB/s, so the worst one-cursor `RET`, with its anchor at the lookback, costs about
+    0.15 ms; at 256 KiB it cost 0.6 ms. A typical `RET` costs a few microseconds, well under
+    0.1 ms; only an anchor near the lookback goes over it. Markdown's only anchor is the buffer's
+    start, so a list item past 64 KiB into a document falls back; oso's largest document is
+    52 KB.
+  - `COMMAND_READ` stays **1 MiB**: 1000 cursors in the 2 MiB Rust file stay within it, at
+    1.4 ms, and where they cannot, the command stops by 2.1 ms, under the 5 ms asked.
+  - **`indent-region`** answers about 230 MiB/s, so 4 MiB takes about 17 ms and 8 MiB 35 ms,
+    without the edit. 4 MiB, as Decision expected, leaves room for the batched edit under 50 ms;
+    step 3 measures it with the edit and gives `Budget::with_limit` what the region needs.
+- **The rustfmt fixed point** runs with `just ci`: reindenting every `.rs` file of the repository
+  takes 0.6 s in a debug build. It reads only files under the workspace's root, past directories
+  whose names start with `.` and `target`, and follows no link. Six files have lines the rules
+  indent otherwise, listed in the test with the count and the reason; a listed file that is gone
+  or has none fails it:
+
+  | File | Lines | Why |
+  |---|---|---|
+  | `oso-render/src/rows.rs` | 22 | a `proptest!` body, which rustfmt does not format |
+  | `oso/src/dispatch/prompts.rs` | 3 | `\|` patterns inside parentheses sit with the first one |
+  | `oso-render/src/lib.rs` | 1 | the same |
+  | `oso-core/src/editor/files.rs` | 1 | an operand of `==` inside one of `&&` goes one level further |
+  | `oso-platform/src/text/coretext/direction.rs` | 1 | an operand of `&&` inside one of `\|\|`, the same |
+  | `oso-core/src/syntax/highlights/tests.rs` | 1 | a chain on a tuple goes one level past its closer |
+
+  A change that makes the rules indent another line of the repository otherwise fails the test,
+  in `oso-core`, whichever crate the line is in; the fix is in the rules, or a new entry with its
+  reason.
+- **Left to later steps:** step 2 needs a line's current indentation in bytes, which the module
+  measures privately (spaces and tabs only, where `motion`'s blank test also counts U+3000), and
+  the between-brackets case asks for two lines at one offset, which `Line::New` answers only for
+  the closer's.
