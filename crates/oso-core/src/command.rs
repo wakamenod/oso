@@ -247,6 +247,8 @@ pub struct Invocation<'a> {
     pub repeats: usize,
     /// What a prompt read for the command, as its [`ArgSpec`] asked (ADR 0072).
     pub answer: Option<&'a str>,
+    /// What a second prompt read, for [`ArgSpec::Replace`] (ADR 0113).
+    pub second: Option<&'a str>,
     /// It runs because the person answered `y` to a question it asked.
     pub confirmed: bool,
     /// Its key had Shift, which its binding has not (Emacs's shift translation).
@@ -314,6 +316,12 @@ impl<'a> Ctx<'a> {
     /// gave in its place. `None` for a command that reads nothing.
     pub fn answer(&self) -> Option<&'a str> {
         self.invocation.answer
+    }
+
+    /// The string to replace and its replacement, read for a command whose [`ArgSpec`] is
+    /// `Replace`: both empty for an empty first answer, which takes the last pair.
+    pub fn replace_pair(&self) -> Option<(&'a str, &'a str)> {
+        Some((self.answer()?, self.invocation.second.unwrap_or_default()))
     }
 
     /// The whole number a prompt read for a command whose [`ArgSpec`] is `Number`, parsed as

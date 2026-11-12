@@ -270,6 +270,7 @@ impl Editor {
         out.push_str(self.echo_text());
         if out.is_empty() {
             self.write_isearch_line(out);
+            self.write_replace_line(out);
         }
     }
 }

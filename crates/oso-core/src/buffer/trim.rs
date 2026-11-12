@@ -185,7 +185,8 @@ pub(crate) fn trailing_whitespace(
             .retain(|deletion| deletion.start < blank.start);
         trim.kept.retain(|kept| kept.start < blank.start);
         match last_cursor_in(keep, blank.clone()) {
-            // The whitespace before it on its line stays, and so do the lines before it.
+            // The whitespace before it on its line stays; the blank lines before and after
+            // its line go.
             Some(cursor) => {
                 let line = text.line_start(text.offset_to_point(cursor).row);
                 if line > blank.start {
