@@ -1,6 +1,5 @@
 //! A directory as a path where opening relative to one is decided later, which today means
-//! Windows: each name below it is looked at without following a link at its last name, but
-//! what is reached is not held, so a directory replaced between two looks is not noticed.
+//! Windows: each name below it is looked at without following a link at its last name.
 //!
 //! Must not depend on: `control`, `privacy`, `process` or `text`.
 

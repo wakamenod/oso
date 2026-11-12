@@ -4,8 +4,8 @@
 //! Must not depend on: `app`, winit or the UI thread; this reads the files it is handed.
 //!
 //! What a search may hold is counted as it is found, not once a file is done: its rows against
-//! [`MAX_ROWS`], and the bytes of the lines it keeps against [`MAX_KEPT`], so one file can make
-//! neither grow past its bound.
+//! [`MAX_ROWS`], and the bytes of the lines it keeps against [`MAX_KEPT`], so neither one file nor
+//! all searchers at once can make it grow past its bound.
 
 use std::ffi::OsString;
 use std::io::ErrorKind;
@@ -82,7 +82,7 @@ pub(super) struct Search {
     finished: Condvar,
     /// Files handed out and not finished yet.
     pending: AtomicUsize,
-    /// Rows found in all, sent or not.
+    /// Rows taken in all, sent or not, each as it is found.
     total: AtomicUsize,
     /// Bytes of the lines kept.
     kept_bytes: AtomicUsize,
@@ -157,17 +157,20 @@ impl Search {
         true
     }
 
-    /// Takes in the rows of one file, as many as fit under [`MAX_ROWS`], and the lines they
-    /// came from.
+    /// Takes one more row, if the search has room for it under [`MAX_ROWS`]: otherwise it is
+    /// full, and stops.
+    pub(super) fn take_row(&self) -> bool {
+        if self.total.fetch_add(1, Ordering::Relaxed) < MAX_ROWS {
+            return true;
+        }
+        self.full.store(true, Ordering::Relaxed);
+        false
+    }
+
+    /// Takes in the rows of one file, each taken as it was found, and the lines they came from.
     pub(super) fn file_done(&self, rows: Vec<SearchRow>, kept: Vec<Kept>) {
         let mut collected = self.collected();
-        let room = MAX_ROWS.saturating_sub(self.total.load(Ordering::Relaxed));
-        if rows.len() > room {
-            self.full.store(true, Ordering::Relaxed);
-        }
-        self.total
-            .fetch_add(rows.len().min(room), Ordering::Relaxed);
-        collected.rows.extend(rows.into_iter().take(room));
+        collected.rows.extend(rows);
         if self.kept_over.load(Ordering::Relaxed) {
             collected.kept = Vec::new();
         } else {
@@ -267,6 +270,10 @@ impl Searcher {
         let mut rows = Vec::new();
         let mut kept = Vec::new();
         let mut hit = |line, bytes: &[u8], first| {
+            // A file stops at what is left of the search's rows, which every searcher shares.
+            if !search.take_row() {
+                return false;
+            }
             rows.push(row(&path, line, bytes, first, task.secret));
             // A line past what may be kept is not copied.
             if search.may_keep(bytes.len() + path.len()) {
@@ -279,10 +286,11 @@ impl Searcher {
             } else {
                 kept = Vec::new();
             }
-            // A file stops at what is left of the search's rows.
-            rows.len() + search.total.load(Ordering::Relaxed) < MAX_ROWS
+            true
         };
-        search_file(file, query, &|| search.live(), &mut hit, &mut self.block);
+        if !search_file(file, query, &|| search.live(), &mut hit, &mut self.block) {
+            search.incomplete.store(true, Ordering::Relaxed);
+        }
         (rows, kept)
     }
 }

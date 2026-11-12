@@ -114,6 +114,11 @@ pub(super) fn open(path: &Path) -> io::Result<Inner> {
 
 pub(super) fn open_directory(inner: &Inner, name: &OsStr) -> io::Result<Option<Inner>> {
     let name = c_name(name)?;
+    // Listing one whose entries a sync service keeps elsewhere would fetch them.
+    #[cfg(target_os = "macos")]
+    if dataless(&stat_at(inner.as_raw_fd(), &name)?) {
+        return Ok(None);
+    }
     let flags = libc::O_RDONLY | libc::O_DIRECTORY;
     open_at(inner.as_raw_fd(), &name, flags, &[libc::ENOTDIR])
 }
@@ -171,7 +176,8 @@ pub(super) fn metadata(inner: &Inner) -> io::Result<Metadata> {
     inner.metadata()
 }
 
-/// The entries of the directory `inner`, read from a copy of its descriptor, from its start.
+/// The entries of the directory `inner`, read from a copy of its descriptor, from its start. A
+/// copy shares the original's place, so one directory is listed by one thread at a time.
 pub(super) fn entries(inner: &Inner) -> io::Result<Entries> {
     let fd = inner.as_raw_fd();
     // SAFETY: `fd` is an open descriptor for the call; the copy is owned by the stream below,

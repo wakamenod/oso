@@ -207,6 +207,35 @@ pub(crate) fn holds_home(root: &Path, home: Option<&Path>) -> bool {
     home.is_some_and(|home| home.starts_with(&root))
 }
 
+/// The home directory's real place, or, if that cannot be found, `home` as it is spelled, which
+/// a walk still refuses.
+pub(crate) fn real_home(home: Option<&Path>) -> Option<PathBuf> {
+    home.map(|home| fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf()))
+}
+
+/// Whether `opened`, a walk's root, is `home` or a directory that holds it, by device and inode:
+/// whatever the root's path says, and however it was reached since its path was looked at. One
+/// that cannot be told is taken to.
+#[cfg(unix)]
+fn opened_holds_home(opened: &Directory, home: Option<&Path>) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Some(home) = home else {
+        return false;
+    };
+    let Ok(root) = opened.metadata() else {
+        return true;
+    };
+    let root = (root.dev(), root.ino());
+    home.ancestors()
+        .filter_map(|directory| fs::metadata(directory).ok())
+        .any(|directory| (directory.dev(), directory.ino()) == root)
+}
+
+#[cfg(not(unix))]
+fn opened_holds_home(_: &Directory, _: Option<&Path>) -> bool {
+    false
+}
+
 /// Walks each request that comes, in turn, until the walker is dropped or the event loop has
 /// gone.
 fn serve(
@@ -214,7 +243,7 @@ fn serve(
     send: &(dyn Fn(Walked) -> bool + Send + Sync),
     home: Option<&Path>,
 ) {
-    let home = home.and_then(|home| fs::canonicalize(home).ok());
+    let home = real_home(home);
     while let Ok(request) = queue.recv() {
         let generation = request.generation;
         let live = || request.live.load(Ordering::Relaxed) == generation;
@@ -237,6 +266,7 @@ fn serve(
         let walked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             walk(
                 &request.root,
+                home.as_deref(),
                 Limits::PROJECT,
                 &|| !live(),
                 &mut |paths, end| {
@@ -287,11 +317,13 @@ pub(crate) trait Visit {
     }
 }
 
-/// Walks the files under `root` as the module says, listing at most `limits`, and hands them to
+/// Walks the files under `root` as the module says, listing at most `limits` and nothing of a
+/// root that holds `home`, and hands them to
 /// `batch` as paths from `root`, every [`BATCH_EVERY`] and once more as it ends. A walk that
 /// `stop` stops ends with no last batch.
 pub fn walk(
     root: &Path,
+    home: Option<&Path>,
     limits: Limits,
     stop: &dyn Fn() -> bool,
     batch: &mut dyn FnMut(Vec<Box<str>>, Option<WalkEnd>),
@@ -318,7 +350,7 @@ pub fn walk(
         sent: Instant::now(),
         batch,
     };
-    let cut = match walk_files(root, limits, stop, &mut batches) {
+    let cut = match walk_files(root, home, limits, stop, &mut batches) {
         Ok(()) => false,
         Err(Ended::Cut) => true,
         Err(Ended::Stopped) => return,
@@ -327,10 +359,12 @@ pub fn walk(
 }
 
 /// Walks the files under `root` as the module says, handing each one found to `visit`, at most
-/// `limits` of them. It ends with [`Ended::Stopped`] once `stop` says so, asked at each entry,
-/// and with [`Ended::Cut`] at a limit.
+/// `limits` of them, and nothing if the root opened is `home`, the home directory's real place,
+/// or holds it. It ends with [`Ended::Stopped`] once `stop` says so, asked at each entry, and
+/// with [`Ended::Cut`] at a limit.
 pub(crate) fn walk_files(
     root: &Path,
+    home: Option<&Path>,
     limits: Limits,
     stop: &dyn Fn() -> bool,
     visit: &mut dyn Visit,
@@ -345,6 +379,9 @@ pub(crate) fn walk_files(
     let Ok(opened) = Directory::open(root) else {
         return Ok(());
     };
+    if opened_holds_home(&opened, home) {
+        return Ok(());
+    }
     let opened = Arc::new(opened);
     let project = Project::at(root, &opened, &mut spent);
     let mut stack = Stack::new();

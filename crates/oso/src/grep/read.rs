@@ -21,20 +21,22 @@ const KEPT_BLOCK: usize = 4 * BLOCK;
 /// [`BLOCK`] bytes cut at a line's end, handing each line that matches `query` to `hit`, until
 /// `hit` says no more or `live` says the search is over, which is asked before each block. A
 /// line longer than a block grows it, up to [`MAX_LINE`]; past that the rest of the file is
-/// skipped. A NUL byte stops the file, keeping the lines before its own.
+/// skipped. A NUL byte stops the file, keeping the lines before its own. `false` if reading
+/// failed, so that the search says it left some out.
 pub(crate) fn search_file(
     mut file: impl Read,
     query: &LineQuery,
     live: &dyn Fn() -> bool,
     hit: &mut Hit<'_>,
     block: &mut Vec<u8>,
-) {
+) -> bool {
     block.clear();
-    read_blocks(&mut file, query, live, hit, block);
+    let read = read_blocks(&mut file, query, live, hit, block);
     block.clear();
     if block.capacity() > KEPT_BLOCK {
         block.shrink_to(BLOCK);
     }
+    read
 }
 
 fn read_blocks(
@@ -43,7 +45,7 @@ fn read_blocks(
     live: &dyn Fn() -> bool,
     hit: &mut Hit<'_>,
     block: &mut Vec<u8>,
-) {
+) -> bool {
     // The number of the block's first line, from 1.
     let mut first_line = 1;
     let mut ended = false;
@@ -51,7 +53,7 @@ fn read_blocks(
     let mut scanned = 0;
     loop {
         if !live() {
-            return;
+            return true;
         }
         // Read until the block holds a whole block's bytes past what was carried, or the file
         // ends. It never holds more than the longest line read, so a longer one never fits.
@@ -60,7 +62,7 @@ fn read_blocks(
         if !ended && wanted > 0 {
             match (&mut *file).take(wanted as u64).read_to_end(block) {
                 Ok(read) => ended = read < wanted,
-                Err(_) => ended = true,
+                Err(_) => return false,
             }
         }
         // A NUL stops the file: only the lines before its own are searched. What was looked at
@@ -83,7 +85,7 @@ fn read_blocks(
                     scanned = block.len();
                     continue;
                 }
-                None => return,
+                None => return true,
             },
         };
         let mut more = true;
@@ -94,7 +96,7 @@ fn read_blocks(
             }
         });
         if last || !more {
-            return;
+            return true;
         }
         first_line += breaks;
         block.drain(..searched);

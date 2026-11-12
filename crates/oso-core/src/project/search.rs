@@ -59,6 +59,10 @@ const REGEX_META: &[char] = &[
 /// the line's start would show.
 const BEFORE_MATCH: usize = 64;
 
+/// How far ahead, in bytes, a match's end may be before each line up to it is matched on its
+/// own rather than looked through again.
+const FAR: usize = 4096;
+
 /// What a row shows where it leaves part of its line out.
 const CUT: char = '…';
 
@@ -251,10 +255,13 @@ impl LineQuery {
     }
 
     /// The lines of `block` that match, in order, each handed to `hit`, and how many line
-    /// breaks the block holds. A `\r` before a line's end is not part of it. The longest
-    /// component that is not excluded is looked for through the whole block, and only the line
-    /// its earliest end is on is matched whole, so a block costs time linear in its length
-    /// however its expression crosses lines.
+    /// breaks the block holds. A `\r` before a line's end is not part of it.
+    ///
+    /// The longest component that is not excluded is looked for through the block: some match of
+    /// it ends at `ends`, and the leftmost match that starts and ends by then starts on the first
+    /// line that can hold one, which alone is matched whole. That holds whichever end the engine
+    /// gives. Where the end it gives is far ahead, each line up to it is matched on its own, so
+    /// that no stretch of the block is looked through more than twice.
     pub fn find_in_block(&self, block: &[u8], mut hit: impl FnMut(LineHit)) -> usize {
         let driver = self
             .components
@@ -266,21 +273,7 @@ impl LineQuery {
         };
         // `at` is always a line's start, and `line` that line's number.
         let (mut at, mut line) = (0, 0);
-        while at < block.len() {
-            // No line before the one the earliest match ends on holds a match.
-            let Some(ends) = driver.regex.shortest_match_at(block, at) else {
-                break;
-            };
-            let probe = ends.saturating_sub(1).max(at);
-            let start = block[at..probe]
-                .iter()
-                .rposition(|&byte| byte == b'\n')
-                .map_or(at, |offset| at + offset + 1);
-            line += newlines(&block[at..start]);
-            let end = block[probe..]
-                .iter()
-                .position(|&byte| byte == b'\n')
-                .map_or(block.len(), |offset| probe + offset);
+        let mut check = |start: usize, end: usize, line: usize| {
             let text_end = if block[start..end].ends_with(b"\r") {
                 end - 1
             } else {
@@ -293,6 +286,39 @@ impl LineQuery {
                     first,
                 });
             }
+        };
+        while at < block.len() {
+            let Some(ends) = driver.regex.shortest_match_at(block, at) else {
+                break;
+            };
+            let line_end = |from: usize| {
+                block[from..]
+                    .iter()
+                    .position(|&byte| byte == b'\n')
+                    .map_or(block.len(), |offset| from + offset)
+            };
+            // The last line the match that ends there can be on.
+            let last_end = line_end(ends.saturating_sub(1).max(at));
+            if ends - at > FAR {
+                while at <= last_end && at < block.len() {
+                    let end = line_end(at);
+                    check(at, end, line);
+                    at = end + 1;
+                    line += 1;
+                }
+                continue;
+            }
+            let leftmost = driver
+                .regex
+                .find_at(&block[..ends], at)
+                .map_or(at, |found| found.start());
+            let start = block[at..leftmost]
+                .iter()
+                .rposition(|&byte| byte == b'\n')
+                .map_or(at, |offset| at + offset + 1);
+            line += newlines(&block[at..start]);
+            let end = line_end(start);
+            check(start, end, line);
             if end == block.len() {
                 return line;
             }

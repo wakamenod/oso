@@ -380,3 +380,26 @@ fn the_lines_kept_never_pass_their_bound_while_a_file_is_read() {
     assert!(!search.may_keep(0), "and nothing after it");
     assert!(search.kept_over.load(Ordering::Relaxed));
 }
+
+#[test]
+fn rows_are_taken_as_they_are_found_so_searchers_together_stay_in_bounds() {
+    let request = SearchRequest {
+        generation: 1,
+        root: PathBuf::from("/"),
+        query: Arc::new(LineQuery::parse("x")),
+        live: Arc::new(AtomicU64::new(1)),
+        narrow: None,
+    };
+    let search = Arc::new(files::Search::new(request));
+    let taken: usize = (0..8)
+        .map(|_| {
+            let search = Arc::clone(&search);
+            std::thread::spawn(move || (0..MAX_ROWS).filter(|_| search.take_row()).count())
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .sum();
+    assert_eq!(taken, MAX_ROWS);
+    assert!(search.full.load(Ordering::Relaxed));
+}

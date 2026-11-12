@@ -461,7 +461,8 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   `Search in directory:`. The directory named stands for the project, named after its last
   component. The home directory, one that holds it, `/` and any path with `..` in it are refused
   by their words (`Editor::listable_root`), and the walking and searching threads refuse a root
-  that holds the home directory by the real place of both.
+  that holds the home directory by the real place of both, and by the device and inode of the
+  root they opened against those of the home directory and each directory above it.
 - **The walk lists each directory from its parent.** A directory below the root is opened from the
   one it is in by its name, following no link, and listed and read from what was opened, never by
   its path again (`oso_platform::file_meta::Directory`: `openat` with `O_NOFOLLOW`, then
@@ -476,24 +477,28 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
     at most 16 files waiting for a searcher and of the 8 being read, and those files: about 70
     descriptors at most.
   - A directory that cannot be opened or listed for a reason other than its being gone, refused
-    or no directory, as when no descriptor is left, ends the walk with `+`, so a walk never says
-    it walked everything when it did not.
+    or no directory, as when no descriptor is left, ends the walk with `+`, and so does a listing
+    that fails partway, so a walk never says it walked everything when it did not.
   - A walk enters at most 256 directories deep and 4096 bytes of path, as each directory it is in
     holds its path and is asked of each entry below it; past that it stops with `+`. Paths of the
     system's own once bounded this.
   - A marker this user cannot open, such as a `.git` of mode `000`, is no marker to the walk,
     though detection, which only looks at it, counts it. Git cannot use such a repository either.
-  - On macOS a file whose contents a sync service keeps elsewhere (`SF_DATALESS`) is not opened,
-    as reading it would fetch it.
+  - On macOS a file or a directory whose contents a sync service keeps elsewhere
+    (`SF_DATALESS`) is not opened, as reading or listing it would fetch it.
 - **Components.** Only `!` and `=` are affixes, and only at a component's start: code often ends in
   `=` or `!`. `^`, `$` and the rest are an expression's, so `^use` is a line's start. The author
   chose this on 2026-11-12. A component that holds a character an expression reads matches where
   either the expression or the literal does, compiled into one `regex::bytes` expression with
   completion's limits, multi-line and CRLF-aware.
 - **Matching a block.** The longest component that is not excluded is looked for through the
-  whole block, by where its earliest match ends, and only the line that end is on is matched
-  against every component; so a block costs one pass however an expression crosses lines. The
-  match that starts first is the row's. `LineQuery::find_in_block` also gives the block's line
+  whole block: some match of it ends at a place, and the leftmost match that starts and ends by
+  then starts on the first line that can hold one, which alone is matched against every
+  component. That holds whichever end the engine gives, which is not always the earliest. When
+  the end is more than 4 KiB ahead, each line up to it is matched on its own, so no stretch of a
+  block is looked through more than twice however an expression crosses lines. The match that
+  starts first is the row's. `\A`, `\z` and `(?-m)^` mean a line's edges when a line is
+  matched, and the block's when it is looked through. `LineQuery::find_in_block` also gives the block's line
   breaks.
 - **The search's own copy of the split.** `project` and `complete` share a layer, so
   `project::LineQuery` keeps its own copy of completion's split at spaces and its limits,
@@ -513,13 +518,14 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   and read only if it is a regular file that is not empty. A block holds at most 16 MiB, the
   longest line read, so a longer line skips the rest of its file. Each block is looked at once for
   a NUL and a line break. A file that could not be opened for a reason other than its being gone
-  or refused ends the search with `+`.
+  or refused, or could not be read, ends the search with `+`.
 - **Rows.** A row's text is at most 512 bytes around its first match, from the line's start when
   the match is within them and from 64 bytes before it otherwise, cut at characters, with `…`
   where the line goes on. Each invalid byte is one U+FFFD, as a buffer reads it, and the column
   `RET` goes to counts characters the same way. A file may hold secrets when
   `Buffer::name_may_hold_secrets` says so of the root joined with the path walked, or of the
-  root's real place joined with it. A file's rows stop at what is left of the search's 10,000.
+  root's real place joined with it. Each row is taken from the search's 10,000 as it is found,
+  so the searchers together never hold more.
 - **Narrowing.** A search that ended without a limit leaves the lines it found on `oso-grep`, at
   most 16 MiB of them with their paths, counted as they are found so that no file copies more,
   secret ones too, which never leave it but as rows. They go once no search came for 30 s. The

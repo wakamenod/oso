@@ -5,9 +5,8 @@
 //!
 //! On Unix a [`Directory`] is a descriptor: each one below the first is opened from its parent
 //! by one name, refusing a link, and what it holds is listed and opened from that descriptor,
-//! so no path is looked up again. On Windows it is a path, looked at without following a link
-//! at its last name; what is reached by it is not held, so a directory replaced between two
-//! looks is not noticed there.
+//! so no path is looked up again. On Windows, decided later, it is a path, and each name below
+//! it is looked at without following a link at its last name.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{File, Metadata};
@@ -81,7 +80,8 @@ impl Directory {
     }
 
     /// The directory `name` in this one, opened from it, if it is itself a directory: `None`
-    /// for a link, as for a file or anything else. It touches the disk, so it belongs off the
+    /// for a link, as for a file or anything else, and on macOS for one whose entries a sync
+    /// service keeps elsewhere. It touches the disk, so it belongs off the
     /// UI thread.
     ///
     /// # Errors

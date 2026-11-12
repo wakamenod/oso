@@ -143,7 +143,7 @@ fn serve(
     send: &(dyn Fn(Found) -> bool + Send + Sync),
     home: Option<&Path>,
 ) {
-    let home = home.and_then(|home| std::fs::canonicalize(home).ok());
+    let home = walk::real_home(home);
     let mut tasks = None;
     // The lines the last search that ended without a limit found, and its generation.
     let mut kept: Option<(u64, Vec<Kept>)> = None;
@@ -178,7 +178,7 @@ fn serve(
         let lines = kept.as_ref().filter(|_| narrowed).map(|(_, lines)| lines);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match lines {
             Some(lines) => narrow(&search, lines, send),
-            None => walk_and_search(&search, tasks.as_ref(), send),
+            None => walk_and_search(&search, home.as_deref(), tasks.as_ref(), send),
         }));
         let Ok(outcome) = outcome else {
             log::warn!("a search panicked");
@@ -300,6 +300,7 @@ impl Visit for Handing<'_> {
 /// Walks the project and hands each file to a searcher, then sends what they found.
 fn walk_and_search(
     search: &Arc<Search>,
+    home: Option<&Path>,
     tasks: Option<&SyncSender<Task>>,
     send: &dyn Fn(Found) -> bool,
 ) -> Outcome {
@@ -316,7 +317,7 @@ fn walk_and_search(
         gone: &gone,
     };
     let stop = || !search.live() || gone.get();
-    let walked = walk::walk_files(root, Limits::PROJECT, &stop, &mut handing);
+    let walked = walk::walk_files(root, home, Limits::PROJECT, &stop, &mut handing);
     if gone.get() {
         return Outcome::Gone;
     }

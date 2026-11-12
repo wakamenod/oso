@@ -195,3 +195,25 @@ fn a_block_tells_its_line_breaks_and_a_pattern_across_lines_costs_one_pass() {
         [(1, "needle in".to_owned())]
     );
 }
+
+#[test]
+fn no_line_is_skipped_whatever_end_the_engine_gives_and_far_ends_stay_linear() {
+    // A Unicode word boundary over text that is not ASCII makes the engine fall back.
+    let block = "é\na\nab\nb\n";
+    assert_eq!(
+        hits("\\ba[^z]*b", block),
+        [(2, "ab".to_owned())],
+        "the line whose own match ends first"
+    );
+    let mut lines = String::from("é\n");
+    for _ in 0..20_000 {
+        lines.push_str("a\n");
+    }
+    let started = std::time::Instant::now();
+    let found = hits("\\ba[^z]*q|\\bzz", &lines);
+    assert!(found.is_empty());
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "linear"
+    );
+}

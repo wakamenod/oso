@@ -162,8 +162,13 @@ impl Listed {
             if spent.entries.is_multiple_of(1024) && stop() {
                 return Err(Ended::Stopped);
             }
-            // An entry that cannot be read is left out, as `rg` leaves it.
-            let Ok(entry) = entry else { continue };
+            // An entry gone since it was listed is left out, as `rg` leaves it; a listing that
+            // fails ends the walk cut, as the rest of the directory is not read.
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) if expected(&error) => continue,
+                Err(_) => return Err(Ended::Cut),
+            };
             spent.names += entry.name.len();
             if spent.names > spent.limits.bytes {
                 return Err(Ended::Cut);
