@@ -541,3 +541,17 @@ fn the_visual_aids_are_handed_over_and_a_state_without_them_keeps_the_defaults()
     let bad = with(|state| state["visual_aids"]["flash"] = json!("yes"));
     assert!(parse(&bad).unwrap_err().contains("flash"));
 }
+
+#[test]
+fn font_lock_is_handed_over_and_a_state_without_it_keeps_it_on() {
+    let mut editor = visiting(&absolute("/p/a.rs"), "fn a() {}\n");
+    editor.set_font_lock(false);
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert_eq!(state.font_lock, Some(false));
+    let without = with(|state| {
+        state.as_object_mut().unwrap().remove("font_lock");
+    });
+    assert_eq!(parse(&without).unwrap().font_lock, None);
+    let bad = with(|state| state["font_lock"] = json!("off"));
+    assert!(parse(&bad).unwrap_err().contains("font_lock"));
+}

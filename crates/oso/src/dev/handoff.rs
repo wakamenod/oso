@@ -147,6 +147,8 @@ pub fn export(
         "theme": editor.theme_name(),
         // The visual aids, which nothing else remembers until configuration (ADR 0097).
         "visual_aids": aids_state(editor.visual_aids()),
+        // Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
+        "font_lock": editor.font_lock(),
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -539,6 +541,18 @@ fn parse_aids(state: &Map<String, Value>) -> Result<Option<VisualAids>, String> 
         flash: on("flash")?,
         line_numbers: on("line_numbers")?,
     }))
+}
+
+/// Whether buffers are highlighted, if the state says. A state from before it says nothing,
+/// and the new instance keeps highlighting on.
+fn parse_font_lock(state: &Map<String, Value>) -> Result<Option<bool>, String> {
+    match state.get("font_lock").filter(|on| !on.is_null()) {
+        None => Ok(None),
+        Some(on) => on
+            .as_bool()
+            .map(Some)
+            .ok_or_else(|| "font_lock is not true or false".to_owned()),
+    }
 }
 
 /// The theme's name, if the state has one, as the built-in themes are named: up to 32

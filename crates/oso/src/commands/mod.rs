@@ -21,6 +21,7 @@ mod kill;
 mod mark;
 mod messages;
 mod minibuffer;
+mod modes;
 mod motion;
 mod prefix;
 mod projects;
@@ -62,6 +63,7 @@ const TABLES: &[&[Command]] = &[
     buffers::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,
+    modes::COMMANDS,
     motion::COMMANDS,
     prefix::COMMANDS,
     projects::COMMANDS,

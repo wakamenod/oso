@@ -280,3 +280,40 @@ fn a_report_from_before_a_new_start_or_older_than_one_taken_is_dropped() {
     );
     assert!(syntax.sent.contains_key(&id));
 }
+
+#[test]
+fn font_lock_off_drops_every_buffer_and_sends_no_job() {
+    let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let mut syntax = Syntax::on();
+    assert_eq!(job_ids(&syntax.orders(&editor)), [id]);
+    editor.set_font_lock(false);
+    assert_eq!(syntax.drops(&editor), [id]);
+    edit(&mut editor, id, 0, "x");
+    assert!(syntax.orders(&editor).is_empty());
+    editor.set_font_lock(true);
+    let again = syntax.orders(&editor);
+    assert_eq!(again.jobs[0].edits, None, "back on, it starts from nothing");
+}
+
+#[test]
+fn setting_the_mode_again_gives_a_stopped_buffer_another_try() {
+    let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let mut syntax = Syntax::on();
+    let job = syntax.orders(&editor).jobs.remove(0);
+    let failed = Report {
+        buffer: id,
+        epoch: job.epoch,
+        stamp: 1,
+        revision: job.revision,
+        outcome: Outcome::Failed(Failure::TooSlow),
+    };
+    assert!(syntax.take(&mut editor, failed).is_some());
+    assert!(syntax.orders(&editor).jobs.is_empty(), "stopped");
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .set_mode(oso_core::buffer::Mode::Rust);
+    let retry = syntax.orders(&editor);
+    assert_eq!(job_ids(&retry), [id], "rust-mode again tries again");
+    assert!(retry.jobs[0].epoch > job.epoch, "from a new start");
+}

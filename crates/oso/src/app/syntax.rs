@@ -9,8 +9,9 @@
 //! - A job carries the splices since the last one, or none to start from nothing, an O(1)
 //!   snapshot of the text, and the ranges windows show. While a file loads, only its first
 //!   snapshot is sent, and then the loaded text.
-//! - A buffer whose highlighting failed stays plain until its mode changes, and the message
-//!   names it, quoting nothing of its text or its path.
+//! - A buffer whose highlighting failed stays plain until a mode is set in it, the same one too,
+//!   and the message names it, quoting nothing of its text or its path.
+//! - With `global-font-lock-mode` off, no buffer is allowed, so every one is dropped.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -37,8 +38,9 @@ pub(super) struct Syntax {
     broken: bool,
     /// What each buffer the worker has was sent last.
     sent: HashMap<BufferId, Sent>,
-    /// Buffers whose highlighting failed, in the mode it failed in.
-    stopped: HashMap<BufferId, Mode>,
+    /// Buffers whose highlighting failed, with the mode revision it failed in: setting a
+    /// mode, the same one too, moves it on and gives the buffer another try.
+    stopped: HashMap<BufferId, u64>,
     /// The last epoch given out: each new start of a buffer takes the next.
     epochs: u64,
     /// What windows show, kept while nothing that decides it moved.
@@ -99,7 +101,7 @@ impl Syntax {
         self.present.extend(
             editor
                 .buffers()
-                .map(|(id, buffer)| (id, (buffer.mode(), allowed(buffer.mode(), buffer)))),
+                .map(|(id, buffer)| (id, (buffer.mode(), allowed(editor, buffer)))),
         );
         let present = &self.present;
         self.sent.retain(|id, sent| {
@@ -127,8 +129,8 @@ impl Syntax {
         let mut wanted = editor
             .buffers()
             .filter(|(id, buffer)| {
-                let mode = buffer.mode();
-                allowed(mode, buffer) && self.stopped.get(id).is_none_or(|stopped| *stopped != mode)
+                let revision = buffer.mode_revision();
+                allowed(editor, buffer) && self.stopped.get(id) != Some(&revision)
             })
             .peekable();
         if wanted.peek().is_none() {
@@ -148,7 +150,7 @@ impl Syntax {
     fn job(&mut self, editor: &Editor, id: BufferId) -> Option<Job<BufferId>> {
         let buffer = editor.buffer(id)?;
         let mode = buffer.mode();
-        // A new mode gives a buffer whose highlighting failed another try (ADR 0111).
+        // A mode set again gives a buffer whose highlighting failed another try (ADR 0111).
         self.stopped.remove(&id);
         let language = Language::of(mode)?;
         let loading = buffer.loading().is_some();
@@ -248,15 +250,15 @@ impl Syntax {
             Outcome::Lost => "the highlighter failed",
         };
         self.sent.remove(&report.buffer);
-        self.stopped.insert(report.buffer, buffer.mode());
+        self.stopped.insert(report.buffer, buffer.mode_revision());
         buffer.drop_highlights();
         Some(format!("Highlighting stopped in {}: {why}", buffer.name()))
     }
 }
 
-/// Whether the worker may have `buffer`, in `mode`.
-fn allowed(mode: Mode, buffer: &oso_core::buffer::Buffer) -> bool {
-    Language::of(mode).is_some() && buffer.can_highlight()
+/// Whether the worker may have `buffer`: highlighting is on, and the buffer may be highlighted.
+fn allowed(editor: &Editor, buffer: &oso_core::buffer::Buffer) -> bool {
+    editor.font_lock() && Language::of(buffer.mode()).is_some() && buffer.can_highlight()
 }
 
 /// Why a buffer's highlighting stopped, for the echo area: nothing of its text or its path.

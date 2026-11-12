@@ -640,6 +640,29 @@ sent; tests turn it on, and step 5 turns it on for every session.
   highlighting compared them also where both trees held errors, which tree-sitter does not
   promise to agree on; it now compares only clean trees, as the incremental one does.
 
+### Step 4b: modes and font-lock
+
+The author's choices, with the plan:
+
+- **`rust-mode`, `markdown-mode`, `toml-mode` and `fundamental-mode`** set the current
+  buffer's mode, through `M-x` only, as in vanilla Emacs, reach `Look`, and say "Rust mode" and
+  so on. They refuse an internal buffer ("This buffer's mode cannot change"): the emergency
+  copies' list and view take keys by their mode. `Buffer::set_mode` is public.
+- **Setting a mode again,** the same one too, gives a buffer whose highlighting stopped another
+  try, as the Decision says. `Buffer::mode_revision` (new, public) moves on at every set, and the
+  UI keys a stopped buffer on it, so the next job starts from nothing in a new epoch.
+- **`global-font-lock-mode`** takes ADR 0097's minor-mode argument, reach `Look`, and is on by
+  default (`Editor::font_lock`, `Editor::set_font_lock`, new, public). Off drops every buffer's
+  highlights at once, and the UI then counts no buffer as one the worker may have, so it drops
+  them all; on again, each starts from nothing. It says "Global Font-Lock mode enabled" or
+  "disabled", as the aids do.
+- **The dev restart hands over `font_lock`,** one flag beside the visual aids; a state without
+  it keeps highlighting on. Modes set by hand are not handed over yet: a visit sets them from the
+  name again, until the configuration's per-mode tables.
+- **Nothing is parsed yet:** highlighting stays off until step 5 (step 4a), so in normal use
+  the commands change the mode and the modeline, and font-lock only the flag.
+- `M-x`'s list grows by five commands (the `complete_m_x` snapshot).
+
 ## Alternatives considered
 
 - **Highlighting the whole buffer after every parse:** simplest, but a query over a large file

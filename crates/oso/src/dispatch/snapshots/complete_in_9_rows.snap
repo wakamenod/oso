@@ -14,7 +14,7 @@ keys: M-x
 --- test  1:0  Fundamental  UTF-8 LF                                             -
 "                                                                                "
 float at row 0, column 15: 7 x 49
-│ 1/78  M-x                                       │
+│ 1/83  M-x                                       │
 :           ^                                     :
 │>undo (C-z)           Undo the last N changes t… │
 │ yank (C-y)           Insert the newest kill at… │
@@ -35,7 +35,7 @@ keys: C-v
 --- test  1:0  Fundamental  UTF-8 LF                                             -
 "                                                                                "
 float at row 0, column 15: 7 x 49
-│ 7/78  M-x                                       │
+│ 7/83  M-x                                       │
 :           ^                                     :
 │ yank (C-y)           Insert the newest kill at… │
 │ insert               Insert text at every curs… │

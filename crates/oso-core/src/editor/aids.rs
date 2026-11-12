@@ -51,6 +51,22 @@ impl Editor {
         self.aids
     }
 
+    /// Whether buffers are highlighted: on by default (`global-font-lock-mode`, ADR 0111).
+    pub fn font_lock(&self) -> bool {
+        self.font_lock
+    }
+
+    /// Turns highlighting on or off for every buffer. Off drops every buffer's highlights at
+    /// once; on, the syntax worker highlights them again.
+    pub fn set_font_lock(&mut self, on: bool) {
+        self.font_lock = on;
+        if !on {
+            for (_, buffer) in &mut self.buffers {
+                buffer.drop_highlights();
+            }
+        }
+    }
+
     /// Turns the visual aids on and off as `aids` says.
     pub fn set_visual_aids(&mut self, aids: VisualAids) {
         self.aids = aids;

@@ -35,26 +35,26 @@ keys: M-x
 --- test  1:0  Fundamental  UTF-8 LF                                                                 -
 "                                                                                                    "
 float at row 4, column 19: 19 x 62
-│ 1/78  M-x                                                    │
+│ 1/83  M-x                                                    │
 :           ^                                                  :
-│>undo (C-z)             Undo the last N changes to the buffe… │
-│ yank (C-y)             Insert the newest kill at every curs… │
-│ insert                 Insert text at every cursor, as one … │
-│ newline (RET)          Insert a line break at every cursor,… │
-│ find-file (C-x C-f)    Visit a file, its path read with com… │
-│ goto-line (M-g g)      Move point to the start of line N, c… │
-│ kill-line (C-k)        Kill the rest of the line at every c… │
-│ kill-word (M-d)        Kill from every cursor to the end of… │
-│ next-line (C-n)        Move point N lines down (up if N is … │
-│ undo-redo (C-M-z)      Redo the last N undone changes (undo… │
-│ edit-lines (C-x SPC)   Put a cursor on each line from the m… │
-│ load-theme             Draw with the theme named in a promp… │
-│ write-file (C-x C-w)   Write the buffer to a file, its path… │
-│ beacon-mode            Toggle the cursor flash after a larg… │
-│ delete-char (C-d)      Delete the N characters after every … │
-│ kill-buffer (C-x k)    Kill a buffer, read with completion,… │
-│ next-buffer (M-/)      Go the other way from `previous-buff… │
-│ save-buffer (C-x C-s)  Save the buffer to its file, if it i… │
+│>undo (C-z)            Undo the last N changes to the buffer… │
+│ yank (C-y)            Insert the newest kill at every curso… │
+│ insert                Insert text at every cursor, as one u… │
+│ newline (RET)         Insert a line break at every cursor, … │
+│ find-file (C-x C-f)   Visit a file, its path read with comp… │
+│ goto-line (M-g g)     Move point to the start of line N, co… │
+│ kill-line (C-k)       Kill the rest of the line at every cu… │
+│ kill-word (M-d)       Kill from every cursor to the end of … │
+│ next-line (C-n)       Move point N lines down (up if N is n… │
+│ rust-mode             Set the current buffer's major mode t… │
+│ toml-mode             Set the current buffer's major mode t… │
+│ undo-redo (C-M-z)     Redo the last N undone changes (undo … │
+│ edit-lines (C-x SPC)  Put a cursor on each line from the ma… │
+│ load-theme            Draw with the theme named in a prompt… │
+│ write-file (C-x C-w)  Write the buffer to a file, its path … │
+│ beacon-mode           Toggle the cursor flash after a large… │
+│ delete-char (C-d)     Delete the N characters after every c… │
+│ kill-buffer (C-x k)   Kill a buffer, read with completion, … │
 
 keys: f o r w
 │# Notes                                                                                             │

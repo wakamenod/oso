@@ -266,6 +266,9 @@ impl App {
         // baseline without applying them (ADR 0108).
         self.configuration.hand_over();
         // Before positions, so that what the aids lay out is there first (ADR 0097).
+        if let Some(on) = state.font_lock {
+            self.editor.set_font_lock(on);
+        }
         if let Some(aids) = state.visual_aids {
             self.editor.set_visual_aids(aids);
         }
