@@ -63,6 +63,8 @@ pub struct Replace {
     pub(super) current: Option<Range<usize>>,
     /// After `,` or `^`: the text the cursor stays at; the next answer moves on from its end.
     pub(super) stay: Option<Range<usize>>,
+    /// The match the session stays at was empty.
+    pub(super) stay_empty: bool,
     /// A worker looks for the next match from this offset.
     pub(super) searching: Option<usize>,
     /// Answers given while a worker looks, run in order once it finds.

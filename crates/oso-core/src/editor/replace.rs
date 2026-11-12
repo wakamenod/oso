@@ -22,6 +22,7 @@ use crate::motion;
 use crate::search::{
     self, Counting, Found, KEY_BUDGET, LineTooLong, Needle, Query, Report, SearchJob, SearchReport,
 };
+use crate::selection::Selection;
 use crate::window::{Screen, WindowId};
 
 mod all;
@@ -159,12 +160,7 @@ impl Editor {
         let before = self.window().selections.clone();
         let selections = &self.window().selections;
         let ranges = if selections.mark_active().is_active() {
-            merged(
-                selections
-                    .iter()
-                    .map(|selection| selection.range())
-                    .collect(),
-            )
+            merged(selections.iter().map(Selection::range).collect())
         } else {
             std::iter::once(cursor..self.current().1.text().len()).collect()
         };
@@ -189,6 +185,7 @@ impl Editor {
             scope,
             current: None,
             stay: None,
+            stay_empty: false,
             searching: None,
             pending: VecDeque::new(),
             total: None,

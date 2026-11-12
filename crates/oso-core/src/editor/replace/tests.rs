@@ -457,3 +457,19 @@ fn an_answer_at_an_empty_match_moves_on_past_it() {
     assert_eq!(text(&editor), "a!\nb!");
     assert!(editor.replace().is_none());
 }
+
+#[test]
+fn comma_at_an_empty_match_then_y_moves_on() {
+    let mut editor = editor("a\nb");
+    begin_regexp(&mut editor, "$", "!");
+    answer(&mut editor, ReplaceAndStay);
+    assert_eq!(text(&editor), "a!\nb");
+    answer(&mut editor, Replace);
+    assert_eq!(
+        cursor(&editor),
+        4,
+        "at the next line's end, not the same place"
+    );
+    answer(&mut editor, Replace);
+    assert_eq!(text(&editor), "a!\nb!");
+}
