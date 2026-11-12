@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 
 use crate::decode::{FileInfo, InvalidBytes};
 use crate::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
+use crate::editorconfig::Applied;
+use crate::indent::{Origins, Settings};
 use crate::load::{self, LoadSnapshot, Progress};
 use crate::rope::Rope;
 use crate::secret;
@@ -29,6 +31,7 @@ use crate::undo::History;
 mod agent;
 mod baseline;
 mod carried;
+mod crossing;
 mod edit;
 mod edited;
 mod highlighting;
@@ -39,6 +42,7 @@ mod naming;
 mod recovery;
 mod reload;
 pub(crate) use reload::Noticed;
+mod sliced;
 mod splice;
 mod trim;
 pub(crate) use trim::{Reads, TooLong, Trim, TrimRules, as_spans, trailing_whitespace};
@@ -46,10 +50,14 @@ pub(crate) use trim::{Reads, TooLong, Trim, TrimRules, as_spans, trailing_whites
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, DiskState, FileStamp};
 pub use carried::FileFacts;
+#[cfg(test)]
+pub(crate) use crossing::SeenGroup;
+pub(crate) use crossing::StagedCrossing;
 pub(crate) use edit::{Rewrap, StagedEdit};
-pub(crate) use edited::{EditedLines, Tracking};
+pub(crate) use edited::{EditedLines, Tracking, join_touching};
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
+pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE, SPLICE_WORK};
 use splice::normalized;
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
@@ -111,6 +119,9 @@ pub enum EditError {
     NoUndo,
     /// The history has nothing more to redo.
     NoRedo,
+    /// An undo or a redo staged over several turns found the buffer changed under it, and
+    /// changed nothing (ADR 0119).
+    Abandoned,
 }
 
 impl fmt::Display for EditError {
@@ -121,6 +132,7 @@ impl fmt::Display for EditError {
             Self::NoSuchBuffer => "No such buffer",
             Self::NoUndo => "No further undo information",
             Self::NoRedo => "No further redo information",
+            Self::Abandoned => "Undo or redo abandoned",
         })
     }
 }
@@ -156,6 +168,12 @@ pub struct Buffer {
     no_history: bool,
     /// Which keys it takes.
     mode: Mode,
+    /// How its lines are indented; the tab width is the display map's (ADR 0115).
+    indent: Settings,
+    /// Where each property of `indent` came from.
+    indent_origins: Origins,
+    /// What the EditorConfig files read when its file was visited give it, if any applied.
+    editorconfig: Option<Box<Applied>>,
     /// Counts the times a mode was set, the same one too (ADR 0111).
     mode_revision: u64,
     /// An emergency copy of its file waits for an answer.
@@ -183,6 +201,8 @@ pub struct Buffer {
     /// A kill that counts as secret was yanked into it (ADR 0074). Nothing that judges the
     /// text clears this: [`Buffer::verdict`] combines the two.
     yanked_secret: bool,
+    /// The agent channel may not read it, though it holds no secret (ADR 0121).
+    withheld_from_agents: bool,
     /// The agent channel opened it (ADR 0085).
     opened_by_agent: bool,
     /// The agent channel is opening it and has not shown it yet.
@@ -226,6 +246,9 @@ impl Buffer {
             takes_typing: false,
             no_history: false,
             mode: Mode::Fundamental,
+            indent: Settings::default(),
+            indent_origins: Origins::default(),
+            editorconfig: None,
             mode_revision: 0,
             copy_waits: false,
             own_spelling: None,
@@ -238,6 +261,7 @@ impl Buffer {
             wraps: false,
             verdict: Verdict::Ordinary,
             yanked_secret: false,
+            withheld_from_agents: false,
             opened_by_agent: false,
             agent_pending: false,
             content: ContentId(0),
@@ -322,6 +346,20 @@ impl Buffer {
         self.yanked_secret = true;
         self.recheck_highlighting();
         !was_withheld
+    }
+
+    /// Keeps the text from the agent channel from now on: for a buffer that shows what only the
+    /// person may read, such as a hosted session's screen in `*Session explain*` (ADR 0121).
+    /// Unlike a secret, it changes nothing else: the channel still acts while it is shown, and
+    /// the person's kills, emergency copies, secure input and the modeline are as they were.
+    pub fn withhold_from_agents(&mut self) {
+        self.withheld_from_agents = true;
+    }
+
+    /// Whether the agent channel may not read the text, though it may hold no secret: see
+    /// [`Self::withhold_from_agents`]. The channel checks [`Self::is_secret`] as well.
+    pub fn withheld_from_agents(&self) -> bool {
+        self.withheld_from_agents
     }
 
     /// Whether the text may hold secrets, and why.
@@ -440,6 +478,44 @@ impl Buffer {
     /// How many cells apart the tab stops are.
     pub fn tab_width(&self) -> TabWidth {
         self.display.tab_width()
+    }
+
+    /// How its lines are indented, with the tab width it is shown with, which is the one
+    /// tab width a buffer has (ADR 0115).
+    pub fn indent_settings(&self) -> Settings {
+        let (size, style) = (self.indent.indent_size(), self.indent.style());
+        let width = self.tab_width().get();
+        u32::try_from(size)
+            .ok()
+            .and_then(|size| Settings::new(size, style, width))
+            .unwrap_or(self.indent)
+    }
+
+    /// Sets how deep a level of its indentation is and what it is made of. Its tab width
+    /// stays the one it was loaded with, which the loader builds the display map with, so
+    /// that no window's layout goes stale. The editor gives a buffer its setting with where
+    /// each property came from (`Editor::set_mode_indents`); this leaves the origins as they
+    /// were, for a test or a benchmark.
+    pub fn set_indent_settings(&mut self, settings: Settings) {
+        self.indent = settings;
+    }
+
+    /// Where each property of its indentation setting came from (ADR 0115).
+    pub fn indent_origins(&self) -> Origins {
+        self.indent_origins
+    }
+
+    pub(crate) fn set_indent_origins(&mut self, origins: Origins) {
+        self.indent_origins = origins;
+    }
+
+    /// What the EditorConfig files read for its file give it, if any applied (ADR 0115).
+    pub fn editorconfig(&self) -> Option<&Applied> {
+        self.editorconfig.as_deref()
+    }
+
+    pub(crate) fn set_editorconfig(&mut self, applied: Option<Applied>) {
+        self.editorconfig = applied.map(Box::new);
     }
 
     /// The BOM and line ending of the file, and whether it is binary.

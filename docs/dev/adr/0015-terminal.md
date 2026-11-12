@@ -1,6 +1,6 @@
 # 0015. Terminal
 
-- Status: Accepted
+- Status: Accepted, amended by 0120
 - Date: 2026-11-03
 
 ## Context

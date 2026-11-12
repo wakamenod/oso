@@ -7,12 +7,13 @@
 //!
 //! Must not depend on: the GPU or the window; it reads and writes one file.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 
+use oso_platform::file_meta;
 use oso_platform::privacy::{PrivateDir, has_one_name, is_this_users};
 
 /// The file's name in its directory.
@@ -99,21 +100,28 @@ fn read(directory: &Path) -> Option<Remembered> {
         }
     };
     let path = directory.path().join(FILE);
-    let meta = fs::symlink_metadata(&path).ok()?;
-    let plain = meta.is_file() && is_this_users(&meta) && has_one_name(&meta);
-    if !plain || meta.len() > MOST_BYTES {
+    // Opened only if it is a regular file, without waiting, and judged by what was opened.
+    let opened = match file_meta::open_regular_here(&path) {
+        Ok(opened) => opened,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            log::warn!("not reading the remembered theme: {e}");
+            return None;
+        }
+    };
+    let file = opened.and_then(|(file, meta)| {
+        let plain = is_this_users(&meta) && has_one_name(&meta) && meta.len() <= MOST_BYTES;
+        plain.then_some(file)
+    });
+    let Some(file) = file else {
         log::warn!(
-            "not reading the remembered theme: {} is not a small file of its own",
+            "not reading the remembered theme: {} is not a small regular file of its own",
             path.display()
         );
         return None;
-    }
+    };
     let mut text = String::new();
-    File::open(&path)
-        .ok()?
-        .take(MOST_BYTES)
-        .read_to_string(&mut text)
-        .ok()?;
+    file.take(MOST_BYTES).read_to_string(&mut text).ok()?;
     let lines = text.strip_suffix('\n').unwrap_or(&text);
     let (name, default) = match lines.split_once('\n') {
         Some((name, default)) => (name, Some(default)),
@@ -332,6 +340,36 @@ mod tests {
         fs::remove_file(&path).unwrap();
         fs::create_dir(&path).unwrap();
         assert_eq!(read(&scratch.oso()), None, "a directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_in_its_place_is_refused_without_waiting() {
+        use oso_platform::process::{Executable, Sink, Spawn, spawn};
+        let scratch = Scratch::new();
+        write_name(&scratch.oso(), "light");
+        let path = scratch.oso().join(FILE);
+        fs::remove_file(&path).unwrap();
+        let mkfifo = Executable::from_path("mkfifo", None).expect("mkfifo is on PATH");
+        let status = spawn(&Spawn {
+            executable: &mkfifo,
+            args: &[path.into_os_string()],
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdout: Sink::Null,
+            stderr: Sink::Null,
+            own_process_group: false,
+            set: &[],
+            terminal: None,
+        })
+        .and_then(|mut child| child.wait())
+        .expect("cannot run mkfifo");
+        assert!(status.success());
+        // Nobody writes to the pipe: a read that waited on it would never end.
+        let read = ThemeRead::start(Some(scratch.oso()));
+        let name = read.name.unwrap().recv_timeout(Duration::from_secs(5));
+        assert_eq!(name, Ok(None), "the default theme is drawn");
     }
 
     #[cfg(unix)]

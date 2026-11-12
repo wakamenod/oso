@@ -207,6 +207,11 @@ one layer:
   ([ADR 0112](adr/0112-window-splits.md)). Tabs (tab-bar style) hold separate window trees.
 - Each window has its own selection set, so the same buffer in two windows can
   be edited at different places.
+- Two windows can be a pair that scrolls together, as a review's two sides do: one run of two
+  in the tree, split, resized and deleted as one, whose buffer lines line up by a
+  `window::RowMap` their owner gives ([ADR 0122](adr/0122-agent-review.md), step 10). After
+  each command (not while a prompt is open) and each turn of the wheel, the other window goes
+  to the aligned line, but never while either shows a buffer that may hold secrets.
 - Floating windows are positioned freely above the tree. They show the
   minibuffer, menus, completion popups and hover documentation. Their
   placement is decided per feature.
@@ -235,6 +240,23 @@ one layer:
 
 ## Terminal views
 
-A terminal view renders an `alacritty_terminal` cell grid directly, not a
-rope. It implements a searchable-text interface so that isearch, line search,
-copy and selection work as in text buffers.
+A terminal view renders a cell grid directly, not a rope
+([ADR 0120](adr/0120-the-terminal.md)). The terminal's own thread owns the engine
+and publishes a snapshot: the visible rows' cells, the cursor, which rows changed,
+and the search's matches on those rows. At most one snapshot is in flight, so bulk
+output costs the UI one snapshot per frame.
+
+- Each cell is drawn at the column the grid placed it in; widths are not measured
+  again, and cells are drawn in grid order. Only rows marked changed are shaped,
+  through the shaped-row cache text views use.
+- Colors come from the theme's 16 `terminal-color-N` faces; 256-color and true color
+  cells are drawn as given.
+- The preedit is drawn at the terminal's cursor, and the candidate window placed at
+  its cell even while the program hides the cursor.
+- In split windows the PTY takes the size of the window that last selected the
+  terminal; others draw the same grid, clipped or padded. The floating terminal
+  takes its float's size.
+- `C-s` searches on the terminal's thread and scrolls the view back to the match.
+  Copy mode (`C-c C-j`) shows a frozen read-only buffer at the same place, drawn as
+  any text view.
+- Kitty images are textures placed on cells.

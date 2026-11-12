@@ -244,6 +244,6 @@ fn found_in_stops_at_the_most_it_keeps() {
         (Path::new("/a"), "", &names[..]),
         (Path::new("/b"), "", &names[..]),
     ];
-    let found = found_in(listed, false, 13, &|| false).unwrap();
+    let found = found_in(listed, (false, false), 13, &|| false).unwrap();
     assert_eq!(found.len(), 13, "no name past the most is made");
 }

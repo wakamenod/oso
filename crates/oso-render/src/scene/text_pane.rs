@@ -10,7 +10,7 @@ use oso_core::frame::{self, CellRect, PixelRect};
 use oso_core::motion;
 use oso_platform::text::{CellMetrics, TextSystem};
 
-use super::{Draws, GlyphSource, line_width};
+use super::{Covered, Draws, GlyphSource, RowFaces, line_width};
 use crate::pane::{Face, Pane, PaneContent, TextView};
 use crate::rows::Rows;
 use crate::text::Layout;
@@ -82,7 +82,8 @@ pub(super) fn underline_preedit(
     }
 }
 
-/// Draws a window's view of a buffer in `layout`: the rows of its region.
+/// Draws a window's view of a buffer in `layout`: the rows of its region, its plain text in
+/// the faces of its highlights (ADR 0111), but where a jump's labels cover it (ADR 0116).
 pub(super) fn draw_text<G: GlyphSource>(
     draws: &mut Draws,
     view: &TextView,
@@ -107,6 +108,10 @@ pub(super) fn draw_text<G: GlyphSource>(
         row.column + shaped.start..row.column.saturating_add(shaped.end).min(limit)
     };
     rows.will_draw(shown.iter().map(|row| (row.line, columns_of(row).start)));
+    let mut plain = std::mem::take(&mut draws.plain);
+    if view.highlights.is_some() {
+        plain.read(view, pane.region);
+    }
     for (index, row) in shown.iter().enumerate() {
         let columns = columns_of(row);
         let mark = screen.mark(row).map(|column| screen.origin(row) + column);
@@ -117,10 +122,15 @@ pub(super) fn draw_text<G: GlyphSource>(
         let shaped_row = rows.view_row(display, line, (mark, Some(index)), spliced, system);
         // Its columns count from its first cluster's.
         let row_layout = layout.with_left(screen.origin(row) - shaped_row.base);
-        if !draws.row(&row_layout, index, shaped_row, system, glyphs) {
+        let frame_row = row_layout.frame_cell(index, 0)[0];
+        let faces = (view.highlights)
+            .map(|highlights| RowFaces::new(highlights, &shaped_row.clusters, &plain, frame_row));
+        let faces = (faces, Covered::on(view.labels, frame_row));
+        if !draws.row((&row_layout, index), shaped_row, faces, system, glyphs) {
             break;
         }
     }
+    draws.plain = plain;
     if let (Some(first), Some(last)) = (shown.first(), shown.last()) {
         let near = first.line.saturating_sub(shown.len())..=last.line.saturating_add(shown.len());
         rows.evict(shown.len(), near);

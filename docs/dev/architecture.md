@@ -37,6 +37,9 @@ crates/
 ├── oso-render/     wgpu pipeline, glyph atlas
 ├── oso-syntax/     tree-sitter, its grammars and oso's queries; the only C
 │                   parsers, and only the tip crate uses it
+├── oso-term/       the terminal: engine, escape-sequence policy, key encoder,
+│                   a thread per terminal, snapshots and search; only the tip
+│                   crate uses it (ADR 0120, from its step 3)
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
                     clipboard, filesystem and paths, process spawning, PTY
@@ -62,7 +65,9 @@ Dependencies point one way: `oso` depends on the libraries, `oso-render`
 depends on `oso-core` and `oso-platform`, `oso-syntax` on `oso-core`, and neither of
 those two depends on another workspace crate. Only `oso-render` uses wgpu, only
 `oso-platform` uses OS bindings, and only `oso-syntax` uses tree-sitter
-([ADR 0111](adr/0111-tree-sitter-highlighting.md)). These rules, and the allowed layers of
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). From
+[ADR 0120](adr/0120-the-terminal.md)'s step 3, `oso-term` depends on `oso-core` and
+`oso-platform`, and only the tip crate uses it. These rules, and the allowed layers of
 modules inside each crate, are listed in
 [`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
 `crates/oso/tests/architecture`
@@ -181,7 +186,12 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   path. Consecutive self-inserts join one group, up to 20. Removed text is kept as
   rope slices, so killing a huge region copies nothing. History is bounded in
   bytes, 64 MiB per buffer, not counting the group last recorded or crossed, which
-  always stays. It is not persisted to disk.
+  always stays. It is not persisted to disk. A batch of more than 4096 splices is
+  kept in parts. An undo or a redo crosses a slice a turn on clones and commits each
+  step once ([ADR 0119](adr/0119-undoing-large-steps-in-slices.md)): the command runs
+  the first slice, `app/slices.rs` the rest, back to back and drawn as the share moves
+  on, keys and the wheel wait as for `!` and `C-g` cancels it, and what each commit lets
+  go is freed off the UI thread.
 - **The kill ring** (`oso_core::kill`, [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md))
   is owned by `Editor`. A kill takes one piece per cursor as rope slices, merging ranges
   that overlap, so it copies nothing on the UI thread, and appends to the newest entry
@@ -190,11 +200,19 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   and yanking it makes the target buffer secret (`Verdict::Yanked`).
 - **isearch** (`Editor::isearch`, [ADR 0082](adr/0082-isearch.md)) is a mode of the selected
   window, with its own keymap in place of the others. The matcher (`oso_core::search`, private to
-  the crate) runs Knuth–Morris–Pratt over the rope's chunks. Each key searches 256 KiB on the UI
-  thread, and one worker thread of the host's (`app/searches.rs`) goes on with a far match and counts
-  the matches over an O(1) snapshot, superseded by the next job through a generation. A frame
+  the crate) runs Knuth–Morris–Pratt over the rope's chunks, or a regexp one line at a time
+  (`search/regexp`, [ADR 0116](adr/0116-migemo-and-jumps.md)). Each key searches 256 KiB, and a
+  regexp's 3 ms, on the UI thread, and one worker thread of the host's (`app/searches.rs`) goes on
+  with a far match, a long line and a regexp too large to compile on a key, and counts the matches
+  over an O(1) snapshot, superseded by the next job through a generation. A frame
   searches only the rows in view for the highlights. A search ends when its window shows another
   buffer or a prompt opens.
+- **Jumps by label** (`Editor::jump`, `oso_core::jump`,
+  [ADR 0116](adr/0116-migemo-and-jumps.md)) are a mode of the selected window too, with their own
+  keymap. A key finds the candidates in every tiled window's rows in view, within 256 KiB a window
+  and 1 MiB a jump, nearest the window's primary cursor first, and labels them with avy's tree; a
+  frame draws only those found. The tip crate runs the timer that shows the labels
+  (`app/jumps.rs`).
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
@@ -279,10 +297,13 @@ A panicking command is caught at the command boundary
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, the user's, global. The first keymap that binds the
   whole key sequence, or leaves it undefined, decides. So far the global layer exists, a
-  minor mode layer of digits while a prefix argument is typed, a major mode layer in the
-  buffers that show emergency copies and in a prompt, and a layer for the user's keys, which
+  minor mode layer of digits while a prefix argument is typed, another while the layer of
+  `C-x TAB` is open, whose arrows shift the region until another key closes it
+  ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
+  copies, in a prompt and in a Markdown buffer (`M-RET`), and a layer for the user's keys, which
   the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
-  take the global layer's place, so that no other key reaches a command.
+  take the global layer's place, so that no other key reaches a command. While a jump is on, its
+  keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.
@@ -417,10 +438,12 @@ The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
 on input that changes the view, on resize, when the window becomes visible, and when
 what the modeline or the echo area says has changed, which the app compares after each
 batch of events ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-The surface presents with `Fifo` and a frame latency of 1. Fifo is always
+The surface presents with `Fifo` and a frame latency of 2, which gives it three
+drawables ([ADR 0124](adr/0124-three-drawables.md)). Fifo is always
 supported and never tears, and on-demand drawing means it costs nothing while
-idle. Mailbox or Immediate can be revisited once key-to-photon latency is
-measured ([ADR 0025](adr/0025-latency-measurement.md)). The adapter is
+idle. The third drawable lets a key that draws twice, its own frame and then a
+worker's result, leave the next key's frame a free drawable, where with two that
+frame waited for the compositor on the UI thread. The adapter is
 requested with low power preference, which keeps dual-GPU machines on the
 integrated GPU.
 
@@ -440,12 +463,16 @@ loop. Render errors are logged and are never fatal.
 | File | rope loaded from disk | source files, notes |
 | Generated | rope produced by a mode, read-only by default | git status, directory listings, compile output, help |
 | Internal | rope the editor keeps for itself, not the user's work | `*Messages*`, `*Emergency Copies*` and a copy being looked at |
-| Terminal | `alacritty_terminal` grid | shell sessions |
+| Terminal | `oso-term` cell grid, owned by the terminal's thread | shells, project terminals, the floating terminal, compile output |
 
 A window shows a view. A text view renders a buffer through the display model.
-A terminal view renders a cell grid and exposes its content as searchable
-text, so isearch, line search and copy work as in text buffers. See
-[ADR 0015](adr/0015-terminal.md).
+A terminal view renders a cell grid that the terminal's thread publishes as
+snapshots, at most one in flight, so the UI thread never parses, searches or
+touches the PTY. `C-s` searches the screen and scrollback on that thread, and
+copy mode (`C-c C-j`) freezes them into a read-only buffer for every other
+text command. The PTY is `oso-platform::process::pty`, spawned through the
+process module's rules ([ADR 0015](adr/0015-terminal.md),
+[ADR 0120](adr/0120-the-terminal.md)).
 
 The minibuffer, menus (hydra/transient-style), completion popups and hover
 documentation are buffers shown in floating windows. Editing commands work
@@ -510,7 +537,7 @@ The UI thread never blocks on I/O or parsing:
   runs wait for the next, so a slow job is never started over
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - A project's search for `M-s r` runs on `oso-grep` (`crates/oso/src/grep.rs`, glue in
-  `app/walks.rs`): it walks with `walk::walk_files` and hands each file, with its open directory,
+  `app/greps.rs`): it walks with `walk::walk_files` and hands each file, with its open directory,
   over a bounded queue of 16 to `min(cores - 1, 8)` searching threads, at least one
   (`grep/files.rs`). A searcher reads 256 KiB blocks cut at a line's end (`grep/read.rs`) and
   matches them with its own copy of `oso_core::project::LineQuery`, completion's orderless
@@ -524,6 +551,14 @@ The UI thread never blocks on I/O or parsing:
   narrows a whole search's input sends that search's generation, and `oso-grep` looks through
   the lines it kept, at most 16 MiB, instead of walking
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- The selected row's preview is read on `oso-preview` (`grep/preview.rs`): the editor asks once
+  per row selected (`Editor::take_preview_request`), with the row's byte offset, unless the row's
+  file may hold secrets or an open buffer of it shows; the thread reads the newest request
+  waiting, opening the file from the root a directory at a time, and builds an
+  `oso_core::editor::Excerpt`, the lines around the row with their display model, which comes
+  back as `UserEvent::Previewed`. The editor shows it as `Preview::Excerpt`, drawn as a text pane
+  of its own whose revision is the excerpt's, or an open buffer of the same file by device and
+  inode in its place (`editor/project_search/preview.rs`).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
@@ -531,7 +566,10 @@ The UI thread never blocks on I/O or parsing:
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
-  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`). A look at a
+  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`); in a prompt
+  for a directory it holds `RET` and `M-RET` until the listing or the look at a link that decides
+  the answer has come
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)). A look at a
   row patches it, with no new list, and a long list replaced or closed is dropped on that thread
   ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
@@ -544,11 +582,28 @@ The UI thread never blocks on I/O or parsing:
   shown buffers first, and at most one thread on a buffer no window shows, so a slice that runs
   long never holds the shown ones. The UI thread never calls tree-sitter, and nothing under the
   lock makes or frees a document; the UI sends a job after each command and drops a buffer that
-  turned secret at once. It is off until colour is drawn (ADR 0111, step 4a). A buffer's highlights are a map of runs
+  turned secret at once. A buffer's highlights are a map of runs
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
-  instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
-  files over 2 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  instances are built, so a highlight never reshapes a row, and a report draws a frame only
+  if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
+  parsed again, with their own grammars, wherever the worker highlights. Buffers that may
+  hold secrets and files over 2 MiB are not parsed
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+- A hosted agent session's state is read from its screen on `oso-sessions`
+  (`crates/oso/src/sessions/`, glue in `app/sessions.rs`), never on the UI thread
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `sessions::screen::Evidence` is the last 40
+  non-empty rows, the title and the OSC 9;4 progress, cut to fixed sizes; `sessions::rules`
+  compiles the bundled `claude.toml` and the local `agent-rules/claude.toml` over it; and
+  `sessions::engine::evaluate` gives the first rule that holds, highest priority first, within a
+  deadline of 5 ms checked between matchers, past which the state holds. A tracker
+  per session (`sessions::state::Tracker`) turns verdicts into the taxonomy with the debounce and
+  the 3 s grace period, from instants it is given, so its tests need no clock. The thread judges
+  a session's screen only after it changed, at most 10 times a second, and wakes on its own only
+  while a debounce or grace period waits. It sends the UI thread only changes
+  (`UserEvent::Sessions`). The terminal's host API (ADR 0120) feeds it from step 3; step 2 built
+  it against recorded screens, and `session-explain-file` explains a saved one in
+  `*Session explain*`, a buffer the agent channel cannot read.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -561,7 +616,8 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 - One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
   (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
-  without it, and without the record of trusted projects.
+  without it, without the record of trusted projects, and without the local agent rules,
+  so the bundled rules apply.
 - A thread in the tip crate's `config` (`config::Reader`) reads, parses and builds it at
   start and when a `stat` once a second, on focus or after a save sees it change, and the UI
   thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap
@@ -582,13 +638,20 @@ read. See [ADR 0019](adr/0019-configuration.md).
   value of each it leaves out) and applies only those a look changes, so a choice made at run
   time stands. The theme shown last is remembered with the configured default then, in
   `oso/theme`, and wins at start while that default is the file's.
-- Indentation (planned, [ADR 0115](adr/0115-indentation.md)): each buffer has an indentation
-  setting, from the EditorConfig files that apply to it, then the configuration's
-  `[modes.<mode>]`, then the defaults. The loader reads the EditorConfig files from the file's
-  directory up, with project detection's stops, before it builds the display map; parsing and
-  matching are a pure function in `oso_core::editorconfig`. Indentation itself is computed on the UI
-  thread at the key by per-mode rules in `oso_core::indent`, from the text alone, within a budget:
-  no tree and no worker.
+- The local agent rules file, `agent-rules/claude.toml` beside the file, is read on the same
+  thread with the same checks and at most 256 KiB, compiled there over the bundled rules
+  (`config/agent_rules.rs`), and handed to the sessions worker for every session at once; a
+  file that fails to parse keeps the rules in force. Its format is in
+  [agent-rules.md](agent-rules.md) ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
+- Indentation ([ADR 0115](adr/0115-indentation.md)): each buffer has an indentation setting,
+  property by property from the EditorConfig files that apply to it, then the configuration's
+  `[modes.<mode>]`, then the defaults, and knows where each came from (`describe-indentation`).
+  The loader reads the EditorConfig files from the file's directory up, through the stop checks
+  it shares with project detection (`project::upward`), before it builds the display map, and a
+  thread reads them again after `C-x C-w`; parsing and matching are pure functions in
+  `oso_core::editorconfig`. Indentation itself is computed on the UI thread at the key by
+  per-mode rules in `oso_core::indent`, from the text alone, within a budget: no tree and no
+  worker.
 
 ### Persistence
 
@@ -739,6 +802,11 @@ Full details are in [`security.md`](security.md).
     as given. A reload of a file the channel opened checks it as `open` does, and a reload
     that finds the file elsewhere makes the agent's save of it ask. An `oso dev` restart keeps
     the mark: the buffer's handoff entry says `"opened_by_agent": true`, only when it is.
+  - What opening or saving starts runs for the channel only when it is oso's own work in its
+    process, such as the final newline and the whitespace cleanup. From M4, each kind of thing
+    opening or saving starts declares `Runs::InOso` or `Runs::Program` in `oso-core`; a
+    `Program` kind for an agent's open or save marks the buffer instead, and the person's next
+    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.

@@ -304,10 +304,18 @@ impl Editor {
         covered && bottom.is_some_and(|(bottom, _)| *bottom == id)
     }
 
-    /// What the echo area says: a message, or isearch's line until a message takes its place
-    /// for a key (ADR 0082), into `out`.
+    /// What the echo area says: a message, or a jump's line or isearch's until a message
+    /// takes its place for a key (ADR 0082, ADR 0116), into `out`.
     fn write_echo_line(&self, out: &mut String) {
-        out.push_str(self.echo_text());
+        // An undo's progress comes first while it goes on: what its command said shows once it
+        // ends (ADR 0119).
+        self.write_crossing_line(out);
+        if out.is_empty() {
+            out.push_str(self.echo_text());
+        }
+        if out.is_empty() {
+            self.write_jump_line(out);
+        }
         if out.is_empty() {
             self.write_isearch_line(out);
             self.write_replace_line(out);

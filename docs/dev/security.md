@@ -18,7 +18,7 @@ threats:
 | T4 | Secrets leaking to disk | auto-save and backup files, session data, crash dumps, persisted undo, clipboard |
 | T5 | Unsafe file writes | following symlinks, partial writes, wrong permissions |
 | T6 | Process launching | PATH hijacking (on Windows the current directory comes first), URL handlers |
-| T7 | Terminal escape sequences | clipboard reads (OSC 52), title or report sequences that echo input back, spoofed hyperlinks (OSC 8) |
+| T7 | Terminal escape sequences | clipboard reads (OSC 52), title or report sequences that echo input back, spoofed hyperlinks (OSC 8), output that asks the editor to run a command |
 | T8 | Denial of service | huge files, very long lines, regex backtracking |
 | T9 | Agentic development | prompt injection through read content, casually added dependencies or `unsafe`, dev-only entry points leaking into release |
 | T10 | Untrusted parsers | image and PDF decoding (later milestones) |
@@ -85,8 +85,20 @@ network features.
   repository cannot make a search read a file outside it. A line longer than
   16 MiB skips the rest of its file, a NUL byte stops it, and a search keeps at
   most 10,000 rows of at most 512 bytes of text. A file whose name may hold
-  secrets, as the path walked or as the root leads, is searched, but its rows
-  carry no text and are never previewed. A file that could not be opened for a
+  secrets, as the path walked or by its path from every place the root leads
+  through, as the loader finds them, is searched, but its rows carry no text
+  and are never previewed: nothing of it is read for a preview. A root that
+  cannot be resolved counts as one that may hold secrets, and the root opened
+  must be, by device and inode, the place judged, reached again from `/` a name
+  at a time following no link, or nothing under it is read.
+  A preview reads a row's file on `oso-preview` as the search reached it: the
+  root by its path with the same home checks, then each directory and the file
+  from the one before, following no link and waiting for nothing, a regular
+  file only, judged again as the search judges it, from the root opened only if
+  it is the place judged. It reads at most 64 KiB before the row's line and
+  16 MiB in all, keeps at most 256 lines of at most 4 KiB of the file's bytes,
+  opens no buffer, and an open buffer of a file
+  that may hold secrets is never shown in it. A file that could not be opened for a
   reason other than its being gone or refused ends the search with `+`. On
   macOS a file a sync service keeps elsewhere is not read, as reading would
   fetch it.
@@ -139,7 +151,16 @@ network features.
 | Org babel execution (explicit action only) | no | yes |
 
 - Inside repositories, oso reads only EditorConfig. It never reads settings
-  that name commands or executables.
+  that name commands or executables. EditorConfig sets a file's indentation and tab width
+  and nothing else, so it is read in every project, trusted or not. The walk up from the file
+  stops where project detection stops (a link, another user's directory, another file system,
+  after the home directory), and a `.editorconfig` is read only if it is a regular file, no
+  link, this user's or root's, not writable by every user, of at most 64 KiB, opened from its
+  directory once that is the one the walk saw, and never in a directory every user may write.
+  A visit looks in at most 64 directories and reads at most 32 such files and 1 MiB of them. Parsing is bounded: 1000 sections, a
+  glob of 4 KiB with braces 8 deep, 128 bytes for one with a number range, the `regex` crate's
+  size limit, and at most 128 sections and 2 KiB of globs compiled a visit
+  ([ADR 0115](adr/0115-indentation.md)).
 - The user configuration is one per-user file, never searched for elsewhere.
   It names registered commands and values only, is read off the UI thread with
   checks on its owner and modes, and a bad one never stops a start. Its agent
@@ -156,15 +177,20 @@ network features.
   drivers, textconv, external diff. Verifying that `gix` can be forced to skip
   all of these is an open item.
 - Write operations call the `git` CLI through the process module, and only in
-  trusted projects.
+  trusted projects. So do an agent review's reads (diffs, file lists, blobs),
+  with revisions resolved to object ids, option-like ones refused,
+  `--no-ext-diff --no-textconv`, and `GIT_OPTIONAL_LOCKS=0`
+  ([ADR 0122](adr/0122-agent-review.md)). Restricted projects get no review.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 
 ### Process spawning (T1, T6)
 
-- Only `oso-platform::process` may create processes. Clippy
+- Only `oso-platform::process` may create processes. It ships in release builds from
+  [ADR 0120](adr/0120-the-terminal.md)'s step 2, for the terminal; its PTY is its own. Clippy
   `disallowed_methods` bans `std::process::Command::new` (and its async
-  counterparts) everywhere else, and `cargo-deny` bans process-spawning
+  counterparts), `CommandExt::pre_exec` and libc's `fork`, `exec*`, `posix_spawn*`,
+  `system` and `popen` everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
   Unix domain sockets outside `oso-platform::control`, which carries the dev control
   socket and the agent channel. That transport is in every build, and an architecture
@@ -220,6 +246,12 @@ form, in every script
 A glyph paints only the cells of its cluster, in its row and in narrow bands above
 and below the row, and a label's glyphs keep their own cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+Syntax colours only colour glyphs that would be drawn as text: an escape, a box or a
+whitespace mark keeps its own colour, and every syntax colour stays apart from the escape
+colour and the marks', so highlighted text never passes for a label
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Syntax colour is advisory: it comes from
+a parser's guess, which may differ from the compiler's, and never decides how a character is
+shown, boxed or escaped.
 
 ### Persistence (T4, T5)
 
@@ -310,9 +342,34 @@ and below the row, and a label's glyphs keep their own cells
 
 ### Terminal (T7)
 
-- OSC 52 clipboard reads are disabled.
-- Sequences that echo data back, such as title reporting, are disabled.
-- OSC 8 hyperlinks show the real target before opening.
+Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote host over `ssh`
+([ADR 0120](adr/0120-the-terminal.md)).
+
+- Each sequence is allowed, denied or answered from oso's own state, by one policy function per
+  effect in `oso-term`, each with a test. A denied one is dropped without a reply. Text a sequence
+  carries for oso to show has control, bidi and invisible characters dropped and is cut at 256 bytes.
+- OSC 52 clipboard reads are disabled. A write goes to the kill ring, and to the OS clipboard only
+  within 2 s of the person's key in that terminal.
+- Sequences that echo data back, such as title reporting, OSC 50 and `DECRQSS`, are disabled. Window
+  moves and resizes are denied.
+- OSC 8 hyperlinks, URLs and `path:line` show the real target before opening: `http` and `https` with
+  the OS's opener, `file:` and `path:line` in oso, any other scheme asks.
+- Kitty graphics: direct transmission only, never from a file or shared memory; PNG decoded in pure
+  Rust on a worker, at most 16 MiB and 4096 × 4096 pixels an image and 64 MiB a terminal. Sixel and
+  iTerm2 images are denied.
+- A shell runs an oso command only through oso's own sequence, and only when it carries the
+  terminal's random token, the shell is in the foreground, the command is listed in `[terminal]
+  commands-from-shell` (empty by default, and never one that changes trust, the agent channel or a
+  terminal's reading or input), its one argument is a checked string, and the terminal is selected.
+  vterm's OSC 51 is denied.
+- The floating terminal's `cd` is the person's typing: the path is quoted, a path with a control
+  character is refused, and nothing is typed unless the shell is in the foreground and its prompt is
+  empty.
+- An agent never types into a terminal, and reads or searches one only where the person allowed it
+  for that terminal. While echo is off, the terminal is treated as secret. Terminal text never
+  reaches the disk.
+- A terminal parses on its own thread, reads at most 64 KiB at a time and queues at most 16 MiB of
+  writes, so neither bulk output nor a large paste reaches the UI thread.
 
 ### Agent integration (T7, T9)
 
@@ -340,8 +397,13 @@ and below the row, and a label's glyphs keep their own cells
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
     `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
     copies, passphrases, and later trusting a project, spawning processes, secret buffers and
-    secure input. A channel action never starts a process by itself: what opening or saving
-    would start waits until the person acts in that buffer (M3 onward).
+    secure input. A channel action never starts a process by itself (M4 onward, as nothing that opening or
+    saving starts in M3 runs one): what an agent's open would start waits for the person's
+    first command in that buffer, and what its save would start, such as a format on save or a
+    language server's check, for the person's next save of it. oso's own work, such as the
+    whitespace cleanup, runs at once. Each kind of thing opening or saving starts declares
+    whether it runs a program, with no default, and the modeline and the agent's reply say what
+    waits ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)).
   - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
     prompt, a key sequence, a composition or an isearch (ADR 0082), within 1 s of the person's
     last key, or while a
@@ -359,8 +421,29 @@ and below the row, and a label's glyphs keep their own cells
     name, but never to one that may hold secrets
     ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
     [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
-- Hooks are installed only by an explicit command that shows the settings
-  change first.
+- oso writes no hook into Claude Code's settings. When the person sets
+  `[sessions] steer_worktrees = true`, a session oso starts gets one `PreToolUse` hook for that
+  session only, passed with `--settings`
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
+- A hosted session's state comes from rules over its screen, which a model wrote: untrusted
+  text ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). No state authorises anything, and
+  needs input is set only by a rule that knows a dialog; an unknown prompt is idle. The rules
+  are oso's, compiled in, and the person's `agent-rules/claude.toml` beside `config.toml`, read
+  with its checks and refused when other users, a group included, can change it; never a
+  project's, never fetched. They use the `regex` crate only, each pattern with a 128 KiB size
+  limit, at most 256 patterns and 128 rules a file, and the screen is cut to 40 rows of 1 KiB,
+  so judging one is linear in at most some 41 KiB.
+  - A look gets 5 ms, checked between patterns, not inside one: past it the state holds and
+    the screen is looked at again later, less and less often.
+  - A local rule that is the slowest of 3 late looks in a row is not used until the rules
+    reload, and `*Messages*` names it. A bundled rule is never dropped.
+  - So a crafted local file can still delay the sessions worker, and its sessions' states, by
+    one pattern's run per look, and it costs memory when it loads. The file is the person's
+    own, and nothing else waits on that thread.
+- `*Session explain*` shows
+  screen text and is withheld from the agent channel, which can neither read it nor switch to
+  it; what the channel's commands say or kill while it is shown stays out of its reach.
+  `session-explain-file`, which reads a file, is `Person`.
 
 ### Denial of service (T8)
 
@@ -385,7 +468,10 @@ and below the row, and a label's glyphs keep their own cells
 ### Untrusted parsers (T10)
 
 - Image and PDF support (M4 and later) will use pure-Rust decoders, or isolate
-  parsing in a separate process.
+  parsing in a separate process. The terminal's Kitty images use a pure-Rust PNG decoder on a
+  worker ([ADR 0120](adr/0120-the-terminal.md)).
+- The terminal engine parses untrusted output in `oso-term`, which has a fuzz target. Which engine
+  is decided by ADR 0120's step 1; libghostty-vt would be memory-unsafe parsing in oso's process.
 - Tree-sitter's grammars are the exception: generated and hand-written C that runs in the oso
   process on untrusted files ([ADR 0012](adr/0012-tree-sitter.md)). They are few, pinned to exact
   versions, with each `build.rs` and scanner read before a bump, and never run on a buffer that
@@ -416,9 +502,10 @@ and below the row, and a label's glyphs keep their own cells
 - Processes spawn only through `oso_platform::process`: executables come from
   an absolute path or from `PATH` without relative or missing entries, the
   current directory or the project, children get an allowlisted environment and a closed
-  stdin, and every spawn is logged. It is behind the `dev` feature until a
-  release feature needs it, and only `oso dev` and the end-to-end tests use it.
-  `oso dev` builds offline,
+  stdin, and every spawn is logged. It ships in every build since the terminal
+  needs it ([ADR 0120](adr/0120-the-terminal.md)); a child in a terminal gets the
+  terminal's slave as its streams and controlling terminal, in a session of its own, and
+  neither end of a terminal reaches any other child. `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff never carries a secret buffer's content, and no position in one
@@ -463,6 +550,10 @@ and below the row, and a label's glyphs keep their own cells
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved
   its path ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+- A pair of windows that scroll together moves nothing in step while either shows a buffer
+  that may hold secrets, whatever its verdict was when they were paired, so no position in one
+  reaches the other window, which the socket and the agent channel describe
+  ([ADR 0122](adr/0122-agent-review.md), step 10).
 - While a secret-pattern buffer is shown, `get-state` gives no `modified`, `saving` or size of
   such buffers, and `check-handover`, `export-state` and an `exit` with a generation are refused
   for one reason, whatever the buffers hold. `invalid_bytes` is null for such a buffer. Keys in

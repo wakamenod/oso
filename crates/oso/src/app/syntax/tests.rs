@@ -16,7 +16,7 @@ use oso_core::window::ViewSize;
 use oso_syntax::{Failure, Outcome, Report};
 
 use super::pool::Pool;
-use super::{Orders, Syntax};
+use super::{MOST_RUNS_COMPARED, Orders, Syntax, Taken, changed};
 
 /// A visited file at `path`, judged where it leads, holding `text`.
 fn visited(path: &str, text: &str) -> Buffer {
@@ -56,19 +56,19 @@ fn a_buffer_not_judged_yet_gets_no_job() {
     let mut buffer = Buffer::visiting(PathBuf::from("/p/main.rs"));
     buffer.apply_load(decode_all(b"fn a() {}\n", TabWidth::default()));
     let (editor, _) = editor_with(buffer);
-    assert!(Syntax::on().orders(&editor).jobs.is_empty());
+    assert!(Syntax::default().orders(&editor).jobs.is_empty());
 }
 
 #[test]
 fn a_buffer_that_may_hold_secrets_gets_no_job() {
     let (editor, _) = editor_with(visited("/p/.env.toml", "a = 1\n"));
-    assert!(Syntax::on().orders(&editor).jobs.is_empty());
+    assert!(Syntax::default().orders(&editor).jobs.is_empty());
 }
 
 #[test]
 fn a_buffer_that_turns_secret_is_dropped_before_any_job() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     assert_eq!(job_ids(&syntax.orders(&editor)), [id]);
     edit(&mut editor, id, 0, "x");
     // Read again, it now leads somewhere that may hold secrets.
@@ -88,7 +88,7 @@ fn a_buffer_that_turns_secret_is_dropped_before_any_job() {
 #[test]
 fn a_killed_buffer_is_dropped() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     assert_eq!(job_ids(&syntax.orders(&editor)), [id]);
     editor.kill_buffer(id);
     assert_eq!(syntax.drops(&editor), [id]);
@@ -97,7 +97,7 @@ fn a_killed_buffer_is_dropped() {
 #[test]
 fn a_job_carries_the_edits_since_the_last_and_what_windows_show() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", &"fn a() {}\n".repeat(50)));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     let first = syntax.orders(&editor);
     assert_eq!(
         first.jobs[0].edits, None,
@@ -130,13 +130,13 @@ fn a_job_carries_the_edits_since_the_last_and_what_windows_show() {
 #[test]
 fn a_plain_text_file_gets_no_job() {
     let (editor, _) = editor_with(visited("/p/notes.txt", "fn a() {}\n"));
-    assert!(Syntax::on().orders(&editor).jobs.is_empty());
+    assert!(Syntax::default().orders(&editor).jobs.is_empty());
 }
 
 #[test]
 fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
     let (mut editor, id) = editor_with(visited("/p/secret-plan/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     let job = syntax.orders(&editor).jobs.remove(0);
     let mut highlights = Highlights::new(job.text.len());
     highlights.replace(0..2, [(2, Some(Highlight::Keyword))]);
@@ -147,7 +147,11 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
         revision: job.revision,
         outcome: Outcome::Highlights(highlights),
     };
-    assert_eq!(syntax.take(&mut editor, report), None);
+    let shown = Taken {
+        redraw: true,
+        message: None,
+    };
+    assert_eq!(syntax.take(&mut editor, report), shown);
     let buffer = editor.buffer(id).unwrap();
     assert_eq!(buffer.highlights().unwrap().at(0), Some(Highlight::Keyword));
     let failed = Report {
@@ -157,7 +161,7 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
         revision: job.revision,
         outcome: Outcome::Failed(Failure::TooSlow),
     };
-    let message = syntax.take(&mut editor, failed).unwrap();
+    let message = syntax.take(&mut editor, failed).message.unwrap();
     assert_eq!(message, "Highlighting stopped in main.rs: it took too long");
     assert!(!message.contains("secret-plan") && !message.contains("fn a"));
     assert!(editor.buffer(id).unwrap().highlights().is_none());
@@ -168,7 +172,7 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
 #[test]
 fn a_report_for_a_dropped_buffer_is_ignored() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     let job = syntax.orders(&editor).jobs.remove(0);
     editor
         .buffer_mut(id)
@@ -182,7 +186,7 @@ fn a_report_for_a_dropped_buffer_is_ignored() {
         revision: job.revision,
         outcome: Outcome::Highlights(Highlights::new(job.text.len())),
     };
-    assert_eq!(syntax.take(&mut editor, report), None);
+    assert_eq!(syntax.take(&mut editor, report), Taken::default());
     assert!(editor.buffer(id).unwrap().highlights().is_none());
 }
 
@@ -197,7 +201,7 @@ fn the_threads_report_highlights_and_failures() {
     let background = editor.add_buffer(visited("/p/slow.rs", &slow));
     let (reports, received) = mpsc::channel();
     let pool = Pool::start(move |report| drop(reports.send(report))).unwrap();
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     pool.send(syntax.orders(&editor));
     let (mut highlighted, mut failed) = (false, false);
     while !(highlighted && failed) {
@@ -210,16 +214,14 @@ fn the_threads_report_highlights_and_failures() {
             Outcome::Lost => panic!("a slice panicked"),
         }
     }
-    let message = syntax.take(
-        &mut editor,
-        Report {
-            buffer: background,
-            epoch: syntax.sent[&background].epoch,
-            stamp: u64::MAX,
-            revision: 0,
-            outcome: Outcome::Failed(Failure::TooSlow),
-        },
-    );
+    let failed = Report {
+        buffer: background,
+        epoch: syntax.sent[&background].epoch,
+        stamp: u64::MAX,
+        revision: 0,
+        outcome: Outcome::Failed(Failure::TooSlow),
+    };
+    let message = syntax.take(&mut editor, failed).message;
     assert_eq!(
         message.as_deref(),
         Some("Highlighting stopped in slow.rs: it took too long")
@@ -227,19 +229,50 @@ fn the_threads_report_highlights_and_failures() {
 }
 
 #[test]
-fn highlighting_is_off_until_colour_is_drawn() {
-    let (editor, _) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+fn highlighting_runs_in_every_session() {
+    let (editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    assert_eq!(job_ids(&Syntax::default().orders(&editor)), [id]);
+}
+
+/// A report asks for a frame only where a window shows runs it changed (ADR 0111).
+#[test]
+fn a_report_asks_for_a_frame_only_if_a_shown_run_changed() {
+    let text = "fn a() {}\n".repeat(40);
+    let (mut editor, id) = editor_with(visited("/p/main.rs", &text));
     let mut syntax = Syntax::default();
+    let job = syntax.orders(&editor).jobs.remove(0);
+    let mut stamp = 0;
+    // A report with a keyword at each of `starts`.
+    let mut take = |editor: &mut Editor, starts: &[usize]| {
+        let mut highlights = Highlights::new(job.text.len());
+        for &at in starts {
+            highlights.replace(at..at + 2, [(2, Some(Highlight::Keyword))]);
+        }
+        stamp += 1;
+        let report = Report {
+            buffer: id,
+            epoch: job.epoch,
+            stamp,
+            revision: job.revision,
+            outcome: Outcome::Highlights(highlights),
+        };
+        syntax.take(editor, report).redraw
+    };
+    assert!(take(&mut editor, &[0]), "the first line's keyword");
+    assert!(!take(&mut editor, &[0]), "the same runs again");
+    // The window shows 10 of the 40 lines: a run on line 30 changes nothing it shows.
+    let unshown = 30 * "fn a() {}\n".len();
+    assert!(!take(&mut editor, &[0, unshown]), "a run out of view");
     assert!(
-        syntax.orders(&editor).is_empty(),
-        "no job, so no thread, in normal use"
+        take(&mut editor, &[0, 10, unshown]),
+        "the second line's keyword"
     );
 }
 
 #[test]
 fn a_report_from_before_a_new_start_or_older_than_one_taken_is_dropped() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     let job = syntax.orders(&editor).jobs.remove(0);
     let report = |epoch, stamp, highlight| {
         let mut highlights = Highlights::new(job.text.len());
@@ -275,7 +308,7 @@ fn a_report_from_before_a_new_start_or_older_than_one_taken_is_dropped() {
     };
     assert_eq!(
         syntax.take(&mut editor, failed),
-        None,
+        Taken::default(),
         "a stale failure stopped it"
     );
     assert!(syntax.sent.contains_key(&id));
@@ -284,7 +317,7 @@ fn a_report_from_before_a_new_start_or_older_than_one_taken_is_dropped() {
 #[test]
 fn font_lock_off_drops_every_buffer_and_sends_no_job() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     assert_eq!(job_ids(&syntax.orders(&editor)), [id]);
     editor.set_font_lock(false);
     assert_eq!(syntax.drops(&editor), [id]);
@@ -298,7 +331,7 @@ fn font_lock_off_drops_every_buffer_and_sends_no_job() {
 #[test]
 fn setting_the_mode_again_gives_a_stopped_buffer_another_try() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     let job = syntax.orders(&editor).jobs.remove(0);
     let failed = Report {
         buffer: id,
@@ -307,7 +340,7 @@ fn setting_the_mode_again_gives_a_stopped_buffer_another_try() {
         revision: job.revision,
         outcome: Outcome::Failed(Failure::TooSlow),
     };
-    assert!(syntax.take(&mut editor, failed).is_some());
+    assert!(syntax.take(&mut editor, failed).message.is_some());
     assert!(syntax.orders(&editor).jobs.is_empty(), "stopped");
     editor
         .buffer_mut(id)
@@ -328,7 +361,7 @@ fn setting_the_mode_again_gives_a_stopped_buffer_another_try() {
 #[test]
 fn two_mode_changes_in_one_command_start_over_though_they_end_where_they_began() {
     let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::on();
+    let mut syntax = Syntax::default();
     let first = syntax.orders(&editor).jobs.remove(0);
     let buffer = editor.buffer_mut(id).unwrap();
     buffer.set_mode(oso_core::buffer::Mode::Markdown);
@@ -341,4 +374,52 @@ fn two_mode_changes_in_one_command_start_over_though_they_end_where_they_began()
     );
     assert_eq!(again.jobs[0].edits, None);
     assert!(again.jobs[0].epoch > first.epoch);
+}
+
+/// A shown range of more runs than a report's comparison steps over counts as changed, so that
+/// long lines shown whole cost a frame rather than a walk of them all.
+#[test]
+fn a_comparison_stops_after_its_most_runs_and_counts_as_changed() {
+    let runs = |count: usize| {
+        let mut highlights = Highlights::new(2 * count);
+        for at in 0..count {
+            highlights.replace(2 * at..2 * at + 1, [(1, Some(Highlight::Keyword))]);
+        }
+        highlights
+    };
+    let few = runs(MOST_RUNS_COMPARED / 4);
+    assert!(!changed(Some(&few), Some(&few.clone()), &(0..few.len())));
+    let many = runs(MOST_RUNS_COMPARED);
+    assert!(changed(Some(&many), Some(&many.clone()), &(0..many.len())));
+    assert!(!changed(Some(&many), Some(&many.clone()), &(0..2)));
+}
+
+/// The switch-buffer preview shows a buffer no window does: a report for it draws a frame.
+#[test]
+fn a_report_for_a_buffer_only_previewed_asks_for_a_frame() {
+    use oso_core::complete::Candidate;
+    use oso_core::editor::CompletionStyle;
+    let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let mut syntax = Syntax::default();
+    let job = syntax.orders(&editor).jobs.remove(0);
+    let scratch = editor.buffer_named("*scratch*").unwrap();
+    editor.show(scratch);
+    let style = CompletionStyle {
+        given_order: true,
+        takes_input: true,
+        preview: true,
+    };
+    let names = [Candidate::new("main.rs", "", "")];
+    let switch = editor.open_completion_as("Switch to buffer:", "buffer", names.into(), style);
+    switch.unwrap();
+    let mut highlights = Highlights::new(job.text.len());
+    highlights.replace(0..2, [(2, Some(Highlight::Keyword))]);
+    let report = Report {
+        buffer: id,
+        epoch: job.epoch,
+        stamp: 1,
+        revision: job.revision,
+        outcome: Outcome::Highlights(highlights),
+    };
+    assert!(syntax.take(&mut editor, report).redraw);
 }

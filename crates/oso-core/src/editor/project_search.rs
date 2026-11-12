@@ -23,6 +23,11 @@ use super::{CompletionStyle, Editor, WalkEnd};
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
 use crate::minibuffer::{PromptError, PromptId};
 use crate::project::{LineQuery, MAX_ROWS};
+pub(in crate::editor) use preview::PreviewCellsKey;
+use preview::SearchPreview;
+pub use preview::{Excerpt, ProjectPreviewRead, ProjectPreviewRequest};
+
+mod preview;
 
 /// What a row of a file that may hold secrets says in place of its text (ADR 0114).
 const WITHHELD: &str = "may hold secrets";
@@ -53,13 +58,15 @@ impl fmt::Debug for ProjectSearchRequest {
     }
 }
 
-/// A line a search found: its file's path from the root, its number from 1, the column of its
-/// first match in characters, and what of it a row shows, empty for a file that may hold
-/// secrets, whose text is never shown. `Debug` says nothing of it.
+/// A line a search found: its file's path from the root, its number from 1, the offset of its
+/// start in the file in bytes, which the preview reads from, the column of its first match in
+/// characters, and what of it a row shows, empty for a file that may hold secrets, whose text
+/// is never shown. `Debug` says nothing of it.
 #[derive(Clone)]
 pub struct ProjectSearchRow {
     pub path: Box<str>,
     pub line: usize,
+    pub offset: u64,
     pub column: usize,
     pub text: Box<str>,
     pub secret: bool,
@@ -94,6 +101,8 @@ struct Place {
     /// The bytes of the path at the start of the candidate's text.
     path: usize,
     line: usize,
+    /// The offset of the line in its file, as the search found it.
+    offset: u64,
     column: usize,
     /// The bytes of `path:line: `, or the whole text for a file that may hold secrets.
     prefix: usize,
@@ -125,6 +134,8 @@ pub(super) struct ProjectSearch {
     places: Vec<Place>,
     /// The row `RET` took, for the command.
     hit: Option<ProjectSearchHit>,
+    /// The selected row's preview.
+    preview: SearchPreview,
 }
 
 impl Editor {
@@ -149,15 +160,19 @@ impl Editor {
         }
         let style = CompletionStyle {
             given_order: true,
+            preview: true,
             ..CompletionStyle::default()
         };
         let id =
             self.open_completion_as(format!("Search {name}:"), history, Arc::from([]), style)?;
         let live = Arc::clone(&self.project_search.live);
+        let mut preview = std::mem::take(&mut self.project_search.preview);
+        preview.reset();
         self.project_search = ProjectSearch {
             prompt: Some(id),
             root,
             live,
+            preview,
             ..ProjectSearch::default()
         };
         Ok(id)
@@ -205,6 +220,7 @@ impl Editor {
             search.places.push(Place {
                 path: row.path.len(),
                 line: row.line,
+                offset: row.offset,
                 column: row.column,
                 prefix,
                 secret: row.secret,
@@ -275,6 +291,7 @@ impl Editor {
         );
         search.input = Some(text);
         search.generation = search.live.fetch_add(1, Ordering::Relaxed) + 1;
+        search.preview.reset();
         // A list of thousands is dropped on the worker (ADR 0096).
         let places = std::mem::take(&mut search.places);
         search.cut = false;
@@ -295,7 +312,10 @@ impl Editor {
             self.free_on_the_worker(Box::new(places));
         }
         if let Some((candidates, _)) = self.prompts.last_mut().and_then(|p| p.completion.as_mut()) {
-            let rows = std::mem::replace(candidates, Candidates::in_given_order(Arc::from([])));
+            let mut empty = Candidates::in_given_order(Arc::from([]));
+            // The float stays split for the preview (ADR 0114).
+            empty.show_preview();
+            let rows = std::mem::replace(candidates, empty);
             self.free_candidates(rows);
         }
     }
@@ -367,9 +387,12 @@ impl Editor {
             self.project_search.live.fetch_add(1, Ordering::Relaxed);
             let live = Arc::clone(&self.project_search.live);
             let hit = self.project_search.hit.take();
+            let mut preview = std::mem::take(&mut self.project_search.preview);
+            preview.reset();
             self.project_search = ProjectSearch {
                 live,
                 hit,
+                preview,
                 ..ProjectSearch::default()
             };
         }

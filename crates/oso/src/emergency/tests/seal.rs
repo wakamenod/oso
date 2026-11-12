@@ -67,8 +67,8 @@ fn a_seal_that_refuses_stops_the_copy_and_leaves_nothing() {
 }
 
 /// Only here does the real seal meet a real list. Lists are set with `chmod`, as this crate has no
-/// bindings of its own, and the dev feature is what lets a test start a process.
-#[cfg(all(target_os = "macos", feature = "dev"))]
+/// bindings of its own.
+#[cfg(target_os = "macos")]
 mod real_lists {
     use std::ffi::OsString;
     use std::fs;
@@ -90,6 +90,8 @@ mod real_lists {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .unwrap();
         assert!(child.wait().unwrap().success());

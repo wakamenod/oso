@@ -7,6 +7,7 @@
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::frame::CellRect;
+use oso_core::syntax::{Highlight, Highlights};
 use oso_core::window::Screen;
 
 /// What a piece of the screen means. The current theme gives it its colours (ADR 0089).
@@ -83,9 +84,54 @@ pub enum Face {
     /// The mark `↩` in the last column of a view row that continues (ADR 0100). Used by
     /// nothing else, so it is never taken for text that reads the same.
     WrapMark,
+    /// Text that highlighting says is a comment (ADR 0111). A syntax face is a foreground on
+    /// the text's background, and a glyph takes one only where it would be [`Face::Text`].
+    SyntaxComment,
+    /// A string or a character, with its escapes.
+    SyntaxString,
+    /// A keyword, or a label.
+    SyntaxKeyword,
+    /// A type, or a constructor.
+    SyntaxType,
+    /// A function or a method.
+    SyntaxFunction,
+    /// A constant, a number or a boolean.
+    SyntaxConstant,
+    /// A field, or a key in TOML.
+    SyntaxProperty,
+    /// A macro or an attribute.
+    SyntaxMacro,
+    /// A heading in Markdown.
+    SyntaxHeading,
+    /// A link or a reference in Markdown.
+    SyntaxLink,
+    /// Emphasis, strong text and the markers of Markdown.
+    SyntaxMarkup,
+    /// The first key of a jump's label (ADR 0116): a strong fill no other face uses, with its
+    /// text at 7:1, so a label is never taken for an escape, a match or text.
+    JumpLabel,
+    /// The keys of a jump's label after its first, in a fill of their own, as strong.
+    JumpLabelNext,
 }
 
 impl Face {
+    /// The face text that is `highlight` is drawn in (ADR 0111).
+    pub fn of_highlight(highlight: Highlight) -> Self {
+        match highlight {
+            Highlight::Comment => Self::SyntaxComment,
+            Highlight::String => Self::SyntaxString,
+            Highlight::Keyword => Self::SyntaxKeyword,
+            Highlight::Type => Self::SyntaxType,
+            Highlight::Function => Self::SyntaxFunction,
+            Highlight::Constant => Self::SyntaxConstant,
+            Highlight::Property => Self::SyntaxProperty,
+            Highlight::Macro => Self::SyntaxMacro,
+            Highlight::Heading => Self::SyntaxHeading,
+            Highlight::Link => Self::SyntaxLink,
+            Highlight::Markup => Self::SyntaxMarkup,
+        }
+    }
+
     /// The face of a run in `style` within text of this face. An escape looks
     /// like an escape wherever it is.
     pub(crate) fn of_run(self, style: CellStyle) -> Self {
@@ -175,10 +221,20 @@ pub struct TextView<'a> {
     /// marks and cursors (ADR 0071), as `Editor::isearch_cells` and `frame::region_cells`
     /// give them.
     pub fills: &'a [(Face, &'a [CellRect])],
+    /// Text drawn over the frame's cells after the text, as a jump's labels (ADR 0116): each
+    /// its cells, one row and one cell a character, and its text and face, the face's
+    /// background filling the cells. The text's glyphs under them are not drawn. The caller sorts
+    /// them by row, then column, which drawing relies on: a row finds its own with a search.
+    pub labels: &'a [(CellRect, Span<'a>)],
     /// Whether whitespace is marked (ADR 0097). A change shapes the rows in view again.
     pub whitespace: bool,
     /// The cursor flash, filled over the fills and under the text (ADR 0097).
     pub flash: Option<FlashFill>,
+    /// What the buffer's text is, as highlighting last said, or `None` to draw it plain
+    /// (ADR 0111). It must cover the buffer at `revision`. On the fills but the current line's
+    /// band, and under the flash, text keeps [`Face::Text`]'s colour, which meets its floor
+    /// there.
+    pub highlights: Option<&'a Highlights>,
 }
 
 /// The cursor flash in a frame: its cells, as `Editor::flash_cells` gives them, filled in

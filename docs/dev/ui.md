@@ -184,9 +184,11 @@ are rounded.
   `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
 - `C-u C-x p f` asks `Find file in directory:` first, with `C-x C-f`'s completion from the
   buffer's directory, and lists that directory as a project, named after its last component.
-  `RET` on a file's row says `Not a directory: <path>`, unless what is typed ends with `/`, which
-  gives that directory. The home directory, one that holds it, `/` and a path with `..` in it are
-  refused.
+  It lists only directories and links, as Emacs's `read-directory-name` does: `RET` on a row
+  goes into it, and on a link that leads elsewhere says `Not a directory: <path>`. What is typed
+  is given once the listings that decide it have come, `RET` and `M-RET` waiting until then:
+  `Not a directory`, `No such directory` or `Cannot read directory` when they say so. The home
+  directory, one that holds it, `/` and a path with `..` in it are refused.
 - The float opens empty and the list grows while the project is walked, every 50 ms. The count
   shows `…/…` until the walk ends, and `+` after it when it stopped at a limit: 100,000 files,
   32 MiB of paths and names, 1,000,000 entries read, or 16 MiB of ignore files.
@@ -211,10 +213,10 @@ are rounded.
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ …/… Search oso: fn !test█                                  ┃
-┃ src/main.rs:1: fn main() {                                 ┃
-┃▌src/main.rs:9: fn run(U+202Ex) {}                         ▐┃
-┃ .env:2                        may hold secrets             ┃
-┃ src/lib.rs:40:     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… ┃
+┃ src/main.rs:1: fn main()│use std::fmt;                       ┃
+┃▌src/lib.rs:3: fn run() ▐│                                    ┃
+┃ .env:2      may hold se…│pub ▯n run() {                      ┃
+┃ src/lib.rs:40:     xxxx…│    println!("fn");                 ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
@@ -240,7 +242,20 @@ are rounded.
   `may hold secrets`, with no text.
 - `RET` visits the file as `C-x C-f` does and goes to the line and the match's column once it
   shows, with the place before on the mark ring. `TAB` does nothing, as a row's text would
-  replace what is looked for. There is no preview yet (step 5). `C-g` stops the search.
+  replace what is looked for. `C-g` stops the search.
+- The float splits as `C-x b`'s does, and the preview shows the selected row's file around its
+  line, that line about halfway down, with a hollow cursor at the match, the match in isearch's
+  face and the other matches in view in its other face. An open buffer of the file is shown from
+  memory, unsaved edits and all; any other file is read from where the search found the line, at
+  once, and a row selected before the read comes stops it. The preview never wraps here: it
+  scrolls left as far as the match needs to show. A row of a file that may hold secrets says
+  `may hold secrets` in its place and nothing of the file is read; a file gone, swapped for a link
+  or no longer a regular file shows nothing. The preview opens no buffer and takes no key.
+- `C-u`'s `Search in directory:` and `Find file in directory:` list only directories and links,
+  as Emacs's `read-directory-name` does. `RET` on a row goes into it. What is typed is given only
+  once a listing says it is a directory, or a look says a link leads to one: otherwise the prompt
+  stays open and says `Not a directory`, `No such directory` or `Cannot read directory`. `RET` and
+  `M-RET` typed before that listing or look has come wait for it.
 - The history, `project-search`, keeps what was typed, not the row, and a search beside a buffer
   that may hold secrets keeps none.
 
@@ -338,7 +353,10 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   does not trust it, also while that record is unread or refused. A buffer in no project
   shows neither ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
   `M-x trust-project` asks "Trust ~/src/oso? Its code may run through language servers,
-  formatters and git hooks (y or n)", with the verbs `trust` and `keep restricted`.
+  formatters and git hooks (y or n)", with the verbs `trust` and `keep restricted`. `y` records
+  the root in `trusted-projects`, beside `config.toml`, says `Trusted ~/src/oso` and drops
+  `restricted`. `M-x untrust-project` takes the line out without asking and says
+  `~/src/oso is restricted again`.
 
 ## Cursor
 
@@ -426,10 +444,44 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   search history, and `RET` ends the search there and pushes where it began onto the mark ring.
 - `C-g` first takes away a failing part, then goes back where the search began. Any other key
   ends the search and runs.
+- `C-M-s` and `C-M-r` search for a regexp in the `regex` crate's syntax, one line at a time, and
+  the line says `Regexp I-search:`; in any search they repeat it, as `C-s` and `C-r` do. `M-r`
+  turns a search from literal to a regexp or back. A regexp still being typed says
+  `[incomplete input]` and a wrong one `[Invalid regexp: …]`, and the cursor stays at the last
+  match. Regexps have their own history ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case
   ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
+
+## Jumps
+
+- `M-j` (`avy-goto-char-timer`) reads a string on the echo row, `Jump: ka`, and highlights its
+  matches in view as isearch's other matches. `DEL` takes a character away. Half a second after
+  the last key, or at `RET`, each match shows a label; with no string yet, it waits
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+- `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit that no label
+  takes, typed before any of a label, opens `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key. `M-j` in
+  isearch (`avy-isearch`) labels the search's matches in the selected window, and ends the search
+  at the one chosen, as `RET` does.
+- Labels show in every tiled window, nearest the window's cursor first, over the first cells of
+  each target in two faces of their own: the key to type next, and the keys after it. A label is
+  cut at the row's end and at the next label. Typing a label's keys jumps; its first key keeps the
+  labels that start with it. At most 4096 are labelled, and the echo row then says how many
+  there were.
+- The primary cursor jumps and the others stay. A jump into another window selects it. With a
+  region shown, the jump extends it; otherwise the place left is pushed onto the mark ring.
+  `C-u` keeps to the selected window.
+- `C-g` ends a jump with nothing moved, before anything else it would do. A key that is not a
+  label, `DEL` and `RET` among them, says `No such candidate` and does not run; while the string
+  is read, a key the jump does not bind ends it silently. A change to the text or a scroll under
+  the labels ends the jump, saying which, and the next key types nothing; while the string is
+  read, its matches are found again.
+- Labels are drawn over everything in their cells, the text of the rows beside them too, and
+  under floats. A keyboard macro replays a jump as it was recorded, labels and all.
+- `[jump] keys` sets the label keys, `asdfghjl` by default: 2 to 32 distinct printable ASCII
+  characters, none of `W K Y T c`. `[jump] timeout` sets the wait in seconds, 0.1 to 5, 0.5 by
+  default.
 
 ## query-replace
 
@@ -508,9 +560,14 @@ toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
   two steps by 0.4 s. The scrolling that follows the cursor and the wheel do not flash. The
   next key ends it.
 
-**Highlighting** (`global-font-lock-mode`, the same argument) is on by default, but draws
-nothing until colour arrives ([ADR 0111](adr/0111-tree-sitter-highlighting.md), step 5); off,
-it drops every buffer's highlights. A buffer's language is its major mode, from the file's name
+**Highlighting** (`global-font-lock-mode`, the same argument) is on by default
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). It colours comments, strings, keywords,
+types, functions, constants, macros, and Markdown's headings, links and markup, in each
+theme's syntax colours, at 7:1 on the background, the current line's band and a float. Under
+the region, isearch's matches, trailing whitespace's fill and the cursor flash, text is drawn
+in the text's colour. The colours are provisional, until the author's own syntax theme.
+Dusk's are pale tints or the text's own, so it looks nearly plain. Off, it drops every buffer's
+highlights. A buffer's language is its major mode, from the file's name
 on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode` and
 `fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Setting a mode again,
 the same one too, gives a buffer whose highlighting stopped another try. The modeline names

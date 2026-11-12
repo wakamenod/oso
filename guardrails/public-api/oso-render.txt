@@ -62,6 +62,8 @@ pub oso_render::Face::Field
 pub oso_render::Face::Flash
 pub oso_render::Face::Float
 pub oso_render::Face::FloatBorder
+pub oso_render::Face::JumpLabel
+pub oso_render::Face::JumpLabelNext
 pub oso_render::Face::Key
 pub oso_render::Face::LineNumber
 pub oso_render::Face::LineNumberCurrent
@@ -74,11 +76,24 @@ pub oso_render::Face::Region
 pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
 pub oso_render::Face::SecondaryCursor
+pub oso_render::Face::SyntaxComment
+pub oso_render::Face::SyntaxConstant
+pub oso_render::Face::SyntaxFunction
+pub oso_render::Face::SyntaxHeading
+pub oso_render::Face::SyntaxKeyword
+pub oso_render::Face::SyntaxLink
+pub oso_render::Face::SyntaxMacro
+pub oso_render::Face::SyntaxMarkup
+pub oso_render::Face::SyntaxProperty
+pub oso_render::Face::SyntaxString
+pub oso_render::Face::SyntaxType
 pub oso_render::Face::Text
 pub oso_render::Face::TrailingWhitespace
 pub oso_render::Face::Warning
 pub oso_render::Face::Whitespace
 pub oso_render::Face::WrapMark
+impl oso_render::Face
+pub fn oso_render::Face::of_highlight(oso_core::syntax::Highlight) -> Self
 impl core::clone::Clone for oso_render::Face
 pub fn oso_render::Face::clone(&self) -> oso_render::Face
 impl core::cmp::Eq for oso_render::Face
@@ -256,6 +271,8 @@ pub oso_render::TextView::cursor_style: oso_render::CursorStyle
 pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot
 pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::CellRect])]
 pub oso_render::TextView::flash: core::option::Option<oso_render::FlashFill>
+pub oso_render::TextView::highlights: core::option::Option<&'a oso_core::syntax::highlights::Highlights>
+pub oso_render::TextView::labels: &'a [(oso_core::frame::CellRect, oso_render::Span<'a>)]
 pub oso_render::TextView::others: &'a [oso_core::frame::CellRect]
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64

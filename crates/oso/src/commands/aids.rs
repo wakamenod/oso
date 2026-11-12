@@ -69,14 +69,10 @@ fn switch(ctx: &mut Ctx<'_>, args: Args, mode: &str, field: fn(&mut VisualAids) 
     let mut aids = ctx.editor.visual_aids();
     let on = field(&mut aids);
     let was = *on;
-    *on = match args.raw() {
-        None => !was,
-        Some(_) => args.count() > 0,
-    };
+    *on = super::minor_mode_on(args, was);
     let now = *on;
     ctx.editor.set_visual_aids(aids);
-    let state = if now { "enabled" } else { "disabled" };
-    ctx.editor.message(format!("{mode} mode {state}"));
+    ctx.editor.message(super::minor_mode_said(mode, now));
     if now != was {
         ctx.request_redraw();
     }

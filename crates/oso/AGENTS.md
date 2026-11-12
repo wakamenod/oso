@@ -15,18 +15,23 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `walks`, `greps`, `wraps` and `flash` do the work, `control`
+  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `slices`, `walks`, `greps`, `wraps`, `flash` and `jumps` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.
 - `src/config/` reads the user configuration file and turns its text into the user keymap and
   settings (ADR 0108, ADR 0110), and reads and writes the record of trusted projects beside it
-  (`config/trust.rs`, ADR 0114). Its parsing does no I/O. Only it uses `toml`, which review
-  keeps: no guard test checks it.
+  (`config/trust.rs`, ADR 0114). Its parsing does no I/O. Only it and `sessions::rules`, which
+  parses the agent rules files (ADR 0121), use `toml`, which review keeps: no guard test checks
+  it.
+- `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
+  hosted session's state from its screen, the tracker, and the `oso-sessions` worker. Their
+  patterns use `regex`, compiled with size limits; the screen is untrusted text. `app/sessions.rs`
+  carries out what the worker finds.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it uses `ignore`, which
   review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same
-  walk.
+  walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

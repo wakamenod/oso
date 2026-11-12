@@ -29,6 +29,11 @@ pub(super) fn has_one_name(_: &fs::Metadata) -> bool {
     true
 }
 
+/// There are no modes to go by.
+pub(super) fn others_can_write(_: &fs::Metadata) -> bool {
+    false
+}
+
 /// There is no owner to compare by.
 pub(super) fn is_this_users(_: &fs::Metadata) -> bool {
     true

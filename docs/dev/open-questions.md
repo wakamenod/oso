@@ -8,8 +8,8 @@ item notes when it must be settled.
 
 - **UI of each later feature** (before building it). The M2 UI is decided
   ([`ui.md`](ui.md), [ADR 0026](adr/0026-m2-ui-layout.md)); M3 and later
-  features (avy, the menu contents, the git status buffer,
-  the terminal) are designed when they come up.
+  features (the menu contents, the git status buffer) are designed when
+  they come up.
 
 ## M1
 
@@ -114,10 +114,6 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- `file_prompt_type_p99_ms`, typing into `C-x C-f` over 100,000 names, is reported only until a few
-  runs exist. Its first run on the Mac mini, on 2026-11-09, gave 4.1–7.1 ms, against 38.6–39.8 ms
-  for the same scenario before the worker. Set its threshold from those runs
-  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.
@@ -191,6 +187,8 @@ item notes when it must be settled.
   Redoing takes 1.4 ms. Sharing the slice's chunks with the rope, and keeping display items
   with the undo group, would make it O(log n). Decide before M2-14. `rope.rs` is at its
   size limit, so sharing needs room there.
+  [ADR 0119](adr/0119-undoing-large-steps-in-slices.md) puts such text back in 1 MiB slices
+  over turns of the loop, so it no longer blocks; the copy itself stays.
 - Typing at 1000 cursors, which took 17 to 26 ms a key at p99, takes about 3 ms on 100 MB and
   3.3 to 4.7 ms on a 10 MB line of minified JSON since M2-21 edits a leaf in place and clips only
   what is near an edit, in every window (`text_perf -- cursors`,
@@ -320,16 +318,22 @@ item notes when it must be settled.
   from the configuration's `[aids]`
   ([ADR 0097](adr/0097-visual-aids.md), [ADR 0108](adr/0108-the-user-configuration-file.md)).
 
-- After query-replace, keyboard macros and whitespace cleanup: regexp isearch (`C-M-s`) on
-  query-replace's per-line matcher; the kmacro ring, counters, naming and editing; `E`, `C-r`, `Y`
-  and `N` in query-replace; whitespace settings per mode once modes exist; and EditorConfig's
-  `trim_trailing_whitespace` and `insert_final_newline`, which ADR 0115 parses but does not apply yet
+- After query-replace, keyboard macros and whitespace cleanup: the kmacro ring, counters, naming
+  and editing; `E`, `C-r`, `Y` and `N` in query-replace; whitespace settings per mode once modes
+  exist; and EditorConfig's `trim_trailing_whitespace` and `insert_final_newline`, which ADR 0115
+  parses but does not apply yet
   ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+- query-replace's search after an answer copies a line longer than a key's budget on the UI
+  thread, about 40 ms on a 60 MB line; regexp isearch leaves such a line to the worker, and
+  query-replace could too, as a chore
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 
 - After indentation: a query-based indenter on the worker for `indent-region` in more languages;
   fenced code in Markdown indented by its language's rules; detecting a file's indentation when
-  nothing gives it; formatting on save with a program the person approved
-  ([ADR 0115](adr/0115-indentation.md)).
+  nothing gives it; formatting on save with a program the person approved; a batched splice for
+  edits of many thousand lines, which would lift `indent-region`'s 30,000 changed lines (its own
+  ADR); `M-RET`'s counts (`C-u` to the parent item, `C-u C-u` a level in) and renumbering the
+  items after a new one ([ADR 0115](adr/0115-indentation.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration
@@ -372,45 +376,25 @@ item notes when it must be settled.
 - Fuzzing targets and how long they run. The `SumTree`, the rope, the
   display model under random edits, and the streaming decoder and load
   builder (property-tested since M1-6) are the first candidates.
-- URL-opening policy: which schemes, and what confirmation.
-- Migemo dictionary source and licensing. Common dictionaries derive from GPL
-  SKK dictionaries and cannot be bundled under MIT OR Apache-2.0
-  ([ADR 0020](adr/0020-license.md)). Options: the user supplies the
-  dictionary, a permissively licensed dictionary, or generating one from
-  permissive data.
+- URL-opening policy outside terminals: which schemes, and what confirmation.
+  Terminals have theirs ([ADR 0120](adr/0120-the-terminal.md)).
 
 ## M4
 
-- Claude Code hooks: which events map to which states, and how
-  `oso integration install claude` merges with existing user settings, and registers `oso mcp`
-  ([ADR 0031](adr/0031-claude-code-integration.md),
-  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
-- Which review and worktree tools join `oso mcp`, and the reach of each
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Check on the current Claude Code CLI, before the step that relies on each
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)): that hooks given with `--settings` merge
+  with the person's own, that `--append-system-prompt` applies to interactive sessions, which of
+  two MCP servers named `oso` wins, and that auto memory is shared by a repository's worktrees.
+- A review in restricted projects, read in-process with `gix` once ADR 0011's check that it skips
+  config commands is done ([ADR 0122](adr/0122-agent-review.md)).
+- Agent identity in a review: `Author::Agent` names no session yet, so "its own" comments are any
+  agent's. Settle it with the agent tools (ADR 0122 step 7), when ADR 0121's session id reaches
+  the bridge ([ADR 0122](adr/0122-agent-review.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
-- OSC 7501 is a draft; track its revisions.
-- Terminal engine: compare `alacritty_terminal` (ADR 0015) and libghostty-vt
-  1.0 when M4's terminal work starts, by building with both, and decide in
-  an ADR. The bar is parity with the author's current Emacs terminal
-  (ghostel, built on libghostty-vt):
-  - inline images (Kitty graphics protocol)
-  - shell integration: directory tracking (OSC 7), prompt navigation
-    (OSC 133), calling whitelisted editor commands from the shell
-  - input modes (semi-char, char, line, read-only, copy)
-  - the terminal as the backend for compile, async shell commands and
-    comint-style buffers
-
-  `alacritty_terminal` lacks OSC 7, OSC 133, OSC 7501 and Kitty graphics.
-  It also gives the embedder no way to observe escape sequences it does not
-  handle, so OSC 7501 for ADR 0031 would need a second parser over the same
-  bytes. Kitty graphics would have to be implemented by oso. libghostty-vt
-  has all of these, but needs Zig to build on three OSes, has no official
-  Rust binding, and parses untrusted output in code that is not memory safe.
-  Also compare rendering of the Claude Code TUI and bulk-output performance.
-  Keep the engine behind a trait.
-- Terminal: PTY implementation per OS (ConPTY on Windows) and the full list of
-  allowed and blocked escape sequences.
+- Terminal engine: `alacritty_terminal` or libghostty-vt, decided by ADR 0120's
+  step 1, a comparison of at most three days
+  ([ADR 0120](adr/0120-the-terminal.md)).
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,
@@ -421,6 +405,8 @@ item notes when it must be settled.
 
 ## Later
 
+- Notification banners once oso ships as an app bundle, and Desktop's coordinator routing,
+  suggested threads and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - An option for East Asian Ambiguous characters to take 2 cells
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.

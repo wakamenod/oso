@@ -1,6 +1,7 @@
 //! Which buffer a window shows: going to one and back to where the window was in it, walking
 //! the buffers with `M-,` and `M-/`, killing one, and the names that tell files with one name
-//! apart (ADR 0088).
+//! apart (ADR 0088). Also what a prompt's preview shows and where a buffer's preview starts
+//! (ADR 0088, ADR 0114), and the home directory a path is shown from.
 //!
 //! Must not depend on: the host's window, threads or I/O; the host frees killed buffers
 //! and stops their loads.
@@ -8,6 +9,7 @@
 use super::Editor;
 use super::follow::clip_selections;
 use crate::buffer::{self, Buffer, BufferId};
+use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Place, Walk};
 
@@ -31,6 +33,10 @@ pub enum Preview {
     Withheld,
     /// The kill ring's entry `entry`, as [`Editor::kill_preview`] gives its lines (ADR 0091).
     Text { entry: u64 },
+    /// What the host read of a project search's row's file, as
+    /// [`Editor::preview_excerpt_display`] gives it, at its own `revision`, with a cursor at the
+    /// offset `cursor`, where the row's match starts (ADR 0114).
+    Excerpt { revision: u64, cursor: usize },
 }
 
 /// Why a person's kill of a buffer did not happen (ADR 0088).
@@ -48,11 +54,26 @@ pub enum KillRefused {
 }
 
 impl Editor {
+    /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
+    /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
+    /// that is not tiled or a buffer that does not exist.
+    pub fn show_in(&mut self, id: crate::window::WindowId, buffer: BufferId) {
+        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
+            return;
+        };
+        if self.buffer(buffer).is_some() {
+            self.window_moves_on();
+            self.window_shows(index, buffer);
+        }
+    }
+
     /// Makes the window at `index` show `buffer`, where it was there the last time, clipped to
     /// the text as it is now, with the region hidden, or from its start. Every change of what a
     /// window shows comes through here, so that what was around a buffer that may hold secrets,
     /// before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        // A pair holds while each window shows what it was paired with (ADR 0122).
+        self.leave_pair(index, buffer);
         // A search keeps to the buffer it began in (ADR 0082).
         self.isearch_abandon();
         self.replace_abandon();
@@ -234,7 +255,9 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character.
+    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character,
+    /// or one an internal buffer a person does not go to holds, such as `*Session explain*`:
+    /// a second buffer of that name could pass for oso's own (ADR 0121).
     pub fn switch_to_named(&mut self, name: &str) -> Result<(), &'static str> {
         if name.is_empty() {
             return Ok(());
@@ -244,6 +267,9 @@ impl Editor {
             None if name.len() > MAX_NAME_BYTES => return Err("That name is too long"),
             None if name.chars().any(char::is_control) => {
                 return Err("A buffer's name holds no control characters");
+            }
+            None if self.buffers.iter().any(|(_, buffer)| buffer.name() == name) => {
+                return Err("That name is one of oso's own buffers");
             }
             None => self.add_buffer(Buffer::new(name)),
         };
@@ -255,6 +281,10 @@ impl Editor {
     /// the buffer that candidate names, from where the tiled window last was in it, or that
     /// it may hold secrets, which it never shows (ADR 0088).
     pub fn preview(&self) -> Option<Preview> {
+        // A project's search previews its row's file, never by a buffer's name (ADR 0114).
+        if self.searches_project() {
+            return self.search_preview();
+        }
         // `M-y` previews the kill its selected row names, never a secret one (ADR 0091).
         if self.kill_list_open() {
             let entry = self.selected_kill()?;
@@ -267,17 +297,7 @@ impl Editor {
         // `C-.` previews the buffer it lists the marks of, unless it may hold secrets, as any
         // preview.
         if let Some((id, cursor)) = self.selected_mark() {
-            let buffer = self.buffer(id)?;
-            if buffer.verdict().is_withheld() {
-                return Some(Preview::Withheld);
-            }
-            let display = buffer.display();
-            let row = display.offset_to_display_point(cursor).row;
-            let rows = self
-                .prompt_layout()
-                .map_or(0, |layout| layout.regions.preview.rows);
-            let start = crate::motion::line_start(&display, row.saturating_sub(rows / 2));
-            return Some(Preview::Buffer { id, start, cursor });
+            return self.buffer_preview_at(id, cursor);
         }
         let prompt = self.prompt()?;
         let candidates = prompt
@@ -308,6 +328,31 @@ impl Editor {
         let len = buffer.text().len();
         let (cursor, start) = (selections.primary().cursor.min(len), scroll.start.min(len));
         Some(Preview::Buffer { id, start, cursor })
+    }
+
+    /// The preview of the open buffer `id` with its cursor at `cursor`, from the line about
+    /// halfway up the preview's rows from the cursor's, as `C-.` and a project's search show
+    /// one; or that it may hold secrets, which it never shows.
+    pub(super) fn buffer_preview_at(&self, id: BufferId, cursor: usize) -> Option<Preview> {
+        let buffer = self.buffer(id)?;
+        if buffer.verdict().is_withheld() {
+            return Some(Preview::Withheld);
+        }
+        Some(Preview::Buffer {
+            id,
+            start: self.preview_start(&buffer.display(), cursor),
+            cursor,
+        })
+    }
+
+    /// Where a preview whose cursor is at `cursor` starts: the line about halfway up the
+    /// preview's rows from the cursor's.
+    pub(super) fn preview_start(&self, display: &DisplaySnapshot, cursor: usize) -> usize {
+        let rows = self
+            .prompt_layout()
+            .map_or(0, |layout| layout.regions.preview.rows);
+        let row = display.offset_to_display_point(cursor).row;
+        crate::motion::line_start(display, row.saturating_sub(rows / 2))
     }
 
     /// The home directory, which `~` stands for, as the host read it once at startup.

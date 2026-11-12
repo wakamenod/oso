@@ -10,9 +10,11 @@
 
 use std::fmt;
 
-use super::Editor;
-use crate::frame::{BadTiling, Part, Side, Splits, Tiling, TooSmall, Way};
-use crate::window::WindowId;
+use super::{Editor, FIRST_WINDOW};
+use crate::frame::{
+    self, BadTiling, FrameLayout, FrameSize, Part, Side, Splits, Tiling, TooSmall, Way,
+};
+use crate::window::{ViewSize, WindowId};
 
 /// `delete-window` refused: the window is the only one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +65,16 @@ impl fmt::Display for CannotResize {
 
 impl std::error::Error for CannotResize {}
 
+/// The frame of an editor's first window, before the host gives its size.
+pub(super) fn first_frame() -> FrameLayout {
+    frame::layout(
+        FrameSize::holding(ViewSize::default()),
+        &Splits::new(FIRST_WINDOW),
+        FIRST_WINDOW,
+        |_| 0,
+    )
+}
+
 impl Editor {
     /// The position of the window named `id` in [`Editor::windows`].
     pub(super) fn window_index(&self, id: WindowId) -> Option<usize> {
@@ -71,7 +83,7 @@ impl Editor {
 
     /// Tells the tree the gutter its smallest window counts: the narrowest while line numbers
     /// are on, whatever any buffer's line count (ADR 0112).
-    fn set_split_gutter(&mut self) {
+    pub(super) fn set_split_gutter(&mut self) {
         let gutter = if self.aids.line_numbers {
             super::gutter::NARROWEST
         } else {
@@ -103,6 +115,17 @@ impl Editor {
         self.isearch_exit();
         self.splits = splits;
         self.next_window += 1;
+        self.add_split_off(at, id);
+        self.lay_out(self.frame.size());
+        if select {
+            self.select_window(id);
+        }
+        Ok(id)
+    }
+
+    /// A copy of the window at `at`, with the primary cursor alone, named `id`, after the
+    /// other tiled windows, which the tree holds already. It is selected the least recently.
+    pub(super) fn add_split_off(&mut self, at: usize, id: WindowId) {
         let mut window = self.windows[at].split_off(id);
         // Its wrap spends from the command's one budget, not one of its own (ADR 0112).
         if let Some(wrap) = window.wrap_map_mut() {
@@ -113,44 +136,51 @@ impl Editor {
         if self.selected >= count {
             self.selected += 1;
         }
-        // Selected the least recently, until it is.
         self.recent.push(id);
-        self.lay_out(self.frame.size());
-        if select {
-            self.select_window(id);
-        }
-        Ok(id)
     }
 
     /// Deletes the selected tiled window, and selects the window selected most recently before
-    /// it. Its cells go to its neighbour, as [`Splits::remove`] says. Ends isearch.
+    /// it. Its cells go to its neighbour, as [`Splits::remove`] says. A window of a pair goes
+    /// with the other, and a pair that is the whole frame stays (ADR 0122), as does a pair
+    /// beneath an open prompt, so that what the prompt acts on keeps its window. Ends isearch.
     ///
     /// # Errors
     ///
-    /// [`SoleWindow`] for the only window. Nothing changes.
+    /// [`SoleWindow`] for the only window, a pair that is the whole frame, or a pair beneath an
+    /// open prompt. Nothing changes.
     pub fn delete_window(&mut self) -> Result<(), SoleWindow> {
         let id = self.tiled_id();
         let mut splits = self.splits.clone();
-        if !splits.remove(id, &self.frame) {
+        if self.pair_beneath_prompt(id) || !splits.remove(id, &self.frame) {
             return Err(SoleWindow);
         }
         self.isearch_exit();
+        let other = self.splits.pair_of(id);
         self.splits = splits;
         self.drop_window(id);
+        if let Some(other) = other {
+            self.drop_window(other);
+        }
         self.lay_out(self.frame.size());
         Ok(())
     }
 
-    /// Deletes every tiled window but the selected one, which takes the whole tiled area. Does
-    /// nothing with one window. Ends isearch. Returns whether it deleted any.
+    /// Deletes every tiled window but the selected one, which takes the whole tiled area, with
+    /// the other window of its pair if it is in one (ADR 0122). Does nothing with one window.
+    /// Ends isearch. Returns whether it deleted any.
     pub fn delete_other_windows(&mut self) -> bool {
         let keep = self.tiled_id();
-        let others: Vec<WindowId> = self.splits.iter().filter(|id| *id != keep).collect();
+        let pair = self.splits.pair_of(keep);
+        let others: Vec<WindowId> = self
+            .splits
+            .iter()
+            .filter(|id| *id != keep && Some(*id) != pair)
+            .collect();
         if others.is_empty() {
             return false;
         }
         self.isearch_exit();
-        self.splits = Splits::new(keep);
+        self.splits = self.splits.only(keep);
         for id in others {
             self.drop_window(id);
         }
@@ -160,7 +190,7 @@ impl Editor {
 
     /// Takes the window `id` out of the editor, once the tree no longer holds it, and selects
     /// the window selected most recently instead of it if it was selected.
-    fn drop_window(&mut self, id: WindowId) {
+    pub(super) fn drop_window(&mut self, id: WindowId) {
         let Some(index) = self.window_index(id) else {
             return;
         };
@@ -172,6 +202,7 @@ impl Editor {
         let was_tiled = self.tiled_index() == index;
         self.windows.remove(index);
         self.recent.retain(|other| *other != id);
+        self.forget_pair(id);
         if self.selected > index {
             self.selected -= 1;
         }
@@ -182,7 +213,7 @@ impl Editor {
 
     /// Makes the window `id` the selected tiled window, or the one beneath the prompts while
     /// one is open, and the most recently selected.
-    fn make_tiled(&mut self, id: WindowId) {
+    pub(super) fn make_tiled(&mut self, id: WindowId) {
         let Some(index) = self.window_index(id) else {
             return;
         };
@@ -328,14 +359,7 @@ impl Editor {
         self.splits = splits;
         let at = self.tiled_index();
         for id in ids.iter().skip(1) {
-            let mut window = self.windows[at].split_off(*id);
-            // Its wrap spends from the command's one budget, not one of its own.
-            if let Some(wrap) = window.wrap_map_mut() {
-                wrap.take_budget();
-            }
-            let count = self.tiled_count();
-            self.windows.insert(count, window);
-            self.recent.push(*id);
+            self.add_split_off(at, *id);
         }
         self.lay_out(self.frame.size());
         Ok(ids)

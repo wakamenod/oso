@@ -1,6 +1,6 @@
 # 0113. query-replace, keyboard macros and whitespace cleanup on save
 
-- Status: Accepted, amended by 0115
+- Status: Accepted, amended by 0115 and 0119
 - Date: 2026-11-12
 
 ## Context
@@ -218,7 +218,9 @@ coordinator.
   slice's batch on the UI thread, at once: about 200 ms over 100 MB with 100,000 sparse matches,
   590 ms over 4 million short lines, and 1.7 s over 2 million matches on one 6 MB line. Undoing a
   large step in slices comes later, as work of its own for every large undo: `!`, a macro's
-  replay and whitespace cleanup.
+  replay and whitespace cleanup. [ADR 0119](0119-undoing-large-steps-in-slices.md) decides it,
+  and the exception ended with its step 3: an undo now goes on a slice a turn, holding keys as
+  `!` does.
 - **A slice of `!` on one long line passes the 4 ms target:** 5.2 ms at p99 over 2 million matches
   on one 6 MB line, as a batch of 1000 splices on a long line costs, as typing at 1000 cursors
   there does. The last slice of a large `!` takes a few milliseconds more, joining its undo steps.
@@ -397,6 +399,13 @@ coordinator.
   not copied: the recording is dropped first.
 - **During a replay, a key from the window goes to the replay first,** before `!`'s hold: `C-g`
   stops the replay, and a second `C-g` stops `!`.
+- **The edited ranges keep a gap where the last edit was** (a follow-up, 2026-11-13): the ranges
+  after it carry one pending shift, so an edit near the one before moves only the ranges between
+  them. A replay's edits, one command each and one after another through the text, follow the
+  ranges in O(log ranges) each, amortized, however many lines it edited; a batch from many
+  cursors still costs at most the ranges and its edits. The ranges, and so the lines a save
+  cleans, are the same. ADR 0119's sliced undo still follows them once a run and budgets every
+  range for it, now an upper bound.
 
 ### 3. Whitespace cleanup on save
 

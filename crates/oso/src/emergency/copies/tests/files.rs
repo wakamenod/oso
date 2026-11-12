@@ -94,9 +94,8 @@ fn a_read_only_directory_can_still_be_read() {
     assert_eq!(found.problem, None);
 }
 
-/// Runs `chmod` with `args`, as this crate has no bindings of its own, and the dev feature is what
-/// lets a test start a process.
-#[cfg(all(target_os = "macos", feature = "dev"))]
+/// Runs `chmod` with `args`, as this crate has no bindings of its own.
+#[cfg(target_os = "macos")]
 fn chmod(args: &[&std::ffi::OsStr]) {
     use oso_platform::process::{Executable, Sink, Spawn, spawn};
 
@@ -111,13 +110,15 @@ fn chmod(args: &[&std::ffi::OsStr]) {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })
     .unwrap();
     assert!(child.wait().unwrap().success());
 }
 
 /// A leftover that took the list of the file it was to replace.
-#[cfg(all(target_os = "macos", feature = "dev"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn deleting_removes_what_denies_deleting_it() {
     let scratch = Scratch::new();
@@ -139,7 +140,7 @@ fn deleting_removes_what_denies_deleting_it() {
 }
 
 /// When the directory stops the second try too, the file is left owner-only, never more open.
-#[cfg(all(target_os = "macos", feature = "dev"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn a_leftover_that_cannot_be_deleted_is_left_owner_only() {
     let scratch = Scratch::new();

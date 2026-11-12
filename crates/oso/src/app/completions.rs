@@ -100,9 +100,12 @@ impl App {
         self.request_redraw();
     }
 
-    /// Runs a `RET` or `TAB` held for a result once the prompt waits for nothing more, as a
-    /// report or a list built here ends the wait. Never once the app is leaving.
+    /// Runs a `RET`, `M-RET` or `TAB` held for a result once the prompt waits for nothing more,
+    /// as a report, a list built here or a listing ends the wait. Never once the app is leaving.
     pub(super) fn run_held_completion(&mut self, event_loop: &Loop<'_>) {
+        if !self.dispatcher.holds_for_completion() {
+            return;
+        }
         if self.is_leaving(event_loop) {
             self.dispatcher.drop_held_completion();
             return;

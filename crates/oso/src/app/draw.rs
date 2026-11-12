@@ -11,7 +11,7 @@
 
 use std::time::Instant;
 
-use oso_core::editor::{Editor, Status};
+use oso_core::editor::{Editor, MatchCells, Status};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{Bands, Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span};
 
@@ -35,6 +35,8 @@ pub(super) struct Cells {
     pub(super) flash: Option<f32>,
     answer: Screen,
     preview: Screen,
+    /// The matches a project search's preview shows (ADR 0114).
+    preview_matches: MatchCells,
     /// Room for the spans and rows each frame lists, empty between frames.
     room: tiled::Room,
     panes: Vec<Pane<'static>>,
@@ -63,6 +65,7 @@ pub(super) fn with_panes<R>(
     tiled::fill(editor, &mut cells.windows);
     editor.prompt_screen(&mut cells.answer);
     editor.preview_screen(&mut cells.preview);
+    editor.preview_cells(&cells.preview, &mut cells.preview_matches);
     let empty = Status::default();
     let status = tiled::tiled_status(editor, statuses).unwrap_or(&empty);
     let echo = [
@@ -83,6 +86,7 @@ pub(super) fn with_panes<R>(
     let drawn = tiled::Drawn {
         cells: &cells.windows,
         fills: &spans.2,
+        labels: &spans.3,
         modelines: &rows.0,
         gutters: &rows.1,
         statuses,
@@ -106,10 +110,15 @@ pub(super) fn with_panes<R>(
         bands: Bands::NONE,
         content: PaneContent::Lines(&echo),
     });
+    let preview_fills = [
+        (Face::SearchCurrent, &cells.preview_matches.current[..]),
+        (Face::SearchMatch, &cells.preview_matches.others[..]),
+    ];
     if let (Some(parts), Some(lines)) = (&float, &lines) {
         let screens = float::Screens {
             answer: &cells.answer,
             preview: &cells.preview,
+            preview_fills: &preview_fills,
         };
         float::panes(editor, (parts, screens), lines, &mut list);
     }
@@ -218,7 +227,8 @@ impl App {
     /// to get wrong, and a load's progress asks only when its number changes. What was
     /// asked for counts as drawn, so a window that draws nothing is not asked again.
     pub(super) fn ask_for_a_frame_if_status_changed(&mut self) {
-        if self.view.is_none() {
+        // While work goes on over turns, its pace asks for frames (ADR 0119).
+        if self.view.is_none() || self.slices_go_on() {
             return;
         }
         statuses_into(&self.editor, &mut self.next_statuses);

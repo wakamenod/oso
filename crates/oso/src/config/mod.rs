@@ -8,14 +8,17 @@
 //! thread and their tests need no files. `watch` is the thread that reads the file, at start and
 //! when it changes, and parses it. `outcome` and `in_force` say what that comes to. `trust` reads
 //! and writes the record of trusted projects beside it, as `watch` reads the file (ADR 0114).
+//! `agent_rules` reads the local agent rules file beside it on the same thread (ADR 0121).
 //!
 //! - A syntax error rejects the whole file: no keys and no settings, and every syntax error is
 //!   a problem.
 //! - Otherwise each entry that is wrong is skipped with a problem, and the rest applies.
 //!   Unknown tables and names are skipped too, so a file written for a newer oso still loads.
 
+mod agent_rules;
 mod defaults;
 mod in_force;
+mod indentation;
 mod keys;
 mod outcome;
 mod problems;
@@ -31,7 +34,9 @@ use oso_core::keymap::Keymap;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
+pub use agent_rules::RulesReport;
 pub use in_force::{InForce, Look};
+pub use indentation::MODES;
 pub use outcome::outcome;
 pub use problems::Problem;
 pub use settings::Settings;
@@ -144,6 +149,9 @@ fn apply(
             "aids" => settings.aids = settings::aids(value, found),
             "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
             "save" => settings.save = settings::save(value, found),
+            "jump" => settings.jump = settings::jump(value, found),
+            "indent" => settings.indent = indentation::indent(value, found),
+            "modes" => settings.modes = indentation::modes(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),
@@ -219,6 +227,8 @@ impl fmt::Display for TableName<'_> {
     }
 }
 
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod keys_tests;
 #[cfg(test)]

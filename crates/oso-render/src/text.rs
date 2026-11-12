@@ -58,6 +58,19 @@ pub(crate) struct GlyphInstance {
 }
 
 impl GlyphInstance {
+    /// What stays of the quad inside `rect`, or `None` if nothing does.
+    pub(crate) fn cut_to(self, rect: PixelRect) -> Option<Self> {
+        let [x, y] = self.position;
+        let (cut_x, width) = clip_axis(x, self.size[0], rect.x, rect.x + rect.width)?;
+        let (cut_y, height) = clip_axis(y, self.size[1], rect.y, rect.y + rect.height)?;
+        Some(Self {
+            position: [x + cut_x, y + cut_y],
+            size: [width, height],
+            uv: [self.uv[0] + cut_x, self.uv[1] + cut_y],
+            ..self
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn position(&self) -> [f32; 2] {
         self.position
@@ -203,6 +216,14 @@ impl Layout {
         )
     }
 
+    /// The frame's row and column of `column` on `row`, as fills and the cursor box count them.
+    pub(crate) fn frame_cell(&self, row: usize, column: usize) -> [i64; 2] {
+        [
+            self.region.row as i64 + row as i64 - self.scroll.row as i64,
+            self.region.column as i64 + column as i64 - self.scroll.left as i64,
+        ]
+    }
+
     /// What stays of `rect` in the pane, or `None` if nothing does.
     pub(crate) fn clip(&self, rect: PixelRect) -> Option<PixelRect> {
         let (cut_x, width) = clip_axis(
@@ -313,9 +334,7 @@ impl Layout {
             bottom.min(self.clip.y + self.clip.height + bottom_band),
         )?;
         // In the frame's cells, where the cursor box is.
-        let frame_row = self.region.row as i64 + row as i64 - self.scroll.row as i64;
-        let frame_column =
-            self.region.column as i64 + glyph.column as i64 - self.scroll.left as i64;
+        let [frame_row, frame_column] = self.frame_cell(row, glyph.column);
         let under_cursor = self.cursor.is_some_and(|cells| {
             let (row, column) = (cells.row as i64, cells.column as i64);
             frame_row == row

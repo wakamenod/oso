@@ -12,13 +12,15 @@
 //! - A buffer whose highlighting failed stays plain until a mode is set in it, the same one too,
 //!   and the message names it, quoting nothing of its text or its path.
 //! - With `global-font-lock-mode` off, no buffer is allowed, so every one is dropped.
+//! - A report asks for a frame only if a window shows runs it changed.
 
 use std::collections::HashMap;
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::{BufferId, Mode};
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, Preview};
+use oso_core::syntax::Highlights;
 use oso_core::window::{Scroll, ViewSize, Window, WindowId};
 use oso_syntax::{Failure, Job, Language, Outcome, Report};
 
@@ -31,9 +33,6 @@ use pool::Pool;
 /// What the UI keeps of highlighting.
 #[derive(Default)]
 pub(super) struct Syntax {
-    /// Whether highlighting runs at all: off until colour is drawn (ADR 0111, step 4a), so
-    /// that no thread starts and no job goes in normal use.
-    enabled: bool,
     pool: Option<Pool>,
     /// The threads could not start: no buffer is highlighted this session.
     broken: bool,
@@ -47,6 +46,9 @@ pub(super) struct Syntax {
     epochs: u64,
     /// What windows show, kept while nothing that decides it moved.
     shown: Vec<(BufferId, Range<usize>)>,
+    /// What windows show now, read at each report: a wrap that settled rows since `shown`
+    /// was built moves it, and whether a report draws a frame depends on it.
+    drawn: Vec<(BufferId, Range<usize>)>,
     /// What `shown` was built from: each window's buffer, that buffer's revision, the
     /// window's scroll and size, and whether it wraps.
     views: Vec<View>,
@@ -82,6 +84,15 @@ pub(super) struct Orders {
     pub(super) jobs: Vec<Job<BufferId>>,
 }
 
+/// What taking a report did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct Taken {
+    /// Whether a window shows runs it changed, so that a frame is due.
+    pub(super) redraw: bool,
+    /// What to say, if the buffer's highlighting failed.
+    pub(super) message: Option<String>,
+}
+
 impl Orders {
     fn is_empty(&self) -> bool {
         self.drops.is_empty() && self.jobs.is_empty()
@@ -89,15 +100,6 @@ impl Orders {
 }
 
 impl Syntax {
-    /// Highlighting that runs, for tests now, and for every session once colour is drawn.
-    #[cfg(test)]
-    pub(super) fn on() -> Self {
-        Self {
-            enabled: true,
-            ..Self::default()
-        }
-    }
-
     /// The buffers the worker must drop now: killed, or no longer allowed, as a buffer that
     /// turned secret is. One walk over the buffers, and none while the worker has nothing.
     pub(super) fn drops(&mut self, editor: &Editor) -> Vec<BufferId> {
@@ -126,14 +128,13 @@ impl Syntax {
     }
 
     /// Everything to tell the worker after a command: the drops, and a job for each buffer
-    /// whose text or shown ranges moved. Nothing while highlighting is off, and no screen is
-    /// looked at while no buffer can be highlighted.
+    /// whose text or shown ranges moved. No screen is looked at while no buffer can be
+    /// highlighted.
     pub(super) fn orders(&mut self, editor: &Editor) -> Orders {
-        let mut orders = Orders::default();
-        if !self.enabled {
-            return orders;
-        }
-        orders.drops = self.drops(editor);
+        let mut orders = Orders {
+            drops: self.drops(editor),
+            ..Orders::default()
+        };
         let mut wanted = editor
             .buffers()
             .filter(|(id, buffer)| {
@@ -219,8 +220,8 @@ impl Syntax {
     }
 
     /// Builds what windows show again only if a window, its buffer's text, its scroll or its
-    /// size moved. A wrap that settles rows meanwhile is seen at the next of those: the ranges
-    /// only order work.
+    /// size moved. A wrap that settles rows meanwhile is seen at the next of those: for jobs,
+    /// the ranges only order work. A report reads them afresh.
     fn refresh_shown(&mut self, editor: &Editor) {
         let key = |window: &Window| -> View {
             (
@@ -246,30 +247,78 @@ impl Syntax {
         editor.shown_ranges(&mut self.shown);
     }
 
-    /// Takes a report into its buffer, and returns what to say if its highlighting failed. A
-    /// report for a buffer the worker was told to drop, from before its last new start, or
-    /// older than one already taken, is ignored.
-    pub(super) fn take(&mut self, editor: &mut Editor, report: Report<BufferId>) -> Option<String> {
-        let sent = self.sent.get_mut(&report.buffer)?;
+    /// Takes a report into its buffer: whether a frame is due, and what to say if its
+    /// highlighting failed. A report for a buffer the worker was told to drop, from before its
+    /// last new start, or older than one already taken, is ignored.
+    pub(super) fn take(&mut self, editor: &mut Editor, report: Report<BufferId>) -> Taken {
+        let Some(sent) = self.sent.get_mut(&report.buffer) else {
+            return Taken::default();
+        };
         if report.epoch != sent.epoch || report.stamp <= sent.stamp {
-            return None;
+            return Taken::default();
         }
         sent.stamp = report.stamp;
-        let buffer = editor.buffer_mut(report.buffer)?;
+        // Two seeks a window, with no row laid out.
+        editor.shown_ranges(&mut self.drawn);
+        let previewed =
+            matches!(editor.preview(), Some(Preview::Buffer { id, .. }) if id == report.buffer);
+        let Some(buffer) = editor.buffer_mut(report.buffer) else {
+            return Taken::default();
+        };
+        // O(1): the runs are shared.
+        let before = buffer.highlights().cloned();
         let why = match report.outcome {
             Outcome::Highlights(highlights) => {
                 // False for a report the buffer cannot take, which changes nothing.
                 buffer.take_highlights(report.revision, highlights);
-                return None;
+                None
             }
-            Outcome::Failed(failure) => why(failure),
-            Outcome::Lost => "the highlighter failed",
+            Outcome::Failed(failure) => Some(why(failure)),
+            Outcome::Lost => Some("the highlighter failed"),
         };
-        self.sent.remove(&report.buffer);
-        let stopped = (buffer.mode_revision(), Instant::now());
-        self.stopped.insert(report.buffer, stopped);
-        buffer.drop_highlights();
-        Some(format!("Highlighting stopped in {}: {why}", buffer.name()))
+        let message = why.map(|why| {
+            self.sent.remove(&report.buffer);
+            let stopped = (buffer.mode_revision(), Instant::now());
+            self.stopped.insert(report.buffer, stopped);
+            buffer.drop_highlights();
+            format!("Highlighting stopped in {}: {why}", buffer.name())
+        });
+        let after = buffer.highlights();
+        // The preview float shows a part of its buffer no window's range gives.
+        let everywhere = previewed.then_some(0..usize::MAX);
+        let redraw = (self.drawn.iter())
+            .filter(|(id, _)| *id == report.buffer)
+            .map(|(_, range)| range)
+            .chain(everywhere.as_ref())
+            .any(|range| changed(before.as_ref(), after, range));
+        Taken { redraw, message }
+    }
+}
+
+/// The most runs a report's comparison steps over in one shown range. A window that shows long
+/// lines whole, unwrapped, may show far more runs than it draws: past this, the report is taken
+/// as changed, and costs a frame instead.
+const MOST_RUNS_COMPARED: usize = 4096;
+
+/// Whether `before` and `after` differ in `range`, where no highlights are plain text. O(log n)
+/// and a step per run in the range, at most [`MOST_RUNS_COMPARED`].
+fn changed(before: Option<&Highlights>, after: Option<&Highlights>, range: &Range<usize>) -> bool {
+    match (before, after) {
+        (Some(before), Some(after)) => {
+            let (mut was, mut is) = (before.runs(range.clone()), after.runs(range.clone()));
+            for _ in 0..MOST_RUNS_COMPARED {
+                match (was.next(), is.next()) {
+                    (None, None) => return false,
+                    (was, is) if was != is => return true,
+                    _ => {}
+                }
+            }
+            true
+        }
+        // Neighbouring runs never have the same highlight, so this looks at two at most.
+        (one, other) => one.or(other).is_some_and(|highlights| {
+            (highlights.runs(range.clone())).any(|(_, highlight)| highlight.is_some())
+        }),
     }
 }
 
@@ -342,8 +391,12 @@ impl App {
 
     /// The worker highlighted, or stopped, a buffer.
     pub(super) fn syntax_reported(&mut self, report: Report<BufferId>) {
-        if let Some(message) = self.syntax.take(&mut self.editor, report) {
+        let taken = self.syntax.take(&mut self.editor, report);
+        if let Some(message) = taken.message {
             self.editor.message(message);
+            self.request_redraw();
+        } else if taken.redraw {
+            self.request_redraw();
         }
     }
 }

@@ -4,7 +4,9 @@
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`: per-query costs do not grow
 //! with file size or line length. CI's budgets are in `crates/oso/examples/perf`. A part's name
-//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap` or `screen`) runs only that part.
+//! (`words`, `cursors`, `trim`, `replace`, `highlights`, `wrap`, `screen`, `indent`, `undo` or
+//! `editorconfig`)
+//! runs only that part.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -21,12 +23,18 @@ use oso_core::sum_tree::Bias;
 
 #[path = "text_perf/cursors.rs"]
 mod cursors;
+#[path = "text_perf/editorconfig.rs"]
+mod editorconfig;
 #[path = "text_perf/highlights.rs"]
 mod highlights;
+#[path = "text_perf/indent.rs"]
+mod indent;
 #[path = "text_perf/replace.rs"]
 mod replace;
 #[path = "text_perf/trim.rs"]
 mod trim;
+#[path = "text_perf/undo.rs"]
+mod undo;
 #[path = "text_perf/words.rs"]
 mod words;
 #[path = "text_perf/wrap.rs"]
@@ -179,6 +187,8 @@ fn typing_costs(label: &str, text: &str, cursors: usize) {
         let start = Instant::now();
         editor.undo().expect("a command to undo");
         undone.push(start.elapsed());
+        // The app frees what an undo lets go off the UI thread (ADR 0119).
+        drop(editor.take_crossing_freed());
     }
     let (typed_50, typed_99) = percentiles(&mut typed);
     let (undone_50, undone_99) = percentiles(&mut undone);
@@ -217,8 +227,11 @@ fn large_deletion_costs(text: &str, killed: usize) {
         .expect("the buffer is editable");
     let (result, undo) = time(|| editor.undo());
     result.expect("the kill to undo");
+    // The app frees what an undo lets go off the UI thread (ADR 0119).
+    drop(editor.take_crossing_freed());
     let (result, redo) = time(|| editor.redo());
     result.expect("the kill to redo");
+    drop(editor.take_crossing_freed());
     let (result, evicting) = time(|| editor.apply_edits(id, &next));
     result.expect("the buffer is editable");
     let (_, dropped) = time(|| drop(editor));
@@ -237,6 +250,8 @@ fn undone_paste_costs(text: &str) {
     result.expect("the buffer is editable");
     let (result, undo) = time(|| editor.undo());
     result.expect("the paste to undo");
+    // The app frees what an undo lets go off the UI thread (ADR 0119).
+    drop(editor.take_crossing_freed());
     let next = [Replacement {
         range: 0..0,
         text: "x",
@@ -282,7 +297,8 @@ fn old_map_slot(map: &mut DisplayMap) -> DisplayMap {
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
-    let parts: [(&str, fn()); 7] = [
+    let parts: [(&str, fn()); 10] = [
+        ("editorconfig", editorconfig::editorconfig_costs),
         ("words", words::word_motion_costs),
         ("trim", trim::trim_costs),
         ("replace", replace::replace_costs),
@@ -290,6 +306,8 @@ fn main() {
         ("highlights", highlights::highlight_costs),
         ("wrap", wrap::wrap_costs),
         ("screen", wrap::screen_costs),
+        ("indent", indent::indent_costs),
+        ("undo", undo::undo_costs),
     ];
     for (name, part) in parts {
         if std::env::args().any(|arg| arg == name) {

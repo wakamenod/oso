@@ -61,11 +61,12 @@ impl Dispatcher {
         // A command from the socket drops a key held for a result, as a key does, and does not
         // take a candidate of the rows of an older input (ADR 0096).
         self.completion_held = None;
-        if editor.completion_pending() && super::held::takes_the_selected(name) {
+        if super::held::waits(editor, name) {
             return (
                 Effects::default(),
                 Err(
-                    "the list is still being matched; wait until get-state says nothing is pending"
+                    "the list or a listing is still on its way; wait until get-state says nothing is \
+                     pending"
                         .into(),
                 ),
             );
@@ -101,6 +102,8 @@ impl Dispatcher {
         // And one its answers do not run ends a query-replace (ADR 0113).
         let ended_search =
             ended_search | (!self.replace_commands.contains(&id) && editor.replace_exit());
+        // And one a jump's keys do not run ends the jump, with nothing moved (ADR 0116).
+        let ended_search = ended_search | (!self.jump_commands.contains(&id) && editor.jump_end());
         // A yank waits for the clipboard as it does from a key, and replies at once.
         let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
             self.run_or_read(editor, id, args, invocation)

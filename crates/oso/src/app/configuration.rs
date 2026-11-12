@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use oso_core::keymap::Keymap;
 
 use super::{App, UserEvent};
-use crate::config::{InForce, Look, Reader, Settings, Source, outcome};
+use crate::config::{InForce, Look, MODES, Reader, Settings, Source, outcome};
 
 /// The configuration's thread, what has been said of the file, and the settings in force.
 pub(super) struct Configuration {
@@ -139,10 +139,18 @@ impl App {
     /// before the window opens, which takes the remembered theme first, for the file's default
     /// to be compared with: what the thread found waits for it.
     pub(super) fn configuration_reported(&mut self) {
-        let configuration = &self.configuration;
         if self.view.is_none() {
             return;
         }
+        let rules = self
+            .configuration
+            .reader
+            .as_ref()
+            .and_then(Reader::take_rules);
+        if let Some(rules) = rules {
+            self.agent_rules_reported(rules);
+        }
+        let configuration = &self.configuration;
         let Some((report, launch)) = configuration.reader.as_ref().and_then(Reader::take) else {
             return;
         };
@@ -185,6 +193,23 @@ impl App {
         configuration.applied = true;
         self.editor
             .set_trim_whitespace(configuration.in_force.trim_whitespace);
+        // On every look, as neither has a run-time switch: one the file leaves out goes back to
+        // the default (ADR 0116).
+        let jump = &configuration.in_force.jump;
+        self.editor
+            .set_jump_keys(jump.keys.clone().unwrap_or_default());
+        self.jump_timer
+            .set_timeout(jump.timeout.unwrap_or(super::jumps::DEFAULT_TIMEOUT));
+        if let Some(on) = changes.electric_indent {
+            self.editor.set_electric_indent(on);
+        }
+        if changes.mode_indents {
+            let indents = configuration.in_force.mode_indents;
+            self.editor.set_mode_indents(std::array::from_fn(|index| {
+                let (settings, origins) = indents[index];
+                (MODES[index].1, settings, origins)
+            }));
+        }
         if let Some(aids) = changes.aids {
             self.editor.set_visual_aids(aids);
         }

@@ -27,12 +27,12 @@
 
 use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
-use crate::frame::{self, FrameLayout, FrameSize, Splits};
+use crate::frame::{FrameLayout, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
 use crate::project::Project;
 use crate::selection::SelectionSet;
 use crate::undo::Opening;
-use crate::window::{ViewSize, Window, WindowId};
+use crate::window::{Window, WindowId};
 use follow::Selected;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -41,16 +41,20 @@ mod agent;
 mod aids;
 mod completion;
 mod copies;
+mod crossing;
 mod cursors;
 mod excerpt;
 mod files;
 mod follow;
 mod gutter;
+mod indent;
 mod isearch;
+mod jump;
 mod kill;
 mod macros;
 mod marks;
 mod messages;
+mod pairs;
 mod project_search;
 mod projects;
 mod prompts;
@@ -58,6 +62,7 @@ mod reload;
 mod replace;
 mod save;
 mod screen;
+mod sessions;
 mod status;
 mod switch;
 mod tab;
@@ -77,19 +82,27 @@ pub use agent::AgentChannel;
 pub use aids::{ViewSample, VisualAids};
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
+pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
 pub use gutter::Gutter;
+pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
+pub use jump::{Chose, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
-pub use project_search::{ProjectSearchHit, ProjectSearchRequest, ProjectSearchRow};
+pub use pairs::NoPair;
+pub use project_search::{
+    Excerpt, ProjectPreviewRead, ProjectPreviewRequest, ProjectSearchHit, ProjectSearchRequest,
+    ProjectSearchRow,
+};
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
+pub use sessions::SessionRequest;
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
@@ -144,7 +157,11 @@ pub struct Editor {
     /// The tiled windows other than the selected one whose cursors or tops an edit moved in
     /// the command, which follow their cursors when it ends (ADR 0112).
     moved_windows: Vec<WindowId>,
+    /// The pairs of tiled windows that scroll together (ADR 0122).
+    pairs: Vec<pairs::Pair>,
     undo_scope: Option<UndoScope>,
+    /// An undo or a redo under way, a slice at a time (ADR 0119).
+    crossing: crossing::Crossings,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
     /// The internal buffer that keeps every message.
@@ -227,8 +244,15 @@ pub struct Editor {
     kills: kill::Kills,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
+    /// What commands asked of the host about agent sessions (ADR 0121).
+    session_requests: Vec<SessionRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
+    /// The jump under way, and the keys its labels are typed with (ADR 0116).
+    jump: Option<crate::jump::Jump>,
+    jump_keys: crate::jump::Keys,
+    /// Room a jump finds its candidates in, kept from key to key.
+    jump_scratch: jump::Scratch,
     /// The generation of the search job that may run, which a worker checks to stop.
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
@@ -247,6 +271,14 @@ pub struct Editor {
     aids: VisualAids,
     /// Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
     font_lock: bool,
+    /// Whether `RET` and typed closers indent (`electric-indent-mode`, ADR 0115).
+    electric_indent: bool,
+    /// Each mode's indentation, as the configuration gives it (ADR 0115).
+    mode_indents: indent::ModeIndents,
+    /// Files whose EditorConfig the host should read, after `C-x C-w` named them (ADR 0115).
+    editorconfig_requests: Vec<ProjectRequest>,
+    /// The layer of `C-x TAB`, while it is open (ADR 0115).
+    rigid: Option<indent::RigidLayer>,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
     trims: trim::Trims,
     /// query-replace's session, and the last pairs given (ADR 0113).
@@ -270,18 +302,15 @@ impl Editor {
             windows: Vec::new(),
             selected: 0,
             splits: Splits::new(FIRST_WINDOW),
-            frame: frame::layout(
-                FrameSize::holding(ViewSize::default()),
-                &Splits::new(FIRST_WINDOW),
-                FIRST_WINDOW,
-                |_| 0,
-            ),
+            frame: windows::first_frame(),
             next_id: 0,
             next_window: 1,
             recent: vec![FIRST_WINDOW],
             wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
             moved_windows: Vec::new(),
+            pairs: Vec::new(),
             undo_scope: None,
+            crossing: crossing::Crossings::default(),
             join_ready: false,
             messages_buffer: BufferId(0),
             command_left_secret: None,
@@ -318,7 +347,11 @@ impl Editor {
             save_over_asked: None,
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
+            session_requests: Vec::new(),
             isearch: None,
+            jump: None,
+            jump_keys: crate::jump::Keys::default(),
+            jump_scratch: jump::Scratch::default(),
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
             marking: None,
@@ -329,6 +362,10 @@ impl Editor {
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
             font_lock: true,
+            electric_indent: true,
+            mode_indents: indent::compiled_mode_indents(),
+            editorconfig_requests: Vec::new(),
+            rigid: None,
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
             macros: macros::Macros::default(),
@@ -339,7 +376,8 @@ impl Editor {
         editor
     }
 
-    /// Adds a buffer, shown in no window yet.
+    /// Adds a buffer, shown in no window yet, with its mode's indent size and style unless it
+    /// is internal.
     pub fn add_buffer(&mut self, buffer: Buffer) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
@@ -348,6 +386,8 @@ impl Editor {
             .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
         self.buffers.push((id, buffer));
         self.name_files_like(&name);
+        // Its mode's indentation, as the configuration gives it (ADR 0115).
+        self.give_mode_indent(id);
         id
     }
 
@@ -372,19 +412,6 @@ impl Editor {
             .iter()
             .filter(|(_, buffer)| !buffer.is_internal())
             .map(|(id, buffer)| (*id, buffer))
-    }
-
-    /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
-    /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
-    /// that is not tiled or a buffer that does not exist.
-    pub fn show_in(&mut self, id: WindowId, buffer: BufferId) {
-        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
-            return;
-        };
-        if self.buffer(buffer).is_some() {
-            self.window_moves_on();
-            self.window_shows(index, buffer);
-        }
     }
 
     /// Shows `buffer` in the selected window, where the window was in it the last time, or from
@@ -567,10 +594,11 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::display_map::TabWidth;
-    use crate::frame::{PixelGrid, PixelRect};
+    use crate::frame::{self, FrameSize, PixelGrid, PixelRect};
     use crate::load::Builder;
     use crate::selection::Selection;
     use crate::window::Scroll;
+    use crate::window::ViewSize;
     use proptest::prelude::*;
     use std::path::PathBuf;
 
@@ -1035,7 +1063,11 @@ mod edit_tests;
 #[cfg(test)]
 mod highlight_tests;
 #[cfg(test)]
+mod isearch_regexp_tests;
+#[cfg(test)]
 mod isearch_tests;
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]

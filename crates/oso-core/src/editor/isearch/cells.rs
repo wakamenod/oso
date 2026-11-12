@@ -1,10 +1,12 @@
-//! The cells isearch's matches in view take (ADR 0082), for the renderer and the text-grid
-//! snapshots, as the region's are in `view`, over the view rows a frame shows (ADR 0104).
+//! The cells isearch's matches in view take (ADR 0082), a literal string's or a regexp's,
+//! for the renderer and the text-grid snapshots, as the region's are in `view`, over the
+//! view rows a frame shows (ADR 0104).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
-//! Only the rows in view are searched, each widened by what the string can reach, within
-//! [`FRAME_BUDGET`], so a frame costs as much as the view and the string, not the buffer.
+//! Only the rows in view are searched, each widened by what a literal string can reach, and a
+//! regexp's read a little around them, within [`FRAME_BUDGET`], so a frame costs as much as the
+//! view and the string, not the buffer.
 
 use std::ops::Range;
 
@@ -31,8 +33,11 @@ pub struct MatchCells {
     pub current: Vec<CellRect>,
     /// The other matches' cells.
     pub others: Vec<CellRect>,
-    spans: Vec<Range<usize>>,
-    found: Vec<Range<usize>>,
+    pub(in crate::editor) spans: Vec<Range<usize>>,
+    pub(in crate::editor) found: Vec<Range<usize>>,
+    /// What a project search's preview cells were worked out for, so that a frame that shows
+    /// the same works out nothing (ADR 0114).
+    pub(in crate::editor) preview_key: Option<crate::editor::project_search::PreviewCellsKey>,
 }
 
 /// What [`Editor::match_cells`] looks for: a query, the current match, and a scope.
@@ -52,12 +57,17 @@ impl Editor {
         let Some(state) = &self.isearch else {
             return;
         };
-        let Some(query) = &state.query else {
+        let Some(needle) = state.needle() else {
             return;
         };
         let current = state.current.as_ref().filter(|_| !state.failing);
-        let needle = search::Needle::Literal(query.clone());
-        self.match_cells(id, state.buffer, screen, (&needle, current, None), cells);
+        self.match_cells(id, state.buffer, screen, (needle, current, None), cells);
+    }
+
+    /// What isearch looks for: what its highlights show, and what `avy-isearch` labels, its
+    /// matches in view (ADR 0116).
+    pub(in crate::editor) fn isearch_needle(&self) -> Option<search::Needle> {
+        Some(self.isearch.as_ref()?.needle()?.clone())
     }
 
     /// The cells of a query's matches in view in the tiled window `id`, if it is the selected
@@ -76,6 +86,7 @@ impl Editor {
             others,
             spans,
             found,
+            ..
         } = cells;
         current_cells.clear();
         others.clear();

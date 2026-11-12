@@ -141,6 +141,8 @@ pub fn export(
         "visual_aids": aids_state(editor.visual_aids()),
         // Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
         "font_lock": editor.font_lock(),
+        // Whether `RET` indents (`electric-indent-mode`, ADR 0115).
+        "electric_indent": editor.electric_indent(),
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -432,7 +434,7 @@ fn held(editor: &Editor) -> Result<(), String> {
         return Err(PROMPTING.into());
     }
     if let Some(why) = under_way(editor) {
-        return Err(why.into());
+        return Err(format!("cannot hand over: {why}"));
     }
     let tiling = editor.tiling();
     if tiling.depth() > Tiling::MAX_DEPTH {
@@ -462,12 +464,21 @@ const PROMPTING: &str = "cannot hand over: a prompt is open";
 
 /// Why a restart waits for isearch to end: a new instance would take the search away
 /// mid-typing (ADR 0082).
-const SEARCHING: &str = "cannot hand over: a search is under way";
+const SEARCHING: &str = "a search is under way";
 
-/// Why a handover waits for what the person is doing: a search or a query-replace, or a
-/// keyboard macro being recorded or run (ADR 0082, ADR 0113).
+/// Why a restart waits for a jump to end, as for a search (ADR 0116).
+const JUMPING: &str = "a jump is under way";
+
+/// Why a handover waits for what the person is doing: a search, a jump or a query-replace, a
+/// keyboard macro being recorded or run, or an undo or a redo of a large step (ADR 0082,
+/// ADR 0113, ADR 0116, ADR 0119). A restart and a guarded `exit` both say it after their own
+/// words.
 fn under_way(editor: &Editor) -> Option<&'static str> {
-    if editor.isearch().is_some() || editor.replace().is_some() {
+    if editor.crossing().is_some() {
+        Some(UNDOING)
+    } else if editor.jump().is_some() {
+        Some(JUMPING)
+    } else if editor.isearch().is_some() || editor.replace().is_some() {
         Some(SEARCHING)
     } else if editor.macro_recording() || editor.macro_replaying() {
         Some(MACRO)
@@ -476,9 +487,13 @@ fn under_way(editor: &Editor) -> Option<&'static str> {
     }
 }
 
+/// Why a restart waits for an undo or a redo to end: the handoff carries no history, so the
+/// person could not make that undo after it (ADR 0119).
+const UNDOING: &str = "an undo or a redo is under way";
+
 /// Why a restart waits for a keyboard macro: a new instance would lose the recording, or
 /// stop the replay part way (ADR 0113).
-const MACRO: &str = "cannot hand over: a keyboard macro is being recorded or run";
+const MACRO: &str = "a keyboard macro is being recorded or run";
 
 /// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
 /// whatever that buffer holds.
@@ -534,12 +549,10 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
             Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
         Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
-        Some(_) if editor.macro_recording() || editor.macro_replaying() => Err(format!(
-            "{EXIT_REFUSED}: a keyboard macro is being recorded or run"
+        Some(_) if under_way(editor).is_some() => Err(format!(
+            "{EXIT_REFUSED}: {}",
+            under_way(editor).unwrap_or_default()
         )),
-        Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
-            Err(format!("{EXIT_REFUSED}: a search is under way"))
-        }
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),

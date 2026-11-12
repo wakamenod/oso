@@ -22,6 +22,7 @@ use oso_core::complete::Candidates;
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::editor::{Editor, Isearch, Preview, Replace, Status};
 use oso_core::frame::{CellRect, PixelRect};
+use oso_core::jump::{Jump, Stage};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::minibuffer::MAX_ENTRY_BYTES;
@@ -96,7 +97,9 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
         "isearch": isearch_state(editor),
+        "jump": jump_state(editor),
         "replace": replace_state(editor),
+        "undoing": crate::channel::state::undoing_state(editor),
         "macro": { "recording": editor.macro_recording(), "replaying": editor.macro_replaying() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
@@ -118,6 +121,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         state["modeline"] = json!(status.modeline());
         // isearch's line holds its string, and query-replace's both of its.
         let search_withheld = editor.isearch().is_some_and(Isearch::around_secret)
+            || editor.jump().is_some_and(Jump::around_secret)
             || editor.replace().is_some_and(Replace::around_secret);
         if keys_shown && !search_withheld {
             state["echo"] = json!(status.echo);
@@ -127,10 +131,27 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     state
 }
 
+/// The `jump` field of `get-state`: null, or the jump under way, where it has got to and how
+/// many candidates it found (ADR 0116). While a buffer that may hold secrets is shown, or for a
+/// jump around one, only that one is under way. Nothing gives the labels' places.
+fn jump_state(editor: &Editor) -> Value {
+    let Some(jump) = editor.jump() else {
+        return Value::Null;
+    };
+    if editor.shows_secret() || jump.around_secret() {
+        return json!({ "active": true });
+    }
+    let stage = match jump.stage() {
+        Stage::Reading => "reading",
+        Stage::Labels => "labels",
+    };
+    json!({ "active": true, "stage": stage, "count": jump.count() })
+}
+
 /// The `isearch` field of `get-state`: null, or the search under way, its string, where it
-/// has got to and its count, `null` while counting (ADR 0082). While a buffer that may hold
-/// secrets is shown, or for a search around one, only that one is under way, as its string
-/// and its count can say something of the text.
+/// has got to, whether it is a regexp's (ADR 0116) and its count, `null` while counting
+/// (ADR 0082). While a buffer that may hold secrets is shown, or for a search around one,
+/// only that one is under way, as its string and its count can say something of the text.
 fn isearch_state(editor: &Editor) -> Value {
     let Some(search) = editor.isearch() else {
         return Value::Null;
@@ -144,6 +165,7 @@ fn isearch_state(editor: &Editor) -> Value {
     json!({
         "active": true,
         "string": search.string(),
+        "regexp": search.regexp(),
         "backward": search.backward(),
         "failing": search.failing(),
         "wrapped": search.wrapped(),
@@ -273,16 +295,25 @@ fn prompts_state(editor: &Editor) -> Value {
 /// How many candidates match of how many, which is selected, the names of those in the rows
 /// shown, as the float shows them (ADR 0076), whether what is typed is selected, and which
 /// buffer the preview shows, by id and never its text, or `null` when it shows none or withholds
-/// it (ADR 0088).
+/// it (ADR 0088), and what kind of thing it shows: `buffer`, `excerpt`, `withheld`, `kill` or
+/// `null` (ADR 0114).
 fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
     let rows = candidates
         .shown(editor.candidate_rows())
         .map(|(_, candidate)| candidate.text())
         .collect::<Vec<_>>();
-    let preview = match editor.preview() {
+    let shown = editor.preview();
+    let preview = match shown {
         Some(Preview::Buffer { id, .. }) => Some(id.get()),
-        Some(Preview::Withheld | Preview::Text { .. }) | None => None,
+        Some(Preview::Withheld | Preview::Text { .. } | Preview::Excerpt { .. }) | None => None,
     };
+    // What kind of thing it shows, for a flow to wait on; never what it shows (ADR 0114).
+    let preview_kind = shown.map(|shown| match shown {
+        Preview::Buffer { .. } => "buffer",
+        Preview::Withheld => "withheld",
+        Preview::Text { .. } => "kill",
+        Preview::Excerpt { .. } => "excerpt",
+    });
     json!({
         "count": candidates.len(),
         "total": candidates.total(),
@@ -290,12 +321,15 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         "typed": candidates.on_input(),
         "rows": rows,
         "preview": preview,
+        "preview_kind": preview_kind,
         // A prompt that reads a path: the directory it starts from, and whether a listing is
         // on its way (ADR 0087).
         "directory": editor
             .file_directory()
             .map(|directory| oso_core::complete::typed_form(directory, true, editor.home())),
-        "pending": editor.files_pending() || editor.completion_pending(),
+        "pending": editor.files_pending()
+            || editor.completion_pending()
+            || editor.directory_answer_waits(),
     })
 }
 
@@ -390,6 +424,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "bytes": size_shown.then(|| buffer.text().len()),
         "lines": size_shown.then(|| buffer.display().row_count()),
         "wrapped": state_shown.then(|| buffer.wraps()),
+        // Whether it holds highlights now (ADR 0111): never one that may hold secrets.
+        "highlighted": buffer.highlights().is_some(),
         "loading": buffer.loading().map(|progress| json!({
             "read": size_shown.then_some(progress.read),
             "total": if size_shown { progress.total } else { None },
@@ -710,6 +746,7 @@ mod tests {
             "lines": 2,
             "loading": null,
             "wrapped": false,
+            "highlighted": false,
         });
         assert_eq!(
             state,
@@ -752,7 +789,9 @@ mod tests {
                 "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
                 "isearch": null,
+                "jump": null,
                 "replace": null,
+                "undoing": null,
                 "macro": { "recording": false, "replaying": false },
                 "surface": { "width": 800, "height": 600 },
             })
@@ -976,9 +1015,37 @@ mod tests {
     }
 
     #[test]
+    fn a_jump_reads_back_its_stage_and_count_unless_around_a_secret() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("plain.txt", "ab ab"));
+        assert_eq!(
+            get_state(&editor, &[], None)["jump"],
+            serde_json::Value::Null
+        );
+        editor.jump_begin(oso_core::jump::Kind::Char, false);
+        editor.jump_add("ab");
+        let state = get_state(&editor, &[], None);
+        assert_eq!(
+            state["jump"],
+            json!({ "active": true, "stage": "reading", "count": 2 })
+        );
+        assert_eq!(state["echo"], "Jump: ab");
+        editor.jump_end();
+        let path = PathBuf::from("/tmp/.env");
+        let mut key = Buffer::visiting(path.clone());
+        key.judge_secret(Some(&[path]));
+        let key = editor.add_buffer(key);
+        editor.show(key);
+        editor.jump_begin(oso_core::jump::Kind::Char, false);
+        editor.jump_add("TOKEN");
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["jump"], json!({ "active": true }));
+        assert!(!state.to_string().contains("TOKEN"));
+    }
+
+    #[test]
     fn isearch_reads_back_unless_it_is_around_a_secret() {
         let mut editor = Editor::with_buffer(Buffer::from_text("plain.txt", "ab ab"));
-        editor.isearch_begin(false);
+        editor.isearch_begin(false, false);
         editor.isearch_add("ab");
         let state = get_state(&editor, &[], None);
         assert_eq!(
@@ -986,6 +1053,7 @@ mod tests {
             json!({
                 "active": true,
                 "string": "ab",
+                "regexp": false,
                 "backward": false,
                 "failing": false,
                 "wrapped": false,
@@ -995,6 +1063,9 @@ mod tests {
             })
         );
         assert_eq!(state["echo"], "I-search: ab [?/…]");
+        editor.isearch_toggle_regexp();
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"]["regexp"], true);
 
         // A kill from a buffer that may hold secrets, yanked into the string.
         editor.isearch_exit();
@@ -1013,7 +1084,7 @@ mod tests {
             )
             .unwrap();
         editor.show(plain);
-        editor.isearch_begin(false);
+        editor.isearch_begin(false, false);
         editor.isearch_yank_kill();
         let state = get_state(&editor, &[], None);
         assert_eq!(state["isearch"], json!({ "active": true }));
@@ -1022,7 +1093,13 @@ mod tests {
         let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
         editor.isearch_exit();
         editor.show(secret);
-        editor.isearch_begin(false);
+        editor.isearch_begin(false, false);
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"], json!({ "active": true }));
+        // A regexp's search says no more, not even that it is one.
+        editor.isearch_exit();
+        editor.isearch_begin(false, true);
+        editor.isearch_add("a.c");
         let state = get_state(&editor, &[], None);
         assert_eq!(state["isearch"], json!({ "active": true }));
     }

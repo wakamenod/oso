@@ -14,7 +14,7 @@
 //!   read only at the start, as code often ends in `=` or `!`.
 //! - Case is ignored unless the input holds an upper-case letter, over the whole input.
 //! - Expressions are the `regex` crate's, compiled with limits, so a line costs time linear in
-//!   its length; one that does not compile matches as a literal.
+//!   its length; one that does not compile alone matches as a literal.
 //! - `Debug` gives how many components, never what they say, which may be about a file that
 //!   may hold secrets.
 
@@ -63,8 +63,8 @@ const BEFORE_MATCH: usize = 64;
 /// own rather than looked through again.
 const FAR: usize = 4096;
 
-/// What a row shows where it leaves part of its line out.
-const CUT: char = '…';
+/// What a row or an excerpt shows where it leaves part of a line out.
+pub(crate) const CUT: char = '…';
 
 /// One component of a search.
 #[derive(Clone)]
@@ -97,24 +97,43 @@ pub struct LineHit {
 }
 
 /// `pattern` as an expression that matches where it does as an expression or as a literal, or as
-/// a literal alone, ignoring case if `ignore_case`. `None` if not even the literal compiles
-/// within the limits.
-fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Option<Regex> {
-    let build = |source: &str| {
+/// a literal alone, ignoring case if `ignore_case`, and whether it was read as an expression too.
+/// `None` if not even the literal compiles within the limits.
+///
+/// The expression must parse alone: joined to the literal, one that is no expression alone, as
+/// `a)|(b`, can compile and match what neither does. A `(?x)` comment would run past the
+/// expression's group, so the group is then ended by a line break, which `(?x)` ignores; the
+/// literal writes its own line breaks as escapes, so that no comment ends inside it.
+fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Option<(Regex, bool)> {
+    let build = |source: &str, size_limit: usize| {
         RegexBuilder::new(source)
             .case_insensitive(ignore_case)
             .multi_line(true)
             .crlf(true)
-            .size_limit(REGEX_SIZE_LIMIT)
+            .size_limit(size_limit)
             .nest_limit(REGEX_NEST_LIMIT)
             .build()
-            .ok()
     };
-    let literal = regex::escape(pattern);
-    expression
-        .then(|| build(&format!("(?:{pattern})|(?:{literal})")))
-        .flatten()
-        .or_else(|| build(&literal))
+    let literal = regex::escape(pattern)
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    // With no room to compile in, a build stops once the expression has parsed.
+    let parses = || !matches!(build(pattern, 0), Err(regex::Error::Syntax(_)));
+    if expression && parses() {
+        let joined = build(&format!("(?:{pattern})|(?:{literal})"), REGEX_SIZE_LIMIT)
+            .ok()
+            .or_else(|| {
+                pattern.contains('#').then(|| {
+                    build(&format!("(?:{pattern}\n)|(?:{literal})"), REGEX_SIZE_LIMIT).ok()
+                })?
+            });
+        if let Some(regex) = joined {
+            return Some((regex, true));
+        }
+    }
+    build(&literal, REGEX_SIZE_LIMIT)
+        .ok()
+        .map(|regex| (regex, false))
 }
 
 impl LineQuery {
@@ -162,8 +181,8 @@ impl LineQuery {
                 if rest.is_empty() {
                     return None;
                 }
-                let expression = !literal && rest.contains(REGEX_META);
-                let regex = compile(rest, expression, ignore_case)?;
+                let (regex, expression) =
+                    compile(rest, !literal && rest.contains(REGEX_META), ignore_case)?;
                 let pattern = if ignore_case {
                     rest.to_lowercase().into()
                 } else {
@@ -401,36 +420,29 @@ fn ceil_boundary(text: &str, at: usize) -> usize {
     at
 }
 
-/// The bytes of `line` as text, as a buffer reads them: each invalid byte one U+FFFD.
-fn decoded(line: &[u8]) -> String {
-    let mut text = String::with_capacity(line.len());
+/// How long the bytes of `line` are as text, as [`push_decoded`] gives them.
+pub(crate) fn decoded_len(line: &[u8]) -> usize {
+    line.utf8_chunks()
+        .map(|chunk| {
+            chunk.valid().len() + chunk.invalid().len() * char::REPLACEMENT_CHARACTER.len_utf8()
+        })
+        .sum()
+}
+
+/// Pushes the bytes of `line` onto `text` as text, as a buffer reads them: each invalid byte one
+/// U+FFFD.
+fn push_decoded(text: &mut String, line: &[u8]) {
     for chunk in line.utf8_chunks() {
         text.push_str(chunk.valid());
         for _ in chunk.invalid() {
             text.push(char::REPLACEMENT_CHARACTER);
         }
     }
-    text
 }
 
-/// The text a row shows of `line`, which holds no line break, whose first match is `first`: at
-/// most [`MAX_ROW_BYTES`] of it around that match, cut at characters, each invalid byte one
-/// U+FFFD, with `…` where part of the line is left out. Also the match's column, in characters
-/// from the line's start, as a buffer of the file counts them.
-pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
-    let first_start = first.start.min(line.len());
-    // Each invalid byte is one character, as `decoded` reads it.
-    let column = line[..first_start]
-        .utf8_chunks()
-        .map(|chunk| chunk.valid().chars().count() + chunk.invalid().len())
-        .sum();
-    let mut start = if first.end.min(line.len()) <= MAX_ROW_BYTES {
-        0
-    } else {
-        first_start.saturating_sub(BEFORE_MATCH)
-    };
-    let mut end = (start + MAX_ROW_BYTES).min(line.len());
-    // A character a bound would cut in two is left out, at most three bytes of it.
+/// `start` and `end` within `line`, moved off a character they would cut in two: at most three
+/// bytes of it are left out. The bounds a row and an excerpt (ADR 0114) cut a line at.
+pub(crate) fn cut_bounds(line: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
     let continues = |at: usize| line.get(at).is_some_and(|byte| byte & 0xC0 == 0x80);
     for _ in 0..3 {
         if start > 0 && continues(start) {
@@ -440,15 +452,40 @@ pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
             end -= 1;
         }
     }
-    let end = end.max(start);
-    let mut text = String::with_capacity(end - start + 2 * CUT.len_utf8());
+    (start, end.max(start))
+}
+
+/// Pushes `line[start..end]` onto `text` as [`push_decoded`] reads it, with [`CUT`] where part of the
+/// line is left out; `start` and `end` as [`cut_bounds`] gives them.
+pub(crate) fn push_cut(text: &mut String, line: &[u8], (start, end): (usize, usize)) {
     if start > 0 {
         text.push(CUT);
     }
-    text.push_str(&decoded(&line[start..end]));
+    push_decoded(text, &line[start..end]);
     if end < line.len() {
         text.push(CUT);
     }
+}
+
+/// The text a row shows of `line`, which holds no line break, whose first match is `first`: at
+/// most [`MAX_ROW_BYTES`] of it around that match, cut at characters, each invalid byte one
+/// U+FFFD, with `…` where part of the line is left out. Also the match's column, in characters
+/// from the line's start, as a buffer of the file counts them.
+pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
+    let first_start = first.start.min(line.len());
+    // Each invalid byte is one character, as `push_decoded` reads it.
+    let column = line[..first_start]
+        .utf8_chunks()
+        .map(|chunk| chunk.valid().chars().count() + chunk.invalid().len())
+        .sum();
+    let start = if first.end.min(line.len()) <= MAX_ROW_BYTES {
+        0
+    } else {
+        first_start.saturating_sub(BEFORE_MATCH)
+    };
+    let (start, end) = cut_bounds(line, start, (start + MAX_ROW_BYTES).min(line.len()));
+    let mut text = String::with_capacity(end - start + 2 * CUT.len_utf8());
+    push_cut(&mut text, line, (start, end));
     (text.into(), column)
 }
 

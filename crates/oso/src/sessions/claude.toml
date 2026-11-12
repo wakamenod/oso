@@ -1,0 +1,165 @@
+# The rules that tell a hosted Claude Code session's state from its screen (ADR 0121).
+# Written against the TUI of Claude Code 2.1.322 and the screens in `screens/`; the format is in
+# docs/dev/agent-rules.md. A rule in agent-rules/claude.toml, in oso's configuration directory,
+# replaces the one here of the same name, and `disable = true` there removes one.
+#
+# Needs input is strict: only a rule that knows a dialog sets it. An unknown prompt is idle.
+# Every hold rule ranks below every needs-input rule, so that no view hides a dialog.
+
+version = 1
+
+# Dialogs.
+
+[[rule]]
+name = "plan-approval"
+state = "needs_input"
+reason = "plan"
+priority = 950
+region = "after_last_rule"
+contains = ["would you like to proceed?"]
+line_regex = ['^\s*(?:❯\s*)?1\.\s+Yes\b']
+any = [{ contains = ["plan"] }]
+
+[[rule]]
+name = "permission"
+state = "needs_input"
+reason = "permission"
+priority = 940
+region = "after_last_rule"
+contains = ["esc to cancel"]
+line_regex = ['(?i)^\s*do you want to\b.*\?\s*$', '^\s*(?:❯\s*)?1\.\s+Yes\b']
+
+[[rule]]
+name = "mcp-elicitation"
+state = "needs_input"
+reason = "elicitation"
+priority = 930
+region = "after_last_rule"
+contains = ["esc to cancel"]
+line_regex = ['(?i)^\s*MCP server .+ requests your input\s*$']
+any = [{ line_regex = ['^\s*(?:❯\s*)?Accept\b'] }, { line_regex = ['^\s*(?:❯\s*)?Decline\b'] }]
+
+[[rule]]
+name = "question"
+state = "needs_input"
+reason = "question"
+priority = 920
+region = "after_last_rule"
+contains = ["chat about this"]
+line_regex = ['(?i)^\s*enter to select\b.*\besc to cancel\s*$']
+
+[[rule]]
+name = "select-dialog"
+state = "needs_input"
+reason = "dialog"
+priority = 910
+region = "after_last_rule"
+line_regex = ['(?i)^\s*enter to select\s+·\s+\S.*\bto navigate\s+·\s+esc to cancel\s*$']
+
+[[rule]]
+name = "confirm-dialog"
+state = "needs_input"
+reason = "dialog"
+priority = 900
+region = "after_last_rule"
+line_regex = ['(?i)^\s*enter to confirm\s+·\s+esc to cancel\s*$', '^\s*❯\s+\S']
+
+# The transcript viewer (ctrl+o) hides a dialog that waits behind it, and says so in its footer,
+# the screen's last row. It does not say which dialog.
+[[rule]]
+name = "transcript-viewer-dialog"
+state = "needs_input"
+reason = "dialog"
+priority = 890
+region = "bottom(1)"
+line_regex = ['^\s*dialog waiting · Showing detailed transcript · ctrl\+o']
+
+# Full-screen views: keep the state they were opened in.
+
+[[rule]]
+name = "transcript-viewer"
+state = "hold"
+priority = 850
+region = "bottom(1)"
+line_regex = ['^\s*(?:dialog waiting · )?Showing detailed transcript · ctrl\+o']
+
+# A turn under way.
+
+[[rule]]
+name = "interrupt-footer"
+state = "working"
+priority = 800
+region = "after_last_rule"
+line_regex = ['(?i)·\s+esc to interrupt\b']
+
+# The status line: a spinner, a word, and an ellipsis. The line a finished turn leaves
+# ("✻ Brewed for 1s") has none.
+[[rule]]
+name = "status-line"
+state = "working"
+priority = 790
+region = "bottom(8)"
+line_regex = ['^[·✢✳✶✻✽*]\s+\S[^…]*…']
+
+[[rule]]
+name = "title-spinner"
+state = "working"
+priority = 780
+region = "title"
+regex = ['^[\x{2800}-\x{28FF}\x{25D0}-\x{25D3}] ']
+
+[[rule]]
+name = "progress-set"
+state = "working"
+priority = 770
+region = "progress"
+regex = ['^[13](?:;|$)']
+
+# Views over the prompt, each told by its own footer: help, the pickers, settings. A footer
+# that only offers Esc says nothing: an unknown dialog has one too, and must stay idle.
+
+[[rule]]
+name = "help"
+state = "hold"
+priority = 600
+region = "bottom(2)"
+line_regex = ['(?i)^\s*for more help:', '(?i)^\s*esc to cancel\s*$']
+
+[[rule]]
+name = "model-picker"
+state = "hold"
+priority = 600
+region = "bottom(1)"
+line_regex = ['(?i)^\s*enter to set as default\b.*\besc to cancel\s*$']
+
+[[rule]]
+name = "resume-picker"
+state = "hold"
+priority = 600
+region = "bottom(2)"
+regex = ['(?i)\btype to search\s+·\s+esc\s+to\s+cancel\s*$']
+
+[[rule]]
+name = "config"
+state = "hold"
+priority = 600
+region = "bottom(1)"
+line_regex = ['(?i)^\s*type to filter\b.*\besc to clear\s*$']
+
+# Waiting at the prompt.
+
+[[rule]]
+name = "prompt"
+state = "idle"
+priority = 500
+region = "prompt_box"
+line_regex = ['^❯(?:\s|$)']
+not = [{ line_regex = ['^\s*❯\s*\d+\.'] }]
+
+[[rule]]
+name = "progress-cleared"
+state = "idle"
+visible = true
+priority = 400
+region = "progress"
+regex = ['^0$']

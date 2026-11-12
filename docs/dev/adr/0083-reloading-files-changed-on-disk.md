@@ -1,6 +1,6 @@
 # 0083. Reloading files changed on disk
 
-- Status: Accepted
+- Status: Accepted, amended by 0119
 - Date: 2026-11-08
 
 ## Context
@@ -87,7 +87,8 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   ([ADR 0079](0079-state-and-restarts-around-a-secret-buffer.md)). Messages name the file
   only, and the reload logs nothing of its size.
 - **Waiting:** a reload neither starts nor goes in while a prompt is open
-  (`Editor::reload_waits`), as what the prompt's command acts on must not change under it.
+  (`Editor::reload_waits`), as what the prompt's command acts on must not change under it,
+  nor while an undo or a redo goes on ([ADR 0119](0119-undoing-large-steps-in-slices.md)).
   One that finishes then is dropped and read again once the prompt closes, and a
   `revert-buffer` that has to wait is asked for again. A buffer that is still loading or
   saving is not looked at. Once a save ends, its file is looked at again and reported

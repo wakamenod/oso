@@ -1,5 +1,6 @@
-//! isearch's commands (ADR 0082): starting a search, the keys of its keymap, and its
-//! exit. Where it goes, its count and its steps back are the editor's.
+//! isearch's commands (ADR 0082, ADR 0116): starting a search, literal or a regexp's, the
+//! keys of its keymap, and its exit. Where it goes, its count and its steps back are the
+//! editor's.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -28,6 +29,20 @@ pub const COMMANDS: &[Command] = &[
         run: isearch_backward,
     },
     Command {
+        name: "isearch-forward-regexp",
+        doc: "Search forward for a regular expression as you type.\n\nAs `isearch-forward`, but the string is a regexp in the syntax of Rust's `regex` crate, matched within one line. Case does not matter unless the regexp has an uppercase letter outside an escape, and `(?i)` or `(?-i)` in it wins. While it is incomplete, the line says so and the cursor stays.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_forward_regexp,
+    },
+    Command {
+        name: "isearch-backward-regexp",
+        doc: "Search backward for a regular expression as you type.\n\nAs `isearch-forward-regexp`, but the cursor goes to the start of the match that starts last before it.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_backward_regexp,
+    },
+    Command {
         name: "isearch-repeat-forward",
         doc: "Go to the next match of the search string.\n\nAfter a failing search, start again from the start of the buffer. With no string, search for the last one.",
         args: ArgSpec::None,
@@ -47,6 +62,13 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_printing_char,
+    },
+    Command {
+        name: "isearch-newline",
+        doc: "Add a line break to the search string and search again, as `C-j` does in an Emacs search.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_newline,
     },
     Command {
         name: "isearch-delete-char",
@@ -105,6 +127,13 @@ pub const COMMANDS: &[Command] = &[
         run: isearch_toggle_case_fold,
     },
     Command {
+        name: "isearch-toggle-regexp",
+        doc: "Turn the search string from literal to a regular expression or back, for the rest of this search.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_toggle_regexp,
+    },
+    Command {
         name: "isearch-mark-next",
         doc: "End the search with the current match as the region, and add a cursor at the next match.\n\nAs `mark-next-like-this` goes on after it, with the search's string and case.",
         args: ArgSpec::None,
@@ -128,18 +157,27 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn isearch_forward(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    begin(ctx, false)
+    begin(ctx, false, false)
 }
 
 fn isearch_backward(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    begin(ctx, true)
+    begin(ctx, true, false)
 }
 
-/// Starts a search, or repeats it when one is under way, as from `run-command`.
-fn begin(ctx: &mut Ctx<'_>, backward: bool) -> Result<(), CommandError> {
+fn isearch_forward_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    begin(ctx, false, true)
+}
+
+fn isearch_backward_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    begin(ctx, true, true)
+}
+
+/// Starts a search, of a `regexp` or a literal string, or repeats it when one is under way,
+/// as from `run-command`.
+fn begin(ctx: &mut Ctx<'_>, backward: bool, regexp: bool) -> Result<(), CommandError> {
     if ctx.editor.isearch().is_some() {
         ctx.editor.isearch_repeat(backward);
-    } else if !ctx.editor.isearch_begin(backward) {
+    } else if !ctx.editor.isearch_begin(backward, regexp) {
         return Err(CommandError::new("isearch does not work in a prompt"));
     }
     ctx.request_redraw();
@@ -170,6 +208,10 @@ fn isearch_printing_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError>
         return Err(CommandError::new("No text to search for"));
     }
     searching(ctx, |ctx| ctx.editor.isearch_add(input))
+}
+
+fn isearch_newline(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    searching(ctx, |ctx| ctx.editor.isearch_add("\n"))
 }
 
 fn isearch_delete_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -215,6 +257,10 @@ fn isearch_ring_advance(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> 
 
 fn isearch_toggle_case_fold(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     searching(ctx, |ctx| ctx.editor.isearch_toggle_case())
+}
+
+fn isearch_toggle_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    searching(ctx, |ctx| ctx.editor.isearch_toggle_regexp())
 }
 
 fn isearch_mark_next(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -267,12 +313,29 @@ mod tests {
     }
 
     #[test]
+    fn a_regexp_search_starts_and_its_toggle_turns_it_literal() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("a", "a.c abc"));
+        assert_eq!(run(&mut editor, "isearch-forward-regexp", ""), Ok(true));
+        assert!(editor.isearch().is_some_and(|search| search.regexp()));
+        assert_eq!(run(&mut editor, "isearch-printing-char", "b."), Ok(true));
+        assert_eq!(editor.window().selections.primary().cursor, 7);
+        assert_eq!(run(&mut editor, "isearch-toggle-regexp", ""), Ok(true));
+        assert!(editor.isearch().is_some_and(|search| !search.regexp()));
+        // `b.` literally is nowhere.
+        assert!(editor.isearch().is_some_and(|search| search.failing()));
+        // `C-M-s` in a search repeats it.
+        assert_eq!(run(&mut editor, "isearch-backward-regexp", ""), Ok(true));
+        assert!(editor.isearch().is_some_and(|search| search.backward()));
+    }
+
+    #[test]
     fn its_keys_fail_with_no_search() {
         let mut editor = Editor::with_buffer(Buffer::from_text("a", "x"));
         for name in [
             "isearch-repeat-forward",
             "isearch-exit",
             "isearch-delete-char",
+            "isearch-toggle-regexp",
         ] {
             assert!(
                 run(&mut editor, name, "")

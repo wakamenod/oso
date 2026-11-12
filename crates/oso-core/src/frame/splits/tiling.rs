@@ -162,6 +162,7 @@ fn build(
     Ok(Node::Run(Run {
         way,
         children: merged(way, built)?,
+        pair: false,
     }))
 }
 

@@ -56,7 +56,9 @@ here. How key bindings are written in config belongs to M1-3 and
   - In M2, `C-a` toggles between line start and the first non-blank
     character. `C-e` toggles between line end and the end before trailing
     whitespace.
-  - In M3, tree-sitter makes `C-e` also stop before a trailing comment.
+  - In M3, tree-sitter makes `C-e` also stop before a trailing comment: its two stops are
+    the end of the code and the line's end, as mwim's are
+    ([ADR 0111](0111-tree-sitter-highlighting.md), step 6).
 - **`C-x C-f` completes by path segment** (partial-completion style):
   `~/P/S/o` expands segment by segment, with fuzzy matching inside each
   segment.

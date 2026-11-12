@@ -6,14 +6,20 @@
 //! Must not depend on: `app` or `dispatch`; applying a setting is the caller's.
 
 use oso_core::editor::VisualAids;
+use oso_core::indent;
 
 use super::Settings;
+use super::settings::Jump;
 
 /// What a look's settings come to, against those in force before it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Changes {
     /// The visual aids' switches, if a setting of one changed.
     pub aids: Option<VisualAids>,
+    /// Whether `RET` indents, if `[indent] electric` changed (ADR 0115).
+    pub electric_indent: Option<bool>,
+    /// Whether a mode's indentation changed, for the buffers in it.
+    pub mode_indents: bool,
     /// The theme to switch to, quietly, if the configured default changed.
     pub theme: Option<String>,
     /// Whether to start the agent channel.
@@ -35,7 +41,7 @@ pub struct Look {
     pub group_writes: bool,
 }
 
-/// Every setting, each with a value.
+/// Every setting, each with a value, but the jump's, whose compiled-in values are the app's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InForce {
     /// The theme to start in, and to switch to when it changes.
@@ -49,6 +55,14 @@ pub struct InForce {
     /// Whether a save cleans the whitespace of the lines edited since (ADR 0113). It has no
     /// run-time switch, so the value in force is the one that applies.
     pub trim_whitespace: bool,
+    /// The jump's keys and timeout (ADR 0116), `None` where the file leaves them out, for the
+    /// editor's and the app's own. They have no run-time switch either.
+    pub jump: Jump,
+    /// Whether `RET` and typed closers indent (`electric-indent-mode`, ADR 0115).
+    pub electric_indent: bool,
+    /// Each mode's indentation, in the order of `config::MODES`, with where each property
+    /// came from: the file or the compiled-in default.
+    pub mode_indents: [(indent::Settings, indent::Origins); 4],
 }
 
 impl InForce {
@@ -64,6 +78,9 @@ impl InForce {
             aids: VisualAids::default(),
             agent_channel_start: false,
             trim_whitespace: false,
+            jump: Jump::default(),
+            electric_indent: true,
+            mode_indents: [Default::default(); 4],
         }
     }
 
@@ -88,6 +105,12 @@ impl InForce {
                 .save
                 .trim_whitespace
                 .unwrap_or(compiled.trim_whitespace),
+            jump: settings.jump.clone(),
+            electric_indent: or(settings.indent.electric, compiled.electric_indent),
+            mode_indents: std::array::from_fn(|index| {
+                let mode = settings.modes[index];
+                (mode.over(compiled.mode_indents[index].0), mode.origins())
+            }),
         }
     }
 
@@ -97,13 +120,14 @@ impl InForce {
     /// applies from the next start. The toggle's pair is applied on every look, as switching
     /// the theme sets it again.
     pub fn changes(&self, before: &Self, current: VisualAids, look: Look, name: &str) -> Changes {
-        let (aids, theme) = if look.handed_over {
-            (None, None)
+        let (aids, theme, electric_indent) = if look.handed_over {
+            (None, None, None)
         } else {
             let aids = self.aids_over(before, current);
             (
                 (aids != current).then_some(aids),
                 (self.theme != before.theme).then(|| self.theme.clone()),
+                (self.electric_indent != before.electric_indent).then_some(self.electric_indent),
             )
         };
         let start = self.agent_channel_start;
@@ -119,6 +143,8 @@ impl InForce {
         };
         Changes {
             aids,
+            electric_indent,
+            mode_indents: self.mode_indents != before.mode_indents,
             theme,
             start_channel,
             later,
@@ -142,10 +168,15 @@ impl InForce {
 #[cfg(test)]
 mod tests {
     use oso_core::editor::VisualAids;
+    use oso_core::indent;
 
     use super::{Changes, InForce, Look};
     use crate::config::Settings;
-    use crate::config::settings::{Aids, Save, ThemeSetting};
+    use std::time::Duration;
+
+    use oso_core::jump::Keys;
+
+    use crate::config::settings::{Aids, Jump, Save, ThemeSetting};
 
     const THEMES: &[&str] = &["dusk", "light", "dark"];
 
@@ -160,6 +191,9 @@ mod tests {
                 aids: VisualAids::default(),
                 agent_channel_start: false,
                 trim_whitespace: false,
+                jump: Jump::default(),
+                electric_indent: true,
+                mode_indents: [Default::default(); 4],
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -181,6 +215,11 @@ mod tests {
             save: Save {
                 trim_whitespace: Some(true),
             },
+            jump: Jump {
+                keys: Some(Keys::new("hjkl").unwrap()),
+                timeout: Some(Duration::from_secs(1)),
+            },
+            ..Settings::default()
         };
         assert_eq!(
             InForce::of(&settings, THEMES),
@@ -195,6 +234,12 @@ mod tests {
                 },
                 agent_channel_start: true,
                 trim_whitespace: true,
+                jump: Jump {
+                    keys: Some(Keys::new("hjkl").unwrap()),
+                    timeout: Some(Duration::from_secs(1)),
+                },
+                electric_indent: true,
+                mode_indents: [Default::default(); 4],
             }
         );
     }
@@ -219,6 +264,8 @@ mod tests {
         let compiled = InForce::compiled(THEMES);
         let none = Changes {
             aids: None,
+            electric_indent: None,
+            mode_indents: false,
             theme: None,
             start_channel: false,
             later: None,
@@ -302,6 +349,30 @@ mod tests {
             )
         );
         assert!(changes.aids.is_some(), "the other settings apply");
+    }
+
+    #[test]
+    fn electric_indent_and_the_modes_indentation_apply_when_they_change() {
+        let before = InForce::compiled(THEMES);
+        let mut now = before.clone();
+        now.electric_indent = false;
+        now.mode_indents[0].0 = indent::Settings::new(2, indent::Style::Tabs, 4).unwrap();
+        let changed = changes(&now, &before, LATER);
+        assert_eq!(
+            (changed.electric_indent, changed.mode_indents),
+            (Some(false), true)
+        );
+        let same = changes(&now, &now, LATER);
+        assert_eq!((same.electric_indent, same.mode_indents), (None, false));
+        let look = Look {
+            handed_over: true,
+            ..LAUNCH
+        };
+        assert_eq!(
+            changes(&now, &before, look).electric_indent,
+            None,
+            "the handoff's wins"
+        );
     }
 
     #[test]

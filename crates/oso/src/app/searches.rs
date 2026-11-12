@@ -15,11 +15,7 @@ use std::thread;
 
 use oso_core::editor::{SearchJob, SearchReport};
 
-use super::shell::Loop;
 use super::{App, UserEvent, Waker};
-
-/// How long a keyboard macro's replay runs at each turn of the loop (ADR 0113).
-const REPLAY_TURN: std::time::Duration = std::time::Duration::from_millis(4);
 
 /// The worker's queue, once its thread has started.
 #[derive(Default)]
@@ -75,34 +71,6 @@ impl App {
             self.searcher = Searcher::default();
             log::warn!("the search thread could not start");
         }
-    }
-
-    /// Replaces `!`'s next slice, if one is under way, and asks for another turn. Once it has
-    /// ended, the input held meanwhile runs.
-    pub(super) fn replace_slice(&mut self, event_loop: &Loop<'_>) {
-        if !self.editor.replace_works() {
-            return;
-        }
-        self.editor.replace_continue();
-        self.dispatcher.publish_for_emergency(&self.editor);
-        self.start_searches();
-        self.request_redraw();
-        if !self.editor.replace_works() {
-            let effects = self.dispatcher.run_held_during_all(&mut self.editor);
-            self.apply(event_loop, effects);
-        }
-    }
-
-    /// Feeds a keyboard macro's replay for a few milliseconds, and asks for another turn while
-    /// it runs (ADR 0113).
-    pub(super) fn replay_macro(&mut self, event_loop: &Loop<'_>) {
-        if !self.editor.macro_replaying() {
-            return;
-        }
-        let until = std::time::Instant::now() + REPLAY_TURN;
-        let effects = self.dispatcher.replay(&mut self.editor, until);
-        self.apply(event_loop, effects);
-        self.request_redraw();
     }
 
     /// The worker found or counted something.

@@ -31,6 +31,8 @@ mod clipboard;
 mod extended;
 mod held;
 mod hold_all;
+pub use hold_all::{Cancelled, holds_input};
+mod jump;
 mod keymaps;
 mod macros;
 mod prompts;
@@ -62,6 +64,9 @@ pub struct Dispatcher {
     /// (ADR 0113).
     #[cfg(any(test, feature = "dev"))]
     replace_commands: Vec<CommandId>,
+    /// The commands that run in a jump rather than end it, for `run-command` (ADR 0116).
+    #[cfg(any(test, feature = "dev"))]
+    jump_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -83,7 +88,8 @@ pub struct Dispatcher {
     waiting: Option<clipboard::Waiting>,
     /// Keyboard macros: what a recording takes, and a replay's state here (ADR 0113).
     macros: macros::MacroInput,
-    /// Input held while query-replace's `!` runs (ADR 0113).
+    /// Input held while query-replace's `!` runs (ADR 0113), or an undo or a redo of a large
+    /// step (ADR 0119).
     held_during_all: hold_all::HeldDuringAll,
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
@@ -91,7 +97,7 @@ pub struct Dispatcher {
     /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
     completion_held: Option<held::HeldTake>,
     /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
-    jump: Option<bool>,
+    view_jumped: Option<bool>,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -110,32 +116,22 @@ impl Dispatcher {
 
     /// A dispatcher over `registry`, with `global` as the global keymap.
     pub fn with(registry: Registry, global: Keymap) -> Self {
-        let (digits, minus) = bindings::prefix_keymaps(&registry);
-        let (list, copy) = bindings::recovery_keymaps(&registry);
-        let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
-        let isearch = bindings::isearch_keymap(&registry);
-        let replace = bindings::replace_keymap(&registry);
+        let keymaps = Keymaps::new(&registry, global);
         let macros = macros::MacroInput::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]
         let replace_commands = bindings::replace_commands(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let jump_commands = bindings::jump_commands(&registry);
         Self {
-            keymaps: Keymaps {
-                global,
-                user: Keymap::new(),
-                prefix: [digits, minus],
-                copy: [list, copy],
-                minibuffer,
-                question,
-                completing,
-                isearch,
-                replace,
-            },
+            keymaps,
             #[cfg(any(test, feature = "dev"))]
             isearch_commands,
             #[cfg(any(test, feature = "dev"))]
             replace_commands,
+            #[cfg(any(test, feature = "dev"))]
+            jump_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -150,7 +146,7 @@ impl Dispatcher {
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             completion_held: None,
-            jump: None,
+            view_jumped: None,
             ran_for_agent: false,
             #[cfg(test)]
             m_x_only: None,
@@ -231,7 +227,7 @@ impl Dispatcher {
         let out = work(self, editor);
         // Before the view is sampled: another digit of line numbers narrows the text area.
         editor.fit_gutter();
-        self.jump = Some(editor.flashes(&before, &editor.view_sample()));
+        self.view_jumped = Some(editor.flashes(&before, &editor.view_sample()));
         self.take_waiting_user();
         self.show_keys_in_progress(editor);
         out
@@ -276,8 +272,8 @@ impl Dispatcher {
     /// Whether the last input since this was last asked made the view jump, so the cursor
     /// flashes, or none came. An input that did not jump ends a flash; an agent's never
     /// does, so after one only a jump is reported.
-    pub fn take_jump(&mut self) -> Option<bool> {
-        self.jump.take()
+    pub fn take_view_jumped(&mut self) -> Option<bool> {
+        self.view_jumped.take()
     }
 
     /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.
@@ -390,6 +386,7 @@ impl Dispatcher {
     fn forget_keys(&mut self, editor: &mut Editor) {
         self.prefix = None;
         self.last = None;
+        editor.set_indent_rigidly_layer(false);
         editor.forget_kills();
     }
 
@@ -415,6 +412,11 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
+        // Any command but the person's of the layer of `C-x TAB` closes it first, joining its
+        // keys' edits.
+        if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
+            editor.set_indent_rigidly_layer(false);
+        }
         editor.begin_command();
         if std::mem::take(&mut self.passphrase_next) {
             editor.command_reads_passphrase();
@@ -477,7 +479,8 @@ impl Dispatcher {
         if let Some(done) = self.macro_before(editor, (Some(key), || MacroEvent::Key(key))) {
             return done;
         }
-        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
+        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key, self.from_socket))
+        {
             return done;
         }
         if self.hold_key(key) {
@@ -492,6 +495,9 @@ impl Dispatcher {
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
         let dropped = self.drop_held_completion();
+        if let Some(effects) = self.jump_digit(editor, key) {
+            return effects;
+        }
         let reading = self.keymaps.reading();
         let mut layers = self.keymaps.active(&reading, self.prefix, editor);
         // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
@@ -512,6 +518,9 @@ impl Dispatcher {
             Resolution::Pending => {
                 log::debug!("{}-", masked(self.resolver.pending(), true));
                 return Effects::default();
+            }
+            Resolution::Unbound(_) if editor.jump().is_some() => {
+                return self.jump_unbound(editor);
             }
             Resolution::Unbound(keys)
                 if editor.isearch().is_some() || editor.replace().is_some() =>
@@ -604,6 +613,8 @@ mod cursor_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
+mod editorconfig_tests;
+#[cfg(test)]
 mod emergency_tests;
 #[cfg(test)]
 mod file_tests;
@@ -614,7 +625,11 @@ mod held_tests;
 #[cfg(test)]
 mod ime_tests;
 #[cfg(test)]
+mod indent_tests;
+#[cfg(test)]
 mod isearch_tests;
+#[cfg(test)]
+mod jump_tests;
 #[cfg(test)]
 mod kill_tests;
 #[cfg(test)]
@@ -637,6 +652,8 @@ mod replace_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod undo_tests;
 #[cfg(test)]
 mod user_tests;
 #[cfg(test)]

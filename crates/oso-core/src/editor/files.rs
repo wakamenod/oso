@@ -1,6 +1,6 @@
-//! The prompt that reads a path, for `C-x C-f` and `C-x C-w` (ADR 0087): what is typed planned
-//! as segments, the directories the host must list, the candidates once they are, and the path
-//! an answer stands for.
+//! The prompt that reads a path, for `C-x C-f` and `C-x C-w` (ADR 0087) and for a directory, as
+//! `C-u` asks for a project's (ADR 0114): what is typed planned as segments, the directories the
+//! host must list, the candidates once they are, and the path an answer stands for.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window, threads or I/O; the host
 //! lists directories and says what it found.
@@ -11,8 +11,9 @@ use std::sync::Arc;
 
 use super::Editor;
 use super::completion::CompletionStyle;
+use super::visits::file_identity;
 use crate::buffer::{BufferId, Replacement};
-use crate::complete::path::{self, Found, Name, NameKind, Plan, Reach, Reached};
+use crate::complete::path::{self, Found, Name, Plan, Reach, Reached};
 use crate::complete::{Build, Built, Candidate, WORKER_PAST, listed, matched_part};
 use crate::minibuffer::{PromptError, PromptId};
 
@@ -67,9 +68,10 @@ pub(super) struct FileList {
 
 impl Editor {
     /// Opens a prompt that reads a directory's path, as [`Editor::open_file_prompt`] reads a
-    /// path, for a command that walks it (ADR 0114). `RET` on a file's row says it is not a
-    /// directory and keeps the prompt open, unless what is typed ends with `/`, which gives that
-    /// directory.
+    /// path, for a command that walks it (ADR 0114). It lists only directories and links; `RET`
+    /// on a row goes into it, and on a link a look found leads elsewhere says it is not a
+    /// directory and keeps the prompt open. What is typed is given only as its listings allow
+    /// ([`Editor::directory_answer_waits`] says while they have not come).
     ///
     /// # Errors
     ///
@@ -290,6 +292,7 @@ impl Editor {
                 listings.get(directory).cloned().flatten()
             }),
             hidden,
+            directories_only: self.file_list.wants_directory,
             most: MAX_FOUND,
             keep,
             history,
@@ -359,15 +362,21 @@ impl Editor {
         }
     }
 
-    /// The path the innermost prompt's selected candidate stands for, with whether it is a
-    /// directory, if it reads a path and a candidate is selected.
-    pub(super) fn selected_file(&self) -> Option<(&Found, String)> {
+    /// What the innermost prompt's selected candidate found, if it reads a path and a candidate
+    /// is selected.
+    pub(super) fn selected_found(&self) -> Option<&Found> {
         if !self.reads_path() {
             return None;
         }
         let candidates = self.prompts.last()?.candidates()?;
         let index = candidates.item_at(candidates.selected()?)?;
-        let found = self.file_list.found.get(index)?;
+        self.file_list.found.get(index)
+    }
+
+    /// The path the innermost prompt's selected candidate stands for, with whether it is a
+    /// directory, if it reads a path and a candidate is selected.
+    pub(super) fn selected_file(&self) -> Option<(&Found, String)> {
+        let found = self.selected_found()?;
         let looked = self.file_list.looks.get(&found.path);
         let directory = found.directory || looked.is_some_and(|looked| looked.directory);
         let typed = path::typed_form(&found.path, directory, self.home.as_deref());
@@ -428,11 +437,10 @@ impl Editor {
             return Some(self.give_answer(path.display().to_string()));
         }
         let path = self.typed_file()?;
-        // A file typed whole, or given with `M-RET`, is no directory either, where a listing of
-        // its own directory says so.
-        if wants_directory && !slash && self.listed_as_file(&path) {
-            let shown = path::typed_form(&path, false, self.home.as_deref());
-            self.prompt_says(format!("Not a directory: {shown}"));
+        // What is typed for a prompt that wants a directory is given only if what its listings
+        // and looks say of it allows that.
+        if wants_directory && let Some(refused) = self.not_a_directory(&path, slash) {
+            self.prompt_says(refused);
             return Some(Err(PromptError::Invalid));
         }
         let mut answer = path.display().to_string();
@@ -440,20 +448,6 @@ impl Editor {
             answer.push('/');
         }
         Some(self.give_answer(answer))
-    }
-
-    /// Whether the listing of the directory that holds `path` names it as something other than a
-    /// directory or a link. Unlisted, it is not known to be one.
-    fn listed_as_file(&self, path: &Path) -> bool {
-        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
-            return false;
-        };
-        let Some(Some(names)) = self.file_list.listings.get(parent) else {
-            return false;
-        };
-        names.iter().any(|listed| {
-            *listed.name == *name && !matches!(listed.kind, NameKind::Directory | NameKind::Link)
-        })
     }
 
     /// The directory oso started in, which a buffer with no file starts a path from.
@@ -501,20 +495,42 @@ impl Editor {
             }
             paths.push(found.path.clone());
         }
+        // The row selected and the link typed whole, which decide an answer though no row may
+        // show them, as when the float has no room, each in a look of its own, as one look
+        // covers at most the rows shown.
+        let selected = self.selected_found().map(|found| found.path.clone());
+        for path in [selected, self.typed_link_unlooked()].into_iter().flatten() {
+            if list.looks.contains_key(&path)
+                || list.looking.contains(&path)
+                || paths.contains(&path)
+            {
+                continue;
+            }
+            let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
+                continue;
+            };
+            let name = name.to_string_lossy().into_owned();
+            asked.push((directory.to_path_buf(), vec![name]));
+            paths.push(path);
+        }
         self.file_list.looking.extend(paths);
         asked
     }
 
-    /// Takes in what looking at the names in `directory` found, and shows it on their rows.
+    /// Takes in what looking at the names in `directory` found, and shows it on their rows. A
+    /// name asked for in `directory` that it does not answer was in a look the host replaced
+    /// with this one, as it keeps one waiting per directory: it is asked for again while shown,
+    /// so that nothing waits for it.
     pub fn file_looked(&mut self, directory: &Path, looks: Vec<(String, Looked)>) {
         if self.file_list.prompt.is_none() {
             return;
         }
         for (name, looked) in looks {
-            let path = directory.join(name);
-            self.file_list.looking.remove(&path);
-            self.file_list.looks.insert(path, looked);
+            self.file_list.looks.insert(directory.join(name), looked);
         }
+        self.file_list
+            .looking
+            .retain(|path| path.parent() != Some(directory));
         self.patch_looks();
     }
 
@@ -524,14 +540,9 @@ impl Editor {
     /// anything (ADR 0085); once shown, it is like any other.
     pub fn visiting_same_file(&self, id: BufferId) -> Option<BufferId> {
         let buffer = self.buffer(id).filter(|buffer| !buffer.agent_pending())?;
-        let identity = buffer.baseline()?.file?.identity?;
-        self.buffers().map(|(other, _)| other).find(|other| {
-            *other != id
-                && self
-                    .buffer(*other)
-                    .filter(|buffer| !buffer.agent_pending())
-                    .and_then(|buffer| buffer.baseline()?.file?.identity)
-                    == Some(identity)
+        let identity = file_identity(buffer)?;
+        self.find_open_buffer(|other, buffer| {
+            other != id && file_identity(buffer) == Some(identity)
         })
     }
 
@@ -570,6 +581,8 @@ fn row(found: &Found, looked: &Looked) -> Candidate {
     };
     Candidate::new(name, "", note)
 }
+
+mod directory;
 
 #[cfg(test)]
 mod tests;

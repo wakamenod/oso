@@ -1,6 +1,7 @@
 //! The agent channel's `text` (ADR 0085): whole rows of a buffer, or the selected window's
 //! region, checked on the UI thread and copied off it from an O(1) snapshot, as the dev
-//! socket's `get-text` is (ADR 0044). Never of a buffer that may hold secrets.
+//! socket's `get-text` is (ADR 0044). Never of a buffer that may hold secrets, or of one
+//! withheld from agents (ADR 0121).
 //!
 //! Must not depend on: sockets or `app`; the caller hands the job a reply channel.
 
@@ -30,6 +31,9 @@ const OPENING: &str = "the buffer is still opening; try again";
 
 /// Why text is refused for a buffer that may hold secrets.
 const WITHHELD: &str = "the buffer may hold secrets, so its text stays in the editor";
+
+/// Why text is refused for a buffer withheld from agents (ADR 0121).
+const PERSONS: &str = "only the person reads that buffer, so its text stays in the editor";
 
 /// A `text` request, with a snapshot of a buffer that may hold no secrets.
 pub struct TextJob {
@@ -80,6 +84,9 @@ pub fn start(editor: &Editor, of: TextOf) -> Result<TextJob, String> {
             if shown.is_secret() {
                 return Err(WITHHELD.into());
             }
+            if shown.withheld_from_agents() {
+                return Err(PERSONS.into());
+            }
             let primary = window.selections.primary();
             let mark = primary
                 .mark
@@ -99,6 +106,9 @@ fn snapshot(editor: &Editor, id: BufferId, what: What) -> Result<TextJob, String
     let buffer = editor.buffer(id).ok_or("no buffer with that id")?;
     if buffer.is_secret() {
         return Err(WITHHELD.into());
+    }
+    if buffer.withheld_from_agents() {
+        return Err(PERSONS.into());
     }
     // Nothing of a file the channel is still opening: its open may yet refuse it (ADR 0094).
     if buffer.agent_pending() {

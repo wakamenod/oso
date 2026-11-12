@@ -76,7 +76,8 @@ impl<'a> Parts<'a> {
         let mut region = Vec::new();
         editor.prompt_region_cells(answer, &mut region);
         let preview = layout.regions.preview;
-        let kill = match editor.preview() {
+        // Only `M-y` previews a kill's text; other previews are worked out where they are drawn.
+        let kill = match editor.kill_list_open().then(|| editor.preview()).flatten() {
             Some(Preview::Text { entry }) => {
                 editor.kill_preview(entry, preview.rows, preview.columns)
             }
@@ -315,6 +316,8 @@ pub(super) struct Screens<'a> {
     pub(super) answer: &'a Screen,
     /// The buffer it previews, wrapped at the preview's width while that buffer wraps.
     pub(super) preview: &'a Screen,
+    /// What the preview fills behind its text: a project search's matches (ADR 0114).
+    pub(super) preview_fills: &'a [(Face, &'a [CellRect])],
 }
 
 /// Adds the float's panes to `list`, after the tiled ones.
@@ -405,7 +408,7 @@ pub(super) fn panes<'a>(
         ));
     }
     list_panes(parts, lines, list);
-    preview_panes(editor, (parts, screens.preview), lines, list);
+    preview_panes(editor, (parts, screens), lines, list);
 }
 
 /// Adds a list's panes to `list`: its count, and its candidates' rows, which keep the padding
@@ -491,7 +494,9 @@ fn answer<'a>(
         // Where the answer's rows were laid out with it (ADR 0104).
         preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
         fills: &lines.fills,
+        labels: &[],
         whitespace: false,
         flash: None,
+        highlights: None,
     })
 }

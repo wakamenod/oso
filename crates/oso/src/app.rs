@@ -30,12 +30,15 @@ mod greps;
 mod handover;
 mod ime;
 mod input;
+mod jumps;
 mod loads;
 mod log_gate;
 mod projects;
 mod reloads;
 mod saves;
 mod searches;
+mod sessions;
+mod slices;
 mod syntax;
 mod theme_file;
 mod trims;
@@ -99,10 +102,14 @@ pub enum UserEvent {
     Listed,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
+    /// A thread read the EditorConfig of a file `C-x C-w` named (ADR 0115).
+    EditorConfig,
     /// The walker found a project's files, or ended (ADR 0114).
     Walked(crate::walk::Walked),
     /// A project's search found rows, or ended (ADR 0114).
     Grepped(crate::grep::Found),
+    /// The lines around a search's row were read for its preview, or could not be (ADR 0114).
+    Previewed(crate::grep::Previewed),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
     Trust,
     /// A control socket request, in dev builds.
@@ -114,6 +121,8 @@ pub enum UserEvent {
     AgentDeadline,
     /// The agent channel started, or could not, off the UI thread.
     AgentStarted(std::io::Result<crate::channel::Channel>),
+    /// The sessions worker found something (ADR 0121).
+    Sessions(crate::sessions::worker::Out),
 }
 
 /// Top-level application state.
@@ -156,6 +165,11 @@ pub struct App {
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
     wheel: input::Wheeling,
+    /// Wheel and trackpad scrolling held while `!` or an undo goes on, in rows and columns, a
+    /// sum for each window, which scrolls after the keys held with it (ADR 0119).
+    held_wheel: Vec<(WindowId, isize, isize)>,
+    /// When work over turns last drew a frame (ADR 0119).
+    pace: slices::Pace,
     /// What each tiled window's modeline and the echo area said when a frame was last drawn
     /// or asked for, and room to compare it with what they would say now (ADR 0112).
     statuses: Vec<(WindowId, Status)>,
@@ -185,14 +199,25 @@ pub struct App {
     lister: crate::lister::Lister,
     /// The thread that finds each file's project (ADR 0114).
     projects: crate::project::Detector,
+    /// The home directory, after which no EditorConfig is read (ADR 0115).
+    home: crate::loader::Home,
+    /// The thread that reads EditorConfig after `C-x C-w` (ADR 0115).
+    editorconfigs: crate::loader::EditorConfigReader,
     /// The thread that walks a project's files for `project-find-file` (ADR 0114).
     walker: crate::walk::Walker,
     /// When the rows a walk sent are added if it sends nothing more.
     quiet_walk: walks::Quiet,
     /// The threads that search a project's files for `project-search` (ADR 0114).
     grep: crate::grep::Grep,
+    /// The thread that reads a search's row's file for its preview (ADR 0114).
+    previewer: crate::grep::Previewer,
     /// The thread that reads and writes the record of trusted projects, if there is one.
     trust_file: Option<crate::config::TrustFile>,
+    /// The sessions worker, which judges hosted sessions' screens (ADR 0121).
+    sessions: Option<crate::sessions::worker::Worker>,
+    /// The internal `*Session explain*` buffer, once there is one (ADR 0121). Kept by its id,
+    /// never found by its name, which anyone may give a buffer of their own.
+    explain: Option<oso_core::buffer::BufferId>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -200,6 +225,8 @@ pub struct App {
     agent: agent::Agent,
     /// The cursor flash fading after a large jump (ADR 0097).
     flash: flash::Flash,
+    /// When a jump reading its string shows its labels (ADR 0116).
+    jump_timer: jumps::JumpTimer,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -276,8 +303,11 @@ impl App {
         let disk = reloads::Disk::start(waker.clone());
         let lister = files::lister(&waker);
         let projects = projects::detector(&waker);
+        let (home_dir, editorconfigs) = projects::editorconfig_reader(&waker);
         let walker = walks::walker(&waker);
         let grep = greps::grep(&waker);
+        let previewer = greps::previewer(&waker);
+        let sessions = sessions::worker(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
         editor.set_home(home());
@@ -307,7 +337,11 @@ impl App {
             answering: None,
             scan_for_copies: false,
             started: Some(started),
+            home: home_dir,
+            editorconfigs,
             wheel: input::Wheeling::default(),
+            held_wheel: Vec::new(),
+            pace: slices::Pace::default(),
             statuses: Vec::new(),
             next_statuses: Vec::new(),
             ime: ime::ImeState::default(),
@@ -325,10 +359,14 @@ impl App {
             walker,
             quiet_walk: walks::Quiet::default(),
             grep,
+            previewer,
             trust_file: None,
+            sessions,
+            explain: None,
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),
+            jump_timer: jumps::JumpTimer::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]
@@ -396,8 +434,12 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
-        self.flash_after_input();
+        let input = self.flash_after_input();
+        self.time_jump(input);
         self.forget_killed();
+        if let Some(freed) = self.editor.take_crossing_freed() {
+            self.freer.free(freed);
+        }
         self.serve_files();
         self.forget_listings();
         self.start_walks();

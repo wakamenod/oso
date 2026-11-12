@@ -92,13 +92,14 @@ impl Editor {
     ///
     /// From a command run around a buffer that may hold secrets, this only reaches the
     /// echo area, or nothing if the command took that buffer off the screen, as what a
-    /// command says can depend on the text.
+    /// command says can depend on the text. So does the agent channel's around a buffer
+    /// withheld from it, and the channel does not read that echo.
     pub fn message(&mut self, text: impl Into<String>) {
         if let Some(left_secret) = self.command_left_secret {
             if left_secret {
                 return;
             }
-            if self.shows_secret() || self.passphrase_command {
+            if self.shows_secret() || self.passphrase_command || self.agent_near_withheld() {
                 self.set_echo(text);
                 return;
             }
@@ -124,7 +125,10 @@ impl Editor {
     /// reach only the echo area.
     pub fn note(&mut self, text: impl Into<String>) {
         if let Some(left_secret) = self.command_left_secret
-            && (left_secret || self.shows_secret() || self.passphrase_command)
+            && (left_secret
+                || self.shows_secret()
+                || self.passphrase_command
+                || self.agent_near_withheld())
         {
             return;
         }
@@ -170,8 +174,20 @@ impl Editor {
         self.put_echo(Echo {
             text: capped(text.into()),
             goes_with_the_window: self.shows_secret(),
-            withheld: secret,
+            withheld: secret || self.agent_near_withheld(),
         });
+    }
+
+    /// Whether the agent channel runs a command while a buffer withheld from it is shown
+    /// (ADR 0121). What that command says can depend on the text, as with a secret's, so it
+    /// reaches only the echo area, which the channel does not read. The person's commands
+    /// say what they say.
+    fn agent_near_withheld(&self) -> bool {
+        self.runs_for_agent()
+            && self
+                .windows
+                .iter()
+                .any(|window| self.shown(window).withheld_from_agents())
     }
 
     /// Whether the echo area's line was said by a command that got a passphrase, so the
@@ -258,19 +274,27 @@ impl Editor {
                 isearch.note_secret();
             }
             self.replace_note_secret();
+            if let Some(jump) = &mut self.jump {
+                jump.around_secret = true;
+            }
         }
     }
 
     /// Whether anything the control socket would show was around a buffer that may hold
     /// secrets, as [`Editor::keys_withheld`], [`Editor::preedit_withheld`] and
-    /// [`Prompt::around_secret`](crate::minibuffer::Prompt::around_secret) say, so that a
-    /// picture of the screen is refused too.
+    /// [`Prompt::around_secret`](crate::minibuffer::Prompt::around_secret) and a jump's
+    /// [`Jump::around_secret`](crate::jump::Jump::around_secret) say, so that a picture of the
+    /// screen is refused too.
     pub fn around_secret(&self) -> bool {
         self.keys_withheld
             || self.preedit_withheld
             || self.prompts.iter().any(|prompt| prompt.around_secret)
             || self.isearch.as_ref().is_some_and(Isearch::around_secret)
             || self.replace().is_some_and(super::Replace::around_secret)
+            || self
+                .jump
+                .as_ref()
+                .is_some_and(crate::jump::Jump::around_secret)
     }
 
     /// What the echo area shows.
@@ -1051,5 +1075,28 @@ mod tests {
         let other = editor.add_buffer(Buffer::new("other"));
         editor.show(other);
         assert_eq!(echo(&editor), "Wrote /tmp/.env");
+    }
+
+    #[test]
+    fn what_the_agents_command_says_around_a_buffer_withheld_from_it_stays_in_the_echo_area() {
+        let mut editor = Editor::with_buffer(Buffer::new("notes"));
+        let id = editor.add_internal_buffer("*Report*", crate::buffer::Mode::Fundamental);
+        editor.buffer_mut(id).unwrap().withhold_from_agents();
+        editor.show(id);
+        editor.for_agent(|editor| {
+            editor.begin_command();
+            editor.message("Char: s");
+            editor.note("noted");
+            editor.end_command();
+        });
+        assert_eq!(echo(&editor), "Char: s");
+        assert!(editor.echo_withheld());
+        assert!(!messages_text(&editor).contains("Char: s"));
+        assert!(!messages_text(&editor).contains("noted"));
+        editor.begin_command();
+        editor.message("Mark set");
+        editor.end_command();
+        assert!(!editor.echo_withheld(), "the person's");
+        assert!(messages_text(&editor).contains("Mark set"));
     }
 }

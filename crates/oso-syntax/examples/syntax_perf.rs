@@ -5,6 +5,8 @@
 //!
 //! Run it in a release build, with files that are joined and cut to `oso_syntax::MAX_BYTES` at
 //! a line: `cargo run --release -p oso-syntax --example syntax_perf -- rust FILE...`.
+//! `fenced` makes Markdown of Rust files, every 40 lines in a fence of `rust` between two
+//! paragraphs.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -22,17 +24,19 @@ const SLICE: Duration = Duration::from_millis(20);
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let language = match args.next().as_deref() {
-        Some("rust") => Language::Rust,
-        Some("markdown") => Language::Markdown,
-        Some("toml") => Language::Toml,
-        _ => return eprintln!("usage: syntax_perf rust|markdown|toml FILE..."),
+    let (language, fenced) = match args.next().as_deref() {
+        Some("rust") => (Language::Rust, false),
+        Some("markdown") => (Language::Markdown, false),
+        Some("fenced") => (Language::Markdown, true),
+        Some("toml") => (Language::Toml, false),
+        _ => return eprintln!("usage: syntax_perf rust|markdown|fenced|toml FILE..."),
     };
     let mut text = String::new();
     let files: Vec<String> = args.collect();
     while text.len() < MAX_BYTES && !files.is_empty() {
         for file in &files {
             match std::fs::read_to_string(file) {
+                Ok(read) if fenced => text.push_str(&in_fences(&read)),
                 Ok(read) => text.push_str(&read),
                 Err(error) => return eprintln!("{file}: {error}"),
             }
@@ -91,4 +95,18 @@ fn main() {
     let done = document.highlight(&mut queries, &[shown], LONG);
     assert_eq!(done, Highlighted::Done);
     println!("after one key: {:.2?}", start.elapsed());
+}
+
+/// `rust` as Markdown: every 40 of its lines in a fence, after a paragraph.
+fn in_fences(rust: &str) -> String {
+    let lines: Vec<&str> = rust.lines().collect();
+    lines
+        .chunks(40)
+        .map(|chunk| {
+            format!(
+                "Some *text* and `code`.\n\n```rust\n{}\n```\n\n",
+                chunk.join("\n")
+            )
+        })
+        .collect()
 }

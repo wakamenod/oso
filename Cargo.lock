@@ -1403,6 +1403,7 @@ dependencies = [
  "oso-syntax",
  "pollster",
  "proptest",
+ "regex",
  "serde_json",
  "similar 3.2.1",
  "toml",

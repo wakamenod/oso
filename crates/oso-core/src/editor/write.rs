@@ -179,6 +179,7 @@ impl Editor {
             return;
         };
         let withheld = buffer.verdict().is_withheld();
+        let mode_before = buffer.mode();
         let old = buffer
             .path()
             .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
@@ -196,15 +197,21 @@ impl Editor {
         if withheld {
             buffer.treat_as_secret();
         }
+        let mode = buffer.mode();
         if buffer.is_modified() {
             self.reset_exit_guard();
+        }
+        // A new name can change the mode: the buffer takes its indentation too (ADR 0115).
+        if mode != mode_before {
+            self.give_mode_indent(id);
         }
         // The buffers named like the old file may take a shorter name, and those like the new
         // one a longer one.
         self.name_files_like(&old);
         self.name_files_like(&new);
-        // It may be in another project now.
+        // It may be in another project now, under other EditorConfig files (ADR 0115).
         self.request_project(id);
+        self.request_editorconfig(id);
     }
 }
 

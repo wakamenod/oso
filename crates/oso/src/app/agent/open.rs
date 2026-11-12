@@ -210,7 +210,7 @@ impl App {
             );
         }
         // Showing the buffer is no input of the dispatcher's, so it is compared here.
-        let jumped = self.dispatcher.take_jump() == Some(true)
+        let jumped = self.dispatcher.take_view_jumped() == Some(true)
             || self.editor.flashes(&before, &self.editor.view_sample());
         self.flash_after_agent(jumped);
         self.request_redraw();
@@ -318,6 +318,7 @@ fn reusable(buffer: &oso_core::buffer::Buffer) -> Option<&'static str> {
         Unshowable::Opening => "the file is still opening for the agent; try again",
         Unshowable::Loading => "the file is open and still loading; try again",
         Unshowable::OwnKeys => "the file is open in a buffer whose keys are the person's",
+        Unshowable::Withheld => "the file is open in a buffer only the person reads",
     })
 }
 

@@ -75,9 +75,9 @@ impl Dispatcher {
         reach: Reach,
     ) -> Result<(Effects, Result<(), String>), Refused> {
         // An agent's command is no key of the person's, so it ends no flash (ADR 0105).
-        let before = self.jump.take();
+        let before = self.view_jumped.take();
         let ran = self.run_agent_command(editor, name, given, reach);
-        self.jump = if self.jump == Some(true) {
+        self.view_jumped = if self.view_jumped == Some(true) {
             Some(true)
         } else {
             before
@@ -179,6 +179,7 @@ fn showable(editor: &Editor, name: &str) -> Result<BufferId, &'static str> {
         Some(Unshowable::Opening) => Err("that buffer is still opening; try again"),
         Some(Unshowable::Loading) => Err("that buffer is still loading; try again"),
         Some(Unshowable::OwnKeys) => Err("that buffer's keys are the person's; ask the person"),
+        Some(Unshowable::Withheld) => Err("only the person reads that buffer; ask the person"),
     }
 }
 
@@ -194,12 +195,17 @@ pub enum Unshowable {
     Loading,
     /// It has keys of its own, which the person's typing would then reach.
     OwnKeys,
+    /// It is withheld from the agent channel, though it holds no secret, such as
+    /// `*Session explain*` (ADR 0121).
+    Withheld,
 }
 
 /// Why the channel may not show `buffer`, if it may not. One check for every way it shows one.
 pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
     if buffer.is_secret() {
         Some(Unshowable::Secret)
+    } else if buffer.withheld_from_agents() {
+        Some(Unshowable::Withheld)
     } else if buffer.agent_pending() {
         Some(Unshowable::Opening)
     } else if buffer.loading().is_some() {

@@ -156,8 +156,8 @@ then a space; its content column is where the text after the marker starts.
 
 - `RET` indents the new line to the content column of the item it is in, as markdown-mode's
   `markdown-indent-on-enter` does, and to the previous line's indentation elsewhere. Inside a fenced
-  code block it copies the previous line's indentation: fenced Rust gets no Rust rules until
-  injections come (ADR 0111).
+  code block it copies the previous line's indentation: fenced Rust gets no Rust rules. ADR
+  0111's step 7 highlights fenced Rust, but indentation does not read it yet.
 - `TAB` cycles the line through the positions it could take, as markdown-mode's
   `markdown-indent-line` does: the content columns of the items above it that it could belong to,
   from the innermost out, then column 0, then the innermost again.
@@ -493,3 +493,488 @@ gains `amended by 0115`.
   place, and a trait can come with modes from outside the crate.
 - **Expanding EditorConfig's `{n1..n2}` into alternatives:** a crafted `{1..999999999}` would build a
   huge regex; a number checked against the range costs nothing.
+
+## As built
+
+### Step 1: the rules
+
+- **`indent` sits on the row of `undo` and `kill` in `layers.txt`,** not beside `buffer`,
+  `motion` and `search` as Where the code lives says (the author's choice, 2026-11-12, through
+  the coordinator): it uses only the rope, the display map and `sum_tree`, and below `buffer`,
+  `Buffer` can hold its `Settings`.
+- **One function per mode, chosen by the caller.** `indent` cannot name `buffer::Mode`, which is
+  above it. It has one function per mode with the same signature, `rust`, `toml`, `markdown` and
+  `fundamental`, and step 2 chooses one with the match on `Mode`, in `buffer` or in
+  `editor::indent`. Inside, the four share one pass through a private trait; there is no public
+  trait.
+- **The tab width has one owner:** the buffer's `Settings::tab_width`, from 1 to 32, which also
+  sets the display map's `TabWidth` (the author's choice, 2026-11-12). Step 2 or step 4 wires it;
+  until then the display's tab width stays the default 8, which `Settings::default` matches.
+- **The public items:** `Settings` (`new(indent_size, style, tab_width)`, which refuses a value
+  outside 1 to `Settings::MAX`, 32; the three getters; `indentation(column)`, the text that
+  indents to a column), `Style`, `Answer` (`Column` or `Keep`), `Line` (`Row(row)`, an existing
+  line, or `New(offset)`, the line a break at that offset would start), `Budget` (`new`,
+  `with_limit(bytes)`, as `motion::WalkBudget` names it, and `is_spent`), the constants
+  `LINE_LOOKBACK`, `COMMAND_READ` and `LINE_COST`, the four rule functions, and
+  `markdown_stops(rope, settings, row, budget)` for step 3's `TAB` cycle. The lines asked are in
+  the order of where they start; one out of order gets the fallback, and one asked twice the
+  same answer.
+- **The fallback:** past the budget or the lookback, or where the rules cannot tell (inside
+  brackets deeper than they keep), a new line takes the indentation of the nearest non-blank
+  line before it, looking 128 bytes back, then 1 KiB; an existing line keeps its own, as
+  Decision says for `TAB`. What the fallbacks read comes from a reserve of 64 KiB a command apart
+  from the budget; past it, a new line gets no indentation. Markdown's existing lines always
+  keep: `TAB` cycles through `markdown_stops` instead. `Keep` for a new line means insert no
+  indentation and delete no space around the break.
+- **No answer past column 4096:** a line that would go deeper keeps its indentation, so that no
+  command inserts more than that for one line, whatever the text.
+- **Each answer counts for the next:** a line the command reindents, or a new line it starts,
+  has the answered indentation for the lines after it. So `foo(|bar(|x))` with `RET` at both
+  cursors gives 4, then 8, as the second opener's line is the new one; and a line the command
+  moves off column 0 is no anchor, so reindenting pasted code that starts at the margin keeps its
+  brackets. A break at a line's start leaves an empty line behind it, so the new line takes no
+  indentation in Fundamental and Markdown. A line that starts inside a string, a multi-line one or
+  a raw one, or one that a `\` at a line's end goes on, lays out what follows as the line the
+  string starts on (step 2 widened this wording; the rule was so from step 1).
+- **Rust's continuation follows rustfmt more closely than rule 4.** The repository's fixed point
+  needed:
+  - continuation inside every bracket, not only `{` and top level, with an opener at a line's end
+    ending it: rustfmt indents a chain inside a call's arguments too;
+  - a line that starts with `.` sits with the chain's call before it, or one level past the line
+    its chain starts on; one that starts with an operator and a space (`&&`, `||`, `+`, `==`) sits
+    with the operand before it; any other line that goes on sits with the one before it, if that
+    one went on too; after a line of closers only (`})`, `)?`), a chain sits with the closers and
+    an operand with the line that opened them; a value on the line after `=` keeps the operands'
+    place. So continuation does not stack: ten `.call()` lines, or ten lines of a macro's body
+    that end no statement, stay one level in;
+  - a `match` guard's operands one level past the `if` line, `| Pat` lines in a `match`'s arms
+    with the first pattern, and `else` with no continuation, for `let ... else {`;
+  - a `}` that closes a non-empty `{` opened on the same line, as `Foo { a }` or
+    `unsafe { f() }`, ends no statement; an empty `{}` does.
+- **The shared pass:** every cursor carries the state on, and the pass starts afresh at each
+  anchor it passes outside a string or comment. A line within 1 KiB of the one before reads on to
+  it, as does the row right after the row before; a farther one looks back for its own anchor, in
+  windows from 256 bytes up to 4 KiB, no farther than the line before. When the line before ends
+  inside a string or comment, the pass first reads on to where it closes, as a line inside one
+  that looks like an anchor proves nothing. 1 KiB measured best of 512 bytes, 1 KiB and 4 KiB for
+  1000 cursors: at 4 KiB they read on through the whole file and ran out of budget.
+- **What the budget counts:** each byte read once, the lookback's too, and at least `LINE_COST`,
+  32 bytes, a line, as reading a line costs about as much as lexing 32 bytes; so short lines are
+  bounded in time too. A region of `bytes` and `lines` needs at most
+  `bytes + lines * LINE_COST`, plus its first line's lookback. At most 4 KiB of spaces and tabs is
+  read at the start of a line asked about.
+- **Bounded memory:** the lexer keeps 256 open brackets and counts any deeper; 100,000 brackets
+  deep is tested. Nothing recurses. A line longer than one of the rope's chunks is copied once,
+  within the budget. The column a block comment opens at is measured once, at the end of its
+  line.
+- **Measured** with `cargo run --release -p oso-core --example text_perf -- indent` on the
+  author's Mac. "Rust" is a 2 MiB file of items as rustfmt writes them, with an anchor every
+  ~900 bytes; "impl" is one `impl` of 2 MiB, with no anchor past its first line:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | Rust, `RET` at 1 cursor (5000 random lines; max 39 µs) | 1.5 µs | 3.0 µs |
+  | Rust, `RET` at 1000 cursors, one pass | 1.4 ms | 1.4 ms |
+  | impl, `RET` at 1000 cursors (the budget runs out) | 1.6 ms | 1.6 ms |
+  | impl, one cursor whose anchor is at the lookback (64 KiB lexed) | 153 µs | 171 µs |
+  | impl, one cursor with no anchor in the lookback | 23 µs | 35 µs |
+  | Markdown, one cursor 64 KiB from the start | 108 µs | 130 µs |
+  | A 64 KiB line of `/**/` after a tab and a wide character, `RET` after it | 70 µs | 84 µs |
+  | 64 KiB of blank lines, `RET` after them | 103 µs | 127 µs |
+  | 2 MiB of blank, `x` or `{` lines, 1000 cursors (the budget runs out) | 0.8–2.0 ms | 2.1 ms |
+  | Rust, every line of 2 / 4 / 8 MiB, as `indent-region` asks, within the budget above | 8.6 / 17 / 35 ms | |
+
+- **The bounds set from them:**
+  - `LINE_LOOKBACK` is **64 KiB**, not 256 KiB. In this repository the farthest any line is from
+    its anchor is 60 KiB (99% within 30 KiB, 90% within 9 KiB), and one line's lexing runs at
+    about 400 MiB/s, so the worst one-cursor `RET`, with its anchor at the lookback, costs about
+    0.15 ms; at 256 KiB it cost 0.6 ms. A typical `RET` costs a few microseconds, well under
+    0.1 ms; only an anchor near the lookback goes over it. Markdown's only anchor is the buffer's
+    start, so a list item past 64 KiB into a document falls back; oso's largest document is
+    52 KB.
+  - `COMMAND_READ` stays **1 MiB**: 1000 cursors in the 2 MiB Rust file stay within it, at
+    1.4 ms, and where they cannot, the command stops by 2.1 ms, under the 5 ms asked.
+  - **`indent-region`** answers about 230 MiB/s, so 4 MiB takes about 17 ms and 8 MiB 35 ms,
+    without the edit. 4 MiB, as Decision expected, leaves room for the batched edit under 50 ms;
+    step 3 measures it with the edit and gives `Budget::with_limit` what the region needs.
+- **The rustfmt fixed point** runs with `just ci`: reindenting every `.rs` file of the repository
+  takes 0.6 s in a debug build. It reads only files under the workspace's root, past directories
+  whose names start with `.` and those named `target` or `target-*` (step 2), and follows no link, and it gives each file the budget a
+  region of its size needs, so no line falls back. Five files have lines the rules indent
+  otherwise, listed in the test with the count and the reason; a listed file that is gone or has
+  none fails it:
+
+  | File | Lines | Why |
+  |---|---|---|
+  | `oso-render/src/rows.rs` | 22 | a `proptest!` body, which rustfmt does not format |
+  | `oso/src/dispatch/prompts.rs` | 3 | `\|` patterns inside parentheses sit with the first one |
+  | `oso-render/src/lib.rs` | 1 | the same |
+  | `oso-platform/src/text/coretext/direction.rs` | 1 | an operand of `&&` inside one of `\|\|` goes one level further |
+  | `oso-core/src/syntax/highlights/tests.rs` | 1 | a chain on a tuple goes one level past its closer |
+
+  A change that makes the rules indent another line of the repository otherwise fails the test,
+  in `oso-core`, whichever crate the line is in; the fix is in the rules, or a new entry with its
+  reason.
+- **Left to step 2** (taken up there, below): a crate-private helper for a line's current
+  indentation, and asking for the empty line between brackets.
+
+### Step 2: `TAB`, `RET` and `C-j`
+
+The author chose, on 2026-11-12 through the coordinator, the recommended option of each question
+step 2's plan put:
+
+- **The empty line between brackets** is asked with a new `Line::Empty(offset)`, which every mode's
+  rules answer as a new line with nothing after the break; asked before `Line::New` at the same
+  offset, it is the line `New`'s line leaves.
+- **`TAB` with a region shown** reindents the cursors' lines, as with none; step 3 makes it run
+  `indent-region`.
+- **The indentation helper** stays `pub(crate)` (`indent::indentation`, over a line's pieces):
+  spaces and tabs only, so `RET` never trims a U+3000, and step 3's `M-m` follows it; `C-a` keeps
+  `motion`'s test.
+- **A new line inside a block comment** that does not start with `*` takes the indentation of the
+  nearest non-blank line above, the comment's text, not of the blank line a break leaves.
+- **The `just perf` scenario** `indent_ret_*` (`RET` in the middle of a 1 MiB Rust file) is wired
+  into the benchmark with one call in `bench.rs`, reported only; the author sets its thresholds.
+- **The public items:** `Line::Empty`, `Buffer::indent_settings` and `set_indent_settings`,
+  `Mode::indent_rules`, and on `Editor` `electric_indent`, `set_electric_indent`,
+  `indent_for_tab`, `newline`, `indent_typed_closers`, `set_mode_indents` and `mode_indent`.
+
+As built:
+
+- **The tab width has one owner, the display map.** `Buffer::indent_settings` gives the indent
+  size and style set on it with the tab width the buffer is shown with; `set_indent_settings`
+  changes the size and style only. The tab width comes from the loader, which builds the display
+  map with the mode's configured `tab-width` when a file is visited, and with the buffer's own when
+  it is read again, so nothing rebuilds a display map, or a window's wrap, on the UI thread. A
+  configuration change gives open buffers the new indent size and style at once; a new tab width
+  applies to files visited after it (the author's choice). A buffer carried over a dev restart
+  keeps the default tab width until visited again.
+- **Each mode's indentation is the editor's** (`Editor::set_mode_indents`, `mode_indent`; the
+  author's choice): the app sets the table when the configuration applies, which gives every open
+  buffer of the person's its mode's indent size and style; a visit, a mode command (`rust-mode`
+  and the others) and a new name that changes the mode (`C-x C-w`) give it the same.
+- **The file named on the command line** is visited before the configuration's first look, so its
+  display map is built with the default tab width of 8 even with a mode's `tab-width` set, while
+  its indent size and style follow when the look applies. With `indent-style = "tab"`,
+  `tab-width = 4` and `indent-size = 4`, a level there is then four spaces, not a tab, so
+  indentation mixes tabs and spaces in that file until it is visited again. A known limit;
+  rebuilding the display map, or reading the file again, when the first look changes a mode's
+  tab width would remove it.
+- **Every buffer added** (`Editor::add_buffer`) takes its mode's indent size and style, unless it
+  is internal: a visit, `C-x b` to a new name, a new `*scratch*`.
+- **`RET`** (`newline`, `newline-and-indent`, and `C-j`'s `electric-newline-and-maybe-indent`) is
+  `Editor::newline(ending, count, indent, limit)`: a shown region goes first; at each cursor the
+  spaces and tabs before and after it go, at most 4 KiB each way and never past the next cursor,
+  and `count` breaks then the last new line's indentation go in, as one batched edit; inside a
+  string, the break alone, with nothing trimmed. A space a combining mark is on stays, as the
+  mark's base. All the cursors share one call to the rules, on the text before the edit, so a
+  cursor's answer counts the lines the ones before it make. The 16 MiB limit is checked before
+  anything changes, with each cursor's indentation counted at its deepest (twice 4096 columns),
+  so whether `RET` fits depends only on the count, the line ending and the cursors; past it,
+  nothing changes and it signals "Too much text to insert".
+- **In Markdown, `RET` keeps a line break of spaces:** two spaces or more after text, at the
+  line's end and outside a fenced code block, break the line, as whitespace cleanup on save
+  (ADR 0113) keeps them; whether the cursor is in a fence is read in one pass for all such
+  cursors. Other blanks before the cursor go, as in other modes.
+- **The line between brackets** is opened in Rust and TOML only (the author's choice): in Markdown
+  `[|]` is a link's text, and `RET` there breaks the line alone. In TOML only between `[` and
+  `]`: an inline table cannot span lines in TOML 1.0, and `(` means nothing in it. Two cursors
+  between the same brackets (`{  |  |  }`) open no line between, and the closer goes on the
+  second cursor's line; a known limit.
+- **The limit counts the deepest indentation** only when `RET` indents: `C-j`, and `RET` with
+  `electric-indent-mode` off, reserve nothing for it.
+- **`C-j` in a prompt** answers it (`exit-minibuffer`), and **in a search** adds a line break to
+  the search string (`isearch-newline`), as in Emacs, so the global `C-j` reaches neither.
+- **`TAB`** in Rust and TOML asks the rules for each cursor's line once and replaces only
+  indentation that differs. In Markdown it stays `tab-to-tab-stop` until step 3 brings its cycle
+  through `markdown_stops`, as in Fundamental mode and internal buffers; `tab-to-tab-stop` keeps
+  its name for `M-i` in step 3.
+- **A typed closer** reindents its line inside the typing command, so it undoes with the typing;
+  `insert` and a yank do not. It is a second batched edit after the typing's.
+- **`TAB` moves a cursor** to the end of the indentation only on lines the rules answered a
+  column; in a string it stays.
+- **Where the code is:** the configuration's indentation is read in `config/indentation.rs`, not
+  `config/settings.rs`; `newline` moved from `commands/edit.rs` to `commands/indent.rs`, with the
+  keys `TAB`, `RET` and `C-j` in `bindings/indent.rs`.
+- **Measured** with `text_perf -- indent`, release, the author's Mac, in the 2 MiB Rust file, the
+  whole command through the editor:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | `RET` at 1 cursor | 5.6 µs | 85 µs |
+  | `RET` at 1000 cursors (breaks alone: 1.6 ms; the rules alone: 1.5 ms) | 4.1 ms | 4.5 ms |
+  | `TAB` at 1000 cursors | 2.9 ms | 3.0 ms |
+  | `}` typed at 1000 cursors, each dedenting its line (the typing alone: 0.9 ms) | 3.2 ms | 3.7 ms |
+
+  `RET` at 1000 cursors is a little past ADR 0092's 4 ms share of an edit, and within a frame;
+  folding a typed closer's reindent into the typing's edit would save about 0.9 ms of its 2.3 ms.
+  Both are left for when a frame needs them.
+- **`[indent] electric`** and **`[modes.<mode>]`** with `indent-size`, `indent-style` (`"space"` or
+  `"tab"`) and `tab-width`, each 1 to 32, for `rust`, `markdown`, `toml` and `fundamental`. Another
+  name in `[modes]` or in a mode's table is reported and skipped. `electric` applies when its value
+  in the file changes, and a dev restart's handed-over flag wins at the next look, as the theme's
+  does.
+- **A bracket opened on a line a string goes on to** takes that line's own indentation, as its
+  opener's line: `g("a \⏎     b", vec![⏎1,⏎]);` gives 11 and 7. rustfmt never writes this shape,
+  so it stays a limit of the rules.
+
+### Step 3: the region and the small commands
+
+The author chose, on 2026-11-12 through the coordinator, the recommended option of each question
+step 3's plan put:
+
+- **`indent-region` with no count in Markdown, Fundamental mode and internal buffers** signals "No
+  indentation rules in this mode" and changes nothing; with a count it works in every mode. `TAB`
+  with a region shown runs `indent-region` in Rust and TOML only; in Markdown it cycles the
+  cursors' lines and in Fundamental mode inserts spaces, as with no region.
+- **A line of only spaces and tabs** in a region becomes empty, whether reindented, put at a
+  column or shifted; an empty line stays empty, so no command leaves trailing whitespace. Inside a
+  string the rules keep it, as they keep any line there (the review of step 3).
+- **`indent-rigidly` and `indent-region` with a count** take the same bounds as `indent-region`
+  (below), and the 16 MiB limit on what one command inserts, checked before anything changes.
+- **Markdown's `TAB` in a fenced code block** inserts spaces to the next tab stop at the cursor,
+  as `RET` there copies the line above as Fundamental mode does.
+- **`M-RET` outside a list item, or in a fenced code block,** signals "Not in a list" and
+  changes nothing; one such cursor stops them all.
+- **`M-^`** is Emacs 27's: with a prefix argument it joins the next line to this one, and with a
+  region shown it joins every line of the region.
+- **`C-g` and any other key** close the layer of `C-x TAB` and run as usual. Closing the layer, for
+  whatever reason, hides the region, as Emacs's `indent-rigidly-map` deactivates the mark, so a
+  character typed after it replaces nothing.
+- **The public items:** `IndentError` (`NoMark`, `TooLarge`, `NoRules`, `NotInList`,
+  `TooMuchText`, `Edit`), `Shift` (`Left`, `Right`), and on `Editor` `indent_region`,
+  `indent_rigidly`, `indent_rigidly_to_tab_stop`, `indent_rigidly_layer`,
+  `set_indent_rigidly_layer`, `back_to_indentation` (which returns whether a cursor moved;
+  Shift selects in the command, as for the other motions), `delete_indentation` and
+  `markdown_insert_list_item`. The region commands take the most bytes they may insert, as
+  `newline` does.
+
+As built:
+
+- **Two bounds, not one budget of 4 MiB** (the author's choice): `indent-region` reads at about
+  2.7 ms a MiB of the rules' budget, and each changed line is a splice of the edit, about 1 µs
+  (ADR 0092), so a byte budget alone could not keep the command under 50 ms. A command takes at
+  most **6 MiB of the rules' budget** (`bytes + lines * LINE_COST`, plus one `LINE_LOOKBACK`),
+  checked before anything is read, and changes at most **30,000 lines**, checked before the edit;
+  past either it signals "Region too large to indent" and changes nothing. A 2 MiB Rust file
+  needs about 4.6 MiB of the budget.
+- **Corrected:** "A 2 MiB source file reindents in one command" under `indent-region` (Q11) holds
+  only when at most 30,000 of its lines change. A whole 2 MiB file pasted at the margin, 84,000
+  lines, is refused, and is reindented in parts. A batched splice for large edits would lift
+  this; it is a later ADR (`open-questions.md`).
+- **`M-^` over a region** joins at most **15,000 lines** and reads at most **2 MiB** (`bytes +
+  lines * LINE_COST`) a command (the author's choice): a join removes a line break, a splice of
+  about 2 µs. Past either it signals "Region too large to indent" and changes nothing.
+- **The region commands insert at most 4 MiB** a command, under the 16 MiB any command may (the
+  author's choice): a deep column over many lines costs the edit about 3 ms a MiB on top of its
+  splices, so `C-u 559 C-M-\` over 29,000 lines took 93 ms without it. Past it they signal "Too
+  much text to insert" and change nothing.
+- **Corrected:** "The keys of one `C-x TAB` session join into one undo step" (Commands and keys)
+  holds while they change at most 30,000 lines in all; the key that would take them past it starts
+  a new step (the author's choice), so that undoing one replays no more than about that many
+  splices. A session over a small region stays one step.
+- **The region's lines are read in one pass** (`editor/indent/leads.rs`): each line's
+  indentation, what it is made of, whether it is blank, and where its text ends, for
+  `indent-region`, `indent-rigidly` and `M-^` over a region. A seek to each line cost about
+  600 ns a line, 50 ms of a 2 MiB file's 61. A line already right is told from what the pass
+  noted, with no second read, in either style. All the regions' lines, blank ones too, share one
+  call to the rules and one budget, so the pass reads on from each line to the next; a pass that
+  runs out of the budget refuses the command, "Region too large to indent", rather than leave
+  part of the regions reindented. A line whose indentation is longer than 4 KiB is left as it is.
+- **A blank a combining mark is on** stays as the mark's base, in a region's commands and in
+  `M-^`, as `RET` keeps it (step 2): the indentation ends before it.
+- **Regions that overlap** count their lines once; regions that only touch stay apart, so a shift
+  to a tab stop takes each one's own least indented line.
+- **A region's lines** are Emacs's: every line that starts before its end, from its start's line
+  for the rules (`indent-region-line-by-line`), and from the first line that starts in it for a
+  column or a shift (`indent-rigidly`, `indent-region` with a count), so a region that starts
+  inside a line leaves that line to them. An empty region has none.
+- **The layer of `C-x TAB`** is the editor's, as isearch is, and belongs to the window and buffer
+  it opened in: `Keymaps::active` puts its keymap first among the minor layers while it is open
+  there and no prefix argument reads. Another buffer shown in that window, by the agent channel
+  or a load, leaves the layer behind, and the next command closes it. A file read again waits
+  while the layer is open, as it does for isearch, and an edit that no key of the layer made is
+  never joined into its step. The dispatcher closes it before any command but the layer's four
+  shifts that the person runs, before every command of the agent channel, and on an undefined key
+  or `C-g` under a prefix. Closing it joins the edits since it opened into one undo step
+  (`Buffer::join_undo_since`, as query-replace does), which goes back to the cursors before it,
+  with no limit of keys but the lines they change (below). While it is open, each shift leaves
+  the region as shown as it was. `C-x TAB` with no mark signals "The mark is not set now", as
+  Emacs's `r` does.
+  A dev restart does not hand the layer over.
+- **To a tab stop** moves each region's least indented non-blank line to the next or previous
+  multiple of `indent_size`, and the region's other lines by as much. Shifting right takes no line
+  past column 4096 unless it is there already.
+- **Markdown's `TAB`** keeps no state between keys: a line at one of its stops goes to the next,
+  wrapping, and a line at none goes to the first, so a keyboard macro replays the same. Every
+  cursor's line is read in one pass from the buffer's start (`indent::markdown_lists`,
+  crate-private), so past `COMMAND_READ` a line is left as it is, not moved to column 0.
+- **`M-RET`** breaks the line at each cursor, the blanks around it gone, and starts the new item
+  with the innermost open item's indentation, marker and spaces, the number one higher, `.` or `)`
+  kept; when the number grows a digit, one space fewer follows it if one can go, as markdown-mode
+  does. On a blank line the item goes on it; with the cursor before an item's marker, the new item
+  goes on a line before it, with that item's number. Later items are not renumbered, as in Emacs;
+  `M-RET` takes no count yet (`open-questions.md`). It is bound in a Markdown keymap above the
+  global one, so in other modes `M-RET` is undefined.
+- **`M-^` with an empty region shown** joins the line to the one before, as with none: Emacs's
+  `use-region-p` is false for an empty region.
+- **`M-RET` with several cursors on one row** that is blank, or before its marker, starts one item
+  there, and the cursors go to its text.
+- **The agent channel waits** while the layer of `C-x TAB` is open, as it does during isearch.
+- **A single `M-^`** reads only the ends of its two lines, at most 4 KiB at each, so it works
+  beside a line of any length; joins over a region read their lines in one pass.
+- **`M-^`'s space** follows `fixup-whitespace`: none when either side is a line's edge (a blank
+  line joined, or the joined line blank), after `(`, `[` or `{`, or before `)`, `]` or `}`; a
+  full-width space is text. Each cursor goes to its first join, before the space.
+- **`M-m`** reads at most 4 KiB of a line's indentation, as `TAB` does.
+- **Measured** with `text_perf -- indent`, release, the author's Mac, the whole command:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | `indent-region`, 2 MiB Rust already right (reads only) | 12.5 ms | 12.7 ms |
+  | `indent-region`, 30,000 short lines that change | 27.8 ms | 28.0 ms |
+  | `indent-region`, 2 MiB right then 30,000 lines that change (the most it takes) | 43.5 ms | 43.6 ms |
+  | `indent-region`, 2 MiB at the margin (refused after reading) | 10.8 ms | 11.0 ms |
+  | `indent-region`, 2 MiB of tab indentation already right | 10.2 ms | 10.3 ms |
+  | `indent-region`, 70,000 lines each before a blank line | 9.9 ms | 10.4 ms |
+  | `indent-region`, 1000 regions of 30 lines apart in 5 MiB | 7.5 ms | 7.7 ms |
+  | `indent-region` to column 144 over 29,000 lines (4 MiB inserted, the most it takes) | 38.3 ms | 38.7 ms |
+  | `indent-rigidly` over 29,000 lines | 30.9 ms | 31.6 ms |
+  | `indent-rigidly`, 1000 regions of 30 lines | 38.2 ms | 38.7 ms |
+  | `M-^` over 10,000 lines of 14 bytes | 20.2 ms | 21.1 ms |
+  | `M-^` over 15,000 lines of 105 bytes, 2 MiB read (the most it takes) | 40.5 ms | 41.1 ms |
+  | Markdown `TAB` at 1000 cursors in a 2 MiB document | 1.7 ms | 1.8 ms |
+  | `M-RET` at 1000 cursors | 1.3 ms | 1.3 ms |
+
+### Step 4: EditorConfig
+
+The author chose, on 2026-11-13 through the coordinator, the recommended option of each question
+step 4's plan and its reviews put:
+
+- **Where each property came from:** `Editor::set_mode_indents` takes, for each mode, where each
+  property of its setting came from, the configuration or the default
+  (`[(Mode, Settings, Origins); 4]`), so that `describe-indentation` can tell them apart.
+- **A tab width read after `C-x C-w`** applies at the next visit, as a configured one does since
+  step 2: the indent size and style apply when the read comes back, and the display map is not
+  rebuilt. `describe-indentation` says the tab width shown is the visit's.
+- **The cores' derived values** apply, as editorconfig-core-test's `properties/` has them and
+  Emacs's `editorconfig` package does: `tab_width` defaults to a number given as
+  `indent_size`, and `indent_style = tab` with no `indent_size` makes it `tab`. A derived value
+  counts as EditorConfig's, over the configuration.
+- **`describe-indentation` names a file** by its path in the buffer's project; one outside it,
+  or with no project, is "EditorConfig outside the project".
+- **A buffer carried over a dev restart** reads EditorConfig as after `C-x C-w`: its indent size
+  and style apply when the read comes back, and it keeps the default tab width until visited
+  again (step 2). This replaced the first answer, that it read none, after the review of the
+  step: with none, `TAB` in a project that indents with tabs turned them into spaces.
+- **What a visit compiles:** at most **128 sections and 2 KiB of globs**, across all the files of
+  its walk, nearest first; the sections past either are skipped with a note in `*Messages*`.
+  The bounds the Decision gives a file stay. The walk runs before a file's first screen, so a
+  visit compiles no more than this, whatever the files above it hold.
+- **What a visit reads:** it looks in at most **64 directories**, from the file's own up, and
+  reads at most **32 `.editorconfig` files and 1 MiB** of them, nearest first, read or
+  refused; the walk stops there, and once the compile budget is spent, as no file above
+  could then add anything, and when the load is cancelled. Stopped by a bound, it notes the
+  first file it does not read. At most **8 notes** go to
+  `*Messages*` a visit, then one that says how many more there were.
+- **A glob that holds a number range** is at most **128 bytes**; a longer one is skipped with a
+  note. Its range is checked on the match's captures, which cost more the longer the glob.
+- **Each `.editorconfig` is opened from its directory** (`oso_platform::file_meta::Directory`),
+  once that directory is the one the walk saw, by device and inode, as ADR 0114's walker opens
+  a project's files. So a link is never followed, and a file whose contents a sync service
+  keeps elsewhere is not fetched.
+- **No `.editorconfig` is read in a directory every user may write,** such as `/tmp`; a note
+  says so when one is there.
+- **A file not read ends the walk** (the author's choice, on the coordinator's review): a link,
+  a file too large, not UTF-8, or one another user may change could have said `root = true`, so
+  no file farther up counts either, and its note says so.
+- **The combining is in `oso-core`:** `Applied::from_walk(location, files)` takes the files a
+  walk found, nearest first, and applies them farthest first, each with its globs read from its
+  own directory. So is the check that a read after `C-x C-w` is still for the buffer's file:
+  `Editor::editorconfig_read(&request, applied)` applies it only then, as `project_found` does,
+  and `Editor::request_editorconfig` asks for one, as `C-x C-w` and a carried buffer do. The
+  request is a `ProjectRequest`, a buffer and the place its path leads, whose name stays.
+- **The public items:** the module `editorconfig` (`File` with `parse`, `is_root` and
+  `problems`; `Problem`; `Budget` with `is_spent`; `Properties` with `indent_style`,
+  `indent_size` and `tab_width`, each with the index of the file that gave it; `IndentStyle`,
+  `IndentSize`; `Applied` with `from_walk`, `properties` and `file`; `MAX_FILE`,
+  `MAX_SECTIONS`, `MAX_GLOB`, `MAX_NESTING`, `MAX_RANGE_GLOB`, `VISIT_SECTIONS`,
+  `VISIT_GLOBS`), in `indent` `Origin`, `Origins` and `with_editorconfig(configured, given,
+  properties, shown)`, `Buffer::editorconfig` and `indent_origins`, on `Editor`
+  `set_editorconfig`, `set_buffer_mode`, `request_editorconfig`, `take_editorconfig_requests`
+  and `editorconfig_read`, and
+  `oso_platform::privacy::others_can_write`.
+
+As built:
+
+- **The parser** follows the specification 0.17.2, and editorconfig-core-test where the two
+  differ: a set takes ranges (`[a-c]`), a `-` first or last in it is itself, and `\]` escapes;
+  a `[` whose set would hold a `/` is itself, and no set matches a `/`, even through a range
+  (`[.-0]`) or an escape. `{a}` and `{}` are themselves, so are braces with
+  no `}`, and so is `{3..1}`; a number range takes no `+` and no leading zero, as `{3..120}` does
+  not match `060`. Comments are whole lines (`#` or `;`); a `;` or `#` in a value is part of it.
+  A comment after a section's header, a `;` or `#` after a space, is passed over, as
+  editorconfig-core-c's reader does. Keys are taken in any case, and the values of the three
+  properties too. A line that is no
+  comment, section or pair is passed over; a pair before the first section counts only for
+  `root`. A UTF-8 BOM and CRLF lines are read.
+- **A glob of 2 to 4 KiB** is within the Decision's bound for a glob but larger than what a
+  visit compiles, so it, and every section after it, is skipped as past the visit's budget; one
+  over 4 KiB is skipped alone.
+- **Only sections that set an indentation property are compiled;** the others are passed over
+  whatever their glob, so `[*.md] trim_trailing_whitespace = false` costs nothing.
+- **A value a property does not take** (`indent_size = 0`, `33`, `abc`) hides the farther files'
+  values, as a core reports the nearest, and gives nothing itself, as a plugin ignores it: the
+  property then comes from the configuration.
+- **A number range in a choice** (`{a,b{1..3}}`) is checked on the match the `regex` crate
+  chooses; when that match took a number out of range, another way through the choices is not
+  tried, as in editorconfig-core-c. Real globs do not put a range beside an alternative that
+  matches the same text. Likewise a `*` before a range takes as many characters as it can, so
+  `*{10..13}` does not match `x13`: the `*` takes `x1` and leaves `3`, as in editorconfig-core-c.
+- **The walk** is `project::upward`, which project detection now calls too; it stayed in
+  `project.rs`, beside detection, rather than in a module of its own. From the file's real
+  place up, directories missing below the first one there are passed over (a new file's), and
+  the walk ends at a link, another user's directory, another file system, and after the home
+  directory. Detection stops *at* home without looking for markers in it, as before.
+  EditorConfig reads home's own `.editorconfig`, then stops; it also stops after a file with
+  `root = true`. The home's real place is found once, by the first read, off the UI thread. A
+  `.editorconfig` is read only if it is a regular file, this user's or root's, that every user
+  may not write (a group may, as for the configuration file), of at most 64 KiB of UTF-8 text,
+  and no more of it than it held when opened. Its directory's owner and mode are taken from the
+  directory opened. A load that will not read its file (one too large, or not a file) reads no
+  EditorConfig; a new file's does.
+  A link to one, as a dotfiles setup makes, is not read, and `*Messages*` says so. A directory
+  that cannot be listed holds nothing to read.
+- **What `*Messages*` gets:** a note for each file not read and each section skipped, naming the
+  file and the line, with nothing of the file's text; nothing goes to the echo area.
+- **A visit** reads the files right after it opens the file and resolves its place, before it
+  reads the file, for a file not there yet too, so a new file indents as the project says: it
+  is shown with EditorConfig's tab width, or the mode's configured one, from the start. The
+  display map is built with EditorConfig's tab width, or the mode's configured one. The buffer
+  takes the rest when its first text, or its emptiness, is in, so that the tab width it is
+  shown with is the one the origins are judged against. A file read again keeps its visit's
+  setting. The file named on the command line now gets EditorConfig's tab width; the limit of
+  step 2 stays for a configured `tab-width`.
+- **The origins** have a fourth value besides the three the Decision names: a tab width that
+  differs from the one shown, after a configuration's change or a new name, is
+  `Origin::Visited`, "as visited; another applies at the next visit", and `indent_size = tab`
+  is then a tab as shown. A buffer that visits no file, as `*scratch*`, is shown with the
+  default tab width, which it says. A configuration's change, a mode command
+  (`Editor::set_buffer_mode`) and a new name that changes the mode give a buffer its mode's
+  setting under what EditorConfig gave it, so EditorConfig's properties stay.
+- **After `C-x C-w`,** and for a carried buffer, the read runs on one thread, `oso-editorconfig`,
+  started with the first request, and applies when it comes back only if the buffer's file is
+  still where it was asked about, as a project's answer does.
+- **`describe-indentation`** says, for example, "Rust mode: indent size 4 (EditorConfig
+  .editorconfig), tabs (EditorConfig src/.editorconfig), tab width 4 (the configuration)". Its
+  reach is `Look`: it reads the buffer's setting, never its text.
+- **Measured** with `text_perf -- editorconfig`, release, the author's Mac, parsing a file and
+  applying it to a path five directories deep, unless the case names another:
+
+  | Case | p50 | p99 |
+  |---|---|---|
+  | A typical file, four sections | 69 µs | |
+  | 128 sections of `*`, the most a visit compiles | 2.6 ms | 2.9 ms |
+  | 128 sections of 16 `?`, the most glob a visit compiles | 6.4 ms | 6.8 ms |
+  | One section of 2 KiB of `**/` | 1.7 ms | 1.9 ms |
+  | 2 KiB of globs with a number range, against a 4 KiB path they match | 2.0 ms | 2.3 ms |

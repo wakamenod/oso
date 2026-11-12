@@ -67,6 +67,8 @@ pub struct State {
     pub visual_aids: Option<oso_core::editor::VisualAids>,
     /// Whether buffers were highlighted, if the previous instance said (ADR 0111).
     pub font_lock: Option<bool>,
+    /// Whether `RET` indented, if the previous instance said (ADR 0115).
+    pub electric_indent: Option<bool>,
     /// The kill ring's entries, the newest first.
     pub kills: Vec<KillState>,
     pub histories: Vec<HistoryState>,
@@ -220,6 +222,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         theme: super::look::parse_theme(state)?,
         visual_aids: super::look::parse_aids(state)?,
         font_lock: super::look::parse_font_lock(state)?,
+        electric_indent: super::look::parse_switch(state, "electric_indent")?,
         kills,
         histories,
     })

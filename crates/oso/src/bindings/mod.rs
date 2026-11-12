@@ -9,10 +9,13 @@ mod complete;
 mod cursors;
 mod edit;
 mod files;
+mod indent;
 mod isearch;
+mod jump;
 mod kill;
 mod macros;
 mod mark;
+mod markdown;
 mod messages;
 mod minibuffer;
 mod motion;
@@ -40,7 +43,9 @@ const TABLES: &[&[(&str, &str)]] = &[
     cursors::BINDINGS,
     edit::BINDINGS,
     files::BINDINGS,
+    indent::BINDINGS,
     isearch::BINDINGS,
+    jump::BINDINGS,
     kill::BINDINGS,
     macros::BINDINGS,
     mark::BINDINGS,
@@ -109,6 +114,16 @@ pub fn isearch_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
+/// The keymap of a jump under way, in place of the others (ADR 0116), with its text command.
+/// Empty for a registry without its commands, as in tests that bring their own.
+pub fn jump_keymap(registry: &Registry) -> Keymap {
+    let mut keymap = Keymap::from_table(registry, jump::JUMP).unwrap_or_default();
+    if let Some(typing) = registry.lookup(jump::TEXT_COMMAND) {
+        keymap.set_text_command(typing);
+    }
+    keymap
+}
+
 /// The keymap of a query-replace under way, in place of the others (ADR 0113). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn replace_keymap(registry: &Registry) -> Keymap {
@@ -121,6 +136,17 @@ pub fn replace_commands(registry: &Registry) -> Vec<oso_core::command::CommandId
     replace::REPLACE
         .iter()
         .filter_map(|&(_, name)| registry.lookup(name))
+        .collect()
+}
+
+/// The commands that run in a jump rather than end it: those of its keymap and its text
+/// command (ADR 0116).
+#[cfg(any(test, feature = "dev"))]
+pub fn jump_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    let names = jump::JUMP.iter().map(|&(_, name)| name);
+    names
+        .chain([jump::TEXT_COMMAND])
+        .filter_map(|name| registry.lookup(name))
         .collect()
 }
 
@@ -138,6 +164,26 @@ pub fn isearch_commands(registry: &Registry) -> Vec<oso_core::command::CommandId
         .collect()
 }
 
+/// The keymap of the layer `C-x TAB` opens (ADR 0115). Empty for a registry without its
+/// commands, as in tests that bring their own.
+pub fn rigid_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, indent::RIGID).unwrap_or_default()
+}
+
+/// Markdown's own keymap, above the global one in a Markdown buffer (ADR 0115). Empty for a
+/// registry without its commands, as in tests that bring their own.
+pub fn markdown_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, markdown::MARKDOWN).unwrap_or_default()
+}
+
+/// The commands the layer of `C-x TAB` runs rather than closes for.
+pub fn rigid_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    indent::RIGID
+        .iter()
+        .filter_map(|&(_, name)| registry.lookup(name))
+        .collect()
+}
+
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global
 /// one (ADR 0064). Empty for a registry without their commands, as in tests that bring their
 /// own.
@@ -149,8 +195,9 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 #[cfg(test)]
 mod tests {
     use super::{
-        TABLES, complete, global_keymap, isearch, isearch_commands, isearch_keymap, minibuffer,
-        prefix, prefix_keymaps, prompt_keymaps, recovery, recovery_keymaps,
+        TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
+        jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
+        recovery, recovery_keymaps, rigid_commands, rigid_keymap,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -185,6 +232,14 @@ mod tests {
     }
 
     #[test]
+    fn the_indent_keymaps_bind_all_their_rows() {
+        let registry = commands::registry();
+        assert_eq!(rigid_keymap(&registry).len(), indent::RIGID.len());
+        assert_eq!(markdown_keymap(&registry).len(), markdown::MARKDOWN.len());
+        assert_eq!(rigid_commands(&registry).len(), indent::RIGID.len());
+    }
+
+    #[test]
     fn the_prefix_keymaps_bind_all_their_rows() {
         let (digits, minus) = prefix_keymaps(&commands::registry());
         assert_eq!(digits.len(), prefix::DIGITS.len());
@@ -212,6 +267,14 @@ mod tests {
         );
         let wanted = isearch::ISEARCH.len() + isearch::BINDINGS.len() + 1;
         assert_eq!(isearch_commands(&registry).len(), wanted);
+    }
+
+    #[test]
+    fn the_jump_keymap_binds_all_its_rows_and_types() {
+        let registry = commands::registry();
+        let keymap = jump_keymap(&registry);
+        assert_eq!(keymap.len(), jump::JUMP.len());
+        assert_eq!(keymap.text_command(), registry.lookup(jump::TEXT_COMMAND));
     }
 
     /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means
