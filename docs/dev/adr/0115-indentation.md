@@ -156,8 +156,8 @@ then a space; its content column is where the text after the marker starts.
 
 - `RET` indents the new line to the content column of the item it is in, as markdown-mode's
   `markdown-indent-on-enter` does, and to the previous line's indentation elsewhere. Inside a fenced
-  code block it copies the previous line's indentation: fenced Rust gets no Rust rules until
-  injections come (ADR 0111).
+  code block it copies the previous line's indentation: fenced Rust gets no Rust rules. ADR
+  0111's step 7 highlights fenced Rust, but indentation does not read it yet.
 - `TAB` cycles the line through the positions it could take, as markdown-mode's
   `markdown-indent-line` does: the content columns of the items above it that it could belong to,
   from the innermost out, then column 0, then the innermost again.

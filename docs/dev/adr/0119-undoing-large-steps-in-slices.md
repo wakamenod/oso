@@ -362,6 +362,54 @@ wait for the coordinator's go.
    restart's wait, the reload's wait, the replay's wait, freeing off the UI thread; e2e for holding,
    `C-g` and the restart; `verify-in-app` on the 100 MB file.
 
+### As built (step 1, 2026-11-12)
+
+- **`text_perf -- undo` measures undo and redo of large steps:** `!` over 4 million short lines,
+  in a wrapped window and in two windows; `!` over a highlighted 2 MiB buffer; query-replace
+  sessions answered `y` match by match, over 140 KB and far apart over 100 MB; and 20 commands
+  joined at 1000 cursors. The three `!` cases of ADR 0113 stay in `-- replace`, and the 89 MB kill
+  in the default run. The `indent-region` command is not on main yet; its case comes with it. A macro replay
+  runs in the host, and makes steps like a session answered match by match. The figures for each
+  part below came from timers added to the code for a run and taken out again; the part prints
+  totals only.
+- **Before this step, for the steps `!` makes, a crossing cost in proportion to its splices.**
+  On main, the last batches of 1000 splices cost what the first did: about 1.2 ms on short lines,
+  1.1 ms in a 2 MiB buffer and 3.1 ms on a 6 MB line, nearly all of it in the rope and the display
+  map; merging the changed ranges took microseconds. Undoing `!` over 4 million lines took about
+  530–590 ms, and redo about as long. Of that, about 540 ms applied the batches the 64 MiB limit
+  kept (434 of 4000), 4 ms followed the edited lines and 15–20 ms was the commit, most of it
+  freeing the group crossed. A wrap or a second window added under 4 ms. Highlights added about
+  190 ms over 434,000 splices, 430 ns each.
+- **A step of many small batches far apart grew faster than the step.** A session answered `y`
+  match by match, or a macro replay that edits forward, makes one. Every batch mapped the changed
+  ranges, and followed the edited lines, of all the batches before it. On main, undoing 5,000,
+  10,000 and 20,000 answers took 48, 180 and 728 ms over 140 KB, and 145 ms, 533 ms and 2.2 s far
+  apart over 100 MB: four times as long for twice the answers.
+- **Batches that lie apart now apply as one** (`joined_apart` in `buffer/splice.rs`): a batch
+  joins the ones before it when it lies wholly before them, or wholly after what they became, with
+  a byte between. Undoing a session answered forward then applies one batch, and redoing it does
+  too: 5, 11 and 22 ms over 140 KB, and 16, 27 and 47 ms over 100 MB, linear. `!`'s slices join
+  the same way wherever a byte separates them, so undoing `!` applies one batch of 434,000
+  splices; it costs as before (520–530 ms over 4 million lines, 681 ms highlighted), and 20
+  commands joined at 1000 cursors take 29 ms, as before. The text, the content id and every offset
+  come out as before. What differs is not visible: the changed ranges are those of the joined
+  batch, the wrap splices come in its order, and the rope's chunks may be cut otherwise. The redo
+  group holds the joined batches, and `apply_group` returns one step a batch it applied. A single batch is not copied; typing never joins, since one cursor's
+  batches touch and many cursors' interleave. A property test checks that a group applied this
+  way gives the text, moves offsets and edited lines as its batches one after another, also with
+  splices that meet inside a batch; that a cluster start outside the changed ranges it returns is
+  still one; and that what it gives back undoes it, and what that gives back redoes it. Another
+  checks that batches each apart from the last join into one step, both ways.
+- **Left for the next steps:**
+  - Batches that neither lie before nor after the ones joined, such as a macro that edits two
+    places moving the same way, still map each batch over the ranges before it; step 2 counts
+    that work in its slices.
+  - A run is joined into a copy of its splices before any applies, a few milliseconds for
+    434,000; step 2 builds runs a slice at a time, or reads the batches in place.
+  - Undoing the 89 MB kill takes 70 ms, copying its text back at 0.78 ms per MB. 20 commands
+    joined at 1000 cursors take 29 ms. Both are sliced in step 2.
+  - Freeing the group crossed, and the copy of a run, comes off the UI thread in step 3.
+
 ## Changes to accepted ADRs
 
 - [ADR 0113](0113-query-replace-keyboard-macros-and-whitespace-cleanup.md): the exception for

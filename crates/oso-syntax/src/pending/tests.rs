@@ -22,6 +22,27 @@ fn pending(ranges: &[std::ops::Range<usize>]) -> Pending {
 }
 
 #[test]
+fn a_set_kept_apart_joins_only_ranges_that_overlap() {
+    let mut set = Pending::apart();
+    set.add([0..2, 2..4, 3..5, 9..10]);
+    assert_eq!(set.ranges(), [0..2, 2..5, 9..10]);
+    // A deletion between two makes them touch, and they stay apart.
+    set.map(&[splice(5, 4, 0)]);
+    assert_eq!(set.ranges(), [0..2, 2..5, 5..6]);
+}
+
+#[test]
+fn swapping_replaces_the_ranges_that_meet_and_says_how_far_they_reached() {
+    let mut set = Pending::apart();
+    set.add([0..2, 3..6, 8..12, 20..22]);
+    assert_eq!(set.swap(4..9, std::slice::from_ref(&(5..7))), 3..12);
+    assert_eq!(set.ranges(), [0..2, 5..7, 20..22]);
+    // Ranges that only touch it are not replaced.
+    assert_eq!(set.swap(7..20, &[]), 7..20);
+    assert_eq!(set.ranges(), [0..2, 5..7, 20..22]);
+}
+
+#[test]
 fn adding_joins_ranges_that_meet() {
     let mut set = pending(&[0..2, 5..7]);
     set.add([1..3, 3..4, 7..9, 20..20]);

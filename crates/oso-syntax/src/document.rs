@@ -94,8 +94,12 @@ pub struct Document {
     highlights: Highlights,
     /// What of the newest text is still to highlight.
     pending: Pending,
-    /// Markdown's inline parser, made at the first inline text.
-    inline: Option<Parser>,
+    /// Markdown's parsers of nested text, each made at its grammar's first text: the inline
+    /// grammar's and fenced code's.
+    nested: Vec<(Language, Parser)>,
+    /// The blocks of the fences a fence's grammar painted last, mapped through edits since;
+    /// fences that follow each other stay apart.
+    fences: Pending,
     /// How many bytes a piece of highlighting may take; less after a piece outlasted a slice.
     max_piece: usize,
 }
@@ -123,7 +127,8 @@ impl Document {
             fits: 0,
             changes: 0,
             pending: Pending::default(),
-            inline: None,
+            nested: Vec::new(),
+            fences: Pending::apart(),
             max_piece: highlight::PIECE,
         }
     }
@@ -148,11 +153,13 @@ impl Document {
         self.highlights.splice(splices);
         if self.highlights.len() == after.len() {
             self.pending.map(splices);
+            self.fences.map(splices);
             self.pending
                 .add(highlight::edited(after, splices, self.max_piece));
         } else {
             self.highlights = Highlights::new(after.len());
             self.pending.all(after.len());
+            self.fences.clear();
         }
         self.follow(splices, after);
     }
@@ -280,7 +287,8 @@ impl Document {
         self.waiting = None;
         self.running = None;
         self.parser.reset();
-        self.inline = None;
+        self.nested.clear();
+        self.fences.clear();
         self.highlights = Highlights::new(self.highlights.len());
         self.changes += 1;
         self.pending.clear();
@@ -323,12 +331,15 @@ pub(super) fn reader<'text>(
     }
 }
 
+mod fence;
 mod highlight;
 mod inline;
 
 pub use highlight::Highlighted;
 #[cfg(test)]
 mod crafted;
+#[cfg(test)]
+mod fence_tests;
 #[cfg(test)]
 mod highlight_properties;
 #[cfg(test)]

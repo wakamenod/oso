@@ -18,9 +18,10 @@ const MARKDOWN: &str = include_str!("../queries/markdown/highlights.scm");
 const MARKDOWN_INLINE: &str = include_str!("../queries/markdown_inline/highlights.scm");
 const TOML: &str = include_str!("../queries/toml/highlights.scm");
 
-/// Finds, in Markdown's block tree, the text the inline grammar parses, as the grammar's own
-/// injection query does.
-const INLINES: &str = "[(inline) (pipe_table_cell)] @inline";
+/// Finds, in Markdown's block tree, the text another grammar parses, as the grammar's own
+/// injection query does: the inline grammar's text, and fenced code blocks, whose info string
+/// may name a language.
+const INJECTIONS: &str = "[(inline) (pipe_table_cell)] @inline\n(fenced_code_block) @fence";
 
 /// A query once compiled, with the class each of its captures names; or the note that it
 /// could not be.
@@ -43,11 +44,12 @@ pub struct Queries {
     compiled: [Option<Compiled>; 5],
 }
 
-/// Which query of a language: its highlights, or the one that finds Markdown's inline text.
+/// Which query of a language: its highlights, or the one that finds the text other grammars
+/// parse in Markdown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
     Highlights(Language),
-    Inlines,
+    Injections,
 }
 
 impl Queries {
@@ -92,7 +94,7 @@ fn slot(kind: Kind) -> usize {
         Kind::Highlights(Language::Markdown) => 1,
         Kind::Highlights(Language::MarkdownInline) => 2,
         Kind::Highlights(Language::Toml) => 3,
-        Kind::Inlines => 4,
+        Kind::Injections => 4,
     }
 }
 
@@ -103,7 +105,7 @@ fn source(kind: Kind) -> (Language, &'static str) {
         Kind::Highlights(Language::Markdown) => (Language::Markdown, MARKDOWN),
         Kind::Highlights(Language::MarkdownInline) => (Language::MarkdownInline, MARKDOWN_INLINE),
         Kind::Highlights(Language::Toml) => (Language::Toml, TOML),
-        Kind::Inlines => (Language::Markdown, INLINES),
+        Kind::Injections => (Language::Markdown, INJECTIONS),
     }
 }
 
