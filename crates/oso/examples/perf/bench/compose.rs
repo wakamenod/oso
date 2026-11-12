@@ -55,7 +55,7 @@ impl Word {
 
 /// A preedit's report to presented frame, for `count` reports after a warm-up of
 /// one word: words of new kana that grow, convert and clear with no commit, and one
-/// more report to clear the last word if it is open. Only reported. Fails unless
+/// more report to clear the last word if it is open. Gated as typing is (ADR 0123). Fails unless
 /// each drew a frame and the text stayed as it was.
 pub(super) fn composing(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Vec<f64>, String> {
     /// Sends `steps` reports, and clears what is left open. Returns the latencies and

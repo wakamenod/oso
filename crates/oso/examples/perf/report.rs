@@ -57,15 +57,30 @@ impl Gpu {
     }
 }
 
-/// The budgets in `docs/dev/roadmap.md`, with "no freeze" as 100 ms. They are
-/// read by hand on the author's Mac; CI runners say nothing about them, apart from
-/// key latency on a real GPU (ADR 0025, ADR 0046).
-pub const BUDGETS: [(&str, f64); 12] = [
+/// The budgets in `docs/dev/roadmap.md`, with "no freeze" as 100 ms. Each key's
+/// latency, as a 99th percentile, fails over its budget on a real GPU; the rest are
+/// read by hand on the author's Mac (ADR 0025, ADR 0046, ADR 0123).
+pub const BUDGETS: [(&str, f64); 27] = [
     ("key_p99_ms", 8.0),
     ("type_p99_ms", 8.0),
+    ("del_p99_ms", 8.0),
+    ("ime_preedit_p99_ms", 8.0),
+    ("prompt_type_p99_ms", 8.0),
+    ("mx_type_p99_ms", 8.0),
+    ("file_prompt_type_p99_ms", 8.0),
+    ("win4_key_p99_ms", 8.0),
+    ("win4_type_p99_ms", 8.0),
+    ("win16_key_p99_ms", 8.0),
+    ("win16_type_p99_ms", 8.0),
+    ("win16_other_p99_ms", 8.0),
     ("syntax_type_p99_ms", 8.0),
+    ("indent_ret_p99_ms", 8.0),
+    ("big_keys_p99_ms", 8.0),
     ("big_type_p99_ms", 8.0),
+    ("big_del_p99_ms", 8.0),
+    ("line_keys_p99_ms", 8.0),
     ("line_type_p99_ms", 8.0),
+    ("line_del_p99_ms", 8.0),
     ("startup_ms", 100.0),
     ("open_first_screen_ms", 50.0),
     ("big_keys_max_ms", 100.0),
