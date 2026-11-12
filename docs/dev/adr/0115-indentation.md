@@ -498,11 +498,18 @@ gains `amended by 0115`.
 
 ### Step 1: the rules
 
-- **One function per mode, chosen by the editor.** `oso_core::indent` sits on the row of
-  `buffer`, `motion` and `search` in `layers.txt`, so it cannot name `buffer::Mode`. It has one
-  function per mode with the same signature, `rust`, `toml`, `markdown` and `fundamental`, and
-  step 2's `editor::indent` chooses one with the match on `Mode`. Inside, the four share one pass
-  through a private trait; there is no public trait.
+- **`indent` sits on the row of `undo` and `kill` in `layers.txt`,** not beside `buffer`,
+  `motion` and `search` as Where the code lives says (the author's choice, 2026-11-12, through
+  the coordinator): it uses only the rope, the display map and `sum_tree`, and below `buffer`,
+  `Buffer` can hold its `Settings`.
+- **One function per mode, chosen by the caller.** `indent` cannot name `buffer::Mode`, which is
+  above it. It has one function per mode with the same signature, `rust`, `toml`, `markdown` and
+  `fundamental`, and step 2 chooses one with the match on `Mode`, in `buffer` or in
+  `editor::indent`. Inside, the four share one pass through a private trait; there is no public
+  trait.
+- **The tab width has one owner:** the buffer's `Settings::tab_width`, from 1 to 32, which also
+  sets the display map's `TabWidth` (the author's choice, 2026-11-12). Step 2 or step 4 wires it;
+  until then the display's tab width stays the default 8, which `Settings::default` matches.
 - **The public items:** `Settings` (`new(indent_size, style, tab_width)`, which refuses a value
   outside 1 to `Settings::MAX`, 32; the three getters; `indentation(column)`, the text that
   indents to a column), `Style`, `Answer` (`Column` or `Keep`), `Line` (`Row(row)`, an existing
@@ -603,7 +610,10 @@ gains `amended by 0115`.
   A change that makes the rules indent another line of the repository otherwise fails the test,
   in `oso-core`, whichever crate the line is in; the fix is in the rules, or a new entry with its
   reason.
-- **Left to later steps:** step 2 needs a line's current indentation in bytes, which the module
-  measures privately (spaces and tabs only, where `motion`'s blank test also counts U+3000), and
-  the between-brackets case asks for two lines at one offset, which `Line::New` answers only for
-  the closer's.
+- **For step 2's plan:**
+  - a line's current indentation in bytes, which the module measures privately with spaces and
+    tabs only, needs a public helper, while `motion`'s blank test (`C-a`) also counts U+3000:
+    step 2 says which rule `M-m` and `RET`'s trimming follow;
+  - `RET` between brackets (Q4) makes two lines at one offset, and `Line::New` answers only the
+    closer's: step 2 adds a way to ask for the empty line between, or derives it from the
+    opener's line.

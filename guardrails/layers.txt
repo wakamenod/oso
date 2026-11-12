@@ -26,8 +26,8 @@ editor
 minibuffer
 frame
 window word
-buffer indent motion search
-undo kill
+buffer motion search
+undo kill indent
 load selection
 display_map syntax
 complete decode key project rope secret
