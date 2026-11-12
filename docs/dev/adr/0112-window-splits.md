@@ -369,6 +369,13 @@ file or a 10 MB line.
   scrolls at a pixel or a cell; its reply says whether the view moved, but not of a buffer
   that may hold secrets. A real wheel and trackpad, momentum across a divider among them, are
   left to the author's daily use after the merge.
+- **As built, step 6:** `just perf` measures keys in a split frame, in one process per run on
+  the mixed text (the author's choices, 2026-11-12). Four windows first: the file twice, one
+  window wrapping a 1 MB line, as wrapping is a buffer's and not a window's, and `*Messages*`,
+  moving and typing in the left one (`win4_key_p99_ms`, `win4_type_p99_ms`). Then sixteen on
+  the file, four columns of four, the same keys (`win16_key_p99_ms`, `win16_type_p99_ms`) and
+  the `o` of `C-x o` round them (`win16_other_p99_ms`). All are reported only, until the
+  author sets thresholds from the numbers.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.
 

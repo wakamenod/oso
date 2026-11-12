@@ -22,9 +22,12 @@ use crate::report::{Gpu, Report, max, median, percentile};
 mod compose;
 mod edits;
 mod finding;
+mod startup;
+mod windows;
 
 use compose::composing;
 use edits::{deleting, extended_command, prompting};
+use startup::startup;
 
 const MB: u64 = 1024 * 1024;
 const GB: u64 = 1024 * MB;
@@ -145,6 +148,7 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     let wrote = files::write_mixed(&mixed, MB);
     wrote.map_err(|e| format!("{}: {e}", mixed.display()))?;
     key_latency(exe, &mixed, scale, &mut report)?;
+    windows::windows(exe, &mixed, &dir, scale, &mut report)?;
     finding::finding(exe, scale.key_runs, scale.keys, &mut report)?;
 
     log_step("opening a large file");
@@ -215,41 +219,6 @@ fn gpu_of(timings: &Value) -> Option<Gpu> {
 
 fn us_to_ms(value: &Value) -> Option<f64> {
     value.as_u64().map(|us| us as f64 / 1000.0)
-}
-
-/// Launches the app with no file. Startup is the time from just before the
-/// process started to its first presented frame. A frame skipped while the
-/// window is hidden does not count.
-fn startup(exe: &Path, scale: &Scale, report: &mut Report) -> Result<Option<Gpu>, String> {
-    let mut gpu = None;
-    let mut from_spawn = Vec::new();
-    let mut from_main = Vec::new();
-    // The first launch of a new binary compiles shaders. It is reported but
-    // not what later launches see.
-    for run in 0..=scale.startups {
-        let mut app = App::start(exe, None)?;
-        // Nothing asks the UI thread anything while it starts up.
-        thread::sleep(Duration::from_millis(500));
-        let timings = if run == 0 {
-            app.wait_patiently_until("first frame", COLD_FRAME_TIMEOUT, has_frame)?
-        } else {
-            app.wait_until("first frame", FRAME_TIMEOUT, has_frame)?
-        };
-        let spawned = timings["first_frame_unix_us"]
-            .as_u64()
-            .map(|us| app.spawn_to(us));
-        if run == 0 {
-            report.add("startup_first_launch_ms", spawned.into_iter().collect());
-            gpu = gpu_of(&timings);
-        } else {
-            from_spawn.extend(spawned);
-            from_main.extend(us_to_ms(&timings["startup_us"]));
-        }
-        app.stop();
-    }
-    report.add("startup_ms", from_spawn);
-    report.add("startup_from_main_ms", from_main);
-    Ok(gpu)
 }
 
 /// Sends `count` keys from `keys`, paced, and returns the latencies of those
