@@ -109,21 +109,12 @@ impl Editor {
 }
 
 /// The offset of `column`, in characters from 0, on the line `row`, from 0, each as far as the
-/// text goes. The column is counted through the line's chunks rather than a copy of it, which
-/// may be 16 MiB long.
+/// text goes. O(log n), as the line may be 16 MiB long.
 pub(super) fn place_offset(text: &Rope, row: usize, column: usize) -> usize {
     let row = row.min(text.line_count().saturating_sub(1));
     let (start, end) = (text.line_start(row), text.line_end(row));
-    let mut left = column;
-    let mut at = start;
-    for chunk in text.chunks_in_range(start..end) {
-        if let Some((index, _)) = chunk.char_indices().nth(left) {
-            return at + index;
-        }
-        left -= chunk.chars().count();
-        at += chunk.len();
-    }
-    end
+    let chars = text.chars_before(start).saturating_add(column);
+    text.char_to_offset(chars).min(end)
 }
 
 #[cfg(test)]

@@ -197,3 +197,23 @@ fn a_pipe_is_not_read() {
     let request = scratch.request("a.rs", (0, 1), 4);
     assert!(is_unreadable(read_preview(&request, None)));
 }
+
+#[test]
+fn a_long_rows_line_is_kept_only_as_far_as_its_match_needs() {
+    let scratch = Scratch::new("long-hit");
+    let mut bytes = b"before\n".to_vec();
+    let offset = bytes.len() as u64;
+    bytes.extend_from_slice(b"needle ");
+    bytes.extend(std::iter::repeat_n(b'x', 4 * 1024 * 1024));
+    bytes.extend_from_slice(b"\nafter\n");
+    scratch.file("long.txt", &bytes);
+    let request = scratch.request("long.txt", (offset, 2), 4);
+    let (lines, first) = read(&scratch, &request).unwrap();
+    assert_eq!(first, 1);
+    assert!(lines.starts_with("before\nneedle x"));
+    assert!(
+        lines.ends_with("\nafter\n"),
+        "the lines after it still come"
+    );
+    assert!(lines.len() < 16 * 1024, "{}", lines.len());
+}

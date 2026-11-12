@@ -18,7 +18,7 @@
 
 use std::fmt;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -26,8 +26,8 @@ use crate::buffer::BufferId;
 use crate::display_map::{DisplayMap, DisplayPoint, DisplaySnapshot, TabWidth};
 use crate::editor::visits::place_offset;
 use crate::editor::{Editor, MatchCells, Preview};
-use crate::frame;
-use crate::project::decoded;
+use crate::frame::{self, CellRect};
+use crate::project::{LineQuery, decoded};
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
 use crate::window::Screen;
@@ -45,8 +45,10 @@ const BEFORE_MATCH: usize = 1024;
 /// What an excerpt shows where it leaves part of a line out.
 const CUT: char = '…';
 
-/// How much of a line around what a row draws is matched for the preview's highlights.
-const AROUND_DRAWN: usize = EXCERPT_LINE;
+/// How much of a line before and after what its rows draw is matched for the preview's
+/// highlights, so that a match that starts or ends out of view shows; one longer than this that
+/// starts before what is drawn does not.
+const AROUND_DRAWN: usize = 1024;
 
 /// A file the host should read for the preview of a search's row (ADR 0114). `Debug` gives its
 /// generation only.
@@ -265,20 +267,27 @@ impl Editor {
         Some((self.project_search.generation, item))
     }
 
-    /// The selected row's file from the root, and its place.
-    fn selected_search_place(&self) -> Option<(PathBuf, &super::Place)> {
+    /// The selected row's file's path from the root, and its place.
+    fn selected_search_place(&self) -> Option<(&Path, &super::Place)> {
         let (_, item) = self.selected_search_row()?;
         let candidates = self.prompts.last()?.candidates()?;
         let text = candidates.get(candidates.selected()?)?.text();
         let place = self.project_search.places.get(item)?;
-        Some((PathBuf::from(text.get(..place.path)?), place))
+        Some((Path::new(text.get(..place.path)?), place))
     }
 
-    /// An open buffer of the file at `path`, as it is spelled, that shows what it holds: none
-    /// that the agent channel is still opening (ADR 0085).
-    fn open_buffer_at(&self, path: &std::path::Path) -> Option<BufferId> {
+    /// An open buffer of the file at `path` from the root, as it is spelled, that shows what it
+    /// holds: none that the agent channel is still opening (ADR 0085).
+    fn open_buffer_at(&self, path: &Path) -> Option<BufferId> {
+        let root = &self.project_search.root;
         self.buffers()
-            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path))
+            .find(|(_, buffer)| {
+                !buffer.agent_pending()
+                    && buffer
+                        .path()
+                        .and_then(|whole| whole.strip_prefix(root).ok())
+                        .is_some_and(|relative| relative == path)
+            })
             .map(|(id, _)| id)
     }
 
@@ -307,8 +316,8 @@ impl Editor {
             .rows;
         let (path, place) = self.selected_search_place()?;
         let (line, column, offset, secret) = (place.line, place.column, place.offset, place.secret);
-        let whole = self.project_search.root.join(&path);
-        let open = self.open_buffer_at(&whole).is_some();
+        let open = self.open_buffer_at(path).is_some();
+        let path: Box<str> = path.to_str()?.into();
         let preview = &mut self.project_search.preview;
         preview.reset();
         preview.asked = Some(key);
@@ -318,7 +327,7 @@ impl Editor {
         Some(ProjectPreviewRequest {
             generation: preview.live.load(Ordering::Relaxed),
             root: self.project_search.root.clone(),
-            path: path.to_str()?.into(),
+            path,
             offset,
             line,
             column,
@@ -345,8 +354,7 @@ impl Editor {
             return Some(Preview::Withheld);
         }
         let (line, column) = (place.line, place.column);
-        let whole = self.project_search.root.join(&path);
-        if let Some(id) = self.open_buffer_at(&whole) {
+        if let Some(id) = self.open_buffer_at(path) {
             return self.buffer_preview(id, line, column);
         }
         let preview = &self.project_search.preview;
@@ -397,30 +405,33 @@ impl Editor {
         crate::motion::line_start(display, row.saturating_sub(rows / 2))
     }
 
-    /// The display model of the excerpt the preview shows, if it shows one.
-    pub fn preview_excerpt_display(&self) -> Option<DisplaySnapshot> {
-        let Some(Preview::Excerpt { .. }) = self.search_preview() else {
+    /// The excerpt read for the selected row, if one was: what [`Preview::Excerpt`] shows,
+    /// unless an open buffer of the same file shows in its place.
+    fn read_excerpt(&self) -> Option<&Excerpt> {
+        let preview = &self.project_search.preview;
+        if preview.asked.is_none() || preview.asked != self.selected_search_row() {
             return None;
-        };
-        match &self.project_search.preview.read {
-            Some((ProjectPreviewRead::Text(excerpt), _)) => Some(excerpt.display.snapshot()),
+        }
+        match &preview.read {
+            Some((ProjectPreviewRead::Text(excerpt), _)) => Some(excerpt),
             _ => None,
         }
     }
 
-    /// The excerpt the preview shows, its text and its display model, and where it starts.
+    /// The display model of the excerpt read for the selected row, which
+    /// [`Preview::Excerpt`] shows.
+    pub fn preview_excerpt_display(&self) -> Option<DisplaySnapshot> {
+        self.read_excerpt()
+            .map(|excerpt| excerpt.display.snapshot())
+    }
+
+    /// The excerpt read for the selected row, its text and its display model, and where the
+    /// preview starts it.
     pub(in crate::editor) fn shown_excerpt(&self) -> Option<(&Rope, DisplaySnapshot, usize)> {
-        let Some(Preview::Excerpt { .. }) = self.search_preview() else {
-            return None;
-        };
-        match &self.project_search.preview.read {
-            Some((ProjectPreviewRead::Text(excerpt), _)) => {
-                let display = excerpt.display.snapshot();
-                let start = self.preview_start(&display, excerpt.cursor);
-                Some((&excerpt.text, display, start))
-            }
-            _ => None,
-        }
+        let excerpt = self.read_excerpt()?;
+        let display = excerpt.display.snapshot();
+        let start = self.preview_start(&display, excerpt.cursor);
+        Some((&excerpt.text, display, start))
     }
 
     /// The column the preview of a search scrolls to, so that the match at `cursor` shows in
@@ -440,67 +451,138 @@ impl Editor {
     }
 
     /// The cells the matches in view take in a search's preview, as `screen` shows it
-    /// ([`Editor::preview_screen`]), into `cells`, emptied first: the selected row's match as the
-    /// current one, the query's other matches on the lines shown as the rest.
+    /// ([`Editor::preview_screen`]), into `cells`: the selected row's match as the current one,
+    /// the query's other matches on the lines shown as the rest. They are worked out again only
+    /// once what is shown, its rows or the search change.
     pub fn preview_cells(&self, screen: &Screen, cells: &mut MatchCells) {
+        let Some(query) = self.project_search.query.as_deref() else {
+            cells.preview_key = None;
+            cells.current.clear();
+            cells.others.clear();
+            return;
+        };
+        let region = self.prompt_layout().map(|layout| layout.regions.preview);
+        let preview = self.search_preview();
+        let shown = match preview {
+            Some(Preview::Buffer { id, cursor, .. }) => self
+                .buffer(id)
+                .map(|buffer| (buffer.text(), buffer.display(), cursor, buffer.revision())),
+            Some(Preview::Excerpt { cursor, revision }) => self
+                .shown_excerpt()
+                .map(|(text, display, _)| (text, display, cursor, revision)),
+            _ => None,
+        };
+        let (Some(region), Some(preview), Some((text, display, cursor, revision))) =
+            (region, preview, shown)
+        else {
+            cells.preview_key = None;
+            cells.current.clear();
+            cells.others.clear();
+            return;
+        };
+        let top = screen
+            .rows()
+            .first()
+            .map(|row| (row.line, screen.drawn(row).start));
+        let key = PreviewCellsKey {
+            search: self.project_search.generation,
+            preview,
+            revision,
+            region,
+            top,
+            rows: screen.rows().len(),
+        };
+        if cells.preview_key == Some(key) {
+            return;
+        }
+        cells.preview_key = Some(key);
         cells.current.clear();
         cells.others.clear();
-        let Some(query) = self.project_search.query.as_deref() else {
-            return;
-        };
-        let Some(region) = self.prompt_layout().map(|layout| layout.regions.preview) else {
-            return;
-        };
-        let (text, display, cursor) = match self.search_preview() {
-            Some(Preview::Buffer { id, cursor, .. }) => match self.buffer(id) {
-                Some(buffer) => (buffer.text(), buffer.display(), cursor),
-                None => return,
-            },
-            Some(Preview::Excerpt { cursor, .. }) => match self.shown_excerpt() {
-                Some((text, display, _)) => (text, display, cursor),
-                None => return,
-            },
-            _ => return,
-        };
-        let mut found: Vec<Range<usize>> = Vec::new();
-        let mut line = String::new();
-        let mut ranges = Vec::new();
-        let mut last_line = None;
-        for row in screen.rows().iter().take(region.rows) {
-            // Each line once, however many rows it takes.
-            if last_line == Some(row.line) {
-                continue;
-            }
-            last_line = Some(row.line);
-            let offset = |column| {
-                display.display_point_to_offset(DisplayPoint::new(row.line, column), Bias::Left)
-            };
-            let drawn = screen.drawn(row);
-            let (line_start, line_end) = (text.line_start(row.line), text.line_end(row.line));
-            let start = offset(drawn.start)
-                .saturating_sub(AROUND_DRAWN)
-                .max(line_start);
-            let end = offset(drawn.end).saturating_add(AROUND_DRAWN).min(line_end);
-            line.clear();
-            for chunk in text.chunks_in_range(start..end) {
-                line.push_str(chunk);
-            }
-            query.highlights(&line, &mut ranges);
-            found.extend(
-                ranges
-                    .iter()
-                    .map(|range| start + range.start..start + range.end),
-            );
-        }
-        let current = found
+        let MatchCells {
+            current,
+            others,
+            spans,
+            found,
+            ..
+        } = cells;
+        matches_drawn((text, &display), (screen, region.rows), query, spans, found);
+        if let Some(index) = found
             .iter()
-            .position(|range| range.start <= cursor && cursor < range.end);
-        if let Some(index) = current {
+            .position(|range| range.start <= cursor && cursor < range.end)
+        {
             let range = found.remove(index);
-            frame::match_cells(region, screen, &display, &[range], &mut cells.current);
+            frame::match_cells(region, screen, &display, &[range], current);
         }
-        frame::match_cells(region, screen, &display, &found, &mut cells.others);
+        frame::match_cells(region, screen, &display, found, others);
     }
+}
+
+/// The query's matches in what `screen`'s first `rows` rows draw of `text`, shown as `display`
+/// lays it out, into `found`, cleared first, in order: each line matched once, over what its
+/// rows draw and [`AROUND_DRAWN`] either side, with `spans` as room.
+fn matches_drawn(
+    (text, display): (&Rope, &DisplaySnapshot),
+    (screen, rows): (&Screen, usize),
+    query: &LineQuery,
+    spans: &mut Vec<Range<usize>>,
+    found: &mut Vec<Range<usize>>,
+) {
+    found.clear();
+    // What each line shown draws, its rows joined.
+    let mut drawn: Vec<(usize, Range<usize>)> = Vec::new();
+    for row in screen.rows().iter().take(rows) {
+        let offset = |column| {
+            display.display_point_to_offset(DisplayPoint::new(row.line, column), Bias::Left)
+        };
+        let columns = screen.drawn(row);
+        let range = offset(columns.start)..offset(columns.end);
+        match drawn.last_mut() {
+            Some((line, last)) if *line == row.line => {
+                last.start = last.start.min(range.start);
+                last.end = last.end.max(range.end);
+            }
+            _ => drawn.push((row.line, range)),
+        }
+    }
+    let mut line = String::new();
+    for (row, range) in drawn {
+        // At a character's start, as the chunks read start there.
+        let start = text.clip_offset(
+            range
+                .start
+                .saturating_sub(AROUND_DRAWN)
+                .max(text.line_start(row)),
+            Bias::Left,
+        );
+        let end = range
+            .end
+            .saturating_add(AROUND_DRAWN)
+            .min(text.line_end(row));
+        line.clear();
+        for chunk in text.chunks_in_range(start..end) {
+            line.push_str(chunk);
+        }
+        query.highlights(&line, spans);
+        // Only what is drawn: the rest of the line is out of view.
+        found.extend(
+            spans
+                .iter()
+                .map(|found| start + found.start..start + found.end)
+                .filter(|found| found.end > range.start && found.start < range.end),
+        );
+    }
+}
+
+/// What a search's preview cells were worked out for: the search, what the preview shows and
+/// at which revision, where, and the rows it shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::editor) struct PreviewCellsKey {
+    search: u64,
+    preview: Preview,
+    revision: u64,
+    region: CellRect,
+    top: Option<(usize, usize)>,
+    rows: usize,
 }
 
 #[cfg(test)]

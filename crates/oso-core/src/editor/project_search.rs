@@ -23,6 +23,7 @@ use super::{CompletionStyle, Editor, WalkEnd};
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
 use crate::minibuffer::{PromptError, PromptId};
 use crate::project::{LineQuery, MAX_ROWS};
+pub(in crate::editor) use preview::PreviewCellsKey;
 use preview::SearchPreview;
 pub use preview::{Excerpt, ProjectPreviewRead, ProjectPreviewRequest};
 

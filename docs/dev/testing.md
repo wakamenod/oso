@@ -39,8 +39,12 @@ The screen is rendered as a grid of characters and compared as text with
 they run on every OS in `just ci`, and both people and agents can read the
 diffs. An open prompt's float comes after the frame: where it is, then its cells, with its
 ring as a box of `┌─┐` and the window's hollow cursor beneath it marked `o`
-([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). Decorations will show
-up once they exist.
+([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). Beside a list with a
+preview, each row goes on after `│` with the preview's row, its hollow cursor as `o`; below a
+row, a line between `:` marks a candidate's matches with `*` and, in a project search's preview,
+the row's match with `#` and the others in view with `~`, from `Editor::preview_cells`
+([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)). Decorations
+will show up once they exist.
 
 ```
 keys: C-f

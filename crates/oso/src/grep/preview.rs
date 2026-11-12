@@ -241,23 +241,14 @@ fn read_around(
     if bytes.len() < back {
         return None;
     }
-    // Whole lines only: a read that starts within one leaves it out.
-    let mut starts: Vec<usize> = bytes
-        .iter()
-        .enumerate()
-        .filter(|(_, byte)| **byte == b'\n')
-        .map(|(at, _)| at + 1)
-        .filter(|&at| at < bytes.len())
-        .collect();
-    if start == 0 && !bytes.is_empty() {
-        starts.insert(0, 0);
-    }
-    let kept = starts.len().min(before);
-    let from = starts.len().checked_sub(kept).and_then(|at| starts.get(at));
-    let from = from.copied().unwrap_or(bytes.len());
+    let (from, kept) = lines_before(&bytes, start == 0, before);
     bytes.drain(..from);
     let first_line = request.line.saturating_sub(kept);
-    // Then the line and those after it, a part at a time.
+    // Then the line and those after it, a part at a time. Of the row's line no more is kept
+    // than holds its match and what an excerpt keeps after it: a character is at most four
+    // bytes.
+    let hit_start = bytes.len();
+    let hit_most = request.column.saturating_mul(4).saturating_add(PER_ROW + 4);
     let mut breaks = 0;
     let mut line_end = None;
     let limit = MAX_LINE.saturating_sub(bytes.len());
@@ -280,24 +271,60 @@ fn read_around(
             break;
         }
         read += count;
-        for (at, &byte) in part[..count].iter().enumerate() {
+        let mut rest = &part[..count];
+        if line_end.is_none() {
+            let keep = hit_most.saturating_sub(bytes.len() - hit_start);
+            let Some(at) = rest.iter().position(|&byte| byte == b'\n') else {
+                bytes.extend_from_slice(&rest[..rest.len().min(keep)]);
+                continue;
+            };
+            bytes.extend_from_slice(&rest[..at.min(keep)]);
+            line_end = Some(bytes.len());
+            bytes.push(b'\n');
+            breaks = 1;
+            if breaks == after {
+                return Some((bytes, first_line));
+            }
+            rest = &rest[at + 1..];
+        }
+        for (at, &byte) in rest.iter().enumerate() {
             if byte == b'\n' {
                 breaks += 1;
-                if line_end.is_none() {
-                    line_end = Some(bytes.len() + at);
-                }
                 if breaks == after {
-                    bytes.extend_from_slice(&part[..=at]);
+                    bytes.extend_from_slice(&rest[..=at]);
                     return Some((bytes, first_line));
                 }
             }
         }
-        bytes.extend_from_slice(&part[..count]);
+        bytes.extend_from_slice(rest);
     }
     if read == 0 && request.offset > 0 && bytes.is_empty() {
         return None;
     }
     Some((bytes, first_line))
+}
+
+/// Where the last `before` whole lines of `bytes`, which end where the row's line starts, begin,
+/// and how many there are: one that `bytes` starts within is left out, unless they are the file's
+/// start, `at_start`.
+fn lines_before(bytes: &[u8], at_start: bool, before: usize) -> (usize, usize) {
+    let mut kept = 0;
+    let mut from = bytes.len();
+    // The break at the end is the last line's own.
+    let mut end = bytes.len().saturating_sub(1);
+    while kept < before {
+        if let Some(at) = bytes[..end].iter().rposition(|&byte| byte == b'\n') {
+            (from, end) = (at + 1, at);
+            kept += 1;
+        } else {
+            if at_start && from > 0 {
+                from = 0;
+                kept += 1;
+            }
+            break;
+        }
+    }
+    (from, kept)
 }
 
 #[cfg(test)]
