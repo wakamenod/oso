@@ -25,7 +25,7 @@
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Mode, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -46,6 +46,7 @@ mod excerpt;
 mod files;
 mod follow;
 mod gutter;
+mod indent;
 mod isearch;
 mod kill;
 mod macros;
@@ -250,6 +251,10 @@ pub struct Editor {
     aids: VisualAids,
     /// Whether buffers are highlighted (`global-font-lock-mode`, ADR 0111).
     font_lock: bool,
+    /// Whether `RET` and typed closers indent (`electric-indent-mode`, ADR 0115).
+    electric_indent: bool,
+    /// Each mode's indentation, as the configuration gives it (ADR 0115).
+    mode_indents: [(Mode, crate::indent::Settings); 4],
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
     trims: trim::Trims,
     /// query-replace's session, and the last pairs given (ADR 0113).
@@ -332,6 +337,9 @@ impl Editor {
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
             font_lock: true,
+            electric_indent: true,
+            mode_indents: [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
+                .map(|mode| (mode, crate::indent::Settings::default())),
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
             macros: macros::Macros::default(),

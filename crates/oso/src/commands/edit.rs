@@ -21,7 +21,7 @@ use super::budget_left;
 /// The most text one command inserts across all cursors, so that a count cannot
 /// run the process out of memory, which aborts it with no emergency save
 /// (ADR 0051). It takes about 40 ms to insert, which is no freeze.
-const MAX_INSERT: usize = 16 * 1024 * 1024;
+pub(super) const MAX_INSERT: usize = 16 * 1024 * 1024;
 
 /// The most undo steps one command crosses. A step of joined typing has 20 small
 /// edits at about 9 µs each, so this takes about 50 ms, and more for text it puts
@@ -56,7 +56,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "newline",
-        doc: "Insert a line break at every cursor, N times.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. Each is an undo step of its own. A negative N signals an error.",
+        doc: "Insert a line break at every cursor, N times, and with `electric-indent-mode` on, indent the new line.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. While indenting, the spaces and tabs around each cursor go, the last new line takes the indentation its mode's rules give, and between an opener and its closer in Rust and TOML the closer goes to a line of its own. Each is an undo step of its own. A negative N signals an error.",
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: newline,
@@ -77,7 +77,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "tab-to-tab-stop",
-        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. Indenting by mode comes with modes.",
+        doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. `TAB` runs it in Fundamental mode; elsewhere it indents by mode (`indent-for-tab-command`).",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: tab_to_tab_stop,
@@ -152,7 +152,12 @@ fn self_insert_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
     if input.is_empty() {
         return Err(CommandError::new("No text to insert"));
     }
-    type_text(ctx, input, args.count())
+    type_text(ctx, input, args.count())?;
+    // A closer typed first on its line goes under its opener's line (ADR 0115).
+    if matches!(input, "}" | ")" | "]") {
+        ctx.editor.indent_typed_closers()?;
+    }
+    Ok(())
 }
 
 /// Inserts `text` as typing does: a single character with a count under 2 asks to
@@ -174,8 +179,8 @@ fn insert_full_width_space(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandE
 }
 
 fn newline(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    let ending = ctx.editor.current().1.file_info().line_ending.text();
-    insert_at_cursors(ctx, ending, args.count())
+    let indent = ctx.editor.electric_indent();
+    super::indent::line_breaks(ctx, args.count(), indent)
 }
 
 /// Deletes `n` display clusters at every cursor of the selected window, after

@@ -16,6 +16,7 @@ mod cursors;
 mod dev_tools;
 mod edit;
 mod files;
+mod indent;
 mod isearch;
 mod kill;
 mod macros;
@@ -55,6 +56,7 @@ const TABLES: &[&[Command]] = &[
     dev_tools::COMMANDS,
     edit::COMMANDS,
     files::COMMANDS,
+    indent::COMMANDS,
     isearch::COMMANDS,
     kill::COMMANDS,
     macros::COMMANDS,

@@ -614,6 +614,8 @@ mod held_tests;
 #[cfg(test)]
 mod ime_tests;
 #[cfg(test)]
+mod indent_tests;
+#[cfg(test)]
 mod isearch_tests;
 #[cfg(test)]
 mod kill_tests;

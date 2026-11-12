@@ -12,7 +12,9 @@ use std::path::PathBuf;
 use oso_core::keymap::Keymap;
 
 use super::{App, UserEvent};
-use crate::config::{InForce, Look, Reader, Settings, Source, outcome};
+use crate::config::{InForce, Look, MODES, Reader, Settings, Source, outcome};
+use oso_core::buffer::{Buffer, Mode};
+use oso_core::indent;
 
 /// The configuration's thread, what has been said of the file, and the settings in force.
 pub(super) struct Configuration {
@@ -185,6 +187,16 @@ impl App {
         configuration.applied = true;
         self.editor
             .set_trim_whitespace(configuration.in_force.trim_whitespace);
+        if let Some(on) = changes.electric_indent {
+            self.editor.set_electric_indent(on);
+        }
+        if changes.mode_indents {
+            let indents = configuration.in_force.mode_indents;
+            self.editor.set_mode_indents(std::array::from_fn(|index| {
+                (MODES[index].1, indents[index])
+            }));
+            self.apply_mode_indents();
+        }
         if let Some(aids) = changes.aids {
             self.editor.set_visual_aids(aids);
         }
@@ -211,6 +223,31 @@ impl App {
             self.start_agent_channel_as_configured(&name);
         }
         changes.later
+    }
+
+    /// The indentation of `mode` the configuration gives, or the compiled-in one (ADR 0115).
+    pub(super) fn mode_indent(&self, mode: Mode) -> indent::Settings {
+        self.editor.mode_indent(mode)
+    }
+
+    /// Gives every buffer of the person's its mode's indent size and style as configured. Its
+    /// tab width stays the one it was visited with, which its display map is built with.
+    fn apply_mode_indents(&mut self) {
+        let ids: Vec<_> = self.editor.buffers().map(|(id, _)| id).collect();
+        for id in ids {
+            let Some(mode) = self
+                .editor
+                .buffer(id)
+                .filter(|b| !b.is_internal())
+                .map(Buffer::mode)
+            else {
+                continue;
+            };
+            let settings = self.mode_indent(mode);
+            if let Some(buffer) = self.editor.buffer_mut(id) {
+                buffer.set_indent_settings(settings);
+            }
+        }
     }
 
     /// Puts in the user's keys, and drops those they replace on the freeing thread: a large

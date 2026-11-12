@@ -459,3 +459,53 @@ fn a_large_file_reports_only_its_first_syntax_error() {
         ]
     );
 }
+
+#[test]
+fn indentation_is_set_per_mode_and_bad_values_are_reported() {
+    use oso_core::indent::Style;
+
+    use super::indentation::ModeIndent;
+
+    let f = Fixture::new();
+    let loaded = f.parse(
+        r#"
+[indent]
+electric = false
+
+[modes.rust]
+indent-size = 2
+indent-style = "tab"
+tab-width = 4
+
+[modes.markdown]
+indent-size = 0
+indent-style = "tabs"
+tab-width = 33
+wrap = true
+
+[modes.python]
+indent-size = 4
+"#,
+    );
+    assert_eq!(
+        messages(&loaded),
+        [
+            "11:15: [modes.markdown] indent-size takes a number from 1 to 32, not 0",
+            "12:16: [modes.markdown] indent-style takes \"space\" or \"tab\", not \"tabs\"",
+            "13:13: [modes.markdown] tab-width takes a number from 1 to 32, not 33",
+            "14:1: unknown name \"wrap\" in [modes.markdown], skipped",
+            "16:8: unknown name \"python\" in [modes], skipped",
+        ]
+    );
+    let settings = &loaded.settings;
+    assert_eq!(settings.indent.electric, Some(false));
+    assert_eq!(
+        settings.modes[0],
+        ModeIndent {
+            indent_size: Some(2),
+            style: Some(Style::Tabs),
+            tab_width: Some(4),
+        }
+    );
+    assert_eq!(settings.modes[1], ModeIndent::default());
+}

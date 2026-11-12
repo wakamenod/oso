@@ -566,3 +566,17 @@ fn font_lock_is_handed_over_and_a_state_without_it_keeps_it_on() {
     let bad = with(|state| state["font_lock"] = json!("off"));
     assert!(parse(&bad).unwrap_err().contains("font_lock"));
 }
+
+#[test]
+fn electric_indent_is_handed_over_and_a_state_without_it_keeps_it_on() {
+    let mut editor = visiting(&absolute("/p/a.rs"), "fn a() {}\n");
+    editor.set_electric_indent(false);
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert_eq!(state.electric_indent, Some(false));
+    let without = with(|state| {
+        state.as_object_mut().unwrap().remove("electric_indent");
+    });
+    assert_eq!(parse(&without).unwrap().electric_indent, None);
+    let bad = with(|state| state["electric_indent"] = json!("off"));
+    assert!(parse(&bad).unwrap_err().contains("electric_indent"));
+}

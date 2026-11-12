@@ -42,12 +42,18 @@ pub(super) fn parse_aids(state: &Map<String, Value>) -> Result<Option<VisualAids
 /// Whether buffers are highlighted, if the state says. A state from before it says nothing,
 /// and the new instance keeps highlighting on.
 pub(super) fn parse_font_lock(state: &Map<String, Value>) -> Result<Option<bool>, String> {
-    match state.get("font_lock").filter(|on| !on.is_null()) {
+    parse_switch(state, "font_lock")
+}
+
+/// A switch the state has under `key`, if it has one: a state from before it says nothing,
+/// and the new instance keeps its own.
+pub(super) fn parse_switch(state: &Map<String, Value>, key: &str) -> Result<Option<bool>, String> {
+    match state.get(key).filter(|on| !on.is_null()) {
         None => Ok(None),
         Some(on) => on
             .as_bool()
             .map(Some)
-            .ok_or_else(|| "font_lock is not true or false".to_owned()),
+            .ok_or_else(|| format!("{key} is not true or false")),
     }
 }
 

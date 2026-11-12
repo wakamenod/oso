@@ -203,8 +203,10 @@ impl App {
         let read_from = buffer.content_id();
         let old = buffer.text().clone();
         let for_agent = buffer.opened_by_agent();
+        // Read again with the tab width it has, which a reload keeps (ADR 0115).
+        let tab_width = buffer.tab_width();
         let waker = self.waker.clone();
-        let spawned = loader::spawn_reload(id, path, old, for_agent, move |buffer| {
+        let spawned = loader::spawn_reload(id, path, old, for_agent, tab_width, move |buffer| {
             waker.send(UserEvent::Load(buffer))
         });
         match spawned {

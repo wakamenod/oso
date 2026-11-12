@@ -13,7 +13,8 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("DEL", "delete-backward-char"),
     ("C-d", "delete-char"),
     ("<delete>", "delete-char"),
-    ("TAB", "tab-to-tab-stop"),
+    ("TAB", "indent-for-tab-command"),
+    ("C-j", "electric-newline-and-maybe-indent"),
     // Option-Space: `SPC` stays half-width with a Japanese input source (ADR 0069).
     ("s-SPC", "insert-full-width-space"),
     ("C-z", "undo"),

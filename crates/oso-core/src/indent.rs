@@ -128,6 +128,11 @@ pub enum Line {
     /// makes: the text before the offset is the line it leaves, the text after it,
     /// past spaces and tabs, the new line's.
     New(usize),
+    /// The empty line a break at this offset would leave between the text before it and a
+    /// new line holding the text after it, as `RET` between brackets opens (`{|}`): the text
+    /// before the offset is the line it leaves, and nothing follows on it. Asked before
+    /// `New` at the same offset, it is the line that `New`'s line leaves.
+    Empty(usize),
 }
 
 /// Where a line's indentation goes.
@@ -249,5 +254,13 @@ pub fn fundamental(
 mod fixed_point;
 #[cfg(test)]
 mod rust_tests;
+pub(crate) use pass::Indentation;
+
+/// The indentation `text`, a line without its line break, starts with: spaces and tabs only,
+/// never U+3000, a tab reaching the next stop of `tab_width`.
+pub(crate) fn indentation(text: &str, tab_width: TabWidth) -> Indentation {
+    pass::measure(text, tab_width)
+}
+
 #[cfg(test)]
 mod tests;

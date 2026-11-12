@@ -165,7 +165,7 @@ pub(super) struct Rust {
     /// Whether a `where` clause is open at top level.
     clause: bool,
     previous: Option<Previous>,
-    /// The indentation of the line before, of any kind.
+    /// The indentation of the nearest non-blank line before.
     last_indent: usize,
     /// The lines read since the pass started.
     lines: u64,
@@ -267,6 +267,9 @@ impl Lexer for Rust {
     }
 
     fn line(&mut self, text: &str, indent: usize) {
+        if !text.trim_matches([' ', '\t', '\r']).is_empty() {
+            self.last_indent = indent;
+        }
         let place = self.place(text.trim_start_matches([' ', '\t']).as_bytes());
         let continued = place.and_then(|place| self.continues(&place));
         let depth = self.depth();
@@ -276,7 +279,6 @@ impl Lexer for Rust {
         if in_string && let Some(previous) = &mut self.previous {
             // A line a string goes on to lays out what follows as the line the string
             // starts on does.
-            self.last_indent = indent;
             self.lines = self.lines.wrapping_add(1);
             if let Some(last) = tokens.last {
                 previous.ends = last.ends();
@@ -402,7 +404,6 @@ impl Rust {
     }
 
     fn end_line(&mut self, tokens: &Tokens, indent: usize, continued: Continued, depth: usize) {
-        self.last_indent = indent;
         self.lines = self.lines.wrapping_add(1);
         let Some(last) = tokens.last else {
             return;

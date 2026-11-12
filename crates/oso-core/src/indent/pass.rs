@@ -80,6 +80,14 @@ pub(super) struct Head {
 }
 
 impl Head {
+    /// The start of a line with nothing on it.
+    pub(super) fn blank() -> Self {
+        Self {
+            bytes: [0; HEAD_BYTES],
+            len: 0,
+        }
+    }
+
     /// Up to [`HEAD_BYTES`] of the line past its spaces and tabs, with no `\r`: empty if it
     /// is blank.
     pub(super) fn text(&self) -> &[u8] {
@@ -105,13 +113,13 @@ pub(super) fn is_word_byte(byte: u8) -> bool {
 
 /// A line's indentation as it stands: spaces and tabs only, never U+3000 (ADR 0115).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Indentation {
+pub(crate) struct Indentation {
     /// Its length in bytes.
-    pub(super) bytes: usize,
+    pub(crate) bytes: usize,
     /// The display column it reaches.
-    pub(super) column: usize,
+    pub(crate) column: usize,
     /// Whether the line holds nothing else.
-    pub(super) blank: bool,
+    pub(crate) blank: bool,
 }
 
 /// The indentation `text`, a line without its line break, starts with.
@@ -278,7 +286,7 @@ pub(super) struct Pass<'a, L> {
 fn start_of(rope: &Rope, line: Line) -> usize {
     match line {
         Line::Row(row) => rope.line_start(row),
-        Line::New(offset) => rope.clip_offset(offset, Bias::Left),
+        Line::New(offset) | Line::Empty(offset) => rope.clip_offset(offset, Bias::Left),
     }
 }
 
@@ -291,7 +299,7 @@ pub(super) fn answers<L: Lexer>(
 ) -> Vec<Answer> {
     let mut answers = Vec::with_capacity(lines.len());
     let mut pass: Option<Pass<'_, L>> = None;
-    let mut last: Option<(usize, Answer)> = None;
+    let mut last: Option<(usize, Answer, Line)> = None;
     let mut row_before = None;
     for &line in lines {
         // The line after the one before: where the pass is, past that line, with no anchor
@@ -307,36 +315,36 @@ pub(super) fn answers<L: Lexer>(
         };
         row_before = match line {
             Line::Row(row) => Some(row),
-            Line::New(_) => None,
+            Line::New(_) | Line::Empty(_) => None,
+        };
+        // The line a break leaves behind it, when the one before is the empty line between
+        // it and this one.
+        let empty_before = match last {
+            Some((at, answer, Line::Empty(_))) if at == target && matches!(line, Line::New(_)) => {
+                Some(match answer {
+                    Answer::Column(column) => column,
+                    Answer::Keep => 0,
+                })
+            }
+            _ => None,
         };
         let answer = match last {
-            Some((at, answer)) if at == target => answer,
-            Some((at, _)) if target < at => {
+            Some((at, answer, _)) if at == target && empty_before.is_none() => answer,
+            Some((at, _, _)) if target < at => {
                 // The pass stays where it is, past this line.
                 row_before = None;
                 fallback(rope, settings, line, budget)
             }
             _ => {
-                let new = matches!(line, Line::New(_));
-                match pass_at(rope, settings, target, pass.take(), adjacent, budget) {
-                    Some(mut p) => {
-                        if new && p.reader.line_start {
-                            // A break at a line's start leaves an empty line behind it.
-                            p.lexer.line("", 0);
-                        }
-                        let told = p
-                            .reader
-                            .head(budget)
-                            .and_then(|head| p.lexer.answer(&head, new));
-                        // Where the rules cannot tell, the pass goes on all the same.
-                        let answer = match told.map(deepest) {
-                            Some(answer) => answer,
-                            None => fallback(rope, settings, line, budget),
-                        };
-                        p.indent = match answer {
-                            Answer::Column(column) => Some(column),
-                            Answer::Keep => None,
-                        };
+                let carried = pass.take();
+                let asked = Asked {
+                    line,
+                    target,
+                    adjacent,
+                    empty_before,
+                };
+                match answer_at(rope, settings, asked, carried, budget) {
+                    Some((p, answer)) => {
                         pass = Some(p);
                         answer
                     }
@@ -347,10 +355,61 @@ pub(super) fn answers<L: Lexer>(
                 }
             }
         };
-        last = Some((target, answer));
+        last = Some((target, answer, line));
         answers.push(answer);
     }
     answers
+}
+
+/// A line asked about, where it starts, whether it is the row after the one asked before,
+/// and the indentation of the empty line a break leaves before it, if there is one.
+#[derive(Clone, Copy)]
+struct Asked {
+    line: Line,
+    target: usize,
+    adjacent: bool,
+    empty_before: Option<usize>,
+}
+
+/// The answer for `asked` and the pass at its start, or none past the budget.
+fn answer_at<'a, L: Lexer>(
+    rope: &'a Rope,
+    settings: Settings,
+    asked: Asked,
+    carried: Option<Pass<'a, L>>,
+    budget: &mut Budget,
+) -> Option<(Pass<'a, L>, Answer)> {
+    let mut p = pass_at(
+        rope,
+        settings,
+        asked.target,
+        carried,
+        asked.adjacent,
+        budget,
+    )?;
+    let new = !matches!(asked.line, Line::Row(_));
+    if let Some(column) = asked.empty_before {
+        p.lexer.line("", column);
+    } else if new && p.reader.line_start {
+        // A break at a line's start leaves an empty line behind it.
+        p.lexer.line("", 0);
+    }
+    let head = match asked.line {
+        // Nothing follows the break on an empty line.
+        Line::Empty(_) => Some(Head::blank()),
+        _ => p.reader.head(budget),
+    };
+    let told = head.and_then(|head| p.lexer.answer(&head, new));
+    // Where the rules cannot tell, the pass goes on all the same.
+    let answer = match told.map(deepest) {
+        Some(answer) => answer,
+        None => fallback(rope, settings, asked.line, budget),
+    };
+    p.indent = match answer {
+        Answer::Column(column) => Some(column),
+        Answer::Keep => None,
+    };
+    Some((p, answer))
 }
 
 /// `answer`, unless it is past [`MAX_COLUMN`], when the line keeps its indentation.
@@ -498,7 +557,7 @@ fn find_anchor<L: Lexer>(
 /// new one takes that of the nearest non-blank line it follows, as Helix's `simple` does.
 /// What that reads comes from the budget's reserve for fallbacks; past it, no indentation.
 pub(super) fn fallback(rope: &Rope, settings: Settings, line: Line, budget: &mut Budget) -> Answer {
-    let Line::New(offset) = line else {
+    let (Line::New(offset) | Line::Empty(offset)) = line else {
         return Answer::Keep;
     };
     let target = rope.clip_offset(offset, Bias::Left);
