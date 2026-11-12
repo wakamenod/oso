@@ -65,6 +65,19 @@ impl core::fmt::Debug for oso_syntax::Parsed
 pub fn oso_syntax::Parsed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_syntax::Parsed
 impl core::marker::StructuralPartialEq for oso_syntax::Parsed
+pub enum oso_syntax::Refused
+pub oso_syntax::Refused::Full
+pub oso_syntax::Refused::MayHoldSecrets
+pub oso_syntax::Refused::TooLarge
+impl core::clone::Clone for oso_syntax::Refused
+pub fn oso_syntax::Refused::clone(&self) -> oso_syntax::Refused
+impl core::cmp::Eq for oso_syntax::Refused
+impl core::cmp::PartialEq for oso_syntax::Refused
+pub fn oso_syntax::Refused::eq(&self, &oso_syntax::Refused) -> bool
+impl core::fmt::Debug for oso_syntax::Refused
+pub fn oso_syntax::Refused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_syntax::Refused
+impl core::marker::StructuralPartialEq for oso_syntax::Refused
 pub struct oso_syntax::Checkout<Key>
 impl<Key> oso_syntax::Checkout<Key>
 pub fn oso_syntax::Checkout<Key>::run(&mut self, &mut oso_syntax::Queries) -> oso_syntax::Highlighted
@@ -105,6 +118,10 @@ pub fn oso_syntax::Report<Key>::clone(&self) -> oso_syntax::Report<Key>
 impl<Key: core::fmt::Debug> core::fmt::Debug for oso_syntax::Report<Key>
 pub fn oso_syntax::Report<Key>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_syntax::Scheduler<Key>
+impl<Key: core::marker::Copy + core::cmp::Eq + core::hash::Hash> oso_syntax::Scheduler<Key>
+pub fn oso_syntax::Scheduler<Key>::close(&mut self, Key)
+pub fn oso_syntax::Scheduler<Key>::open(&mut self, Key, oso_syntax::Language, oso_core::secret::Verdict, oso_core::rope::Rope, alloc::vec::Vec<core::ops::range::Range<usize>>) -> core::result::Result<(), oso_syntax::Refused>
+pub fn oso_syntax::Scheduler<Key>::show(&mut self, Key, alloc::vec::Vec<core::ops::range::Range<usize>>)
 impl<Key: core::marker::Copy + core::cmp::Eq + core::hash::Hash> oso_syntax::Scheduler<Key>
 pub fn oso_syntax::Scheduler<Key>::drop_buffer(&mut self, Key)
 pub fn oso_syntax::Scheduler<Key>::give_back(&mut self, oso_syntax::Checkout<Key>, oso_syntax::Highlighted) -> core::option::Option<oso_syntax::Report<Key>>
