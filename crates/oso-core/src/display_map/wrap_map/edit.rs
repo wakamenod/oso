@@ -230,36 +230,55 @@ impl WrapSnapshot {
 
     /// Where a rewrap for an edit at `at` starts: the row before the one that holds `at`,
     /// on the same logical line, and further back while those rows hold too few clusters for
-    /// kinsoku's reach. `at` and what precedes it read the same in `display` as before.
+    /// kinsoku's reach, or while a row before reaches `at`. `at` and what precedes it read the
+    /// same in `display` as before.
     ///
     /// That holds because `at` starts the chunks the rope rebuilt, which takes the chunk that
     /// ends at the edit too, and no display cluster crosses into them from before: an
     /// invisible or an escape is a cluster of its own. A row before `at` can then change only
     /// at its end, where kinsoku and a hanging space read up to [`breaks::KINSOKU_REACH`]
-    /// clusters into the next row, which the rows stepped back over cover.
+    /// clusters into the next row, which the rows stepped back over cover. A row that broke at
+    /// the last break before a stretch with none, as `aa` before `あ。。  。`, reads on to the
+    /// cluster that does not fit and one more: a break the edit makes there moves its end
+    /// (ADR 0125).
     pub(super) fn rewrap_start(&self, display: &DisplaySnapshot, at: usize) -> usize {
         let mut row = self.row_of(display, at);
         let mut start = self.row_span(display, row).0;
-        for _ in 0..=breaks::KINSOKU_REACH {
-            if row == 0 {
-                break;
-            }
+        // A row reads the cluster at `at` when the one before it starts within the row's
+        // width: no cluster before that one overflows it. Left of a zero-cell cluster this
+        // finds an earlier one, which steps back over more rows, never fewer.
+        let point = display.offset_to_display_point(at);
+        let before_at = point
+            .column
+            .checked_sub(1)
+            .and_then(|column| {
+                display
+                    .clusters(DisplayPoint::new(point.row, column))
+                    .next()
+            })
+            .map(|cluster| cluster.column);
+        let reads_at = |row_start: usize| {
+            before_at.is_some_and(|column| {
+                column.saturating_sub(display.offset_to_display_point(row_start).column)
+                    <= self.width
+            })
+        };
+        let (mut steps, mut short) = (0, true);
+        while row > 0 {
             let (before, end, continues) = self.row_span(display, row - 1);
-            if !continues {
+            if !continues || !((short && steps <= breaks::KINSOKU_REACH) || reads_at(before)) {
                 break;
             }
             row -= 1;
             start = before;
+            steps += 1;
             // A row longer than two clusters can be holds more than two.
-            let short = end - before <= 2 * MAX_CLUSTER_BYTES
+            short = end - before <= 2 * MAX_CLUSTER_BYTES
                 && display
                     .clusters(display.offset_to_display_point(before))
                     .take_while(|cluster| cluster.offset < end)
                     .nth(breaks::KINSOKU_REACH)
                     .is_none();
-            if !short {
-                break;
-            }
         }
         start
     }

@@ -211,7 +211,7 @@ fn seen(editor: &mut Editor) -> Seen {
         highlights: buffer
             .highlights()
             .map(|highlights| (0..len).map(|offset| highlights.at(offset)).collect()),
-        edited: buffer.edited_ranges().to_vec(),
+        edited: buffer.edited_ranges(),
     }
 }
 

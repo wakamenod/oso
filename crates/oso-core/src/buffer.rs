@@ -54,7 +54,7 @@ pub use carried::FileFacts;
 pub(crate) use crossing::SeenGroup;
 pub(crate) use crossing::StagedCrossing;
 pub(crate) use edit::{Rewrap, StagedEdit};
-pub(crate) use edited::{EditedLines, Tracking};
+pub(crate) use edited::{EditedLines, Tracking, join_touching};
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
 pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE, SPLICE_WORK};
