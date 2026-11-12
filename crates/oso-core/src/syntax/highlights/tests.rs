@@ -144,6 +144,22 @@ proptest! {
                 }
             }
             prop_assert_eq!(model(&highlights), expected.clone());
+            prop_assert!(whole_runs_hold_each_byte(&highlights, &expected));
         }
     }
+}
+
+/// Whether `run_at` gives, for each byte, all the bytes around it that `expected` says are
+/// the same, and nothing past the end.
+fn whole_runs_hold_each_byte(highlights: &Highlights, expected: &Model) -> bool {
+    let each = (0..expected.len()).all(|at| {
+        let same = |b: &usize| expected[*b] == expected[at];
+        let start = (0..at).rev().take_while(same).last().unwrap_or(at);
+        let end = (at..expected.len())
+            .take_while(same)
+            .last()
+            .map_or(at, |b| b + 1);
+        highlights.run_at(at) == Some((start..end, expected[at]))
+    });
+    each && highlights.run_at(expected.len()).is_none()
 }

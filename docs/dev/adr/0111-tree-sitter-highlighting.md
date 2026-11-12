@@ -777,6 +777,51 @@ Built:
   time limits, a buffer that may hold secrets is never parsed, and a buffer whose highlighting
   stopped tries again at most once every 10 s however often a mode is set.
 
+### Step 6: comment-aware `C-e`
+
+The author's choices (2026-11-12):
+
+- **Two stops, as mwim's** (Q1 of the step's plan): `C-e` goes to the end of the line's code,
+  and from there to the line's end. The code ends before trailing blanks, and before a comment
+  that ends the line after code, with the blanks between them. A line with no comment does
+  what it did. Not taken: three stops, with the end before the blanks between the two.
+- **A line of only a comment does what it did** (Q2): the end before its blanks, then the
+  line's end, as mwim does. So does the inside of a block comment that began on an earlier
+  line. Not taken: a stop at the comment's start, after the indentation.
+- **`Highlights::run_at`** (new, public): the whole run that holds a byte, in O(log n). `Runs`
+  cuts its ranges to what was asked, so finding where a comment starts would otherwise read
+  every run of the line.
+
+Built:
+
+- `oso_core::motion::toggle_line_end` takes the buffer's highlights, or `None`. `C-a` and
+  `C-e` moved to a private `motion/mwim.rs` (re-exported), for the file size limit. One seek in
+  the highlights at the line's last byte before its blanks: if that run is a comment that
+  starts after the line's first non-blank, the code ends before it and before the blanks
+  before it. A comment marker inside a string is a string's run, never a comment's. A comment
+  that starts inside a display cluster, as text after a prepended character joins it, counts
+  from that cluster's start, so the cursor never lands inside one.
+- **One run is the whole comment** because no query captures anything inside a comment: the
+  queries say so beside `@comment`, and an oso-syntax test checks a trailing comment holding a
+  string, a number, a type and a keyword is one run.
+- **What `C-e` may read is one stop's, as before** (ADR 0058): the walks back over the blanks
+  after the comment and before it share one stop, and none is read once the stop or the
+  command has less than a seek left, so a cursor past a spent budget reads nothing.
+- `mwim-end-of-code-or-line` passes `Buffer::highlights`, which is `None` while font-lock is
+  off and for a buffer that may hold secrets: then the code ends where the text does, as
+  before. Each cursor reads its own line, and a count moves to the code's end of the line it
+  goes to.
+- **A known limit:** just after a comment marker is typed, the highlights are the guess the
+  buffer made through the edit until the next report, usually the next frame, and `C-e` may
+  not see the new comment yet.
+- Tests: a trailing comment with blanks of every kind, TOML's, a marker in a string, a comment
+  that does not end the line, a block comment over three lines, comment-only lines, CRLF, no
+  highlights, the two stops and a count, and through the dispatcher with two cursors and
+  font-lock off. A property test puts comments anywhere in lines of joining clusters and
+  checks the code's end is on its line and at a cluster's start. Budget tests: both walks
+  read at most one stop, and a spent command reads nothing. `run_at` is checked against the
+  byte-by-byte model of the highlights' property test.
+
 ## Alternatives considered
 
 - **Highlighting the whole buffer after every parse:** simplest, but a query over a large file

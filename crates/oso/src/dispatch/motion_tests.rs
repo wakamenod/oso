@@ -500,3 +500,29 @@ mod wheel {
         assert_eq!((editor.top_row(), editor.window().scroll().left), (2, 10));
     }
 }
+
+/// `C-e` stops before a trailing comment as highlighting says (ADR 0111): every cursor at its
+/// own line's code end, and with font-lock off, where the text ends.
+#[test]
+fn c_e_stops_before_a_trailing_comment_for_every_cursor() {
+    use oso_core::buffer::Mode;
+    use oso_core::syntax::{Highlight, Highlights};
+    let text = "f(); // c\nlet s = \"// no\";\n";
+    let (mut dispatcher, mut editor) = at(text, &[0, 10]);
+    let id = editor.window().buffer();
+    let buffer = editor.buffer_mut(id).unwrap();
+    assert!(buffer.set_mode(Mode::Rust));
+    let mut highlights = Highlights::new(text.len());
+    highlights.replace(5..9, [(4, Some(Highlight::Comment))]);
+    highlights.replace(18..25, [(7, Some(Highlight::String))]);
+    let revision = buffer.revision();
+    assert!(buffer.take_highlights(revision, highlights));
+    send(&mut dispatcher, &mut editor, "C-e");
+    assert_eq!(cursors(&editor), [4, 26]);
+    send(&mut dispatcher, &mut editor, "C-e");
+    assert_eq!(cursors(&editor), [9, 26]);
+    editor.set_font_lock(false);
+    place_at(&mut editor, &[0]);
+    send(&mut dispatcher, &mut editor, "C-e");
+    assert_eq!(cursors(&editor), [9]);
+}

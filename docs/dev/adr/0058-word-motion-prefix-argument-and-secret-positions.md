@@ -103,7 +103,8 @@ some choices open:
 - **`mwim-beginning-of-code-or-line` and `mwim-end-of-code-or-line`,** the names of the Emacs package, are on `C-a`
   and `C-e`. As there, from anywhere else `C-a` goes to the first non-blank character, and from there to the line's
   start. `C-e` goes to the end before trailing blanks, and from there to the line's end. A blank is a tab or white
-  space, including a full-width space.
+  space, including a full-width space. Since [ADR 0111](0111-tree-sitter-highlighting.md) step 6, `C-e`'s first
+  place is also before a trailing comment that highlighting marks.
 - `<home>` and `<end>` stay on `move-beginning-of-line` and `move-end-of-line`, for the plain line ends.
 - A count other than 1 moves that many lines less one first, as ADR 0040 has for `C-a`, and goes to the first of the
   two places.
