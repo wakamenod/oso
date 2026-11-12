@@ -14,7 +14,7 @@
 //!   read only at the start, as code often ends in `=` or `!`.
 //! - Case is ignored unless the input holds an upper-case letter, over the whole input.
 //! - Expressions are the `regex` crate's, compiled with limits, so a line costs time linear in
-//!   its length; one that does not compile matches as a literal.
+//!   its length; one that does not compile alone matches as a literal.
 //! - `Debug` gives how many components, never what they say, which may be about a file that
 //!   may hold secrets.
 
@@ -97,24 +97,43 @@ pub struct LineHit {
 }
 
 /// `pattern` as an expression that matches where it does as an expression or as a literal, or as
-/// a literal alone, ignoring case if `ignore_case`. `None` if not even the literal compiles
-/// within the limits.
-fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Option<Regex> {
-    let build = |source: &str| {
+/// a literal alone, ignoring case if `ignore_case`, and whether it was read as an expression too.
+/// `None` if not even the literal compiles within the limits.
+///
+/// The expression must parse alone: joined to the literal, one that is no expression alone, as
+/// `a)|(b`, can compile and match what neither does. A `(?x)` comment would run past the
+/// expression's group, so the group is then ended by a line break, which `(?x)` ignores; the
+/// literal writes its own line breaks as escapes, so that no comment ends inside it.
+fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Option<(Regex, bool)> {
+    let build = |source: &str, size_limit: usize| {
         RegexBuilder::new(source)
             .case_insensitive(ignore_case)
             .multi_line(true)
             .crlf(true)
-            .size_limit(REGEX_SIZE_LIMIT)
+            .size_limit(size_limit)
             .nest_limit(REGEX_NEST_LIMIT)
             .build()
-            .ok()
     };
-    let literal = regex::escape(pattern);
-    expression
-        .then(|| build(&format!("(?:{pattern})|(?:{literal})")))
-        .flatten()
-        .or_else(|| build(&literal))
+    let literal = regex::escape(pattern)
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    // With no room to compile in, a build stops once the expression has parsed.
+    let parses = || !matches!(build(pattern, 0), Err(regex::Error::Syntax(_)));
+    if expression && parses() {
+        let joined = build(&format!("(?:{pattern})|(?:{literal})"), REGEX_SIZE_LIMIT)
+            .ok()
+            .or_else(|| {
+                pattern.contains('#').then(|| {
+                    build(&format!("(?:{pattern}\n)|(?:{literal})"), REGEX_SIZE_LIMIT).ok()
+                })?
+            });
+        if let Some(regex) = joined {
+            return Some((regex, true));
+        }
+    }
+    build(&literal, REGEX_SIZE_LIMIT)
+        .ok()
+        .map(|regex| (regex, false))
 }
 
 impl LineQuery {
@@ -162,8 +181,8 @@ impl LineQuery {
                 if rest.is_empty() {
                     return None;
                 }
-                let expression = !literal && rest.contains(REGEX_META);
-                let regex = compile(rest, expression, ignore_case)?;
+                let (regex, expression) =
+                    compile(rest, !literal && rest.contains(REGEX_META), ignore_case)?;
                 let pattern = if ignore_case {
                     rest.to_lowercase().into()
                 } else {
