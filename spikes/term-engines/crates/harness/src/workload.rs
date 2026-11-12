@@ -175,3 +175,35 @@ pub fn line_of(cols: usize) -> Vec<u8> {
     line.extend_from_slice(b"\r\n");
     line
 }
+
+/// One line of `plain`'s kind: `cargo`-like words, 40 to 120 columns.
+pub fn plain_line(rng: &mut Rng) -> Vec<u8> {
+    let mut out = Vec::new();
+    let width = 40 + rng.below(80) as usize;
+    while out.len() < width {
+        out.extend_from_slice(WORDS[rng.below(WORDS.len() as u64) as usize].as_bytes());
+        out.push(b' ');
+    }
+    out.extend_from_slice(b"\r\n");
+    out
+}
+
+/// One line of `colored`'s kind: an SGR change every word.
+pub fn colored_line(rng: &mut Rng) -> Vec<u8> {
+    let mut out = Vec::new();
+    let width = 40 + rng.below(80) as usize;
+    let mut visible = 0;
+    while visible < width {
+        match rng.below(3) {
+            0 => out.extend_from_slice(format!("\x1b[3{}m", rng.below(8)).as_bytes()),
+            1 => out.extend_from_slice(format!("\x1b[38;5;{}m", rng.below(256)).as_bytes()),
+            _ => out.extend_from_slice(b"\x1b[1;4m"),
+        }
+        let word = WORDS[rng.below(WORDS.len() as u64) as usize];
+        out.extend_from_slice(word.as_bytes());
+        out.push(b' ');
+        visible += word.len() + 1;
+    }
+    out.extend_from_slice(b"\x1b[0m\r\n");
+    out
+}

@@ -280,7 +280,13 @@ pub fn input(seed: u64, iteration: u64) -> (Vec<u8>, Option<(u16, u16)>) {
             break;
         }
     }
-    let resize = rng.chance(5).then(|| {
+    // `FUZZ_MIN_COLS` raises the narrowest size, as oso-term would clamp it.
+    let min_cols = std::env::var("FUZZ_MIN_COLS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let resizes = std::env::var_os("FUZZ_NO_RESIZE").is_none();
+    let resize = (rng.chance(5) && resizes).then(|| {
         let sizes = [
             (1, 1),
             (2, 1),
@@ -290,14 +296,22 @@ pub fn input(seed: u64, iteration: u64) -> (Vec<u8>, Option<(u16, u16)>) {
             (500, 300),
             (13, 7),
         ];
-        sizes[rng.below(sizes.len() as u64) as usize]
+        let (cols, rows) = sizes[rng.below(sizes.len() as u64) as usize];
+        (cols.max(min_cols), rows)
     });
     (out, resize)
 }
 
 /// Each run of 200 inputs gets a fresh terminal with 100, 1,000 or 10,000 lines of
-/// scrollback, oso's default being the last.
+/// scrollback, oso's default being the last, or `FUZZ_SCROLLBACK` lines. `FUZZ_NO_RESIZE`
+/// keeps every terminal at 80 x 24.
 fn scrollback(iteration: u64) -> usize {
+    if let Some(lines) = std::env::var("FUZZ_SCROLLBACK")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        return lines;
+    }
     [100, 1000, 10_000][(iteration / 200 % 3) as usize]
 }
 
@@ -376,5 +390,17 @@ pub fn replay(engine: &str, iteration: u64, seed: u64) {
             data.len(),
             start.elapsed().as_millis()
         );
+    }
+}
+
+/// Print iteration `iteration` of `seed` as a `script` file, on a fresh terminal of the
+/// scrollback `run` would give it.
+pub fn print_input(iteration: u64, seed: u64) {
+    let (data, resize) = input(seed, iteration);
+    println!("new 80 24 {}", scrollback(iteration));
+    let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
+    println!("write {hex}");
+    if let Some((cols, rows)) = resize {
+        println!("resize {cols} {rows}");
     }
 }

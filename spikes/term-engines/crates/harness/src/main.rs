@@ -4,13 +4,17 @@
 //! - `compare FILE...`: replay each recording into both engines in 4 KiB reads and compare
 //!   the screens, cursor, modes, cells and effects after every read.
 //! - `bench`: parse throughput on generated output, and snapshot time.
-//! - `mem ENGINE LINES COLS`: fill LINES of scrollback; run under `/usr/bin/time -l`.
+//! - `mem ENGINE LINES COLS [plain|colored|cargo]`: fill LINES of scrollback with full
+//!   lines, colored lines or `cargo`-like output; run under `/usr/bin/time -l`.
 //! - `string-flood ENGINE KIND MIB`: a control string (osc, dcs, decrqss, xtgettcap, sixel,
 //!   tmux, apc, kitty, pm, sos) of MIB MiB that never ends.
 //! - `fuzz ENGINE SECONDS SEED STATE-FILE [FIRST]`: generated escape sequences.
 //! - `replay ENGINE ITER SEED`: rerun one fuzz iteration.
 //! - `script ENGINE FILE`: run steps from FILE, one per line: `new COLS ROWS SCROLLBACK`,
 //!   `resize COLS ROWS`, `write HEX`. For reducing a fuzz finding outside the repo.
+//! - `input ITER SEED`: print one fuzz iteration as such a script.
+//! - `ipc`: what moving a snapshot through an OS pipe would cost an engine in a helper
+//!   process (an upper bound: shared memory would copy less).
 
 mod fuzz;
 mod workload;
@@ -37,7 +41,12 @@ fn main() {
     match arg(0) {
         "compare" => compare(&args[1..]),
         "bench" => bench(args.get(1).map(String::as_str)),
-        "mem" => mem(arg(1), arg(2).parse().unwrap(), arg(3).parse().unwrap()),
+        "mem" => mem(
+            arg(1),
+            arg(2).parse().unwrap(),
+            arg(3).parse().unwrap(),
+            arg(4),
+        ),
         "string-flood" => string_flood(arg(1), arg(2), arg(3).parse().unwrap()),
         "fuzz" => fuzz::run(
             arg(1),
@@ -49,6 +58,8 @@ fn main() {
         "replay" => fuzz::replay(arg(1), arg(2).parse().unwrap(), arg(3).parse().unwrap()),
         "dump" => dump(arg(1), arg(2)),
         "script" => script(arg(1), arg(2)),
+        "input" => fuzz::print_input(arg(1).parse().unwrap(), arg(2).parse().unwrap()),
+        "ipc" => ipc(),
         _ => eprintln!("usage: harness compare|bench|mem|osc-flood|fuzz|replay|dump ..."),
     }
 }
@@ -272,16 +283,21 @@ fn snapshot_time(engine: &str) {
     );
 }
 
-fn mem(engine: &str, lines: usize, cols: u16) {
+fn mem(engine: &str, lines: usize, cols: u16, kind: &str) {
     let mut e = make(engine, cols, 50, lines);
     if lines > 0 {
-        let line = workload::line_of(usize::from(cols));
+        let full = workload::line_of(usize::from(cols));
+        let mut rng = workload::Rng(9);
         for _ in 0..lines + 50 {
-            e.feed(&line);
+            match kind {
+                "colored" => e.feed(&workload::colored_line(&mut rng)),
+                "cargo" => e.feed(&workload::plain_line(&mut rng)),
+                _ => e.feed(&full),
+            }
         }
     }
     println!(
-        "{engine} lines {lines} cols {cols}: history {} engine-reported {:?}",
+        "{engine} {kind} lines {lines} cols {cols}: history {} engine-reported {:?}",
         e.history_len(),
         e.memory().grid_bytes
     );
@@ -351,4 +367,70 @@ fn size() -> (u16, u16) {
             .unwrap_or(default)
     };
     (var("COLS", 120), var("ROWS", 40))
+}
+
+/// Time sending the changed rows of a 300 x 100 snapshot through a pipe to another thread
+/// and back as an acknowledgement, as a helper process holding the engine would.
+fn ipc() {
+    use std::io::{Read, Write};
+    let (cols, rows) = (300usize, 100usize);
+    let cell = std::mem::size_of::<engine::Cell>();
+    let (mut to_reader, mut from_writer) = (std::io::pipe().unwrap(), std::io::pipe().unwrap());
+    let reader = std::thread::spawn(move || {
+        let mut len = [0u8; 8];
+        let mut buf = vec![0u8; cols * rows * cell];
+        loop {
+            if to_reader.0.read_exact(&mut len).is_err() {
+                return;
+            }
+            let n = u64::from_le_bytes(len) as usize;
+            to_reader.0.read_exact(&mut buf[..n]).unwrap();
+            from_writer.1.write_all(&[1]).unwrap();
+        }
+    });
+    let mut snap = Snapshot::default();
+    let mut e = make("alacritty", cols as u16, rows as u16, 1000);
+    e.feed(&workload::colored_screen(cols, rows));
+    e.snapshot(&mut snap);
+    // Cells as their fields, 12 bytes each.
+    let encode = |snap: &Snapshot, rows_wanted: usize, out: &mut Vec<u8>| {
+        out.clear();
+        for c in &snap.cells[..rows_wanted * cols] {
+            out.extend_from_slice(&(c.ch as u32).to_le_bytes());
+            for color in [c.fg, c.bg] {
+                out.extend_from_slice(&match color {
+                    engine::Color::Default => [0, 0, 0],
+                    engine::Color::Indexed(i) => [1, i, 0],
+                    engine::Color::Rgb(r, g, b) => [r, g ^ 0x80, b],
+                });
+            }
+            out.extend_from_slice(&c.flags.to_le_bytes());
+        }
+    };
+    let mut buf = Vec::new();
+    let mut ack = [0u8; 1];
+    for (label, rows_sent) in [("all rows", rows), ("one row", 1)] {
+        let mut times = Vec::new();
+        for _ in 0..2000 {
+            let start = Instant::now();
+            encode(&snap, rows_sent, &mut buf);
+            to_reader
+                .1
+                .write_all(&(buf.len() as u64).to_le_bytes())
+                .unwrap();
+            to_reader.1.write_all(&buf).unwrap();
+            from_writer.0.read_exact(&mut ack).unwrap();
+            times.push(start.elapsed());
+        }
+        times.sort();
+        let us = |d: Duration| d.as_secs_f64() * 1e6;
+        println!(
+            "pipe round trip, {label} ({} KB): p50 {:.0} us, p99 {:.0} us",
+            buf.len() / 1000,
+            us(times[1000]),
+            us(times[1980])
+        );
+    }
+    drop(to_reader.1);
+    reader.join().unwrap();
 }

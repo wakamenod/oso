@@ -2,7 +2,8 @@
 //! trait. All unsafe code is in this crate; the public API is safe.
 //!
 //! Choices worth knowing when reading the comparison's numbers:
-//! - Scrollback uses `GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES`. The library prunes whole
+//! - Scrollback uses `GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES`, with the default byte limit
+//!   removed (it would otherwise prune first). The library prunes whole
 //!   pages, so it keeps somewhat more lines than asked for (dozens to about a hundred).
 //! - Effects arrive through callbacks during `ghostty_terminal_vt_write`; they only push
 //!   onto a `Vec` and never call back into the terminal's write functions.
@@ -837,6 +838,9 @@ impl Engine for GhosttyEngine {
         engine.set(ffi::OPT_USERDATA, state.cast_const().cast());
         let lines: usize = scrollback;
         engine.set(ffi::OPT_SCROLLBACK_MAX_LINES, (&raw const lines).cast());
+        // The library starts with a byte limit too, which wins first; NULL removes it, so the
+        // line limit governs as oso's `[terminal] scrollback` would.
+        engine.set(ffi::OPT_SCROLLBACK_MAX_BYTES, std::ptr::null());
         let no = false;
         engine.set(ffi::OPT_TITLE_REPORT, (&raw const no).cast());
         engine.set(
