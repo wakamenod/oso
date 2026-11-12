@@ -770,6 +770,11 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
     local file.
   - A session whose looks keep running out of time is judged less often: the wait doubles
     each time, up to 5 s.
+  - A local rule that is the slowest of 3 late looks in a row is not used until the rules
+    load again, and `*Messages*` names it once. A bundled rule is never dropped: its cost is
+    bounded and tested, and a busy machine must not turn a dialog off.
+  - **Each pattern's size limit is 128 KiB,** not the 1 MiB above, and its lazy DFA's cache
+    the same: the deadline is checked between patterns, not inside one.
   - The worker takes every queued job before it judges, so screens that queued up are judged
     once. A wake-up of the debounce gives the last verdict again, without judging the same
     screen twice.
@@ -788,7 +793,8 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
     which the channel does not read then, and its kills from it count as secret. So the
     channel cannot copy the text where it could read it.
   - The app keeps the buffer by its id, never by its name, and fills only an internal
-    buffer: one of that name that anyone made stays theirs.
+    buffer: one of that name that anyone made stays theirs. `C-x b` makes no new buffer of a
+    name an internal buffer holds.
   - ADR 0120's per-terminal read permission (`terminal-allow-agent-read`) can reuse the same
     flag.
 - **What the recorded screens showed.** The title stayed `✳ …` throughout the recording. So a
@@ -799,15 +805,27 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
     hold ranks below every needs-input rule.
   - `after_last_rule` is empty when no rule row is on the screen, as `prompt_box` is: model
     output with no prompt box below it is never a dialog.
+  - Each view that holds (help, the model and resume pickers, settings) is told by its own
+    footer. A footer that only offers Esc says nothing, since an unknown dialog has one too and
+    must stay idle.
+  - A test keeps every bundled needs-input rule above every hold rule. `*Messages*` warns
+    when a local file ranks a hold rule above a needs-input rule.
 - **`Evidence` has no change timestamps.** The tracker takes the instants it is given, and the
   worker the instant a look arrives; ADR 0120's host API need not stamp them.
-- **Echo off is a password prompt's shape:** ECHO clear while ICANON is set. Claude Code's
-  TUI runs in raw mode, with both clear, so a terminal that reported plain "ECHO clear" as echo
-  off would hold every session's state for good. ADR 0120's step that reports echo off must
-  use this definition.
+- **The engine's echo-off hold is its own signal.** Claude Code's TUI runs in raw mode, with
+  ECHO and ICANON both clear. So if the sessions engine held on plain "ECHO clear", every
+  session's state would hold for good. The engine needs a narrower signal, such as a password
+  prompt's shape: ECHO clear while ICANON is set.
+  - What counts as secret in a terminal is ADR 0120's ("while the PTY does not echo", Q17).
+    Raw-mode password prompts depend on it, and its step 4 settles it with the author.
+  - This step does not narrow it. The engine's signal may differ from it, and is chosen with
+    the host API.
 - **The feed for step 3.** Today the app owns the worker's one sender, which is not `Clone`.
   Step 3 should give each terminal's thread a feed of its own that clones, taking only
   `Screen` and `Exited` jobs, so that screens never pass through the UI thread.
+  The worker's queue has no bound today, as only the app sends to it. Once terminals send
+  screens, it needs one: a session's newest screen replaces its last, so a bounded queue
+  loses nothing a judgement needs.
 - **Left to step 3, which has live sessions:**
   - `session-explain` on a running session;
   - the modeline marks;

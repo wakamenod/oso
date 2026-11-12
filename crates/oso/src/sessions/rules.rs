@@ -45,7 +45,7 @@ pub const MAX_PATTERNS: usize = 256;
 pub const MAX_PATTERN_BYTES: usize = 4096;
 
 /// The size limit of one compiled pattern, and of its lazy DFA's cache (ADR 0121).
-pub const PATTERN_SIZE_LIMIT: usize = 1 << 20;
+pub const PATTERN_SIZE_LIMIT: usize = 128 << 10;
 
 /// Where a rule comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

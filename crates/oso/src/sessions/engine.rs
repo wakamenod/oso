@@ -9,6 +9,7 @@
 //! The work is linear in the region's text for each pattern, and both are bounded
 //! (`screen::MAX_ROWS`, `rules::MAX_PATTERNS`).
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use super::rules::{BUDGET, Deadline, Late, RuleSet, Source};
@@ -67,11 +68,17 @@ pub struct Verdict {
 
 /// The verdict of `rules` on `evidence`, within [`BUDGET`].
 pub fn evaluate(rules: &RuleSet, evidence: &Evidence) -> Verdict {
-    evaluate_within(rules, evidence, BUDGET)
+    evaluate_within(rules, evidence, BUDGET, &HashSet::new())
 }
 
-/// The verdict of `rules` on `evidence`, or hold if they take longer than `budget`.
-pub fn evaluate_within(rules: &RuleSet, evidence: &Evidence, budget: Duration) -> Verdict {
+/// The verdict of `rules` on `evidence`, or hold if they take longer than `budget`. The rules
+/// named in `dropped` are passed over: the worker stopped using them for running late.
+pub fn evaluate_within(
+    rules: &RuleSet,
+    evidence: &Evidence,
+    budget: Duration,
+    dropped: &HashSet<String>,
+) -> Verdict {
     if evidence.is_echo_off() {
         return Verdict {
             target: Target::Hold,
@@ -82,6 +89,9 @@ pub fn evaluate_within(rules: &RuleSet, evidence: &Evidence, budget: Duration) -
     let mut slowest: Option<(Duration, &str)> = None;
     let mut texts: Vec<(Region, String, String)> = Vec::new();
     for rule in rules.rules() {
+        if dropped.contains(&rule.name) {
+            continue;
+        }
         let at = match texts.iter().position(|(region, ..)| *region == rule.region) {
             Some(at) => at,
             None => {
@@ -131,6 +141,7 @@ pub fn evaluate_within(rules: &RuleSet, evidence: &Evidence, budget: Duration) -
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::time::Duration;
 
     use super::{Fallback, Target, evaluate, evaluate_within};
@@ -256,15 +267,32 @@ disable = true
     #[test]
     fn rules_past_their_budget_hold_and_name_the_slowest() {
         let rules = set(RULES, "");
-        let verdict = evaluate_within(&rules, &screen("? for shortcuts"), Duration::ZERO);
+        let none = HashSet::new();
+        let verdict = evaluate_within(&rules, &screen("? for shortcuts"), Duration::ZERO, &none);
         assert_eq!(verdict.target, Target::Hold);
         let Err(Fallback::TooSlow { slowest }) = &verdict.by else {
             panic!("{verdict:?}");
         };
         assert_eq!(slowest, "ask", "the first rule tried, the only one");
-        assert!(verdict.by.unwrap_err().says().contains("over 5 ms"));
-        let in_time = evaluate_within(&rules, &screen("? for shortcuts"), Duration::from_secs(5));
+        assert!(
+            verdict
+                .by
+                .as_ref()
+                .unwrap_err()
+                .says()
+                .contains("over 5 ms")
+        );
+        let in_time = evaluate_within(
+            &rules,
+            &screen("? for shortcuts"),
+            Duration::from_secs(5),
+            &none,
+        );
         assert_eq!(in_time.target, Target::Idle { visible: true });
+        let dropped = HashSet::from(["ask".to_owned()]);
+        let passed_over =
+            evaluate_within(&rules, &screen("? for shortcuts"), Duration::ZERO, &dropped);
+        assert_ne!(passed_over.by, verdict.by, "the dropped rule is not tried");
     }
 
     #[test]

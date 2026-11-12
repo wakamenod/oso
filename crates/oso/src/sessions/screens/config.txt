@@ -1,31 +1,15 @@
-  ⎿  Resume cancelled
-
 ❯ /config
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
   Settings  Status   Config   Usage   Stats
-
 
   ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
   │ ⌕ Search settings…                                                                           │
   ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 
   ❯ Auto-compact                                true
-    Idle compaction                             true
-    Continue automatically at usage limit       true
-    Switch models when a message is flagged     Not asked yet ›
     Show tips                                   true
-    Reduce motion                               false
-    Thinking mode                               true
-    Thinking can't be turned off for Opus 5.5
-    Prompt suggestions                          true
-    Session recap                               true
-    Rewind code (checkpoints)                   true
-    Dynamic workflows                           true
-    Ultracode keyword trigger                   true
-    Dynamic workflow size                       medium (default)
-    Artifacts                                   true
-    ↓ 29 more
+    ↓ 40 more
 
   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear
 

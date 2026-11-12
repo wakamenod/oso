@@ -115,14 +115,36 @@ priority = 770
 region = "progress"
 regex = ['^[13](?:;|$)']
 
-# Overlays at the prompt: help, pickers, settings.
+# Views over the prompt, each told by its own footer: help, the pickers, settings. A footer
+# that only offers Esc says nothing: an unknown dialog has one too, and must stay idle.
 
 [[rule]]
-name = "overlay"
+name = "help"
 state = "hold"
 priority = 600
 region = "bottom(2)"
-regex = ['(?i)\besc\s+to\s+(?:cancel|clear|close)\s*$']
+line_regex = ['(?i)^\s*for more help:', '(?i)^\s*esc to cancel\s*$']
+
+[[rule]]
+name = "model-picker"
+state = "hold"
+priority = 600
+region = "bottom(1)"
+line_regex = ['(?i)^\s*enter to set as default\b.*\besc to cancel\s*$']
+
+[[rule]]
+name = "resume-picker"
+state = "hold"
+priority = 600
+region = "bottom(2)"
+regex = ['(?i)\btype to search\s+·\s+esc\s+to\s+cancel\s*$']
+
+[[rule]]
+name = "config"
+state = "hold"
+priority = 600
+region = "bottom(1)"
+line_regex = ['(?i)^\s*type to filter\b.*\besc to clear\s*$']
 
 # Waiting at the prompt.
 

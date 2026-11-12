@@ -5,8 +5,10 @@
 //! parts, with no window and no terminal.
 //!
 //! The screens were recorded from Claude Code 2.1.322 in a terminal 100 columns by 32 rows, and
-//! scrubbed of paths, names, account details and the time of day. Its title stayed `✳ …`
-//! throughout, so the title's spinner is not what these screens are told by.
+//! scrubbed of paths, names, account details and the time of day. The version, the model names
+//! and the banners no rule reads are placeholders or cut, and two screens are cut to the rows
+//! their rules read. Its title stayed `✳ …` throughout, so the title's spinner is not what
+//! these screens are told by.
 
 use super::engine::evaluate;
 use super::rules::RuleSet;
@@ -43,28 +45,28 @@ const SCREENS: &[(&str, &str, &str, Target, &str)] = &[
         include_str!("screens/help.txt"),
         "✳ Claude Code",
         Target::Hold,
-        "overlay",
+        "help",
     ),
     (
         "model-picker",
         include_str!("screens/model-picker.txt"),
         "✳ Claude Code",
         Target::Hold,
-        "overlay",
+        "model-picker",
     ),
     (
         "resume-picker",
         include_str!("screens/resume-picker.txt"),
         "✳ Claude Code",
         Target::Hold,
-        "overlay",
+        "resume-picker",
     ),
     (
         "config",
         include_str!("screens/config.txt"),
         "✳ Claude Code",
         Target::Hold,
-        "overlay",
+        "config",
     ),
     // Recorded with a dialog open behind the viewer, as its footer says: the viewer hides the
     // dialog but not that one waits, so the session needs input, for a dialog it cannot name.
@@ -240,4 +242,44 @@ fn dialog_text_with_no_rule_row_above_it_is_no_dialog() {
         "{:?}",
         verdict.target
     );
+}
+
+#[test]
+fn an_unknown_dialog_with_an_esc_footer_is_idle_never_held() {
+    // With no prompt box on the screen, so that no dialog rule reads it either.
+    let text = "\
+ Do you trust this new widget?
+ ❯ 1. Sure
+   2. Nope
+ Enter to confirm · Esc to cancel
+";
+    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(text));
+    assert_eq!(verdict.target, IDLE, "{:?}", verdict.by);
+    let reworded = include_str!("screens/question.txt").replace(
+        "Enter to select · ↑/↓ to navigate · Esc to cancel",
+        "Press enter to pick · Esc to cancel",
+    );
+    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(&reworded));
+    assert!(
+        matches!(verdict.target, Target::Idle { .. }),
+        "{:?}",
+        verdict
+    );
+}
+
+#[test]
+fn every_bundled_needs_input_rule_outranks_every_hold_rule() {
+    let rules = RuleSet::bundled();
+    let lowest_need = rules
+        .rules()
+        .iter()
+        .filter(|rule| matches!(rule.target, Target::NeedsInput(_)))
+        .map(|rule| rule.priority)
+        .min()
+        .unwrap();
+    for rule in rules.rules() {
+        if rule.target == Target::Hold {
+            assert!(rule.priority < lowest_need, "{} ranks too high", rule.name);
+        }
+    }
 }

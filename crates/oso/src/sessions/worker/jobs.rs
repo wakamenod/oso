@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: `app`, `commands` or `dispatch`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
@@ -11,10 +11,10 @@ use std::time::{Duration, Instant};
 
 use oso_platform::file_meta::open_for_reading;
 
-use super::{EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey};
+use super::{DROP_AFTER, EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey};
 use crate::sessions::engine::{Fallback, evaluate, evaluate_within};
 use crate::sessions::explain;
-use crate::sessions::rules::{BUDGET, RuleSet};
+use crate::sessions::rules::{BUDGET, RuleSet, Source};
 use crate::sessions::screen::Evidence;
 use crate::sessions::state::{Target, Tracker};
 
@@ -60,6 +60,10 @@ pub struct Core {
     slow_said: bool,
     /// How long the rules may take over one look.
     budget: Duration,
+    /// The rule that was the slowest of the last late looks, and how many in a row.
+    streak: Option<(String, u32)>,
+    /// The local rules no longer used, until the rules load again.
+    dropped: HashSet<String>,
 }
 
 impl Core {
@@ -69,6 +73,8 @@ impl Core {
             sessions: HashMap::new(),
             slow_said: false,
             budget: BUDGET,
+            streak: None,
+            dropped: HashSet::new(),
         }
     }
 
@@ -106,6 +112,8 @@ impl Core {
             Job::Rules(rules) => {
                 self.rules = rules;
                 self.slow_said = false;
+                self.streak = None;
+                self.dropped.clear();
                 for session in self.sessions.values_mut() {
                     session.fresh |= session.evidence.is_some();
                     session.judged = None;
@@ -154,7 +162,15 @@ impl Core {
     /// Judges each session whose new screen is due, or whose tracker waits, at `now`.
     pub fn tick(&mut self, now: Instant) -> Vec<Out> {
         let mut found = Vec::new();
-        for (&key, session) in &mut self.sessions {
+        let Self {
+            rules,
+            sessions,
+            slow_said,
+            budget,
+            streak,
+            dropped,
+        } = self;
+        for (&key, session) in sessions {
             let screen_due =
                 session.fresh && session.judged.is_none_or(|at| now >= at + session.every());
             let tracker_due = session.tracker.due().is_some_and(|due| now >= due);
@@ -168,19 +184,24 @@ impl Core {
                 // Marked first: a panic while judging must not leave it due at once.
                 session.fresh = false;
                 session.judged = Some(now);
-                let verdict = evaluate_within(&self.rules, evidence, self.budget);
+                let verdict = evaluate_within(rules, evidence, *budget, dropped);
                 session.judged = Some(Instant::now().max(now));
                 if let Err(Fallback::TooSlow { slowest }) = &verdict.by {
                     session.late = session.late.saturating_add(1);
                     // Not judged after all: the same screen is judged again once the longer
                     // wait is over, so that a dialog that stays is not hidden until it changes.
                     session.fresh = true;
-                    if session.late >= SLOW_AFTER && !self.slow_said {
-                        self.slow_said = true;
+                    if session.late >= SLOW_AFTER && !*slow_said {
+                        *slow_said = true;
                         found.push(Out::Slow(slowest.clone()));
+                    }
+                    if drops(streak, slowest, rules) && dropped.insert(slowest.clone()) {
+                        *streak = None;
+                        found.push(Out::Dropped(slowest.clone()));
                     }
                 } else {
                     session.late = 0;
+                    *streak = None;
                 }
                 session.last = Some(verdict.target);
                 verdict.target
@@ -219,6 +240,26 @@ impl Core {
             Err(why) => Out::Unexplained(format!("Cannot explain that screen file: {why}")),
         }
     }
+}
+
+/// Counts a late look whose slowest rule was `slowest`, and whether that local rule has now
+/// been the slowest of [`DROP_AFTER`] late looks in a row.
+fn drops(streak: &mut Option<(String, u32)>, slowest: &str, rules: &RuleSet) -> bool {
+    let count = match streak {
+        Some((name, count)) if name == slowest => {
+            *count = count.saturating_add(1);
+            *count
+        }
+        _ => {
+            *streak = Some((slowest.to_owned(), 1));
+            1
+        }
+    };
+    count >= DROP_AFTER
+        && rules
+            .rules()
+            .iter()
+            .any(|rule| rule.name == slowest && rule.source == Source::Local)
 }
 
 /// The text of the regular file at `path`, of at most [`MAX_EXPLAIN_BYTES`], invalid UTF-8

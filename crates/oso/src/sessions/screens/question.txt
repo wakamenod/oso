@@ -1,8 +1,5 @@
  ▝▝   ▝▝   ~/src/project
 
-  Fable 5.2 is here for your longest and toughest coding tasks. It draws down usage faster than Opus
-  5.5. Switch with /model.
-
 ❯ Run this exact shell command with the Bash tool and nothing else: date > now.txt
 
 ⏺ Bash(date > now.txt)

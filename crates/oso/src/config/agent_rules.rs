@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::watch::{Seen, Unread, WITHHELD, look, may_hold_secrets, read};
 use crate::sessions::rules::{self, LOCAL_FILE, RuleSet, Source};
+use crate::sessions::state::Target;
 
 /// What a look at the rules file found.
 #[derive(Debug)]
@@ -123,6 +124,9 @@ pub(super) fn compile(text: &str, withheld: bool) -> RulesReport {
         return RulesReport { rules: None, notes };
     }
     let set = RuleSet::merged(rules::bundled(), local);
+    if let Some(warning) = hold_over_need(&set, withheld) {
+        notes.push(warning);
+    }
     notes.push(format!(
         "Agent rules reloaded: {} local, {} bundled, {} bundled disabled",
         set.local, set.bundled, set.disabled
@@ -131,6 +135,35 @@ pub(super) fn compile(text: &str, withheld: bool) -> RulesReport {
         rules: Some(set),
         notes,
     }
+}
+
+/// A warning if a hold rule ranks above a needs-input rule, one of them local: the view it
+/// holds for could hide that dialog. Names only what the file's checks allowed in a name.
+fn hold_over_need(set: &RuleSet, withheld: bool) -> Option<String> {
+    let rules = set.rules();
+    // Highest priority first: a hold rule before a needs-input rule ranks above it.
+    let (hold, need) = rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.target == Target::Hold)
+        .find_map(|(at, hold)| {
+            let need = rules[at + 1..].iter().find(|rule| {
+                matches!(rule.target, Target::NeedsInput(_))
+                    && (rule.source == Source::Local || hold.source == Source::Local)
+            })?;
+            Some((hold, need))
+        })?;
+    Some(if withheld {
+        format!(
+            "{LOCAL_FILE}: a hold rule ranks above a needs-input rule, so a view can hide a dialog"
+        )
+    } else {
+        format!(
+            "{LOCAL_FILE}: hold rule {} ranks above needs-input rule {}, so its view can hide \
+             that dialog; give it a lower priority",
+            hold.name, need.name
+        )
+    })
 }
 
 #[cfg(test)]
@@ -226,5 +259,27 @@ mod tests {
         let read = watch.look(false).unwrap();
         assert!(read.rules.is_some() && read.notes[0].contains("0 local"));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_hold_rule_ranked_above_a_dialog_is_warned_of() {
+        let report = compile(
+            "version = 1\n[[rule]]\nname = \"my-view\"\nstate = \"hold\"\npriority = 2000\n\
+             region = \"bottom(1)\"\ncontains = [\"esc\"]\n",
+            false,
+        );
+        assert!(report.rules.is_some(), "applied all the same");
+        let warning = report
+            .notes
+            .iter()
+            .find(|note| note.contains("ranks above"));
+        let warning = warning.expect("a warning");
+        assert!(warning.contains("my-view"), "{warning}");
+        let low = compile(
+            "version = 1\n[[rule]]\nname = \"my-view\"\nstate = \"hold\"\npriority = 10\n\
+             region = \"bottom(1)\"\ncontains = [\"esc\"]\n",
+            false,
+        );
+        assert!(!low.notes.iter().any(|note| note.contains("ranks above")));
     }
 }

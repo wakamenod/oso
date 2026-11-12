@@ -219,3 +219,52 @@ fn a_look_that_found_what_the_last_did_is_not_judged_again() {
     core.handle(screen("esc to interrupt!"), at + ms(20));
     assert_eq!(core.due(), Some(at + EVALUATE_EVERY));
 }
+
+/// Judges session 1's screen at each due time from `at`, `looks` times, and returns what was
+/// found and the last instant.
+fn look_again(core: &mut Core, mut at: Instant, looks: usize) -> (Vec<Out>, Instant) {
+    let mut found = core.tick(at);
+    for _ in 1..looks {
+        at = core.due().expect("judged again");
+        found.extend(core.tick(at));
+    }
+    (found, at)
+}
+
+#[test]
+fn a_local_rule_late_three_looks_in_a_row_is_dropped_until_the_rules_load() {
+    let start = Instant::now();
+    let local = parse(RULES, Source::Local);
+    let rules = Arc::new(RuleSet::merged(Default::default(), local));
+    let mut core = Core::with_budget(Arc::clone(&rules), Duration::ZERO);
+    core.handle(Job::Start(1), start);
+    let at = start + GRACE;
+    core.handle(screen("esc to interrupt"), at);
+    let (found, at) = look_again(&mut core, at, 3);
+    assert_eq!(
+        found,
+        [
+            Out::Slow("busy".to_owned()),
+            Out::Dropped("busy".to_owned())
+        ]
+    );
+    // With it gone nothing is late, and no rule matches.
+    core.handle(screen("esc to interrupt."), at);
+    let due = core.due().unwrap();
+    assert!(core.tick(due).is_empty(), "idle, as it was");
+    assert_eq!(core.due(), None, "judged in time");
+    core.handle(Job::Rules(rules), due);
+    let (found, _) = look_again(&mut core, due, 3);
+    assert!(
+        found.contains(&Out::Dropped("busy".to_owned())),
+        "used again, and dropped again"
+    );
+}
+
+#[test]
+fn a_bundled_rule_is_never_dropped() {
+    let (mut core, _, at) = too_slow(Instant::now());
+    core.handle(screen("esc to interrupt"), at);
+    let (found, _) = look_again(&mut core, at, 6);
+    assert_eq!(found, [Out::Slow("busy".to_owned())]);
+}

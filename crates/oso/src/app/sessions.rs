@@ -12,6 +12,7 @@ use oso_core::editor::{Editor, SessionRequest};
 use super::{App, UserEvent, Waker};
 use crate::config::RulesReport;
 use crate::sessions::explain::BUFFER;
+use crate::sessions::rules::RuleSet;
 use crate::sessions::worker::{Job, Out, Worker};
 
 /// The sessions worker for the app, waking the event loop with [`UserEvent::Sessions`]. `None`
@@ -48,8 +49,11 @@ impl App {
         for note in report.notes {
             self.editor.note(note);
         }
-        if let (Some(rules), Some(worker)) = (report.rules, &self.sessions) {
-            worker.send(Job::Rules(Arc::new(rules)));
+        match (report.rules, &self.sessions) {
+            (Some(rules), Some(worker)) => worker.send(Job::Rules(Arc::new(rules))),
+            // A compiled rule set can be large: it goes on a thread of its own.
+            (Some(rules), None) => drop_elsewhere(rules),
+            (None, _) => {}
         }
     }
 
@@ -63,6 +67,11 @@ impl App {
                  rule was {slowest}. See agent-rules/claude.toml",
                 crate::sessions::rules::BUDGET.as_millis()
             )),
+            Out::Dropped(rule) => self.editor.note(format!(
+                "Agent rule {rule} ran past the deadline {} looks in a row, so it is not used \
+                 until the rules reload. See agent-rules/claude.toml",
+                crate::sessions::worker::DROP_AFTER
+            )),
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
             }
@@ -75,6 +84,17 @@ impl App {
         if show_explanation(&mut self.editor, &mut self.explain, text) {
             self.request_redraw();
         }
+    }
+}
+
+/// Drops `rules` on a thread of its own, as freeing a large compiled set would hold the UI
+/// thread. Inline if no thread starts.
+fn drop_elsewhere(rules: RuleSet) {
+    let spawned = std::thread::Builder::new()
+        .name("oso-drop".into())
+        .spawn(move || drop(rules));
+    if let Err(e) = spawned {
+        log::debug!("cannot start a thread to drop agent rules: {e}");
     }
 }
 

@@ -97,13 +97,17 @@ A file holds at most:
 - 256 patterns;
 - 64 matchers in a rule.
 
-Each pattern or string is at most 4 KiB, and each compiled pattern at most 1 MiB.
+Each pattern or string is at most 4 KiB, and each compiled pattern at most 128 KiB.
 
 All the rules together get 5 ms for one look at a screen. A file can stay within the limits
 and still be slow, for example with many patterns that run over every row. Past the deadline,
 the state stays as it was, and the same screen is looked at again a little later, the wait
 doubling each time, up to 5 s. After two late looks in a row, `*Messages*` names the slowest
 rule, once for each time the rules load. `session-explain-file` shows the same.
+
+A rule of your file that is the slowest of 3 late looks in a row is not used until the rules
+load again, and `*Messages*` names it. Fix it, and save the file. A bundled rule is never
+dropped.
 
 The deadline is best-effort: it is the wall clock's, and the rules check it between matchers,
 so a busy machine can pass it once, and one slow pattern can run past it.

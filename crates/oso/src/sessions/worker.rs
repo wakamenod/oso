@@ -31,6 +31,11 @@ pub const EVALUATE_EVERY: Duration = Duration::from_millis(100);
 /// machine can pass.
 pub const SLOW_AFTER: u32 = 2;
 
+/// How many looks in a row a local rule may be the slowest of looks that ran out of time
+/// before the worker stops using it, until the rules load again. A bundled rule is never
+/// dropped: its cost is bounded and tested, and a busy machine must not turn a dialog off.
+pub const DROP_AFTER: u32 = 3;
+
 /// A hosted session, as the worker knows it: a number the app gives.
 pub type SessionKey = u64;
 
@@ -104,6 +109,9 @@ pub enum Out {
     /// The rules took longer than their budget on [`SLOW_AFTER`] looks in a row at a screen,
     /// this rule the longest: said once for each set of rules.
     Slow(String),
+    /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
+    /// longer used until the rules load again.
+    Dropped(String),
 }
 
 /// The worker, which stops when this is dropped.
@@ -151,20 +159,24 @@ fn run(jobs: &Receiver<Job>, out: &dyn Fn(Out)) {
                 Err(_) => return,
             },
         };
+        // What the jobs before a panic found still goes out: a change of state is not lost
+        // with the job that failed.
+        let mut found = Vec::new();
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let now = Instant::now();
-            let mut found = job.map(|job| core.handle(job, now)).unwrap_or_default();
+            if let Some(job) = job {
+                found.extend(core.handle(job, now));
+            }
             // Every job waiting goes in before a tick, so that screens queued while the last
             // tick ran are coalesced, the newest kept, and judged once.
             while let Ok(job) = jobs.try_recv() {
                 found.extend(core.handle(job, now));
             }
             found.extend(core.tick(now));
-            found
         }));
-        match done {
-            Ok(found) => found.into_iter().for_each(out),
-            Err(_) => log::error!("the sessions worker failed a job"),
+        found.into_iter().for_each(out);
+        if done.is_err() {
+            log::error!("the sessions worker failed a job");
         }
     }
 }

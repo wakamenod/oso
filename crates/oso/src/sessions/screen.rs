@@ -101,9 +101,11 @@ impl Evidence {
 
     /// The evidence while echo is off: no rows, as the terminal withholds them.
     ///
-    /// Echo off means a password prompt's shape: ECHO clear while ICANON is set. Claude Code's
-    /// TUI runs in raw mode, with both clear, so a terminal that called plain "ECHO clear" echo
-    /// off would hold every session's state for good (ADR 0121, step 2 as built).
+    /// The engine's own hold signal, not what makes a terminal secret, which is ADR 0120's to
+    /// settle. Claude Code's TUI runs in raw mode, with ECHO and ICANON both clear, so a signal
+    /// of plain "ECHO clear" would hold every session's state for good: it needs a narrower
+    /// one, such as a password prompt's shape, ECHO clear while ICANON is set (ADR 0121, step 2
+    /// as built).
     #[cfg_attr(
         not(test),
         expect(
