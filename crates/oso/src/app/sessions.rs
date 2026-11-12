@@ -58,6 +58,11 @@ impl App {
         match out {
             Out::Explained(text) => self.show_explanation(&text),
             Out::Unexplained(why) => self.editor.message(why),
+            Out::Slow(slowest) => self.editor.note(format!(
+                "Agent rules took more than {} ms on a screen, so its state holds; the slowest \
+                 rule was {slowest}. See agent-rules/claude.toml",
+                crate::sessions::rules::BUDGET.as_millis()
+            )),
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
             }

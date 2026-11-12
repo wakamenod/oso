@@ -586,7 +586,8 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `sessions::screen::Evidence` is the last 40
   non-empty rows, the title and the OSC 9;4 progress, cut to fixed sizes; `sessions::rules`
   compiles the bundled `claude.toml` and the local `agent-rules/claude.toml` over it; and
-  `sessions::engine::evaluate` gives the first rule that holds, highest priority first. A tracker
+  `sessions::engine::evaluate` gives the first rule that holds, highest priority first, within a
+  deadline of 5 ms checked between matchers, past which the state holds. A tracker
   per session (`sessions::state::Tracker`) turns verdicts into the taxonomy with the debounce and
   the 3 s grace period, from instants it is given, so its tests need no clock. The thread judges
   a session's screen only after it changed, at most 10 times a second, and wakes on its own only

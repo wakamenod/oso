@@ -68,6 +68,9 @@ pub enum Out {
     Explained(String),
     /// A saved screen could not be read, and why, for the echo area.
     Unexplained(String),
+    /// The rules took longer than their budget on a screen, this rule the longest: said once
+    /// for each set of rules.
+    Slow(String),
 }
 
 /// The worker, which stops when this is dropped.
@@ -118,6 +121,11 @@ fn run(jobs: &Receiver<Job>, out: &dyn Fn(Out)) {
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let now = Instant::now();
             let mut found = job.map(|job| core.handle(job, now)).unwrap_or_default();
+            // Every job waiting goes in before a tick, so that screens queued while the last
+            // tick ran are coalesced, the newest kept, and judged once.
+            while let Ok(job) = jobs.try_recv() {
+                found.extend(core.handle(job, now));
+            }
             found.extend(core.tick(now));
             found
         }));

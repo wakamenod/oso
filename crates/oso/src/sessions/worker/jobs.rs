@@ -7,16 +7,16 @@ use std::collections::HashMap;
 use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use oso_platform::file_meta::open_for_reading;
 
 use super::{EVALUATE_EVERY, Job, Out, SessionKey};
-use crate::sessions::engine::evaluate;
+use crate::sessions::engine::{Fallback, evaluate, evaluate_within};
 use crate::sessions::explain;
-use crate::sessions::rules::RuleSet;
+use crate::sessions::rules::{BUDGET, RuleSet};
 use crate::sessions::screen::Evidence;
-use crate::sessions::state::Tracker;
+use crate::sessions::state::{Target, Tracker};
 
 /// The largest saved screen `session-explain-file` reads.
 pub const MAX_EXPLAIN_BYTES: u64 = 256 * 1024;
@@ -31,13 +31,35 @@ struct Session {
     fresh: bool,
     /// When its screen was last judged.
     judged: Option<Instant>,
+    /// The last verdict, which a wake-up of the debounce or the grace period gives again: a
+    /// screen that has not changed is not judged twice.
+    last: Option<Target>,
+    /// How many looks in a row ran out of time: each doubles the wait before the next.
+    late: u32,
 }
+
+impl Session {
+    /// The least time between two judgements of its screen: [`EVALUATE_EVERY`], doubled for
+    /// each look in a row that ran out of time, at most [`MAX_BACKOFF`].
+    fn every(&self) -> Duration {
+        EVALUATE_EVERY
+            .saturating_mul(1 << self.late.min(16))
+            .min(MAX_BACKOFF)
+    }
+}
+
+/// The longest wait between two judgements of a session whose rules keep running out of time.
+const MAX_BACKOFF: Duration = Duration::from_secs(5);
 
 /// The rules in force and the sessions.
 #[derive(Debug)]
 pub struct Core {
     rules: Arc<RuleSet>,
     sessions: HashMap<SessionKey, Session>,
+    /// Whether these rules were said to take too long.
+    slow_said: bool,
+    /// How long the rules may take over one look.
+    budget: Duration,
 }
 
 impl Core {
@@ -45,6 +67,17 @@ impl Core {
         Self {
             rules,
             sessions: HashMap::new(),
+            slow_said: false,
+            budget: BUDGET,
+        }
+    }
+
+    /// The same, with the rules' `budget` over one look.
+    #[cfg(test)]
+    pub fn with_budget(rules: Arc<RuleSet>, budget: Duration) -> Self {
+        Self {
+            budget,
+            ..Self::new(rules)
         }
     }
 
@@ -57,7 +90,7 @@ impl Core {
                 let screen = session.fresh.then(|| {
                     session
                         .judged
-                        .map_or_else(Instant::now, |at| at + EVALUATE_EVERY)
+                        .map_or_else(Instant::now, |at| at + session.every())
                 });
                 match (screen, session.tracker.due()) {
                     (Some(a), Some(b)) => Some(a.min(b)),
@@ -72,9 +105,11 @@ impl Core {
         let (key, change) = match job {
             Job::Rules(rules) => {
                 self.rules = rules;
+                self.slow_said = false;
                 for session in self.sessions.values_mut() {
                     session.fresh |= session.evidence.is_some();
                     session.judged = None;
+                    session.late = 0;
                 }
                 return Vec::new();
             }
@@ -84,6 +119,8 @@ impl Core {
                     evidence: None,
                     fresh: false,
                     judged: None,
+                    last: None,
+                    late: 0,
                 };
                 self.sessions.insert(key, session);
                 return Vec::new();
@@ -116,18 +153,38 @@ impl Core {
         let mut found = Vec::new();
         for (&key, session) in &mut self.sessions {
             let screen_due =
-                session.fresh && session.judged.is_none_or(|at| now >= at + EVALUATE_EVERY);
+                session.fresh && session.judged.is_none_or(|at| now >= at + session.every());
             let tracker_due = session.tracker.due().is_some_and(|due| now >= due);
             if !(screen_due || tracker_due) {
                 continue;
             }
-            let Some(evidence) = &session.evidence else {
-                continue;
+            let target = if screen_due {
+                let Some(evidence) = &session.evidence else {
+                    continue;
+                };
+                // Marked first: a panic while judging must not leave it due at once.
+                session.fresh = false;
+                session.judged = Some(now);
+                let verdict = evaluate_within(&self.rules, evidence, self.budget);
+                session.judged = Some(Instant::now().max(now));
+                if let Err(Fallback::TooSlow { slowest }) = &verdict.by {
+                    session.late = session.late.saturating_add(1);
+                    if !self.slow_said {
+                        self.slow_said = true;
+                        found.push(Out::Slow(slowest.clone()));
+                    }
+                } else {
+                    session.late = 0;
+                }
+                session.last = Some(verdict.target);
+                verdict.target
+            } else {
+                let Some(last) = session.last else {
+                    continue;
+                };
+                last
             };
-            let verdict = evaluate(&self.rules, evidence);
-            session.fresh = false;
-            session.judged = Some(now);
-            if let Some(change) = session.tracker.verdict(verdict.target, now) {
+            if let Some(change) = session.tracker.verdict(target, now) {
                 found.push(Out::Changed(key, change));
             }
         }

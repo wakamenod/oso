@@ -9,26 +9,39 @@
 //! The work is linear in the region's text for each pattern, and both are bounded
 //! (`screen::MAX_ROWS`, `rules::MAX_PATTERNS`).
 
-use super::rules::{RuleSet, Source};
+use std::time::{Duration, Instant};
+
+use super::rules::{BUDGET, Deadline, Late, RuleSet, Source};
 use super::screen::{Evidence, Region};
 use super::state::Target;
 
 /// Why no rule's verdict was taken.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fallback {
     /// No rule matched: idle. An unknown prompt is idle too, never needs input.
     NoRule,
     /// Echo is off, so the rows are withheld: the state keeps its last value.
     EchoOff,
+    /// The rules took longer than [`BUDGET`]: the state keeps its last value. `slowest` is the
+    /// rule that took longest on this look.
+    TooSlow { slowest: String },
 }
 
 impl Fallback {
-    pub fn says(self) -> &'static str {
+    pub fn says(&self) -> String {
         match self {
             Self::NoRule => {
                 "no rule matched: idle. An unknown prompt counts as idle, never as needs input"
+                    .to_owned()
             }
-            Self::EchoOff => "echo off: the rows are withheld, and the state keeps its last value",
+            Self::EchoOff => {
+                "echo off: the rows are withheld, and the state keeps its last value".to_owned()
+            }
+            Self::TooSlow { slowest } => format!(
+                "rules took too long, over {} ms: the state keeps its last value. The slowest \
+                 rule was {slowest}",
+                BUDGET.as_millis()
+            ),
         }
     }
 }
@@ -52,14 +65,21 @@ pub struct Verdict {
     pub by: Result<Matched, Fallback>,
 }
 
-/// The verdict of `rules` on `evidence`.
+/// The verdict of `rules` on `evidence`, within [`BUDGET`].
 pub fn evaluate(rules: &RuleSet, evidence: &Evidence) -> Verdict {
+    evaluate_within(rules, evidence, BUDGET)
+}
+
+/// The verdict of `rules` on `evidence`, or hold if they take longer than `budget`.
+pub fn evaluate_within(rules: &RuleSet, evidence: &Evidence, budget: Duration) -> Verdict {
     if evidence.is_echo_off() {
         return Verdict {
             target: Target::Hold,
             by: Err(Fallback::EchoOff),
         };
     }
+    let deadline = Deadline::after(budget);
+    let mut slowest: Option<(Duration, &str)> = None;
     let mut texts: Vec<(Region, String, String)> = Vec::new();
     for rule in rules.rules() {
         let at = match texts.iter().position(|(region, ..)| *region == rule.region) {
@@ -72,17 +92,35 @@ pub fn evaluate(rules: &RuleSet, evidence: &Evidence) -> Verdict {
             }
         };
         let (_, text, lower) = &texts[at];
-        if rule.holds(text, lower) {
-            return Verdict {
-                target: rule.target,
-                by: Ok(Matched {
-                    name: rule.name.clone(),
-                    source: rule.source,
-                    priority: rule.priority,
-                    region: rule.region,
-                    text: text.clone(),
-                }),
-            };
+        let started = Instant::now();
+        let held = rule.holds(text, lower, &deadline);
+        let took = started.elapsed();
+        if slowest.is_none_or(|(most, _)| took > most) {
+            slowest = Some((took, &rule.name));
+        }
+        match held {
+            Ok(true) => {
+                return Verdict {
+                    target: rule.target,
+                    by: Ok(Matched {
+                        name: rule.name.clone(),
+                        source: rule.source,
+                        priority: rule.priority,
+                        region: rule.region,
+                        text: text.clone(),
+                    }),
+                };
+            }
+            Ok(false) => {}
+            Err(Late) => {
+                let slowest = slowest
+                    .map_or(rule.name.as_str(), |(_, name)| name)
+                    .to_owned();
+                return Verdict {
+                    target: Target::Hold,
+                    by: Err(Fallback::TooSlow { slowest }),
+                };
+            }
         }
     }
     Verdict {
@@ -93,7 +131,9 @@ pub fn evaluate(rules: &RuleSet, evidence: &Evidence) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{Fallback, Target, evaluate};
+    use std::time::Duration;
+
+    use super::{Fallback, Target, evaluate, evaluate_within};
     use crate::sessions::rules::{Parsed, RuleSet, Source, parse};
     use crate::sessions::screen::{Evidence, Region};
     use crate::sessions::state::Reason;
@@ -211,6 +251,20 @@ disable = true
         let verdict = evaluate(&rules, &spinning);
         assert_eq!(verdict.target, Target::Working);
         assert_eq!(verdict.by.unwrap().source, Source::Local);
+    }
+
+    #[test]
+    fn rules_past_their_budget_hold_and_name_the_slowest() {
+        let rules = set(RULES, "");
+        let verdict = evaluate_within(&rules, &screen("? for shortcuts"), Duration::ZERO);
+        assert_eq!(verdict.target, Target::Hold);
+        let Err(Fallback::TooSlow { slowest }) = &verdict.by else {
+            panic!("{verdict:?}");
+        };
+        assert_eq!(slowest, "ask", "the first rule tried, the only one");
+        assert!(verdict.by.unwrap_err().says().contains("over 5 ms"));
+        let in_time = evaluate_within(&rules, &screen("? for shortcuts"), Duration::from_secs(5));
+        assert_eq!(in_time.target, Target::Idle { visible: true });
     }
 
     #[test]

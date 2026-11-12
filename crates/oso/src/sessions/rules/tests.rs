@@ -4,10 +4,12 @@
 //! parts, with no window and no terminal.
 
 use std::fmt::Write as _;
+use std::time::Duration;
 
 use super::parse::MAX_PROBLEMS;
 use super::{
-    MAX_DEPTH, MAX_MATCHERS, MAX_PATTERNS, MAX_RULES, Parsed, RuleSet, Source, bundled, parse,
+    Deadline, Late, MAX_DEPTH, MAX_MATCHERS, MAX_PATTERNS, MAX_RULES, Parsed, RuleSet, Source,
+    bundled, parse,
 };
 use crate::sessions::state::{Reason, Target};
 
@@ -45,8 +47,12 @@ fn a_good_rule_takes_every_field() {
     assert_eq!(rule.target, Target::NeedsInput(Reason::Plan));
     assert_eq!(rule.priority, -5);
     assert_eq!(rule.source, Source::Local);
-    assert!(rule.holds("Yes a\nb\nc d e", "yes a\nb\nc d e"));
-    assert!(!rule.holds("Yes a\nb\nc d e\nf", "yes a\nb\nc d e\nf"));
+    let deadline = Deadline::after(Duration::from_secs(5));
+    let holds = |text: &str| rule.holds(text, &text.to_ascii_lowercase(), &deadline);
+    assert_eq!(holds("Yes a\nb\nc d e"), Ok(true));
+    assert_eq!(holds("Yes a\nb\nc d e\nf"), Ok(false));
+    let late = Deadline::after(Duration::ZERO);
+    assert_eq!(rule.holds("Yes", "yes", &late), Err(Late));
 }
 
 #[test]

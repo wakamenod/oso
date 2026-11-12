@@ -164,3 +164,30 @@ fn a_saved_screen_is_explained_and_odd_files_are_refused() {
     }
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn rules_too_slow_hold_and_are_said_once_for_each_load() {
+    let start = Instant::now();
+    let parsed = parse(RULES, Source::Bundled);
+    let rules = Arc::new(RuleSet::merged(parsed, Default::default()));
+    let mut core = Core::with_budget(Arc::clone(&rules), Duration::ZERO);
+    core.handle(Job::Start(1), start);
+    let at = start + GRACE;
+    core.handle(screen("esc to interrupt"), at);
+    assert_eq!(core.tick(at), [Out::Slow("busy".to_owned())]);
+    core.handle(screen("esc to interrupt!"), at + ms(150));
+    assert!(core.tick(at + ms(150)).is_empty());
+    assert_eq!(
+        core.due(),
+        Some(at + ms(200)),
+        "a look that ran out of time doubles the wait"
+    );
+    assert!(
+        core.tick(at + ms(200)).is_empty(),
+        "said once, and the state holds"
+    );
+    core.handle(screen("again"), at + ms(250));
+    assert_eq!(core.due(), Some(at + ms(600)), "doubled again: 400 ms");
+    core.handle(Job::Rules(rules), at + ms(300));
+    assert_eq!(core.tick(at + ms(300)), [Out::Slow("busy".to_owned())]);
+}

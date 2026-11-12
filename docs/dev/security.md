@@ -420,7 +420,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   with its checks and refused when other users can change it; never a project's, never
   fetched. They use the `regex` crate only, each pattern with a 1 MiB size limit, at most 256
   patterns and 128 rules a file, and the screen is cut to 40 rows of 1 KiB, so judging one is
-  linear in at most some 41 KiB. `*Session explain*` shows screen text and is withheld from the
+  linear in at most some 41 KiB. A look gets 5 ms, checked between matchers; past it the state
+  holds, so a slow local file cannot hold the sessions worker. `*Session explain*` shows screen text and is withheld from the
   agent channel; `session-explain-file`, which reads a file, is `Person`.
 
 ### Denial of service (T8)

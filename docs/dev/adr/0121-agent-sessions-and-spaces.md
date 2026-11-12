@@ -760,6 +760,17 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
 - **The fuzz target is a proptest generator** (`sessions/fuzz_tests.rs`). It makes rules files
   and screens, and runs in `just ci`. The tip crate has no library target that cargo-fuzz could
   link; a cargo-fuzz harness can share the generators once `oso-term` has one.
+- **A deadline of 5 ms for each look at a screen.** The rules check it between matchers. A
+  crafted local file can be slow even within the format's limits: past the deadline, the state
+  holds with the reason "rules took too long". `*Messages*` says so once for each load of the
+  rules, naming the slowest rule, and `*Session explain*` shows it.
+  - The Cost table's 0.2 ms is still the bundled rules' budget; the deadline only bounds a
+    local file.
+  - A session whose looks keep running out of time is judged less often: the wait doubles
+    each time, up to 5 s.
+  - The worker takes every queued job before it judges, so screens that queued up are judged
+    once. A wake-up of the debounce gives the last verdict again, without judging the same
+    screen twice.
 - **`hold` is a state a rule gives**, not a flag beside one. `session-explain-file` is
   `Person`: the sessions worker reads the file, at most 256 KiB.
 - **The format** is in [agent-rules.md](../agent-rules.md). It has the regions listed above,

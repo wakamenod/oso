@@ -11,6 +11,8 @@
 
 mod parse;
 
+use std::time::{Duration, Instant};
+
 use regex::Regex;
 
 use super::screen::Region;
@@ -74,9 +76,9 @@ pub struct Rule {
 
 impl Rule {
     /// Whether the rule's test holds over `text`, its region's text, and `lower`, the same
-    /// text with ASCII letters in lower case.
-    pub fn holds(&self, text: &str, lower: &str) -> bool {
-        self.test.holds(text, lower)
+    /// text with ASCII letters in lower case; [`Late`] if `deadline` passed before it was known.
+    pub fn holds(&self, text: &str, lower: &str, deadline: &Deadline) -> Result<bool, Late> {
+        self.test.holds(text, lower, deadline)
     }
 }
 
@@ -107,18 +109,81 @@ impl Test {
             && self.not.is_empty()
     }
 
-    fn holds(&self, text: &str, lower: &str) -> bool {
-        self.contains
+    /// Whether every part holds, the deadline looked at before each pattern and each table.
+    fn holds(&self, text: &str, lower: &str, deadline: &Deadline) -> Result<bool, Late> {
+        deadline.check()?;
+        if !self
+            .contains
             .iter()
             .all(|part| lower.contains(part.as_str()))
-            && self.regex.iter().all(|pattern| pattern.is_match(text))
-            && self
-                .line_regex
-                .iter()
-                .all(|pattern| text.lines().any(|line| pattern.is_match(line)))
-            && (self.any.is_empty() || self.any.iter().any(|test| test.holds(text, lower)))
-            && self.all.iter().all(|test| test.holds(text, lower))
-            && !self.not.iter().any(|test| test.holds(text, lower))
+        {
+            return Ok(false);
+        }
+        for pattern in &self.regex {
+            deadline.check()?;
+            if !pattern.is_match(text) {
+                return Ok(false);
+            }
+        }
+        for pattern in &self.line_regex {
+            deadline.check()?;
+            if !text.lines().any(|line| pattern.is_match(line)) {
+                return Ok(false);
+            }
+        }
+        if !self.any.is_empty() {
+            let mut one = false;
+            for test in &self.any {
+                if test.holds(text, lower, deadline)? {
+                    one = true;
+                    break;
+                }
+            }
+            if !one {
+                return Ok(false);
+            }
+        }
+        for test in &self.all {
+            if !test.holds(text, lower, deadline)? {
+                return Ok(false);
+            }
+        }
+        for test in &self.not {
+            if test.holds(text, lower, deadline)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// How long the rules may take over one look at a screen (ADR 0121, as built): past it, the
+/// state holds. Only a crafted local file comes near it.
+pub const BUDGET: Duration = Duration::from_millis(5);
+
+/// When the rules over one look must have given their verdict.
+#[derive(Clone, Copy, Debug)]
+pub struct Deadline {
+    at: Instant,
+}
+
+/// The deadline passed before a rule's test was known.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Late;
+
+impl Deadline {
+    /// The deadline `budget` from now.
+    pub fn after(budget: Duration) -> Self {
+        Self {
+            at: Instant::now() + budget,
+        }
+    }
+
+    fn check(&self) -> Result<(), Late> {
+        if Instant::now() >= self.at {
+            return Err(Late);
+        }
+        Ok(())
     }
 }
 

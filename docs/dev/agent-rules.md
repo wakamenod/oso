@@ -99,6 +99,11 @@ A file holds at most:
 
 Each pattern or string is at most 4 KiB, and each compiled pattern at most 1 MiB.
 
+All the rules together get 5 ms for one look at a screen. A file can stay within the limits
+and still be slow, for example with many patterns that run over every row. Past the deadline,
+the state stays as it was, and `*Messages*` names the slowest rule once for each time the
+rules load. `session-explain-file` shows the same.
+
 oso says what is wrong in `*Messages*`, with the line:
 - A syntax error, or a `version` other than 1, refuses the whole file, and the rules in force
   stay.
