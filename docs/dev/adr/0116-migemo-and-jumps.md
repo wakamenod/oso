@@ -1,0 +1,478 @@
+# 0116. Migemo: romaji search for Japanese text, and jumps by label
+
+- Status: Proposed
+- Date: 2026-11-12
+
+## Context
+
+The roadmap puts "Migemo-style romaji search for Japanese text, and avy-style jumps" in M3
+([roadmap](../roadmap.md)). The author writes Japanese text, and uses migemo (through C/Migemo) and
+avy, with avy's migemo variant, in Emacs. Earlier ADRs left these to M3:
+
+- **The input method is off while isearch reads keys,** so a Japanese string cannot be typed there.
+  "Migemo (M3) searches Japanese from romaji" ([ADR 0082](0082-isearch.md),
+  [ADR 0069](0069-macos-input-method.md)). Every prompt keeps the input method off too, except the
+  prompt for a file's name and query-replace's two prompts, where `かな` turns it on
+  ([ADR 0106](0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md),
+  [ADR 0113](0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+- **Completion's orderless affixes** leave out `%` (char folding) "until migemo (M3) decides how
+  Japanese is matched" ([ADR 0076](0076-completion-and-m-x.md)). Romaji matching of file names
+  "waits for M3's migemo" ([ADR 0087](0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- **Project search** matches orderless components against each line, with `!` and `=`
+  ([ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md)).
+- **isearch is literal,** with a Knuth–Morris–Pratt matcher over the rope's chunks
+  (`oso_core::search`). query-replace's regexps are matched one line at a time with the `regex`
+  crate, which needs contiguous text, with a budget of work a key and a slice, and 0113 notes that
+  regexp isearch (`C-M-s`) "can use the new matcher". It is not built yet.
+- **Only the `regex` crate** is used for regular expressions (AGENTS.md). `oso-core` depends on
+  it already, with `unicode-perl`, `unicode-gencat` and `perf`.
+- **No GPL code or data can be bundled** (MIT OR Apache-2.0, [ADR 0020](0020-license.md)). The
+  common migemo dictionaries derive from GPL SKK dictionaries, and `open-questions.md` lists the
+  dictionary's source and licence as open. oso has no network code, so it cannot fetch one.
+- **The UI thread never waits** on I/O, parsing or a scan of a whole buffer. Background work runs on
+  lazily spawned threads over O(1) snapshots, superseded by a generation (ADR 0082, ADR 0111).
+- **Faces** are data with a contrast test per face: 7:1 for text that is read, 4.5:1 for labels,
+  3:1 for marks, with OKLab distances between fills
+  ([ADR 0089](0089-built-in-themes-switched-at-run-time.md),
+  [ADR 0111](0111-tree-sitter-highlighting.md) Q10). An escape (`^M`, `\xFF`) and a boxed code
+  point (`U+202E`) have faces of their own (`Face::Escape`, `Face::Boxed`) so they are never
+  mistaken for text ([ADR 0061](0061-panes-clipping-and-layers.md)).
+- **A frame holds a tree of windows,** each with its own selection set; selecting another window
+  flashes ([ADR 0112](0112-window-splits.md), [ADR 0097](0097-visual-aids.md)).
+- **Commands act on the selection set;** isearch and query-replace move only the primary cursor
+  ([ADR 0091](0091-multiple-cursor-keys-and-m-y.md)).
+- **Every command has a reach:** `Look`, `Change` or `Person`. The channel refuses `Person`, waits
+  while the person is in the middle of something such as an isearch, and runs nothing while a
+  buffer that may hold secrets is shown ([ADR 0085](0085-agent-channel-and-oso-mcp.md)).
+- **Settings** live in `config.toml` ([ADR 0108](0108-the-user-configuration-file.md)), which the
+  channel never saves.
+
+### What others do
+
+- **C/Migemo** ([koron/cmigemo](https://github.com/koron/cmigemo)), MIT code, turns a romaji query
+  into a regexp: each kana form of it (hiragana, katakana, half-width, full-width), and every
+  dictionary word whose reading starts with it, joined as a trie. An unfinished end (`kak`) gives
+  every kana it can start. An uppercase letter starts a new segment, each expanded on its own and
+  joined (`kensakuEnjin` → `検索エンジン`). Between characters it puts a pattern for spaces and a
+  line break, unless `--nonewline`. Its dictionary is built from `SKK-JISYO.L`, keeping entries
+  with okurigana without their last letter, and "is subject to the GPL" as its source is (its
+  README). `SKK-JISYO.L` holds about 176,000 readings.
+- **migemo.el** ([emacs-jp/migemo](https://github.com/emacs-jp/migemo)), GPL, runs `cmigemo` as a
+  process. It is on in isearch by default (`migemo-isearch-enable-p`), `M-m` toggles it, the
+  prompt then says `[MIGEMO]`, and a query that already holds a non-ASCII character is searched as
+  it is. It is not used in regexp isearch or in query-replace. orderless has no migemo style of
+  its own; people define one that matches a component as its migemo pattern
+  ([orderless](https://github.com/oantolin/orderless)).
+- **Permissive dictionaries:** [yet-another-migemo-dict](https://github.com/oguna/yet-another-migemo-dict)
+  is BSD-3-Clause, built from Mozc's `single_kanji.tsv` (BSD-3) and UniDic (under its BSD
+  option), and ships their licences. Version 0.6 holds 89,177 readings and 201,827 words, in a
+  `migemo-dict` file of 2.6 MB; words with kanji between kana are left out for now.
+  [jsmigemo](https://github.com/oguna/jsmigemo) (MIT) ships it, and so does tmux-fuzzy-motion,
+  whose notice lists the Mozc and UniDic licences. Larger sources are
+  [SudachiDict](https://github.com/WorksApplications/SudachiDict) (Apache-2.0, with UniDic's BSD
+  notice and NEologd's attributions; 273,000 readings in its small tier, from 226 MB of CSV) and
+  Mozc's OSS dictionary (IPAdic's NAIST and ICOT notices; 746,000 readings, 60 MB). Of the SKK
+  dictionaries, only the tiny `pubdic+` maps readings to words and is not GPL
+  ([skk-dev/dict](https://github.com/skk-dev/dict/blob/master/committers.md)). Unihan's
+  `kJapaneseKun` and `kJapaneseOn` give single kanji only.
+- **Rust:** [rustmigemo](https://github.com/oguna/rustmigemo) is MIT but not on crates.io, and the
+  dictionary its README points to is GPL-3.0, generated from SKK.
+- **Vim:** [kensaku.vim](https://github.com/lambdalisue/vim-kensaku) runs jsmigemo and, by
+  default, downloads an SKK-derived dictionary at run time, which oso, with no network code,
+  cannot do. EasyMotion has `g:EasyMotion_use_migemo`.
+- **avy** ([abo-abo/avy](https://github.com/abo-abo/avy)), GPL, labels targets in view:
+  `avy-goto-char-timer` reads characters until 0.5 s pass (`avy-timeout-seconds`), highlighting
+  their matches, and `RET` ends early; `avy-goto-line` (`M-g f` in its README) labels line starts,
+  and a digit there opens `goto-line`; `avy-isearch` labels isearch's matches. Defaults: keys
+  `a s d f g h j k l`, style `at-full` (the label over the target), all windows of the frame, no
+  dimming, and a single candidate jumped to at once. Labels come from a tree, so earlier
+  candidates get shorter labels; only `avy-goto-char` sorts by distance from the cursor. A key in
+  `avy-dispatch-alist` (`x` kill, `t` teleport, `m` mark, `n` copy, `y` yank, `z` zap, and more)
+  acts on the target instead. [avy-migemo](https://github.com/momomo5717/avy-migemo) (GPL) adds
+  migemo, but has not changed since 2019, and parts of it no longer work with avy.
+- **Elsewhere:** [flash.nvim](https://github.com/folke/flash.nvim) shows labels during `/` search,
+  chosen so that a label is never a letter that continues the pattern, nearest first.
+  [leap.nvim](https://codeberg.org/andyg/leap.nvim) takes two characters and then a label.
+  [Helix](https://github.com/helix-editor/helix/blob/master/book/src/keymap.md) labels every word
+  in view with two characters (`gw`), and Zed has taken that up. [AceJump](https://github.com/acejump/AceJump)
+  does it in JetBrains IDEs, and VS Code has extensions such as MetaGo.
+  [ace-window](https://github.com/abo-abo/ace-window) selects a window by a label over avy's tree.
+
+## Questions
+
+Put to the author through the coordinator, the recommended option first.
+
+### The shape of this ADR
+
+1. **One ADR or two:** (a) one, for migemo and jumps together: they meet where a jump reads romaji,
+   and share the view's matcher and its limits; (b) two: this one for migemo, and a later ADR for
+   jumps, so each is decided and built on its own.
+
+### Migemo
+
+2. **The dictionary, which gives kanji (the key question):**
+   (a) **Kana built in, and a dictionary the person names.** oso converts romaji to hiragana,
+   katakana and full-width letters with a table of its own, and needs no data for that. For kanji,
+   `[search] migemo-dictionary` in `config.toml` names a file the person has: C/Migemo's
+   `migemo-dict`, which a package manager installs, or yet-another-migemo-dict's, which the docs
+   name as a permissive one to download. oso reads it at run time and never ships it, so a GPL
+   dictionary stays the person's own copy. With no file named, romaji finds kana but no kanji.
+   (b) **(a), and yet-another-migemo-dict in the binary** (BSD-3-Clause), used when no file is
+   named: kanji with nothing to set up, at 2.6 MB more binary, its three licence texts shipped with
+   oso, and a vendored data file to review at each update. It has half of `SKK-JISYO.L`'s readings
+   and no words with kanji between kana yet. It can be added later without changing (a).
+   (c) **(a), and a dictionary oso generates itself** from SudachiDict (Apache-2.0) or Mozc's OSS
+   dictionary: three to eight times the readings, but a generator to maintain over hundreds of
+   megabytes of source, a larger file, and more notices.
+   (d) **Kana only:** no dictionary of any kind, and no kanji.
+3. **Dictionary formats (if Q2 is not (d)):** (a) C/Migemo's `migemo-dict` (a reading, a tab and
+   its words) and SKK's format (`reading /word/word/`), both in UTF-8, told apart by each line's
+   shape. (b) `migemo-dict` only. (c) (a), and SKK's files in EUC-JP, as `SKK-JISYO.L` ships: a
+   decoder, which is a dependency (`encoding_rs`) or a table of oso's own.
+4. **Where migemo applies:** (a) isearch, and the characters a jump reads; project search's
+   components, as isearch's rule decides for each; completion (`M-x`, `C-x b`, `C-x C-f`,
+   `C-x p f`) only through the `%` affix; never query-replace, whose prompts take Japanese.
+   (b) Everywhere by isearch's rule, completion included: a component such as `sa` then also
+   matches every candidate with `さ` or `サ`, which `M-x` does not need. (c) isearch and jumps
+   only.
+5. **When isearch uses it:** (a) by itself, while the string is romaji: lowercase ASCII letters,
+   `'` and `-` for `ー`; any other character, an uppercase letter among them, searches literally as
+   today. `M-m` turns migemo off or on for the rest of this search, as migemo.el's key does, and
+   the line says `[migemo] I-search:`. `[search] migemo = false` turns it off by default.
+   (b) Off until `M-m` turns it on. (c) As (a), but an uppercase letter starts a new word,
+   as C/Migemo's segments do (`kikiKaikan` → `危機会館`), rather than making the search
+   case-sensitive.
+6. **Line breaks:** (a) a match lies within one line, as 0113's regexps: a word that a hard wrap
+   breaks across two lines is not found. (b) Allow a line break, and the spaces around it,
+   between any two characters, as migemo.el does: this needs a matcher across lines that the
+   `regex` crate over one line cannot give, so later, with its own ADR.
+7. **How big a pattern may get, and where it is built:** (a) on the UI thread at each key, from a
+   cache of the last 32 strings, so `DEL` builds nothing. Words come from the dictionary entries
+   whose reading starts with the kana typed, while there are at most 2048 of them; past that only
+   the entries whose reading is the kana itself, so `k` alone gives kana and `kanj` gives `漢字`.
+   The compiled pattern's size limit is 4 MiB. Building and compiling must stay under 2 ms at
+   p99 over the author's dictionary on their Mac, measured in step 3; if it does not, the build
+   moves to the search worker. (b) Always on the worker: a frame late at every key, which ADR 0082
+   turned down for isearch. (c) No cap on words, as C/Migemo has none: `k` alone gives a pattern
+   of tens of thousands of words.
+8. **Loading the dictionary:** (a) on a worker, at the first search that would use it, not at
+   start-up; searches until it is in use kana only, and the search on screen runs again when it
+   comes. It is read whole, at most 64 MiB, into one sorted table, kept for the session, and read
+   again when the setting changes. (b) At start-up, on a worker: kanji from the first search, but
+   every start reads it, also when no search follows. (c) Mapped into memory: no read at all, but
+   it needs `unsafe` or a dependency, and a file changed under oso changes the table.
+9. **Where the code lives:** (a) a public module `oso_core::migemo`, pure, with no I/O: the
+   romaji table, the dictionary from bytes, and a pattern for a string; the tip crate reads the
+   file, and `search` and `complete` use the module. (b) A crate `oso-migemo`: it builds alone and
+   others could use it, but it is a new crate and a new edge for one module's worth of code.
+
+### Jumps
+
+10. **Which jumps in M3:** (a) `avy-goto-char-timer`, `avy-goto-line`, `avy-goto-end-of-line` and
+    `avy-isearch` (labels on isearch's matches in view). (b) (a), and `avy-goto-word-1`,
+    `avy-goto-word-0` and `avy-goto-char-2`. (c) `avy-goto-char-timer` only.
+11. **Names and keys:** (a) avy's names, so `M-x` finds them as in Emacs; `M-j` for
+    `avy-goto-char-timer`, and in isearch for `avy-isearch`; `M-g f` for `avy-goto-line`, as
+    avy's README suggests; `avy-goto-end-of-line` by `M-x` until the menus come. (b) oso's own
+    names (`jump-to-char`, `jump-to-line`), with the same keys. (c) avy's names, and no keys bound.
+12. **The label keys:** (a) `a s d f g h j l`: eight keys of the home row, leaving `k` for an
+    action. (b) avy's default, `a s d f g h j k l`. (c) More keys, such as the home row and the
+    row above it: fewer labels of two keys, but keys off the home row. Each can be changed in
+    `[jump] keys`.
+13. **When labels appear:** (a) as `avy-goto-char-timer`: characters are read until 0.5 s pass
+    with no key, or `RET`, and then the labels show; `[jump] timeout` changes the time. (b) As
+    flash.nvim: labels show at each key, taken from letters that would not continue any match,
+    so there is no timer, but the labels change as one types.
+14. **A single candidate:** (a) still labelled, so an action can apply to it. (b) Jumped to at
+    once, as avy's default does.
+15. **How labels look:** (a) over the target's first cells, as avy's default style (`at-full`),
+    in a new face `JumpLabel`: a strong fill no other face uses, its text at 7:1 on it, apart from
+    `Escape`'s, `Boxed`'s, the search fills' and the region's by an OKLab distance, so a label is
+    never read as an escape or as text; a second key of a label in a second face, as avy does;
+    the rest of the text as it is. (b) As (a), and the rest of the text dimmed, as
+    `avy-background`. (c) Before the target, pushing the text to the right (`pre`): nothing is
+    hidden, but the text moves.
+16. **Several windows:** (a) labels in every tiled window of the frame, as `avy-all-windows`; the
+    selected window's candidates nearest the cursor get the shortest labels; `C-u` keeps to the
+    selected window; a jump into another window selects it, and it flashes as ADR 0112 has it.
+    (b) The selected window only, and `C-u` for all.
+17. **Cursors and the mark:** (a) the primary cursor jumps, and the others stay, as in isearch.
+    The place it left is pushed onto its mark ring without a message, as avy does; a region
+    shown stays shown, so a jump extends it. (b) A jump drops the other cursors.
+18. **Actions:** a key that is not a label acts on the target, as `avy-dispatch-alist`. (a) In M3:
+    `SPC` sets the region from the cursor to the target; `W`, `K`, `Y` and `T` copy, kill, yank
+    and move the target's whole line, coming back; `c` adds a cursor at the target. Avy's
+    actions on an expression wait for structural motions. (b) No actions in M3: a jump moves.
+    (c) (a), and the word versions of copy, kill, yank and move (`w`, `k`, `y`, `t`).
+19. **What candidates cost:** (a) only the text in view: each window's rows, within isearch's
+    256 KiB of text a frame, and at most 4096 candidates, which eight keys label with four keys or
+    fewer; past that, the farthest are not labelled and the echo area says how many. (b) At most
+    512, labels of three keys at most.
+20. **The agent channel:** (a) every jump command is `Person`, as they read keys; the channel
+    waits while a jump is on, as for isearch; `get-state` gains `jump`, with no positions.
+    (b) Also a `Look` command for the channel that jumps to a string's nearest match in view:
+    the channel can already move with `goto-line` and `open`.
+
+## Decision (draft, assuming the recommendations)
+
+This section describes the recommended option of each question. It changes with the answers.
+
+### 1. Migemo
+
+#### What a romaji string matches
+
+- **A table of oso's own turns romaji into kana:** the Hepburn and kunrei spellings and the ones
+  Japanese input methods take (`shi` and `si`, `chi` and `ti`, `tsu` and `tu`, `fu` and `hu`,
+  `ja`, `jya` and `zya`), small kana with `x` or `l` (`xa`, `ltu`, `xtsu`), a doubled consonant
+  for `っ` (`kka`), `nn`, `n'` and an `n` before a consonant for `ん`, `wo` for `を` and `-` for
+  `ー`. The table is data in the module, with a test per row.
+- **An unfinished end matches every kana it can start,** as C/Migemo does: `k` matches `か`, `き`,
+  `く`, `け`, `こ` and `っ`; `ky` matches `きゃ`, `きゅ` and `きょ`; an `n` at the end matches `ん`
+  and the `な` row.
+- **The string then matches any of:** the romaji itself, with ASCII case folded; its hiragana; its
+  katakana, full-width and half-width; its full-width letters (`ｋａｎ`); and, with a dictionary,
+  every word whose reading starts with its hiragana, within Q7's limits. A dictionary's readings
+  are hiragana, and a katakana word is found through the katakana form.
+- **The pattern is a trie of alternatives,** with common prefixes taken out, as C/Migemo builds
+  it, and every kana and word put in through `regex::escape`, so nothing in a dictionary is
+  regexp syntax. `regex::RegexBuilder` compiles it with a size limit of 4 MiB and a nest limit
+  of 32. A pattern over the limit drops the dictionary's words and keeps the kana.
+- **A pattern is cached per string,** the last 32, so `DEL` and a repeat build nothing.
+
+#### isearch
+
+- **Migemo isearch is a regexp isearch whose pattern comes from the string.** So step 1 builds
+  regexp isearch (`C-M-s`, `C-M-r`) on 0113's matcher, and migemo uses it: isearch's rules hold
+  as they are, with 0113's per-line regexps: 256 KiB of text and 3 ms a key on the UI thread, the
+  rest and the count on the worker, highlights only in view.
+- **It applies by itself while the string is romaji (Q5):** lowercase ASCII letters, `'` and `-`.
+  Any other character searches literally, as today, with smart case. A match lies within one
+  line (Q6).
+- **`M-m` turns migemo off or on for the rest of this search,** and the line then says
+  `[migemo] I-search:` while it applies, as migemo.el's `[MIGEMO]`. `[search] migemo = false`
+  in `config.toml` starts every search with it off.
+- **The string enters the history as typed,** the romaji, as before.
+- **`get-state`'s `isearch` gains `migemo`,** whether the pattern is migemo's, and nothing of the
+  pattern.
+
+#### Project search and completion
+
+- **A project search component that is romaji by the same rule matches as its migemo pattern,**
+  which holds the literal too; `=` keeps a component literal. The pattern is built once per
+  component, as ADR 0076 compiles a regexp component, and the `oso-grep` threads share it.
+- **In completion, `%` makes a component migemo's:** `%kan` matches `漢字.md` with a dictionary,
+  and `かんじ.md` without one. Without `%` a component matches as ADR 0076 says.
+- **query-replace does not use migemo:** its prompts take Japanese (ADR 0113).
+
+#### The dictionary
+
+- **`[search] migemo-dictionary`** names a file: an absolute path, or one starting with `~/`.
+  With none, migemo gives kana only, and says nothing. Only the user's `config.toml` names it:
+  nothing in a project does, so opening one reads no dictionary.
+- **It is read on a thread of its own, `oso-migemo`, at the first search that would use it,**
+  and kept for the session. It is opened through `oso_platform::file_meta::open_for_reading`, so
+  a special file is never waited on. It must be a regular file of at most 64 MiB, in UTF-8.
+  Until it is in, searches use kana only, and the search on screen runs again when it comes.
+  A change of the setting reads the new file, and the old table serves until it is in.
+- **Two formats, told apart by each line (Q3):** C/Migemo's `migemo-dict` (a reading, a tab,
+  words separated by tabs) and SKK's (`reading /word/word/`). SKK's `;` comment lines and a word's
+  `;annotation` are skipped, and an entry with okurigana (`かk /書/`) keeps its reading without
+  the last letter, as C/Migemo's converter does. A line in neither format, a reading that is not
+  hiragana, a word over 64 bytes, and the words of a reading past 256 are skipped too, so a
+  crafted file gives a bounded table.
+- **The table is one string arena and a sorted list of entries,** each a reading's range and its
+  words' range, so a prefix's entries are found by binary search. It takes about the file's size,
+  plus 16 bytes an entry.
+- **`*Messages*` says what came of it:** `Migemo dictionary: 123,456 readings`, or why it could
+  not be read. The path is the person's own setting. No word of the dictionary is ever logged.
+
+#### Secrets and the sockets
+
+- **Migemo works in a buffer that may hold secrets, as isearch does.** The pattern is the
+  string's, and kept as the string is: never logged, out of `Debug`, out of the history around a
+  secret, and out of `get-state` there.
+- **The channel cannot change which dictionary is read,** as it never saves `config.toml`
+  (ADR 0085).
+- **`isearch-toggle-migemo` (`M-m`) is `Person`,** as every isearch command is.
+
+### 2. Jumps
+
+#### Commands and keys (Q10, Q11)
+
+| Keys | Command | What it does |
+|---|---|---|
+| `M-j` | `avy-goto-char-timer` | Reads characters until 0.5 s pass, then labels their matches in view |
+| `M-g f` | `avy-goto-line` | Labels each line's start in view; a digit opens `goto-line` with it |
+| | `avy-goto-end-of-line` | Labels each line's end in view |
+| `M-j` in isearch | `avy-isearch` | Labels isearch's matches in view, and ends the search at the one chosen |
+
+#### A jump
+
+- **A jump is a mode of the selected window, as isearch is.** Its keymap takes the others' place
+  while it is on, and the input method is off. It refuses inside a prompt: "Not in the minibuffer".
+- **`avy-goto-char-timer` reads a string first,** of at most 64 characters, on the echo row:
+  `Jump: ka`. Each key adds a character, `DEL` takes one away, and the matches in view show in
+  isearch's other-match fill. 0.5 s after the last key (`[jump] timeout`), or at `RET`, the labels
+  show. With no match, the echo area says `No candidates` and the jump ends. A romaji string
+  matches by migemo, by isearch's rule.
+- **Then each candidate shows a label.** Typing a label's first key keeps the labels that start
+  with it; its last key jumps. Labels come from `[jump] keys`, `a s d f g h j l` by default, as
+  avy's tree gives them: as many candidates as can get one key do, nearest first, and the rest
+  share the other keys as prefixes, so no label starts another.
+- **A single candidate is labelled too (Q14),** so an action can apply to it.
+- **A key that is neither a label nor an action ends the jump** with `No such candidate`, and does
+  not run, as in avy, so a mistyped label inserts nothing. `C-g` ends it with nothing moved, as
+  `Quit::Jump` in `Editor::quit`, after isearch's steps and query-replace's.
+- **The primary cursor jumps; the other cursors stay (Q17).** The place it left is pushed onto
+  its mark ring without a message. A region shown stays shown, so a jump extends it. The flash of
+  ADR 0097 follows its rule for a large move.
+- **`avy-isearch` ends the search at the match chosen,** as `RET` there does: the string enters
+  the history and the mark is saved where the search began.
+
+#### Windows (Q16)
+
+- **Labels show in every tiled window of the frame.** The selected window's candidates come
+  first, nearest its primary cursor first, then the other windows' in the tree's order, each
+  nearest its own primary cursor. `C-u` keeps to the selected window.
+- **A jump into another window selects it,** and moves that window's primary cursor; the window
+  flashes as ADR 0112 has it.
+- **A window over a buffer that may hold secrets is labelled as any other:** the screen shows its
+  text already.
+
+#### Actions (Q18)
+
+After the first key of a label, or before it, a key from this table acts on the target the label
+then chosen points at, as avy's `avy-dispatch-alist` does, and none of them is a label key:
+
+| Key | Action |
+|---|---|
+| `SPC` | Sets the region from the cursor to the target |
+| `W` | Copies the target's whole line, and stays |
+| `K` | Kills the target's whole line, and stays |
+| `Y` | Copies the target's whole line and yanks it at the cursor |
+| `T` | Kills the target's whole line and yanks it at the cursor |
+| `c` | Adds a cursor at the target |
+
+- An action is one undo step, in each buffer it changes. A kill from a buffer that may hold
+  secrets marks the kill, and a yank of it marks the buffer it goes into, as ADR 0074 has it.
+- `K` and `T` in a read-only buffer say "Buffer is read-only" and do nothing.
+
+#### Labels on screen (Q15)
+
+- **A label covers the target's first cells,** as avy's `at-full`: one cell a key, from the
+  target on, within its row; a label that would run past the row's end is cut there. A wide
+  character takes two keys' cells. A target with no cell, such as an empty line's end, shows its
+  label in the first cell after the text.
+- **Two new faces:** `JumpLabel` for a label's first key, and `JumpLabelNext` for the keys after
+  it. Each is a strong fill no other face uses, its text at 7:1 on it, as text that is read. The
+  contrast test keeps both fills apart, by an OKLab distance, from `Escape`'s, `Boxed`'s, the two
+  search fills', the region's and each other's, so a label is never taken for an escape, a match
+  or text. The three built-in themes each give them a colour.
+- **`TextView` gains `labels`,** a list of cells, their text and face, drawn after the text, as
+  `fills` are drawn before it. The rest of the text is drawn as it is.
+
+#### What candidates cost (Q19)
+
+- **Only the text in view is looked at:** each window's visible rows, within 256 KiB of text a
+  window, as isearch's highlights. A string's candidates are found with the matcher isearch's
+  highlights use, a line's start and end from the display rows.
+- **At most 4096 candidates** are labelled, which eight keys label with four keys or fewer. Past
+  that, the farthest are not labelled, and the echo area says `4096 of 5210 labelled`.
+- **While a string is read, its matches are found again at each key,** within the same limits; a
+  frame's cost stays bounded by the view, whatever the buffer's size.
+
+#### Secrets and the sockets (Q20)
+
+- **Every jump command and action is `Person`,** as they read keys. The channel waits while a
+  jump is on, as for isearch.
+- **`get-state` gains `jump`:** `null`, or `stage` (`reading` or `labels`) and `count`; while a
+  buffer that may hold secrets is shown, only `{"active": true}`. The string is left out as
+  isearch's is there. Nothing gives the labels' places.
+- **A dev restart waits for a jump to end,** as for isearch.
+
+### 3. Code and layers
+
+- **`oso_core::migemo`, public (Q9):** `Dictionary` (from bytes, with its limits), `Romaji` (the
+  kana a string gives) and `pattern`, which gives a pattern's text for a string and a dictionary.
+  It does no I/O and uses only `regex::escape`. It sits on the lowest line of
+  `guardrails/layers.txt`, beside `sum_tree`, so `search` and `complete` can use it.
+- **`oso_core::jump`,** public: `Jump`, the session's state (read-only), and the label tree. It
+  sits beside `minibuffer`, below `editor` and above `frame`.
+- **In `oso-core`'s editor:** `Editor::jump*` methods and `Quit::Jump`. In `oso-render`:
+  `Face::JumpLabel`, `Face::JumpLabelNext` and `TextView::labels`.
+- **In the tip crate:** the dictionary's reader thread (`app/migemo.rs`), the jump commands and
+  their keymap, and the settings `[search] migemo`, `[search] migemo-dictionary`, `[jump] keys`
+  and `[jump] timeout`, each checked as ADR 0108 checks a setting: `keys` holds 2 to 32 distinct
+  printable ASCII characters, none of them an action's key, and `timeout` is 0.1 to 5 s.
+- **No new dependency,** with the recommended options.
+
+### 4. Steps
+
+1. Regexp isearch, `C-M-s` and `C-M-r`, on 0113's matcher.
+2. `oso_core::migemo` with kana only; migemo in isearch, `M-m`, `[search] migemo`.
+3. The dictionary: the setting, the reader thread, the table, the limits measured over the
+   author's dictionary.
+4. Migemo in project search, and the `%` affix in completion.
+5. Jumps: the session, the four commands, labels, faces, windows; migemo for the string.
+6. The actions.
+
+Steps 5 and 6 need none of steps 1 to 4, and can go beside them; a jump's string uses migemo once
+step 2 is in.
+
+## Changes to accepted ADRs
+
+With the recommended options:
+
+- **[ADR 0082](0082-isearch.md):** "`C-s` and `C-r` search for the literal string" becomes: for the
+  literal string, unless it is romaji and migemo is on, when they search for its migemo pattern
+  (one line at a time, as 0113's regexps). "The IME is off while isearch is on … Migemo (M3)
+  searches Japanese from romaji" holds as it is.
+- **[ADR 0076](0076-completion-and-m-x.md):** "`%` (char folding) is left out until migemo (M3)
+  decides how Japanese is matched" becomes: `%` makes a component migemo's. Char folding gets no
+  affix.
+- **[ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md):** a component that is
+  romaji matches as its migemo pattern; `=` keeps it literal.
+- **[ADR 0085](0085-agent-channel-and-oso-mcp.md):** the channel also waits while a jump is on.
+- **[`open-questions.md`](../open-questions.md):** the migemo dictionary item, and avy in "UI of
+  each later feature", are settled here and leave the list.
+- **`guardrails/layers.txt`:** `migemo` on `oso-core`'s lowest line, and `jump` beside
+  `minibuffer`.
+
+## Consequences
+
+- Without a dictionary, romaji finds kana and not kanji. A person who has C/Migemo's dictionary
+  names it in one line of `config.toml`; nothing GPL is in oso's repository or binary.
+- An isearch for a lowercase string now matches more: `ka` also finds `か` and `カ`, in code with
+  Japanese comments too. `M-m` takes it back to the literal string for that search, and the
+  setting for every search.
+- A romaji isearch is a regexp search one line at a time, so 0113's limits hold for it: a line
+  over 64 MiB stops the search there, where the literal matcher went on. `M-m` searches it
+  literally.
+- A Japanese word that a hard wrap breaks across two lines is not found (Q6).
+- A dictionary costs about its file's size in memory once a search used it, and a read on a
+  worker the first time; nothing at start-up.
+- While labels show, they hide the first cells of each target. They show only during a jump, in a
+  face no text has.
+- Jumps and migemo add four settings, two faces, two `oso-core` modules and no dependency.
+
+## Alternatives considered
+
+- **Running C/Migemo as a process, as migemo.el does:** its dictionary and its patterns as they
+  are, but a process at each search, a program to install and find, spawning in release builds
+  for a search, and Emacs regexp syntax to translate for the `regex` crate.
+- **Bundling `migemo-dict` or an SKK dictionary:** GPL data, which ADR 0020 rules out.
+- **rustmigemo's code:** MIT, but not published as a crate, so it would be vendored; its
+  dictionary format holds what a sorted table of oso's own holds, and the matcher is the part oso
+  must fit to its own limits anyway.
+- **Downloading a dictionary, as kensaku.vim does:** oso has no network code.
+- **Another regexp engine,** for patterns that match across lines or backtrack: only the `regex`
+  crate is allowed.
+- **Kanji from per-character readings (Unihan's `kJapaneseOn` and `kJapaneseKun`):** permissive
+  and small, but a syllable stands for hundreds of kanji, so `kan` matches nearly every kanji text
+  and compounds cannot be told apart.
+- **Segments by uppercase letters, as C/Migemo:** finds compounds the dictionary lacks
+  (`kikiKaikan`), but takes uppercase away from smart case; Q5 (c) keeps it open.
+- **Labels while typing, as flash.nvim (Q13 (b)):** no timer, but labels that change at each key.
+- **Labelling windows to select one, as ace-window:** a later command over the same labels.
+- **A jump that keeps every cursor and moves each one:** no editor does this, and there is one
+  target.
