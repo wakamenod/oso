@@ -17,6 +17,7 @@ use std::ops::Range;
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::Editor;
+use oso_core::window::{Scroll, ViewSize, WindowId};
 use oso_syntax::{Failure, Job, Language, Outcome, Report};
 
 use super::App;
@@ -35,9 +36,15 @@ pub(super) struct Syntax {
     sent: HashMap<BufferId, Sent>,
     /// Buffers whose highlighting failed, in the mode it failed in.
     stopped: HashMap<BufferId, Mode>,
-    /// What windows show, reused between calls.
+    /// What windows show, kept while nothing that decides it moved.
     shown: Vec<(BufferId, Range<usize>)>,
+    /// What `shown` was built from: each window's buffer, that buffer's revision, the
+    /// window's scroll and size, and whether it wraps.
+    views: Vec<View>,
 }
+
+/// What decides what a window shows, as far as the next job cares.
+type View = (WindowId, BufferId, u64, Scroll, ViewSize, bool);
 
 /// The last job of a buffer's.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,7 +93,7 @@ impl Syntax {
             drops: self.drops(editor),
             jobs: Vec::new(),
         };
-        editor.shown_ranges(&mut self.shown);
+        self.refresh_shown(editor);
         for (id, buffer) in editor.buffers() {
             let mode = buffer.mode();
             match self.stopped.get(&id) {
@@ -134,6 +141,32 @@ impl Syntax {
             self.sent.insert(id, sent);
         }
         orders
+    }
+
+    /// Builds what windows show again only if a window, its buffer's text, its scroll or its
+    /// size moved, so a turn of the loop that changed none of them builds no screen. A wrap
+    /// that settles rows meanwhile is seen at the next of those: the ranges only order work.
+    fn refresh_shown(&mut self, editor: &Editor) {
+        let views: Vec<View> = editor
+            .windows()
+            .map(|window| {
+                let revision = editor.shown(window).revision();
+                let wraps = window.wrap().is_some();
+                (
+                    window.id(),
+                    window.buffer(),
+                    revision,
+                    window.scroll(),
+                    window.size(),
+                    wraps,
+                )
+            })
+            .collect();
+        if views == self.views {
+            return;
+        }
+        self.views = views;
+        editor.shown_ranges(&mut self.shown);
     }
 
     /// Takes a report into its buffer, and returns what to say if its highlighting failed. A
