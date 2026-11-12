@@ -391,6 +391,9 @@ item notes when it must be settled.
   two MCP servers named `oso` wins, and that auto memory is shared by a repository's worktrees.
 - A review in restricted projects, read in-process with `gix` once ADR 0011's check that it skips
   config commands is done ([ADR 0122](adr/0122-agent-review.md)).
+- Agent identity in a review: `Author::Agent` names no session yet, so "its own" comments are any
+  agent's. Settle it with the agent tools (ADR 0122 step 7), when ADR 0121's session id reaches
+  the bridge ([ADR 0122](adr/0122-agent-review.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - Terminal engine: `alacritty_terminal` or libghostty-vt, decided by ADR 0120's
