@@ -1,13 +1,14 @@
-//! isearch on the editor (ADR 0082): starting a search in the selected window, its keys,
-//! where each search goes from, and how it ends. What it holds is in [`state`], its worker in
+//! isearch on the editor (ADR 0082, ADR 0116): starting a search in the selected window,
+//! literal or a regexp's, its keys, where each search goes from, and how it ends. What it holds is in [`state`], its worker in
 //! [`worker`] and the cells of its matches in [`cells`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
-//! - Only the primary cursor searches and moves. Each key searches within [`KEY_BUDGET`]
-//!   here, and a worker goes on with the rest and counts the matches over a snapshot
-//!   ([`SearchJob`](crate::search::SearchJob)), which a newer job supersedes through a
-//!   generation.
+//! - Only the primary cursor searches and moves. Each key searches within
+//!   [`KEY_BUDGET`](search::KEY_BUDGET) and 3 ms here, and a worker goes on with the rest
+//!   and counts the matches over a snapshot ([`SearchJob`](crate::search::SearchJob)), which
+//!   a newer job supersedes through a generation. A regexp too large to compile within a
+//!   key's limit compiles there too.
 //! - A search keeps to the window and the buffer it began in: it ends when the window shows
 //!   another buffer or a prompt opens over it, so nothing it does reaches another buffer.
 //! - It remembers the buffer's revision, and searches again from where it is when the text
@@ -19,11 +20,13 @@ use std::ops::Range;
 use super::Editor;
 use crate::kill::KillEntry;
 use crate::motion::{self, WalkBudget};
-use crate::search::{self, Find, Found, KEY_BUDGET};
+use crate::search::{self, Find, Needle};
+use crate::sum_tree::Bias;
 use crate::word;
 use state::{Asked, Step};
 
 mod cells;
+mod find;
 mod state;
 mod worker;
 mod yank;
@@ -32,8 +35,11 @@ pub use cells::MatchCells;
 pub use state::Isearch;
 pub(super) use state::Tally;
 
-/// The name of the search history among the prompts' (ADR 0072).
-const HISTORY: &str = "isearch";
+/// The name of the search history among the prompts' (ADR 0072), and of the regexp search's,
+/// which is kept apart, as Emacs keeps `regexp-search-ring` (ADR 0116).
+fn history_name(regexp: bool) -> &'static str {
+    if regexp { "isearch-regexp" } else { "isearch" }
+}
 
 /// The most bytes a character of the string can take in the text, for what `C-w` reads.
 const MAX_CHAR_BYTES: usize = 4;
@@ -68,9 +74,9 @@ impl Editor {
         self.isearch.as_ref()
     }
 
-    /// Starts an isearch in the selected window, forward or `backward`. Returns false in a
-    /// prompt, where it does not work.
-    pub fn isearch_begin(&mut self, backward: bool) -> bool {
+    /// Starts an isearch in the selected window, forward or `backward`, for a `regexp` or a
+    /// literal string. Returns false in a prompt, where it does not work.
+    pub fn isearch_begin(&mut self, backward: bool, regexp: bool) -> bool {
         if !self.prompts.is_empty() {
             return false;
         }
@@ -81,7 +87,7 @@ impl Editor {
             window.buffer(),
             begin,
             buffer.revision(),
-            backward,
+            (backward, regexp),
             around_secret,
         );
         self.isearch = Some(search);
@@ -99,7 +105,8 @@ impl Editor {
             return;
         };
         if state.string.is_empty() {
-            let Some(last) = self.histories.get(HISTORY, 0).map(str::to_owned) else {
+            let name = history_name(state.regexp);
+            let Some(last) = self.histories.get(name, 0).map(str::to_owned) else {
                 return;
             };
             let Some(state) = &mut self.isearch else {
@@ -112,39 +119,50 @@ impl Editor {
             self.isearch_typed();
             return;
         }
+        // A regexp that does not compile has nothing to repeat.
+        if state.searching.is_some() || !state.has_needle() {
+            return;
+        }
+        let here = state.current.clone();
+        let wrap = state.failing && state.backward == backward;
+        let text = self.current().1.text();
+        // Past an empty match, a step on, as Emacs's isearch moves a character first.
+        let back_from = |range: &Range<usize>| match range.start.checked_sub(1) {
+            _ if !range.is_empty() => Some(range.start),
+            Some(before) => Some(text.clip_offset(before, Bias::Left)),
+            None => None,
+        };
+        let find = if backward {
+            let before = if wrap {
+                Some(len)
+            } else {
+                here.as_ref().map_or(Some(cursor), back_from)
+            };
+            before.map(|before| Find::Backward {
+                before,
+                start_at_most: before,
+            })
+        } else {
+            let (from, after_match) = match &here {
+                _ if wrap => (0, false),
+                None => (cursor, false),
+                Some(range) => (search::after(text, range), !range.is_empty()),
+            };
+            Some(Find::Forward { from, after_match })
+        };
         let Some(state) = &mut self.isearch else {
             return;
         };
-        if state.searching.is_some() {
-            return;
-        }
         state.push_step(cursor);
-        let turned = state.backward != backward;
         state.backward = backward;
-        let wrap = state.failing && !turned;
-        let here = state.current.clone();
-        let find = if backward {
-            let before = if wrap {
-                len
-            } else {
-                here.map_or(cursor, |range| range.start)
-            };
-            Find::Backward {
-                before,
-                start_at_most: before,
-            }
-        } else {
-            let from = if wrap {
-                0
-            } else {
-                here.map_or(cursor, |range| range.end)
-            };
-            Find::Forward { from }
-        };
         if wrap {
             state.wrapped = true;
         }
-        self.isearch_find(find, Asked::Repeat { wrapped: wrap });
+        match find {
+            Some(find) => self.isearch_find(find, Asked::Repeat { wrapped: wrap }),
+            // An empty match at the start: none before it, as at a failure.
+            None => state.failing = true,
+        }
     }
 
     /// Adds `text` to the string, as typing does, and searches again from the match.
@@ -165,6 +183,17 @@ impl Editor {
         state.around_secret |= secret;
         state.rebuild_query();
         self.isearch_typed();
+    }
+
+    /// Adds `text` taken from the buffer or a kill, as `C-w` and `C-y` do: as it is to a
+    /// literal string, and with its special characters escaped to a regexp, as Emacs's
+    /// `isearch-yank-string` quotes it.
+    fn isearch_add_taken(&mut self, text: &str) {
+        if self.isearch.as_ref().is_some_and(|state| state.regexp) {
+            self.isearch_add(&regex::escape(text));
+        } else {
+            self.isearch_add(text);
+        }
     }
 
     /// `C-w`: adds the word after the match, or the character there if no word starts there.
@@ -188,7 +217,7 @@ impl Editor {
         };
         let end = end.min(from.saturating_add(most));
         let piece: String = buffer.text().slice(from..end).chunks().collect();
-        self.isearch_add(&piece);
+        self.isearch_add_taken(&piece);
     }
 
     /// `M-p` (`older`) and `M-n`: the string becomes an older or newer one of the history,
@@ -205,8 +234,9 @@ impl Editor {
             (Some(at), true) => Some(at + 1),
             (Some(at), false) => at.checked_sub(1),
         };
+        let name = history_name(state.regexp);
         let Some((index, entry)) =
-            index.and_then(|index| Some((index, self.histories.get(HISTORY, index)?.to_owned())))
+            index.and_then(|index| Some((index, self.histories.get(name, index)?.to_owned())))
         else {
             return;
         };
@@ -230,6 +260,21 @@ impl Editor {
         };
         state.push_step(cursor);
         state.flipped = !state.flipped;
+        state.rebuild_query();
+        self.isearch_typed();
+    }
+
+    /// `M-r`: turns the string from literal to a regexp or back, for the rest of this search,
+    /// and searches again from the match. `M-p` and `M-n` then go through the other history.
+    pub fn isearch_toggle_regexp(&mut self) {
+        self.isearch_follow_text();
+        let cursor = self.primary_cursor();
+        let Some(state) = &mut self.isearch else {
+            return;
+        };
+        state.push_step(cursor);
+        state.regexp = !state.regexp;
+        state.history = None;
         state.rebuild_query();
         self.isearch_typed();
     }
@@ -259,7 +304,8 @@ impl Editor {
         self.supersede_search();
         let secret = state.around_secret || self.shows_secret();
         if !secret {
-            self.histories.record(HISTORY, &state.string);
+            self.histories
+                .record(history_name(state.regexp), &state.string);
         }
         let began = state.begin.0.primary().cursor;
         let selections = &mut self.windows[self.selected].selections;
@@ -276,14 +322,15 @@ impl Editor {
         true
     }
 
-    /// The search's query, its current match, how many matches it counted if it knows, and
-    /// whether it goes backward, for the keys that add cursors from it (ADR 0091). None while
-    /// it fails or a worker still looks for the match.
+    /// What the search looks for, its current match, how many matches it counted if it
+    /// knows, and whether it goes backward, for the keys that add cursors from it (ADR 0091).
+    /// None while it fails, its regexp does not compile, or a worker still looks for the
+    /// match.
     pub(super) fn isearch_current_match(
         &self,
-    ) -> Option<(search::Query, Range<usize>, Option<usize>, bool)> {
+    ) -> Option<(Needle, Range<usize>, Option<usize>, bool)> {
         let state = self.isearch.as_ref()?;
-        if state.failing || state.searching.is_some() {
+        if state.failing || state.searching.is_some() || state.problem.is_some() {
             return None;
         }
         let total = match state.tally {
@@ -291,7 +338,7 @@ impl Editor {
             _ => None,
         };
         Some((
-            state.query.clone()?,
+            state.needle.clone()?,
             state.current.clone()?,
             total,
             state.backward,
@@ -306,17 +353,18 @@ impl Editor {
         }
     }
 
-    /// `C-g` in isearch, ADR 0072's step 5: with a failing part or a search still running,
-    /// goes back to the last string that matched; otherwise ends the search and puts the
-    /// cursors and the view back as they were. `None` with no isearch.
+    /// `C-g` in isearch, ADR 0072's step 5: with a failing part, a regexp that does not
+    /// compile, or a search still running, goes back to the last string that matched;
+    /// otherwise ends the search and puts the cursors and the view back as they were. `None`
+    /// with no isearch.
     pub(super) fn isearch_quit(&mut self) -> Option<super::Quit> {
         self.isearch_follow_text();
         let state = self.isearch.as_mut()?;
-        if state.failing || state.searching.is_some() {
+        if state.failing || state.searching.is_some() || state.problem.is_some() {
             // The newest step that did not fail, restored once.
             let mut last = None;
             while let Some(step) = state.steps.pop_back() {
-                let failing = step.failing;
+                let failing = step.failing || step.invalid;
                 last = Some(step);
                 if !failing {
                     break;
@@ -328,6 +376,7 @@ impl Editor {
                     // What remains is the place it began.
                     state.failing = false;
                     state.searching = None;
+                    state.problem = None;
                     self.supersede_search();
                 }
             }
@@ -348,99 +397,6 @@ impl Editor {
             self.follow_window(index);
         }
         Some(super::Quit::Search)
-    }
-
-    /// Searches for a changed string from the current match, which stays if it still
-    /// matches: forward from its start, backward from as far after it as the string
-    /// reaches.
-    fn isearch_typed(&mut self) {
-        let cursor = self.primary_cursor();
-        let len = self.current().1.text().len();
-        let Some(state) = &mut self.isearch else {
-            return;
-        };
-        state.history = state.history.filter(|_| state.query.is_some());
-        let Some(query) = &state.query else {
-            // An empty string: back where it began.
-            state.current = None;
-            state.failing = false;
-            state.searching = None;
-            state.tally = None;
-            self.supersede_search();
-            return;
-        };
-        let start = state.current.as_ref().map_or(cursor, |range| range.start);
-        let find = if state.backward {
-            let reach = state.current.as_ref().map_or(cursor, |range| {
-                range.start.saturating_add(query.max_bytes()).min(len)
-            });
-            Find::Backward {
-                before: reach,
-                start_at_most: start,
-            }
-        } else {
-            Find::Forward { from: start }
-        };
-        self.isearch_find(find, Asked::Typed);
-    }
-
-    /// Searches from `find` within a key's budget, and leaves the rest to a worker.
-    fn isearch_find(&mut self, find: Find, asked: Asked) {
-        let Some(state) = &self.isearch else {
-            return;
-        };
-        let Some(query) = state.query.clone() else {
-            return;
-        };
-        let buffer = self.current().1;
-        let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
-        let never = || false;
-        let found = match find {
-            Find::Forward { from } => {
-                search::find_forward(text, invalid, &query, from, KEY_BUDGET, &never)
-            }
-            Find::Backward {
-                before,
-                start_at_most,
-            } => search::find_backward(
-                text,
-                invalid,
-                &query,
-                before,
-                start_at_most,
-                KEY_BUDGET,
-                &never,
-            ),
-        };
-        if let Some(state) = &mut self.isearch {
-            // This search takes the place of any a worker went on with.
-            state.searching = None;
-        }
-        match found {
-            Found::Match(range) => self.isearch_matched(range, asked, false),
-            Found::None => {
-                if let Some(state) = &mut self.isearch {
-                    state.failing = true;
-                }
-                if asked == Asked::Typed {
-                    self.isearch_count(None);
-                }
-            }
-            Found::Stopped { resume } => {
-                let resumed = match find {
-                    Find::Forward { .. } => Find::Forward { from: resume },
-                    Find::Backward { start_at_most, .. } => Find::Backward {
-                        before: resume,
-                        start_at_most,
-                    },
-                };
-                if let Some(state) = &mut self.isearch {
-                    state.searching = Some((asked, find));
-                    state.tally = Some(Tally::Counting { moves: 0 });
-                }
-                self.isearch_count(Some(resumed));
-            }
-        }
     }
 
     /// Goes to `range`, found as `asked`, and keeps the count up to date: a repeat steps it,
@@ -498,13 +454,16 @@ impl Editor {
         }
         state.backward = step.backward;
         state.flipped = step.flipped;
+        state.regexp = step.regexp;
         state.current = step.current;
         state.failing = step.failing;
         state.wrapped = step.wrapped;
         state.searching = None;
         state.tally = step.tally;
         state.rebuild_query();
-        let recount = state.query.is_some() && !matches!(state.tally, Some(Tally::Known { .. }));
+        // A regexp the worker compiles needs its job, whatever count the step kept.
+        let recount = state.compiling
+            || (state.needle.is_some() && !matches!(state.tally, Some(Tally::Known { .. })));
         let buffer = self.current().1;
         let cursor = motion::cluster_start(&buffer.display(), step.cursor);
         self.windows[self.selected].selections.move_primary(cursor);

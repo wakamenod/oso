@@ -1,6 +1,6 @@
 //! Finding the occurrences the keys that add cursors look for (ADR 0091): isearch's literal
-//! matcher, over whole display clusters only, and for a string taken from a word, only
-//! matches that are a whole word.
+//! matcher, or a regexp isearch's (ADR 0116), over whole display clusters only, never an
+//! empty match, and for a string taken from a word, only matches that are a whole word.
 //!
 //! Must not depend on: `command`, `keymap` or the editor's state; these are functions of a
 //! snapshot of a buffer, which also run on the worker's thread.
@@ -8,16 +8,17 @@
 //! What a search reads is taken from one budget, `left`, in bytes: the text the matcher
 //! reads, and for each match it finds, the cost of the checks that decide whether it is
 //! an occurrence. On the UI thread that is [`KEY_BUDGET`](crate::search::KEY_BUDGET) for a
-//! whole command, also across a count; on the worker it has no bound, and `stop` is asked
-//! before each match.
+//! whole command, also across a count, and a regexp's stops after 3 ms there too; on the
+//! worker it has no bound, and `stop` is asked before each match.
 
 use std::ops::Range;
+use std::time::Instant;
 
 use crate::decode::InvalidBytes;
 use crate::display_map::{DisplaySnapshot, MAX_CLUSTER_BYTES};
 use crate::motion::{BACK_WINDOW, SEEK_COST, WalkBudget};
 use crate::rope::Rope;
-use crate::search::{Found, Matched, Query, find_backward, find_forward};
+use crate::search::{Found, Limits, Matched, Needle};
 use crate::selection::MAX_CURSORS;
 use crate::sum_tree::Bias;
 use crate::word;
@@ -44,11 +45,12 @@ pub enum Toward {
     Previous,
 }
 
-/// What occurrences are looked for: the query, and whether a match must be a whole word,
-/// as when the string was taken from one. Its `Debug` prints no text (ADR 0044).
+/// What occurrences are looked for: a literal query or an isearch's regexp, and whether a
+/// match must be a whole word, as when the string was taken from one. Its `Debug` prints no
+/// text (ADR 0044).
 #[derive(Clone, Debug)]
 pub(crate) struct Wanted {
-    pub(crate) query: Query,
+    pub(crate) needle: Needle,
     pub(crate) whole_word: bool,
 }
 
@@ -59,6 +61,9 @@ pub(crate) struct Text {
     pub(crate) rope: Rope,
     pub(crate) invalid: InvalidBytes,
     pub(crate) display: DisplaySnapshot,
+    /// When a search on the UI thread stops, as a regexp can read far past each place it
+    /// looks; `None` on the worker.
+    pub(crate) until: Option<Instant>,
 }
 
 /// What `check` decides with a budget of `cap`, taking what it read from `left`.
@@ -78,6 +83,15 @@ pub(crate) enum All {
 }
 
 impl Text {
+    /// How far one search for a match goes, with `left` of the budget.
+    fn limits(&self, left: usize) -> Limits {
+        Limits {
+            work: left,
+            until: self.until,
+            short_lines: self.until.is_some(),
+        }
+    }
+
     /// Whether `range`, a match, is an occurrence: it starts and ends on display clusters,
     /// as a cursor can only be there, and is one word as `M-f` and `M-b` find words if
     /// `wanted` asks. What the checks read is taken from `left`.
@@ -162,12 +176,20 @@ impl Text {
             if *left == 0 || stop() {
                 return Found::Stopped { resume: from };
             }
-            let found = find_forward(&self.rope, &self.invalid, &wanted.query, from, *left, stop);
+            let snapshot = (&self.rope, &self.invalid);
+            let limits = self.limits(*left);
+            // Past a line too long for a regexp, there is none that way.
+            let Ok(found) = wanted
+                .needle
+                .find_forward(snapshot, (from, false), limits, stop)
+            else {
+                return Found::None;
+            };
             let Found::Match(range) = found else {
                 return found;
             };
             *left = left.saturating_sub(range.end - from);
-            if self.accepts(wanted, &range, left) {
+            if !range.is_empty() && self.accepts(wanted, &range, left) {
                 return Found::Match(range);
             }
             from = self.rope.clip_offset(range.start + 1, Bias::Right);
@@ -189,28 +211,31 @@ impl Text {
             if *left == 0 || stop() {
                 return Found::Stopped { resume: before };
             }
-            let found = find_backward(
-                &self.rope,
-                &self.invalid,
-                &wanted.query,
-                before,
-                start_at_most,
-                *left,
-                stop,
-            );
+            let snapshot = (&self.rope, &self.invalid);
+            let limits = self.limits(*left);
+            let Ok(found) =
+                wanted
+                    .needle
+                    .find_backward(snapshot, (before, start_at_most), limits, stop)
+            else {
+                return Found::None;
+            };
             let Found::Match(range) = found else {
                 return found;
             };
             *left = left.saturating_sub(before - range.start);
-            if self.accepts(wanted, &range, left) {
+            if !range.is_empty() && self.accepts(wanted, &range, left) {
                 return Found::Match(range);
             }
             let Some(earlier) = range.start.checked_sub(1) else {
                 return Found::None;
             };
             start_at_most = self.rope.clip_offset(earlier, Bias::Left);
-            let reach = start_at_most.saturating_add(wanted.query.max_bytes());
-            before = before.min(self.rope.clip_offset(reach, Bias::Right));
+            // A literal match that starts there ends within its longest; a regexp's anywhere.
+            if let Needle::Literal(query) = &wanted.needle {
+                let reach = start_at_most.saturating_add(query.max_bytes());
+                before = before.min(self.rope.clip_offset(reach, Bias::Right));
+            }
         }
     }
 
@@ -277,7 +302,7 @@ mod tests {
     use super::*;
     use crate::display_map::{DisplayMap, TabWidth};
     use crate::rope::tests::ATOMS;
-    use crate::search::Found;
+    use crate::search::{Found, Query, find_forward};
 
     fn text(string: &str) -> Text {
         let rope = Rope::from(string);
@@ -286,6 +311,7 @@ mod tests {
             invalid: InvalidBytes::default(),
             rope,
             display,
+            until: None,
         }
     }
 
@@ -294,19 +320,17 @@ mod tests {
     /// and `M-b`.
     fn decide_as_unbounded(string: &str, query: &str, whole_word: bool) {
         let text = text(string);
+        let query = Query::new(query, true).unwrap();
         let wanted = Wanted {
-            query: Query::new(query, true).unwrap(),
+            needle: Needle::Literal(query.clone()),
             whole_word,
         };
         let mut from = 0;
-        while let Found::Match(range) = find_forward(
-            &text.rope,
-            &text.invalid,
-            &wanted.query,
-            from,
-            usize::MAX,
-            &|| false,
-        ) {
+        while let Found::Match(range) =
+            find_forward(&text.rope, &text.invalid, &query, from, usize::MAX, &|| {
+                false
+            })
+        {
             let display = &text.display;
             let on_clusters = display.cluster_at(range.start).0 == range.start
                 && display.cluster_at(range.end).0 == range.end;

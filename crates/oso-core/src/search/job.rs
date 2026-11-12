@@ -1,6 +1,7 @@
 //! The worker's job (ADR 0082): a search to go on with and a count, over an O(1) snapshot of
-//! a buffer's text, or the matches the keys that add cursors look for (ADR 0091), which the
-//! host runs on its thread, and the report it sends back.
+//! a buffer's text, after compiling a regexp too large for a key (ADR 0116), or the matches
+//! the keys that add cursors look for (ADR 0091), which the host runs on its thread, and the
+//! report it sends back.
 //!
 //! Must not depend on: `buffer`, `motion`, `editor`, threads or a log. Neither a job nor a
 //! report says in `Debug` where anything is.
@@ -10,15 +11,26 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{Count, Found, LineTooLong, Needle, Query, count, find_backward, find_forward};
+use super::regexp::{self, Regexp};
+use super::{Count, Found, Limits, LineTooLong, Needle};
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
 
-/// Where a worker goes on searching, as [`find_forward`](super::find_forward) and [`find_backward`](super::find_backward) take it.
+/// Where a worker goes on searching, as [`Needle::find_forward`] and
+/// [`Needle::find_backward`] take it: forward, with an empty match at `from` skipped if a
+/// match ended there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Find {
-    Forward { from: usize },
+    Forward { from: usize, after_match: bool },
     Backward { before: usize, start_at_most: usize },
+}
+
+/// What an isearch job looks for: a needle, or a regexp's pattern too large to compile on
+/// the UI thread, which the worker compiles first (ADR 0116).
+#[derive(Clone)]
+pub(crate) enum Prepared {
+    Ready(Needle),
+    Compile { pattern: String, insensitive: bool },
 }
 
 /// What a worker found, for the editor to take in: the host only hands it back. `Debug`
@@ -32,7 +44,8 @@ impl fmt::Debug for SearchReport {
             Report::Found { generation, .. }
             | Report::Counted { generation, .. }
             | Report::Matches { generation, .. }
-            | Report::LineTooLong { generation, .. } => generation,
+            | Report::LineTooLong { generation, .. }
+            | Report::Compiled { generation, .. } => generation,
         };
         f.debug_struct("SearchReport")
             .field("generation", generation)
@@ -56,9 +69,13 @@ pub(crate) enum Report {
     },
     /// What a search for cursors found (ADR 0091).
     Matches { generation: u64, matched: Matched },
-    /// query-replace's regexp met a line too long to match in, which starts at `at`
-    /// (ADR 0113).
+    /// A regexp met a line too long to match in, which starts at `at` (ADR 0113, ADR 0116).
     LineTooLong { generation: u64, at: usize },
+    /// The worker compiled an isearch's regexp, or says what is wrong with it.
+    Compiled {
+        generation: u64,
+        regexp: Result<Regexp, String>,
+    },
 }
 
 /// The matches a search for cursors took, in the order it found them, and how many it
@@ -74,11 +91,11 @@ pub(crate) type MatchWork = Box<dyn FnOnce(&dyn Fn() -> bool) -> Option<Matched>
 
 /// What a job does.
 enum Work {
-    /// isearch's: go on with a search, then count.
+    /// isearch's: compile if need be, go on with a search, then count.
     Isearch {
         text: Rope,
         invalid: InvalidBytes,
-        query: Query,
+        needle: Prepared,
         find: Option<Find>,
         /// Where the current match starts, if `find` does not say.
         current: Option<usize>,
@@ -190,7 +207,7 @@ impl SearchJob {
     /// A job of `generation`, which runs while `live` holds it.
     pub(crate) fn new(
         (text, invalid): (Rope, InvalidBytes),
-        query: Query,
+        needle: Prepared,
         find: Option<Find>,
         current: Option<usize>,
         (generation, live): (u64, Arc<AtomicU64>),
@@ -199,7 +216,7 @@ impl SearchJob {
             work: Work::Isearch {
                 text,
                 invalid,
-                query,
+                needle,
                 find,
                 current,
             },
@@ -260,7 +277,7 @@ impl SearchJob {
             live,
         } = self;
         let stop = || live.load(Ordering::Relaxed) != generation;
-        let (text, invalid, query, find, mut current) = match work {
+        let (text, invalid, needle, find, current) = match work {
             Work::Matches(work) => {
                 if let Some(matched) = work(&stop) {
                     report(SearchReport(Report::Matches {
@@ -287,44 +304,90 @@ impl SearchJob {
             Work::Isearch {
                 text,
                 invalid,
-                query,
+                needle,
                 find,
                 current,
-            } => (text, invalid, query, find, current),
+            } => (text, invalid, needle, find, current),
         };
-        let (text, invalid, query) = (&text, &invalid, &query);
-        if let Some(find) = find {
-            let found = match find {
-                Find::Forward { from } => {
-                    find_forward(text, invalid, query, from, usize::MAX, &stop)
+        let needle = match needle {
+            Prepared::Ready(needle) => needle,
+            Prepared::Compile {
+                pattern,
+                insensitive,
+            } => {
+                let compiled = regexp::compile_isearch(&pattern, insensitive, (usize::MAX, true))
+                    .map_err(|invalid| match invalid {
+                        regexp::Invalid::Wrong(why) => why,
+                        // Neither at the full limit, once the UI thread found it complete.
+                        regexp::Invalid::Incomplete | regexp::Invalid::TooBig => {
+                            "Invalid regexp".to_owned()
+                        }
+                    });
+                if stop() {
+                    return;
                 }
-                Find::Backward {
-                    before,
-                    start_at_most,
-                } => find_backward(
-                    text,
-                    invalid,
-                    query,
-                    before,
-                    start_at_most,
-                    usize::MAX,
-                    &stop,
-                ),
-            };
-            let at = match found {
-                Found::Match(range) => Some(range),
-                Found::None => None,
-                Found::Stopped { .. } => return,
-            };
-            current = at.as_ref().map(|range| range.start);
-            report(SearchReport(Report::Found { generation, at }));
-        }
-        if let Some(count) = count(text, invalid, query, current, &stop) {
-            report(SearchReport(Report::Counted {
-                generation,
-                count,
-                at: current,
-            }));
-        }
+                report(SearchReport(Report::Compiled {
+                    generation,
+                    regexp: compiled.clone(),
+                }));
+                let Ok(regexp) = compiled else {
+                    return;
+                };
+                Needle::Regexp(regexp)
+            }
+        };
+        let done = &mut |done| report(SearchReport(done));
+        run_isearch(
+            (&text, &invalid),
+            &needle,
+            (find, current),
+            &stop,
+            generation,
+            done,
+        );
+    }
+}
+
+/// Does an isearch job's work once its needle is compiled: the search to go on with, then the
+/// count, each reported as it ends, unless `stop` says so first. A line too long for a
+/// regexp ends it with a report of its own.
+fn run_isearch(
+    snapshot: (&Rope, &InvalidBytes),
+    needle: &Needle,
+    (find, mut current): (Option<Find>, Option<usize>),
+    stop: &dyn Fn() -> bool,
+    generation: u64,
+    report: &mut dyn FnMut(Report),
+) {
+    if let Some(find) = find {
+        let found = match find {
+            Find::Forward { from, after_match } => {
+                needle.find_forward(snapshot, (from, after_match), Limits::NONE, stop)
+            }
+            Find::Backward {
+                before,
+                start_at_most,
+            } => needle.find_backward(snapshot, (before, start_at_most), Limits::NONE, stop),
+        };
+        let at = match found {
+            Ok(Found::Match(range)) => Some(range),
+            Ok(Found::None) => None,
+            Ok(Found::Stopped { .. }) => return,
+            Err(LineTooLong(at)) => {
+                report(Report::LineTooLong { generation, at });
+                return;
+            }
+        };
+        current = at.as_ref().map(|range| range.start);
+        report(Report::Found { generation, at });
+    }
+    match needle.count(snapshot, current, stop) {
+        Ok(Some(count)) => report(Report::Counted {
+            generation,
+            count,
+            at: current,
+        }),
+        Ok(None) => {}
+        Err(LineTooLong(at)) => report(Report::LineTooLong { generation, at }),
     }
 }

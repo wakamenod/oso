@@ -1,5 +1,6 @@
-//! query-replace's regexps (ADR 0113): the `regex` crate's syntax, matched one line at a time
-//! over a rope, with smart case, and a replacement's `$1`, `${name}` and `$0`.
+//! The regexps of query-replace (ADR 0113) and isearch (ADR 0116): the `regex` crate's syntax,
+//! matched one line at a time over a rope, with smart case, and a replacement's `$1`,
+//! `${name}` and `$0`.
 //!
 //! Must not depend on: `buffer`, `editor` or a log. `Debug` prints no pattern, which can say
 //! something of a buffer that may hold secrets.
@@ -9,17 +10,27 @@
 //!   each look for a match from where the last ended to the line's end.
 //! - Empty matches go as `Regex::replace_all` takes them: one right where a match ended is
 //!   skipped, and one at the end of a range counts.
+//! - Backward, in [`back`], a search takes the match that starts last, as Emacs's
+//!   `re-search-backward` does.
 
+use std::cell::OnceCell;
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
-use regex::{Regex, RegexBuilder};
+use regex::Regex;
 
 use super::Found;
 use crate::rope::Rope;
 use cut::{AtCut, Ending};
 
+mod back;
+mod compile;
 mod cut;
+
+pub(crate) use back::find_backward;
+use compile::builder;
+pub(crate) use compile::{Invalid, compile, compile_isearch, smart_case};
 
 /// The longest line a regexp is matched in: past it, a search stops at the line.
 pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
@@ -29,6 +40,10 @@ pub(crate) const MAX_PATTERN_CHARS: usize = 1024;
 
 /// The most memory a compiled regexp takes: enough for `\w{30}` and `[\p{L}\d]{25}`.
 const SIZE_LIMIT: usize = 2 * 1024 * 1024;
+
+/// The most memory a regexp compiled on the UI thread takes, for an isearch key: one this
+/// size compiles within about a millisecond, and a larger one compiles on the worker.
+pub(crate) const KEY_SIZE_LIMIT: usize = 256 * 1024;
 
 /// What reading a line costs besides its bytes, as a line's seek and copy take time of
 /// their own.
@@ -51,8 +66,12 @@ pub(crate) struct LineTooLong(pub(crate) usize);
 #[derive(Clone)]
 pub(crate) struct Regexp {
     regex: Regex,
-    /// For a match at a range's end inside a line.
-    at_cut: AtCut,
+    /// For a match at a range's end inside a line, built when one is first needed; `None` if
+    /// it would not compile. Each clone builds its own until one is built, so no thread ever
+    /// waits for another's.
+    at_cut: OnceCell<Option<AtCut>>,
+    /// The pattern and whether it folds case, for `at_cut`.
+    source: Arc<(String, bool)>,
     /// The longest line it is matched in.
     longest: usize,
 }
@@ -63,103 +82,14 @@ impl fmt::Debug for Regexp {
     }
 }
 
-/// How many characters of an escape follow `\` and its letter: the hex digits of `\x41`,
-/// `A` and `\U00000041`, or one for a class named by one letter, as `\pL`.
-fn escape_tail(letter: char) -> usize {
-    match letter {
-        'x' => 2,
-        'u' => 4,
-        'U' => 8,
-        'p' | 'P' => 1,
-        _ => 0,
+/// Two regexps are the same when they are compiled from the same pattern, the same way.
+impl PartialEq for Regexp {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source && self.longest == other.longest
     }
 }
 
-/// Whether `pattern` makes the search case-sensitive: it holds an uppercase letter outside an
-/// escape, as Emacs looks at a regexp: `\W`, `\pL`, `\p{Lu}` and `\x{4A}` hold none, and `Foo`
-/// does.
-pub(crate) fn smart_case(pattern: &str) -> bool {
-    let mut chars = pattern.chars().peekable();
-    while let Some(c) = chars.next() {
-        // A group's name, `(?P<Name>…)` or `(?<Name>…)`, says nothing of case.
-        if c == '(' && chars.peek() == Some(&'?') {
-            let mut rest = chars.clone();
-            rest.next();
-            if rest.peek() == Some(&'P') {
-                rest.next();
-            }
-            if rest.next() == Some('<') {
-                for c in rest.by_ref() {
-                    if c == '>' {
-                        break;
-                    }
-                }
-                chars = rest;
-            }
-            continue;
-        }
-        if c == '\\' {
-            let Some(letter) = chars.next() else {
-                break;
-            };
-            if chars.peek() == Some(&'{') && escape_tail(letter) > 0 {
-                // `\p{…}`, `\x{…}`: to the brace that closes it.
-                for c in chars.by_ref() {
-                    if c == '}' {
-                        break;
-                    }
-                }
-            } else {
-                for _ in 0..escape_tail(letter) {
-                    chars.next();
-                }
-            }
-        } else if c.is_uppercase() {
-            return true;
-        }
-    }
-    false
-}
-
-/// Compiles `pattern`, case-insensitive unless it holds an uppercase letter outside an
-/// escape; a `(?i)` or `(?-i)` in it wins.
-///
-/// # Errors
-///
-/// What is wrong with it, on one line: too long, or in the crate's words.
-pub(crate) fn compile(pattern: &str) -> Result<Regexp, String> {
-    if pattern.chars().count() > MAX_PATTERN_CHARS {
-        return Err(format!(
-            "Invalid regexp: longer than {MAX_PATTERN_CHARS} characters"
-        ));
-    }
-    let insensitive = !smart_case(pattern);
-    builder(pattern, insensitive)
-        .build()
-        .and_then(|regex| {
-            Ok(Regexp {
-                regex,
-                at_cut: AtCut::new(pattern, insensitive)?,
-                longest: MAX_LINE,
-            })
-        })
-        .map_err(|error| {
-            let error = error.to_string();
-            let last = error.lines().last().unwrap_or("invalid regexp").trim();
-            let last = last.strip_prefix("error:").unwrap_or(last).trim();
-            format!("Invalid regexp: {last}")
-        })
-}
-
-/// A builder of `pattern` with query-replace's settings.
-fn builder(pattern: &str, insensitive: bool) -> RegexBuilder {
-    let mut builder = RegexBuilder::new(pattern);
-    builder
-        .case_insensitive(insensitive)
-        .multi_line(false)
-        .size_limit(SIZE_LIMIT);
-    builder
-}
+impl Eq for Regexp {}
 
 /// A line's text, read from a rope, which a search keeps while it is in the line, and which
 /// `!` keeps across its slices while the text does not change but by its own edits.
@@ -173,11 +103,16 @@ pub(crate) struct Line {
     pub(crate) text: String,
 }
 
+/// The row `offset` is on, and where it starts and ends, without its line break.
+pub(super) fn span(text: &Rope, offset: usize) -> (usize, usize, usize) {
+    let row = text.offset_to_point(offset).row;
+    (row, text.line_start(row), text.line_end(row))
+}
+
 impl Line {
     /// The line `offset` is on.
     fn read(text: &Rope, offset: usize, longest: usize) -> Result<Self, LineTooLong> {
-        let row = text.offset_to_point(offset).row;
-        let (start, end) = (text.line_start(row), text.line_end(row));
+        let (row, start, end) = span(text, offset);
         if end - start > longest {
             return Err(LineTooLong(start));
         }
@@ -215,7 +150,7 @@ impl Line {
 }
 
 /// The offset of the character after `at` in `line`, or one past its end.
-fn char_after(line: &str, at: usize) -> usize {
+pub(super) fn char_after(line: &str, at: usize) -> usize {
     line[at..]
         .chars()
         .next()
@@ -242,6 +177,9 @@ pub(crate) struct Scan<'a> {
     /// When it stops, whatever its work, for a search on the UI thread: a pattern can read
     /// far past each match it finds.
     until: Option<std::time::Instant>,
+    /// It stops before a line longer than the work it has left, rather than read it, so that
+    /// an isearch key leaves a long line to the worker.
+    short_lines: bool,
 }
 
 impl<'a> Scan<'a> {
@@ -269,12 +207,18 @@ impl<'a> Scan<'a> {
             limit,
             looked: 0,
             until: None,
+            short_lines: false,
         }
     }
 
     /// Stops at `until` too.
     pub(crate) fn until(&mut self, until: std::time::Instant) {
         self.until = Some(until);
+    }
+
+    /// Stops before a line longer than the work left, rather than read it.
+    pub(crate) fn short_lines(&mut self) {
+        self.short_lines = true;
     }
 
     /// Where it would go on, and whether a match ended there.
@@ -341,6 +285,13 @@ impl<'a> Scan<'a> {
                 continue;
             }
             if !self.line.as_ref().is_some_and(|line| line.holds(self.at)) {
+                if self.short_lines {
+                    let (_, start, end) = span(self.text, self.at);
+                    let left = self.limit.saturating_sub(self.work);
+                    if end - start <= self.regexp.longest && end - start + PER_LINE > left {
+                        return Ok(Found::Stopped { resume: self.at });
+                    }
+                }
                 let line = Line::read(self.text, self.at, self.regexp.longest)?;
                 let cost = line.text.len() + PER_LINE;
                 if self.spend(cost, stop) {
@@ -494,7 +445,14 @@ impl Regexp {
     pub(crate) fn set_longest_line(&mut self, longest: usize) {
         self.longest = longest;
     }
+
+    /// Whether the regexps for a cut are built, for a test that they wait.
+    pub(crate) fn cut_built(&self) -> bool {
+        self.at_cut.get().is_some()
+    }
 }
 
+#[cfg(test)]
+mod isearch_tests;
 #[cfg(test)]
 mod tests;

@@ -1,5 +1,6 @@
-//! Literal search over a rope, for isearch (ADR 0082): a query built from a string with
-//! smart case, and searches forward, backward, in a range and through the whole text.
+//! Search over a rope, for isearch (ADR 0082) and query-replace (ADR 0113): a literal query
+//! built from a string with smart case, searched forward, backward, in a range and through
+//! the whole text, and the regexps of `regexp`, matched one line at a time.
 //!
 //! Must not depend on: `buffer`, `motion`, `editor`, threads or a log. The worker's
 //! [`SearchJob`] is a plain function here, and the host runs it on its thread.
@@ -25,11 +26,12 @@ mod needle;
 mod regexp;
 
 pub(crate) use case::casified;
-pub(crate) use job::{Counting, Find, MatchWork, Matched, Report, after};
+pub(crate) use job::{Counting, Find, MatchWork, Matched, Prepared, Report, after};
 pub use job::{SearchJob, SearchReport};
-pub(crate) use needle::Needle;
+pub(crate) use needle::{KEY_TIME, Limits, Needle};
 pub(crate) use regexp::{
-    Line, LineTooLong, MAX_LINE, Regexp, compile as compile_regexp, smart_case as regexp_smart_case,
+    Invalid, KEY_SIZE_LIMIT, Line, LineTooLong, MAX_LINE, Regexp, compile as compile_regexp,
+    compile_isearch, smart_case as regexp_smart_case,
 };
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
@@ -682,8 +684,11 @@ mod tests {
         let live = Arc::new(AtomicU64::new(3));
         let job = SearchJob::new(
             (rope, InvalidBytes::new()),
-            query("a"),
-            Some(Find::Forward { from: 1 }),
+            Prepared::Ready(Needle::Literal(query("a"))),
+            Some(Find::Forward {
+                from: 1,
+                after_match: false,
+            }),
             None,
             (3, live),
         );
@@ -716,7 +721,7 @@ mod tests {
                 Rope::from("a".repeat(200_000).as_str()),
                 InvalidBytes::new(),
             ),
-            query("a"),
+            Prepared::Ready(Needle::Literal(query("a"))),
             None,
             None,
             (3, live),

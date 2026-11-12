@@ -1,6 +1,6 @@
 //! Scenario tests of isearch through the [`Dispatcher`] (ADR 0037, ADR 0082): its keymap in
-//! place of the others, a key it does not bind ending the search and then running, and
-//! `run-command` doing the same.
+//! place of the others, a key it does not bind ending the search and then running,
+//! `run-command` doing the same, and a regexp's search (ADR 0116).
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every
 //! OS with no window.
@@ -106,4 +106,30 @@ fn run_command_ends_a_search_unless_it_is_one_of_its_own() {
     assert!(effects.redraw);
     assert!(editor.isearch().is_none());
     assert_eq!(cursors(&editor), [7]);
+}
+
+#[test]
+fn c_m_s_searches_for_a_regexp_and_its_keys_repeat_and_turn_it() {
+    let (mut d, mut editor) = at("tao two t.o\n", &[0]);
+    send(&mut d, &mut editor, "C-M-s t . o");
+    assert_eq!(cursors(&editor), [3]);
+    assert!(echo(&editor).starts_with("Regexp I-search: t.o"));
+    send(&mut d, &mut editor, "C-M-s");
+    assert_eq!(cursors(&editor), [7]);
+    send(&mut d, &mut editor, "C-s");
+    assert_eq!(cursors(&editor), [11]);
+    send(&mut d, &mut editor, "M-r");
+    assert!(echo(&editor).starts_with("I-search: t.o"));
+    assert_eq!(
+        cursors(&editor),
+        [11],
+        "the literal string matches there too"
+    );
+    send(&mut d, &mut editor, "C-M-r");
+    assert!(editor.isearch().is_some_and(|search| search.backward()));
+    send(&mut d, &mut editor, "RET");
+    // C-M-r starts a regexp search backward.
+    send(&mut d, &mut editor, "C-M-r t . o");
+    assert!(echo(&editor).starts_with("Regexp I-search backward: t.o"));
+    assert_eq!(cursors(&editor), [8]);
 }

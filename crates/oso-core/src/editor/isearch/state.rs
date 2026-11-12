@@ -1,5 +1,5 @@
-//! What an isearch holds (ADR 0082): the string, where it has got to, the count, the steps
-//! `DEL` goes back through, and the echo line it says.
+//! What an isearch holds (ADR 0082, ADR 0116): the string, literal or a regexp, where it has
+//! got to, the count, the steps `DEL` goes back through, and the echo line it says.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -11,7 +11,9 @@ use std::fmt::{self, Write};
 use std::ops::Range;
 
 use crate::buffer::BufferId;
-use crate::search::{self, Find, MAX_QUERY_CHARS, Query};
+use crate::search::{
+    self, Find, Invalid, KEY_SIZE_LIMIT, MAX_QUERY_CHARS, Needle, Prepared, Query,
+};
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
 
@@ -37,6 +39,17 @@ pub(super) enum Asked {
     Repeat { wrapped: bool },
 }
 
+/// Why a regexp search cannot go on, which the line says after the string.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Problem {
+    /// The regexp is not complete yet, as a `[` being typed: `incomplete input`.
+    Incomplete,
+    /// What is wrong with the regexp, on one line.
+    Invalid(String),
+    /// A line too long to match a regexp in stopped the search, at this row from 1.
+    LineTooLong(usize),
+}
+
 /// What `DEL` goes back to.
 #[derive(Clone, Debug)]
 pub(super) struct Step {
@@ -45,8 +58,11 @@ pub(super) struct Step {
     pub(super) replaced: Option<String>,
     pub(super) backward: bool,
     pub(super) flipped: bool,
+    pub(super) regexp: bool,
     pub(super) current: Option<Range<usize>>,
     pub(super) failing: bool,
+    /// The regexp did not compile, so `C-g` goes back past it as past a failing step.
+    pub(super) invalid: bool,
     pub(super) wrapped: bool,
     pub(super) cursor: usize,
     pub(super) tally: Option<Tally>,
@@ -59,7 +75,15 @@ pub struct Isearch {
     pub(super) backward: bool,
     /// `M-c` turned smart case around.
     pub(super) flipped: bool,
-    pub(super) query: Option<Query>,
+    /// The string is a regexp, as `C-M-s` and `M-r` make it (ADR 0116).
+    pub(super) regexp: bool,
+    /// What the string looks for: `None` while it is empty, its regexp does not compile, or
+    /// the worker compiles it.
+    pub(super) needle: Option<Needle>,
+    /// The regexp is too large to compile on the UI thread, and the worker compiles it.
+    pub(super) compiling: bool,
+    /// Why the regexp cannot search, for the line.
+    pub(super) problem: Option<Problem>,
     /// The match the cursor is at. While failing, the last that matched, of a shorter string.
     pub(super) current: Option<Range<usize>>,
     pub(super) failing: bool,
@@ -87,6 +111,7 @@ impl fmt::Debug for Isearch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The string stays out of it (ADR 0044).
         f.debug_struct("Isearch")
+            .field("regexp", &self.regexp)
             .field("backward", &self.backward)
             .field("failing", &self.failing)
             .field("wrapped", &self.wrapped)
@@ -100,14 +125,17 @@ impl Isearch {
         buffer: BufferId,
         begin: (SelectionSet, Scroll),
         revision: u64,
-        backward: bool,
+        (backward, regexp): (bool, bool),
         around_secret: bool,
     ) -> Self {
         Self {
             string: String::new(),
             backward,
             flipped: false,
-            query: None,
+            regexp,
+            needle: None,
+            compiling: false,
+            problem: None,
             current: None,
             failing: false,
             wrapped: false,
@@ -133,6 +161,11 @@ impl Isearch {
         self.backward
     }
 
+    /// Whether the string is a regexp (ADR 0116).
+    pub fn regexp(&self) -> bool {
+        self.regexp
+    }
+
     /// Whether the string has no match where it searched.
     pub fn failing(&self) -> bool {
         self.failing
@@ -145,7 +178,12 @@ impl Isearch {
 
     /// Whether case matters: smart case, turned around by `M-c`.
     pub fn case_sensitive(&self) -> bool {
-        search::smart_case(&self.string) != self.flipped
+        let smart = if self.regexp {
+            search::regexp_smart_case(&self.string)
+        } else {
+            search::smart_case(&self.string)
+        };
+        smart != self.flipped
     }
 
     /// Whether a worker goes on with the search.
@@ -201,6 +239,9 @@ impl Isearch {
                 "case-insensitive"
             });
         }
+        if self.regexp {
+            word("regexp");
+        }
         word("I-search");
         if self.backward {
             word("backward");
@@ -209,6 +250,20 @@ impl Isearch {
         out[start..=start].make_ascii_uppercase();
         out.push_str(": ");
         out.push_str(&self.string);
+        if let Some(problem) = &self.problem {
+            let _ = match problem {
+                Problem::Incomplete => write!(out, " [incomplete input]"),
+                Problem::Invalid(why) => write!(out, " [{why}]"),
+                Problem::LineTooLong(row) => {
+                    let limit = search::MAX_LINE / (1024 * 1024);
+                    write!(
+                        out,
+                        " [Regexp search stops at line {row}: it is longer than {limit} MiB]"
+                    )
+                }
+            };
+            return;
+        }
         if self.searching.is_some() {
             out.push_str(" [searching…]");
             return;
@@ -239,16 +294,56 @@ impl Isearch {
             len: self.string.len(),
             backward: self.backward,
             flipped: self.flipped,
+            regexp: self.regexp,
             current: self.current.clone(),
             failing: self.failing,
+            invalid: matches!(
+                self.problem,
+                Some(Problem::Incomplete | Problem::Invalid(_))
+            ),
             wrapped: self.wrapped,
             cursor,
             tally: self.tally,
         });
     }
 
+    /// Makes what the string looks for anew: a literal query, or a regexp compiled within
+    /// [`KEY_SIZE_LIMIT`], one larger left for the worker to compile, or why it cannot.
     pub(super) fn rebuild_query(&mut self) {
-        self.query = Query::new(&self.string, self.case_sensitive());
+        self.compiling = false;
+        self.problem = None;
+        self.needle = None;
+        if self.string.is_empty() {
+            return;
+        }
+        if !self.regexp {
+            self.needle = Query::new(&self.string, self.case_sensitive()).map(Needle::Literal);
+            return;
+        }
+        let insensitive = !self.case_sensitive();
+        match search::compile_isearch(&self.string, insensitive, (KEY_SIZE_LIMIT, false)) {
+            Ok(regexp) => self.needle = Some(Needle::Regexp(regexp)),
+            Err(Invalid::TooBig) => self.compiling = true,
+            Err(Invalid::Incomplete) => self.problem = Some(Problem::Incomplete),
+            Err(Invalid::Wrong(why)) => self.problem = Some(Problem::Invalid(why)),
+        }
+    }
+
+    /// Whether the string has something to search for: a needle, or a regexp the worker
+    /// compiles.
+    pub(super) fn has_needle(&self) -> bool {
+        self.needle.is_some() || self.compiling
+    }
+
+    /// What a worker's job looks for: the needle, or the pattern it is to compile.
+    pub(super) fn prepared(&self) -> Option<Prepared> {
+        if let Some(needle) = &self.needle {
+            return Some(Prepared::Ready(needle.clone()));
+        }
+        self.compiling.then(|| Prepared::Compile {
+            pattern: self.string.clone(),
+            insensitive: !self.case_sensitive(),
+        })
     }
 
     /// How many characters the string still has room for.

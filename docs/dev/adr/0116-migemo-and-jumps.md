@@ -431,6 +431,68 @@ One pull request a step, each with its own "As built" notes here.
 Step 5 needs none of steps 1 to 4, and can be built beside them; a jump's string goes through
 migemo once step 2 is in.
 
+#### As built (step 1, 2026-11-12)
+
+The author chose the first option of each of nine questions on 2026-11-12, through the
+coordinator; the notes below are those choices as built.
+
+- **Keys.** `C-M-s` (`isearch-forward-regexp`) and `C-M-r` (`isearch-backward-regexp`) start a
+  regexp search. In any search `C-M-s` and `C-M-r` repeat it, as `C-s` and `C-r` do, as in Emacs.
+  `M-r` (`isearch-toggle-regexp`) turns the string from literal to a regexp or back for the rest
+  of the search, as `M-c` turns case: `DEL` takes the turn back. All three commands are
+  `Person`. The line says `Regexp I-search:`, with `Failing`, `Wrapped`, `backward` and the case
+  words as before (`Failing regexp I-search backward:`).
+- **The API:** `Editor::isearch_begin(backward, regexp)`, `Isearch::regexp` and
+  `Editor::isearch_toggle_regexp`. `get-state`'s `isearch` gains `regexp`, left out around a
+  buffer that may hold secrets as the rest is. `SearchJob` and `SearchReport` keep their public
+  surface; `SearchReport` is no longer `Sync`, as it can carry a regexp the worker compiled, and
+  it is only ever sent. Nothing in `guardrails/layers.txt` changes.
+- **Matching** is 0113's per-line matcher with its limits (1024 characters, a line over 64 MiB
+  stops the search) and its smart case, `M-c` turning it around and an inline `(?i)` or `(?-i)`
+  winning. A `C-w` or `C-y` into a regexp is escaped, as Emacs's `isearch-yank-string` quotes it.
+  The U+FFFD of an invalid byte can match `.`, as in `C-M-%`.
+- **Compiling on a key.** The UI thread compiles a key's regexp within 256 KiB, which takes about
+  1 ms at worst, also for one that fails for size; one larger, up to 0113's 2 MiB, compiles on the
+  worker, which then searches and counts in the same job, and the line says `[searching…]` until
+  it comes. Measured here, a 2 MiB compile of `\w{30}` takes 5.2 ms, and 0113 builds three
+  regexps for a pattern. The two regexps 0113 makes for a match at a cut inside a line are built
+  only when such a match turns up, which only a backward search meets, and the worker builds them
+  with its compile. Each copy of a regexp builds its own, so no thread waits for another.
+- **Long lines.** A key never copies a line longer than what is left of its 256 KiB: such a line
+  goes to the worker at once. On an 8 MB line a key takes 0.05 ms.
+- **A key's cost**, measured in a release build over 20 MB of short lines with no match, the
+  highlights included: 0.6 ms for a literal string, as before this step (0.57 ms); 1.6 ms for
+  `z\w+q`; 2.1 ms for `(?i)\w+ \w+ \w+ \w+ \w+ zq`; 0.8 ms for `[\p{L}\d]{25}q`, which is
+  left to the worker. Each key's search also stops after 3 ms, as 0113's do.
+- **Backward** is Emacs's `re-search-backward`: the match that starts last at the point or
+  before and ends by it. Each line is looked in from its end in windows that double, from 256
+  bytes, so a line with no match is read about twice; every start is tried, so `aa` in `aaa`
+  from the end is 1..3. The bound is a cut as 0113's ranges are: a match ends by it, while `$` and
+  `\b` there see what follows. A repeat's match ends by the current match's start. Typing keeps
+  the current match while the regexp still matches at its start and ends by where the search
+  began, or anywhere once it went round, as `isearch.el` keeps it.
+- **Empty matches** go as 0113's and the count's: an empty match right where a match ended is
+  passed, and a repeat after an empty match goes a character on (back) first, so the index steps
+  as the count has them.
+- **An incomplete or wrong regexp** stays where the last one matched, with no count, no
+  highlights and nothing to repeat, and the line says `[incomplete input]` while the crate says
+  something is unclosed, a trailing `\` or a flag is cut, as Emacs says it for its `Premature`
+  and `Unmatched` errors, or else `[Invalid regexp: …]` in the crate's words. It is not
+  `Failing`. `C-g` goes back past it to the last string that matched, as past a failing part.
+  `RET` ends the search there and keeps the string, as Emacs does.
+- **A line over 64 MiB** fails the search there, with 0113's words after the string:
+  `Failing regexp I-search: foo [Regexp search stops at line 3: it is longer than 64 MiB]`. The
+  next `C-s` goes round, as after any failure. A count that meets one shows no count.
+- **The history** of regexps is its own, `isearch-regexp`, as Emacs's `regexp-search-ring`, with
+  the same limits and the same rule around secrets. `C-s C-s`, `M-p` and `M-n` use the one of
+  the search's kind, and the string goes into the one of its kind when it ends.
+- **Cursors** from a regexp search (`C->`, `C-<`, `C-c C-<`) go on the regexp's matches, never on
+  an empty one, as found one line at a time, with 0113's limits and 3 ms on the UI thread. Past a
+  line too long for a regexp, a search for cursors finds no more that way.
+- **Later, as a chore of its own:** query-replace's search for the next match after an answer
+  still copies a long line on the UI thread, about 40 ms on a 60 MB line (0113's "Limits"); the
+  rule above, that a key leaves such a line to the worker, would fit it too.
+
 ## Changes to accepted ADRs
 
 - **[ADR 0082](0082-isearch.md):** "`C-s` and `C-r` search for the literal string" becomes: for the

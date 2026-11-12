@@ -72,17 +72,23 @@ pub(super) fn find(
         *work =
             work.saturating_add(found.map_or(cut - from, |found| found.end() - from) + PER_MATCH);
         let found = found?.range();
-        if found.end < cut || cut == text.len() {
+        // A match that ends before the cut, or at the line's end, is one. So is one at the
+        // cut if the regexps for a cut do not compile, which only a pattern near the size
+        // limit can make so.
+        let Some(at_cut) = regexp
+            .at_cut()
+            .filter(|_| found.end == cut && cut < text.len())
+        else {
             return Some(found);
-        }
+        };
         // It ends at the cut, before the line does: whether it is a match depends on what
         // follows, as `$` or `\b` there may hold only at the haystack's end.
-        let ends_at = ending_from(regexp, (text, line_start, cut), found.start, ending, work);
+        let ends_at = ending_from(at_cut, (text, line_start, cut), found.start, ending, work);
         if ends_at == Some(found.start) {
             return Some(found);
         }
         // A match from its start that ends before the cut, or the next to start anywhere.
-        let short = regexp.at_cut.short.find_at(haystack, found.start);
+        let short = at_cut.short.find_at(haystack, found.start);
         *work =
             work.saturating_add(short.map_or(cut, |short| short.end()) - found.start + PER_MATCH);
         let short = short.map(|short| {
@@ -109,7 +115,7 @@ pub(super) fn find(
 /// Where the first match from `from` that ends at `cut` starts, the character after the cut
 /// read: from what `ending` kept while it still holds.
 fn ending_from(
-    regexp: &Regexp,
+    at_cut: &AtCut,
     (text, line_start, cut): (&str, usize, usize),
     from: usize,
     ending: &mut Ending,
@@ -123,7 +129,7 @@ fn ending_from(
         return start;
     }
     let next = text[cut..].chars().next().map_or(0, char::len_utf8);
-    let found = regexp.at_cut.ending.find_at(&text[..cut + next], from);
+    let found = at_cut.ending.find_at(&text[..cut + next], from);
     *work = work.saturating_add(cut + next - from + PER_MATCH);
     let start = found.map(|found| found.start());
     ending.kept = Some(((line_start, cut), from, start));
