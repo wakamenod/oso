@@ -21,17 +21,17 @@ step: M-s r, nothing typed
 float at row 0, column 19: 12 x 62
 │ 0/0 Search oso:                                              │
 :                 ^                                            :
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
 
 step: f n, nothing found yet
 │                                                                                                    │
@@ -52,17 +52,17 @@ step: f n, nothing found yet
 float at row 0, column 19: 12 x 62
 │ …/… Search oso: fn                                           │
 :                   ^                                          :
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
 
 step: a file's rows, a control boxed
 │                                                                                                    │
@@ -83,17 +83,17 @@ step: a file's rows, a control boxed
 float at row 0, column 19: 12 x 62
 │ …/… Search oso: fn                                           │
 :                   ^                                          :
-│>src/main.rs:1: fn main() {                                   │
-│ src/main.rs:9: fn run(U+202Ex) {}                            │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│>src/main.rs:1: fn main(…│o                                   │
+│ src/main.rs:9: fn run(… │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
 
 step: C-n, then more: the row moved to stays, a secret row has no text
 │                                                                                                    │
@@ -114,17 +114,17 @@ step: C-n, then more: the row moved to stays, a secret row has no text
 float at row 0, column 19: 12 x 62
 │ …/… Search oso: fn                                           │
 :                   ^                                          :
-│ src/main.rs:1: fn main() {                                   │
-│>src/main.rs:9: fn run(U+202Ex) {}                            │
-│ .env:2                        may hold secrets               │
-│ src/lib.rs:40:     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│ src/main.rs:1: fn main(…│o                                   │
+│>src/main.rs:9: fn run(… │                                    │
+│ .env:2      may hold se…│                                    │
+│ src/lib.rs:40:     xxxx…│                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
 
 step: the search ends at a limit
 │                                                                                                    │
@@ -145,14 +145,14 @@ step: the search ends at a limit
 float at row 0, column 19: 12 x 62
 │ 2/4+ Search oso: fn                                          │
 :                    ^                                         :
-│ src/main.rs:1: fn main() {                                   │
-│>src/main.rs:9: fn run(U+202Ex) {}                            │
-│ .env:2                        may hold secrets               │
-│ src/lib.rs:40:     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│ src/main.rs:1: fn main(…│o                                   │
+│>src/main.rs:9: fn run(… │                                    │
+│ .env:2      may hold se…│                                    │
+│ src/lib.rs:40:     xxxx…│                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │

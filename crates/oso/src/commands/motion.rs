@@ -95,7 +95,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "mwim-end-of-code-or-line",
-        doc: "Move point to the end of the line before trailing blanks, or from there to the line's end.\n\nWith N other than 1, move N - 1 lines down first, and to the end before the blanks.",
+        doc: "Move point to the end of the line's code, or from there to the line's end.\n\nThe code ends before trailing blanks, and before a comment that ends the line after code, as highlighting says.\n\nWith N other than 1, move N - 1 lines down first, and to the end of the code.",
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: mwim_end,
@@ -220,8 +220,11 @@ fn mwim_beginning(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 
 fn mwim_end(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let mut budget = WalkBudget::new();
+    // O(1): the runs are shared. None while font-lock is off, or for a buffer that may hold
+    // secrets: then the code ends where the text does (ADR 0111).
+    let highlights = ctx.editor.current().1.highlights().cloned();
     move_cursors(ctx, |display, s| {
-        motion::toggle_line_end(display, s, args.count(), &mut budget);
+        motion::toggle_line_end(display, s, args.count(), highlights.as_ref(), &mut budget);
         Ok(())
     })?;
     budget_left(budget)

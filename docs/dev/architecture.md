@@ -510,7 +510,7 @@ The UI thread never blocks on I/O or parsing:
   runs wait for the next, so a slow job is never started over
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - A project's search for `M-s r` runs on `oso-grep` (`crates/oso/src/grep.rs`, glue in
-  `app/walks.rs`): it walks with `walk::walk_files` and hands each file, with its open directory,
+  `app/greps.rs`): it walks with `walk::walk_files` and hands each file, with its open directory,
   over a bounded queue of 16 to `min(cores - 1, 8)` searching threads, at least one
   (`grep/files.rs`). A searcher reads 256 KiB blocks cut at a line's end (`grep/read.rs`) and
   matches them with its own copy of `oso_core::project::LineQuery`, completion's orderless
@@ -524,6 +524,14 @@ The UI thread never blocks on I/O or parsing:
   narrows a whole search's input sends that search's generation, and `oso-grep` looks through
   the lines it kept, at most 16 MiB, instead of walking
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- The selected row's preview is read on `oso-preview` (`grep/preview.rs`): the editor asks once
+  per row selected (`Editor::take_preview_request`), with the row's byte offset, unless the row's
+  file may hold secrets or an open buffer of it shows; the thread reads the newest request
+  waiting, opening the file from the root a directory at a time, and builds an
+  `oso_core::editor::Excerpt`, the lines around the row with their display model, which comes
+  back as `UserEvent::Previewed`. The editor shows it as `Preview::Excerpt`, drawn as a text pane
+  of its own whose revision is the excerpt's, or an open buffer of the same file by device and
+  inode in its place (`editor/project_search/preview.rs`).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
@@ -531,7 +539,10 @@ The UI thread never blocks on I/O or parsing:
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
-  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`). A look at a
+  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`); in a prompt
+  for a directory it holds `RET` and `M-RET` until the listing or the look at a link that decides
+  the answer has come
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)). A look at a
   row patches it, with no new list, and a long list replaced or closed is dropped on that thread
   ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
@@ -544,10 +555,11 @@ The UI thread never blocks on I/O or parsing:
   shown buffers first, and at most one thread on a buffer no window shows, so a slice that runs
   long never holds the shown ones. The UI thread never calls tree-sitter, and nothing under the
   lock makes or frees a document; the UI sends a job after each command and drops a buffer that
-  turned secret at once. It is off until colour is drawn (ADR 0111, step 4a). A buffer's highlights are a map of runs
+  turned secret at once. A buffer's highlights are a map of runs
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
-  instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
+  instances are built, so a highlight never reshapes a row, and a report draws a frame only
+  if a window shows runs it changed. Buffers that may hold secrets and
   files over 2 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
@@ -739,6 +751,11 @@ Full details are in [`security.md`](security.md).
     as given. A reload of a file the channel opened checks it as `open` does, and a reload
     that finds the file elsewhere makes the agent's save of it ask. An `oso dev` restart keeps
     the mark: the buffer's handoff entry says `"opened_by_agent": true`, only when it is.
+  - What opening or saving starts runs for the channel only when it is oso's own work in its
+    process, such as the final newline and the whitespace cleanup. From M4, each kind of thing
+    opening or saving starts declares `Runs::InOso` or `Runs::Program` in `oso-core`; a
+    `Program` kind for an agent's open or save marks the buffer instead, and the person's next
+    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.

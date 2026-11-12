@@ -85,8 +85,20 @@ network features.
   repository cannot make a search read a file outside it. A line longer than
   16 MiB skips the rest of its file, a NUL byte stops it, and a search keeps at
   most 10,000 rows of at most 512 bytes of text. A file whose name may hold
-  secrets, as the path walked or as the root leads, is searched, but its rows
-  carry no text and are never previewed. A file that could not be opened for a
+  secrets, as the path walked or by its path from every place the root leads
+  through, as the loader finds them, is searched, but its rows carry no text
+  and are never previewed: nothing of it is read for a preview. A root that
+  cannot be resolved counts as one that may hold secrets, and the root opened
+  must be, by device and inode, the place judged, reached again from `/` a name
+  at a time following no link, or nothing under it is read.
+  A preview reads a row's file on `oso-preview` as the search reached it: the
+  root by its path with the same home checks, then each directory and the file
+  from the one before, following no link and waiting for nothing, a regular
+  file only, judged again as the search judges it, from the root opened only if
+  it is the place judged. It reads at most 64 KiB before the row's line and
+  16 MiB in all, keeps at most 256 lines of at most 4 KiB of the file's bytes,
+  opens no buffer, and an open buffer of a file
+  that may hold secrets is never shown in it. A file that could not be opened for a
   reason other than its being gone or refused ends the search with `+`. On
   macOS a file a sync service keeps elsewhere is not read, as reading would
   fetch it.
@@ -220,6 +232,12 @@ form, in every script
 A glyph paints only the cells of its cluster, in its row and in narrow bands above
 and below the row, and a label's glyphs keep their own cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+Syntax colours only colour glyphs that would be drawn as text: an escape, a box or a
+whitespace mark keeps its own colour, and every syntax colour stays apart from the escape
+colour and the marks', so highlighted text never passes for a label
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Syntax colour is advisory: it comes from
+a parser's guess, which may differ from the compiler's, and never decides how a character is
+shown, boxed or escaped.
 
 ### Persistence (T4, T5)
 
@@ -340,8 +358,13 @@ and below the row, and a label's glyphs keep their own cells
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
     `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
     copies, passphrases, and later trusting a project, spawning processes, secret buffers and
-    secure input. A channel action never starts a process by itself: what opening or saving
-    would start waits until the person acts in that buffer (M3 onward).
+    secure input. A channel action never starts a process by itself (M4 onward, as nothing that opening or
+    saving starts in M3 runs one): what an agent's open would start waits for the person's
+    first command in that buffer, and what its save would start, such as a format on save or a
+    language server's check, for the person's next save of it. oso's own work, such as the
+    whitespace cleanup, runs at once. Each kind of thing opening or saving starts declares
+    whether it runs a program, with no default, and the modeline and the agent's reply say what
+    waits ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)).
   - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
     prompt, a key sequence, a composition or an isearch (ADR 0082), within 1 s of the person's
     last key, or while a

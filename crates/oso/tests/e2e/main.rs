@@ -17,6 +17,7 @@ mod cursors;
 mod files;
 mod handover;
 mod harness;
+mod highlight;
 mod ime;
 mod isearch;
 mod kill;

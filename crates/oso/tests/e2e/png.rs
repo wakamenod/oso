@@ -97,6 +97,17 @@ impl Png {
             .count()
     }
 
+    /// How many pixels in `rows` differ from `other`'s, which has the same size.
+    pub fn differs_in(&self, other: &Self, rows: std::ops::Range<u32>) -> usize {
+        assert_eq!((self.width, self.height), (other.width, other.height));
+        let stride = self.width as usize * 4;
+        let (start, end) = (rows.start.min(self.height), rows.end.min(self.height));
+        let bytes = start as usize * stride..end as usize * stride;
+        let (a, b) = (&self.rgba[bytes.clone()], &other.rgba[bytes]);
+        let pixels = a.chunks_exact(4).zip(b.chunks_exact(4));
+        pixels.filter(|(a, b)| a != b).count()
+    }
+
     /// What differs from the background in the topmost rows that hold any, down to
     /// the first row that holds none. So the modeline's bar and text, below a gap of
     /// empty rows, do not count. The background is taken to be the bottom right

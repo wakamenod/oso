@@ -163,7 +163,12 @@ pub fn expand<'a>(
                     listing(directory).unwrap_or(&[]),
                 )
             });
-            let found = found_in(listed, plan.last.starts_with('.'), usize::MAX, &|| false);
+            let found = found_in(
+                listed,
+                (plan.last.starts_with('.'), false),
+                usize::MAX,
+                &|| false,
+            );
             Expanded::Ready(found.unwrap_or_default(), cut)
         }
     }
@@ -203,11 +208,12 @@ pub fn reach<'a>(
 }
 
 /// The candidates in the directories `reached`, each given with what its rows show before a
-/// name and its listing, at most `most`. Names starting with `.` are left out unless `hidden`.
+/// name and its listing, at most `most`. Names starting with `.` are left out unless `hidden`,
+/// and with `directories_only`, all but directories and links.
 /// `None` if `stop` says so first, which it is asked every [`STOP_EVERY`] names.
 pub fn found_in<'a>(
     reached: impl IntoIterator<Item = (&'a Path, &'a str, &'a [Name])>,
-    hidden: bool,
+    (hidden, directories_only): (bool, bool),
     most: usize,
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<Found>> {
@@ -223,6 +229,10 @@ pub fn found_in<'a>(
                 return Some(found);
             }
             if name.name.starts_with('.') && !hidden {
+                continue;
+            }
+            // A prompt for a directory lists no file, but a link, which may lead to one.
+            if directories_only && !matches!(name.kind, NameKind::Directory | NameKind::Link) {
                 continue;
             }
             let is_directory = name.kind == NameKind::Directory;

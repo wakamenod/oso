@@ -103,6 +103,8 @@ pub enum UserEvent {
     Walked(crate::walk::Walked),
     /// A project's search found rows, or ended (ADR 0114).
     Grepped(crate::grep::Found),
+    /// The lines around a search's row were read for its preview, or could not be (ADR 0114).
+    Previewed(crate::grep::Previewed),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
     Trust,
     /// A control socket request, in dev builds.
@@ -191,6 +193,8 @@ pub struct App {
     quiet_walk: walks::Quiet,
     /// The threads that search a project's files for `project-search` (ADR 0114).
     grep: crate::grep::Grep,
+    /// The thread that reads a search's row's file for its preview (ADR 0114).
+    previewer: crate::grep::Previewer,
     /// The thread that reads and writes the record of trusted projects, if there is one.
     trust_file: Option<crate::config::TrustFile>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
@@ -278,6 +282,7 @@ impl App {
         let projects = projects::detector(&waker);
         let walker = walks::walker(&waker);
         let grep = greps::grep(&waker);
+        let previewer = greps::previewer(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
         editor.set_home(home());
@@ -325,6 +330,7 @@ impl App {
             walker,
             quiet_walk: walks::Quiet::default(),
             grep,
+            previewer,
             trust_file: None,
             log_gate,
             agent: agent::Agent::default(),

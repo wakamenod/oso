@@ -1141,6 +1141,9 @@ pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
 pub oso_core::editor::Preview::Buffer::id: oso_core::buffer::BufferId
 pub oso_core::editor::Preview::Buffer::start: usize
+pub oso_core::editor::Preview::Excerpt
+pub oso_core::editor::Preview::Excerpt::cursor: usize
+pub oso_core::editor::Preview::Excerpt::revision: u64
 pub oso_core::editor::Preview::Text
 pub oso_core::editor::Preview::Text::entry: u64
 pub oso_core::editor::Preview::Withheld
@@ -1153,6 +1156,12 @@ impl core::fmt::Debug for oso_core::editor::Preview
 pub fn oso_core::editor::Preview::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::Preview
 impl core::marker::StructuralPartialEq for oso_core::editor::Preview
+pub enum oso_core::editor::ProjectPreviewRead
+pub oso_core::editor::ProjectPreviewRead::Text(oso_core::editor::Excerpt)
+pub oso_core::editor::ProjectPreviewRead::Unreadable
+pub oso_core::editor::ProjectPreviewRead::Withheld
+impl core::fmt::Debug for oso_core::editor::ProjectPreviewRead
+pub fn oso_core::editor::ProjectPreviewRead::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_core::editor::Quit
 pub oso_core::editor::Quit::Cursors
 pub oso_core::editor::Quit::Nothing
@@ -1537,6 +1546,8 @@ pub fn oso_core::editor::Editor::take_trim_jobs(&mut self) -> alloc::vec::Vec<os
 pub fn oso_core::editor::Editor::trim_failed(&mut self, oso_core::editor::TrimId)
 pub fn oso_core::editor::Editor::trim_reported(&mut self, oso_core::editor::TrimReport) -> core::option::Option<oso_core::editor::TrimOutcome>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::isearch_mark(&mut self, core::option::Option<oso_core::editor::Toward>) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
@@ -1656,6 +1667,11 @@ pub fn oso_core::editor::Editor::search_highlights(&self, usize, &str, &mut allo
 pub fn oso_core::editor::Editor::take_search_hit(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchHit>
 pub fn oso_core::editor::Editor::take_search_request(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchRequest>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::preview_cells(&self, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
+pub fn oso_core::editor::Editor::preview_excerpt_display(&self) -> core::option::Option<oso_core::display_map::DisplaySnapshot>
+pub fn oso_core::editor::Editor::preview_read(&mut self, u64, oso_core::editor::ProjectPreviewRead)
+pub fn oso_core::editor::Editor::take_preview_request(&mut self) -> core::option::Option<oso_core::editor::ProjectPreviewRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::preview_screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::prompt_screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::screen(&self, &mut oso_core::window::Screen)
@@ -1696,6 +1712,11 @@ pub fn oso_core::editor::Elsewhere::eq(&self, &oso_core::editor::Elsewhere) -> b
 impl core::fmt::Debug for oso_core::editor::Elsewhere
 pub fn oso_core::editor::Elsewhere::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Elsewhere
+pub struct oso_core::editor::Excerpt
+impl oso_core::editor::Excerpt
+pub fn oso_core::editor::Excerpt::new(&[u8], usize, (usize, usize), core::option::Option<(u64, u64)>) -> Self
+impl core::fmt::Debug for oso_core::editor::Excerpt
+pub fn oso_core::editor::Excerpt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ExitRefused
 pub oso_core::editor::ExitRefused::modified: usize
 pub oso_core::editor::ExitRefused::saving: usize
@@ -1795,6 +1816,19 @@ pub fn oso_core::editor::Over::eq(&self, &oso_core::editor::Over) -> bool
 impl core::fmt::Debug for oso_core::editor::Over
 pub fn oso_core::editor::Over::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Over
+pub struct oso_core::editor::ProjectPreviewRequest
+pub oso_core::editor::ProjectPreviewRequest::column: usize
+pub oso_core::editor::ProjectPreviewRequest::generation: u64
+pub oso_core::editor::ProjectPreviewRequest::line: usize
+pub oso_core::editor::ProjectPreviewRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
+pub oso_core::editor::ProjectPreviewRequest::offset: u64
+pub oso_core::editor::ProjectPreviewRequest::path: alloc::boxed::Box<str>
+pub oso_core::editor::ProjectPreviewRequest::root: std::path::PathBuf
+pub oso_core::editor::ProjectPreviewRequest::rows: usize
+impl core::clone::Clone for oso_core::editor::ProjectPreviewRequest
+pub fn oso_core::editor::ProjectPreviewRequest::clone(&self) -> oso_core::editor::ProjectPreviewRequest
+impl core::fmt::Debug for oso_core::editor::ProjectPreviewRequest
+pub fn oso_core::editor::ProjectPreviewRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ProjectRequest
 pub oso_core::editor::ProjectRequest::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ProjectRequest::location: std::path::PathBuf
@@ -1831,6 +1865,7 @@ pub fn oso_core::editor::ProjectSearchRequest::fmt(&self, &mut core::fmt::Format
 pub struct oso_core::editor::ProjectSearchRow
 pub oso_core::editor::ProjectSearchRow::column: usize
 pub oso_core::editor::ProjectSearchRow::line: usize
+pub oso_core::editor::ProjectSearchRow::offset: u64
 pub oso_core::editor::ProjectSearchRow::path: alloc::boxed::Box<str>
 pub oso_core::editor::ProjectSearchRow::secret: bool
 pub oso_core::editor::ProjectSearchRow::text: alloc::boxed::Box<str>
@@ -2848,7 +2883,7 @@ pub fn oso_core::motion::move_line_start(&oso_core::display_map::DisplaySnapshot
 pub fn oso_core::motion::move_lines(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize) -> core::result::Result<(), oso_core::motion::Edge>
 pub fn oso_core::motion::next_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
 pub fn oso_core::motion::prev_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
-pub fn oso_core::motion::toggle_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
+pub fn oso_core::motion::toggle_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, core::option::Option<&oso_core::syntax::Highlights>, &mut oso_core::motion::WalkBudget)
 pub fn oso_core::motion::toggle_line_start(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
 pub mod oso_core::project
 pub enum oso_core::project::NotRecordable
@@ -3316,6 +3351,7 @@ pub fn oso_core::syntax::Highlights::is_empty(&self) -> bool
 pub fn oso_core::syntax::Highlights::len(&self) -> usize
 pub fn oso_core::syntax::Highlights::new(usize) -> Self
 pub fn oso_core::syntax::Highlights::replace(&mut self, core::ops::range::Range<usize>, impl core::iter::traits::collect::IntoIterator<Item = (usize, core::option::Option<oso_core::syntax::Highlight>)>)
+pub fn oso_core::syntax::Highlights::run_at(&self, usize) -> core::option::Option<(core::ops::range::Range<usize>, core::option::Option<oso_core::syntax::Highlight>)>
 pub fn oso_core::syntax::Highlights::runs(&self, core::ops::range::Range<usize>) -> oso_core::syntax::Runs<'_>
 pub fn oso_core::syntax::Highlights::splice(&mut self, &[oso_core::syntax::Splice])
 impl core::clone::Clone for oso_core::syntax::Highlights

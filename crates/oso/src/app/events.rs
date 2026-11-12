@@ -63,6 +63,7 @@ impl App {
             UserEvent::Projects => self.projects_found(),
             UserEvent::Walked(walked) => self.walked(event_loop, walked),
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
+            UserEvent::Previewed(read) => self.previewed(read),
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -96,6 +97,8 @@ impl App {
         self.start_syntax();
         self.add_quiet_walk(event_loop);
         self.start_completions(event_loop);
+        // Rows that came, or a move, may have selected another row to preview.
+        self.start_preview_read();
         // A list built here after a listing ends a wait with no report.
         self.run_held_completion(event_loop);
         self.ask_for_a_frame_if_status_changed();
