@@ -656,6 +656,13 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   the UI thread never waits. The preview reads on one thread, so a read that stalls in the file
   system, as on FUSE or NFS, leaves later previews empty until it returns; the UI and the search
   go on.
+- **Left for later.** The preview is worked out a few times a frame, each looking through the
+  open buffers for one of the row's file; caching it would change the API. `editor/files.rs` is
+  near its size limit, so the directory prompt grows in `files/directory.rs`. `grep/preview.rs`
+  repeats the loader's device and inode of a file, as `grep` may not name `loader`; one function
+  in `oso_platform::file_meta` could serve both, as a later chore. An excerpt is not parsed, so
+  it shows uncoloured, where an open buffer shows its highlights
+  ([ADR 0111](0111-tree-sitter-highlighting.md)).
 - **Public items beyond the plan:** `Editor::directory_answer_waits`, so that `completion_pending`
   keeps meaning a worker's result and `M-RET` stays unheld elsewhere.
 - **Changes to accepted ADRs.** [ADR 0096](0096-completion-on-a-worker-past-5000-candidates.md)'s

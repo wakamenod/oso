@@ -73,6 +73,8 @@ pub(super) fn preview_panes<'a>(
                 fills: screens.preview_fills,
                 whitespace: false,
                 flash: None,
+                // An excerpt is not parsed, so it shows uncoloured.
+                highlights: None,
             };
             pane(EXCERPT_PANE, preview, PaneContent::Text(view))
         }
