@@ -190,6 +190,12 @@ form, in every script
 A glyph paints only the cells of its cluster, in its row and in narrow bands above
 and below the row, and a label's glyphs keep their own cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+Syntax colours only colour glyphs that would be drawn as text: an escape, a box or a
+whitespace mark keeps its own colour, and every syntax colour stays apart from the escape
+colour and the marks', so highlighted text never passes for a label
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). Syntax colour is advisory: it comes from
+a parser's guess, which may differ from the compiler's, and never decides how a character is
+shown, boxed or escaped.
 
 ### Persistence (T4, T5)
 
