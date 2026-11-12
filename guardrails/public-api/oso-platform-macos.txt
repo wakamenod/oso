@@ -157,6 +157,20 @@ impl core::fmt::Debug for oso_platform::control::PeerProcess
 pub fn oso_platform::control::PeerProcess::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::control::PeerProcess
 pub mod oso_platform::file_meta
+pub enum oso_platform::file_meta::EntryKind
+pub oso_platform::file_meta::EntryKind::Directory
+pub oso_platform::file_meta::EntryKind::File
+pub oso_platform::file_meta::EntryKind::Link
+pub oso_platform::file_meta::EntryKind::Other
+impl core::clone::Clone for oso_platform::file_meta::EntryKind
+pub fn oso_platform::file_meta::EntryKind::clone(&self) -> oso_platform::file_meta::EntryKind
+impl core::cmp::Eq for oso_platform::file_meta::EntryKind
+impl core::cmp::PartialEq for oso_platform::file_meta::EntryKind
+pub fn oso_platform::file_meta::EntryKind::eq(&self, &oso_platform::file_meta::EntryKind) -> bool
+impl core::fmt::Debug for oso_platform::file_meta::EntryKind
+pub fn oso_platform::file_meta::EntryKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::file_meta::EntryKind
+impl core::marker::StructuralPartialEq for oso_platform::file_meta::EntryKind
 pub struct oso_platform::file_meta::AccessList
 impl oso_platform::file_meta::AccessList
 pub fn oso_platform::file_meta::AccessList::at(&std::path::Path) -> std::io::error::Result<Self>
@@ -173,6 +187,30 @@ pub fn oso_platform::file_meta::AccessList::default() -> oso_platform::file_meta
 impl core::fmt::Debug for oso_platform::file_meta::AccessList
 pub fn oso_platform::file_meta::AccessList::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::file_meta::AccessList
+pub struct oso_platform::file_meta::Directory
+impl oso_platform::file_meta::Directory
+pub fn oso_platform::file_meta::Directory::entries(&self) -> std::io::error::Result<oso_platform::file_meta::Entries>
+pub fn oso_platform::file_meta::Directory::kind_of(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<oso_platform::file_meta::EntryKind>
+pub fn oso_platform::file_meta::Directory::metadata(&self) -> std::io::error::Result<std::fs::Metadata>
+pub fn oso_platform::file_meta::Directory::open(&std::path::Path) -> std::io::error::Result<Self>
+pub fn oso_platform::file_meta::Directory::open_directory(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<core::option::Option<Self>>
+pub fn oso_platform::file_meta::Directory::open_file(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<core::option::Option<(std::fs::File, std::fs::Metadata)>>
+pub fn oso_platform::file_meta::Directory::read_link(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<std::path::PathBuf>
+impl core::fmt::Debug for oso_platform::file_meta::Directory
+pub fn oso_platform::file_meta::Directory::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_platform::file_meta::Entries
+impl core::fmt::Debug for oso_platform::file_meta::Entries
+pub fn oso_platform::file_meta::Entries::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::iterator::Iterator for oso_platform::file_meta::Entries
+pub type oso_platform::file_meta::Entries::Item = core::result::Result<oso_platform::file_meta::Entry, std::io::error::Error>
+pub fn oso_platform::file_meta::Entries::next(&mut self) -> core::option::Option<Self::Item>
+impl core::ops::drop::Drop for oso_platform::file_meta::Entries
+pub fn oso_platform::file_meta::Entries::drop(&mut self)
+pub struct oso_platform::file_meta::Entry
+pub oso_platform::file_meta::Entry::kind: oso_platform::file_meta::EntryKind
+pub oso_platform::file_meta::Entry::name: std::ffi::os_str::OsString
+impl core::fmt::Debug for oso_platform::file_meta::Entry
+pub fn oso_platform::file_meta::Entry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_platform::file_meta::Quarantine(_)
 impl oso_platform::file_meta::Quarantine
 pub fn oso_platform::file_meta::Quarantine::at(&std::path::Path) -> std::io::error::Result<core::option::Option<Self>>

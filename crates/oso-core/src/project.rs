@@ -8,12 +8,15 @@
 //! kept here by its words alone, never followed: it counts for trust only once the main
 //! repository it names is trusted and records this worktree back, which the host checks.
 //!
-//! The record of trusted projects is [`TrustList`].
+//! The record of trusted projects is [`TrustList`], and what a search of a project looks for
+//! is [`LineQuery`].
 
 use std::path::{Component, Path, PathBuf};
 
+mod search;
 mod trust;
 
+pub use search::{BLOCK, LineHit, LineQuery, MAX_LINE, MAX_ROW_BYTES, MAX_ROWS, row_text};
 pub use trust::{NotRecordable, TrustChange, TrustList};
 
 /// The most bytes of a `.git` file that are read. Git writes one short line in it.

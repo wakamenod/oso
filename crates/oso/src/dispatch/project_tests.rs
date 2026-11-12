@@ -1,6 +1,6 @@
 //! Scenario tests of the project commands run by keys (ADR 0114): `trust-project` and
-//! `untrust-project`, with the question, the `y` that re-checks it and the refusals, and
-//! `project-find-file` over a walk handed in.
+//! `untrust-project`, with the question, the `y` that re-checks it and the refusals,
+//! `project-find-file` over a walk handed in, and `project-search` over rows handed in.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU.
 
@@ -243,4 +243,100 @@ fn c_x_p_f_is_refused_in_the_minibuffer_and_c_g_stops_its_walk() {
         request.generation,
         "the walker stops at its next entry"
     );
+}
+
+#[test]
+fn m_s_r_and_c_x_p_g_search_the_project_and_ret_visits_the_line() {
+    for key in ["M-s r", "C-x p g"] {
+        let (mut d, mut editor) = in_oso(None);
+        send(&mut d, &mut editor, key);
+        assert_eq!(editor.prompt().unwrap().label(), "Search oso:");
+        send(&mut d, &mut editor, "n e e d l e");
+        let request = editor.take_search_request().expect("a search is asked for");
+        assert_eq!(request.root, PathBuf::from("/home/me/src/oso"));
+        let row = oso_core::editor::ProjectSearchRow {
+            path: "src/main.rs".into(),
+            line: 3,
+            column: 4,
+            text: "let needle".into(),
+            secret: false,
+        };
+        editor.rows_found(request.generation, vec![row], None);
+        send(&mut d, &mut editor, "RET");
+        assert!(editor.prompt().is_none());
+        assert_eq!(
+            editor.take_visits(),
+            [(
+                PathBuf::from("/home/me/src/oso/src/main.rs"),
+                oso_core::load::UNASKED
+            )]
+        );
+        assert_ne!(
+            request.live.load(std::sync::atomic::Ordering::Relaxed),
+            request.generation,
+            "the search stops once the prompt closes"
+        );
+    }
+}
+
+#[test]
+fn c_u_asks_for_the_directory_first_and_refuses_home() {
+    for (key, label, opened) in [
+        ("C-u M-s r", "Search in directory:", "Search src:"),
+        (
+            "C-u C-x p f",
+            "Find file in directory:",
+            "Find file in src:",
+        ),
+    ] {
+        let (mut d, mut editor) = in_oso(None);
+        send(&mut d, &mut editor, key);
+        assert_eq!(editor.prompt().unwrap().label(), label);
+        // The answer is the directory typed, from the buffer's own.
+        let prompt = editor.prompt().unwrap().buffer();
+        let typed = editor.buffer(prompt).unwrap().text().to_string();
+        assert_eq!(typed, "~/src/oso/");
+        send(&mut d, &mut editor, "DEL DEL DEL DEL RET");
+        assert_eq!(
+            editor.prompt().map(|p| p.label().to_owned()).as_deref(),
+            Some(opened)
+        );
+        let walked = editor.take_walk_request().map(|request| request.root);
+        let searched = editor.take_search_request().map(|request| request.root);
+        assert!(searched.is_none(), "nothing is typed yet");
+        if key.ends_with('f') {
+            assert_eq!(walked, Some(PathBuf::from("/home/me/src")));
+        }
+        send(&mut d, &mut editor, "C-g");
+        send(&mut d, &mut editor, key);
+        send(&mut d, &mut editor, "C-a C-k ~ / RET");
+        assert!(editor.prompt().is_none());
+        assert!(echo(&editor).starts_with("Cannot "), "{}", echo(&editor));
+    }
+}
+
+#[test]
+fn c_u_refuses_the_root_of_the_file_system_and_a_path_that_climbs() {
+    for (typed, said) in [
+        (
+            "/",
+            "Cannot search the home directory, one that holds it, or /",
+        ),
+        (
+            "/tmp/../tmp/",
+            "Cannot search a directory named with .., name it whole",
+        ),
+    ] {
+        let (mut d, mut editor) = in_oso(None);
+        send(&mut d, &mut editor, "C-u M-s r");
+        let keys: Vec<String> = typed.chars().map(String::from).collect();
+        send(
+            &mut d,
+            &mut editor,
+            &format!("C-a C-k {} RET", keys.join(" ")),
+        );
+        assert!(editor.prompt().is_none(), "{typed}");
+        assert!(editor.take_search_request().is_none());
+        assert_eq!(echo(&editor), said);
+    }
 }

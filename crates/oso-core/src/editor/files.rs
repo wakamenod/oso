@@ -12,7 +12,7 @@ use std::sync::Arc;
 use super::Editor;
 use super::completion::CompletionStyle;
 use crate::buffer::{BufferId, Replacement};
-use crate::complete::path::{self, Found, Name, Plan, Reach, Reached};
+use crate::complete::path::{self, Found, Name, NameKind, Plan, Reach, Reached};
 use crate::complete::{Build, Built, Candidate, WORKER_PAST, listed, matched_part};
 use crate::minibuffer::{PromptError, PromptId};
 
@@ -61,9 +61,31 @@ pub(super) struct FileList {
     /// The directories the prompt started in and those that hold it, which exist, so a segment
     /// naming one whole needs no listing of the one above (ADR 0087).
     known: Vec<PathBuf>,
+    /// The answer must be a directory, as `C-u` asks for a project's (ADR 0114).
+    wants_directory: bool,
 }
 
 impl Editor {
+    /// Opens a prompt that reads a directory's path, as [`Editor::open_file_prompt`] reads a
+    /// path, for a command that walks it (ADR 0114). `RET` on a file's row says it is not a
+    /// directory and keeps the prompt open, unless what is typed ends with `/`, which gives that
+    /// directory.
+    ///
+    /// # Errors
+    ///
+    /// As [`Editor::open_file_prompt`].
+    pub fn open_directory_prompt(
+        &mut self,
+        label: &str,
+        history: &'static str,
+        initial: &str,
+        base: PathBuf,
+    ) -> Result<PromptId, PromptError> {
+        let id = self.open_file_prompt(label, history, initial, base)?;
+        self.file_list.wants_directory = true;
+        Ok(id)
+    }
+
     /// Opens a prompt that says `label` and reads a path, kept in the history `history`,
     /// starting with `initial`, such as the buffer's directory with the home directory as `~/`.
     /// Relative paths start from `base`. It takes any text, as a new file is one (ADR 0087).
@@ -130,10 +152,10 @@ impl Editor {
     }
 
     /// Whether the innermost prompt that reads a path left candidates out: past the limits of a
-    /// listing, of a segment's directories or of the list, or of a project's walk (ADR 0114).
-    /// The count says so with `+`.
+    /// listing, of a segment's directories or of the list, or of a project's walk or search
+    /// (ADR 0114). The count says so with `+`.
     pub fn files_cut(&self) -> bool {
-        (self.reads_path() && self.file_list.cut) || self.project_files_cut()
+        (self.reads_path() && self.file_list.cut) || self.project_files_cut() || self.search_cut()
     }
 
     /// Whether a prompt that reads a path is open, innermost or not.
@@ -142,9 +164,12 @@ impl Editor {
     }
 
     /// Whether the innermost prompt that reads a path waits for a listing: of a directory, or
-    /// of a project whose walk has not ended or whose rows are not all in its list (ADR 0114).
+    /// of a project whose walk has not ended or whose rows are not all in its list, or for a
+    /// project's search that runs (ADR 0114).
     pub fn files_pending(&self) -> bool {
-        (self.reads_path() && !self.file_list.asked.is_empty()) || self.project_files_pending()
+        (self.reads_path() && !self.file_list.asked.is_empty())
+            || self.project_files_pending()
+            || self.search_pending()
     }
 
     /// The directory the innermost prompt's path reaches, for the control socket, if it reads
@@ -375,13 +400,24 @@ impl Editor {
             .prompt()
             .and_then(crate::minibuffer::Prompt::candidates)
             .is_some_and(crate::complete::Candidates::on_input);
-        if !typed
-            && !on_input
-            && let Some((found, _)) = self.selected_file()
-        {
+        // A path typed with `/` at its end names a directory, which `C-x C-w` writes into.
+        let slash = self
+            .prompts
+            .last()
+            .and_then(|prompt| self.buffer(prompt.buffer))
+            .is_some_and(|buffer| buffer.text().to_string().ends_with('/'));
+        let wants_directory = self.file_list.wants_directory;
+        // What is typed is given, not the selected row: `M-RET`, the input selected, or a
+        // directory typed for a prompt that wants one.
+        let as_typed = typed || on_input || (wants_directory && slash);
+        if !as_typed && let Some((found, shown)) = self.selected_file() {
             let looked = self.file_list.looks.get(&found.path);
             if found.directory || looked.is_some_and(|looked| looked.directory) {
                 return Some(self.insert_completion());
+            }
+            if wants_directory {
+                self.prompt_says(format!("Not a directory: {shown}"));
+                return Some(Err(PromptError::Invalid));
             }
             // A look that found 2 GiB or more makes the command ask at once (ADR 0087).
             let bytes = looked.map_or(0, |looked| looked.bytes);
@@ -392,12 +428,13 @@ impl Editor {
             return Some(self.give_answer(path.display().to_string()));
         }
         let path = self.typed_file()?;
-        // A path typed with `/` at its end names a directory, which `C-x C-w` writes into.
-        let text = self
-            .prompts
-            .last()
-            .and_then(|prompt| self.buffer(prompt.buffer));
-        let slash = text.is_some_and(|buffer| buffer.text().to_string().ends_with('/'));
+        // A file typed whole, or given with `M-RET`, is no directory either, where a listing of
+        // its own directory says so.
+        if wants_directory && !slash && self.listed_as_file(&path) {
+            let shown = path::typed_form(&path, false, self.home.as_deref());
+            self.prompt_says(format!("Not a directory: {shown}"));
+            return Some(Err(PromptError::Invalid));
+        }
         let mut answer = path.display().to_string();
         if slash && !answer.ends_with('/') {
             answer.push('/');
@@ -405,43 +442,18 @@ impl Editor {
         Some(self.give_answer(answer))
     }
 
-    /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
-    /// command cannot start a load itself. A buffer that visits that path already is shown at
-    /// once instead, unless the agent channel is still opening it.
-    pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
-        let open = self
-            .buffers()
-            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
-            .map(|(id, _)| id);
-        match open {
-            Some(id) => self.show(id),
-            None => self.visits.push((path, limit)),
-        }
-    }
-
-    /// The visits commands asked for, for the host to start.
-    pub fn take_visits(&mut self) -> Vec<(PathBuf, u64)> {
-        std::mem::take(&mut self.visits)
-    }
-
-    /// Remembers that the file at `path` held `bytes` when a load stopped before reading it, so
-    /// that the next `C-x C-f` of it asks (ADR 0087).
-    pub fn remember_large(&mut self, path: PathBuf, bytes: u64) {
-        self.large = Some((path, bytes));
-    }
-
-    /// The size the file at `path` had when a load stopped before it, if that is the one
-    /// remembered.
-    pub fn large_file(&self, path: &Path) -> Option<u64> {
-        self.large
-            .as_ref()
-            .filter(|(large, _)| large == path)
-            .map(|(_, bytes)| *bytes)
-    }
-
-    /// Takes the large file remembered, as a question about it is answered.
-    pub fn take_large(&mut self) -> Option<(PathBuf, u64)> {
-        self.large.take()
+    /// Whether the listing of the directory that holds `path` names it as something other than a
+    /// directory or a link. Unlisted, it is not known to be one.
+    fn listed_as_file(&self, path: &Path) -> bool {
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return false;
+        };
+        let Some(Some(names)) = self.file_list.listings.get(parent) else {
+            return false;
+        };
+        names.iter().any(|listed| {
+            *listed.name == *name && !matches!(listed.kind, NameKind::Directory | NameKind::Link)
+        })
     }
 
     /// The directory oso started in, which a buffer with no file starts a path from.

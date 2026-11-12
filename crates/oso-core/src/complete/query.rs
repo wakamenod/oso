@@ -405,7 +405,10 @@ impl Query {
                 // A negation that matches less, or with case, keeps more candidates, and a
                 // longer expression may match more.
                 if new.not || new.tried || old.tried {
-                    return new.pattern == old.pattern && self.ignore_case == before.ignore_case;
+                    // A literal read as an expression too matches more, and the other way less.
+                    return new.tried == old.tried
+                        && new.pattern == old.pattern
+                        && self.ignore_case == before.ignore_case;
                 }
                 if self.ignore_case == before.ignore_case {
                     new.pattern.starts_with(&*old.pattern)

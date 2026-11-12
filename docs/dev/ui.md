@@ -182,6 +182,11 @@ are rounded.
   project, its files as paths from the root. Outside a project the buffer's directory stands in,
   named after its last component; a buffer with no file, the home directory and `/` say
   `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
+- `C-u C-x p f` asks `Find file in directory:` first, with `C-x C-f`'s completion from the
+  buffer's directory, and lists that directory as a project, named after its last component.
+  `RET` on a file's row says `Not a directory: <path>`, unless what is typed ends with `/`, which
+  gives that directory. The home directory, one that holds it, `/` and a path with `..` in it are
+  refused.
 - The float opens empty and the list grows while the project is walked, every 50 ms. The count
   shows `…/…` until the walk ends, and `+` after it when it stopped at a limit: 100,000 files,
   32 MiB of paths and names, 1,000,000 entries read, or 16 MiB of ignore files.
@@ -198,6 +203,46 @@ are rounded.
   There is no preview. `C-g` stops the walk.
 - The history is the project's own, in memory, and a listing beside a buffer that may hold
   secrets keeps none.
+
+### Searching a project (`M-s r`, `C-x p g`)
+
+[ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md):
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ …/… Search oso: fn !test█                                  ┃
+┃ src/main.rs:1: fn main() {                                 ┃
+┃▌src/main.rs:9: fn run(U+202Ex) {}                         ▐┃
+┃ .env:2                        may hold secrets             ┃
+┃ src/lib.rs:40:     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+- `project-search` opens the centred float, `Search oso:`, over the same project as `C-x p f`,
+  with the same outside-a-project rule, and `C-u` asks `Search in directory:` first.
+- What is typed is what to look for. It is split at spaces into parts, and a line matches when
+  every part does, in any order. A part matches as typed and, if it holds a character an
+  expression reads, as that expression too, so `fn\s+main` and `^use` work. `=` before a part
+  keeps it as typed, and `!` before one leaves out the lines holding it. No other affix of `M-x`'s
+  means anything here, and an affix is read only at a part's start, so `x =` and `done!` are
+  text. Case is ignored unless an upper-case letter is typed.
+- A search starts once a part that is not excluded has two characters, and each key starts a new
+  one; the one before stops at its next file or block. A key that only narrows a search that
+  ended without a limit looks again through the lines it found, without reading the files again.
+- Rows come while the search runs, a file's together and in line order, at most every 30 ms, and
+  never move once shown. Each is `path:line: text`, the path and line in the annotation's face and
+  the matches in the match face. The text is at most 512 bytes of the line around its first
+  match, `…` where the line goes on, with control and invisible characters boxed. The count shows
+  `…/…` while the search runs and `+` once it stopped at a limit: 10,000 rows, or the walk's.
+- It searches the files `C-x p f` lists, as they are on disk, and never a link. A line longer
+  than 16 MiB skips the rest of its file, and a NUL byte stops a file, as `rg` stops at a binary
+  one. A file whose name may hold secrets is searched, but its rows say `path:line` and
+  `may hold secrets`, with no text.
+- `RET` visits the file as `C-x C-f` does and goes to the line and the match's column once it
+  shows, with the place before on the mark ring. `TAB` does nothing, as a row's text would
+  replace what is looked for. There is no preview yet (step 5). `C-g` stops the search.
+- The history, `project-search`, keeps what was typed, not the row, and a search beside a buffer
+  that may hold secrets keeps none.
 
 ### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
 
