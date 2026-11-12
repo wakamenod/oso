@@ -9,13 +9,17 @@
 use std::fmt;
 use std::time::{Duration, Instant};
 
+use super::Editor;
 use super::follow::clip_selections;
-use super::{Editor, SLICE_TIME};
 use crate::buffer::{Budget, BufferId, EditError, FOLLOW_WORK, PIECE, StagedCrossing};
 use crate::selection::{MarkActive, SelectionSet, follow_offset};
 use crate::sum_tree::Bias;
 use crate::undo::Direction;
 use crate::window::WindowId;
+
+/// The most time a turn gives work that goes on over turns: a slice of `!`, which a pattern
+/// can make read far past each match (ADR 0113), or of an undo (ADR 0119).
+pub(super) const SLICE_TIME: Duration = Duration::from_millis(3);
 
 /// The least time a slice applies for, however long what follows the text took last time.
 const APPLY_TIME: Duration = Duration::from_millis(1);
@@ -23,6 +27,16 @@ const APPLY_TIME: Duration = Duration::from_millis(1);
 /// The most work a slice does, as [`Budget`] counts it: about what 3 ms does, so that the time
 /// stops a slice first, and a slow machine still shows progress.
 const SLICE_WORK: usize = 4 * 1024 * 1024;
+
+/// What the editor keeps of undo and redo a slice at a time.
+#[derive(Default)]
+pub(super) struct Crossings {
+    /// The crossing under way.
+    under_way: Option<Crossing>,
+    /// What each slice does in tests: its work and the bytes of a piece.
+    #[cfg(test)]
+    slices: Option<(usize, usize)>,
+}
 
 /// An undo or a redo under way in the selected window's buffer, a slice at a time
 /// (ADR 0119).
@@ -107,13 +121,13 @@ impl Editor {
             scope.touched.swap_remove(position);
             self.seal_undo_group(id);
         }
-        self.crossing = Some(self.next_step(id, direction, count.unsigned_abs() - 1)?);
+        self.crossing.under_way = Some(self.next_step(id, direction, count.unsigned_abs() - 1)?);
         self.go_on_crossing().unwrap_or(Ok(()))
     }
 
     /// The crossing under way, if any.
     pub fn crossing(&self) -> Option<&Crossing> {
-        self.crossing.as_ref()
+        self.crossing.under_way.as_ref()
     }
 
     /// The next slice, for the host at each turn: `None` while it goes on, `Some(result)` when
@@ -129,7 +143,7 @@ impl Editor {
     /// in a slice does; [`EditError::ReadOnly`] if the buffer can no longer be edited.
     pub fn go_on_crossing(&mut self) -> Option<Result<(), EditError>> {
         // Taken out while the slice runs, so that a panic drops it and nothing else.
-        let Some(mut crossing) = self.crossing.take() else {
+        let Some(mut crossing) = self.crossing.under_way.take() else {
             return Some(Ok(()));
         };
         let started = Instant::now();
@@ -141,7 +155,7 @@ impl Editor {
                 Ok(false) => {
                     crossing.slices += 1;
                     crossing.over = started.elapsed().saturating_sub(applying);
-                    self.crossing = Some(crossing);
+                    self.crossing.under_way = Some(crossing);
                     return None;
                 }
                 Err(error) => return Some(Err(error)),
@@ -165,7 +179,7 @@ impl Editor {
             crossing.slices = slices;
             if budget.spent() {
                 crossing.slices += 1;
-                self.crossing = Some(crossing);
+                self.crossing.under_way = Some(crossing);
                 return None;
             }
         }
@@ -174,7 +188,7 @@ impl Editor {
     /// Drops the crossing under way, which changes nothing; steps of a count already crossed
     /// stay crossed. Returns whether one was under way.
     pub fn cancel_crossing(&mut self) -> bool {
-        self.crossing.take().is_some()
+        self.crossing.under_way.take().is_some()
     }
 
     /// Crosses `count` steps at once, as [`Editor::undo`] and [`Editor::redo`] do: the slices
@@ -235,7 +249,7 @@ impl Editor {
     /// What one slice may do, applying until `until`.
     fn crossing_budget(&self, until: Instant) -> Budget {
         #[cfg(test)]
-        if let Some((work, piece)) = self.crossing_slices {
+        if let Some((work, piece)) = self.crossing.slices {
             return Budget::new(work, None, piece);
         }
         Budget::new(SLICE_WORK, Some(until), PIECE)
@@ -345,7 +359,7 @@ impl Editor {
     /// The echo line while a crossing goes on, from its second slice: `Undoing… 42%`, with
     /// `(3 more)` while a count has more steps.
     pub(super) fn write_crossing_line(&self, out: &mut String) {
-        let Some(crossing) = &self.crossing else {
+        let Some(crossing) = &self.crossing.under_way else {
             return;
         };
         if crossing.slices < 2 {
@@ -373,7 +387,7 @@ impl Editor {
     /// splice's text `piece` bytes at a time, so that tests see the same slices every run.
     #[cfg(test)]
     pub(crate) fn set_crossing_slices(&mut self, work: usize, piece: usize) {
-        self.crossing_slices = Some((work, piece));
+        self.crossing.slices = Some((work, piece));
     }
 }
 

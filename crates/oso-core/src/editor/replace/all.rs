@@ -8,7 +8,8 @@ use std::time::Instant;
 
 use super::{ALL_SLICE, Replace};
 use crate::buffer::Replacement;
-use crate::editor::{Editor, SLICE_TIME};
+use crate::editor::Editor;
+use crate::editor::crossing::SLICE_TIME;
 use crate::motion;
 use crate::search::{Found, KEY_BUDGET, Line, LineTooLong, MAX_LINE};
 
