@@ -54,6 +54,19 @@ pub enum KillRefused {
 }
 
 impl Editor {
+    /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
+    /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
+    /// that is not tiled or a buffer that does not exist.
+    pub fn show_in(&mut self, id: crate::window::WindowId, buffer: BufferId) {
+        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
+            return;
+        };
+        if self.buffer(buffer).is_some() {
+            self.window_moves_on();
+            self.window_shows(index, buffer);
+        }
+    }
+
     /// Makes the window at `index` show `buffer`, where it was there the last time, clipped to
     /// the text as it is now, with the region hidden, or from its start. Every change of what a
     /// window shows comes through here, so that what was around a buffer that may hold secrets,

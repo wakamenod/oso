@@ -1450,7 +1450,6 @@ pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
-pub fn oso_core::editor::Editor::show_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
@@ -1560,6 +1559,7 @@ pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::kill_by_person(&mut self, oso_core::buffer::BufferId, bool) -> core::result::Result<(), oso_core::editor::KillRefused>
 pub fn oso_core::editor::Editor::preview(&self) -> core::option::Option<oso_core::editor::Preview>
 pub fn oso_core::editor::Editor::set_home(&mut self, core::option::Option<std::path::PathBuf>)
+pub fn oso_core::editor::Editor::show_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str) -> core::result::Result<(), &'static str>
 pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>

@@ -784,7 +784,10 @@ in the plan, and answered its questions (a), on 2026-11-13:
    killing its buffer, a restart's `show_in`): both windows stay, as windows of their own, merged
    into the run around them when it runs their way.
 7. **The handoff stays at version 4.** A pair goes over as two windows of their own in the same
-   cells, and its owner pairs them again when it opens once more (step 6 keeps a review).
+   cells, and its owner pairs as it opens once more: it shows one side, then calls
+   `pair_window`. What becomes of the windows left over when a review is restored is step 6's
+   to decide; pairing two windows that exist already would need a new public item, such as
+   `pair_windows`, for the author's approval then (the coordinator's call, 2026-11-13).
 8. **A frame too small for every window hides both windows of a pair together,** never the
    selected window's pair. This holds but where the area could keep no window otherwise: in an
    area smaller than both windows need (a frame of one row, say), one window of the pair shows
