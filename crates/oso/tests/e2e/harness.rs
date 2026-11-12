@@ -122,6 +122,8 @@ pub fn start_without_a_window_system(cwd: &Path) -> (ExitStatus, String) {
         stdout: Sink::Null,
         stderr: Sink::Piped,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })
     .expect("cannot start the instance");
     let mut stderr = child.stderr.take().expect("stderr is piped");
@@ -469,6 +471,8 @@ impl App {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .expect("cannot start oso ctl");
         let mut output = String::new();
@@ -501,6 +505,8 @@ impl App {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .expect("cannot start oso mcp")
     }
@@ -581,6 +587,8 @@ impl Process {
             stdout: Sink::Null,
             stderr: Sink::Piped,
             own_process_group: false,
+            set: &[],
+            terminal: None,
         })
         .expect("cannot start the instance");
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -762,6 +770,8 @@ fn run_osascript(script: &str) -> Result<(), String> {
         stdout: Sink::Null,
         stderr: Sink::Piped,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })
     .and_then(Child::wait_with_output)
     .expect("cannot run osascript");
@@ -785,6 +795,8 @@ pub fn process_exists(pid: u32) -> bool {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        set: &[],
+        terminal: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run ps");
