@@ -20,6 +20,7 @@ mod harness;
 mod highlight;
 mod ime;
 mod isearch;
+mod jump;
 mod kill;
 mod macros;
 mod mark;
