@@ -28,6 +28,13 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Person,
         run: query_replace,
     },
+    Command {
+        name: "query-replace-regexp",
+        doc: "Replace a regexp's matches, asking at each.\n\nAs `query-replace`, with a regexp in the `regex` crate's syntax, matched within one line at a time: `^` and `$` are a line's start and end, and no match crosses a line break. The replacement takes `$1`, `${name}` and `$0`, and `$$` for a dollar. The search is case-sensitive once the regexp holds an uppercase letter outside an escape, and a `(?i)` in it wins. A regexp that does not compile keeps the prompt open, saying why. A line over 64 MiB ends the search at it.",
+        args: ArgSpec::Replace { regexp: true },
+        reach: Reach::Person,
+        run: query_replace_regexp,
+    },
     answer!(
         "replace-this",
         "Replace this match, and go to the next.",
@@ -90,6 +97,17 @@ fn query_replace(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         .ok_or_else(|| CommandError::new("No string to replace"))?;
     ctx.editor
         .replace_begin(from, to, false)
+        .map_err(|refused| CommandError::new(refused.to_string()))?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn query_replace_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let (from, to) = ctx
+        .replace_pair()
+        .ok_or_else(|| CommandError::new("No regexp to replace"))?;
+    ctx.editor
+        .replace_begin(from, to, true)
         .map_err(|refused| CommandError::new(refused.to_string()))?;
     ctx.request_redraw();
     Ok(())

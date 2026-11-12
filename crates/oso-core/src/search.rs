@@ -21,10 +21,16 @@ use crate::sum_tree::Bias;
 
 mod case;
 mod job;
+mod needle;
+mod regexp;
 
 pub(crate) use case::casified;
 pub(crate) use job::{Counting, Find, MatchWork, Matched, Report, after};
 pub use job::{SearchJob, SearchReport};
+pub(crate) use needle::Needle;
+pub(crate) use regexp::{
+    Line, LineTooLong, MAX_LINE, Regexp, compile as compile_regexp, smart_case as regexp_smart_case,
+};
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
 /// frame looks at around the view stays small.

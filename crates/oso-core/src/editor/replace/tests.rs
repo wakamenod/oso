@@ -8,6 +8,7 @@ use super::{ReplaceAnswer, ReplaceError};
 use crate::buffer::{Buffer, ReadOnly};
 use crate::editor::{Editor, Quit, Status};
 use crate::search::KEY_BUDGET;
+use crate::search::Needle;
 use crate::selection::{MarkActive, Selection, SelectionSet};
 use crate::window::ViewSize;
 
@@ -282,6 +283,80 @@ fn the_count_comes_even_if_an_answer_came_first() {
     assert_eq!(editor.replace().unwrap().count(), Some((2, 3)));
 }
 
+/// Begins replacing a regexp, as the command does.
+fn begin_regexp(editor: &mut Editor, from: &str, to: &str) {
+    editor.begin_undo_group();
+    editor.replace_begin(from, to, true).unwrap();
+    editor.end_undo_group();
+}
+
+fn all_of_regexp(text: &str, from: &str, to: &str) -> String {
+    let mut editor = editor(text);
+    begin_regexp(&mut editor, from, to);
+    answer(&mut editor, All);
+    // A first match past a key's budget comes from the worker, and `!` waits for it.
+    drain(&mut editor);
+    finish_all(&mut editor);
+    self::text(&editor)
+}
+
+#[test]
+fn a_regexps_groups_go_into_the_replacement() {
+    assert_eq!(
+        all_of_regexp("key=value a=b", r"(\w+)=(?P<v>\w+)", "${v}=$1"),
+        "value=key b=a"
+    );
+    assert_eq!(all_of_regexp("cost 5", r"\d", "$$$0"), "cost $5");
+}
+
+#[test]
+fn a_regexp_keeps_to_lines_and_finds_empty_matches() {
+    assert_eq!(all_of_regexp("ab\nab", "^a", "x"), "xb\nxb");
+    assert_eq!(all_of_regexp("a\nb", "$", "!"), "a!\nb!");
+    assert_eq!(all_of_regexp("a\nb", r"a\nb", "x"), "a\nb");
+}
+
+#[test]
+fn a_regexp_has_smart_case_and_the_replacement_the_matchs_case() {
+    assert_eq!(all_of_regexp("Foo foo FOO", "fo+", "bar"), "Bar bar BAR");
+    assert_eq!(all_of_regexp("Foo foo", "Fo+", "bar"), "bar foo");
+    // Folding, so the case follows the match, whatever an inline flag says of a part.
+    assert_eq!(all_of_regexp("Foo foo", r"\w(?-i)oo", "x"), "X x");
+}
+
+#[test]
+fn a_regexp_that_does_not_compile_says_why() {
+    let mut editor = editor("a");
+    let refused = editor.replace_begin("(", "x", true).unwrap_err();
+    assert!(
+        matches!(&refused, ReplaceError::Regexp(why) if why.starts_with("Invalid regexp")),
+        "{refused:?}"
+    );
+    assert!(editor.replace().is_none());
+}
+
+#[test]
+fn a_regexp_past_a_keys_budget_is_found_on_the_worker() {
+    let far = format!("{}\nend 42", "x".repeat(2 * KEY_BUDGET));
+    let mut editor = editor(&far);
+    begin_regexp(&mut editor, r"\d+", "n");
+    assert!(editor.replace().unwrap().searching());
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((1, 1)));
+    answer(&mut editor, Replace);
+    assert!(text(&editor).ends_with("end n"));
+}
+
+#[test]
+fn bang_passes_a_line_longer_than_a_slices_budget() {
+    let long = "x".repeat(2 * KEY_BUDGET);
+    let text = format!("{long}a1 b2\nc3");
+    let replaced = all_of_regexp(&text, r"[abc]\d", "N");
+    let end = &replaced[long.len().min(replaced.len())..];
+    assert_eq!(end, "N N\nN");
+    assert!(replaced.starts_with(&long));
+}
+
 #[test]
 fn the_count_is_of_the_scope_as_it_began_even_after_a_replacement() {
     let text = format!("a{}a a", ".".repeat(2 * KEY_BUDGET));
@@ -372,4 +447,149 @@ fn a_session_the_undo_limit_cut_still_undoes_what_is_left_at_once() {
     editor.undo().unwrap();
     assert_ne!(text(&editor), "c ".repeat(5000), "it undid something");
     assert!(editor.undo().is_err(), "all that was left, in one step");
+}
+
+#[test]
+fn an_answer_at_an_empty_match_moves_on_past_it() {
+    let mut editor = editor("a\nb");
+    begin_regexp(&mut editor, "$", "!");
+    answer(&mut editor, Replace);
+    answer(&mut editor, Replace);
+    assert_eq!(text(&editor), "a!\nb!");
+    assert!(editor.replace().is_none());
+}
+
+#[test]
+fn comma_at_an_empty_match_then_y_moves_on() {
+    let mut editor = editor("a\nb");
+    begin_regexp(&mut editor, "$", "!");
+    answer(&mut editor, ReplaceAndStay);
+    assert_eq!(text(&editor), "a!\nb");
+    answer(&mut editor, Replace);
+    assert_eq!(
+        cursor(&editor),
+        4,
+        "at the next line's end, not the same place"
+    );
+    answer(&mut editor, Replace);
+    assert_eq!(text(&editor), "a!\nb!");
+}
+
+#[test]
+fn empty_matches_after_a_match_go_as_replace_all_takes_them() {
+    for (pattern, to, text, expected) in [
+        (r"\s*$", ";", "a  \nb", "a;\nb;"),
+        ("a*", "-", "baab", "-b-b-"),
+        ("x*", "Y", "xa", "YaY"),
+    ] {
+        assert_eq!(all_of_regexp(text, pattern, to), expected, "! of {pattern}");
+        let mut editor = editor(text);
+        begin_regexp(&mut editor, pattern, to);
+        while editor.replace().is_some() {
+            answer(&mut editor, Replace);
+        }
+        assert_eq!(self::text(&editor), expected, "y of {pattern}");
+    }
+}
+
+#[test]
+fn a_line_too_long_for_a_regexp_ends_the_session_saying_so() {
+    let mut editor = editor("a1\nlong line a2\na3");
+    begin_regexp(&mut editor, r"a\d", "x");
+    if let Some(Needle::Regexp(regexp)) = editor
+        .replacing
+        .session
+        .as_mut()
+        .map(|state| &mut state.needle)
+    {
+        regexp.set_longest_line(4);
+    }
+    answer(&mut editor, Replace);
+    assert!(editor.replace().is_none());
+    assert_eq!(text(&editor), "x\nlong line a2\na3");
+    assert!(
+        line(&editor).starts_with("Regexp search stops at line 2"),
+        "{}",
+        line(&editor)
+    );
+}
+
+#[test]
+fn the_count_of_a_long_line_s_matches_comes_from_the_worker() {
+    let long = "ab ".repeat(200_000);
+    let mut editor = editor(&long);
+    begin_regexp(&mut editor, "a(b)", "$1");
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((1, 200_000)));
+}
+
+/// An editor on `text` with the region `0..end`.
+fn with_region(text: &str, end: usize) -> Editor {
+    let mut editor = editor(text);
+    editor.current_mut().0.selections = SelectionSet::from_parts(
+        vec![Selection {
+            cursor: end,
+            mark: Some(0),
+            goal: None,
+        }],
+        0,
+    )
+    .unwrap();
+    editor
+        .current_mut()
+        .0
+        .selections
+        .set_mark_active(MarkActive::Active);
+    editor
+}
+
+#[test]
+fn a_greedy_regexp_replaces_within_a_region_that_ends_mid_line() {
+    let mut editor = with_region("aaaa aa", 2);
+    begin_regexp(&mut editor, "a+", "b");
+    drain(&mut editor);
+    assert_eq!(editor.replace().unwrap().count(), Some((1, 1)));
+    answer(&mut editor, All);
+    finish_all(&mut editor);
+    assert_eq!(text(&editor), "baa aa");
+}
+
+#[test]
+fn a_greedy_regexp_on_a_long_line_with_a_region_ending_in_it_is_quick() {
+    let long = "a".repeat(512 * 1024);
+    let mut editor = with_region(&long, 256 * 1024);
+    let started = std::time::Instant::now();
+    begin_regexp(&mut editor, "a+", "b");
+    drain(&mut editor);
+    answer(&mut editor, All);
+    finish_all(&mut editor);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(text(&editor).len(), 256 * 1024 + 1);
+}
+
+/// `!` with the region `0..end`, as Emacs's bounded search takes it.
+fn all_in_region(text: &str, end: usize, from: &str, to: &str) -> String {
+    let mut editor = with_region(text, end);
+    begin_regexp(&mut editor, from, to);
+    drain(&mut editor);
+    if editor
+        .replace()
+        .is_some_and(|replace| replace.count() != Some((0, 0)))
+    {
+        answer(&mut editor, All);
+        finish_all(&mut editor);
+    }
+    self::text(&editor)
+}
+
+#[test]
+fn a_region_s_end_inside_a_line_is_neither_a_line_s_end_nor_a_word_s() {
+    assert_eq!(all_in_region("foo bar", 4, r"\s+$", ""), "foo bar");
+    assert_eq!(all_in_region("foo.bar", 3, r"\w+$", "X"), "foo.bar");
+    assert_eq!(all_in_region("abc def", 2, r"\b", "|"), "|abc def");
+    assert_eq!(all_in_region("foo  \nx", 5, r"\s+$", ""), "foo\nx");
 }
