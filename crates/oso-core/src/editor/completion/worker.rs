@@ -199,14 +199,13 @@ impl Editor {
     /// Gives up on the result the innermost prompt waits for, as the worker failed: the rows
     /// shown stay, and the prompt says so.
     pub fn completion_failed(&mut self) {
-        if self.completion_pending() {
+        if self.merge_job_running() {
+            // The batches it carried still wait, for one more job (ADR 0114).
+            self.stop_completion_job();
+            self.merge_failed();
+        } else if self.completion_pending() {
             self.stop_completion_job();
             self.prompt_says("Could not match; edit the input to try again");
-        } else if self.merge_job_running() {
-            // A job adding a walk's rows waited for nothing the person sees, but the batches it
-            // carried still wait: the next job takes them.
-            self.stop_completion_job();
-            self.merge_pending_batches();
         }
     }
 

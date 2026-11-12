@@ -71,7 +71,8 @@ network features.
   The person's global excludes may be a link but must be such a file too. They
   can only hide files. The markers' directories and nested projects, counted
   as detection counts them, are never entered. At most 100,000 files and
-  32 MiB of paths are listed, and nothing of the list reaches a log: the
+  32 MiB of paths are listed, and at most 1,000,000 entries, 32 MiB of names
+  and 16 MiB of ignore files read. Nothing of the list reaches a log: the
   walker's crates write only warnings
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - Trust is stored in `trusted-projects` in oso's configuration directory, by

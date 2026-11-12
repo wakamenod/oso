@@ -179,6 +179,8 @@ pub struct App {
     projects: crate::project::Detector,
     /// The thread that walks a project's files for `project-find-file` (ADR 0114).
     walker: crate::walk::Walker,
+    /// When the rows a walk sent are added if it sends nothing more.
+    quiet_walk: walks::Quiet,
     /// The thread that reads and writes the record of trusted projects, if there is one.
     trust_file: Option<crate::config::TrustFile>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
@@ -309,6 +311,7 @@ impl App {
             lister,
             projects,
             walker,
+            quiet_walk: walks::Quiet::default(),
             trust_file: None,
             log_gate,
             agent: agent::Agent::default(),

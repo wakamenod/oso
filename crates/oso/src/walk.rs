@@ -92,7 +92,10 @@ impl Limits {
 /// What a walk has read so far, against its [`Limits`].
 struct Spent {
     limits: Limits,
+    /// Entries read, and names looked at to resolve links.
     entries: usize,
+    /// Bytes of the names read, against the same bound as the paths listed.
+    names: usize,
     ignore_bytes: u64,
 }
 
@@ -254,6 +257,7 @@ pub fn walk(
     let mut spent = Spent {
         limits,
         entries: 0,
+        names: 0,
         ignore_bytes: 0,
     };
     let project = Project::at(root, &mut spent);
@@ -292,7 +296,10 @@ pub fn walk(
                 Err(Ended::Stopped) => return,
                 Err(Ended::Cut) => return batch(found, Some(WalkEnd { cut: true })),
             }
-        } else if let Some(path) = listed(root, &path, kind) {
+        } else if let Some(path) = match listed(root, &path, kind, &mut spent) {
+            Ok(listed) => listed,
+            Err(_) => return batch(found, Some(WalkEnd { cut: true })),
+        } {
             if count == limits.files || bytes + path.len() > limits.bytes {
                 batch(found, Some(WalkEnd { cut: true }));
                 return;
@@ -327,12 +334,13 @@ impl Project {
         let info = root.join(".git").join("info");
         let exclude = (git_directory
             && fs::symlink_metadata(&info).is_ok_and(|info| info.is_dir()))
-        .then(|| patterns(root, &info.join("exclude"), Here, spent))
+        .then(|| patterns(root, &info.join("exclude"), Here, spent).ok())
+        .flatten()
         .flatten();
         let global = git
             .then(ignore::gitignore::gitconfig_excludes_path)
             .flatten()
-            .and_then(|path| patterns(root, &path, Followed, spent));
+            .and_then(|path| patterns(root, &path, Followed, spent).ok().flatten());
         Self {
             git,
             exclude,
@@ -406,7 +414,12 @@ impl Directory {
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
-            entries.push_back((entry.file_name(), kind));
+            let name = entry.file_name();
+            spent.names += name.len();
+            if spent.names > spent.limits.bytes {
+                return Err(Ended::Cut);
+            }
+            entries.push_back((name, kind));
         }
         if below_root && holds_marker(path, &entries) {
             return Ok(None);
@@ -418,10 +431,7 @@ impl Directory {
                 .any(|(entry, kind)| entry == name && kind.is_file());
             let counts = name != ".gitignore" || project.git;
             if here && counts {
-                if spent.ignore_bytes >= spent.limits.ignore_bytes {
-                    return Err(Ended::Cut);
-                }
-                *ignores = patterns(path, &path.join(name), Here, spent);
+                *ignores = patterns(path, &path.join(name), Here, spent)?;
             }
         }
         Ok(Some(Self {
@@ -466,24 +476,34 @@ use Open::{Followed, Here};
 
 /// The patterns of the ignore file at `file`, for the directory `base`: `None` unless it is a
 /// regular file of at most [`MAX_IGNORE_FILE`] bytes, opened as `open` says, without waiting.
-/// What it read counts against `spent`.
-fn patterns(base: &Path, file: &Path, open: Open, spent: &mut Spent) -> Option<Gitignore> {
+/// What it read counts against `spent`, and one longer than what is left of that ends the walk.
+fn patterns(
+    base: &Path,
+    file: &Path,
+    open: Open,
+    spent: &mut Spent,
+) -> Result<Option<Gitignore>, Ended> {
     let opened = match open {
         Here => oso_platform::file_meta::open_regular_here(file),
         Followed => oso_platform::file_meta::open_for_reading(file),
     };
-    let (opened, metadata) = opened.ok()??;
+    let Ok(Some((opened, metadata))) = opened else {
+        return Ok(None);
+    };
     if metadata.len() > MAX_IGNORE_FILE {
-        return None;
+        return Ok(None);
+    }
+    let left = spent.limits.ignore_bytes - spent.ignore_bytes;
+    if metadata.len() > left {
+        return Err(Ended::Cut);
     }
     let mut bytes = Vec::new();
     // One byte past the bound tells a file that grew since it was looked at.
-    opened
-        .take(MAX_IGNORE_FILE + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > MAX_IGNORE_FILE {
-        return None;
+    let read = opened
+        .take(MAX_IGNORE_FILE.min(left) + 1)
+        .read_to_end(&mut bytes);
+    if read.is_err() || bytes.len() as u64 > MAX_IGNORE_FILE.min(left) {
+        return Ok(None);
     }
     spent.ignore_bytes += bytes.len() as u64;
     let mut builder = GitignoreBuilder::new(base);
@@ -494,27 +514,39 @@ fn patterns(base: &Path, file: &Path, open: Open, spent: &mut Spent) -> Option<G
             let _ = builder.add_line(None, line);
         }
     }
-    builder.build().ok().filter(|ignores| !ignores.is_empty())
+    Ok(builder.build().ok().filter(|ignores| !ignores.is_empty()))
 }
 
 /// The path from `root` that the entry at `path`, of `kind`, is listed as: a file, or a link
 /// that leads to one or leaves the root, with a UTF-8 path.
-fn listed(root: &Path, path: &Path, kind: FileType) -> Option<Box<str>> {
+fn listed(
+    root: &Path,
+    path: &Path,
+    kind: FileType,
+    spent: &mut Spent,
+) -> Result<Option<Box<str>>, Ended> {
     let file = kind.is_file()
-        || (kind.is_symlink()
-            && match resolve(root, path) {
+        || (kind.is_symlink() && {
+            let mut looks = spent.limits.entries - spent.entries;
+            let leads = resolve(root, path, &mut looks);
+            spent.entries = spent.limits.entries - looks;
+            match leads {
                 Leads::Inside(file) => file,
                 Leads::Outside => true,
                 Leads::Nowhere => false,
-            });
+                Leads::Spent => return Err(Ended::Cut),
+            }
+        });
     if !file {
-        return None;
+        return Ok(None);
     }
-    let relative = path.strip_prefix(root).ok()?.to_str()?;
+    let Some(relative) = path.strip_prefix(root).ok().and_then(Path::to_str) else {
+        return Ok(None);
+    };
     // One spelling on every system: `/` is no name's on Windows either.
     #[cfg(windows)]
     let relative = relative.replace('\\', "/");
-    Some(relative.into())
+    Ok(Some(relative.into()))
 }
 
 mod links;

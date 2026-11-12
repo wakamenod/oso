@@ -241,6 +241,6 @@ fn c_x_p_f_is_refused_in_the_minibuffer_and_c_g_stops_its_walk() {
     assert_ne!(
         request.live.load(std::sync::atomic::Ordering::Relaxed),
         request.generation,
-        "the walker stops at its next directory"
+        "the walker stops at its next entry"
     );
 }

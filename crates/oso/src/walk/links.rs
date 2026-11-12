@@ -22,12 +22,15 @@ pub(super) enum Leads {
     Outside,
     /// Nowhere: a link of too many hops, or one that cannot be read.
     Nowhere,
+    /// The walk has looked at as many names as it may.
+    Spent,
 }
 
 /// Where the link at `link`, under `root`, leads. Each name on the way is looked at without
 /// following it, and each link's target is read and taken by its words, only while the way
-/// stays under `root`.
-pub(super) fn resolve(root: &Path, link: &Path) -> Leads {
+/// stays under `root`. Each look takes one of `looks`, which the whole walk shares; with none
+/// left, it leads to [`Leads::Spent`].
+pub(super) fn resolve(root: &Path, link: &Path, looks: &mut usize) -> Leads {
     let Ok(relative) = link.strip_prefix(root) else {
         return Leads::Outside;
     };
@@ -46,6 +49,10 @@ pub(super) fn resolve(root: &Path, link: &Path) -> Leads {
             continue;
         }
         let next = at.join(&name);
+        let Some(left) = looks.checked_sub(1) else {
+            return Leads::Spent;
+        };
+        *looks = left;
         let Ok(metadata) = fs::symlink_metadata(&next) else {
             return Leads::Nowhere;
         };

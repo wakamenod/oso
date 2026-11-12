@@ -85,6 +85,7 @@ impl App {
         self.start_searches();
         // Commands, a resize or a load may have left rows to wrap.
         self.start_wraps();
+        self.add_quiet_walk(event_loop);
         self.start_completions(event_loop);
         // A list built here after a listing ends a wait with no report.
         self.run_held_completion(event_loop);
@@ -164,6 +165,7 @@ impl App {
             self.leaving.next_wake(),
             self.flash.next_wake(),
             self.reload_deadline(),
+            self.quiet_walk_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),

@@ -178,8 +178,8 @@ are rounded.
   named after its last component; a buffer with no file, the home directory and `/` say
   `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
 - The float opens empty and the list grows while the project is walked, every 50 ms. The count
-  shows `…/…` until the walk ends, and `+` after it when it stopped at 100,000 files or 32 MiB
-  of paths.
+  shows `…/…` until the walk ends, and `+` after it when it stopped at a limit: 100,000 files,
+  32 MiB of paths and names, 1,000,000 entries read, or 16 MiB of ignore files.
 - Rows come in the order of `M-x`'s: the files opened from this project's listing first, then the
   shorter, then by name. Each batch is matched against what is typed as it comes. The row
   selected stays selected as rows come, so `RET` during the walk takes the row shown. Past 5000

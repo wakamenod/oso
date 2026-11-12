@@ -302,16 +302,16 @@ fn a_marker_counts_as_detection_counts_it() {
 fn a_walk_stops_at_its_bytes_of_paths_and_says_it_was_cut() {
     let scratch = Scratch::new("bytes");
     for index in 0..5 {
-        scratch.file(&format!("f{index}.rs"), "");
+        scratch.file(&format!("aaaa/bbbb/f{index}.rs"), "");
     }
-    // Each path is 5 bytes.
+    // Each path is 15 bytes; the names read are 33 in all.
     let (listed, cut) = scratch.walked(Limits {
-        bytes: 14,
+        bytes: 40,
         ..Limits::PROJECT
     });
     assert_eq!((listed.len(), cut), (2, true));
     let (listed, cut) = scratch.walked(Limits {
-        bytes: 25,
+        bytes: 75,
         ..Limits::PROJECT
     });
     assert_eq!((listed.len(), cut), (5, false));
@@ -451,4 +451,63 @@ fn the_walker_lists_nothing_of_a_root_that_holds_home_by_its_real_place() {
     let walked = received.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(walked.paths.is_empty());
     assert_eq!(walked.end, Some(WalkEnd { cut: false }));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_names_looked_at_to_resolve_links_count_as_entries_read() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("looks");
+    scratch.file("sub/a.rs", "");
+    // Each link takes a look at `sub`, at `sub/..`'s names and at `a.rs`.
+    for index in 0..5 {
+        symlink(
+            "sub/../sub/../sub/a.rs",
+            scratch.0.join(format!("l{index}")),
+        )
+        .unwrap();
+    }
+    let (_, cut) = scratch.walked(Limits {
+        entries: 12,
+        ..Limits::PROJECT
+    });
+    assert!(cut, "five links take more looks than twelve");
+    let (listed, cut) = scratch.walked(Limits::PROJECT);
+    assert_eq!((listed.len(), cut), (6, false));
+}
+
+#[test]
+fn the_names_a_directory_holds_count_against_the_bytes_of_paths() {
+    let scratch = Scratch::new("names");
+    scratch.file(".ignore", "*.o\n");
+    for index in 0..10 {
+        scratch.file(&format!("{index:020}.o"), "");
+    }
+    let (listed, cut) = scratch.walked(Limits {
+        bytes: 100,
+        ..Limits::PROJECT
+    });
+    assert!(listed.is_empty() && cut, "ignored names count too");
+}
+
+#[test]
+fn an_ignore_file_longer_than_what_is_left_ends_the_walk_before_it_is_read() {
+    let scratch = Scratch::new("ignore-left");
+    scratch.file(".ignore", "*.o\n");
+    scratch.file("d/.ignore", "*.a\n*.b\n");
+    scratch.file("d/x.rs", "");
+    let (_, cut) = scratch.walked(Limits {
+        ignore_bytes: 6,
+        ..Limits::PROJECT
+    });
+    assert!(cut);
+    let (listed, cut) = scratch.walked(Limits {
+        ignore_bytes: 12,
+        ..Limits::PROJECT
+    });
+    assert_eq!(
+        (listed.len(), cut),
+        (3, false),
+        "exactly what is left is read"
+    );
 }

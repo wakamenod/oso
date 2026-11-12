@@ -37,7 +37,7 @@ pub struct WalkRequest {
     pub generation: u64,
     /// The project's root, which the walk starts from and the paths are relative to.
     pub root: PathBuf,
-    /// The live listing's generation: the walker stops at its next directory once this has
+    /// The live listing's generation: the walker stops at its next entry once this has
     /// moved past [`WalkRequest::generation`].
     pub live: Arc<AtomicU64>,
 }
@@ -88,6 +88,8 @@ pub(super) struct ProjectFiles {
     /// The history that orders the list, as it was when the prompt opened, so that every batch
     /// is ordered alike: none around a buffer that may hold secrets.
     history: Arc<[String]>,
+    /// How many jobs adding batches failed.
+    failures: u8,
     /// Batches of paths that came and are not in the list yet, the oldest first: those a job
     /// on the worker is adding, and those that came since.
     unmerged: Vec<Arc<[Box<str>]>>,
@@ -127,9 +129,9 @@ impl Editor {
     }
 
     /// Opens a prompt that lists the files of the project at `root`, named `name`, as paths
-    /// from its root, kept in the history `history`, one for each project, and asks the host to walk it ([`Editor::take_walk_request`]). It opens
-    /// empty, and its count shows `…` until the walk ends. Its history is the project's own.
-    /// A walk of a listing before stops at its next directory.
+    /// from its root, kept in the history `history`, one for each project, and asks the host
+    /// to walk it ([`Editor::take_walk_request`]). It opens empty, and its count shows `…` until
+    /// the walk ends. A walk of a listing before stops at its next entry.
     ///
     /// # Errors
     ///
@@ -177,6 +179,7 @@ impl Editor {
                 walking: true,
                 cut: false,
                 history,
+                failures: 0,
                 unmerged: Vec::new(),
             },
         );
@@ -192,7 +195,8 @@ impl Editor {
     /// Takes in a batch of the files the walk `generation` found, as paths from the root, and
     /// with `end`, that it ended. Each is put in the list where its order puts it, matched on
     /// its own, and the selected row stays selected. A batch of a walk that is not the newest
-    /// listing's, or whose prompt has closed, is dropped.
+    /// listing's, or whose prompt has closed, is dropped. An empty batch that does not end the
+    /// walk adds every path waiting now, as the host sends once the walk has been quiet a while.
     pub fn files_walked(&mut self, generation: u64, paths: Vec<Box<str>>, end: Option<WalkEnd>) {
         if self.project_files.prompt.is_none() || generation != self.project_files.generation {
             if paths.len() > WORKER_PAST {
@@ -200,6 +204,7 @@ impl Editor {
             }
             return;
         }
+        let quiet = paths.is_empty() && end.is_none();
         if !paths.is_empty() {
             self.project_files.unmerged.push(paths.into());
         }
@@ -207,7 +212,7 @@ impl Editor {
             self.project_files.walking = false;
             self.project_files.cut = end.cut;
         }
-        self.merge_pending_batches();
+        self.merge_batches(quiet);
         self.relayout_prompt();
     }
 
@@ -250,6 +255,12 @@ impl Editor {
     /// [`WORKER_PAST`], as a job copies the list, it waits until the paths waiting are an eighth
     /// of the list or the walk has ended, so the list is copied a bounded number of times.
     pub(super) fn merge_pending_batches(&mut self) {
+        self.merge_batches(false);
+    }
+
+    /// [`Editor::merge_pending_batches`], past [`WORKER_PAST`] also for fewer paths than an
+    /// eighth of the list when `quiet` says the walk has sent nothing for a while.
+    fn merge_batches(&mut self, quiet: bool) {
         if !self.has_pending_batches() || self.merge_job_running() {
             return;
         }
@@ -266,7 +277,7 @@ impl Editor {
         };
         let total = candidates.total();
         if total + added > WORKER_PAST {
-            if !walking || added.saturating_mul(GROWTH) >= total {
+            if !walking || quiet || added.saturating_mul(GROWTH) >= total {
                 self.leave_batches_for_worker();
             }
             return;
@@ -319,6 +330,25 @@ impl Editor {
         self.leave_merge(merge, revision, awaited);
     }
 
+    /// A job adding batches failed: they go to one more job, and if that fails too, the walk
+    /// stops, and the list shows the rows it has, with `+` on the count.
+    pub(super) fn merge_failed(&mut self) {
+        let list = &mut self.project_files;
+        list.failures = list.failures.saturating_add(1);
+        if list.failures == 1 {
+            self.merge_pending_batches();
+            return;
+        }
+        list.live.fetch_add(1, Ordering::Relaxed);
+        // No walk has this generation, so what the walk sent meanwhile is dropped.
+        list.generation = 0;
+        list.walking = false;
+        list.cut = true;
+        let unmerged = std::mem::take(&mut list.unmerged);
+        self.free_unmerged(unmerged);
+        self.prompt_says("Could not list every file");
+    }
+
     /// Drops the batches a job added, the oldest `carried` of those waiting, on the worker.
     pub(super) fn drop_merged_batches(&mut self, carried: usize) {
         let carried = carried.min(self.project_files.unmerged.len());
@@ -335,7 +365,7 @@ impl Editor {
     }
 
     /// Forgets the prompt that listed a project's files, once it has closed: its walk stops
-    /// at its next directory.
+    /// at its next entry.
     pub(super) fn forget_project_files(&mut self, closed: PromptId) {
         if self.project_files.prompt == Some(closed) {
             self.project_files.live.fetch_add(1, Ordering::Relaxed);

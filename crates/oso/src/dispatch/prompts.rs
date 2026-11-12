@@ -229,6 +229,7 @@ impl Dispatcher {
                 return (effects, Ok(()));
             }
         };
+        let utf8 = root.to_str().is_some();
         match editor.open_project_files(root, &name, history) {
             Ok(prompt) => self.reading.push(Reading {
                 id,
@@ -237,8 +238,11 @@ impl Dispatcher {
                 passphrase: false,
                 runs_answer: false,
             }),
-            Err(PromptError::Invalid) => {
+            Err(PromptError::Invalid) if !utf8 => {
                 editor.message("Cannot list a project whose path is not UTF-8");
+            }
+            Err(PromptError::Invalid) => {
+                editor.message("A project's files are listed already");
             }
             Err(error) => editor.prompt_says(error.to_string()),
         }

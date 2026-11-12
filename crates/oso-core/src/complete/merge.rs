@@ -161,8 +161,9 @@ impl Candidates {
     }
 
     /// Selects the item at `kept` again where it shows now, or the first if it is gone or was
-    /// none, leaving whether one was moved to as it was. An exact match of the input that came shows first, and is selected unless the person
-    /// moved to a row, as typing a whole name selects it (ADR 0076).
+    /// none, leaving whether one was moved to as it was. An exact match of the input that came
+    /// shows first, and is selected unless the person moved to a row, as typing a whole name
+    /// selects it (ADR 0076).
     fn reselect(&mut self, kept: Option<usize>) {
         if self.exact.is_some() && !self.chosen {
             self.selected = 0;
