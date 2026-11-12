@@ -162,7 +162,7 @@ fn only_the_selected_window_has_a_region_a_band_a_flash_and_isearchs_matches() {
         assert_eq!(editor.flash_cells(id, &screen).is_some(), has, "flash");
         assert_eq!(status(&editor, id).selected, has);
     }
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("abc");
     let mut cells = crate::editor::MatchCells::default();
     editor.isearch_cells(other, &screen(&editor, other), &mut cells);

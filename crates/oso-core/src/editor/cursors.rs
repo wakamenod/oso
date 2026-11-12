@@ -19,7 +19,7 @@ use super::Editor;
 use crate::buffer::BufferId;
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, WalkBudget};
-use crate::search::{KEY_BUDGET, MAX_QUERY_CHARS, Matched, Query};
+use crate::search::{KEY_BUDGET, KEY_TIME, MAX_QUERY_CHARS, Matched, Needle, Query};
 use crate::selection::{Goal, MAX_CURSORS, MarkActive, Selection, SelectionSet};
 use crate::sum_tree::Bias;
 use crate::window::WindowId;
@@ -225,9 +225,13 @@ impl Editor {
     /// after it ended, what the key says.
     pub fn isearch_mark(&mut self, toward: Option<Toward>) -> Result<(), CursorError> {
         self.drop_cursor_search();
-        let (query, current, total, backward) = self
+        let (needle, current, total, backward) = self
             .isearch_current_match()
             .ok_or(CursorError::NoCurrentMatch)?;
+        // Once, for every key of the run, which keeps this copy: no key builds them.
+        if let Needle::Regexp(regexp) = &needle {
+            regexp.build_cut();
+        }
         if toward.is_none() {
             if self.current().1.loading().is_some() {
                 return Err(CursorError::Loading);
@@ -250,7 +254,7 @@ impl Editor {
         selections.push_primary_mark(mark);
         selections.set_mark_active(MarkActive::Active);
         let wanted = Wanted {
-            query,
+            needle,
             whole_word: false,
         };
         let (window, buffer) = self.current();
@@ -465,7 +469,10 @@ impl Editor {
             return Err(CursorError::TooLong);
         }
         let query = Query::new(&string, true).ok_or(CursorError::NoWord)?;
-        let wanted = Wanted { query, whole_word };
+        let wanted = Wanted {
+            needle: Needle::Literal(query),
+            whole_word,
+        };
         let revision = self.current().1.revision();
         self.marking = Some(Marking {
             window: me,
@@ -503,13 +510,14 @@ impl Editor {
         Ok(primary)
     }
 
-    /// The selected buffer's text, as a search for cursors reads it, in O(1).
+    /// The selected buffer's text, as a search for cursors on the UI thread reads it, in O(1).
     fn cursor_text(&self) -> Text {
         let buffer = self.current().1;
         Text {
             rope: buffer.text().clone(),
             invalid: buffer.invalid_bytes().clone(),
             display: buffer.display(),
+            until: Some(std::time::Instant::now() + KEY_TIME),
         }
     }
 }
