@@ -72,6 +72,9 @@ enum Node {
 struct Run {
     way: Way,
     children: Vec<Child>,
+    /// A pair of windows that scroll together (ADR 0122): exactly two windows of the same
+    /// weight, split, resized and deleted as one, and never merged into a run of its way.
+    pair: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,6 +120,9 @@ impl Splits {
     /// where a split or a resize stops (ADR 0097). A gutter wider than the narrowest leaves
     /// fewer text columns, down to the 1 a layout keeps, and a window narrower than 10 then
     /// does not wrap (ADR 0104).
+    ///
+    /// A window of a pair splits the pair's area: the new window is below or at the right of
+    /// the whole pair, which keeps the smallest each of its windows needs (ADR 0122).
     pub(crate) fn split(
         &mut self,
         at: WindowId,
@@ -124,34 +130,52 @@ impl Splits {
         new: WindowId,
         layout: &FrameLayout,
     ) -> Result<(), TooSmall> {
-        let regions = layout.regions(at).ok_or(TooSmall)?;
-        let outer = regions.outer();
-        // Each half keeps the rows and the columns a window needs, along the split and
-        // across it.
-        let rows = SPLIT_ROWS + 1;
-        let columns = self.gutter + SPLIT_COLUMNS;
-        let divider = usize::from(regions.divider.is_some());
-        let (total, first_least, second_least, across_ok) = match way {
-            Way::Down => (outer.rows, rows, rows, outer.columns >= columns + divider),
-            Way::Across => (
-                outer.columns,
-                columns + 1,
-                columns + divider,
-                outer.rows >= rows,
-            ),
-        };
-        let second = total / 2;
-        let first = total - second;
-        if first < first_least || second < second_least || !across_ok || self.contains(new) {
+        let unit = self.root.unit(at).ok_or(TooSmall)?;
+        let halves = self.halves(unit, way, layout)?;
+        if self.contains(new) {
             return Err(TooSmall);
         }
-        self.root.split(at, way, new, [first, second], layout);
+        self.root.split(at, way, new, halves, layout);
         Ok(())
+    }
+
+    /// The cells `unit`, a window or a pair, and a new window beside it `way` would take,
+    /// sharing its cells: refused when either would keep less than its smallest, along the
+    /// split or across it.
+    fn halves(&self, unit: &Node, way: Way, layout: &FrameLayout) -> Result<[usize; 2], TooSmall> {
+        // Its right-most window's divider, which the new window takes over at the right.
+        let last = unit.last_window().ok_or(TooSmall)?;
+        let divider = layout.regions(last).ok_or(TooSmall)?.divider.is_some();
+        let across = match way {
+            Way::Across => Way::Down,
+            Way::Down => Way::Across,
+        };
+        let (first_least, second_least) = match way {
+            Way::Down => (unit.least(way, layout, self.gutter), SPLIT_ROWS + 1),
+            Way::Across => (
+                unit.least(way, layout, self.gutter) + usize::from(!divider),
+                self.gutter + SPLIT_COLUMNS + usize::from(divider),
+            ),
+        };
+        let total = unit.extent(way, layout);
+        let second = total / 2;
+        let first = total - second;
+        let across_ok = unit.extent(across, layout) >= unit.least(across, layout, self.gutter);
+        if first < first_least || second < second_least || !across_ok {
+            return Err(TooSmall);
+        }
+        Ok([first, second])
     }
 
     /// Takes `window` out of the tree, its cells going to the window or run before it, or
     /// after it when it is the first. Returns whether it did: the only window stays.
+    ///
+    /// A window of a pair takes the pair out with it, both its windows going (ADR 0122), and
+    /// a pair that is the whole frame stays, as the only window does.
     pub(crate) fn remove(&mut self, window: WindowId, layout: &FrameLayout) -> bool {
+        if self.root.is_unit_of(window) {
+            return false;
+        }
         let Node::Run(run) = &mut self.root else {
             return false;
         };
@@ -223,29 +247,31 @@ impl Node {
         [first, second]: [usize; 2],
         layout: &FrameLayout,
     ) -> bool {
+        if self.is_unit_of(at) {
+            let unit = std::mem::replace(self, Self::Window(new));
+            *self = Self::Run(Run {
+                way,
+                children: vec![
+                    Child {
+                        weight: first,
+                        node: unit,
+                    },
+                    Child {
+                        weight: second,
+                        node: Self::Window(new),
+                    },
+                ],
+                pair: false,
+            });
+            return true;
+        }
         match self {
-            Self::Window(id) if *id == at => {
-                *self = Self::Run(Run {
-                    way,
-                    children: vec![
-                        Child {
-                            weight: first,
-                            node: Self::Window(at),
-                        },
-                        Child {
-                            weight: second,
-                            node: Self::Window(new),
-                        },
-                    ],
-                });
-                true
-            }
             Self::Window(_) => false,
             Self::Run(run) => {
                 let Some(index) = run.children.iter().position(|c| c.node.contains(at)) else {
                     return false;
                 };
-                if run.way == way && run.children[index].node == Self::Window(at) {
+                if run.way == way && run.children[index].node.is_unit_of(at) {
                     run.reset(layout);
                     run.children[index].weight = first;
                     run.children.insert(
@@ -280,9 +306,13 @@ impl Node {
         cells: isize,
         (layout, gutter): (&FrameLayout, usize),
     ) -> Option<isize> {
+        // A pair resizes as one in the run around it, its windows kept the same (ADR 0122).
         let Self::Run(run) = self else {
             return None;
         };
+        if run.pair {
+            return None;
+        }
         let index = run.children.iter().position(|c| c.node.contains(window))?;
         let inner = (layout, gutter);
         if let Some(moved) = run.children[index].node.resize(window, way, cells, inner) {
@@ -433,7 +463,7 @@ impl Run {
         let Some(index) = self.children.iter().position(|c| c.node.contains(window)) else {
             return false;
         };
-        if self.children[index].node == Node::Window(window) {
+        if self.children[index].node.is_unit_of(window) {
             self.reset(layout);
             let into = if index > 0 { index - 1 } else { 1 };
             self.children[into].weight += self.children[index].weight;
@@ -452,7 +482,7 @@ impl Run {
             match lone.node {
                 // A run of this run's way merges into it, in cells, as it lies across the
                 // whole of the child it replaces.
-                Node::Run(mut inner) if inner.way == self.way => {
+                Node::Run(mut inner) if inner.way == self.way && !inner.pair => {
                     inner.reset(layout);
                     self.children.splice(index..=index, inner.children);
                 }
@@ -504,6 +534,7 @@ impl Run {
 }
 
 mod cells;
+mod pair;
 #[cfg(test)]
 mod tests;
 mod tiling;

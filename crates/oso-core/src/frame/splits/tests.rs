@@ -400,6 +400,10 @@ enum Op {
     Resize(usize, bool, isize),
     Balance,
     Frame(usize, usize),
+    Pair(usize, bool),
+    Turn(usize, bool),
+    Break(usize),
+    Unpair(usize),
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -409,6 +413,10 @@ fn op() -> impl Strategy<Value = Op> {
         (0usize..8, any::<bool>(), -300isize..300).prop_map(|(w, a, c)| Op::Resize(w, a, c)),
         Just(Op::Balance),
         (0usize..40, 0usize..100).prop_map(|(r, c)| Op::Frame(r, c)),
+        (0usize..8, any::<bool>()).prop_map(|(w, across)| Op::Pair(w, across)),
+        (0usize..8, any::<bool>()).prop_map(|(w, across)| Op::Turn(w, across)),
+        (0usize..8).prop_map(Op::Break),
+        (0usize..8).prop_map(Op::Unpair),
     ]
 }
 
@@ -417,7 +425,8 @@ proptest! {
     /// overlap; the layout shows each window of the tree once in its order, keeps the kept
     /// one shown, gives each shown window a column and a row of text, and a row and a
     /// modeline while all fit. `hit` and `neighbour` agree with the cells, a frame resized
-    /// and back lays out the same, and a removal shrinks none of the windows left.
+    /// and back lays out the same, and a removal shrinks none of the windows left. A pair's
+    /// windows are shown together or not at all, and share its cells (ADR 0122).
     #[test]
     fn prop_the_layout_tiles_the_frame(ops in prop::collection::vec(op(), 0..40), gutter in 0usize..6) {
         let mut splits = Splits::new(A);
@@ -435,8 +444,10 @@ proptest! {
                     }
                 }
                 Op::Remove(w) => {
+                    // The only window or pair stays.
+                    let alone = splits.only(pick(w)).iter().count() == windows.len();
                     let removed = splits.remove(pick(w), &frame);
-                    prop_assert_eq!(removed, windows.len() > 1);
+                    prop_assert_eq!(removed, !alone);
                     let after = layout(size(rows, columns), &splits, windows[0], |_| gutter);
                     let all_shown = frame.windows().iter().all(|(_, r)| shown(r.outer()));
                     if removed && all_shown && pick(w) != windows[0] {
@@ -459,6 +470,22 @@ proptest! {
                 }
                 Op::Balance => splits.balance(),
                 Op::Frame(r, c) => (rows, columns) = (r, c),
+                Op::Pair(w, across) => {
+                    let way = if across { Way::Across } else { Way::Down };
+                    if splits.pair(pick(w), way, WindowId::new(next), &frame).is_ok() {
+                        next += 1;
+                    }
+                }
+                Op::Turn(w, across) => {
+                    let way = if across { Way::Across } else { Way::Down };
+                    let _ = splits.turn(pick(w), way, &frame);
+                }
+                Op::Break(w) => {
+                    splits.break_pair(pick(w), &frame);
+                }
+                Op::Unpair(w) => {
+                    splits.unpair(pick(w));
+                }
             }
             let windows: Vec<WindowId> = splits.iter().collect();
             let keep = windows[windows.len() / 2];
@@ -483,6 +510,26 @@ proptest! {
                 }
             }
             prop_assert_eq!(frame.hit(tiled, 0), None);
+            let every_shown = frame.windows().iter().all(|(_, r)| shown(r.outer()));
+            for [a, b] in splits.pairs() {
+                let (a_cells, b_cells) = (outer(&frame, a), outer(&frame, b));
+                // Together, but in an area too small for both, where the first keeps it.
+                let lone = if shown(a_cells) { a_cells } else { b_cells };
+                let too_small = match splits.pair_way(a) {
+                    Some(Way::Down) => lone.rows < 4,
+                    _ => lone.columns < 4,
+                };
+                if keep != a && keep != b && !too_small {
+                    prop_assert_eq!(shown(a_cells), shown(b_cells), "a pair shows together");
+                }
+                if every_shown {
+                    let across = a_cells.row == b_cells.row && a_cells.rows == b_cells.rows
+                        && a_cells.columns.abs_diff(b_cells.columns) <= 1;
+                    let down = a_cells.column == b_cells.column && a_cells.columns == b_cells.columns
+                        && a_cells.rows.abs_diff(b_cells.rows) <= 1;
+                    prop_assert!(across || down, "a pair shares its cells: {:?} {:?}", a_cells, b_cells);
+                }
+            }
             let multiple = frame.windows().iter().filter(|(_, r)| shown(r.outer())).count() > 1;
             for (id, regions) in frame.windows() {
                 let o = regions.outer();

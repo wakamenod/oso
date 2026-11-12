@@ -59,6 +59,8 @@ impl Editor {
     /// window shows comes through here, so that what was around a buffer that may hold secrets,
     /// before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        // A pair holds while each window shows what it was paired with (ADR 0122).
+        self.leave_pair(index, buffer);
         // A search keeps to the buffer it began in (ADR 0082).
         self.isearch_abandon();
         self.replace_abandon();

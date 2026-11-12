@@ -27,11 +27,13 @@ use crate::motion::{self, Edge};
 use crate::selection::SelectionSet;
 
 mod places;
+mod row_map;
 mod rows;
 mod screen;
 
 pub use places::Place;
 pub(crate) use places::{Places, Walk};
+pub use row_map::{BadRowMap, RowMap};
 pub(crate) use rows::Rows;
 pub(crate) use screen::ScreenSource;
 pub use screen::{Screen, ScreenRow};

@@ -1176,6 +1176,22 @@ pub fn oso_core::editor::MacroEvent::eq(&self, &oso_core::editor::MacroEvent) ->
 impl core::fmt::Debug for oso_core::editor::MacroEvent
 pub fn oso_core::editor::MacroEvent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::MacroEvent
+pub enum oso_core::editor::NoPair
+pub oso_core::editor::NoPair::NoBuffer
+pub oso_core::editor::NoPair::Paired
+pub oso_core::editor::NoPair::TooSmall
+impl core::clone::Clone for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::clone(&self) -> oso_core::editor::NoPair
+impl core::cmp::Eq for oso_core::editor::NoPair
+impl core::cmp::PartialEq for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::eq(&self, &oso_core::editor::NoPair) -> bool
+impl core::error::Error for oso_core::editor::NoPair
+impl core::fmt::Debug for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::NoPair
+pub fn oso_core::editor::NoPair::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::NoPair
+impl core::marker::StructuralPartialEq for oso_core::editor::NoPair
 pub enum oso_core::editor::Preview
 pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
@@ -1766,6 +1782,12 @@ pub fn oso_core::editor::Editor::rows_found(&mut self, u64, alloc::vec::Vec<oso_
 pub fn oso_core::editor::Editor::search_highlights(&self, usize, &str, &mut alloc::vec::Vec<core::ops::range::Range<usize>>) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::take_search_hit(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchHit>
 pub fn oso_core::editor::Editor::take_search_request(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchRequest>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::pair_of(&self, oso_core::window::WindowId) -> core::option::Option<oso_core::window::WindowId>
+pub fn oso_core::editor::Editor::pair_window(&mut self, oso_core::frame::Way, oso_core::buffer::BufferId, oso_core::window::RowMap) -> core::result::Result<oso_core::window::WindowId, oso_core::editor::NoPair>
+pub fn oso_core::editor::Editor::set_row_map(&mut self, oso_core::window::WindowId, oso_core::window::RowMap) -> bool
+pub fn oso_core::editor::Editor::turn_pair(&mut self, oso_core::window::WindowId, oso_core::frame::Way) -> core::result::Result<bool, oso_core::frame::TooSmall>
+pub fn oso_core::editor::Editor::unpair(&mut self, oso_core::window::WindowId) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::preview_cells(&self, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
 pub fn oso_core::editor::Editor::preview_excerpt_display(&self) -> core::option::Option<oso_core::display_map::DisplaySnapshot>
@@ -3849,6 +3871,19 @@ impl core::fmt::Debug for oso_core::window::Recenter
 pub fn oso_core::window::Recenter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::window::Recenter
 impl core::marker::StructuralPartialEq for oso_core::window::Recenter
+pub struct oso_core::window::BadRowMap
+impl core::clone::Clone for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::clone(&self) -> oso_core::window::BadRowMap
+impl core::cmp::Eq for oso_core::window::BadRowMap
+impl core::cmp::PartialEq for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::eq(&self, &oso_core::window::BadRowMap) -> bool
+impl core::error::Error for oso_core::window::BadRowMap
+impl core::fmt::Debug for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::window::BadRowMap
+pub fn oso_core::window::BadRowMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::window::BadRowMap
+impl core::marker::StructuralPartialEq for oso_core::window::BadRowMap
 pub struct oso_core::window::Place
 pub oso_core::window::Place::scroll: oso_core::window::Scroll
 pub oso_core::window::Place::selections: oso_core::selection::SelectionSet
@@ -3860,6 +3895,22 @@ pub fn oso_core::window::Place::eq(&self, &oso_core::window::Place) -> bool
 impl core::fmt::Debug for oso_core::window::Place
 pub fn oso_core::window::Place::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::window::Place
+pub struct oso_core::window::RowMap
+impl oso_core::window::RowMap
+pub fn oso_core::window::RowMap::first_of(&self, usize) -> usize
+pub fn oso_core::window::RowMap::new(alloc::vec::Vec<(usize, usize, usize)>) -> core::result::Result<Self, oso_core::window::BadRowMap>
+pub fn oso_core::window::RowMap::same() -> Self
+pub fn oso_core::window::RowMap::second_of(&self, usize) -> usize
+impl core::clone::Clone for oso_core::window::RowMap
+pub fn oso_core::window::RowMap::clone(&self) -> oso_core::window::RowMap
+impl core::cmp::Eq for oso_core::window::RowMap
+impl core::cmp::PartialEq for oso_core::window::RowMap
+pub fn oso_core::window::RowMap::eq(&self, &oso_core::window::RowMap) -> bool
+impl core::default::Default for oso_core::window::RowMap
+pub fn oso_core::window::RowMap::default() -> oso_core::window::RowMap
+impl core::fmt::Debug for oso_core::window::RowMap
+pub fn oso_core::window::RowMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::window::RowMap
 pub struct oso_core::window::Screen
 impl oso_core::window::Screen
 pub fn oso_core::window::Screen::columns(&self) -> usize

@@ -744,3 +744,71 @@ What was built:
   changes or removes the person's comments, nor reuses an id. Unit tests cover identical hunks,
   snapshots older than a reading, the kept-readings limit, numbers near the last one, a comment
   on a removed line, and a new file once committed.
+
+### Step 10: a pair of windows that scroll together
+
+A pair is two tiled windows whose buffer lines line up by a row map their owner gives, closed and
+resized together, in ADR 0112's tree. It is generic: nothing in it knows of a review, whose
+two-pane view and filler rows come in step 11. The author approved the public items as listed
+in the plan, and answered its questions (a), on 2026-11-13:
+
+1. **The row map is a type,** `window::RowMap`: aligned runs of lines, `(first's line, second's
+   line, lines)`, in order and apart on both sides (`RowMap::new`, refused with `BadRowMap`), or
+   every line the same line (`RowMap::same`), which a review's filler rows give. `second_of` and
+   `first_of` find a line on the other side by halving the runs. A line only one side has goes
+   line by line into the other side's gap, its last line taking the rest, or to the line after
+   the run before it when the other side has none there.
+2. **It maps buffer lines,** display rows before any wrap, so each window wraps at its own width
+   and the map stays true.
+3. **The other window's cursor follows.** After every command (`Editor::follow_cursor`), when
+   the selected window is in a pair and moved since its windows were last in step, the other
+   window's top goes to the start of the line aligned with the selected one's top, its left
+   column with the selected one's, and its primary cursor, alone, to the line aligned with the
+   selected one's cursor, at the same display column clamped to that line, with the selected
+   one's goal kept. Then it scrolls as little as shows its cursor, which a window a row shorter
+   or wrapped narrower may need. Not while a prompt is open, as ADR 0112's windows follow.
+   The wheel (`scroll_view`, `scroll_view_sideways`) moves the other window's view with the
+   one it turns, and its cursors into that view as the wheel moves any window's, but those of
+   the window beneath a prompt and of one with a preedit.
+4. **A pair resizes as one,** its windows kept the same, as one child of the run around it,
+   which `balance-windows` balances with the rest.
+5. **`C-x 2` and `C-x 3` in either window split the pair's area:** the new window goes below or
+   at the right of the whole pair, outside it.
+6. **Showing another buffer in either window breaks the pair,** whatever shows it (`C-x b`,
+   killing its buffer, a restart's `show_in`): both windows stay, as windows of their own, merged
+   into the run around them when it runs their way.
+7. **The handoff stays at version 4.** A pair goes over as two windows of their own in the same
+   cells, and its owner pairs them again when it opens once more (step 6 keeps a review).
+8. **A frame too small for every window hides both windows of a pair together,** unless it
+   holds the window kept shown, or is all there is in an area smaller than both need, where its
+   first window shows alone, as a run's first does.
+
+What was built:
+
+- **`Editor::pair_window(way, buffer, map)`** splits the selected tiled window into a pair, the
+  new window at the right or below showing `buffer`, and refuses with `NoPair`: `TooSmall`
+  where a split would be, `Paired` for a window in a pair already, `NoBuffer`. The selected
+  window stays selected and leads at once. `pair_of` names the other window, `set_row_map`
+  gives a new map and moves the windows in step from the selected one, or the first,
+  `turn_pair` lays a pair side by side or stacked (`TooSmall` where either window would be
+  smaller than a split leaves), and `unpair(keep)` closes the other window, `keep` taking the
+  pair's cells.
+- **`C-x 0` in either window deletes both,** and selects the window selected most recently
+  before them; a pair that is the whole frame stays, as the only window does. `C-x 1` keeps
+  both. `C-x o` and `windmove` go through them as through any window.
+- **The tree** (`frame::Splits`) marks a pair's run, crate-private. A pair is never merged into
+  a run of its way, so a pair side by side sits in a run side by side as one child. Nothing in
+  `frame` is public for it.
+- **No change to the app:** the host calls `follow_cursor` and the wheel's methods as before,
+  and draws each window as before, so no end-to-end flow changed in this step.
+- **Cost:** a command's end looks the pair up among the pairs, and a window that did not move
+  since leads nothing. Moving in step is two lookups in the map, a seek for each line and one
+  view set, and the other window's rows are shaped again only when its view moved. A map is
+  built where its owner builds it; giving one to the editor moves it.
+- **Tests:** the tree's property test also pairs, turns, breaks and unpairs, and checks that a
+  pair shows together and shares its cells; the map's runs map exactly and back, and keep lines
+  in order; on the editor, moving, scrolling a screen, isearch, the wheel up, down and
+  sideways, a prompt and a preedit, a short line and the end of the text, a wrapped window,
+  closing, splitting, breaking, unpairing, turning and the handoff. An ignored test times
+  moving in step in a release build over two texts of 1 GB and a map of a million runs.
+

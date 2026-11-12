@@ -207,6 +207,10 @@ one layer:
   ([ADR 0112](adr/0112-window-splits.md)). Tabs (tab-bar style) hold separate window trees.
 - Each window has its own selection set, so the same buffer in two windows can
   be edited at different places.
+- Two windows can be a pair that scrolls together, as a review's two sides do: one run of two
+  in the tree, split, resized and deleted as one, whose buffer lines line up by a
+  `window::RowMap` their owner gives ([ADR 0122](adr/0122-agent-review.md), step 10). After
+  each command and each turn of the wheel, the other window goes to the aligned line.
 - Floating windows are positioned freely above the tree. They show the
   minibuffer, menus, completion popups and hover documentation. Their
   placement is decided per feature.
