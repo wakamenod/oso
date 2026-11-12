@@ -672,6 +672,29 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   "`M-RET` … is not held": in a prompt for a directory, `M-RET` is held, as `RET` is, until the
   listing or the look at a link that decides its answer has come.
 
+### Step 6: end-to-end flows
+
+`crates/oso/tests/e2e/projects.rs` runs the commands in a real dev build, over a scratch
+project with a `.git` directory, besides the modeline's project name in `files.rs`:
+
+- **`C-x p f`** lists the project's files from its root once the walk ends, a file that may hold
+  secrets among them and nothing of `.git`, shorter paths first, and `RET` on the one matched
+  visits it.
+- **`C-u C-x p f`** asks `Find file in directory:` from the buffer's directory, lists only the
+  directories of the project's root, and lists a directory typed whole as a project, named after
+  it, whose `RET` visits a file.
+- **`M-s r`** finds the lines in every file, with no text for the one that may hold secrets, and
+  `RET` goes to the line with the place before on the mark; the preview shows an open buffer, an
+  excerpt and nothing for that file, in turn; `C-u` refuses a file and searches a directory
+  typed whole. None of it reaches the log.
+- **`trust-project` and `untrust-project`** run with `--config` in the scratch directory, so the
+  record is the one beside that file. A new project shows `restricted`. The question names the
+  root, and `y` writes the record, mode `0600`, with the root's path and its directory's device
+  and inode, and the modeline drops `restricted`. A new instance reads the record back and
+  trusts the project, and `untrust-project` takes the line out without asking. A `y` after the
+  buffer's project changed and the refusals stay with the `Dispatcher`'s tests
+  (`dispatch/project_tests.rs`), and worktrees with the editor's.
+
 ## Alternatives considered
 
 - **`rg` through the process module (Q1 (b)):** what the roadmap named, and `rg`'s handling of
