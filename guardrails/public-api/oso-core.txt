@@ -1319,6 +1319,7 @@ pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::show_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
@@ -1390,9 +1391,9 @@ pub fn oso_core::editor::Editor::keys_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::note(&mut self, impl core::convert::Into<alloc::string::String>)
-pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::place_behind_internal_of(&self, oso_core::window::WindowId) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::restore_kept_place(&mut self, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
+pub fn oso_core::editor::Editor::restore_kept_place_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
 pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
 pub fn oso_core::editor::Editor::shows_keys_in_progress(&self) -> bool
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
@@ -1475,6 +1476,7 @@ pub fn oso_core::editor::Editor::recenter(&mut self, oso_core::window::Recenter)
 pub fn oso_core::editor::Editor::region_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::regions(&self, oso_core::window::WindowId) -> core::option::Option<&oso_core::frame::WindowRegions>
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
+pub fn oso_core::editor::Editor::restore_positions_in(&mut self, oso_core::window::WindowId, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_lines(&mut self, isize) -> core::result::Result<bool, oso_core::motion::Edge>
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
@@ -1933,6 +1935,8 @@ pub oso_core::frame::Tiling::Run::children: alloc::vec::Vec<(usize, oso_core::fr
 pub oso_core::frame::Tiling::Run::way: oso_core::frame::Way
 pub oso_core::frame::Tiling::Window
 impl oso_core::frame::Tiling
+pub const oso_core::frame::Tiling::MAX_DEPTH: usize
+pub fn oso_core::frame::Tiling::depth(&self) -> usize
 pub fn oso_core::frame::Tiling::windows(&self) -> usize
 impl core::clone::Clone for oso_core::frame::Tiling
 pub fn oso_core::frame::Tiling::clone(&self) -> oso_core::frame::Tiling
