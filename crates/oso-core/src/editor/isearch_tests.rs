@@ -40,7 +40,7 @@ fn cursor(editor: &Editor) -> usize {
 }
 
 fn search(editor: &mut Editor, text: &str) {
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add(text);
     drain(editor);
 }
@@ -48,7 +48,7 @@ fn search(editor: &mut Editor, text: &str) {
 #[test]
 fn typing_goes_to_the_end_of_the_first_match_and_counts() {
     let mut editor = editor("one foo two foo three foo");
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     assert_eq!(line(&editor), "I-search: ");
     editor.isearch_add("fo");
     assert_eq!(cursor(&editor), 6);
@@ -99,7 +99,7 @@ fn repeats_step_the_count_fail_at_the_end_and_wrap() {
 #[test]
 fn backward_goes_to_the_start_and_a_turn_finds_the_one_before() {
     let mut editor = editor("ab ab ab");
-    editor.isearch_begin(true);
+    editor.isearch_begin(true, false);
     editor.isearch_add("ab");
     drain(&mut editor);
     // From the start of the buffer, nothing is before.
@@ -119,7 +119,7 @@ fn backward_goes_to_the_start_and_a_turn_finds_the_one_before() {
 fn typing_backward_keeps_a_match_that_still_matches() {
     let mut editor = editor("foo x foo y");
     editor.window_mut(0).0.selections = SelectionSet::new(11);
-    editor.isearch_begin(true);
+    editor.isearch_begin(true, false);
     editor.isearch_add("f");
     assert_eq!(cursor(&editor), 6);
     editor.isearch_add("oo");
@@ -188,7 +188,7 @@ fn exit_pushes_the_start_as_the_mark_and_keeps_the_string() {
     assert_eq!(line(&editor), "Mark saved where search started");
     // `C-s C-s` takes it up again.
     editor.window_mut(0).0.selections = SelectionSet::new(0);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_repeat(false);
     drain(&mut editor);
     assert_eq!(cursor(&editor), 8);
@@ -198,7 +198,7 @@ fn exit_pushes_the_start_as_the_mark_and_keeps_the_string() {
 #[test]
 fn an_exit_where_it_began_sets_no_mark() {
     let mut editor = editor("abc");
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     assert!(editor.isearch_exit());
     assert_eq!(editor.window().selections.primary().mark, None);
     assert!(!editor.isearch_exit());
@@ -211,7 +211,7 @@ fn the_history_goes_back_and_forth() {
         search(&mut editor, word);
         editor.isearch_exit();
     }
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_history(true);
     assert_eq!(editor.isearch().unwrap().string(), "two");
     editor.isearch_history(true);
@@ -224,7 +224,7 @@ fn the_history_goes_back_and_forth() {
 fn a_far_match_is_the_workers() {
     let text = format!("{}needle", "x".repeat(KEY_BUDGET * 2));
     let mut editor = editor(&text);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("needle");
     assert!(editor.isearch().unwrap().searching());
     assert_eq!(cursor(&editor), 0);
@@ -253,7 +253,7 @@ fn c_g_stops_a_running_search() {
 #[test]
 fn a_stale_report_is_dropped() {
     let mut editor = editor("ab ab");
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("a");
     let old = editor.take_isearch_job().unwrap();
     editor.isearch_add("b");
@@ -341,7 +341,7 @@ fn yanks_add_the_word_after_the_match_and_the_newest_kill() {
         vec![crate::kill::Piece::from(crate::rope::Rope::from("there"))],
         false,
     );
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_yank_kill();
     assert_eq!(editor.isearch().unwrap().string(), "there");
     assert_eq!(cursor(&editor), 28);
@@ -377,7 +377,7 @@ fn a_secret_buffer_searches_but_keeps_its_string_out_of_the_history() {
     assert!(editor.around_secret());
     assert!(!format!("{:?}", editor.isearch().unwrap()).contains("abc"));
     editor.isearch_exit();
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_history(true);
     assert_eq!(editor.isearch().unwrap().string(), "");
 }
@@ -391,7 +391,7 @@ fn a_prompt_has_no_isearch() {
             crate::minibuffer::Kind::Number { history: None },
         )
         .unwrap();
-    assert!(!editor.isearch_begin(false));
+    assert!(!editor.isearch_begin(false, false));
     assert!(editor.isearch().is_none());
 }
 
@@ -399,7 +399,7 @@ fn a_prompt_has_no_isearch() {
 fn showing_another_buffer_ends_the_search_and_its_worker() {
     let text = format!("{}needle", "x".repeat(KEY_BUDGET * 2));
     let mut editor = editor(&text);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("needle");
     let job = editor.take_isearch_job().unwrap();
     let other = editor.add_buffer(Buffer::from_text("other", "plain"));
@@ -432,12 +432,12 @@ fn a_secret_kill_in_the_string_makes_the_searched_buffer_secret() {
     let plain = editor.add_buffer(Buffer::from_text("plain", "x abc"));
     editor.show(plain);
     assert!(!editor.current().1.is_secret());
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_yank_kill();
     assert!(editor.current().1.is_secret());
     assert!(editor.isearch().unwrap().around_secret());
     editor.isearch_exit();
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_history(true);
     assert_eq!(
         editor.isearch().unwrap().string(),
@@ -455,7 +455,7 @@ fn a_yank_copies_no_more_of_a_kill_than_the_string_holds() {
         crate::kill::Piece::from(crate::rope::Rope::from("z")),
     ];
     editor.kills.ring.push(pieces, false);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("ab");
     editor.isearch_yank_kill();
     assert_eq!(
@@ -515,7 +515,7 @@ fn a_load_holds_the_count_until_it_ends() {
 fn a_near_match_after_a_far_one_ends_the_wait_for_the_worker() {
     let text = format!("foo fa{}Foo", "x".repeat(KEY_BUDGET * 2));
     let mut editor = editor(&text);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("F");
     assert!(editor.isearch().unwrap().searching());
     editor.isearch_toggle_case();
@@ -536,7 +536,7 @@ fn delete_after_the_history_brings_the_string_back() {
     search(&mut editor, "two");
     editor.isearch_exit();
     editor.window_mut(0).0.selections = SelectionSet::new(0);
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("on");
     editor.isearch_history(true);
     assert_eq!(editor.isearch().unwrap().string(), "two");
@@ -577,7 +577,7 @@ fn a_repeat_the_worker_goes_on_with_survives_the_end_of_a_load() {
 fn an_overlapping_match_takes_the_index_of_the_counted_one_before_it() {
     let mut editor = editor("aaa");
     editor.window_mut(0).0.selections = SelectionSet::new(3);
-    editor.isearch_begin(true);
+    editor.isearch_begin(true, false);
     editor.isearch_add("aa");
     drain(&mut editor);
     assert_eq!(cursor(&editor), 1);

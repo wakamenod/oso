@@ -578,7 +578,7 @@ mod tests {
             "one x\ny a\nb",
             &[(&["a\nb"], false), (&["key"], true), (&["one"], false)],
         );
-        editor.isearch_begin(false);
+        editor.isearch_begin(false, false);
         assert_eq!(editor.isearch_yank_pop(), Err(YankPopError::NotAfterYank));
         editor.isearch_yank_kill();
         assert_eq!(editor.isearch().unwrap().string(), "one");

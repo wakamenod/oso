@@ -1,10 +1,12 @@
-//! The cells isearch's matches in view take (ADR 0082), for the renderer and the text-grid
-//! snapshots, as the region's are in `view`, over the view rows a frame shows (ADR 0104).
+//! The cells isearch's matches in view take (ADR 0082), a literal string's or a regexp's,
+//! for the renderer and the text-grid snapshots, as the region's are in `view`, over the
+//! view rows a frame shows (ADR 0104).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
-//! Only the rows in view are searched, each widened by what the string can reach, within
-//! [`FRAME_BUDGET`], so a frame costs as much as the view and the string, not the buffer.
+//! Only the rows in view are searched, each widened by what a literal string can reach, and a
+//! regexp's read a little around them, within [`FRAME_BUDGET`], so a frame costs as much as the
+//! view and the string, not the buffer.
 
 use std::ops::Range;
 
@@ -52,18 +54,20 @@ impl Editor {
     pub fn isearch_cells(&self, id: WindowId, screen: &Screen, cells: &mut MatchCells) {
         cells.current.clear();
         cells.others.clear();
-        let (Some(state), Some(needle)) = (&self.isearch, self.isearch_needle()) else {
+        let Some(state) = &self.isearch else {
+            return;
+        };
+        let Some(needle) = state.needle() else {
             return;
         };
         let current = state.current.as_ref().filter(|_| !state.failing);
-        self.match_cells(id, state.buffer, screen, (&needle, current, None), cells);
+        self.match_cells(id, state.buffer, screen, (needle, current, None), cells);
     }
 
     /// What isearch looks for: what its highlights show, and what `avy-isearch` labels, its
     /// matches in view (ADR 0116).
     pub(in crate::editor) fn isearch_needle(&self) -> Option<search::Needle> {
-        let state = self.isearch.as_ref()?;
-        Some(search::Needle::Literal(state.query.clone()?))
+        Some(self.isearch.as_ref()?.needle()?.clone())
     }
 
     /// The cells of a query's matches in view in the tiled window `id`, if it is the selected

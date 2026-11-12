@@ -1676,12 +1676,13 @@ pub fn oso_core::editor::Editor::set_indent_rigidly_layer(&mut self, bool)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch(&self) -> core::option::Option<&oso_core::editor::Isearch>
 pub fn oso_core::editor::Editor::isearch_add(&mut self, &str)
-pub fn oso_core::editor::Editor::isearch_begin(&mut self, bool) -> bool
+pub fn oso_core::editor::Editor::isearch_begin(&mut self, bool, bool) -> bool
 pub fn oso_core::editor::Editor::isearch_delete(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_exit(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_history(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_repeat(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
+pub fn oso_core::editor::Editor::isearch_toggle_regexp(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
@@ -1842,6 +1843,7 @@ pub fn oso_core::editor::Isearch::backward(&self) -> bool
 pub fn oso_core::editor::Isearch::case_sensitive(&self) -> bool
 pub fn oso_core::editor::Isearch::count(&self) -> core::option::Option<(usize, usize)>
 pub fn oso_core::editor::Isearch::failing(&self) -> bool
+pub fn oso_core::editor::Isearch::regexp(&self) -> bool
 pub fn oso_core::editor::Isearch::searching(&self) -> bool
 pub fn oso_core::editor::Isearch::string(&self) -> &str
 pub fn oso_core::editor::Isearch::wrapped(&self) -> bool

@@ -418,7 +418,7 @@ fn past_the_most_labelled_the_farthest_have_none_and_the_line_says_so() {
 fn avy_isearch_ends_the_search_at_the_match_chosen() {
     let mut editor = editor("foo bar foo\n");
     assert!(!editor.jump_begin(Kind::Isearch, false), "only in a search");
-    editor.isearch_begin(false);
+    editor.isearch_begin(false, false);
     editor.isearch_add("foo");
     assert!(editor.jump_begin(Kind::Isearch, false));
     assert_eq!(targets(&editor), [0, 8]);
@@ -430,6 +430,48 @@ fn avy_isearch_ends_the_search_at_the_match_chosen() {
         Some(0),
         "where it began"
     );
+}
+
+#[test]
+fn avy_isearch_labels_a_regexp_search_s_matches() {
+    let mut editor = editor("fo bar foo fx\n");
+    editor.isearch_begin(false, true);
+    editor.isearch_add("fo+");
+    assert!(editor.jump_begin(Kind::Isearch, false));
+    assert_eq!(targets(&editor), [0, 7]);
+}
+
+#[test]
+fn avy_isearch_with_a_regexp_on_a_long_line_reads_around_the_view() {
+    // One line of 4 MiB, the cursor in its middle.
+    let text = "foo bar ".repeat(512 * 1024);
+    let mut editor = editor(&text);
+    let middle = text.len() / 2;
+    editor.window_mut(0).0.selections = SelectionSet::new(middle);
+    editor.follow_cursor();
+    editor.isearch_begin(false, true);
+    editor.isearch_add("fo+ ");
+    // A line this long is the worker's for the search itself.
+    while let Some(job) = editor.take_isearch_job() {
+        let mut reports = Vec::new();
+        job.run(|report| reports.push(report));
+        for report in reports {
+            editor.isearch_reported(report);
+        }
+    }
+    let at = cursor(&editor);
+    assert_eq!(at, middle + 4);
+    let started = std::time::Instant::now();
+    assert!(editor.jump_begin(Kind::Isearch, false));
+    let took = started.elapsed();
+    let found = targets(&editor);
+    assert!(!found.is_empty());
+    // Only what the view shows is read, a few rows of 40 columns around the cursor.
+    assert!(
+        found.iter().all(|&start| start.abs_diff(at) < 4096),
+        "{found:?}"
+    );
+    assert!(took.as_millis() < 50, "{took:?}");
 }
 
 #[test]
@@ -450,7 +492,7 @@ fn around_a_secret_the_jump_says_so_and_debug_holds_no_string() {
 fn a_jump_is_around_a_secret_as_long_as_what_it_labels_or_follows_was() {
     // `avy-isearch` labels what a search around a secret found.
     let mut searched = editor("foo bar foo\n");
-    searched.isearch_begin(false);
+    searched.isearch_begin(false, false);
     searched.isearch_add("foo");
     searched.isearch.as_mut().unwrap().note_secret();
     assert!(searched.jump_begin(Kind::Isearch, false));

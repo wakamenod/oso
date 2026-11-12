@@ -322,11 +322,15 @@ item notes when it must be settled.
   from the configuration's `[aids]`
   ([ADR 0097](adr/0097-visual-aids.md), [ADR 0108](adr/0108-the-user-configuration-file.md)).
 
-- After query-replace, keyboard macros and whitespace cleanup: regexp isearch (`C-M-s`) on
-  query-replace's per-line matcher; the kmacro ring, counters, naming and editing; `E`, `C-r`, `Y`
-  and `N` in query-replace; whitespace settings per mode once modes exist; and EditorConfig's
-  `trim_trailing_whitespace` and `insert_final_newline`, which ADR 0115 parses but does not apply yet
+- After query-replace, keyboard macros and whitespace cleanup: the kmacro ring, counters, naming
+  and editing; `E`, `C-r`, `Y` and `N` in query-replace; whitespace settings per mode once modes
+  exist; and EditorConfig's `trim_trailing_whitespace` and `insert_final_newline`, which ADR 0115
+  parses but does not apply yet
   ([ADR 0113](adr/0113-query-replace-keyboard-macros-and-whitespace-cleanup.md)).
+- query-replace's search after an answer copies a line longer than a key's budget on the UI
+  thread, about 40 ms on a 60 MB line; regexp isearch leaves such a line to the worker, and
+  query-replace could too, as a chore
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 
 - After indentation: a query-based indenter on the worker for `indent-region` in more languages;
   fenced code in Markdown indented by its language's rules; detecting a file's indentation when
