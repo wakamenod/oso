@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use oso_platform::file_meta::open_for_reading;
 
-use super::{EVALUATE_EVERY, Job, Out, SessionKey};
+use super::{EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey};
 use crate::sessions::engine::{Fallback, evaluate, evaluate_within};
 use crate::sessions::explain;
 use crate::sessions::rules::{BUDGET, RuleSet};
@@ -126,7 +126,10 @@ impl Core {
                 return Vec::new();
             }
             Job::Screen(key, evidence) => {
-                if let Some(session) = self.sessions.get_mut(&key) {
+                // A look that found what the last one did changes nothing to judge.
+                if let Some(session) = self.sessions.get_mut(&key)
+                    && session.evidence.as_ref() != Some(&evidence)
+                {
                     session.evidence = Some(evidence);
                     session.fresh = true;
                 }
@@ -169,7 +172,10 @@ impl Core {
                 session.judged = Some(Instant::now().max(now));
                 if let Err(Fallback::TooSlow { slowest }) = &verdict.by {
                     session.late = session.late.saturating_add(1);
-                    if !self.slow_said {
+                    // Not judged after all: the same screen is judged again once the longer
+                    // wait is over, so that a dialog that stays is not hidden until it changes.
+                    session.fresh = true;
+                    if session.late >= SLOW_AFTER && !self.slow_said {
                         self.slow_said = true;
                         found.push(Out::Slow(slowest.clone()));
                     }
@@ -203,14 +209,14 @@ impl Core {
 
     /// Reads the saved screen at `path` and explains it with the rules in force.
     fn explain_file(&self, path: &Path) -> Out {
-        let shown = path.display().to_string();
         match read_screen(path) {
             Ok(text) => {
+                let shown = path.display().to_string();
                 let evidence = Evidence::from_text(&text);
                 let verdict = evaluate(&self.rules, &evidence);
                 Out::Explained(explain::text(&shown, &self.rules, &evidence, &verdict))
             }
-            Err(why) => Out::Unexplained(format!("Cannot explain {shown}: {why}")),
+            Err(why) => Out::Unexplained(format!("Cannot explain that screen file: {why}")),
         }
     }
 }

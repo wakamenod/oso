@@ -189,19 +189,7 @@ fn an_exit_ends_everything_after_it() {
 }
 
 #[test]
-fn urgency_follows_the_adrs_order() {
-    let order = [
-        State::NeedsInput(Reason::Dialog),
-        State::Failed,
-        State::Working,
-        State::ReadyForReview,
-        State::Done,
-        State::Idle,
-        State::Stopped,
-    ];
-    for pair in order.windows(2) {
-        assert!(pair[0].urgency() < pair[1].urgency());
-    }
+fn a_state_names_its_reason() {
     assert_eq!(
         State::NeedsInput(Reason::Elicitation).to_string(),
         "needs input (elicitation)"

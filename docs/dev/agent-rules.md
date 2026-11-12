@@ -56,7 +56,7 @@ not = [{ contains = ["help"] }]                  # no table holds
 | `needs_input` | needs input, with its `reason`. Set it only for a dialog you know: an unknown prompt must stay idle. |
 | `working` | working |
 | `idle` | idle. With `visible = true`, the rule is a sure sign of it, and a turn ends at once. Without it, a turn ends after 3 looks 100 ms apart, or after 700 ms. |
-| `hold` | the state stays as it was: for full-screen views, such as the transcript viewer, help or a picker |
+| `hold` | the state stays as it was: for full-screen views, such as the transcript viewer, help or a picker. Rank hold rules below needs-input rules, so that a view never hides a dialog. |
 
 No rule gives done, ready for review, failed or stopped:
 - done and ready for review come from a turn's end;
@@ -72,7 +72,7 @@ When no rule matches, the session counts as idle.
 | `progress` | OSC 9;4 progress, as `state` or `state;value` (`0` is cleared); empty if none was set |
 | `bottom(N)` | the last N non-empty rows, N from 1 to 40 |
 | `prompt_box` | the rows between the last two rules (rows of `─` only): the prompt box, or a dialog's body |
-| `after_last_rule` | the rows after the last rule: the footer, or a dialog with its footer |
+| `after_last_rule` | the rows after the last rule: the footer, or a dialog with its footer; empty with no rule |
 | `above_prompt_box` | the last row above the prompt box |
 
 Rows are the last 40 non-empty rows of the live screen. oso never reads your scrolled view or
@@ -101,8 +101,12 @@ Each pattern or string is at most 4 KiB, and each compiled pattern at most 1 MiB
 
 All the rules together get 5 ms for one look at a screen. A file can stay within the limits
 and still be slow, for example with many patterns that run over every row. Past the deadline,
-the state stays as it was, and `*Messages*` names the slowest rule once for each time the
-rules load. `session-explain-file` shows the same.
+the state stays as it was, and the same screen is looked at again a little later, the wait
+doubling each time, up to 5 s. After two late looks in a row, `*Messages*` names the slowest
+rule, once for each time the rules load. `session-explain-file` shows the same.
+
+The deadline is best-effort: it is the wall clock's, and the rules check it between matchers,
+so a busy machine can pass it once, and one slow pattern can run past it.
 
 oso says what is wrong in `*Messages*`, with the line:
 - A syntax error, or a `version` other than 1, refuses the whole file, and the rules in force
@@ -110,6 +114,8 @@ oso says what is wrong in `*Messages*`, with the line:
 - Anything else wrong in a rule skips that rule: an unknown name, a bad value, a pattern that
   does not compile. A misspelt matcher must not leave a rule that matches more than you meant.
 
-oso does not read the file when anyone else can change it, or the directories on the way to it.
+oso does not read the file when anyone else can change it, a group included, or the
+directories on the way to it. A problem in a file whose name, or where it leads, says it may
+hold secrets gives its line and none of its text, as in `config.toml`.
 
 A state never authorises anything: not a paste, not an answer, not an action of an agent.

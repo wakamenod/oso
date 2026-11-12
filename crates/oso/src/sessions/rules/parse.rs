@@ -531,8 +531,8 @@ impl fmt::Display for Quoted<'_> {
     }
 }
 
-/// Drops parsed tables a level at a time, so that deep nesting needs no deep stack, as
-/// `config` does.
+/// Drops parsed tables a level at a time, so that deep nesting needs no deep stack. Its twin is
+/// `tear_down` in `config/mod.rs`, which this module may not use (ADR 0121): change both.
 fn tear_down(root: DeTable<'_>) {
     let mut values = vec![DeValue::Table(root)];
     while let Some(mut value) = values.pop() {

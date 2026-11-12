@@ -156,38 +156,66 @@ fn a_saved_screen_is_explained_and_odd_files_are_refused() {
         (dir.clone(), "not a regular file"),
         (dir.join("none"), "Cannot explain"),
     ] {
-        let found = core.handle(Job::ExplainFile(path), Instant::now());
+        let found = core.handle(Job::ExplainFile(path.clone()), Instant::now());
         let [Out::Unexplained(why)] = found.as_slice() else {
             panic!("{found:?}");
         };
         assert!(why.contains(says), "{why}");
+        // The echo area, which the agent channel reads, never holds what the person typed.
+        let typed = path.file_name().unwrap().to_string_lossy();
+        assert!(!why.contains(typed.as_ref()), "{why}");
     }
     fs::remove_dir_all(&dir).unwrap();
 }
 
-#[test]
-fn rules_too_slow_hold_and_are_said_once_for_each_load() {
-    let start = Instant::now();
+/// A core whose rules always run out of time, with session 1 past its grace period at the
+/// instant returned.
+fn too_slow(start: Instant) -> (Core, Arc<RuleSet>, Instant) {
     let parsed = parse(RULES, Source::Bundled);
     let rules = Arc::new(RuleSet::merged(parsed, Default::default()));
     let mut core = Core::with_budget(Arc::clone(&rules), Duration::ZERO);
     core.handle(Job::Start(1), start);
-    let at = start + GRACE;
+    (core, rules, start + GRACE)
+}
+
+#[test]
+fn rules_too_slow_twice_in_a_row_hold_and_are_said_once_for_each_load() {
+    let (mut core, rules, at) = too_slow(Instant::now());
     core.handle(screen("esc to interrupt"), at);
-    assert_eq!(core.tick(at), [Out::Slow("busy".to_owned())]);
-    core.handle(screen("esc to interrupt!"), at + ms(150));
-    assert!(core.tick(at + ms(150)).is_empty());
+    assert!(core.tick(at).is_empty(), "one late look says nothing");
     assert_eq!(
         core.due(),
         Some(at + ms(200)),
-        "a look that ran out of time doubles the wait"
+        "the same screen again, after twice the wait"
     );
+    assert_eq!(core.tick(at + ms(200)), [Out::Slow("busy".to_owned())]);
+    assert_eq!(core.due(), Some(at + ms(600)), "doubled again: 400 ms");
     assert!(
-        core.tick(at + ms(200)).is_empty(),
+        core.tick(at + ms(600)).is_empty(),
         "said once, and the state holds"
     );
-    core.handle(screen("again"), at + ms(250));
-    assert_eq!(core.due(), Some(at + ms(600)), "doubled again: 400 ms");
-    core.handle(Job::Rules(rules), at + ms(300));
-    assert_eq!(core.tick(at + ms(300)), [Out::Slow("busy".to_owned())]);
+    core.handle(Job::Rules(rules), at + ms(700));
+    assert!(core.tick(at + ms(700)).is_empty());
+    assert_eq!(core.tick(at + ms(900)), [Out::Slow("busy".to_owned())]);
+}
+
+#[test]
+fn a_late_look_at_a_still_screen_is_judged_again() {
+    let (mut core, _, at) = too_slow(Instant::now());
+    core.handle(screen("esc to interrupt"), at);
+    assert!(core.tick(at).is_empty(), "late: the state holds");
+    // The machine is less busy now; the screen has not changed.
+    core.budget = Duration::from_secs(60);
+    let due = core.due().expect("judged again");
+    assert_eq!(states(&core.tick(due)), [State::Working]);
+}
+
+#[test]
+fn a_look_that_found_what_the_last_did_is_not_judged_again() {
+    let start = Instant::now();
+    let (mut core, at) = working(start);
+    core.handle(screen("esc to interrupt"), at + ms(10));
+    assert_eq!(core.due(), None);
+    core.handle(screen("esc to interrupt!"), at + ms(20));
+    assert_eq!(core.due(), Some(at + EVALUATE_EVERY));
 }

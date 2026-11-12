@@ -607,7 +607,8 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 - One file, `config.toml` in `$XDG_CONFIG_HOME/oso/` or `~/.config/oso/`
   (`%APPDATA%\oso\` on Windows). oso never writes it, and `--no-config` starts
-  without it, and without the record of trusted projects.
+  without it, without the record of trusted projects, and without the local agent rules,
+  so the bundled rules apply.
 - A thread in the tip crate's `config` (`config::Reader`) reads, parses and builds it at
   start and when a `stat` once a second, on focus or after a save sees it change, and the UI
   thread swaps the result in between keys (`app/configuration.rs`), dropping the old keymap

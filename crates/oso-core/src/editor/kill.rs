@@ -102,7 +102,8 @@ impl Editor {
     ///
     /// It appends to the newest entry if the command before also killed and the pieces
     /// match in number. Nothing is taken if every range is empty. Text from a buffer that
-    /// may hold secrets makes a secret entry, and text whose verdict may not be killed, a
+    /// may hold secrets makes a secret entry, as does the agent channel's from a buffer
+    /// withheld from it, and text whose verdict may not be killed, a
     /// passphrase's, is deleted and goes nowhere (ADR 0072).
     ///
     /// # Errors
@@ -133,7 +134,9 @@ impl Editor {
                     .map_or(Ok(()), |reason| Err(EditError::ReadOnly(reason)))
             };
         }
-        let secret = buffer.is_secret();
+        // What the agent channel kills from a buffer it may not read is secret, so that it
+        // cannot yank the text where it may read it (ADR 0121). The person's kills are theirs.
+        let secret = buffer.is_secret() || (buffer.withheld_from_agents() && self.runs_for_agent());
         let read_only = buffer.read_only();
         if kept {
             self.add_kill(pieces, direction, secret);
@@ -346,5 +349,31 @@ mod tests {
         assert_eq!(joined, ["newest", "a\nb", "mine"]);
         assert!(ring.iter().take(2).all(|entry| !entry.is_secret()));
         assert!(ring.iter().all(|entry| !entry.came_from_clipboard()));
+    }
+
+    #[test]
+    fn the_agents_kill_from_a_buffer_withheld_from_it_is_secret_and_the_persons_is_not() {
+        use crate::buffer::Mode;
+        use crate::kill::Direction;
+        let mut editor = Editor::with_buffer(crate::buffer::Buffer::new("*scratch*"));
+        let id = editor.add_internal_buffer("*Report*", Mode::Fundamental);
+        editor.set_internal_text(id, "screen text");
+        editor.buffer_mut(id).unwrap().withhold_from_agents();
+        editor.show(id);
+        editor
+            .kill(std::iter::once(0..6), Direction::Forward, true)
+            .unwrap();
+        assert!(
+            !editor.kill_ring().get(0).unwrap().is_secret(),
+            "the person's"
+        );
+        editor.forget_kills();
+        editor
+            .for_agent(|editor| editor.kill(std::iter::once(7..11), Direction::Forward, true))
+            .unwrap();
+        let newest = editor.kill_ring().get(0).unwrap();
+        assert_eq!(newest.joined(), "text");
+        assert!(newest.is_secret(), "the agent's");
+        assert!(!editor.current().1.is_secret(), "the buffer is no secret");
     }
 }

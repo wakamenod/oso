@@ -1,5 +1,6 @@
 //! Commands for agent sessions (ADR 0121): so far, explaining a saved screen with the rules in
-//! force, for writing a rule. `session.rs` is the editing session's: cancelling and exiting.
+//! force, for writing a rule. `session.rs` beside it is the editing session's: cancelling and
+//! exiting.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host, whose sessions worker reads the file.

@@ -203,6 +203,9 @@ pub struct App {
     trust_file: Option<crate::config::TrustFile>,
     /// The sessions worker, which judges hosted sessions' screens (ADR 0121).
     sessions: Option<crate::sessions::worker::Worker>,
+    /// The internal `*Session explain*` buffer, once there is one (ADR 0121). Kept by its id,
+    /// never found by its name, which anyone may give a buffer of their own.
+    explain: Option<oso_core::buffer::BufferId>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -342,6 +345,7 @@ impl App {
             previewer,
             trust_file: None,
             sessions,
+            explain: None,
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),

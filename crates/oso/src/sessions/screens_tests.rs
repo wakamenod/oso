@@ -5,8 +5,8 @@
 //! parts, with no window and no terminal.
 //!
 //! The screens were recorded from Claude Code 2.1.322 in a terminal 100 columns by 32 rows, and
-//! scrubbed of paths, names and account details. Its title stayed `✳ …` throughout, so the
-//! title's spinner is not what these screens are told by.
+//! scrubbed of paths, names, account details and the time of day. Its title stayed `✳ …`
+//! throughout, so the title's spinner is not what these screens are told by.
 
 use super::engine::evaluate;
 use super::rules::RuleSet;
@@ -66,12 +66,14 @@ const SCREENS: &[(&str, &str, &str, Target, &str)] = &[
         Target::Hold,
         "overlay",
     ),
+    // Recorded with a dialog open behind the viewer, as its footer says: the viewer hides the
+    // dialog but not that one waits, so the session needs input, for a dialog it cannot name.
     (
         "transcript-viewer",
         include_str!("screens/transcript-viewer.txt"),
         "✳ Claude Code",
-        Target::Hold,
-        "transcript-viewer",
+        Target::NeedsInput(Reason::Dialog),
+        "transcript-viewer-dialog",
     ),
     (
         "working",
@@ -158,7 +160,7 @@ fn the_title_spinner_and_progress_tell_work_and_its_end() {
     let spinning = Evidence::new(std::iter::empty(), "⠂ Claude Code", None);
     assert_eq!(evaluate(&rules, &spinning).target, Target::Working);
     let progress = |state, value| {
-        let progress = Some(super::screen::Progress { state, value });
+        let progress = super::screen::Progress::new(state, value);
         evaluate(
             &rules,
             &Evidence::new(std::iter::empty(), "✳ Claude Code", progress),
@@ -196,4 +198,46 @@ fn an_unknown_prompt_is_idle_never_needs_input() {
     let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(text));
     assert_eq!(verdict.target, Target::Idle { visible: false });
     assert!(verdict.by.is_err());
+}
+
+#[test]
+fn the_transcript_viewer_with_no_dialog_behind_it_holds() {
+    let text = include_str!("screens/transcript-viewer.txt").replace("dialog waiting · ", "");
+    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(&text));
+    assert_eq!(verdict.target, Target::Hold);
+    assert_eq!(verdict.by.unwrap().name, "transcript-viewer");
+}
+
+#[test]
+fn a_dialog_that_quotes_the_viewers_footer_is_still_the_dialog() {
+    // What the agent wrote, in the dialog's last rows, is not the viewer's footer.
+    let text = include_str!("screens/permission-bash.txt").replace(
+        " Esc to cancel · Tab to amend",
+        " Showing detailed transcript · ctrl+o to toggle\n Esc to cancel · Tab to amend",
+    );
+    let text = text.replace(
+        " date > now.txt",
+        " echo 'dialog waiting · Showing detailed transcript · ctrl+o'",
+    );
+    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(&text));
+    assert_eq!(verdict.target, Target::NeedsInput(Reason::Permission));
+    assert_eq!(verdict.by.unwrap().name, "permission");
+}
+
+#[test]
+fn dialog_text_with_no_rule_row_above_it_is_no_dialog() {
+    // Model output that looks like a dialog, with no prompt box on the screen.
+    let text = "\
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+ Enter to confirm · Esc to cancel
+ Esc to cancel · Tab to amend
+";
+    let verdict = evaluate(&RuleSet::bundled(), &Evidence::from_text(text));
+    assert!(
+        !matches!(verdict.target, Target::NeedsInput(_)),
+        "{:?}",
+        verdict.target
+    );
 }

@@ -8,7 +8,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use super::watch::{Seen, Unread, look, read};
+use super::watch::{Seen, Unread, WITHHELD, look, may_hold_secrets, read};
 use crate::sessions::rules::{self, LOCAL_FILE, RuleSet, Source};
 
 /// What a look at the rules file found.
@@ -78,10 +78,20 @@ impl RulesWatch {
                 )];
                 (Said::Refused(why), RulesReport { rules: None, notes })
             }
-            Ok((text, _)) => {
+            // Unlike `config.toml`, nothing in it is safe to apply when a group can change it:
+            // every rule says what the person is told about an agent (ADR 0121, Q4).
+            Ok((_, true)) => {
+                let why = "other users in a group can change it, or the way to it".to_owned();
+                let notes = vec![format!(
+                    "{LOCAL_FILE} not read: {why}; the rules in force stay"
+                )];
+                (Said::Refused(why), RulesReport { rules: None, notes })
+            }
+            Ok((text, false)) => {
                 let mut hash = DefaultHasher::new();
                 text.hash(&mut hash);
-                (Said::Read(hash.finish()), compile(&text))
+                let report = compile(&text, may_hold_secrets(&self.file));
+                (Said::Read(hash.finish()), report)
             }
         };
         if self.said.as_ref() == Some(&said) {
@@ -92,13 +102,18 @@ impl RulesWatch {
     }
 }
 
-/// The rules of `text`, the local file's, over the bundled ones, and what to say of them.
-pub(super) fn compile(text: &str) -> RulesReport {
+/// The rules of `text`, the local file's, over the bundled ones, and what to say of them. If
+/// `withheld`, as for `config.toml` whose name or where it leads says it may hold secrets, a
+/// problem says its line and none of the file's text.
+pub(super) fn compile(text: &str, withheld: bool) -> RulesReport {
     let local = rules::parse(text, Source::Local);
     let mut notes: Vec<String> = local
         .problems
         .iter()
-        .map(|problem| format!("{LOCAL_FILE}:{problem}"))
+        .map(|problem| match problem.split_once(':') {
+            Some((line, _)) if withheld => format!("{LOCAL_FILE}:{line}: {WITHHELD}"),
+            _ => format!("{LOCAL_FILE}:{problem}"),
+        })
         .collect();
     if local.more > 0 {
         notes.push(format!("{LOCAL_FILE}: {} more problems", local.more));
@@ -129,6 +144,7 @@ mod tests {
         let report = compile(
             "version = 1\n[[rule]]\nname = \"prompt\"\ndisable = true\n[[rule]]\nname = \"x\"\n\
              state = \"working\"\nregion = \"title\"\ncontains = [\"busy\"]\n",
+            false,
         );
         let rules = report.rules.unwrap();
         assert_eq!((rules.local, rules.disabled), (1, 1));
@@ -138,7 +154,7 @@ mod tests {
 
     #[test]
     fn a_broken_file_keeps_the_rules_in_force_and_says_where() {
-        let report = compile("version = 1\n[[rule]\n");
+        let report = compile("version = 1\n[[rule]\n", false);
         assert!(report.rules.is_none());
         assert!(report.notes[0].starts_with("agent-rules/claude.toml:2: "));
         assert!(report.notes.last().unwrap().contains("not applied"));
@@ -162,6 +178,53 @@ mod tests {
         fs::remove_file(&file).unwrap();
         let gone = watch.look(false).unwrap();
         assert!(gone.notes[0].contains("gone"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_withheld_files_problems_say_their_line_and_none_of_its_text() {
+        let report = compile(
+            "version = 1\n[[rule]]\nname = \"token-hunter2\"\nstate = \"bogus\"\n\
+             region = \"title\"\ncontains = [\"x\"]\n",
+            true,
+        );
+        let problem = &report.notes[0];
+        assert!(problem.starts_with("agent-rules/claude.toml:"), "{problem}");
+        assert!(problem.contains(super::WITHHELD), "{problem}");
+        assert!(
+            !problem.contains("hunter2") && !problem.contains("bogus"),
+            "{problem}"
+        );
+        let plain = compile(
+            "version = 1\n[[rule]]\nname = \"token-hunter2\"\nstate = \"bogus\"\n\
+             region = \"title\"\ncontains = [\"x\"]\n",
+            false,
+        );
+        assert!(plain.notes[0].contains("hunter2"), "{}", plain.notes[0]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_a_group_can_change_is_refused_and_the_rules_in_force_stay() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("oso-agent-rules-group-{}", std::process::id()));
+        fs::create_dir_all(dir.join("agent-rules")).unwrap();
+        for sub in [&dir, &dir.join("agent-rules")] {
+            fs::set_permissions(sub, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let mut watch = RulesWatch::beside(&dir.join("config.toml")).unwrap();
+        assert!(watch.look(false).is_none());
+        let file = dir.join("agent-rules/claude.toml");
+        fs::write(&file, "version = 1\n").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o664)).unwrap();
+        let report = watch.look(false).unwrap();
+        assert!(report.rules.is_none(), "nothing applies");
+        assert!(report.notes[0].contains("not read"), "{:?}", report.notes);
+        assert!(report.notes[0].contains("group"), "{:?}", report.notes);
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        let read = watch.look(false).unwrap();
+        assert!(read.rules.is_some() && read.notes[0].contains("0 local"));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -218,8 +218,8 @@ fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
                 deliver(shared, report);
             }
         }
-        if let Some(report) = rules.as_mut().and_then(|rules| rules.look(poked)) {
-            deliver_rules(shared, report);
+        if let Some(watch) = &mut rules {
+            look_at_rules(watch, poked, shared);
         }
         let mut state = shared.lock();
         if !state.poked && !state.stopped {
@@ -267,11 +267,11 @@ fn read_and_parse(
 
 /// What a problem says in a file whose name, or where it leads, says it may hold secrets
 /// (ADR 0044): its line and column, and none of its text.
-const WITHHELD: &str = "a problem here, not quoted, as the file may hold secrets";
+pub(super) const WITHHELD: &str = "a problem here, not quoted, as the file may hold secrets";
 
 /// Whether `file`'s name, or where it leads, says it may hold secrets, as a buffer of it would
 /// be judged.
-fn may_hold_secrets(file: &Path) -> bool {
+pub(super) fn may_hold_secrets(file: &Path) -> bool {
     let mut probe = oso_core::buffer::Buffer::visiting(file.to_path_buf());
     crate::loader::resolve(file).judge(&mut probe);
     probe.verdict().is_withheld()
@@ -292,6 +292,22 @@ fn deliver(shared: &Shared, report: Report) {
     // A report the app did not take may hold a large keymap: it goes with the lock released,
     // so that the UI thread never waits for it.
     drop(untaken);
+}
+
+/// Looks at the agent rules file, and hands what is new to the app. A panic there is said
+/// against that file, and does not end the thread: `config.toml` still reloads (ADR 0121).
+fn look_at_rules(watch: &mut RulesWatch, poked: bool, shared: &Shared) {
+    match catch_unwind(AssertUnwindSafe(|| watch.look(poked))) {
+        Ok(Some(report)) => deliver_rules(shared, report),
+        Ok(None) => {}
+        Err(_) => {
+            let notes = vec![format!(
+                "{} not read: reading it failed; the rules in force stay",
+                crate::sessions::rules::LOCAL_FILE
+            )];
+            deliver_rules(shared, RulesReport { rules: None, notes });
+        }
+    }
 }
 
 /// Hands `report`, of the agent rules file, to the app, and wakes it.

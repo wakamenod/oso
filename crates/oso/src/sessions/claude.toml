@@ -4,17 +4,9 @@
 # replaces the one here of the same name, and `disable = true` there removes one.
 #
 # Needs input is strict: only a rule that knows a dialog sets it. An unknown prompt is idle.
+# Every hold rule ranks below every needs-input rule, so that no view hides a dialog.
 
 version = 1
-
-# Full-screen views: keep the state they were opened in.
-
-[[rule]]
-name = "transcript-viewer"
-state = "hold"
-priority = 1000
-region = "bottom(3)"
-contains = ["showing detailed transcript"]
 
 # Dialogs.
 
@@ -71,6 +63,25 @@ reason = "dialog"
 priority = 900
 region = "after_last_rule"
 line_regex = ['(?i)^\s*enter to confirm\s+·\s+esc to cancel\s*$', '^\s*❯\s+\S']
+
+# The transcript viewer (ctrl+o) hides a dialog that waits behind it, and says so in its footer,
+# the screen's last row. It does not say which dialog.
+[[rule]]
+name = "transcript-viewer-dialog"
+state = "needs_input"
+reason = "dialog"
+priority = 890
+region = "bottom(1)"
+line_regex = ['^\s*dialog waiting · Showing detailed transcript · ctrl\+o']
+
+# Full-screen views: keep the state they were opened in.
+
+[[rule]]
+name = "transcript-viewer"
+state = "hold"
+priority = 850
+region = "bottom(1)"
+line_regex = ['^\s*(?:dialog waiting · )?Showing detailed transcript · ctrl\+o']
 
 # A turn under way.
 

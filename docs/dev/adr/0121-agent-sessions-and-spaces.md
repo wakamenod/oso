@@ -762,8 +762,10 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
   link; a cargo-fuzz harness can share the generators once `oso-term` has one.
 - **A deadline of 5 ms for each look at a screen.** The rules check it between matchers. A
   crafted local file can be slow even within the format's limits: past the deadline, the state
-  holds with the reason "rules took too long". `*Messages*` says so once for each load of the
-  rules, naming the slowest rule, and `*Session explain*` shows it.
+  holds with the reason "rules took too long", and the same screen is judged again after the
+  longer wait. `*Messages*` says so after two late looks in a row at one session's screen,
+  once for each load of the rules, naming the slowest rule; `*Session explain*` shows it. The
+  deadline is the wall clock's, so it is best-effort: a busy machine can pass it once.
   - The Cost table's 0.2 ms is still the bundled rules' budget; the deadline only bounds a
     local file.
   - A session whose looks keep running out of time is judged less often: the wait doubles
@@ -776,11 +778,36 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
 - **The format** is in [agent-rules.md](../agent-rules.md). It has the regions listed above,
   with no `whole_recent`, since `bottom(40)` is the same.
 - **`oso-core` gained `editor::SessionRequest`, `Editor::request_session`,
-  `Editor::take_session_requests`, `Editor::set_internal_text` and `Buffer::withhold`.**
-  `*Session explain*` uses `Buffer::withhold` to keep the agent channel from reading it.
-- **What the recorded screens showed.** The title stayed `✳ …` throughout the recording, inside
-  tmux. So a turn is told by the `esc to interrupt` footer and the status line; the title's
-  spinner and OSC 9;4 stay as further signs.
+  `Editor::take_session_requests`, `Editor::set_internal_text`,
+  `Buffer::withhold_from_agents` and `Buffer::withheld_from_agents`.**
+  - `*Session explain*` is withheld from agents: the channel's state gives neither its text nor
+    its cursors, `text` refuses it, and the channel cannot switch to it. Unlike a secret, it
+    changes nothing else: the channel still acts while it is shown, and secure input, the
+    person's kills, emergency copies and the modeline are as they were.
+  - A command the channel runs while it is shown says what it says only in the echo area,
+    which the channel does not read then, and its kills from it count as secret. So the
+    channel cannot copy the text where it could read it.
+  - The app keeps the buffer by its id, never by its name, and fills only an internal
+    buffer: one of that name that anyone made stays theirs.
+  - ADR 0120's per-terminal read permission (`terminal-allow-agent-read`) can reuse the same
+    flag.
+- **What the recorded screens showed.** The title stayed `✳ …` throughout the recording. So a
+  turn is told by the `esc to interrupt` footer and the status line; the title's spinner and
+  OSC 9;4 stay as further signs.
+  - The transcript viewer hides a dialog that waits behind it, and its footer then starts
+    with `dialog waiting`. A rule gives needs input (`dialog`) for that footer; the viewer's
+    hold ranks below every needs-input rule.
+  - `after_last_rule` is empty when no rule row is on the screen, as `prompt_box` is: model
+    output with no prompt box below it is never a dialog.
+- **`Evidence` has no change timestamps.** The tracker takes the instants it is given, and the
+  worker the instant a look arrives; ADR 0120's host API need not stamp them.
+- **Echo off is a password prompt's shape:** ECHO clear while ICANON is set. Claude Code's
+  TUI runs in raw mode, with both clear, so a terminal that reported plain "ECHO clear" as echo
+  off would hold every session's state for good. ADR 0120's step that reports echo off must
+  use this definition.
+- **The feed for step 3.** Today the app owns the worker's one sender, which is not `Clone`.
+  Step 3 should give each terminal's thread a feed of its own that clones, taking only
+  `Screen` and `Exited` jobs, so that screens never pass through the UI thread.
 - **Left to step 3, which has live sessions:**
   - `session-explain` on a running session;
   - the modeline marks;

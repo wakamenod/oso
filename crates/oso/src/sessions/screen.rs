@@ -23,11 +23,29 @@ pub const MAX_TITLE_BYTES: usize = 1024;
 const MIN_RULE_CHARS: usize = 3;
 
 /// The terminal's OSC 9;4 progress: its state (0 cleared, 1 a value, 2 error, 3 under way, 4
-/// paused) and the value, if any.
+/// paused) and the value, if any, from 0 to 100.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Progress {
-    pub state: u8,
-    pub value: Option<u8>,
+    state: u8,
+    value: Option<u8>,
+}
+
+impl Progress {
+    /// The progress a terminal reported, `None` for a state past 4, with the value cut to 100:
+    /// the bytes came from the session.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the terminal's host API reports progress (ADR 0121 step 3)"
+        )
+    )]
+    pub fn new(state: u8, value: Option<u8>) -> Option<Self> {
+        (state <= 4).then(|| Self {
+            state,
+            value: value.map(|value| value.min(100)),
+        })
+    }
 }
 
 impl fmt::Display for Progress {
@@ -48,6 +66,7 @@ pub struct Evidence {
     title: String,
     progress: Option<Progress>,
     /// Echo is off: the rows are withheld (ADR 0120), and the state keeps its last value.
+    /// See [`Evidence::echo_off`] for what counts.
     echo_off: bool,
 }
 
@@ -81,6 +100,10 @@ impl Evidence {
     }
 
     /// The evidence while echo is off: no rows, as the terminal withholds them.
+    ///
+    /// Echo off means a password prompt's shape: ECHO clear while ICANON is set. Claude Code's
+    /// TUI runs in raw mode, with both clear, so a terminal that called plain "ECHO clear" echo
+    /// off would hold every session's state for good (ADR 0121, step 2 as built).
     #[cfg_attr(
         not(test),
         expect(
@@ -118,10 +141,12 @@ impl Evidence {
                 (Some(top), Some(bottom)) => self.rows[top + 1..bottom].join("\n"),
                 _ => String::new(),
             },
-            Region::AfterLastRule => {
-                let from = self.last_two_rules().1.map_or(0, |at| at + 1);
-                self.rows[from..].join("\n")
-            }
+            // With no rule there is no prompt box, so nothing is below it: a model's output
+            // must not pass for a dialog's footer.
+            Region::AfterLastRule => match self.last_two_rules().1 {
+                Some(last) => self.rows[last + 1..].join("\n"),
+                None => String::new(),
+            },
             Region::AbovePromptBox => match self.last_two_rules() {
                 (Some(top), Some(_)) if top > 0 => self.rows[top - 1].clone(),
                 _ => String::new(),
@@ -243,11 +268,20 @@ mod tests {
     }
 
     #[test]
-    fn without_rules_the_box_is_empty_and_after_the_last_rule_is_everything() {
+    fn without_rules_every_region_of_the_prompt_box_is_empty() {
         let evidence = Evidence::from_text("a\n╌╌╌╌╌\nb");
         assert_eq!(evidence.region(Region::PromptBox), "");
         assert_eq!(evidence.region(Region::AbovePromptBox), "");
-        assert_eq!(evidence.region(Region::AfterLastRule), "a\n╌╌╌╌╌\nb");
+        assert_eq!(evidence.region(Region::AfterLastRule), "");
+        assert_eq!(evidence.region(Region::Bottom(3)), "a\n╌╌╌╌╌\nb");
+    }
+
+    #[test]
+    fn progress_past_its_states_is_none_and_its_value_is_cut_to_100() {
+        assert_eq!(Progress::new(5, None), None);
+        assert_eq!(Progress::new(255, Some(1)), None);
+        assert_eq!(Progress::new(4, Some(250)).unwrap().to_string(), "4;100");
+        assert_eq!(Progress::new(0, None).unwrap().to_string(), "0");
     }
 
     #[test]
@@ -268,10 +302,7 @@ mod tests {
 
     #[test]
     fn title_and_progress_are_their_own_regions() {
-        let progress = Some(Progress {
-            state: 1,
-            value: Some(40),
-        });
+        let progress = Progress::new(1, Some(40));
         let evidence = Evidence::new(["x"].into_iter(), "✳ Claude\u{1b}", progress);
         assert_eq!(evidence.region(Region::Title), "✳ Claude");
         assert_eq!(evidence.region(Region::Progress), "1;40");

@@ -26,34 +26,66 @@ use jobs::Core;
 /// The least time between two judgements of one session's screen: at most 10 a second.
 pub const EVALUATE_EVERY: Duration = Duration::from_millis(100);
 
+/// How many looks in a row at one session's screen must run out of time before `*Messages*`
+/// says the rules are too slow: the deadline is the wall clock's, which one busy moment of the
+/// machine can pass.
+pub const SLOW_AFTER: u32 = 2;
+
 /// A hosted session, as the worker knows it: a number the app gives.
 pub type SessionKey = u64;
 
 /// What the app asks of the worker.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "sessions and the terminal's host API feed these (ADR 0121 step 3)"
-    )
-)]
 pub enum Job {
     /// The rules in force from now, for every session (ADR 0121, Q4).
     Rules(Arc<RuleSet>),
     /// A session started or was resumed.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "hosted sessions start it (ADR 0121 step 3)")
+    )]
     Start(SessionKey),
     /// A session's screen, title or progress changed.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the terminal's host API feeds it (ADR 0121 step 3)"
+        )
+    )]
     Screen(SessionKey, Evidence),
     /// A session's process ended.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the terminal's thread reports it (ADR 0121 step 3)"
+        )
+    )]
     Exited(SessionKey, Exit),
     /// The person has seen a session.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the 2 s seen timer sends it (ADR 0121 step 3)")
+    )]
     Seen(SessionKey),
     /// What `git diff` found after a session's turn ended.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the `git diff` call sends it (ADR 0121 step 3)")
+    )]
     Changes(SessionKey, bool),
     /// A review of a session was opened.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "opening a review sends it (ADR 0121 step 3)")
+    )]
     ReviewOpened(SessionKey),
     /// A session is gone from oso.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "hosted sessions send it (ADR 0121 step 3)")
+    )]
     Forget(SessionKey),
     /// Explain the saved screen in this file.
     ExplainFile(PathBuf),
@@ -66,10 +98,11 @@ pub enum Out {
     Changed(SessionKey, Change),
     /// The explanation of a saved screen, for `*Session explain*`.
     Explained(String),
-    /// A saved screen could not be read, and why, for the echo area.
+    /// A saved screen could not be read, and why, for the echo area. It names no path: what
+    /// the person typed stays theirs, and the agent channel reads the echo area.
     Unexplained(String),
-    /// The rules took longer than their budget on a screen, this rule the longest: said once
-    /// for each set of rules.
+    /// The rules took longer than their budget on [`SLOW_AFTER`] looks in a row at a screen,
+    /// this rule the longest: said once for each set of rules.
     Slow(String),
 }
 

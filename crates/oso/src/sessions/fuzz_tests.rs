@@ -146,11 +146,11 @@ fn evidence() -> impl Strategy<Value = Evidence> {
     let parts = (
         prop::collection::vec(screen_text(), 0..60),
         screen_text(),
-        prop::option::of((0u8..6, prop::option::of(0u8..=100))),
+        prop::option::of((0u8..6, prop::option::of(any::<u8>()))),
         any::<bool>(),
     );
     parts.prop_map(|(rows, title, progress, echo_off)| {
-        let progress = progress.map(|(state, value)| Progress { state, value });
+        let progress = progress.and_then(|(state, value)| Progress::new(state, value));
         if echo_off {
             Evidence::echo_off(&title, progress)
         } else {

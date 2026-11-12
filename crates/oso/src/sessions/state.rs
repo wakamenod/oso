@@ -66,28 +66,6 @@ pub enum State {
     Stopped,
 }
 
-impl State {
-    /// How urgent the state is: 0 is the most. A space shows its most urgent session's.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the list and the modeline use it (ADR 0121 step 3)"
-        )
-    )]
-    pub fn urgency(self) -> u8 {
-        match self {
-            Self::NeedsInput(_) => 0,
-            Self::Failed => 1,
-            Self::Working => 2,
-            Self::ReadyForReview => 3,
-            Self::Done => 4,
-            Self::Idle => 5,
-            Self::Stopped => 6,
-        }
-    }
-}
-
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -184,25 +162,13 @@ impl Tracker {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the list and session-explain use it (ADR 0121 step 3)"
-        )
-    )]
+    #[cfg(test)]
     pub fn state(&self) -> State {
         self.state
     }
 
     /// Since when the state holds.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the list and session-explain use it (ADR 0121 step 3)"
-        )
-    )]
+    #[cfg(test)]
     pub fn since(&self) -> Instant {
         self.since
     }
@@ -219,13 +185,7 @@ impl Tracker {
     }
 
     /// Whether the debounce waits: for `session-explain`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the list and session-explain use it (ADR 0121 step 3)"
-        )
-    )]
+    #[cfg(test)]
     pub fn confirming(&self) -> Option<u8> {
         self.pending.map(|p| p.count)
     }

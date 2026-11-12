@@ -8,6 +8,7 @@
 //! host-owned state and does not know its keys.
 
 mod agent;
+mod agent_sessions;
 mod aids;
 mod buffers;
 mod complete;
@@ -33,7 +34,6 @@ mod replace;
 mod save;
 mod scroll;
 mod session;
-mod sessions;
 mod theme;
 mod view;
 mod whitespace;
@@ -96,7 +96,7 @@ const TABLES: &[&[Command]] = &[
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
-    sessions::COMMANDS,
+    agent_sessions::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,

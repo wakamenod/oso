@@ -270,3 +270,12 @@ fn a_problem_quotes_a_long_name_cut_and_escaped() {
     assert!(problem.contains('…') && problem.contains("unknown name"));
     assert!(problem.len() < 200, "{problem}");
 }
+
+#[test]
+fn a_problem_escapes_what_could_reorder_or_hide_its_text() {
+    let parsed = parse("version = 1\n\"a\u{202E}b\u{200B}c\" = 1\n", Source::Local);
+    let problem = &parsed.problems[0];
+    assert!(problem.contains(r"\u{202e}"), "{problem}");
+    assert!(problem.contains(r"\u{200b}"), "{problem}");
+    assert!(!problem.contains('\u{202E}') && !problem.contains('\u{200B}'));
+}

@@ -70,6 +70,38 @@ impl Editor {
         self.add_buffer(buffer)
     }
 
+    /// Replaces the whole text of the internal buffer `id` with `text`, with no undo record,
+    /// and puts the cursors of the windows showing it at its start. Nothing happens to a buffer
+    /// that is not internal. It costs one pass over the old text and the new: a report the host
+    /// writes, such as `*Session explain*`'s (ADR 0121), of some 50 KiB at most.
+    pub fn set_internal_text(&mut self, id: BufferId, text: &str) {
+        let Some(buffer) = self.buffer(id).filter(|buffer| buffer.is_internal()) else {
+            return;
+        };
+        let edits = [crate::buffer::Replacement {
+            range: 0..buffer.text().len(),
+            text,
+        }];
+        let Some(staged) = buffer.stage_internal(&edits) else {
+            return;
+        };
+        let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
+        // Nothing past this point can panic part way.
+        if let Some(buffer) = self.buffer_mut(id) {
+            buffer.commit_internal(staged);
+        }
+        let start = SelectionSet::new(0);
+        for window in &mut self.windows {
+            if window.buffer() == id {
+                window.selections = start.clone();
+            }
+        }
+        self.commit_views(id, views);
+        if self.window().buffer() == id {
+            self.follow_cursor();
+        }
+    }
+
     /// Takes an internal buffer out, unless the editor needs it, and hands it over so that
     /// the host can free a large text off the UI thread. A window showing it goes to the list.
     pub fn remove_internal_buffer(&mut self, id: BufferId) -> Option<Buffer> {
@@ -727,5 +759,29 @@ mod tests {
         assert_eq!(shown.baseline().unwrap().file, Some(stamp));
         assert!(shown.file_info().bom);
         assert_eq!(shown.verdict(), Verdict::Unresolved);
+    }
+
+    #[test]
+    fn an_internal_buffers_text_is_replaced_with_the_cursor_at_its_start() {
+        let mut editor = Editor::default();
+        let id = editor.add_internal_buffer("*Report*", Mode::Fundamental);
+        editor.set_internal_text(id, "first\nreport\n");
+        editor.show(id);
+        for window in &mut editor.windows {
+            window.selections = SelectionSet::new(8);
+        }
+        editor.set_internal_text(id, "second");
+        let buffer = editor.buffer(id).unwrap();
+        assert_eq!(buffer.text().to_string(), "second");
+        assert!(!buffer.is_modified());
+        assert_eq!(editor.window().selections.primary().cursor, 0);
+    }
+
+    #[test]
+    fn set_internal_text_leaves_a_buffer_that_is_not_internal_alone() {
+        let mut editor = Editor::default();
+        let id = editor.add_buffer(Buffer::from_text("notes", "mine"));
+        editor.set_internal_text(id, "replaced");
+        assert_eq!(editor.buffer(id).unwrap().text().to_string(), "mine");
     }
 }
