@@ -31,6 +31,8 @@ mod newline;
 mod region;
 mod settings;
 
+pub(super) use settings::{ModeIndents, compiled_mode_indents};
+
 use newline::spots;
 pub(super) use region::RigidLayer;
 pub use region::Shift;

@@ -9,6 +9,15 @@ use crate::buffer::{Buffer, BufferId, Mode};
 use crate::editorconfig::{Applied, Properties};
 use crate::indent::{self, Origin, Origins, Settings};
 
+/// Each mode's indentation, as the configuration gives it, and where each property came from.
+pub(in crate::editor) type ModeIndents = [(Mode, Settings, Origins); 4];
+
+/// Each mode's compiled-in indentation, before the configuration gives one.
+pub(in crate::editor) fn compiled_mode_indents() -> ModeIndents {
+    [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
+        .map(|mode| (mode, Settings::default(), Origins::default()))
+}
+
 impl Editor {
     /// Sets each mode's indentation, as the configuration gives it, with where each property
     /// came from, and gives every buffer of the person's its mode's indent size and style under

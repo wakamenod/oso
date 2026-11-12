@@ -26,16 +26,18 @@ pub(super) fn detector(waker: &Waker) -> Detector {
     })
 }
 
-/// The thread that reads EditorConfig after `C-x C-w`, waking the event loop with
-/// [`UserEvent::EditorConfig`].
-pub(super) fn editorconfig_reader(waker: &Waker, home: &Home) -> EditorConfigReader {
+/// The home directory, after which no EditorConfig is read, and the thread that reads
+/// EditorConfig after `C-x C-w`, waking the event loop with [`UserEvent::EditorConfig`].
+pub(super) fn editorconfig_reader(waker: &Waker) -> (Home, EditorConfigReader) {
+    let home = Home::new(super::home());
     let waker = Mutex::new(waker.clone());
-    EditorConfigReader::new(home.clone(), move || {
+    let reader = EditorConfigReader::new(home.clone(), move || {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .send(UserEvent::EditorConfig)
-    })
+    });
+    (home, reader)
 }
 
 impl App {

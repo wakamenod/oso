@@ -25,7 +25,7 @@
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, ContentId, EditError, Mode, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{FrameLayout, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -61,6 +61,7 @@ mod reload;
 mod replace;
 mod save;
 mod screen;
+mod sessions;
 mod status;
 mod switch;
 mod tab;
@@ -99,6 +100,7 @@ pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
+pub use sessions::SessionRequest;
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
@@ -238,6 +240,8 @@ pub struct Editor {
     kills: kill::Kills,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
+    /// What commands asked of the host about agent sessions (ADR 0121).
+    session_requests: Vec<SessionRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// The jump under way, and the keys its labels are typed with (ADR 0116).
@@ -265,9 +269,8 @@ pub struct Editor {
     font_lock: bool,
     /// Whether `RET` and typed closers indent (`electric-indent-mode`, ADR 0115).
     electric_indent: bool,
-    /// Each mode's indentation, as the configuration gives it, and where each property came
-    /// from (ADR 0115).
-    mode_indents: [(Mode, crate::indent::Settings, crate::indent::Origins); 4],
+    /// Each mode's indentation, as the configuration gives it (ADR 0115).
+    mode_indents: indent::ModeIndents,
     /// Files whose EditorConfig the host should read, after `C-x C-w` named them (ADR 0115).
     editorconfig_requests: Vec<ProjectRequest>,
     /// The layer of `C-x TAB`, while it is open (ADR 0115).
@@ -339,6 +342,7 @@ impl Editor {
             save_over_asked: None,
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
+            session_requests: Vec::new(),
             isearch: None,
             jump: None,
             jump_keys: crate::jump::Keys::default(),
@@ -354,8 +358,7 @@ impl Editor {
             aids: VisualAids::default(),
             font_lock: true,
             electric_indent: true,
-            mode_indents: [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
-                .map(|mode| (mode, crate::indent::Settings::default(), Default::default())),
+            mode_indents: indent::compiled_mode_indents(),
             editorconfig_requests: Vec::new(),
             rigid: None,
             trims: trim::Trims::default(),

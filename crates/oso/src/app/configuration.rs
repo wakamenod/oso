@@ -139,10 +139,18 @@ impl App {
     /// before the window opens, which takes the remembered theme first, for the file's default
     /// to be compared with: what the thread found waits for it.
     pub(super) fn configuration_reported(&mut self) {
-        let configuration = &self.configuration;
         if self.view.is_none() {
             return;
         }
+        let rules = self
+            .configuration
+            .reader
+            .as_ref()
+            .and_then(Reader::take_rules);
+        if let Some(rules) = rules {
+            self.agent_rules_reported(rules);
+        }
+        let configuration = &self.configuration;
         let Some((report, launch)) = configuration.reader.as_ref().and_then(Reader::take) else {
             return;
         };
