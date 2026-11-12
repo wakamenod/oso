@@ -5,7 +5,8 @@
 //! - Highlighted after each batch, a document has the highlights a fresh one of its text has,
 //!   wherever neither tree holds an error: tree-sitter does not promise more.
 //! - Always, the highlights cover the text; once done, no line break is highlighted; and slices
-//!   of any length end where one long slice does, or fail as too slow and stay plain.
+//!   of any length end where one long slice does, where neither tree holds an error, or fail as
+//!   too slow and stay plain.
 
 use std::ops::Range;
 use std::time::Duration;
@@ -106,7 +107,11 @@ proptest! {
         let done = sliced.highlight(&mut queries, &[], LONG);
         line_breaks_plain(&sliced, &text)?;
         if done == Highlighted::Done {
-            prop_assert_eq!(all_runs(&sliced), all_runs(&whole));
+            // Edits that wait for a stopped parse join, so the two parse different histories,
+            // and tree-sitter promises the same tree only where neither holds an error.
+            if clean(&sliced) && clean(&whole) {
+                prop_assert_eq!(all_runs(&sliced), all_runs(&whole));
+            }
         } else {
             prop_assert_eq!(done, Highlighted::Failed(Failure::TooSlow));
             prop_assert!(all_runs(&sliced).iter().all(|(_, highlight)| highlight.is_none()));
