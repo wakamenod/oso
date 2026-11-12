@@ -14,6 +14,16 @@ use super::{AFFIXES, Candidate};
 /// classes, such as `\w{10}`, whose Unicode tables are large.
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
 
+/// The most memory a component's literal and expression joined in one may take, far below
+/// [`REGEX_SIZE_LIMIT`]: a larger one, such as a long repetition, is not joined, so that its
+/// compiling gives up early and the two are searched in turn, as they would be.
+const JOINED_SIZE_LIMIT: usize = 1 << 14;
+
+/// The characters that can start a class in an expression, whose Unicode tables cost the most to
+/// compile: an expression with one is not joined to its literal, so that a class is compiled once
+/// a key, as before, on the UI thread too.
+const CLASS_START: &[char] = &['\\', '['];
+
 /// The deepest an expression may nest.
 const REGEX_NEST_LIMIT: u32 = 32;
 
@@ -51,6 +61,10 @@ struct Component {
     finder: Option<Regex>,
     /// How many characters it has: a candidate with fewer bytes cannot hold it.
     chars: usize,
+    /// For a literal one with an expression too, both in one expression, which a candidate
+    /// is matched with in one search when the place it matched is not wanted: `None` where they
+    /// did not compile together, when each is searched in turn.
+    joined: Option<Regex>,
     /// The candidate must not match it.
     not: bool,
     /// It matches the annotation, not the candidate.
@@ -84,9 +98,14 @@ impl Eq for Component {}
 /// `pattern` compiled within the limits, ignoring case if `ignore_case`, or `None` if it
 /// does not compile.
 fn compile(pattern: &str, ignore_case: bool) -> Option<Regex> {
+    compile_within(pattern, ignore_case, REGEX_SIZE_LIMIT)
+}
+
+/// `pattern` compiled as [`compile`] does, within `size_limit` bytes.
+fn compile_within(pattern: &str, ignore_case: bool, size_limit: usize) -> Option<Regex> {
     RegexBuilder::new(pattern)
         .case_insensitive(ignore_case)
-        .size_limit(REGEX_SIZE_LIMIT)
+        .size_limit(size_limit)
         .nest_limit(REGEX_NEST_LIMIT)
         .build()
         .ok()
@@ -138,12 +157,26 @@ impl Component {
             None if style == Style::Literal => compile(&regex::escape(rest), ignore_case),
             None => None,
         };
+        // Only an expression that compiles alone is joined to a literal that does, so that the
+        // two in one match exactly where they match in turn.
+        let joined = match same {
+            Some(old) => old.joined.clone(),
+            None if regex.is_some() && finder.is_some() && !rest.contains(CLASS_START) => {
+                compile_within(
+                    &format!("{}|(?:{rest})", regex::escape(rest)),
+                    ignore_case,
+                    JOINED_SIZE_LIMIT,
+                )
+            }
+            None => None,
+        };
         Some(Self {
             style,
             regex,
             tried,
             finder,
             chars: rest.chars().count(),
+            joined,
             not: affix == Some('!'),
             annotation: affix == Some('&'),
             pattern,
@@ -169,7 +202,10 @@ impl Component {
             _ => text,
         };
         let pattern = &*self.pattern;
-        let mut out = out.filter(|_| !self.not && !self.annotation);
+        let Some(out) = out else {
+            return self.hits(text, haystack) != self.not;
+        };
+        let mut out = Some(out).filter(|_| !self.not && !self.annotation);
         let start = out.as_ref().map_or(0, |out| out.len());
         let mut push = |range: Range<usize>| {
             if let Some(out) = out.as_mut() {
@@ -225,6 +261,33 @@ impl Component {
             }
         }
         hit != self.not
+    }
+
+    /// Whether it is found in `text`, or in `haystack`, its folded form where case is ignored,
+    /// as [`Component::matches`] finds it, without where: a search that need not report where
+    /// it matched stops at the first match it is sure of.
+    fn hits(&self, text: &str, haystack: &str) -> bool {
+        let pattern = &*self.pattern;
+        match self.style {
+            Style::Literal => {
+                if let Some(joined) = &self.joined {
+                    return joined.is_match(text);
+                }
+                let literal = self.chars <= text.len()
+                    && match &self.finder {
+                        Some(finder) => finder.is_match(text),
+                        None => haystack.contains(pattern),
+                    };
+                literal
+                    || self
+                        .regex
+                        .as_ref()
+                        .is_some_and(|regex| regex.is_match(text))
+            }
+            Style::Prefix => haystack.starts_with(pattern),
+            Style::Flex => in_order(haystack, pattern, |_, _| true, |_| {}),
+            Style::Initialism => in_order(haystack, pattern, starts_word, |_| {}),
+        }
     }
 }
 
@@ -340,6 +403,27 @@ impl Query {
             .all(|(_, component)| component.matches(candidate, self.ignore_case, None))
     }
 
+    /// Whether `candidate` matches every component, each found with where it matched, as
+    /// highlighting finds it, for tests that [`Query::matches`] agrees.
+    #[cfg(test)]
+    fn matches_finding_where(&self, candidate: &Candidate) -> bool {
+        let mut out = Vec::new();
+        !self.too_long
+            && self
+                .components
+                .iter()
+                .all(|component| component.matches(candidate, self.ignore_case, Some(&mut out)))
+    }
+
+    /// For each component, whether its literal and expression are searched in one, for tests.
+    #[cfg(test)]
+    fn joined(&self) -> Vec<bool> {
+        self.components
+            .iter()
+            .map(|component| component.joined.is_some())
+            .collect()
+    }
+
     /// Whether `candidate` matches every component.
     pub(crate) fn matches(&self, candidate: &Candidate) -> bool {
         !self.too_long
@@ -428,3 +512,6 @@ impl fmt::Debug for Query {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests;

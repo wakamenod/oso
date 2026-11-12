@@ -438,10 +438,12 @@ The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
 on input that changes the view, on resize, when the window becomes visible, and when
 what the modeline or the echo area says has changed, which the app compares after each
 batch of events ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-The surface presents with `Fifo` and a frame latency of 1. Fifo is always
+The surface presents with `Fifo` and a frame latency of 2, which gives it three
+drawables ([ADR 0124](adr/0124-three-drawables.md)). Fifo is always
 supported and never tears, and on-demand drawing means it costs nothing while
-idle. Mailbox or Immediate can be revisited once key-to-photon latency is
-measured ([ADR 0025](adr/0025-latency-measurement.md)). The adapter is
+idle. The third drawable lets a key that draws twice, its own frame and then a
+worker's result, leave the next key's frame a free drawable, where with two that
+frame waited for the compositor on the UI thread. The adapter is
 requested with low power preference, which keeps dual-GPU machines on the
 integrated GPU.
 
