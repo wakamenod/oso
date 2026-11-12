@@ -3,11 +3,13 @@
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
-//! A frame looks at the candidates a key found, at most `MAX_LABELLED`, and finds none
-//! again, so it costs as much as they do, whatever the buffer's size.
+//! A frame looks at the candidates a key found, at most `MAX_LABELLED`, with the display
+//! points the key worked out, and finds and converts none again, so it costs as much as they
+//! do, whatever the buffer's size.
 
 use std::ops::Range;
 
+use crate::display_map::DisplayPoint;
 use crate::editor::Editor;
 use crate::frame::{self, CellRect};
 use crate::jump::Stage;
@@ -23,7 +25,7 @@ pub struct JumpCells {
     pub labels: Vec<LabelCells>,
     /// The labels' keys, which each label's `keys` is a range of.
     pub text: String,
-    ranges: Vec<Range<usize>>,
+    ranges: Vec<(Range<usize>, DisplayPoint, DisplayPoint)>,
 }
 
 /// A label in view: its cells, one row and one cell a key, from its target's first cell and
@@ -64,17 +66,17 @@ impl Editor {
                 ranges.extend(
                     (jump.candidates.iter())
                         .filter(|candidate| here(candidate.window))
-                        .map(|candidate| candidate.range.clone()),
+                        .map(|c| (c.range.clone(), c.start, c.end)),
                 );
-                ranges.sort_unstable_by_key(|range| range.start);
-                frame::match_cells(area, screen, &display, ranges, matches);
+                ranges.sort_unstable_by_key(|(range, ..)| range.start);
+                frame::match_cells_at(area, screen, &display, ranges, matches);
             }
             Stage::Labels => {
                 for (candidate, rest) in jump.shown_labels() {
                     if !here(candidate.window) {
                         continue;
                     }
-                    let point = display.offset_to_display_point(candidate.range.start);
+                    let point = candidate.start;
                     let Some(rect) = frame::cursor_rect(area, screen, point, rest.len()) else {
                         continue;
                     };

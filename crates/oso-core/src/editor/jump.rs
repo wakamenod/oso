@@ -7,7 +7,9 @@
 //!
 //! - Only the text in view is looked at: each window's rows in view, within [`WINDOW_BUDGET`]
 //!   of text a window and [`JUMP_BUDGET`] in all, the selected window first, then the others
-//!   in the tree's order. A key costs as much as the view, not the buffer.
+//!   in the tree's order, and each window's rows from its cursor's outward, so a budget that
+//!   runs out leaves out the farthest. A key costs as much as the view, not the buffer, and
+//!   works out each kept candidate's display points once, for every frame after it.
 //! - The candidates nearest each window's primary cursor come first, by rows and then
 //!   columns on the screen, and at most [`MAX_LABELLED`] are labelled: the nearest rows' are
 //!   picked first, and only their columns are worked out.
@@ -23,7 +25,7 @@ use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Stage};
 use crate::search::{self, Needle, Query};
 use crate::sum_tree::Bias;
-use crate::window::{Screen, Window, WindowId};
+use crate::window::{Screen, WindowId};
 
 mod cells;
 
@@ -51,12 +53,25 @@ pub enum Chose {
 }
 
 /// A candidate found, before the nearest are picked.
+#[derive(Debug)]
 struct Near {
     /// The window's place among those looked at, and its row's distance from the cursor's.
     key: (usize, usize),
     /// Its column's distance from the cursor's, worked out only for those kept.
     column: usize,
     candidate: Candidate,
+}
+
+/// What finding candidates works in, kept from key to key so that a key allocates nothing
+/// once they have grown.
+#[derive(Debug, Default)]
+pub(super) struct Scratch {
+    found: Vec<Near>,
+    ranges: Vec<Range<usize>>,
+    windows: Vec<WindowId>,
+    /// Each window looked at, by its place among them, and its primary cursor's point.
+    cursors: Vec<(WindowId, DisplayPoint)>,
+    screen: Screen,
 }
 
 impl Editor {
@@ -123,14 +138,12 @@ impl Editor {
         true
     }
 
-    /// Shows a jump's labels: when the time after the last key passed, or at `RET`. With
-    /// nothing to label, the jump ends saying `No candidates`.
+    /// Shows a jump's labels: when the time after the last key passed, or at `RET`. A string
+    /// not begun waits for a key. With nothing to label, the jump ends saying `No candidates`.
     pub fn jump_show_labels(&mut self) {
-        if !self
-            .jump
-            .as_ref()
-            .is_some_and(|jump| jump.stage == Stage::Reading)
-        {
+        if !self.jump.as_ref().is_some_and(|jump| {
+            jump.stage == Stage::Reading && !(jump.kind == Kind::Char && jump.string.is_empty())
+        }) {
             return;
         }
         self.find_candidates();
@@ -264,32 +277,51 @@ impl Editor {
             Kind::Isearch => self.isearch_needle(),
             Kind::LineStart | Kind::LineEnd => None,
         };
-        let windows: Vec<WindowId> = if jump.selected_only {
-            vec![self.tiled_id()]
-        } else {
-            let selected = self.tiled_id();
+        let mut scratch = std::mem::take(&mut self.jump_scratch);
+        let Scratch {
+            found,
+            ranges,
+            windows,
+            cursors,
+            screen,
+        } = &mut scratch;
+        found.clear();
+        windows.clear();
+        cursors.clear();
+        let selected = self.tiled_id();
+        windows.push(selected);
+        if !jump.selected_only {
             let others = self.frame().windows().iter().filter_map(|(id, regions)| {
                 (regions.has_cells() && *id != selected).then_some(*id)
             });
-            std::iter::once(selected).chain(others).collect()
-        };
-        let mut found = Vec::new();
+            windows.extend(others);
+        }
         let mut shown = Vec::with_capacity(windows.len());
-        let mut screen = Screen::default();
         let mut left = JUMP_BUDGET;
-        for (rank, id) in windows.into_iter().enumerate() {
+        for &id in windows.iter() {
             let Some((window, buffer, regions)) = self.window_in_tree(id) else {
                 continue;
             };
             shown.push((id, window.buffer(), buffer.revision()));
-            self.screen_of(id, &mut screen);
+            let display = buffer.display();
+            let cursor = display.offset_to_display_point(window.selections.primary().cursor);
+            let rank = cursors.len();
+            cursors.push((id, cursor));
+            self.screen_of(id, screen);
             let rows = screen.rows().len().min(regions.text.rows);
             let within = (
                 WINDOW_BUDGET.min(left),
                 MAX_FOUND.saturating_sub(found.len()),
             );
-            let place = (rank, window, buffer, &screen, rows);
-            left -= candidates_in(place, jump.kind, needle.as_ref(), within, &mut found);
+            let place = Place {
+                rank,
+                id,
+                buffer,
+                screen,
+                rows,
+                cursor,
+            };
+            left -= candidates_in(&place, (jump.kind, needle.as_ref()), within, found, ranges);
             if left == 0 || found.len() >= MAX_FOUND {
                 break;
             }
@@ -299,26 +331,41 @@ impl Editor {
             found.select_nth_unstable_by_key(MAX_LABELLED, |near| near.key);
             found.truncate(MAX_LABELLED);
         }
-        // The columns of those kept, from each window's primary cursor's.
-        for near in &mut found {
-            if let Some(window) = self.window_by_id(near.candidate.window) {
-                let display = self.shown(window).display();
-                let cursor = display.offset_to_display_point(window.selections.primary().cursor);
-                let point = display.offset_to_display_point(near.candidate.range.start);
-                near.column = point.column.abs_diff(cursor.column);
-            }
-        }
-        found.sort_by_key(|near| (near.key, near.column, near.candidate.range.start));
+        self.place_kept(found, cursors);
+        found.sort_unstable_by_key(|near| (near.key, near.column, near.candidate.range.start));
         let around_secret = self.shows_secret();
         let Some(jump) = &mut self.jump else {
             return;
         };
         jump.candidates.clear();
         jump.candidates
-            .extend(found.into_iter().map(|near| near.candidate));
+            .extend(found.drain(..).map(|near| near.candidate));
         jump.found = total;
         jump.shown = shown;
         jump.around_secret |= around_secret;
+        self.jump_scratch = scratch;
+    }
+}
+
+impl Editor {
+    /// Works out the display points of the candidates `found` kept, and their columns' distance
+    /// from their window's primary cursor's, from `cursors`, each window's by its place.
+    fn place_kept(&self, found: &mut [Near], cursors: &[(WindowId, DisplayPoint)]) {
+        for near in found {
+            let (id, cursor) = cursors[near.key.0];
+            let Some(window) = self.window_by_id(id) else {
+                continue;
+            };
+            let display = self.shown(window).display();
+            let candidate = &mut near.candidate;
+            candidate.start = display.offset_to_display_point(candidate.range.start);
+            candidate.end = if candidate.range.is_empty() {
+                candidate.start
+            } else {
+                display.offset_to_display_point(candidate.range.end)
+            };
+            near.column = candidate.start.column.abs_diff(cursor.column);
+        }
     }
 }
 
@@ -329,33 +376,56 @@ fn string_needle(string: &str) -> Option<Needle> {
 }
 
 /// Where [`candidates_in`] looks: the window's place among those looked at, the window, its
-/// buffer, its rows in view and how many of them its text area shows.
-type Place<'a> = (usize, &'a Window, &'a Buffer, &'a Screen, usize);
+/// buffer, its rows in view, how many of them its text area shows, and its primary cursor's
+/// point.
+struct Place<'a> {
+    rank: usize,
+    id: WindowId,
+    buffer: &'a Buffer,
+    screen: &'a Screen,
+    rows: usize,
+    cursor: DisplayPoint,
+}
+
+/// The rows of `count` from the cursor's row `at` outward: it, then one below and one above,
+/// and so on, so that a budget that runs out leaves out the farthest rows.
+pub(super) fn outward(at: usize, count: usize) -> impl Iterator<Item = usize> {
+    let first = (count > 0).then_some(at.min(count.saturating_sub(1)));
+    let at = first.unwrap_or(0);
+    let rest = (1..count).flat_map(move |step| {
+        let below = Some(at + step).filter(|&row| row < count);
+        [below, at.checked_sub(step)]
+    });
+    first.into_iter().chain(rest.flatten())
+}
 
 /// Adds the candidates of `kind` in a window's rows in view to `found`, reading at most
-/// `budget` bytes and adding at most `most`. Returns about how many bytes it read.
+/// `budget` bytes and adding at most `most`, from the cursor's row outward. Returns about how
+/// many bytes it read. `ranges` is room to work in.
 fn candidates_in(
-    (rank, window, buffer, screen, rows): Place<'_>,
-    kind: Kind,
-    needle: Option<&Needle>,
+    place: &Place<'_>,
+    (kind, needle): (Kind, Option<&Needle>),
     (budget, most): (usize, usize),
     found: &mut Vec<Near>,
+    ranges: &mut Vec<Range<usize>>,
 ) -> usize {
-    let display = buffer.display();
-    let shown = &screen.rows()[..rows];
-    let cursor = display.offset_to_display_point(window.selections.primary().cursor);
-    let cursor_row = screen.row_of(cursor).unwrap_or(0);
+    let display = place.buffer.display();
+    let (screen, text) = (place.screen, place.buffer.text());
+    let shown = &screen.rows()[..place.rows];
+    let cursor_row = screen.row_of(place.cursor).unwrap_or(0);
+    let limit = found.len().saturating_add(most);
     let push = |found: &mut Vec<Near>, range: Range<usize>, index: usize| {
         found.push(Near {
-            key: (rank, index.abs_diff(cursor_row)),
+            key: (place.rank, index.abs_diff(cursor_row)),
             column: 0,
             candidate: Candidate {
-                window: window.id(),
+                window: place.id,
                 range,
+                start: DisplayPoint::default(),
+                end: DisplayPoint::default(),
             },
         });
     };
-    let text = buffer.text();
     match (kind, needle) {
         (Kind::LineStart, _) => {
             for (index, row) in shown.iter().enumerate().take(most) {
@@ -368,51 +438,51 @@ fn candidates_in(
         }
         (Kind::LineEnd, _) => {
             for (index, row) in shown.iter().enumerate().take(most) {
+                // A line's last row, with its end, or the cell after its text, in view.
+                if row.end_column != usize::MAX {
+                    continue;
+                }
                 let end = text.line_end(row.line);
                 let column = display.offset_to_display_point(end).column;
-                // A line's last row, with its end, or the cell after its text, in view.
-                if row.end_column == usize::MAX && screen.drawn(row).contains(&column) {
+                if screen.drawn(row).contains(&column) {
                     push(found, end..end, index);
                 }
             }
             0
         }
         (_, Some(needle)) => {
-            let mut spans: Vec<Range<usize>> = Vec::new();
-            // Where each row's columns in view end: a match must start before, though it may
-            // reach past.
-            let mut ends = Vec::with_capacity(shown.len());
-            let reach = needle.reach();
-            for row in shown {
+            let (reach, invalid) = (needle.reach(), place.buffer.invalid_bytes());
+            let mut left = budget;
+            for index in outward(cursor_row, shown.len()) {
+                if left == 0 || found.len() >= limit {
+                    break;
+                }
+                let row = &shown[index];
                 let offset = |column| {
                     display.display_point_to_offset(DisplayPoint::new(row.line, column), Bias::Left)
                 };
                 let drawn = screen.drawn(row);
+                // A match must start within the row's columns in view, though it may reach
+                // past them.
                 let (start, end) = (offset(drawn.start), offset(drawn.end));
-                ends.push(end);
-                let end = end.saturating_add(reach).min(text.len());
-                match spans.last_mut() {
-                    Some(last) if start <= last.end => last.end = last.end.max(end),
-                    _ => spans.push(start..end),
+                let span = start..end.saturating_add(reach).min(text.len());
+                let len = span.len();
+                ranges.clear();
+                let most = limit - found.len();
+                needle.matches_in(
+                    (text, invalid),
+                    std::slice::from_ref(&span),
+                    (most, left),
+                    ranges,
+                );
+                for range in ranges.drain(..) {
+                    if range.start < end {
+                        push(found, range, index);
+                    }
                 }
+                left = left.saturating_sub(len.max(1));
             }
-            let mut ranges = Vec::new();
-            let invalid = buffer.invalid_bytes();
-            needle.matches_in((text, invalid), &spans, (most, budget), &mut ranges);
-            // Each match's row, found by its start among the rows', which are in order.
-            for range in ranges {
-                let index = shown
-                    .partition_point(|row| row.start <= range.start)
-                    .saturating_sub(1);
-                if range.start < ends[index] {
-                    push(found, range, index);
-                }
-            }
-            spans
-                .iter()
-                .map(|span| span.end - span.start)
-                .sum::<usize>()
-                .min(budget)
+            budget - left
         }
         (_, None) => 0,
     }

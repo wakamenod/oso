@@ -138,7 +138,14 @@ pub fn region_cells(
     }
     // While the regions show, none overlap, so their ends are in order too.
     let (rows, all) = (0..screen.rows().len(), selections.as_slice());
-    range_cells((text, screen, display), rows, all, Selection::range, out);
+    let ends = |item: &Selection| converted(display, item.range());
+    range_cells(
+        (text, screen, display),
+        rows,
+        all,
+        (Selection::range, ends),
+        out,
+    );
 }
 
 /// The cells of `ranges`, which are in order and do not overlap, in a window as
@@ -152,7 +159,37 @@ pub fn match_cells(
     out: &mut Vec<CellRect>,
 ) {
     let rows = 0..screen.rows().len();
-    range_cells((text, screen, display), rows, ranges, Range::clone, out);
+    let ends = |range: &Range<usize>| converted(display, range.clone());
+    range_cells(
+        (text, screen, display),
+        rows,
+        ranges,
+        (Range::clone, ends),
+        out,
+    );
+}
+
+/// [`match_cells`] for ranges whose ends' display points are known already, as a jump's
+/// matches keep them: a frame converts none.
+pub(crate) fn match_cells_at(
+    text: CellRect,
+    screen: &Screen,
+    display: &DisplaySnapshot,
+    ranges: &[(Range<usize>, DisplayPoint, DisplayPoint)],
+    out: &mut Vec<CellRect>,
+) {
+    let rows = 0..screen.rows().len();
+    let range = |item: &(Range<usize>, _, _)| item.0.clone();
+    let ends = |&(_, start, end): &(_, DisplayPoint, DisplayPoint)| (start, end);
+    range_cells((text, screen, display), rows, ranges, (range, ends), out);
+}
+
+/// The display points of `range`'s ends.
+fn converted(display: &DisplaySnapshot, range: Range<usize>) -> (DisplayPoint, DisplayPoint) {
+    (
+        display.offset_to_display_point(range.start),
+        display.offset_to_display_point(range.end),
+    )
 }
 
 /// [`match_cells`] on the screen's row `row` alone, for a range known to end there, as a line's
@@ -165,23 +202,27 @@ pub(crate) fn match_cells_on_row(
     out: &mut Vec<CellRect>,
 ) {
     let one = std::slice::from_ref(range);
+    let ends = |range: &Range<usize>| converted(display, range.clone());
     range_cells(
         (text, screen, display),
         row..row + 1,
         one,
-        Range::clone,
+        (Range::clone, ends),
         out,
     );
 }
 
 /// The cells of `items`' ranges, in order and none overlapping, on the screen's rows `rows`,
-/// into `out`, as [`region_cells`] says. A range's ends are converted once, however many rows
-/// it spans.
+/// into `out`, as [`region_cells`] says. A range's ends' display points, from `ends_of`, are
+/// asked for once, however many rows it spans.
 fn range_cells<T>(
     (text, screen, display): (CellRect, &Screen, &DisplaySnapshot),
     rows: Range<usize>,
     all: &[T],
-    range_of: impl Fn(&T) -> Range<usize>,
+    (range_of, ends_of): (
+        impl Fn(&T) -> Range<usize>,
+        impl Fn(&T) -> (DisplayPoint, DisplayPoint),
+    ),
     out: &mut Vec<CellRect>,
 ) {
     let mut first = 0;
@@ -202,8 +243,8 @@ fn range_cells<T>(
             let (start, end) = match ends {
                 Some((cached, start, end)) if cached == at => (start, end),
                 _ => {
-                    let start = pushed(screen, display.offset_to_display_point(range.start), true);
-                    let end = pushed(screen, display.offset_to_display_point(range.end), false);
+                    let (start, end) = ends_of(item);
+                    let (start, end) = (pushed(screen, start, true), pushed(screen, end, false));
                     ends = Some((at, start, end));
                     (start, end)
                 }

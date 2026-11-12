@@ -130,6 +130,17 @@ fn nothing_to_label_ends_the_jump() {
 }
 
 #[test]
+fn a_string_not_begun_waits_for_a_key() {
+    let mut editor = editor("abc\n");
+    assert!(editor.jump_begin(Kind::Char, false));
+    editor.jump_show_labels();
+    assert_eq!(editor.jump().map(|jump| jump.stage()), Some(Stage::Reading));
+    editor.jump_add("b");
+    editor.jump_show_labels();
+    assert_eq!(editor.jump().map(|jump| jump.stage()), Some(Stage::Labels));
+}
+
+#[test]
 fn a_line_jump_labels_each_line_in_view_at_once() {
     let text: String = (0..30).map(|i| format!("line {i}\n")).collect();
     let mut editor = editor(&text);
@@ -326,4 +337,17 @@ fn around_a_secret_the_jump_says_so_and_debug_holds_no_string() {
     let jump = editor.jump().unwrap();
     assert!(jump.around_secret());
     assert!(!format!("{jump:?}").contains("hunter2"));
+}
+
+#[test]
+fn rows_are_looked_at_from_the_cursors_outward_so_a_budget_leaves_out_the_farthest() {
+    let order = |at, count| super::jump::outward(at, count).collect::<Vec<_>>();
+    assert_eq!(order(2, 5), [2, 3, 1, 4, 0]);
+    assert_eq!(order(0, 3), [0, 1, 2]);
+    assert_eq!(
+        order(4, 3),
+        [2, 1, 0],
+        "a cursor below the rows starts at the last"
+    );
+    assert_eq!(order(0, 0), Vec::<usize>::new());
 }

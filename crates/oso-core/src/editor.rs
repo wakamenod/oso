@@ -237,6 +237,8 @@ pub struct Editor {
     /// The jump under way, and the keys its labels are typed with (ADR 0116).
     jump: Option<crate::jump::Jump>,
     jump_keys: crate::jump::Keys,
+    /// Room a jump finds its candidates in, kept from key to key.
+    jump_scratch: jump::Scratch,
     /// The generation of the search job that may run, which a worker checks to stop.
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
@@ -329,6 +331,7 @@ impl Editor {
             isearch: None,
             jump: None,
             jump_keys: crate::jump::Keys::default(),
+            jump_scratch: jump::Scratch::default(),
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
             marking: None,

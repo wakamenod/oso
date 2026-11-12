@@ -14,6 +14,7 @@ use std::fmt::{self, Write};
 use std::ops::Range;
 
 use crate::buffer::BufferId;
+use crate::display_map::DisplayPoint;
 use crate::window::WindowId;
 
 /// The fewest keys labels can be typed with.
@@ -241,11 +242,14 @@ fn subdivide(count: usize, keys: usize) -> Vec<usize> {
 }
 
 /// A place a jump can go: in a window, a range of its buffer's text, whose start is the
-/// target.
+/// target, and its ends' display points, worked out once when it was found, so that a frame
+/// converts none.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Candidate {
     pub(crate) window: WindowId,
     pub(crate) range: Range<usize>,
+    pub(crate) start: DisplayPoint,
+    pub(crate) end: DisplayPoint,
 }
 
 /// A jump under way. It reads its keys in place of every other keymap, and ends at a label,
