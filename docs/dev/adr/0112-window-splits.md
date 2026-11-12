@@ -375,10 +375,12 @@ file or a 10 MB line.
   moving and typing in the left one (`win4_key_p99_ms`, `win4_type_p99_ms`). Then sixteen on
   the file, four columns of four, the same keys (`win16_key_p99_ms`, `win16_type_p99_ms`) and
   the `o` of `C-x o` round them (`win16_other_p99_ms`). All are reported only, until the
-  author sets thresholds from the numbers.
-  - The first numbers, from `just perf-remote` on the benchmark Mac: with four windows moving
-    3.1 ms and typing 3.8 ms at p99, with sixteen 3.7 ms and 4.9 ms, against 2.7 ms and
-    3.0 ms with one.
+  author sets thresholds from the numbers. Sixteen windows take half the keys four do, 200
+  keys and 96 `C-x o` in a full run, so that the phase adds about four minutes to it
+  (the author's choice, 2026-11-12).
+  - The first numbers, from `just perf-remote` on the benchmark Mac, before the keys were
+    halved: with four windows moving 3.1 ms and typing 3.8 ms at p99, with sixteen 3.7 ms and
+    4.9 ms, against 2.7 ms and 3.0 ms with one.
   - **A known gap:** `C-x o` among sixteen takes 18.9 ms at p99, past the 8 ms budget, and
     main before this step measures the same. `select_window` lays nothing out for a window
     with cells, so the time is in the frame drawn after it; where in it is not measured yet,

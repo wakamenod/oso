@@ -71,7 +71,9 @@ pub(super) fn windows(
     Ok(())
 }
 
-/// One run's p99s, in the order [`windows`] names them.
+/// One run's p99s, in the order [`windows`] names them: `count` keys each with four windows,
+/// and half as many with sixteen, so that the phase adds about four minutes to a full run
+/// (the author's choice, 2026-11-12).
 fn four_then_sixteen(
     app: &mut App,
     line: &Path,
@@ -82,8 +84,9 @@ fn four_then_sixteen(
     four_windows(app, line, mixed)?;
     let (key4, type4) = keys_and_typing(app, count, rng)?;
     sixteen_windows(app, mixed)?;
-    let (key16, type16) = keys_and_typing(app, count, rng)?;
-    let other16 = other_window(app, count / 2, rng)?;
+    let half = count / 2;
+    let (key16, type16) = keys_and_typing(app, half, rng)?;
+    let other16 = other_window(app, half / 2, rng)?;
     Ok([key4, type4, key16, type16, other16])
 }
 
