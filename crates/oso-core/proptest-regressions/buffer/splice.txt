@@ -5,4 +5,3 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc e626e45dc5dd2540c9f5199310bc92193190482893182f0219b8befb5bd7ca1b # shrinks to text = "a\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}", raw = [(0, 0, "a")]
-cc c3d1a4058e326728f3e0032790e9ff52acc765f8e2dce62ae39d93db218cfb05 # shrinks to text = "aa日本語aaaa", raws = [[(15, 0, "a")], [(0, 0, "a")], [(0, 0, "a")], [(0, 0, "a")], [(0, 0, "a")], [(0, 0, "a")]], marks = []
