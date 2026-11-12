@@ -8,6 +8,7 @@ use proptest::prelude::*;
 use super::*;
 use crate::display_map::{DisplayMap, TabWidth};
 use crate::rope::Rope;
+use std::ops::Range;
 
 fn display(text: &str) -> DisplaySnapshot {
     DisplayMap::new(&Rope::from(text), TabWidth::new(4)).snapshot()
@@ -367,4 +368,60 @@ fn a_spent_edit_at_the_end_keeps_the_empty_last_line() {
 #[test]
 fn a_spent_empty_edit_inside_a_line_break_keeps_the_rows_tiled() {
     spent_edit("ab\n\r\n", (4, 4, ""), 9);
+}
+
+/// The rows of a wrap, as [`shape`] gives them.
+type Shape = Vec<(usize, usize, bool)>;
+
+/// The rows of `text` edited by replacing `range` with `insert`, as an edit whose rebuilt
+/// chunks start right at it gives them, and as a wrap from scratch does.
+fn edited_at(text: &str, (range, insert): (Range<usize>, &str), columns: usize) -> (Shape, Shape) {
+    let mut rope = Rope::from(text);
+    let mut map = DisplayMap::new(&rope, TabWidth::new(4));
+    let before = map.snapshot();
+    let wrap = WrapSnapshot::new(&before, columns);
+    let real = rope.replace(range.clone(), insert);
+    map.sync(&rope, &real);
+    let after = map.snapshot();
+    let edit = crate::rope::RopeEdit {
+        old: range.clone(),
+        new: range.start..range.start + insert.len(),
+    };
+    let edited = wrap.edited(&before, &after, &edit);
+    let fresh = WrapSnapshot::new(&after, columns);
+    (shape(&edited, &after), shape(&fresh, &after))
+}
+
+#[test]
+fn an_edit_that_makes_a_break_lets_an_earlier_short_row_reach_it() {
+    // "aa" broke early, as nothing after it could; a "b" before the last "。" may start a
+    // row after the spaces, the last of which hangs, so "aa" takes the row after it too.
+    let text = "aaあ。。  。";
+    let at = text.len() - "。".len();
+    let (edited, fresh) = edited_at(text, (at..at, "b"), 10);
+    assert_eq!(edited, fresh);
+    assert_eq!(fresh, [(0, 0, true), (at, 0, false)]);
+    // Deleting the "。" that kept the spaces from ending a row.
+    let text = "ああ。。  。 あ\n";
+    let (edited, fresh) = edited_at(text, (14..17, ""), 10);
+    assert_eq!(edited, fresh);
+}
+
+proptest! {
+    /// After an edit at any offset, not only a rebuilt chunk's start, the rows are those a
+    /// wrap from scratch gives. The text has no combining marks, so no cluster crosses the
+    /// edit's start.
+    #[test]
+    fn an_edit_anywhere_rewraps_as_a_wrap_from_scratch(
+        text in "[a あ。\n]{0,40}",
+        insert in "[b い」]{0,4}",
+        start in 0_usize..200,
+        len in 0_usize..8,
+        columns in 4_usize..16,
+    ) {
+        let start = crate::rope::tests::floor_boundary(&text, start);
+        let end = crate::rope::tests::floor_boundary(&text, start + len);
+        let (edited, fresh) = edited_at(&text, (start..end, &insert), columns);
+        prop_assert_eq!(edited, fresh);
+    }
 }
