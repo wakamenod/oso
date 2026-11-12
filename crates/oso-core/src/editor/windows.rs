@@ -11,7 +11,7 @@
 use std::fmt;
 
 use super::Editor;
-use crate::frame::{Side, Splits, TooSmall, Way};
+use crate::frame::{BadTiling, Side, Splits, Tiling, TooSmall, Way};
 use crate::window::WindowId;
 
 /// `delete-window` refused: the window is the only one.
@@ -283,6 +283,46 @@ impl Editor {
         }
         self.lay_out(self.frame.size());
         Ok(())
+    }
+
+    /// The tiled windows' tree as data, with each child's weight, its windows in the tree's
+    /// order, as a restart hands it over (ADR 0112).
+    pub fn tiling(&self) -> Tiling {
+        self.splits.tiling()
+    }
+
+    /// Lays a frame of one window out as `tiling` says, as a restart takes it over: the window
+    /// is the first in the tree's order, and each other one is split off it, showing its buffer
+    /// with its primary cursor, for the caller to show what it shows. Returns the windows in the
+    /// tree's order.
+    ///
+    /// # Errors
+    ///
+    /// [`BadTiling`] with more than one window or a prompt open, or a tiling the tree cannot
+    /// keep. Nothing changes.
+    pub fn set_tiling(&mut self, tiling: &Tiling) -> Result<Vec<WindowId>, BadTiling> {
+        if !self.prompts.is_empty() || self.splits.iter().nth(1).is_some() {
+            return Err(BadTiling::Split);
+        }
+        let first = self.tiled_id();
+        let mut next = self.next_window;
+        let (splits, ids) = Splits::from_tiling(tiling, first, &mut next)?;
+        self.isearch_exit();
+        self.next_window = next;
+        self.splits = splits;
+        let at = self.tiled_index();
+        for id in ids.iter().skip(1) {
+            let mut window = self.windows[at].split_off(*id);
+            // Its wrap spends from the command's one budget, not one of its own.
+            if let Some(wrap) = window.wrap_map_mut() {
+                wrap.take_budget();
+            }
+            let count = self.tiled_count();
+            self.windows.insert(count, window);
+            self.recent.push(*id);
+        }
+        self.lay_out(self.frame.size());
+        Ok(ids)
     }
 
     /// Gives every child of every run of the tree the same weight, as `C-x +` does. Returns

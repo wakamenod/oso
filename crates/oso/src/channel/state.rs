@@ -37,7 +37,6 @@ pub const MAX_BUFFERS: usize = 100;
 pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
     let shows_secret = editor.shows_secret();
     let (window, buffer) = editor.tiled();
-    let tiled = editor.windows().len() - editor.prompts().len();
     let mut state = json!({
         "version": STATE_VERSION,
         // A buffer the channel is still opening is not there yet for the agent: its open
@@ -52,10 +51,11 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
         "buffer_offset": buffer_offset,
         "buffer_count": editor.buffers().filter(|(_, b)| !b.agent_pending()).count(),
         "windows": editor
+            .frame()
             .windows()
-            .take(tiled)
-            .enumerate()
-            .map(|(index, window)| window_state(editor, window, index))
+            .iter()
+            .filter_map(|(id, regions)| Some((editor.window_by_id(*id)?, regions)))
+            .map(|(window, regions)| window_state(editor, window, regions))
             .collect::<Vec<_>>(),
         "text": (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &buffer.display())),
         "prompts": editor.prompts().iter().map(|prompt| {
@@ -100,12 +100,28 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     })
 }
 
-/// A window, with its positions only if what it shows may hold no secrets.
-fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
+/// A tiled window, in the tree's order (ADR 0112): its id, its cells, gutter, text and
+/// modeline together, so that a secret buffer's gutter says nothing of its lines (ADR 0097),
+/// and its positions only if what it shows may hold no secrets. The selected one is the
+/// selected tiled window, also beneath a prompt. New fields keep the state's version 1
+/// (ADR 0085).
+fn window_state(
+    editor: &Editor,
+    window: &Window,
+    regions: &oso_core::frame::WindowRegions,
+) -> Value {
     let shown = editor.shown(window);
+    let area = regions.area();
     let mut state = json!({
+        "id": window.id().get(),
+        "area": {
+            "row": area.row,
+            "column": area.column,
+            "rows": area.rows + regions.modeline.rows,
+            "columns": area.columns,
+        },
         "buffer": window.buffer().get(),
-        "selected": index == editor.selected_window(),
+        "selected": window.id() == editor.tiled().0.id(),
     });
     if !shown.is_secret() {
         let display = shown.display();
@@ -277,6 +293,57 @@ mod tests {
         for left_out in ["kill_ring", "keys", "ime", "modeline", "surface"] {
             assert!(state.get(left_out).is_none(), "{left_out}");
         }
+    }
+
+    #[test]
+    fn split_windows_come_in_the_trees_order_with_their_ids_and_cells_and_version_1() {
+        let lines = |n: usize| "x\n".repeat(n);
+        let shown = |n: usize| {
+            let path = PathBuf::from("/tmp/.env");
+            let mut secret = Buffer::visiting(path.clone());
+            secret.apply_load(oso_core::load::decode_all(
+                lines(n).as_bytes(),
+                oso_core::display_map::TabWidth::default(),
+            ));
+            secret.judge_secret(Some(&[path]));
+            let mut editor = editor("one\ntwo");
+            editor.set_frame_size(oso_core::frame::FrameSize {
+                rows: 20,
+                columns: 41,
+            });
+            editor.set_visual_aids(oso_core::editor::VisualAids {
+                line_numbers: true,
+                ..oso_core::editor::VisualAids::default()
+            });
+            editor
+                .split_window(oso_core::frame::Way::Across, false)
+                .unwrap();
+            let secret = editor.add_buffer(secret);
+            editor.show(secret);
+            editor.other_window(1);
+            state(&editor, 0)
+        };
+        let state = shown(3);
+        assert_eq!(state["version"], 1, "new fields keep the version");
+        let windows = state["windows"].as_array().unwrap();
+        assert_eq!(windows.len(), 2);
+        assert_eq!(
+            (windows[0]["id"].clone(), windows[1]["id"].clone()),
+            (json!(0), json!(1))
+        );
+        assert_eq!(windows[0]["selected"], false, "the secret one, at the left");
+        assert_eq!(windows[1]["selected"], true);
+        assert_eq!(
+            windows[0]["area"],
+            json!({ "row": 0, "column": 0, "rows": 19, "columns": 20 })
+        );
+        assert_eq!(windows[1]["area"]["column"], 21, "past the divider");
+        for withheld in ["first_row", "selections", "selection_count", "region"] {
+            assert!(windows[0].get(withheld).is_none(), "{withheld}");
+            assert!(windows[1].get(withheld).is_some(), "{withheld}");
+        }
+        // Its cells say nothing of how many lines it has.
+        assert_eq!(shown(2000)["windows"][0]["area"], windows[0]["area"]);
     }
 
     #[test]
