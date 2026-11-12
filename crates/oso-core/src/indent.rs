@@ -14,12 +14,15 @@
 
 mod fundamental;
 mod markdown;
+mod origin;
 mod pass;
 mod rust;
 mod toml;
 
 use crate::display_map::TabWidth;
 use crate::rope::Rope;
+
+pub use origin::{Origin, Origins, with_editorconfig};
 
 /// How far back from a line its rules may start reading, in bytes: an anchor farther away
 /// is not looked for (ADR 0115, as built).
