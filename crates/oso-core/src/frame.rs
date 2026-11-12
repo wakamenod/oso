@@ -168,6 +168,9 @@ pub struct FrameLayout {
     size: FrameSize,
     /// Each window's regions, in the tree's order.
     windows: Vec<(WindowId, WindowRegions)>,
+    /// Each window's place in `windows`, by its id, for a lookup in O(log n) that a frame of
+    /// many windows makes per window (ADR 0112).
+    by_id: Vec<(WindowId, usize)>,
     pub echo: CellRect,
 }
 
@@ -185,9 +188,13 @@ impl FrameLayout {
 
     /// `window`'s regions, if it is a tiled window of this layout.
     pub fn regions(&self, window: WindowId) -> Option<&WindowRegions> {
+        let at = self
+            .by_id
+            .binary_search_by_key(&window, |(id, _)| *id)
+            .ok()?;
         self.windows
-            .iter()
-            .find_map(|(id, regions)| (*id == window).then_some(regions))
+            .get(self.by_id[at].1)
+            .map(|(_, regions)| regions)
     }
 
     /// Where floats go: the tiled area but the modelines on its bottom row, so they centre
@@ -274,6 +281,7 @@ pub(crate) fn layout(
     let mut frame = FrameLayout {
         size,
         windows: Vec::new(),
+        by_id: Vec::new(),
         echo: CellRect::EMPTY,
     };
     layout_into(&mut frame, size, splits, keep, gutter);
@@ -300,6 +308,10 @@ pub(crate) fn layout_into(
     frame.echo = rows(tiled_rows, echo_rows);
     frame.windows.clear();
     splits.lay_out(rows(0, tiled_rows), keep, &gutter, &mut frame.windows);
+    frame.by_id.clear();
+    let places = frame.windows.iter().enumerate();
+    frame.by_id.extend(places.map(|(at, (id, _))| (*id, at)));
+    frame.by_id.sort_unstable();
 }
 
 /// A rectangle on the surface, in physical pixels.

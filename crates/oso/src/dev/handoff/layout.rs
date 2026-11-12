@@ -12,9 +12,10 @@ use serde_json::{Map, Value, json};
 
 use super::format::{array, parse_selections, size};
 
-/// The most windows a state may hand over: what a frame of 400 by 120 cells holds at the
-/// smallest window, with room to spare (ADR 0112).
-pub const MAX_WINDOWS: usize = 4096;
+/// The most windows a state may hand over (ADR 0112): far more than a person works in, and
+/// few enough that a new instance takes them in milliseconds. A frame split into more holds
+/// the restart back.
+pub const MAX_WINDOWS: usize = 256;
 
 /// A window the state hands over.
 #[derive(Debug, Clone, PartialEq, Eq)]

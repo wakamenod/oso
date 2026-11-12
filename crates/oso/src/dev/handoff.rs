@@ -53,6 +53,7 @@ use carry::{Exported, Item, MAX_CARRIED};
 use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
 use format::{MAX_HISTORIES, MAX_HISTORY_NAME, MAX_KILL_PIECES, facts_state, selections_state};
 pub use format::{MAX_ITEMS, State, parse};
+use layout::MAX_WINDOWS;
 pub use layout::Windows;
 pub use restore::Restore;
 
@@ -421,7 +422,7 @@ pub fn check(editor: &Editor) -> Reply {
 }
 
 /// What holds a handover back whatever the buffers hold: a prompt, a search, or windows
-/// split deeper than a state may say.
+/// split deeper or into more than a state may say.
 fn held(editor: &Editor) -> Result<(), String> {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
@@ -429,8 +430,12 @@ fn held(editor: &Editor) -> Result<(), String> {
     if editor.isearch().is_some() || editor.replace().is_some() {
         return Err(SEARCHING.into());
     }
-    if editor.tiling().depth() > Tiling::MAX_DEPTH {
+    let tiling = editor.tiling();
+    if tiling.depth() > Tiling::MAX_DEPTH {
         return Err(NESTED.into());
+    }
+    if tiling.windows() > MAX_WINDOWS {
+        return Err(MANY.into());
     }
     Ok(())
 }
@@ -438,6 +443,10 @@ fn held(editor: &Editor) -> Result<(), String> {
 /// Why a restart waits while windows are split inside each other deeper than a state keeps:
 /// deleting some lets it go (ADR 0112).
 const NESTED: &str = "cannot hand over: the windows are split more than 16 deep";
+
+/// Why a restart waits while the frame has more windows than a state keeps: deleting some
+/// lets it go (ADR 0112).
+const MANY: &str = "cannot hand over: the frame has more than 256 windows";
 
 /// Why a restart waits for a composition to end: its text is in no buffer, so a new
 /// instance would lose it (ADR 0069).

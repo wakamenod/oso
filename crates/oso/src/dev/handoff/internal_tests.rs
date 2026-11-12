@@ -317,6 +317,26 @@ fn windows_split_deeper_than_a_state_keeps_hold_the_handover_with_a_reason() {
 }
 
 #[test]
+fn more_windows_than_a_state_keeps_hold_the_handover_with_a_reason() {
+    let mut editor = scratch_with("many\n");
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 40,
+        columns: 4000,
+    });
+    let children = (0..257).map(|_| (1, oso_core::frame::Tiling::Window));
+    let tiling = oso_core::frame::Tiling::Run {
+        way: oso_core::frame::Way::Across,
+        children: children.collect(),
+    };
+    assert_eq!(editor.set_tiling(&tiling).unwrap().len(), 257);
+    let refused = "cannot hand over: the frame has more than 256 windows";
+    assert_eq!(check(&editor), Err(refused.into()));
+    assert_eq!(export(&editor, &[], None, None), Err(refused.into()));
+    editor.delete_window().unwrap();
+    assert!(check(&editor).is_ok());
+}
+
+#[test]
 fn positions_wait_in_a_window_not_selected_without_selecting_it_and_go_once_it_moves() {
     let mut editor = scratch_with(&"line\n".repeat(50));
     editor.set_frame_size(oso_core::frame::FrameSize {
@@ -355,4 +375,34 @@ fn positions_wait_in_a_window_not_selected_without_selecting_it_and_go_once_it_m
     assert!(late.try_apply(&mut editor), "over: dropped");
     let window = editor.window_by_id(other).unwrap();
     assert_eq!(window.selections.primary().cursor, 25);
+}
+
+#[test]
+fn positions_wait_behind_another_buffer_only_while_the_place_kept_there_is_untouched() {
+    let waiting = |editor: &Editor| Restore {
+        window: editor.window().id(),
+        buffer: editor.window().buffer(),
+        selections: SelectionSet::new(25),
+        scroll: Scroll { start: 10, left: 0 },
+        top_is_row: false,
+        untouched: Some((editor.window().selections.clone(), editor.window().scroll())),
+    };
+    // Gone to another buffer untouched: the place kept for this one takes them.
+    let mut editor = scratch_with(&"line\n".repeat(50));
+    let restore = waiting(&editor);
+    editor.toggle_messages();
+    assert!(restore.stands(&editor));
+    assert!(restore.try_apply(&mut editor));
+    editor.toggle_messages();
+    assert_eq!(editor.window().selections.primary().cursor, 25);
+
+    // Moved by a person, then gone to another buffer: where they left it stays.
+    let mut editor = scratch_with(&"line\n".repeat(50));
+    let restore = waiting(&editor);
+    editor.restore_positions(SelectionSet::new(5), Scroll::default());
+    editor.toggle_messages();
+    assert!(!restore.stands(&editor));
+    assert!(restore.try_apply(&mut editor), "over: dropped");
+    editor.toggle_messages();
+    assert_eq!(editor.window().selections.primary().cursor, 5);
 }

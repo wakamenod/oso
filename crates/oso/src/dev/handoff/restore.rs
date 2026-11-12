@@ -38,16 +38,25 @@ fn clip(display: &DisplaySnapshot, offset: usize) -> usize {
 }
 
 impl Restore {
-    /// Whether the window still is where it was when the positions began to wait, or shows
-    /// another buffer, whose place it keeps for this one: whether the positions still stand.
+    /// Whether the window is still where it was in the buffer when the positions began to wait:
+    /// it shows it there, or has gone to another buffer and keeps that place for this one, so
+    /// that a person's movement there, before or after, is never undone. Whether the positions
+    /// still stand.
     pub fn stands(&self, editor: &Editor) -> bool {
         let Some(window) = editor.window_by_id(self.window) else {
             return false;
         };
-        window.buffer() != self.buffer
-            || self.untouched.as_ref().is_none_or(|(selections, scroll)| {
-                window.selections == *selections && window.scroll() == *scroll
-            })
+        let (selections, scroll) = if window.buffer() == self.buffer {
+            (&window.selections, window.scroll())
+        } else {
+            match window.places().find(|(buffer, _)| *buffer == self.buffer) {
+                Some((_, place)) => (&place.selections, place.scroll),
+                None => return false,
+            }
+        };
+        self.untouched
+            .as_ref()
+            .is_none_or(|(untouched, top)| selections == untouched && scroll == *top)
     }
 
     /// Moves the window to the positions if the buffer holds them by now, or, if the

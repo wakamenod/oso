@@ -334,11 +334,15 @@ file or a 10 MB line.
     than the new instance's frame can show comes back as one window. Each window is shown and
     its positions put back where it is (`Editor::show_in`, `restore_positions_in`,
     `restore_kept_place_in`), none selected but the selected one, also once its file has
-    loaded; positions still waiting are dropped once a person moves that window.
+    loaded; positions still waiting are dropped once a person moves that window, there or in
+    the place it keeps for the buffer after going to another.
     `Editor::place_behind_internal_of()` gives each window's way back, in place of the
     selected window's alone.
-  - A restart waits while windows are split more than 16 deep, which a state cannot say, with
-    that reason.
+  - A state holds at most 256 windows. Taking 256 back costs about 20 ms in a release build,
+    with line numbers on and each window's gutter changing. A frame looks a window's regions
+    up by its id in O(log n).
+  - A restart waits, with that reason, while windows are split more than 16 deep, or into more
+    than 256, which a state cannot say.
 - **The modelines' colours (the author's choice, 2026-11-12):** the selected window's
   modeline is blue, far apart from the others', as Emacs's mode-line is from
   mode-line-inactive. Dark: `#2c3f6e` with white text, the others `#15171e` with `#8e95ad`;
