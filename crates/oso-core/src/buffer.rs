@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 use crate::decode::{FileInfo, InvalidBytes};
 use crate::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
+use crate::indent::Settings;
 use crate::load::{self, LoadSnapshot, Progress};
 use crate::rope::Rope;
 use crate::secret;
@@ -166,6 +167,8 @@ pub struct Buffer {
     no_history: bool,
     /// Which keys it takes.
     mode: Mode,
+    /// How its lines are indented; the tab width is the display map's (ADR 0115).
+    indent: Settings,
     /// Counts the times a mode was set, the same one too (ADR 0111).
     mode_revision: u64,
     /// An emergency copy of its file waits for an answer.
@@ -236,6 +239,7 @@ impl Buffer {
             takes_typing: false,
             no_history: false,
             mode: Mode::Fundamental,
+            indent: Settings::default(),
             mode_revision: 0,
             copy_waits: false,
             own_spelling: None,
@@ -450,6 +454,24 @@ impl Buffer {
     /// How many cells apart the tab stops are.
     pub fn tab_width(&self) -> TabWidth {
         self.display.tab_width()
+    }
+
+    /// How its lines are indented, with the tab width it is shown with, which is the one
+    /// tab width a buffer has (ADR 0115).
+    pub fn indent_settings(&self) -> Settings {
+        let (size, style) = (self.indent.indent_size(), self.indent.style());
+        let width = self.tab_width().get();
+        u32::try_from(size)
+            .ok()
+            .and_then(|size| Settings::new(size, style, width))
+            .unwrap_or(self.indent)
+    }
+
+    /// Sets how deep a level of its indentation is and what it is made of. Its tab width
+    /// stays the one it was loaded with, which the loader builds the display map with, so
+    /// that no window's layout goes stale.
+    pub fn set_indent_settings(&mut self, settings: Settings) {
+        self.indent = settings;
     }
 
     /// The BOM and line ending of the file, and whether it is binary.

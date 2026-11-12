@@ -16,6 +16,7 @@ mod cursors;
 mod dev_tools;
 mod edit;
 mod files;
+mod indent;
 mod isearch;
 mod kill;
 mod macros;
@@ -41,6 +42,26 @@ pub(crate) use messages::kept_messages;
 use oso_core::command::{Command, CommandError, Ctx, Registry};
 use oso_core::motion::{TOO_MUCH, WalkBudget};
 
+/// The most text one command inserts across all cursors, so that a count cannot
+/// run the process out of memory, which aborts it with no emergency save
+/// (ADR 0051). It takes about 40 ms to insert, which is no freeze.
+pub(super) const MAX_INSERT: usize = 16 * 1024 * 1024;
+
+/// Whether a minor mode is on after a command given `args`, as Emacs's minor modes read their
+/// argument: none toggles from `was`, a positive one turns it on and zero or a negative one off.
+pub(super) fn minor_mode_on(args: oso_core::command::Args, was: bool) -> bool {
+    match args.raw() {
+        None => !was,
+        Some(_) => args.count() > 0,
+    }
+}
+
+/// What a minor mode's command says: that `mode` is now on or off.
+pub(super) fn minor_mode_said(mode: &str, on: bool) -> String {
+    let state = if on { "enabled" } else { "disabled" };
+    format!("{mode} mode {state}")
+}
+
 /// Every feature's commands. A new feature adds a module and one line here, in
 /// alphabetical order and never joined with another, so that features added at
 /// the same time rarely touch the same line. This is only the order they
@@ -55,6 +76,7 @@ const TABLES: &[&[Command]] = &[
     dev_tools::COMMANDS,
     edit::COMMANDS,
     files::COMMANDS,
+    indent::COMMANDS,
     isearch::COMMANDS,
     kill::COMMANDS,
     macros::COMMANDS,
@@ -260,6 +282,7 @@ mod tests {
         "isearch-mark-all",
         "isearch-mark-next",
         "isearch-mark-previous",
+        "isearch-newline",
         "isearch-printing-char",
         "isearch-repeat-backward",
         "isearch-repeat-forward",

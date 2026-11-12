@@ -120,12 +120,12 @@ mod tests {
             message: "wrong".to_owned(),
         };
         Report::Read {
-            loaded: Loaded {
+            loaded: Box::new(Loaded {
                 keys,
                 settings: Settings::default(),
                 problems: (1..=problems).map(problem).collect(),
                 more,
-            },
+            }),
             group_writes,
         }
     }

@@ -50,15 +50,19 @@ impl App {
     ) -> Option<BufferId> {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
-        let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
+        let visiting = Buffer::visiting(path.clone());
+        // The mode's tab width, which the loader builds the display map with; adding the
+        // buffer gives it the mode's indent size and style (ADR 0115).
+        let tab_width = self.editor.mode_indent(visiting.mode()).tab_width();
+        let buffer = self.editor.add_buffer(visiting);
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
         let wake = move |buffer| waker.send(UserEvent::Load(buffer));
         let spawned = if for_agent {
-            loader::spawn_one_name(buffer, path, limit, wake)
+            loader::spawn_one_name(buffer, path, limit, tab_width, wake)
         } else {
-            loader::spawn(buffer, path, limit, wake)
+            loader::spawn(buffer, path, limit, tab_width, wake)
         };
         match spawned {
             Ok(handle) => {

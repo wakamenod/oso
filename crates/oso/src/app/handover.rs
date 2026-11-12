@@ -266,6 +266,10 @@ impl App {
         if let Some(on) = state.font_lock {
             self.editor.set_font_lock(on);
         }
+        // Whether `RET` indents (ADR 0115).
+        if let Some(on) = state.electric_indent {
+            self.editor.set_electric_indent(on);
+        }
         // Before positions, so that what the aids lay out is there first (ADR 0097).
         if let Some(aids) = state.visual_aids {
             self.editor.set_visual_aids(aids);

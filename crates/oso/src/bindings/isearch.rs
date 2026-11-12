@@ -13,6 +13,8 @@ pub const ISEARCH: &[(&str, &str)] = &[
     ("C-r", "isearch-repeat-backward"),
     ("DEL", "isearch-delete-char"),
     ("RET", "isearch-exit"),
+    // A line break in the search string, as Emacs's `C-j`, not the global key's break.
+    ("C-j", "isearch-newline"),
     ("C-w", "isearch-yank-word-or-char"),
     ("C-y", "isearch-yank-kill"),
     ("M-y", "isearch-yank-pop"),

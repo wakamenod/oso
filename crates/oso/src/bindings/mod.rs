@@ -9,6 +9,7 @@ mod complete;
 mod cursors;
 mod edit;
 mod files;
+mod indent;
 mod isearch;
 mod kill;
 mod macros;
@@ -40,6 +41,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     cursors::BINDINGS,
     edit::BINDINGS,
     files::BINDINGS,
+    indent::BINDINGS,
     isearch::BINDINGS,
     kill::BINDINGS,
     macros::BINDINGS,
