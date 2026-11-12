@@ -227,13 +227,17 @@ impl Node {
         }
     }
 
+    /// Panics on a pair that is not two windows, which the tree never makes.
     #[cfg(test)]
     fn pairs(&self, out: &mut Vec<[WindowId; 2]>) {
         if let Self::Run(run) = self {
-            if run.pair
-                && let [first, second] = run.children.as_slice()
-                && let (Self::Window(a), Self::Window(b)) = (&first.node, &second.node)
-            {
+            if run.pair {
+                let [first, second] = run.children.as_slice() else {
+                    panic!("a pair of {} children", run.children.len());
+                };
+                let (Self::Window(a), Self::Window(b)) = (&first.node, &second.node) else {
+                    panic!("a pair holds a run");
+                };
                 out.push([*a, *b]);
             }
             run.children.iter().for_each(|c| c.node.pairs(out));

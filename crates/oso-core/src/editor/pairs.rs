@@ -12,19 +12,22 @@
 //! primary cursor to the line aligned with the leader's, alone, at the same display column
 //! clamped to that line, its goal kept. The wheel moves the other's top only, and its cursors
 //! into view as the wheel moves any window's. A pair holds while each window shows the buffer
-//! it was paired with: showing another breaks it, and both windows stay. The restart handoff
+//! it was paired with: showing another breaks it, and both windows stay. Nothing moves in step
+//! while either window shows a buffer that may hold secrets, so that no position in one is
+//! carried into a window the dev socket and the agent channel describe (ADR 0044, ADR 0079);
+//! nor after a command while a prompt is open (ADR 0072). The restart handoff
 //! carries a pair as two windows of their own, which the owner pairs again (ADR 0122, Q7).
 
 use std::fmt;
 
 use super::Editor;
 use crate::buffer::BufferId;
-use crate::display_map::DisplayPoint;
+use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::frame::{TooSmall, Way};
 use crate::motion;
 use crate::selection::Goal;
 use crate::sum_tree::Bias;
-use crate::window::{RowMap, Scroll, ViewTop, WindowId};
+use crate::window::{RowMap, Scroll, ViewTop, Window, WindowId};
 
 /// [`Editor::pair_window`] refused. Nothing changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +70,8 @@ enum Lead {
     Cursor,
     /// After the wheel: the view, the cursors following into it unless they `stay`.
     View { stay: bool },
+    /// After the sideways wheel: the left column alone, while the other does not wrap.
+    Sideways,
 }
 
 impl Editor {
@@ -164,6 +169,8 @@ impl Editor {
         };
         if self.tiled_id() == other {
             self.isearch_exit();
+            // `keep` takes its place, not the window selected before the pair.
+            self.make_tiled(keep);
         }
         self.drop_window(other);
         self.lay_out(self.frame.size());
@@ -186,8 +193,11 @@ impl Editor {
         };
         let side = usize::from(self.pairs[at].windows[1] == id);
         if self.pairs[at].buffers[side] != buffer {
-            self.splits.break_pair(id, &self.frame);
             self.pairs.remove(at);
+            if self.splits.break_pair(id, &self.frame) {
+                // The same cells, but what its run needs may not be, in a frame too small.
+                self.lay_out(self.frame.size());
+            }
         }
     }
 
@@ -206,12 +216,18 @@ impl Editor {
     /// After the wheel scrolled `id`: the other window of its pair scrolls with it, its cursors
     /// into its view unless they stay, as the wheel leaves those of the window beneath a prompt
     /// and of one with a preedit (ADR 0072, ADR 0069). Returns whether its view moved.
-    pub(super) fn wheel_pair(&mut self, id: WindowId) -> bool {
+    /// With `sideways`, only its left column follows.
+    pub(super) fn wheel_pair(&mut self, id: WindowId, sideways: bool) -> bool {
         let Some(other) = self.pair_of(id) else {
             return false;
         };
         let stay = self.tiled_id() == other && (self.preedit.is_some() || !self.prompts.is_empty());
-        self.lead_pair(id, Lead::View { stay })
+        let lead = if sideways {
+            Lead::Sideways
+        } else {
+            Lead::View { stay }
+        };
+        self.lead_pair(id, lead)
     }
 
     /// Moves the pair at `at` in step from its selected window, or its first.
@@ -237,6 +253,11 @@ impl Editor {
         let (Some(from), Some(to)) = (self.window_index(leader), self.window_index(other)) else {
             return false;
         };
+        // Not out of a buffer that may hold secrets, nor into one, whatever its verdict is now.
+        let secret = |index: usize| self.shown(&self.windows[index]).is_secret();
+        if secret(from) || secret(to) || (lead == Lead::Cursor && !self.prompts.is_empty()) {
+            return false;
+        }
         let now = self.pair_seen(from);
         if self.pairs[at].seen[side] == Some(now) && lead == Lead::Cursor {
             return false;
@@ -266,6 +287,13 @@ impl Editor {
                 goal.or(Some(Goal::Column(cursor.column))),
             ),
             Lead::View { stay } => self.view_lead(to, (top, left), stay),
+            Lead::Sideways => {
+                let (window, buffer) = self.window_mut(to);
+                if !window.rows(&buffer.display()).wrapped() {
+                    let scroll = window.scroll();
+                    window.set_scroll(Scroll { left, ..scroll });
+                }
+            }
         }
         let moved = self.windows[to].scroll() != before;
         let (leader_seen, other_seen) = (self.pair_seen(from), self.pair_seen(to));
@@ -308,7 +336,7 @@ impl Editor {
             selection.goal = goal;
             Ok::<(), ()>(())
         });
-        let start = motion::line_start(&display, top.min(last));
+        let start = top_start(window, &display, top.min(last));
         let left = if window.rows(&display).wrapped() {
             0
         } else {
@@ -324,7 +352,8 @@ impl Editor {
         self.pass_wrap_budget(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
-        let start = motion::line_start(&display, top.min(display.row_count().saturating_sub(1)));
+        let line = top.min(display.row_count().saturating_sub(1));
+        let start = top_start(window, &display, line);
         window.realize(&display, start, window.size().rows);
         let row = window.rows(&display).row_of(start);
         if stay {
@@ -340,5 +369,21 @@ impl Editor {
     }
 }
 
+/// Where `window`'s top goes to show line `line` first: where it is if its top is in that line
+/// already, so that a long wrapped line keeps the rows the window shows of it, or the line's
+/// start.
+fn top_start(window: &Window, display: &DisplaySnapshot, line: usize) -> usize {
+    let start = window.scroll().start;
+    if display.offset_to_display_point(start).row == line {
+        start
+    } else {
+        motion::line_start(display, line)
+    }
+}
+
+#[cfg(test)]
+mod prop_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timing_tests;

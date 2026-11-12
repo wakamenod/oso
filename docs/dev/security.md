@@ -520,6 +520,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved
   its path ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+- A pair of windows that scroll together moves nothing in step while either shows a buffer
+  that may hold secrets, whatever its verdict was when they were paired, so no position in one
+  reaches the other window, which the socket and the agent channel describe
+  ([ADR 0122](adr/0122-agent-review.md), step 10).
 - While a secret-pattern buffer is shown, `get-state` gives no `modified`, `saving` or size of
   such buffers, and `check-handover`, `export-state` and an `exit` with a generation are refused
   for one reason, whatever the buffers hold. `invalid_bytes` is null for such a buffer. Keys in

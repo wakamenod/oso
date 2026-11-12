@@ -3906,8 +3906,6 @@ pub fn oso_core::window::RowMap::clone(&self) -> oso_core::window::RowMap
 impl core::cmp::Eq for oso_core::window::RowMap
 impl core::cmp::PartialEq for oso_core::window::RowMap
 pub fn oso_core::window::RowMap::eq(&self, &oso_core::window::RowMap) -> bool
-impl core::default::Default for oso_core::window::RowMap
-pub fn oso_core::window::RowMap::default() -> oso_core::window::RowMap
 impl core::fmt::Debug for oso_core::window::RowMap
 pub fn oso_core::window::RowMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::window::RowMap

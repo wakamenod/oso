@@ -5,7 +5,8 @@
 //! window ids only; the editor keeps the windows.
 //!
 //! A leaf is a window. A run is two or more children laid out the same way, side by side or
-//! stacked, and never has a child that is a run of the same way. Each child keeps a weight,
+//! stacked, and never has a child that is a run of the same way, but a pair of windows that
+//! scroll together (ADR 0122), which stays one child. Each child keeps a weight,
 //! and a layout turns the weights into whole cells by the largest remainder, so a frame that
 //! is resized keeps the proportions, and resizing it back gives the same cells. A change of
 //! the tree first sets the weights it touches to the cells laid out, so that it works in

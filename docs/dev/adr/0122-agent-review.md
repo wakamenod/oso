@@ -766,10 +766,16 @@ in the plan, and answered its questions (a), on 2026-11-13:
    column with the selected one's, and its primary cursor, alone, to the line aligned with the
    selected one's cursor, at the same display column clamped to that line, with the selected
    one's goal kept. Then it scrolls as little as shows its cursor, which a window a row shorter
-   or wrapped narrower may need. Not while a prompt is open, as ADR 0112's windows follow.
-   The wheel (`scroll_view`, `scroll_view_sideways`) moves the other window's view with the
-   one it turns, and its cursors into that view as the wheel moves any window's, but those of
-   the window beneath a prompt and of one with a preedit.
+   or wrapped narrower may need. When the other window's top is on the aligned line already, it
+   stays, so a long wrapped line keeps the rows it shows. Not while a prompt is open, as ADR
+   0112's windows follow: a pair made, turned or given a map beneath a prompt moves in step
+   after the first command once it closes.
+   The wheel (`scroll_view`) moves the other window's view with the one it turns, and its
+   cursors into that view as the wheel moves any window's, but those of the window beneath a
+   prompt and of one with a preedit; sideways (`scroll_view_sideways`), its left column alone.
+   **Nothing moves in step while either window shows a buffer that may hold secrets,** checked
+   at each step as a verdict can change after pairing, so no position in one is carried into a
+   window the dev socket and the agent channel describe (ADR 0044, ADR 0079).
 4. **A pair resizes as one,** its windows kept the same, as one child of the run around it,
    which `balance-windows` balances with the rest.
 5. **`C-x 2` and `C-x 3` in either window split the pair's area:** the new window goes below or
@@ -781,8 +787,9 @@ in the plan, and answered its questions (a), on 2026-11-13:
    cells, and its owner pairs them again when it opens once more (step 6 keeps a review).
 8. **A frame too small for every window hides both windows of a pair together,** never the
    selected window's pair. This holds but where the area could keep no window otherwise: in an
-   area smaller than both windows need (a frame of one row, say), the pair's first window shows
-   alone, as a run's first does, since an area always keeps a window.
+   area smaller than both windows need (a frame of one row, say), one window of the pair shows
+   alone, as a run's first does, since an area always keeps a window: the selected window
+   when the pair holds it, and otherwise the first.
 
 What was built:
 
@@ -793,7 +800,7 @@ What was built:
   gives a new map and moves the windows in step from the selected one, or the first,
   `turn_pair` lays a pair side by side or stacked (`TooSmall` where either window would be
   smaller than a split leaves), and `unpair(keep)` closes the other window, `keep` taking the
-  pair's cells.
+  pair's cells, and its selection if the other had it.
 - **`C-x 0` in either window deletes both,** and selects the window selected most recently
   before them; a pair that is the whole frame stays, as the only window does. `C-x 1` keeps
   both. `C-x o` and `windmove` go through them as through any window.
@@ -805,11 +812,17 @@ What was built:
 - **Cost:** a command's end looks the pair up among the pairs, and a window that did not move
   since leads nothing. Moving in step is two lookups in the map, a seek for each line and one
   view set, and the other window's rows are shaped again only when its view moved. A map is
-  built where its owner builds it; giving one to the editor moves it.
+  built where its owner builds it, off the UI thread for a large one, as `RowMap::new` checks
+  every run; giving one to the editor moves it. In a release build, over two texts of 1 GB and
+  a map of a million runs, the end of a command costs microseconds more with a pair, and so
+  does a character on a 10 MB line both windows wrap.
 - **Tests:** the tree's property test also pairs, turns, breaks and unpairs, and checks that a
   pair shows together and shares its cells; the map's runs map exactly and back, and keep lines
   in order; on the editor, moving, scrolling a screen, isearch, the wheel up, down and
   sideways, a prompt and a preedit, a short line and the end of the text, a wrapped window,
-  closing, splitting, breaking, unpairing, turning and the handoff. An ignored test times
-  moving in step in a release build over two texts of 1 GB and a map of a million runs.
+  closing, splitting, breaking, unpairing, turning, the handoff, and a buffer that may hold
+  secrets in either window, from the start or later; and a property test that, whatever is
+  done to the windows, the editor's pairs are the tree's and show what they were paired with.
+  Two ignored tests time moving in step in a release build: over two texts of 1 GB and a map
+  of a million runs, and on a 10 MB line both windows wrap.
 

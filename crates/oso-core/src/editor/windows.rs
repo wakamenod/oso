@@ -211,7 +211,7 @@ impl Editor {
 
     /// Makes the window `id` the selected tiled window, or the one beneath the prompts while
     /// one is open, and the most recently selected.
-    fn make_tiled(&mut self, id: WindowId) {
+    pub(super) fn make_tiled(&mut self, id: WindowId) {
         let Some(index) = self.window_index(id) else {
             return;
         };

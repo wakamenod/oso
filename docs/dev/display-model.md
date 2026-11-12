@@ -210,7 +210,8 @@ one layer:
 - Two windows can be a pair that scrolls together, as a review's two sides do: one run of two
   in the tree, split, resized and deleted as one, whose buffer lines line up by a
   `window::RowMap` their owner gives ([ADR 0122](adr/0122-agent-review.md), step 10). After
-  each command and each turn of the wheel, the other window goes to the aligned line.
+  each command (not while a prompt is open) and each turn of the wheel, the other window goes
+  to the aligned line, but never while either shows a buffer that may hold secrets.
 - Floating windows are positioned freely above the tree. They show the
   minibuffer, menus, completion popups and hover documentation. Their
   placement is decided per feature.

@@ -11,30 +11,30 @@ use crate::minibuffer::Kind;
 use crate::selection::SelectionSet;
 
 /// The bytes a line of `lines` takes.
-const LINE: usize = "line 000\n".len();
+pub(super) const LINE: usize = "line 000\n".len();
 
-fn lines(n: usize) -> String {
+pub(super) fn lines(n: usize) -> String {
     (0..n).map(|i| format!("line {i:03}\n")).collect()
 }
 
 /// An editor on `text` in a frame of `rows` by `columns`.
-fn on(text: &str, (rows, columns): (usize, usize)) -> Editor {
+pub(super) fn on(text: &str, (rows, columns): (usize, usize)) -> Editor {
     let mut editor = Editor::with_buffer(Buffer::from_text("t", text));
     editor.set_frame_size(crate::frame::FrameSize { rows, columns });
     editor
 }
 
-fn ids(editor: &Editor) -> Vec<WindowId> {
+pub(super) fn ids(editor: &Editor) -> Vec<WindowId> {
     editor.splits.iter().collect()
 }
 
-fn selected(editor: &Editor) -> WindowId {
+pub(super) fn selected(editor: &Editor) -> WindowId {
     editor.window().id()
 }
 
 /// A window on `lines(200)` paired side by side with one on `other`, in a frame of 24 by 161,
 /// with `map`. Returns the editor, the first window and the second.
-fn pair(other: &str, map: RowMap) -> (Editor, WindowId, WindowId) {
+pub(super) fn pair(other: &str, map: RowMap) -> (Editor, WindowId, WindowId) {
     let mut editor = on(&lines(200), (24, 161));
     let buffer = editor.add_buffer(Buffer::from_text("other", other));
     let first = selected(&editor);
@@ -42,12 +42,12 @@ fn pair(other: &str, map: RowMap) -> (Editor, WindowId, WindowId) {
     (editor, first, second)
 }
 
-fn window(editor: &Editor, id: WindowId) -> &crate::window::Window {
+pub(super) fn window(editor: &Editor, id: WindowId) -> &crate::window::Window {
     editor.window_by_id(id).unwrap()
 }
 
 /// The window's top line and its primary cursor's line and display column.
-fn place(editor: &Editor, id: WindowId) -> (usize, usize, usize) {
+pub(super) fn place(editor: &Editor, id: WindowId) -> (usize, usize, usize) {
     let window = window(editor, id);
     let display = editor.shown(window).display();
     let top = display.offset_to_display_point(window.scroll().start).row;
@@ -56,7 +56,7 @@ fn place(editor: &Editor, id: WindowId) -> (usize, usize, usize) {
 }
 
 /// Puts the selected window's cursor at `offset`, as a command would, and ends the command.
-fn go(editor: &mut Editor, offset: usize) {
+pub(super) fn go(editor: &mut Editor, offset: usize) {
     editor.current_mut().0.selections = SelectionSet::new(offset);
     editor.follow_cursor();
 }
@@ -351,84 +351,77 @@ fn a_wrapped_window_of_a_pair_keeps_its_cursor_in_view() {
     );
 }
 
-/// What moving in step costs at a command's end, over two texts of about 1 GB and a map of a
-/// million runs, against the same two windows unpaired. Run it by hand in release:
-/// `cargo test --release -p oso-core moving_in_step_costs -- --ignored --nocapture`.
 #[test]
-#[ignore = "a timing to read, run by hand in release"]
-#[expect(
-    clippy::disallowed_macros,
-    reason = "a timing run by hand prints what it measured"
-)]
-fn moving_in_step_costs_little_at_a_commands_end() {
-    use std::time::{Duration, Instant};
-    const LINES: usize = 16 << 20;
-    let text: String = (0..LINES)
-        .map(|i| format!("{i:08} {}\n", "x".repeat(54)))
-        .collect();
-    let runs: Vec<(usize, usize, usize)> =
-        (0..1 << 20).map(|i| (i * 16, i * 16 + i % 2, 15)).collect();
-    // Each within a tenth of the 8 ms a key may take to show, at p99, in a release build.
-    let percentiles = |mut times: Vec<Duration>| {
-        times.sort();
-        let at = |p: usize| times[(times.len() - 1) * p / 100];
-        assert!(cfg!(debug_assertions) || at(99) < Duration::from_micros(800));
-        format!("p50 {:?} p99 {:?} max {:?}", at(50), at(99), at(100))
-    };
-    let line = text.len() / LINES;
-    let mut seed: usize = 7;
-    let mut next = || {
-        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-        (seed >> 33) % (LINES - 1)
-    };
-    for paired in [false, true] {
-        let mut editor = on(&text, (60, 241));
-        let buffer = editor.add_buffer(Buffer::from_text("other", &text));
-        if paired {
-            let started = Instant::now();
-            let map = RowMap::new(runs.clone()).unwrap();
-            editor.pair_window(Way::Across, buffer, map).unwrap();
-            eprintln!("pairing with a map of 2^20 runs: {:?}", started.elapsed());
-            let started = Instant::now();
-            let first = selected(&editor);
-            editor.set_row_map(first, RowMap::new(runs.clone()).unwrap());
-            eprintln!("a new map, its runs built: {:?}", started.elapsed());
-        } else {
-            editor.split_window(Way::Across, false).unwrap();
-            let other = editor.pair_of(selected(&editor));
-            assert_eq!(other, None);
-        }
-        let mut moves = Vec::new();
-        let mut steps = Vec::new();
-        for i in 0..2000 {
-            // Far jumps and single lines, as goto-line and C-n do.
-            let target = if i % 2 == 0 { next() } else { 0 };
-            let offset = if target == 0 {
-                let at = editor.window().selections.primary().cursor;
-                (at + line).min(text.len() - 1)
-            } else {
-                target * line + 3
-            };
-            editor.current_mut().0.selections = SelectionSet::new(offset);
-            let started = Instant::now();
-            editor.follow_cursor();
-            let took = started.elapsed();
-            if target == 0 {
-                steps.push(took)
-            } else {
-                moves.push(took)
-            }
-        }
-        let mut wheel = Vec::new();
-        let id = selected(&editor);
-        for i in 0..500 {
-            let started = Instant::now();
-            editor.scroll_view(id, if i % 2 == 0 { 3 } else { -2 });
-            wheel.push(started.elapsed());
-        }
-        let name = if paired { "paired" } else { "unpaired" };
-        eprintln!("{name}: a far move {}", percentiles(moves));
-        eprintln!("{name}: a line down {}", percentiles(steps));
-        eprintln!("{name}: a wheel turn {}", percentiles(wheel));
-    }
+fn nothing_moves_in_step_out_of_or_into_a_buffer_that_may_hold_secrets() {
+    let mut editor = on(&lines(200), (24, 161));
+    let secret = editor.add_buffer(super::super::test_buffers::secret_buffer());
+    let first = selected(&editor);
+    let second = editor
+        .pair_window(Way::Across, secret, RowMap::same())
+        .unwrap();
+    let still = |editor: &Editor, id| (window(editor, id).scroll(), place(editor, id));
+    let before = still(&editor, second);
+    go(&mut editor, 150 * LINE);
+    assert_eq!(still(&editor, second), before, "nothing into it");
+    editor.select_window(second);
+    let before = still(&editor, first);
+    // A command in the secret window, then the wheel over it, would take the first to line 0.
+    go(&mut editor, 0);
+    editor.scroll_view(second, -3);
+    assert_eq!(still(&editor, first), before, "nothing out of it");
+    // An ordinary buffer that turns secret once paired.
+    let (mut editor, first, second) = pair(&lines(200), RowMap::same());
+    let buffer = window(&editor, second).buffer();
+    assert!(editor.buffer_mut(buffer).unwrap().treat_as_secret());
+    let before = still(&editor, second);
+    go(&mut editor, 150 * LINE);
+    assert_eq!(still(&editor, second), before);
+    assert!(editor.scroll_view(first, 5));
+    assert_eq!(still(&editor, second), before);
+}
+
+#[test]
+fn unpairing_selects_the_kept_window_whatever_was_selected_before() {
+    let (mut editor, first, second) = pair("x\n", RowMap::same());
+    let third = editor.split_window(Way::Down, false).unwrap();
+    editor.select_window(third);
+    editor.select_window(second);
+    assert!(editor.unpair(first));
+    assert_eq!(
+        selected(&editor),
+        first,
+        "not the third, selected before the pair"
+    );
+    assert_eq!(ids(&editor), [first, third]);
+}
+
+#[test]
+fn a_pair_made_or_turned_beneath_a_prompt_moves_in_step_once_it_closes() {
+    let mut editor = on(&lines(200), (24, 161));
+    go(&mut editor, 120 * LINE);
+    editor
+        .open_prompt(
+            "Go to line: ",
+            Kind::Number {
+                history: Some("line"),
+            },
+        )
+        .unwrap();
+    let buffer = editor.add_buffer(Buffer::from_text("other", &lines(200)));
+    let first = editor.splits.iter().next().unwrap();
+    let second = editor
+        .pair_window(Way::Across, buffer, RowMap::same())
+        .unwrap();
+    assert_eq!(
+        place(&editor, second).1,
+        0,
+        "nothing moves beneath a prompt"
+    );
+    assert_eq!(editor.turn_pair(second, Way::Down), Ok(true));
+    assert_eq!(place(&editor, second).1, 0);
+    editor.quit();
+    editor.follow_cursor();
+    // Stacked, the second is a row shorter: the same line, its top a row further.
+    assert_eq!(place(&editor, second).1, place(&editor, first).1);
+    assert_eq!(place(&editor, second).1, 120);
 }

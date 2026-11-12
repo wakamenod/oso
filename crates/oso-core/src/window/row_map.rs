@@ -8,15 +8,19 @@
 //! of the second. Lines between two runs are a gap on each side, and a gap's lines go to the
 //! other side's gap line by line, its last line taking those left over, or to the line after
 //! the run before it when the other side's gap is empty: the nearest line the other side has.
-//! The lines are buffer lines, display rows before any wrap, so each window wraps at its own
-//! width and the map stays true.
+//! The lines are buffer lines, display rows before any wrap (`DisplayPoint::row`, a logical line
+//! while no fold or inlay changes rows), so each window wraps at its own width and the map stays
+//! true.
+//!
+//! Building a map checks every run, so an owner builds it where it builds the text it maps, off
+//! the UI thread for a large one, and the editor only takes it over.
 
 use std::fmt;
 
 /// How the lines of a pair's first window line up with its second's: every line with the same
 /// line ([`RowMap::same`]), or runs of aligned lines ([`RowMap::new`]). A lookup halves the
 /// runs.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RowMap {
     /// `None` for the same lines; otherwise the runs, as `(first's line, second's line,
     /// lines)`, each at least a line, in order and apart on both sides.
@@ -30,7 +34,7 @@ pub struct BadRowMap;
 
 impl fmt::Display for BadRowMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("the aligned runs are empty, out of order or overlapping")
+        f.write_str("the aligned runs are empty, out of order, overlapping or too long")
     }
 }
 
@@ -115,7 +119,6 @@ mod tests {
     fn the_same_lines_go_to_themselves() {
         let map = RowMap::same();
         assert_eq!((map.second_of(0), map.first_of(41)), (0, 41));
-        assert_eq!(RowMap::default(), map);
     }
 
     #[test]

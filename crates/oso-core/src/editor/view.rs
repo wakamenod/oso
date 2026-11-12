@@ -431,7 +431,7 @@ impl Editor {
         let moved = window.scroll() != before;
         // The other window of its pair scrolls with it (ADR 0122).
         if moved {
-            self.wheel_pair(id);
+            self.wheel_pair(id, false);
         }
         moved
     }
@@ -523,7 +523,7 @@ impl Editor {
         window.set_scroll(Scroll { left, ..scroll });
         let moved = left != scroll.left;
         if moved {
-            self.wheel_pair(id);
+            self.wheel_pair(id, true);
         }
         moved
     }
