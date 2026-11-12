@@ -362,6 +362,41 @@ wait for the coordinator's go.
    restart's wait, the reload's wait, the replay's wait, freeing off the UI thread; e2e for holding,
    `C-g` and the restart; `verify-in-app` on the 100 MB file.
 
+### As built (step 1, 2026-11-12)
+
+- **`text_perf -- undo` measures undo and redo of large steps:** `!` over 4 million short lines,
+  in a wrapped window and in two windows; `!` over a highlighted 2 MiB buffer; query-replace
+  sessions answered `y` match by match, over 140 KB and far apart over 100 MB; and 20 commands
+  joined at 1000 cursors. The three `!` cases of ADR 0113 stay in `-- replace`, and the 89 MB kill
+  in the default run. `indent-region` is not on main yet; its case comes with it. A macro replay
+  runs in the host, and makes the same steps as a session answered match by match.
+- **For the steps `!` makes, a crossing costs in proportion to its splices.** The last batches of
+  1000 splices cost what the first did: about 1.2 ms on short lines, 1.1 ms in a 2 MiB buffer and
+  3.1 ms on a 6 MB line, nearly all of it in the rope and the display map. Merging the changed
+  ranges takes microseconds there. Undoing `!` over 4 million lines takes about 590 ms, and redo
+  about as long. Of that, 540 ms applies the batches the 64 MiB limit kept (434 of 4000), 4 ms
+  follows the edited lines and 15–20 ms is the commit, most of it freeing the group crossed.
+  A wrap or a second window adds under 4 ms. Highlights add about 190 ms over 434,000 splices,
+  430 ns each.
+- **A step of many small batches far apart grew faster than the step.** A session answered `y`
+  match by match, or a macro replay that edits forward, makes one. Every batch mapped the changed
+  ranges, and followed the edited lines, of all the batches before it. Undoing 20,000 answers took
+  690 ms over 140 KB and 1.5 s over 100 MB, four times as long for twice the answers.
+- **Batches that lie apart now apply as one** (`joined_apart` in `buffer/splice.rs`): a batch
+  joins the ones before it when it lies wholly before them, or wholly after what they became, with
+  a byte between. Undoing a session answered forward then applies one batch, and redoing it does
+  too: 21 ms over 140 KB and 48 ms over 100 MB for 20,000 answers, linear. The text, the content
+  id and every offset come out as before. The redo group holds the joined batches. A single batch
+  is not copied, and typing's batches, which touch each other, never join. A property test checks
+  that a group applied this way gives the text and moves offsets as its batches one after another,
+  and that what it gives back undoes it.
+- **Left for the next steps:**
+  - A step whose batches interleave, such as a macro that edits both ends of the buffer in turn,
+    still maps each batch over the ranges before it; step 2 counts that work in its slices.
+  - Undoing the 89 MB kill takes 70 ms, copying its text back at 0.78 ms per MB. 20 commands
+    joined at 1000 cursors take 29 ms. Both are sliced in step 2.
+  - Freeing the group crossed comes off the UI thread in step 3.
+
 ## Changes to accepted ADRs
 
 - [ADR 0113](0113-query-replace-keyboard-macros-and-whitespace-cleanup.md): the exception for
