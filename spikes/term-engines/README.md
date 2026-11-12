@@ -16,18 +16,24 @@ behind one `Engine` trait. It is never merged into oso; the result is in ADR 012
 ## Setup
 
 1. Zig 0.17.1 (`brew install zig`).
-2. Ghostty's source for commit `83fb95624b04`, checked and extracted into `vendor/` (not
-   committed):
+2. The libghostty-vt 1.0.1 release and its dependency tarball, verified and extracted into
+   `vendor/` (not committed). The comparison began on the pre-release commit `83fb95624b04`,
+   whose ABI differs; the FFI now follows 1.0.1.
 
    ```sh
    mkdir -p vendor/src && cd vendor
-   curl -fLO https://tip.files.ghostty.org/83fb95624b0439ee660c2679b43b38c8b63769cd/libghostty-vt-source.tar.gz
-   echo "ed57ae9b95581c88f2614e976c1d3f146c02d443a3c26139200eb9de6e645eb4  libghostty-vt-source.tar.gz" | shasum -a 256 -c
-   tar xzf libghostty-vt-source.tar.gz -C src
-   cd src/libghostty-vt-1.4.0-main+83fb956 && zig build --fetch
+   base=https://release.files.ghostty.org/libghostty-vt/1.0.1
+   for f in SHA256SUMS SHA256SUMS.minisig libghostty-vt-1.0.1.tar.gz libghostty-vt-1.0.1-deps.tar.gz; do
+       curl -fLO "$base/$f"
+   done
+   minisign -V -P RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV -m SHA256SUMS
+   grep 'libghostty-vt-1.0.1' SHA256SUMS | grep -v docs | shasum -a 256 -c
+   tar xzf libghostty-vt-1.0.1.tar.gz -C src
+   tar xzf libghostty-vt-1.0.1-deps.tar.gz -C src
    ```
 
-   `zig build --fetch` downloads Zig's hash-pinned packages once; builds then run offline.
+   `build.rs` passes the deps directory to `zig build --system` and a fresh Zig cache, so
+   builds run offline.
 3. `brew install htop lazygit vttest`, then `./record.sh`.
 
 ## Runs

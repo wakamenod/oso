@@ -368,10 +368,7 @@ fn memory_is_reported() {
 #[test]
 fn version() {
     let v = version_info();
-    assert!(
-        v.starts_with("libghostty-vt 0.1.0-dev (source 1.4.0-main+83fb956, "),
-        "{v}"
-    );
+    assert!(v.starts_with("libghostty-vt 1.0.1 (source 1.0.1, "), "{v}");
     assert!(
         v.contains("file medium false") && v.contains("shm medium false"),
         "{v}"
@@ -422,4 +419,19 @@ fn manifest_decoding_matches_the_library() {
     }
     assert_eq!(checked, 160);
     assert!(e.layout.is_some());
+}
+
+/// The line limit governs, not the library's default byte limit (10,000 bytes in 1.0,
+/// about one page), so long scrollback is kept.
+#[test]
+fn long_scrollback_is_kept() {
+    let mut e = GhosttyEngine::new(80, 24, 100_000);
+    let mut text = String::new();
+    for i in 0..20_000 {
+        text.push_str(&format!(
+            "line {i} with some text to fill the row a little\r\n"
+        ));
+    }
+    e.feed(text.as_bytes());
+    assert_eq!(e.history_len(), 20_000 + 1 - 24);
 }

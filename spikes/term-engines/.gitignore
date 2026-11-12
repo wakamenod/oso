@@ -5,3 +5,5 @@
 # account details. Regenerate with record.sh.
 /recordings
 /target-safe
+/target-101
+/target-101-safe

@@ -1,10 +1,11 @@
 //! Hand-written declarations for the parts of the libghostty-vt C API this crate uses.
 //!
-//! Each item mirrors a declaration in `include/ghostty/vt/*.h` of libghostty-vt
-//! 1.4.0-main+83fb956. Every C enum is declared `GHOSTTY_ENUM_TYPED`, which is `: int`
-//! (types.h), so enum-typed values and fields are `c_int` here, with the enumerators as
-//! constants. Struct layouts follow the headers field by field; the size and offset checks
-//! in the tests at the bottom pin them for the 64-bit targets this spike runs on.
+//! Each item mirrors a declaration in `include/ghostty/vt/*.h` of the libghostty-vt 1.0.1
+//! release. Every C enum is declared `GHOSTTY_ENUM_TYPED`, which is `: int` (types.h), so
+//! enum-typed values and fields are `c_int` here, with the enumerators as constants. The
+//! one exception is `GhosttyStyleColor::tag`, a `uint8_t` holding a `GhosttyStyleColorTag`.
+//! The tests at the bottom check every struct and enumerator against the linked library's
+//! own ABI manifest.
 
 #![allow(dead_code)]
 
@@ -78,61 +79,56 @@ pub struct ColorRgb {
 
 // ---- style.h ----
 
-pub const STYLE_COLOR_NONE: c_int = 0;
-pub const STYLE_COLOR_PALETTE: c_int = 1;
-pub const STYLE_COLOR_RGB: c_int = 2;
+pub const STYLE_COLOR_NONE: u8 = 0;
+pub const STYLE_COLOR_PALETTE: u8 = 1;
+pub const STYLE_COLOR_RGB: u8 = 2;
 
-/// `GhosttyStyleColor`: `{ GhosttyStyleColorTag tag; GhosttyStyleColorValue value; }`.
-/// The value is a union of `uint8_t palette`, `GhosttyColorRgb rgb` and
-/// `uint64_t _padding`; all arms start at offset 0, so it is read here as the u64's
-/// in-memory bytes (`to_ne_bytes`): byte 0 is the palette index, bytes 0..3 are r, g, b.
+/// `GhosttyStyleColor`: a one-byte tag, then the three-byte `GhosttyStyleColorValue`
+/// union (`uint8_t palette` or `GhosttyColorRgb rgb`, both at offset 0), read here as
+/// bytes: `value[0]` is the palette index, `value[0..3]` are r, g, b.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct StyleColor {
-    pub tag: c_int,
-    pub value: u64,
+    pub tag: u8,
+    pub value: [u8; 3],
 }
 
-/// `GhosttyStyle` (sized struct).
+// GhosttyStyleFlags bits (style.h).
+pub const STYLE_FLAG_BOLD: u16 = 1 << 0;
+pub const STYLE_FLAG_ITALIC: u16 = 1 << 1;
+pub const STYLE_FLAG_FAINT: u16 = 1 << 2;
+pub const STYLE_FLAG_BLINK: u16 = 1 << 3;
+pub const STYLE_FLAG_INVERSE: u16 = 1 << 4;
+pub const STYLE_FLAG_INVISIBLE: u16 = 1 << 5;
+pub const STYLE_FLAG_STRIKETHROUGH: u16 = 1 << 6;
+pub const STYLE_FLAG_OVERLINE: u16 = 1 << 7;
+pub const STYLE_UNDERLINE_SHIFT: u16 = 8;
+pub const STYLE_UNDERLINE_MASK: u16 = 0x7 << STYLE_UNDERLINE_SHIFT;
+
+/// `GhosttyStyle`: fixed 16-byte layout, no size field.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Style {
-    pub size: usize,
     pub fg_color: StyleColor,
     pub bg_color: StyleColor,
     pub underline_color: StyleColor,
-    pub bold: bool,
-    pub italic: bool,
-    pub faint: bool,
-    pub blink: bool,
-    pub inverse: bool,
-    pub invisible: bool,
-    pub strikethrough: bool,
-    pub overline: bool,
-    /// One of `GHOSTTY_SGR_UNDERLINE_*` (0 = none).
-    pub underline: c_int,
+    pub flags: u16,
+    pub reserved: u16,
 }
 
 impl Style {
-    pub fn sized() -> Style {
+    /// The default style: all zero bytes (style.h).
+    pub fn zeroed() -> Style {
         let none = StyleColor {
             tag: STYLE_COLOR_NONE,
-            value: 0,
+            value: [0; 3],
         };
         Style {
-            size: size_of::<Style>(),
             fg_color: none,
             bg_color: none,
             underline_color: none,
-            bold: false,
-            italic: false,
-            faint: false,
-            blink: false,
-            inverse: false,
-            invisible: false,
-            strikethrough: false,
-            overline: false,
-            underline: 0,
+            flags: 0,
+            reserved: 0,
         }
     }
 }
@@ -321,10 +317,9 @@ pub struct ClipboardWriteReply {
 pub type ClipboardWriteReplyFn =
     unsafe extern "C" fn(write: *const ClipboardWrite, reply: *const ClipboardWriteReply);
 
-/// `struct GhosttyClipboardWrite` (sized struct).
+/// `struct GhosttyClipboardWrite`.
 #[repr(C)]
 pub struct ClipboardWrite {
-    pub size: usize,
     pub location: c_int,
     pub contents: *const ClipboardContent,
     pub contents_len: usize,
@@ -354,10 +349,9 @@ pub struct ClipboardReadReply {
 pub type ClipboardReadReplyFn =
     unsafe extern "C" fn(read: *const ClipboardRead, reply: *const ClipboardReadReply);
 
-/// `struct GhosttyClipboardRead` (sized struct).
+/// `struct GhosttyClipboardRead`.
 #[repr(C)]
 pub struct ClipboardRead {
-    pub size: usize,
     pub location: c_int,
     pub mimes: *const GString,
     pub mimes_len: usize,
@@ -369,18 +363,16 @@ pub struct ClipboardRead {
     pub reply: Option<ClipboardReadReplyFn>,
 }
 
-/// `GhosttyTerminalDesktopNotification` (sized struct).
+/// `GhosttyTerminalDesktopNotification`.
 #[repr(C)]
 pub struct DesktopNotification {
-    pub size: usize,
     pub title: GString,
     pub body: GString,
 }
 
-/// `GhosttyTerminalProgressReport` (sized struct).
+/// `GhosttyTerminalProgressReport`.
 #[repr(C)]
 pub struct ProgressReport {
-    pub size: usize,
     /// `GhosttyTerminalProgressState`: 0 remove, 1 set, 2 error, 3 indeterminate, 4 pause.
     pub state: c_int,
     /// 0..=100, or -1 when omitted.
@@ -399,10 +391,9 @@ pub const SEMANTIC_PROMPT_PROMPT_RIGHT: c_int = 1;
 pub const SEMANTIC_PROMPT_PROMPT_CONTINUATION: c_int = 2;
 pub const SEMANTIC_PROMPT_PROMPT_SECONDARY: c_int = 3;
 
-/// `GhosttyTerminalSemanticPrompt` (sized struct).
+/// `GhosttyTerminalSemanticPrompt`.
 #[repr(C)]
 pub struct SemanticPrompt {
-    pub size: usize,
     pub kind: c_int,
     pub prompt_kind: c_int,
     pub has_exit_code: bool,
@@ -425,24 +416,25 @@ pub type ProgressReportFn = extern "C" fn(Terminal, *mut c_void, *const Progress
 pub type SemanticPromptFn = extern "C" fn(Terminal, *mut c_void, *const SemanticPrompt);
 pub type UnknownSequenceFn = extern "C" fn(Terminal, *mut c_void, *const UnknownSequence);
 
-// GhosttyTerminalOption
-pub const OPT_USERDATA: c_int = 0;
-pub const OPT_WRITE_PTY: c_int = 1;
-pub const OPT_BELL: c_int = 2;
-pub const OPT_TITLE_CHANGED: c_int = 5;
-pub const OPT_SIZE: c_int = 6;
-pub const OPT_DEVICE_ATTRIBUTES: c_int = 8;
-pub const OPT_PWD_CHANGED: c_int = 25;
-pub const OPT_CLIPBOARD_WRITE: c_int = 26;
-pub const OPT_SCROLLBACK_MAX_BYTES: c_int = 27;
-pub const OPT_SCROLLBACK_MAX_LINES: c_int = 28;
-pub const OPT_DESKTOP_NOTIFICATION: c_int = 29;
-pub const OPT_PROGRESS_REPORT: c_int = 30;
-pub const OPT_TITLE_REPORT: c_int = 32;
-pub const OPT_UNKNOWN_SEQUENCE: c_int = 35;
-pub const OPT_UNKNOWN_MAX_BYTES: c_int = 36;
-pub const OPT_CLIPBOARD_READ: c_int = 38;
-pub const OPT_SEMANTIC_PROMPT: c_int = 42;
+// GhosttyTerminalOption (1.0 starts at OPT_INVALID = 0)
+pub const OPT_INVALID: c_int = 0;
+pub const OPT_USERDATA: c_int = 1;
+pub const OPT_WRITE_PTY: c_int = 2;
+pub const OPT_BELL: c_int = 3;
+pub const OPT_TITLE_CHANGED: c_int = 6;
+pub const OPT_SIZE: c_int = 7;
+pub const OPT_DEVICE_ATTRIBUTES: c_int = 9;
+pub const OPT_PWD_CHANGED: c_int = 26;
+pub const OPT_CLIPBOARD_WRITE: c_int = 27;
+pub const OPT_SCROLLBACK_MAX_BYTES: c_int = 28;
+pub const OPT_SCROLLBACK_MAX_LINES: c_int = 29;
+pub const OPT_DESKTOP_NOTIFICATION: c_int = 30;
+pub const OPT_PROGRESS_REPORT: c_int = 31;
+pub const OPT_TITLE_REPORT: c_int = 33;
+pub const OPT_UNKNOWN_SEQUENCE: c_int = 36;
+pub const OPT_UNKNOWN_MAX_BYTES: c_int = 37;
+pub const OPT_CLIPBOARD_READ: c_int = 39;
+pub const OPT_SEMANTIC_PROMPT: c_int = 43;
 
 // GhosttyTerminalData
 pub const DATA_ACTIVE_SCREEN: c_int = 6; // GhosttyTerminalScreen
@@ -619,7 +611,9 @@ mod layout {
             Some(4),
             "{name} must be int-sized"
         );
+        // Only the `values` object: 1.0 adds a `keys` object after it with the same names.
         let values = &sec[sec.find("\"values\":{")?..];
+        let values = &values[..values.find('}')?];
         for sep in ['{', ','] {
             let pat = format!("{sep}\"{key}\":");
             if let Some(i) = values.find(&pat) {
@@ -649,21 +643,7 @@ mod layout {
         check_struct!(
             Style,
             "GhosttyStyle",
-            [
-                size,
-                fg_color,
-                bg_color,
-                underline_color,
-                bold,
-                italic,
-                faint,
-                blink,
-                inverse,
-                invisible,
-                strikethrough,
-                overline,
-                underline,
-            ]
+            [fg_color, bg_color, underline_color, flags, reserved]
         );
         check_struct!(CellsView, "GhosttyCellsView", [ptr, len]);
         check_struct!(
@@ -742,7 +722,6 @@ mod layout {
             ClipboardWrite,
             "GhosttyClipboardWrite",
             [
-                size,
                 location,
                 contents,
                 contents_len,
@@ -770,7 +749,6 @@ mod layout {
             ClipboardRead,
             "GhosttyClipboardRead",
             [
-                size,
                 location,
                 mimes,
                 mimes_len,
@@ -785,25 +763,17 @@ mod layout {
         check_struct!(
             DesktopNotification,
             "GhosttyTerminalDesktopNotification",
-            [size, title, body]
+            [title, body]
         );
         check_struct!(
             ProgressReport,
             "GhosttyTerminalProgressReport",
-            [size, state, progress]
+            [state, progress]
         );
         check_struct!(
             SemanticPrompt,
             "GhosttyTerminalSemanticPrompt",
-            [
-                size,
-                kind,
-                prompt_kind,
-                has_exit_code,
-                exit_code,
-                command,
-                error,
-            ]
+            [kind, prompt_kind, has_exit_code, exit_code, command, error,]
         );
         check_struct!(
             RenderCursor,
@@ -820,14 +790,37 @@ mod layout {
                 visual_style,
             ]
         );
-        // The style color union is read as its u64 padding arm; all arms start at 0.
+        // The style color union is read as its bytes; both arms start at 0.
         let sec = type_section("GhosttyStyleColorValue").unwrap();
-        assert!(sec.starts_with("\"kind\":\"union\",\"size\":8,"), "{sec}");
+        assert!(sec.starts_with("\"kind\":\"union\",\"size\":3,"), "{sec}");
         assert!(
             sec.contains("\"palette\":{\"offset\":0,\"size\":1"),
             "{sec}"
         );
         assert!(sec.contains("\"rgb\":{\"offset\":0,\"size\":3"), "{sec}");
+        // The style flag bits.
+        let flags = type_section("GhosttyStyleFlags").unwrap();
+        for (name, bit) in [
+            ("bold", STYLE_FLAG_BOLD),
+            ("italic", STYLE_FLAG_ITALIC),
+            ("faint", STYLE_FLAG_FAINT),
+            ("blink", STYLE_FLAG_BLINK),
+            ("inverse", STYLE_FLAG_INVERSE),
+            ("invisible", STYLE_FLAG_INVISIBLE),
+            ("strikethrough", STYLE_FLAG_STRIKETHROUGH),
+            ("overline", STYLE_FLAG_OVERLINE),
+        ] {
+            let pat = format!("\"{name}\":{{\"lsb\":{},\"width\":1,", bit.trailing_zeros());
+            assert!(flags.contains(&pat), "{pat} not in {flags}");
+        }
+        let pat = format!("\"underline\":{{\"lsb\":{STYLE_UNDERLINE_SHIFT},\"width\":3,");
+        assert!(flags.contains(&pat), "{pat} not in {flags}");
+        // The style color tag is one byte holding a GhosttyStyleColorTag.
+        let color = type_section("GhosttyStyleColor").unwrap();
+        assert!(
+            color.contains("\"tag\":{\"offset\":0,\"size\":1,"),
+            "{color}"
+        );
     }
 
     #[test]
@@ -873,7 +866,7 @@ mod layout {
             "SECONDARY" => SEMANTIC_PROMPT_PROMPT_SECONDARY,
         });
         check_enum!("GhosttyTerminalOption", {
-            "USERDATA" => OPT_USERDATA, "WRITE_PTY" => OPT_WRITE_PTY, "BELL" => OPT_BELL,
+            "INVALID" => OPT_INVALID, "USERDATA" => OPT_USERDATA, "WRITE_PTY" => OPT_WRITE_PTY, "BELL" => OPT_BELL,
             "TITLE_CHANGED" => OPT_TITLE_CHANGED, "SIZE" => OPT_SIZE,
             "DEVICE_ATTRIBUTES" => OPT_DEVICE_ATTRIBUTES, "PWD_CHANGED" => OPT_PWD_CHANGED,
             "CLIPBOARD_WRITE" => OPT_CLIPBOARD_WRITE,

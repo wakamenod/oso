@@ -55,7 +55,7 @@ pub struct GhosttyEngine {
 }
 
 fn color_of(c: &ffi::StyleColor) -> Color {
-    let b = c.value.to_ne_bytes();
+    let b = c.value;
     match c.tag {
         ffi::STYLE_COLOR_PALETTE => Color::Indexed(b[0]),
         ffi::STYLE_COLOR_RGB => Color::Rgb(b[0], b[1], b[2]),
@@ -79,27 +79,22 @@ impl StyleBits {
     };
 
     fn from_style(s: &ffi::Style) -> StyleBits {
+        const MAP: [(u16, u16); 6] = [
+            (ffi::STYLE_FLAG_BOLD, flags::BOLD),
+            (ffi::STYLE_FLAG_FAINT, flags::DIM),
+            (ffi::STYLE_FLAG_ITALIC, flags::ITALIC),
+            (ffi::STYLE_FLAG_INVERSE, flags::INVERSE),
+            (ffi::STYLE_FLAG_INVISIBLE, flags::HIDDEN),
+            (ffi::STYLE_FLAG_STRIKETHROUGH, flags::STRIKE),
+        ];
         let mut f = 0;
-        if s.bold {
-            f |= flags::BOLD;
+        for (from, to) in MAP {
+            if s.flags & from != 0 {
+                f |= to;
+            }
         }
-        if s.faint {
-            f |= flags::DIM;
-        }
-        if s.italic {
-            f |= flags::ITALIC;
-        }
-        if s.underline != 0 {
+        if s.flags & ffi::STYLE_UNDERLINE_MASK != 0 {
             f |= flags::UNDERLINE;
-        }
-        if s.inverse {
-            f |= flags::INVERSE;
-        }
-        if s.invisible {
-            f |= flags::HIDDEN;
-        }
-        if s.strikethrough {
-            f |= flags::STRIKE;
         }
         StyleBits {
             fg: color_of(&s.fg_color),
@@ -559,9 +554,9 @@ impl GhosttyEngine {
     }
 
     fn cell_style(&self, x: u16) -> StyleBits {
-        let mut style = ffi::Style::sized();
+        let mut style = ffi::Style::zeroed();
         // SAFETY: `row_cells` is live and was populated for the current row; `x` is below
-        // the row's width; STYLE writes a `GhosttyStyle` whose `size` we set.
+        // the row's width; STYLE writes a 16-byte `GhosttyStyle` into `style`.
         let ok = unsafe {
             ffi::ghostty_render_state_row_cells_select(self.row_cells, x) == ffi::SUCCESS
                 && ffi::ghostty_render_state_row_cells_get(
@@ -838,9 +833,11 @@ impl Engine for GhosttyEngine {
         engine.set(ffi::OPT_USERDATA, state.cast_const().cast());
         let lines: usize = scrollback;
         engine.set(ffi::OPT_SCROLLBACK_MAX_LINES, (&raw const lines).cast());
-        // The library starts with a byte limit too, which wins first; NULL removes it, so the
+        // The library also has a byte limit, 10,000 bytes (about one page) by default in
+        // 1.0, which wins first. NULL restores that default; SIZE_MAX removes it, so the
         // line limit governs as oso's `[terminal] scrollback` would.
-        engine.set(ffi::OPT_SCROLLBACK_MAX_BYTES, std::ptr::null());
+        let unlimited = usize::MAX;
+        engine.set(ffi::OPT_SCROLLBACK_MAX_BYTES, (&raw const unlimited).cast());
         let no = false;
         engine.set(ffi::OPT_TITLE_REPORT, (&raw const no).cast());
         engine.set(

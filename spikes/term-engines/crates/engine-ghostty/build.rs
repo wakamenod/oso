@@ -1,10 +1,13 @@
 //! Builds libghostty-vt from the vendored source with Zig and links its static archive.
 //!
 //! Inputs (all optional):
-//! - `GHOSTTY_VT_SRC`: the libghostty-vt source tree. Default: the vendored copy under
-//!   `spikes/term-engines/vendor/src`.
-//! - `ZIG`: the Zig binary. Default: `zig` on PATH. Zig's package cache must already hold
-//!   the library's dependencies; this script never downloads anything.
+//! - `GHOSTTY_VT_SRC`: the libghostty-vt source tree. Default: the vendored 1.0.1 release
+//!   under `spikes/term-engines/vendor/src`.
+//! - `GHOSTTY_VT_SYSTEM`: an unpacked dependency directory passed as `zig build --system`.
+//!   Default: the release's sibling `-deps` directory when building the default source.
+//! - `ZIG`: the Zig binary. Default: `zig` on PATH. This script never downloads anything.
+//! - `ZIG_GLOBAL_CACHE_DIR`: passed through when set; otherwise `<OUT_DIR>/zig-global-cache`,
+//!   created empty (Zig 0.17 crashes with "reached unreachable code" on a used one).
 //! - `GHOSTTY_VT_OPTIMIZE`: Zig optimize mode. Default: `ReleaseFast`.
 
 // oso's clippy.toml (found by walking up from this spike) bans println and Command for
@@ -16,18 +19,21 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const VERSION: &str = "1.4.0-main+83fb956";
+const VERSION: &str = "1.0.1";
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=GHOSTTY_VT_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=GHOSTTY_VT_OPTIMIZE");
+    println!("cargo:rerun-if-env-changed=GHOSTTY_VT_SYSTEM");
+    println!("cargo:rerun-if-env-changed=ZIG_GLOBAL_CACHE_DIR");
 
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let default_src = manifest.join(format!("../../vendor/src/libghostty-vt-{VERSION}"));
     let src = match env::var_os("GHOSTTY_VT_SRC") {
         Some(dir) => PathBuf::from(dir),
-        None => manifest.join(format!("../../vendor/src/libghostty-vt-{VERSION}")),
+        None => default_src.clone(),
     };
     if !src.join("build.zig").is_file() || !src.join("include/ghostty/vt.h").is_file() {
         panic!(
@@ -48,16 +54,40 @@ fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let prefix = out.join("zig-out");
     let cache = out.join("zig-cache");
+    let global_cache = match env::var_os("ZIG_GLOBAL_CACHE_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            let dir = out.join("zig-global-cache");
+            // Start empty on every run of this script.
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("create zig global cache dir");
+            dir
+        }
+    };
+    // A release's dependency tarball, unpacked: Zig takes its packages from there, offline.
+    let system = match env::var_os("GHOSTTY_VT_SYSTEM") {
+        Some(dir) => Some(PathBuf::from(dir)),
+        None if src == default_src => {
+            let deps = manifest.join(format!("../../vendor/src/libghostty-vt-{VERSION}-deps"));
+            deps.is_dir().then_some(deps)
+        }
+        None => None,
+    };
 
-    let status = Command::new(&zig)
+    let mut command = Command::new(&zig);
+    command
         .current_dir(&src)
-        .arg("build")
+        .env("ZIG_GLOBAL_CACHE_DIR", &global_cache)
+        .arg("build");
+    if let Some(deps) = &system {
+        command.arg("--system").arg(deps);
+    }
+    let status = command
         .arg("-Demit-lib-vt")
         .arg(format!("-Doptimize={optimize}"))
         .arg("-Dsimd=true")
         .arg("-Demit-xcframework=false")
         .arg("-Demit-themes=false")
-        .arg(format!("-Dversion-string={VERSION}"))
         .arg("--prefix")
         .arg(&prefix)
         .arg("--cache-dir")

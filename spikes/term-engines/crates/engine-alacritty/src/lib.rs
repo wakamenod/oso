@@ -129,6 +129,7 @@ pub struct AlacrittyEngine {
     osc_parser: alacritty_terminal::vte::Parser,
     osc_reader: OscReader,
     effects: Rc<RefCell<Vec<Effect>>>,
+    no_second_parser: bool,
 }
 
 fn color(color: AColor) -> Color {
@@ -219,6 +220,7 @@ impl Engine for AlacrittyEngine {
             osc_parser: alacritty_terminal::vte::Parser::new(),
             osc_reader: OscReader(effects.clone()),
             effects,
+            no_second_parser: std::env::var_os("NO_SECOND_PARSER").is_some(),
         }
     }
 
@@ -228,7 +230,10 @@ impl Engine for AlacrittyEngine {
 
     fn feed(&mut self, bytes: &[u8]) {
         self.processor.advance(&mut self.term, bytes);
-        self.osc_parser.advance(&mut self.osc_reader, bytes);
+        // `NO_SECOND_PARSER` measures what the second parser costs.
+        if !self.no_second_parser {
+            self.osc_parser.advance(&mut self.osc_reader, bytes);
+        }
     }
 
     fn resize(&mut self, cols: u16, rows: u16) {
