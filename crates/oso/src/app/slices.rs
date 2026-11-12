@@ -66,8 +66,11 @@ impl App {
     /// meanwhile scrolls.
     pub(super) fn run_slices(&mut self, event_loop: &Loop<'_>) {
         let cancelled = self.dispatcher.take_cancelled();
-        if cancelled {
+        if cancelled.is_some() {
             self.held_wheel.clear();
+            // A close request held meanwhile survives `C-g`, and asks now.
+            let effects = self.dispatcher.run_held_during_all(&mut self.editor);
+            self.apply(event_loop, effects);
         }
         self.replace_slice(event_loop);
         let ended = self.undo_slice(event_loop);
@@ -83,9 +86,10 @@ impl App {
         }
     }
 
-    /// Whether work goes on over turns: `!`, an undo or a replay.
+    /// Whether work goes on over turns: `!`, an undo, or a replay not waiting for something
+    /// else, whose end wakes the loop as it comes.
     pub(super) fn slices_go_on(&self) -> bool {
-        crate::dispatch::holds_input(&self.editor) || self.editor.macro_replaying()
+        crate::dispatch::holds_input(&self.editor) || self.dispatcher.replay_goes_on(&self.editor)
     }
 
     /// When the loop wakes for the next slice: at once while work goes on, with no frame to

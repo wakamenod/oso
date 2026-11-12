@@ -238,13 +238,18 @@ impl App {
         reply: std::sync::mpsc::Sender<Reply>,
     ) {
         let undoing = self.editor.crossing().is_some();
+        // The steps an undo asks to cross, as the command bounds them.
+        let steps = match &arg {
+            Some(Arg::Count(n)) => n.unsigned_abs().clamp(1, crate::commands::MAX_CROSSINGS),
+            _ => 1,
+        };
         let (ran, saves) = self.agent_run(event_loop, connection, name, arg, reach);
         // An undo that goes on replies once it has ended. One under way before was not this
         // command's: the channel waited for it.
         let Some((reply, ran)) = (if undoing {
             Some((reply, ran))
         } else {
-            self.wait_for_undo(connection, reply, ran)
+            self.wait_for_undo(connection, reply, (ran, steps))
         }) else {
             return;
         };

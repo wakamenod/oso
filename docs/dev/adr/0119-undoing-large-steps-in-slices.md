@@ -615,22 +615,30 @@ the first, (a).
   so it drops the crossing and nothing else, and the echo area says "Undo or redo panicked".
 - **Held input** (`dispatch/hold_all.rs`) is held while `!` replaces or a crossing goes on, in one
   queue of at most 256. `C-g` cancels the crossing, says "Undo cancelled" or "Redo cancelled",
-  and drops the queue and the wheel held with it. The window's close button is held with the
-  keys, past the 256 too, and asks its question after them; so does it now while `!` replaces.
-  The wheel is summed for each window and scrolls after the keys, while `!` replaces too; a
-  window gone meanwhile scrolls nothing.
+  and drops the keys and the wheel held with it. The window's close button is held with the
+  keys, past the 256 too, survives a `C-g`, and asks its question after them; so does it now
+  while `!` replaces. The wheel is summed for each window and scrolls after the keys, while `!`
+  replaces too; a window gone meanwhile scrolls nothing. A prompt that opened while keys were
+  held, as a question, takes none of them: they are dropped, and the echo area says "Keys typed
+  meanwhile dropped: a prompt opened"; this holds for `!` too. During a replay, a first `C-g`
+  stops the macro, as ADR 0113 has it, and a second cancels the undo.
 - **The echo row** shows the progress line first while a crossing goes on; what a command said
   shows once it ends.
 - **What waits.** The channel refuses `run`, `open` and `insert` with "an undo or a redo goes on;
   try again in a moment". A restart, and an `exit` with a generation, are refused with "cannot
   hand over: an undo or a redo is under way", which `oso dev` waits out as it does a macro.
-  `Editor::reload_waits` holds a reload, and a replay waits.
+  `Editor::reload_waits` holds a reload, and a replay waits. The question about a connection to
+  the channel waits too, as a prompt opening would abandon the undo. A whitespace scan that
+  reports while an undo goes on in its buffer is set aside, and scans again once the undo has
+  ended, as its cleanup would abandon it. While a replay waits for something else, as a load
+  or a search, the loop does not turn at once for it: what it waits for wakes the loop.
 - **`get-state`'s `undoing`,** in the channel's state and the dev socket's: `null`,
   `{"redo": false, "done": 0.42}`, or `{"active": true}` while a buffer that may hold secrets is
   shown or is the one undone.
 - **The channel's own undo.** If the command leaves a crossing under way, the reply waits
   (`app/agent/undoing.rs`): once it ends, the command's own reply, or the error that ended it;
-  "Undo cancelled by the person" (or "Redo") after the person's `C-g`. Past 8 s, under the
+  "Undo cancelled by the person" (or "Redo") after the person's `C-g`, and with a count, how
+  many steps crossed before it ("after 2 of 5 steps"). Past 8 s, under the
   channel's 10 s wait for a reply, it replies that the undo goes on and `state`'s `undoing` says
   how far; the reply to a save waits as long, from the same constant
   (`channel::server::ANSWER_WITHIN`). A connection that goes, or a channel turned off, forgets
@@ -671,8 +679,8 @@ the first, (a).
   Redo's slices take about what undo's do. The last slice, which commits, took 15.8 to 23.5 ms in step 2, almost
   all of it freeing; in a wrapped window it still takes about 5 to 6 ms, rewrapping the rows in
   view with the command's budget. A run that ends follows the edited lines, which puts p99 at
-  3.16 ms where runs end often. The longest slice of the last case was 4.3 to 5.0 ms in three
-  more runs; the 9.3 ms came once. Before the cut and run changes above, the "200k splices"
+  3.16 ms where runs end often. The longest slice of the last case was 4.3 to 5.0 ms in most
+  runs, and 8.6 to 9.3 ms in about one run in three or four. Before the cut and run changes above, the "200k splices"
   case's longest slice took 47 ms with the batch kept whole, and the last case's 17 ms.
 
 - **In the running app** (release build with the dev socket, the window open but not focused,
@@ -689,6 +697,11 @@ the first, (a).
   redo's 1.1 s held about 0.45 s of slices and 0.2 s of waiting for the paced frames' drawables.
   Keys held meanwhile ran in order after it. The echo area said `Undoing… 46%` midway while the
   text stayed as before.
+- **Tests (the coordinator's review).** Keys held before a question opened do not answer it; a
+  close request held with keys survives `C-g` and asks after it; a replay that waits for an
+  undo does not count as going on; a whitespace scan that reports during an undo is set aside
+  and scans again once it ends; the question about a connection waits for an undo; and the
+  agent's reply after a cancelled count says how many steps crossed.
 - **Tests (decision 8 and the sure work).** A dispatcher test drives an undo's turns with no
   frame: each asks for none until the commit, which asks for one. The pace's own test: a frame is
   due when the share moves on, a step of a count commits, or 100 ms pass. In `oso-core`, with

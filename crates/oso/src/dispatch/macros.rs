@@ -88,6 +88,7 @@ impl Dispatcher {
         let held = super::hold_all::Held::Text {
             text: text.to_owned(),
             commit,
+            from_socket: self.from_socket,
         };
         if let Some(done) = self.hold_during_all(editor, held) {
             return done;
@@ -184,6 +185,12 @@ impl Dispatcher {
             return;
         }
         editor.macro_record(group);
+    }
+
+    /// Whether a replay runs and can feed its next event now, rather than waiting for what an
+    /// earlier one started: the host turns again at once only then (ADR 0119).
+    pub fn replay_goes_on(&self, editor: &Editor) -> bool {
+        editor.macro_replaying() && !self.replay_waits(editor)
     }
 
     /// Whether what an earlier event started still runs, so the next must wait: a clipboard

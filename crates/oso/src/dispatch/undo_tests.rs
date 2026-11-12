@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use oso_core::editor::{Editor, Status};
 
-use super::Dispatcher;
 use super::motion_tests::{at, cursors, send, text};
+use super::{Cancelled, Dispatcher};
 use crate::commands::kept_messages;
 
 fn echo(editor: &Editor) -> String {
@@ -68,8 +68,8 @@ fn c_g_cancels_a_large_undo_and_drops_the_keys_that_waited() {
     send(&mut d, &mut editor, "C-z");
     send(&mut d, &mut editor, "M-> x C-g");
     assert!(editor.crossing().is_none());
-    assert!(d.take_cancelled());
-    assert!(!d.take_cancelled(), "said once");
+    assert_eq!(d.take_cancelled(), Some(Cancelled::Crossing { left: 0 }));
+    assert_eq!(d.take_cancelled(), None, "said once");
     assert_eq!(text(&editor), "c ".repeat(10_000), "nothing undone");
     assert_eq!(cursors(&editor), before, "nor moved");
     assert_eq!(
@@ -130,4 +130,58 @@ fn turns_go_on_with_no_frame_until_the_text_changes() {
     }
     assert!(turns > 1, "{turns} turns");
     assert_eq!(text(&editor), "ab ".repeat(10_000));
+}
+
+#[test]
+fn keys_held_before_a_prompt_opened_never_answer_it() {
+    let (mut d, mut editor) = replaced();
+    send(&mut d, &mut editor, "C-z");
+    send(&mut d, &mut editor, "y");
+    // A question opens under the undo, which abandons it, as a selected prompt does.
+    editor
+        .ask_for_agent(
+            "Agent: let it in?",
+            "agent-channel-allow",
+            ["allow", "refuse"],
+        )
+        .expect("a question");
+    finish(&mut d, &mut editor);
+    assert!(editor.prompt().is_some(), "the held `y` did not answer it");
+    assert!(!editor.take_agent_allowed());
+    assert_eq!(
+        kept_messages(&editor).pop().as_deref(),
+        Some("Keys typed meanwhile dropped: a prompt opened")
+    );
+}
+
+#[test]
+fn a_close_request_held_with_keys_survives_c_g() {
+    let (mut d, mut editor) = replaced();
+    send(&mut d, &mut editor, "C-z M-> x");
+    assert_eq!(d.close_requested(&mut editor), Default::default());
+    send(&mut d, &mut editor, "C-g");
+    assert!(editor.crossing().is_none());
+    d.run_held_during_all(&mut editor);
+    assert!(editor.prompt().is_some(), "the close request asks");
+    assert_eq!(
+        editor.tiled().1.text().to_string(),
+        "c ".repeat(10_000),
+        "no `x`"
+    );
+}
+
+#[test]
+fn a_replay_that_waits_for_an_undo_does_not_go_on_meanwhile() {
+    let (mut d, mut editor) = replaced();
+    send(&mut d, &mut editor, "C-x ( C-z C-x )");
+    finish(&mut d, &mut editor);
+    send(&mut d, &mut editor, "C-M-z");
+    finish(&mut d, &mut editor);
+    send(&mut d, &mut editor, "C-x e");
+    assert!(editor.macro_replaying());
+    assert!(d.replay_goes_on(&editor), "its next event can run");
+    d.replay(&mut editor, Instant::now() + Duration::from_secs(1));
+    assert!(editor.crossing().is_some(), "its `C-z` began an undo");
+    assert!(!d.replay_goes_on(&editor), "it waits for the undo");
+    finish(&mut d, &mut editor);
 }

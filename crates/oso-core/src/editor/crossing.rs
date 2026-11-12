@@ -142,6 +142,14 @@ impl Editor {
         self.crossing.under_way.as_ref()
     }
 
+    /// The buffer of the crossing under way, if any.
+    pub(super) fn crossing_buffer(&self) -> Option<BufferId> {
+        self.crossing
+            .under_way
+            .as_ref()
+            .map(|crossing| crossing.buffer)
+    }
+
     /// The next slice, for the host at each turn: `None` while it goes on, `Some(result)` when
     /// it ended, and `Some(Ok(()))` with none under way. Each step commits as it ends. Outside
     /// a command, the host gives the wraps their budget first ([`Editor::refill_wraps`]) and

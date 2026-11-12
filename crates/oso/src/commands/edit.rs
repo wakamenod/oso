@@ -21,7 +21,7 @@ use super::{MAX_INSERT, budget_left};
 
 /// The most undo steps one command crosses (ADR 0058). The history is bounded in bytes, but it
 /// can hold many small steps. They cross a slice a turn, the first in the command (ADR 0119).
-const MAX_CROSSINGS: usize = 256;
+pub const MAX_CROSSINGS: usize = 256;
 
 /// The editing commands.
 pub const COMMANDS: &[Command] = &[

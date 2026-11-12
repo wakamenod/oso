@@ -31,7 +31,7 @@ mod clipboard;
 mod extended;
 mod held;
 mod hold_all;
-pub use hold_all::holds_input;
+pub use hold_all::{Cancelled, holds_input};
 mod jump;
 mod keymaps;
 mod macros;
@@ -479,7 +479,8 @@ impl Dispatcher {
         if let Some(done) = self.macro_before(editor, (Some(key), || MacroEvent::Key(key))) {
             return done;
         }
-        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
+        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key, self.from_socket))
+        {
             return done;
         }
         if self.hold_key(key) {
