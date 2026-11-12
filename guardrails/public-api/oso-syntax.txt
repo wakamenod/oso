@@ -90,6 +90,9 @@ pub fn oso_syntax::Document::parse(&mut self, core::time::Duration) -> oso_synta
 impl oso_syntax::Document
 pub fn oso_syntax::Document::highlight(&mut self, &mut oso_syntax::Queries, &[core::ops::range::Range<usize>], core::time::Duration) -> oso_syntax::Highlighted
 pub fn oso_syntax::Document::highlights(&self) -> &oso_core::syntax::highlights::Highlights
+pub struct oso_syntax::Doomed
+impl oso_syntax::Doomed
+pub fn oso_syntax::Doomed::is_empty(&self) -> bool
 pub struct oso_syntax::Job<Key>
 pub oso_syntax::Job::buffer: Key
 pub oso_syntax::Job::edits: core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
@@ -128,7 +131,7 @@ pub fn oso_syntax::Scheduler<Key>::give_back(&mut self, oso_syntax::Checkout<Key
 pub fn oso_syntax::Scheduler<Key>::lost(&mut self, oso_syntax::Checkout<Key>) -> core::option::Option<oso_syntax::Report<Key>>
 pub fn oso_syntax::Scheduler<Key>::new() -> Self
 pub fn oso_syntax::Scheduler<Key>::submit(&mut self, oso_syntax::Job<Key>)
-pub fn oso_syntax::Scheduler<Key>::take_doomed(&mut self) -> alloc::vec::Vec<oso_syntax::Document>
+pub fn oso_syntax::Scheduler<Key>::take_doomed(&mut self) -> oso_syntax::Doomed
 pub fn oso_syntax::Scheduler<Key>::take_next(&mut self) -> core::option::Option<oso_syntax::Checkout<Key>>
 impl<Key> core::default::Default for oso_syntax::Scheduler<Key>
 pub fn oso_syntax::Scheduler<Key>::default() -> Self

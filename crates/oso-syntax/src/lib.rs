@@ -20,4 +20,4 @@ mod worker;
 pub use document::{Document, Failure, Highlighted, MAX_BYTES, Parsed};
 pub use language::Language;
 pub use queries::Queries;
-pub use worker::{Checkout, Job, Outcome, Refused, Report, Scheduler};
+pub use worker::{Checkout, Doomed, Job, Outcome, Refused, Report, Scheduler};

@@ -750,8 +750,9 @@ What was built:
 The author approved the plan's API and its nine answers, each the recommended one (2026-11-13,
 through the coordinator).
 
-- **The API** is three methods of `oso_syntax::Scheduler<Key>` and one enum. The key stays
-  generic, and the tip crate keeps buffers and documents apart with a key of its own (step 9):
+- **The API** is three methods of `oso_syntax::Scheduler<Key>` and one enum (and `Doomed`,
+  below). The key stays generic, and the tip crate keeps buffers and documents apart with a key
+  of its own (step 9):
   - `open(key, language, verdict, text, shown) -> Result<(), Refused>` opens a text that never
     changes, to parse and highlight whole, `shown` first. It is O(1), and nothing is parsed or
     freed in it. A key that has a slot is replaced, as a job in a new language replaces one. A
@@ -791,8 +792,22 @@ through the coordinator).
   side would wait behind every background buffer, for as long as they had work. Not taken:
   letting up to 2 shown documents pass the cap, and keeping the plain order as a known limit.
 - **A checkout whose slot went** (closed, replaced or dropped while a thread has it) still holds
-  the lane, and its tree still counts, until it is given back. Otherwise the next document
-  could take the second thread while that slice runs, and a fifth tree could start.
+  the lane, and its tree still counts, until it is given back, a slice that panicked too.
+  Otherwise the next document could take the second thread while that slice runs, and a fifth
+  tree could start.
+- **A checkout keeps the lane it was taken in** (the coordinator's review): a background buffer
+  that a window shows during its slice still holds the lane until it is given back, as a shown
+  buffer whose window went already did (ADR 0111, step 4a). Before, it let a document take the
+  second thread meanwhile.
+- **What is freed goes to a thread** (the author's choice after the coordinator's review,
+  Q11 (a)): `Scheduler::take_doomed` returns `Doomed` (new, public: an opaque value with
+  `is_empty`, which frees what it holds when dropped), not `Vec<Document>`. It holds the
+  documents, and the text that waited in a slot that went: closed, replaced, refused or failed
+  before it started. The schedule may have held such a text alone, and freeing 2 MiB of it
+  takes about 55 µs (release, the author's Mac), so it is not freed under the lock. The pool's
+  `open` keeps an O(1) copy of the text, so a refused text is freed after the lock too. Not
+  taken: a second method for the texts beside `take_doomed`, and freeing them under the lock
+  as a known limit.
 - **A finished document gives its tree to the list to free** when it is done, and a thread
   frees it with nothing locked. Its slot stays until `close`, holding no document, text or
   shown ranges. The caller keeps the highlights from the last report.
@@ -812,7 +827,11 @@ through the coordinator).
   - Refusals: every verdict that is withheld, the size limit and the open cap.
   - A refused open closes what was open under the key.
   - The count of open documents through every way a slot goes.
-  - A checkout whose document closed keeps the lane and its tree until it is given back.
+  - A checkout whose document closed keeps the lane and its tree until it is given back, or
+    until its panic is reported.
+  - A background buffer shown during its slice keeps the lane.
+  - The text of a document that never started goes to `Doomed` when it is closed, replaced,
+    refused or replaced by a job.
   - Highlights equal a fresh document's.
   - A finished document frees its tree and keeps an empty slot.
   - Closing before, during and after a slice.

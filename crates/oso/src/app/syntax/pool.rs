@@ -106,11 +106,14 @@ impl<Key: Copy + Eq + Hash + Send + 'static> Pool<Key> {
         text: Rope,
         shown: Vec<Range<usize>>,
     ) -> Result<(), Refused> {
+        // O(1): so that a refused text is freed here, after the lock, not under it.
+        let kept = text.clone();
         let opened = lock(&self.shared.state)
             .scheduler
             .open(key, language, verdict, text, shown);
         // There is work, or a replaced document to free.
         self.shared.ready.notify_all();
+        drop(kept);
         opened
     }
 

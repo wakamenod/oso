@@ -70,7 +70,7 @@ impl Stale {
     pub(super) fn of(slot: &Slot) -> Self {
         Self {
             generation: slot.generation,
-            lane: slot.in_lane(),
+            lane: slot.holds_lane(),
             tree: slot.holds_tree(),
         }
     }
@@ -95,6 +95,12 @@ impl Slot {
     /// Whether it runs in the lane one thread at a time has: anything but a shown buffer.
     pub(super) fn in_lane(&self) -> bool {
         self.is_unowned() || self.shown.is_empty()
+    }
+
+    /// Whether a thread has it in the lane: taken there, or in it now, as a shown buffer whose
+    /// window went is.
+    pub(super) fn holds_lane(&self) -> bool {
+        self.checked_out && (self.taken_in_lane || self.in_lane())
     }
 
     /// Whether it is a document no buffer owns that holds a tree, or is making one.
@@ -204,8 +210,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
     /// Whether a thread has the lane: a background buffer or a document no buffer owns, its
     /// slot there or gone.
     pub(super) fn lane_busy(&self) -> bool {
-        self.stale.iter().any(|stale| stale.lane)
-            || (self.slots.values()).any(|slot| slot.checked_out && slot.in_lane())
+        self.stale.iter().any(|stale| stale.lane) || self.slots.values().any(Slot::holds_lane)
     }
 
     /// Whether fewer than [`MAX_STARTED`] documents hold a tree, counting checkouts whose slot

@@ -467,3 +467,70 @@ fn a_shown_document_waiting_for_room_lets_a_started_one_finish_before_background
     scheduler.give_back(checkout, Highlighted::Done);
     assert_eq!(start(&mut scheduler), 10);
 }
+
+#[test]
+fn a_background_buffer_shown_during_its_slice_still_holds_the_lane() {
+    let mut scheduler = Scheduler::new();
+    scheduler.submit(buffer(1, false));
+    let running = scheduler.take_next().unwrap();
+    // A window shows it now, with nothing new: it stays checked out where it was taken.
+    scheduler.submit(Job {
+        edits: Some(Vec::new()),
+        ..buffer(1, true)
+    });
+    open(&mut scheduler, 2, true);
+    assert!(
+        scheduler.take_next().is_none(),
+        "a document took the second thread while the lane's slice runs"
+    );
+    scheduler.give_back(running, Highlighted::Paused);
+    assert_eq!(
+        scheduler.take_next().unwrap().buffer,
+        1,
+        "now a shown buffer"
+    );
+}
+
+#[test]
+fn a_panicked_slice_of_a_closed_document_frees_its_lane_and_tree() {
+    let mut scheduler = Scheduler::new();
+    open(&mut scheduler, 1, true);
+    let running = scheduler.take_next().unwrap();
+    scheduler.close(1);
+    assert!(
+        scheduler.lost(running).is_none(),
+        "a report of a closed document"
+    );
+    open(&mut scheduler, 2, false);
+    assert_eq!(
+        scheduler.take_next().unwrap().buffer,
+        2,
+        "the lane stayed held"
+    );
+    assert!(scheduler.stale.is_empty());
+}
+
+#[test]
+fn the_text_of_a_document_that_never_started_is_freed_off_the_lock() {
+    let mut scheduler = Scheduler::new();
+    open(&mut scheduler, 1, false);
+    scheduler.close(1);
+    open(&mut scheduler, 2, false);
+    open(&mut scheduler, 2, false);
+    open(&mut scheduler, 3, false);
+    let refused = scheduler.open(
+        3,
+        Language::Rust,
+        Verdict::SecretName,
+        Rope::new(),
+        Vec::new(),
+    );
+    assert_eq!(refused, Err(Refused::MayHoldSecrets));
+    open(&mut scheduler, 4, false);
+    scheduler.submit(buffer(4, false));
+    let doomed = scheduler.take_doomed();
+    // Closed, replaced, refused and replaced by a job: each waiting text, and no document.
+    assert_eq!((doomed.texts(), doomed.len()), (4, 0));
+    assert!(!doomed.is_empty());
+    assert!(scheduler.take_doomed().is_empty());
+}

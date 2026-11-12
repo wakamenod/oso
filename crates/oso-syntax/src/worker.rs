@@ -9,7 +9,8 @@
 //!   milliseconds, and the schedule's methods run under the lock, some on the UI thread. Jobs
 //!   wait in their slot until a thread checks the document out, and [`Checkout::run`], with
 //!   nothing locked, follows them. A document no longer wanted goes on a list a thread frees
-//!   after it unlocks ([`Scheduler::take_doomed`]).
+//!   after it unlocks ([`Scheduler::take_doomed`]), with the texts that waited in a slot that
+//!   went.
 //! - Buffers a window shows go first. At most one checkout at a time is of a buffer no window
 //!   shows now, so one slice that runs long on a background buffer never holds the shown ones.
 //! - A dropped buffer's slot goes at once: a job that waited in it never runs, and a slice that
@@ -29,6 +30,7 @@ use std::time::{Duration, Instant};
 use oso_core::rope::Rope;
 use oso_core::syntax::{Highlights, Splice, compose};
 
+pub use doomed::Doomed;
 pub use unowned::Refused;
 use unowned::{Kind, Stale};
 
@@ -174,6 +176,9 @@ struct Slot {
     reported: Option<(u64, Instant)>,
     /// A buffer's, or a document's no buffer owns.
     kind: Kind,
+    /// Whether it was in the lane when a thread last checked it out: a background buffer that
+    /// a window shows during its slice still holds the lane.
+    taken_in_lane: bool,
 }
 
 impl Slot {
@@ -202,6 +207,7 @@ impl Slot {
             queued: None,
             reported: None,
             kind: Kind::Buffer,
+            taken_in_lane: false,
         }
     }
 }
@@ -213,7 +219,7 @@ pub struct Scheduler<Key> {
     /// Counts places in the queue, and the stamps of reports.
     order: u64,
     /// Documents no longer wanted, for a thread to free with nothing locked.
-    doomed: Vec<Document>,
+    doomed: Doomed,
     /// Checkouts whose slot went while a thread had it: until given back, they still hold
     /// their lane and their tree.
     stale: Vec<Stale>,
@@ -227,7 +233,7 @@ impl<Key> Default for Scheduler<Key> {
             slots: HashMap::new(),
             generations: 0,
             order: 0,
-            doomed: Vec::new(),
+            doomed: Doomed::new(),
             stale: Vec::new(),
             unowned: 0,
         }
@@ -318,19 +324,25 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
         Some(slot)
     }
 
-    /// A slot no longer wanted: its document goes on the list to free, and if a thread has it,
-    /// what that checkout holds counts until it is given back.
+    /// A slot no longer wanted: its document and the text that waited in it go on the list to
+    /// free, and if a thread has it, what that checkout holds counts until it is given back.
     fn retire(&mut self, slot: Slot) {
         if slot.checked_out {
             self.stale.push(Stale::of(&slot));
         }
-        // Not freed here: the UI thread may be the caller.
-        self.doomed.extend(slot.document);
+        self.bury(slot);
     }
 
-    /// The documents to free, for a thread to drop once it has unlocked.
-    pub fn take_doomed(&mut self) -> Vec<Document> {
-        std::mem::take(&mut self.doomed)
+    /// Puts what `slot` holds on the list to free. Not freed here: the UI thread may be the
+    /// caller.
+    fn bury(&mut self, slot: Slot) {
+        self.doomed.extend(slot.document);
+        self.doomed.bury(slot.waiting);
+    }
+
+    /// The documents and texts to free, for a thread to drop once it has unlocked.
+    pub fn take_doomed(&mut self) -> Doomed {
+        std::mem::replace(&mut self.doomed, Doomed::new())
     }
 
     /// The next document a thread works on: of those with work, the first buffer a window
@@ -371,6 +383,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             }
         }
         slot.checked_out = true;
+        slot.taken_in_lane = slot.in_lane();
         slot.queued = None;
         Some(Checkout {
             buffer,
@@ -410,7 +423,9 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             outcome,
         };
         if let Highlighted::Failed(failure) = outcome {
-            self.remove(&checkout.buffer);
+            if let Some(slot) = self.remove(&checkout.buffer) {
+                self.bury(slot);
+            }
             self.doomed.push(document);
             return Some(report(Outcome::Failed(failure)));
         }
@@ -456,7 +471,9 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             revision: slot.revision,
             outcome: Outcome::Lost,
         };
-        self.remove(&checkout.buffer);
+        if let Some(slot) = self.remove(&checkout.buffer) {
+            self.bury(slot);
+        }
         Some(report)
     }
 
@@ -522,6 +539,7 @@ fn due(slot: &Slot, document: &Document, outcome: Highlighted) -> bool {
     }
 }
 
+mod doomed;
 mod unowned;
 
 #[cfg(test)]
