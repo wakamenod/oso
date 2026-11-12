@@ -353,7 +353,10 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   does not trust it, also while that record is unread or refused. A buffer in no project
   shows neither ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
   `M-x trust-project` asks "Trust ~/src/oso? Its code may run through language servers,
-  formatters and git hooks (y or n)", with the verbs `trust` and `keep restricted`.
+  formatters and git hooks (y or n)", with the verbs `trust` and `keep restricted`. `y` records
+  the root in `trusted-projects`, beside `config.toml`, says `Trusted ~/src/oso` and drops
+  `restricted`. `M-x untrust-project` takes the line out without asking and says
+  `~/src/oso is restricted again`.
 
 ## Cursor
 
