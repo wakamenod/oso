@@ -217,3 +217,25 @@ fn no_line_is_skipped_whatever_end_the_engine_gives_and_far_ends_stay_linear() {
         "linear"
     );
 }
+
+#[test]
+fn a_match_that_crosses_lines_is_not_looked_through_again_from_each_of_them() {
+    // A `;` every 400 short lines: each line starts a match that ends at the next `;`.
+    let mut block = String::new();
+    while block.len() < 1024 * 1024 {
+        for _ in 0..399 {
+            block.push_str("abcdefghi\n");
+        }
+        block.push_str("abcdefgh;\n");
+    }
+    let started = std::time::Instant::now();
+    let mut found = 0;
+    LineQuery::parse("[^;]+;").find_in_block(block.as_bytes(), |_| found += 1);
+    assert_eq!(found, block.matches(';').count());
+    // Debug builds are slow; looking each line's 4 KiB through again took seconds here.
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+}

@@ -458,9 +458,10 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 
 - **`C-u` asks for a directory first,** for `project-find-file` and `project-search`, with
   `C-x C-f`'s completion from the buffer's directory: `Find file in directory:` and
-  `Search in directory:` (`Editor::open_directory_prompt`). `RET` on a file's row says
+  `Search in directory:` (`Editor::open_directory_prompt`). `RET` on a file's row, or on
+  a path typed whole that its directory's listing names as a file, `M-RET` too, says
   `Not a directory: <path>` and keeps the prompt open, unless what is typed ends with `/`, which
-  gives that directory whatever row is selected. A prompt that lists only directories, as Emacs's
+  gives that directory whatever row is selected. A path with `..` in it says to name it whole. A prompt that lists only directories, as Emacs's
   `read-directory-name`, comes with step 5. The directory named stands for the project, named
   after its last component. The home directory, one that holds it, `/` and any path with `..` in it are refused
   by their words (`Editor::listable_root`), and the walking and searching threads refuse a root
@@ -497,9 +498,11 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
 - **Matching a block.** The longest component that is not excluded is looked for through the
   whole block: some match of it ends at a place, and the leftmost match that starts and ends by
   then starts on the first line that can hold one, which alone is matched against every
-  component. That holds whichever end the engine gives, which is not always the earliest. When
-  the end is more than 4 KiB ahead, each line up to it is matched on its own, so no stretch of a
-  block is looked through more than twice however an expression crosses lines. The match that
+  component, as is each line after it up to the one the end is on, and the next look starts
+  after them. That holds whichever end the engine gives, which is not always the earliest, and
+  no stretch of a block is looked through more than twice however an expression crosses lines.
+  When the end is more than 4 KiB ahead, each line up to it is matched on its own, without the
+  look for the leftmost start. The match that
   starts first is the row's. `\A`, `\z` and `(?-m)^` mean a line's edges when a line is
   matched, and the block's when it is looked through. `LineQuery::find_in_block` also gives the block's line
   breaks.
@@ -548,7 +551,14 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   (`editor/visits.rs`): once the buffer has the line, or the whole file, the selected window
   showing it pushes its old place on the mark ring and goes to the line and column, each as far
   as the text goes. A visit that asks the large-file question first loses the place. The history,
-  `project-search`, is one for every search and keeps the input.
+  `project-search`, is one for every search and keeps the input, but not when the row taken is
+  of a file that may hold secrets, whose lines the input matched.
+- **Memory.** A search holds at most 10,000 rows, each its text of at most 512 bytes and its
+  path once, in the row's candidate; the lines kept for narrowing, at most 16 MiB with their
+  paths, which go once a search that walks starts; and a block of at most 16 MiB in each of the
+  8 searchers while a long line is read, given back after it. On a crafted tree that is at most
+  about 46 MiB of rows with 4 KiB paths, 16 MiB of lines kept and 128 MiB of blocks; on an
+  ordinary one, a few MiB.
 - **Modules.** The tip crate gains `grep` (`grep.rs`, with `grep/files.rs` for the searchers and
   `grep/read.rs` for a file's blocks), placed in `guardrails/layers.txt` on the line of
   `commands dev grep keys loader text`, above `walk`, which it uses; its glue is `app/greps.rs`.

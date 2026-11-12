@@ -1,6 +1,7 @@
-//! Visiting a file at a place (ADR 0114): a visit a command asks for, and once the file's buffer
-//! shows with that line, the selected window going to it, with the place before on the mark
-//! ring.
+//! Visiting files: the visits commands ask the host for, the file a load stopped as too large,
+//! which the next visit of it asks about (ADR 0087), and a visit at a place (ADR 0114): once the
+//! file's buffer shows with that line, the selected window goes to it, with the place before on
+//! the mark ring.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads or I/O; the host loads the
 //! file and says when text came.
@@ -14,6 +15,46 @@ use crate::buffer::BufferId;
 pub(super) type VisitPlace = (PathBuf, usize, usize);
 
 impl Editor {
+    /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
+    /// command cannot start a load itself. A buffer that visits that path already is shown at
+    /// once instead, unless the agent channel is still opening it.
+    pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
+        self.visit_place = None;
+        let open = self
+            .buffers()
+            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
+            .map(|(id, _)| id);
+        match open {
+            Some(id) => self.show(id),
+            None => self.visits.push((path, limit)),
+        }
+    }
+
+    /// The visits commands asked for, for the host to start.
+    pub fn take_visits(&mut self) -> Vec<(PathBuf, u64)> {
+        std::mem::take(&mut self.visits)
+    }
+
+    /// Remembers that the file at `path` held `bytes` when a load stopped before reading it, so
+    /// that the next `C-x C-f` of it asks (ADR 0087).
+    pub fn remember_large(&mut self, path: PathBuf, bytes: u64) {
+        self.large = Some((path, bytes));
+    }
+
+    /// The size the file at `path` had when a load stopped before it, if that is the one
+    /// remembered.
+    pub fn large_file(&self, path: &Path) -> Option<u64> {
+        self.large
+            .as_ref()
+            .filter(|(large, _)| large == path)
+            .map(|(_, bytes)| *bytes)
+    }
+
+    /// Takes the large file remembered, as a question about it is answered.
+    pub fn take_large(&mut self) -> Option<(PathBuf, u64)> {
+        self.large.take()
+    }
+
     /// Asks the host to visit `path` in the selected window, as [`Editor::request_visit`]
     /// does, and once it shows, to go to `line`, from 1, and `column`, in characters from 0,
     /// each as far as the text goes, with the place before on the mark ring.
@@ -54,18 +95,24 @@ impl Editor {
         }
         let row = row.min(text.line_count() - 1);
         let (start, end) = (text.line_start(row), text.line_end(row));
-        let line_text = text.slice(start..end).to_string();
-        let offset = start
-            + line_text
-                .char_indices()
-                .nth(*column)
-                .map_or(line_text.len(), |(at, _)| at);
+        // The column's offset, counted through the line's chunks rather than a copy of it, which
+        // may be 16 MiB long.
+        let mut offset = end;
+        let mut left = *column;
+        let mut at = start;
+        for chunk in text.chunks_in_range(start..end) {
+            if let Some((index, _)) = chunk.char_indices().nth(left) {
+                offset = at + index;
+                break;
+            }
+            left -= chunk.chars().count();
+            at += chunk.len();
+        }
         self.visit_place = None;
-        let Some(index) = (0..self.tiled_count())
-            .find(|&index| index == self.selected && self.windows[index].buffer() == id)
-        else {
+        let index = self.selected;
+        if index >= self.tiled_count() || self.windows[index].buffer() != id {
             return;
-        };
+        }
         let selections = &mut self.windows[index].selections;
         selections.keep_primary();
         selections.push_marks();

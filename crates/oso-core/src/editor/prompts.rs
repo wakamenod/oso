@@ -263,12 +263,12 @@ impl Editor {
         }
         // A search's row is given as its file's whole path, and the history keeps the input.
         if let Some((path, input)) = self.search_answer() {
-            return self.give_answer_recording(path, &input);
+            return self.give_answer_recording(path, input.as_deref());
         }
         // A project's file is given as its whole path, and kept in the history by its path
         // from the root, as the list shows it (ADR 0114).
         if let Some(path) = self.project_file_answer(&text) {
-            return self.give_answer_recording(path, text.trim());
+            return self.give_answer_recording(path, Some(text.trim()));
         }
         self.give_answer(text)
     }
@@ -281,12 +281,12 @@ impl Editor {
     /// [`PromptError::NoPrompt`] if the innermost prompt is a question or there is none.
     pub(super) fn give_answer(&mut self, text: String) -> Result<(), PromptError> {
         let recorded = text.trim().to_owned();
-        self.give_answer_recording(text, &recorded)
+        self.give_answer_recording(text, Some(&recorded))
     }
 
     /// Gives `text` as the innermost prompt's answer, records `recorded` in its history in its
-    /// place, as a project's file is recorded by its path from the root (ADR 0114), and closes
-    /// the prompt.
+    /// place, as a project's file is recorded by its path from the root (ADR 0114), or nothing
+    /// for `None`, and closes the prompt.
     ///
     /// # Errors
     ///
@@ -294,7 +294,7 @@ impl Editor {
     pub(super) fn give_answer_recording(
         &mut self,
         text: String,
-        recorded: &str,
+        recorded: Option<&str>,
     ) -> Result<(), PromptError> {
         let Some(prompt) = self.prompts.last().filter(|p| !p.kind.is_question()) else {
             return Err(PromptError::NoPrompt);
@@ -305,6 +305,7 @@ impl Editor {
         self.note_kill_pick();
         if let Some(prompt) = self.close_innermost()
             && records
+            && let Some(recorded) = recorded
             && let Some(name) = prompt.history_name()
             // An empty name is no history, as `C-.`'s rows are the buffer's text (ADR 0088).
             && !name.is_empty()

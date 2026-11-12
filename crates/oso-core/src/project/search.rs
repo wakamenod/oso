@@ -259,9 +259,9 @@ impl LineQuery {
     ///
     /// The longest component that is not excluded is looked for through the block: some match of
     /// it ends at `ends`, and the leftmost match that starts and ends by then starts on the first
-    /// line that can hold one, which alone is matched whole. That holds whichever end the engine
-    /// gives. Where the end it gives is far ahead, each line up to it is matched on its own, so
-    /// that no stretch of the block is looked through more than twice.
+    /// line that can hold one. That holds whichever end the engine gives. That line and each one
+    /// after it up to the one `ends` is on are matched whole, and the next look starts after
+    /// them, so no stretch of the block is looked through more than twice.
     pub fn find_in_block(&self, block: &[u8], mut hit: impl FnMut(LineHit)) -> usize {
         let driver = self
             .components
@@ -317,13 +317,21 @@ impl LineQuery {
                 .rposition(|&byte| byte == b'\n')
                 .map_or(at, |offset| at + offset + 1);
             line += newlines(&block[at..start]);
-            let end = line_end(start);
-            check(start, end, line);
-            if end == block.len() {
-                return line;
+            // Each line from there to the one the end is on: a match that crossed them was looked
+            // through once, and is not again.
+            at = start;
+            loop {
+                let end = line_end(at);
+                check(at, end, line);
+                if end == block.len() {
+                    return line;
+                }
+                at = end + 1;
+                line += 1;
+                if end >= last_end {
+                    break;
+                }
             }
-            at = end + 1;
-            line += 1;
         }
         line + newlines(&block[at.min(block.len())..])
     }

@@ -174,6 +174,11 @@ fn serve(
             (Some(of), Some((generation, _))) => of == *generation,
             _ => false,
         };
+        // A search that walks finds lines of its own, and those kept go first, so that the two
+        // are never held together.
+        if !narrowed {
+            kept = None;
+        }
         let search = Arc::new(Search::new(request));
         let lines = kept.as_ref().filter(|_| narrowed).map(|(_, lines)| lines);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match lines {

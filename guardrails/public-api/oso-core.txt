@@ -1509,17 +1509,12 @@ pub fn oso_core::editor::Editor::file_looked(&mut self, &std::path::Path, alloc:
 pub fn oso_core::editor::Editor::file_prompt_open(&self) -> bool
 pub fn oso_core::editor::Editor::files_cut(&self) -> bool
 pub fn oso_core::editor::Editor::files_pending(&self) -> bool
-pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::option::Option<u64>
 pub fn oso_core::editor::Editor::open_directory_prompt(&mut self, &str, &'static str, &str, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_file_prompt(&mut self, &str, &'static str, &str, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::remember_large(&mut self, std::path::PathBuf, u64)
-pub fn oso_core::editor::Editor::request_visit(&mut self, std::path::PathBuf, u64)
 pub fn oso_core::editor::Editor::set_start_directory(&mut self, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_directory(&self) -> &std::path::Path
 pub fn oso_core::editor::Editor::take_file_looks(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, alloc::vec::Vec<alloc::string::String>)>
 pub fn oso_core::editor::Editor::take_file_requests(&mut self) -> alloc::vec::Vec<std::path::PathBuf>
-pub fn oso_core::editor::Editor::take_large(&mut self) -> core::option::Option<(std::path::PathBuf, u64)>
-pub fn oso_core::editor::Editor::take_visits(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, u64)>
 pub fn oso_core::editor::Editor::visiting_same_file(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::buffer::BufferId>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::files_seen(&mut self, &[(oso_core::buffer::BufferId, oso_core::buffer::DiskState)], bool, impl core::ops::function::Fn(oso_core::buffer::BufferId) -> bool) -> alloc::vec::Vec<oso_core::buffer::BufferId>
@@ -1571,6 +1566,13 @@ pub fn oso_core::editor::Editor::kill_preview(&self, u64, usize, usize) -> alloc
 pub fn oso_core::editor::Editor::open_kill_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::yank_picked(&mut self) -> core::result::Result<(), oso_core::editor::YankError>
 pub fn oso_core::editor::Editor::yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::option::Option<u64>
+pub fn oso_core::editor::Editor::remember_large(&mut self, std::path::PathBuf, u64)
+pub fn oso_core::editor::Editor::request_visit(&mut self, std::path::PathBuf, u64)
+pub fn oso_core::editor::Editor::request_visit_at(&mut self, std::path::PathBuf, u64, usize, usize)
+pub fn oso_core::editor::Editor::take_large(&mut self) -> core::option::Option<(std::path::PathBuf, u64)>
+pub fn oso_core::editor::Editor::take_visits(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, u64)>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::last_replace(&self, bool) -> core::option::Option<(&str, &str)>
 pub fn oso_core::editor::Editor::replace(&self) -> core::option::Option<&oso_core::editor::Replace>
@@ -1625,8 +1627,6 @@ pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::Rep
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::request_visit_at(&mut self, std::path::PathBuf, u64, usize, usize)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
 impl oso_core::editor::Editor

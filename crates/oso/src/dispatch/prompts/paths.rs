@@ -105,8 +105,17 @@ impl Dispatcher {
         text: &str,
     ) -> Effects {
         let directory = std::path::PathBuf::from(text);
+        let climbs = directory
+            .components()
+            .any(|component| component == std::path::Component::ParentDir);
         match editor.listable_root(&directory) {
             Ok((root, name)) => self.open_project(editor, reading.id, project, root, &name),
+            Err(_) if climbs => {
+                let verb = project.verb();
+                editor.message(format!(
+                    "Cannot {verb} a directory named with .., name it whole"
+                ));
+            }
             Err(_) => {
                 let verb = project.verb();
                 editor.message(format!(

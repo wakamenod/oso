@@ -89,9 +89,10 @@ impl fmt::Debug for ProjectSearchHit {
 }
 
 /// What a row keeps beside its candidate: where it leads, and how much of its text is its
-/// path and line.
+/// path and line. The path itself is read from the candidate's text, which starts with it.
 struct Place {
-    path: Box<str>,
+    /// The bytes of the path at the start of the candidate's text.
+    path: usize,
     line: usize,
     column: usize,
     /// The bytes of `path:line: `, or the whole text for a file that may hold secrets.
@@ -202,7 +203,7 @@ impl Editor {
                 )
             };
             search.places.push(Place {
-                path: row.path,
+                path: row.path.len(),
                 line: row.line,
                 column: row.column,
                 prefix,
@@ -300,17 +301,20 @@ impl Editor {
     }
 
     /// The whole path of the innermost prompt's selected row, if it searches a project, and the
-    /// input, which its history keeps: the row's place is kept for the command
+    /// input, which its history keeps, unless the row is of a file that may hold secrets, whose
+    /// lines the input matches: the row's place is kept for the command
     /// ([`Editor::take_search_hit`]).
-    pub(super) fn search_answer(&mut self) -> Option<(String, String)> {
+    pub(super) fn search_answer(&mut self) -> Option<(String, Option<String>)> {
         if !self.searches_project() {
             return None;
         }
         let prompt = self.prompts.last()?;
-        let item = prompt.candidates()?.selected_item()?;
+        let candidates = prompt.candidates()?;
+        let item = candidates.selected_item()?;
+        let text = candidates.get(candidates.selected()?)?.text();
         let search = &mut self.project_search;
         let place = search.places.get(item)?;
-        let path = search.root.join(&*place.path);
+        let path = search.root.join(text.get(..place.path)?);
         let answer = path.to_str()?.to_owned();
         search.hit = Some(ProjectSearchHit {
             path,
@@ -318,7 +322,8 @@ impl Editor {
             column: place.column,
         });
         let input = search.input.clone().flatten().unwrap_or_default();
-        Some((answer, input.trim().to_owned()))
+        let recorded = (!place.secret).then(|| input.trim().to_owned());
+        Some((answer, recorded))
     }
 
     /// The row the last search's `RET` took, once.

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use super::Editor;
 use super::completion::CompletionStyle;
 use crate::buffer::{BufferId, Replacement};
-use crate::complete::path::{self, Found, Name, Plan, Reach, Reached};
+use crate::complete::path::{self, Found, Name, NameKind, Plan, Reach, Reached};
 use crate::complete::{Build, Built, Candidate, WORKER_PAST, listed, matched_part};
 use crate::minibuffer::{PromptError, PromptId};
 
@@ -428,6 +428,13 @@ impl Editor {
             return Some(self.give_answer(path.display().to_string()));
         }
         let path = self.typed_file()?;
+        // A file typed whole, or given with `M-RET`, is no directory either, where a listing of
+        // its own directory says so.
+        if wants_directory && !slash && self.listed_as_file(&path) {
+            let shown = path::typed_form(&path, false, self.home.as_deref());
+            self.prompt_says(format!("Not a directory: {shown}"));
+            return Some(Err(PromptError::Invalid));
+        }
         let mut answer = path.display().to_string();
         if slash && !answer.ends_with('/') {
             answer.push('/');
@@ -435,44 +442,18 @@ impl Editor {
         Some(self.give_answer(answer))
     }
 
-    /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
-    /// command cannot start a load itself. A buffer that visits that path already is shown at
-    /// once instead, unless the agent channel is still opening it.
-    pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
-        self.visit_place = None;
-        let open = self
-            .buffers()
-            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
-            .map(|(id, _)| id);
-        match open {
-            Some(id) => self.show(id),
-            None => self.visits.push((path, limit)),
-        }
-    }
-
-    /// The visits commands asked for, for the host to start.
-    pub fn take_visits(&mut self) -> Vec<(PathBuf, u64)> {
-        std::mem::take(&mut self.visits)
-    }
-
-    /// Remembers that the file at `path` held `bytes` when a load stopped before reading it, so
-    /// that the next `C-x C-f` of it asks (ADR 0087).
-    pub fn remember_large(&mut self, path: PathBuf, bytes: u64) {
-        self.large = Some((path, bytes));
-    }
-
-    /// The size the file at `path` had when a load stopped before it, if that is the one
-    /// remembered.
-    pub fn large_file(&self, path: &Path) -> Option<u64> {
-        self.large
-            .as_ref()
-            .filter(|(large, _)| large == path)
-            .map(|(_, bytes)| *bytes)
-    }
-
-    /// Takes the large file remembered, as a question about it is answered.
-    pub fn take_large(&mut self) -> Option<(PathBuf, u64)> {
-        self.large.take()
+    /// Whether the listing of the directory that holds `path` names it as something other than a
+    /// directory or a link. Unlisted, it is not known to be one.
+    fn listed_as_file(&self, path: &Path) -> bool {
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return false;
+        };
+        let Some(Some(names)) = self.file_list.listings.get(parent) else {
+            return false;
+        };
+        names.iter().any(|listed| {
+            *listed.name == *name && !matches!(listed.kind, NameKind::Directory | NameKind::Link)
+        })
     }
 
     /// The directory oso started in, which a buffer with no file starts a path from.

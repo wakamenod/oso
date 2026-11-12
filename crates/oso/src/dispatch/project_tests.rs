@@ -314,3 +314,29 @@ fn c_u_asks_for_the_directory_first_and_refuses_home() {
         assert!(echo(&editor).starts_with("Cannot "), "{}", echo(&editor));
     }
 }
+
+#[test]
+fn c_u_refuses_the_root_of_the_file_system_and_a_path_that_climbs() {
+    for (typed, said) in [
+        (
+            "/",
+            "Cannot search the home directory, one that holds it, or /",
+        ),
+        (
+            "/tmp/../tmp/",
+            "Cannot search a directory named with .., name it whole",
+        ),
+    ] {
+        let (mut d, mut editor) = in_oso(None);
+        send(&mut d, &mut editor, "C-u M-s r");
+        let keys: Vec<String> = typed.chars().map(String::from).collect();
+        send(
+            &mut d,
+            &mut editor,
+            &format!("C-a C-k {} RET", keys.join(" ")),
+        );
+        assert!(editor.prompt().is_none(), "{typed}");
+        assert!(editor.take_search_request().is_none());
+        assert_eq!(echo(&editor), said);
+    }
+}

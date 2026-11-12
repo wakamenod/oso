@@ -302,3 +302,49 @@ fn the_ui_threads_share_of_a_batch_of_rows() {
     }
     assert!(slowest[0] < Duration::from_millis(1), "{slowest:?}");
 }
+
+/// The project-search histories the editor keeps.
+fn search_history(editor: &Editor) -> Vec<String> {
+    editor
+        .histories()
+        .filter(|(name, _)| *name == "project-search")
+        .flat_map(|(_, entries)| entries.map(str::to_owned).collect::<Vec<_>>())
+        .collect()
+}
+
+#[test]
+fn a_secret_files_row_keeps_no_history_of_what_found_it() {
+    let mut editor = searching();
+    let generation = search_for(&mut editor, "token");
+    let secret = ProjectSearchRow {
+        path: ".env".into(),
+        line: 1,
+        column: 0,
+        text: "".into(),
+        secret: true,
+    };
+    editor.rows_found(generation, vec![secret], None);
+    editor.submit_prompt().unwrap();
+    assert!(matches!(
+        editor.take_prompt_outcome(),
+        Some(Outcome::Answered { .. })
+    ));
+    assert_eq!(editor.take_search_hit().map(|hit| hit.line), Some(1));
+    assert!(search_history(&editor).is_empty());
+}
+
+#[test]
+fn a_search_beside_a_buffer_that_may_hold_secrets_keeps_no_history() {
+    let path = PathBuf::from("/w/oso/.env");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.apply_load(crate::load::decode_all(b"KEY=value\n", Default::default()));
+    buffer.judge_secret(Some(std::slice::from_ref(&path)));
+    let mut editor = Editor::with_buffer(buffer);
+    editor
+        .open_project_search(PathBuf::from("/w/oso"), "oso", "project-search")
+        .unwrap();
+    let generation = search_for(&mut editor, "needle");
+    editor.rows_found(generation, vec![row("a.rs", 1, "needle")], None);
+    editor.submit_prompt().unwrap();
+    assert!(search_history(&editor).is_empty());
+}

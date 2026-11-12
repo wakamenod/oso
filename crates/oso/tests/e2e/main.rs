@@ -22,6 +22,7 @@ mod isearch;
 mod kill;
 mod mark;
 mod png;
+mod projects;
 mod prompts;
 mod recovery;
 mod reload;

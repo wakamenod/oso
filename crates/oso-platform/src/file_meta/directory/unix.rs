@@ -78,6 +78,16 @@ fn dataless(_: &libc::stat) -> bool {
     false
 }
 
+/// Whether `code`, from an open with `O_NOFOLLOW`, says a link was there: `ELOOP`, or on FreeBSD
+/// `EMLINK`, which it gives instead.
+fn is_link(code: libc::c_int) -> bool {
+    #[cfg(target_os = "freebsd")]
+    if code == libc::EMLINK {
+        return true;
+    }
+    code == libc::ELOOP
+}
+
 /// Opens `name` in the directory `fd` with `flags`, and never a link at it: `None` for a link,
 /// as `O_NOFOLLOW` refuses one, or for `refused`, an error that says it is no such thing as
 /// `flags` ask.
@@ -94,7 +104,7 @@ fn open_at(
     if opened < 0 {
         let error = io::Error::last_os_error();
         return match error.raw_os_error() {
-            Some(code) if code == libc::ELOOP || refused.contains(&code) => Ok(None),
+            Some(code) if is_link(code) || refused.contains(&code) => Ok(None),
             _ => Err(error),
         };
     }
