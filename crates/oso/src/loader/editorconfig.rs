@@ -152,6 +152,9 @@ impl EditorConfigFound {
     }
 }
 
+/// The most directories one visit looks in, from the file's own up.
+const VISIT_DIRECTORIES: usize = 64;
+
 /// The most `.editorconfig` files one visit reads, nearest first.
 const VISIT_FILES: usize = 32;
 
@@ -169,9 +172,17 @@ pub fn read(location: &Path, home: &Home, cancelled: &dyn Fn() -> bool) -> Edito
     let mut files = Vec::new();
     let (mut seen, mut bytes) = (0, 0);
     let home = home.real();
-    for Above { dir, metadata, .. } in upward(location, home.as_deref()) {
+    for (walked, Above { dir, metadata, .. }) in upward(location, home.as_deref()).enumerate() {
         // Once nothing more can be compiled, no file above adds anything.
         if cancelled() || budget.is_spent() {
+            break;
+        }
+        if walked == VISIT_DIRECTORIES {
+            notes.push(format!(
+                "EditorConfig: a visit looks in at most {VISIT_DIRECTORIES} directories; none \
+                 from {} up",
+                dir.display()
+            ));
             break;
         }
         let path = dir.join(NAME);

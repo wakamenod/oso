@@ -6,7 +6,7 @@ use std::fs;
 
 use oso_core::editorconfig::{IndentSize, IndentStyle, VISIT_SECTIONS};
 
-use super::{Here, VISIT_BYTES, VISIT_FILES, VISIT_NOTES, read_here};
+use super::{Here, VISIT_BYTES, VISIT_DIRECTORIES, VISIT_FILES, VISIT_NOTES, read_here};
 use oso_core::indent::Style;
 
 use super::*;
@@ -465,4 +465,24 @@ fn a_directory_other_than_the_one_walked_is_not_read() {
         read_here(&scratch.0.join("a"), &walked_a, VISIT_BYTES),
         Here::Text(_)
     ));
+}
+
+#[test]
+fn a_visit_looks_in_at_most_its_directories() {
+    let scratch = Scratch::new("deep");
+    scratch.file(".editorconfig", "[*]\nindent_size = 2\n");
+    let near = "d/".repeat(VISIT_DIRECTORIES - 1);
+    scratch.file(&format!("{near}.editorconfig"), "[*]\nindent_style = tab\n");
+    // The file's own directory and 64 `d` above the top: the top is the 65th.
+    scratch.file(&format!("{near}d/x.rs"), "");
+    let found = scratch.read(&format!("{near}d/x.rs"));
+    let applied = found.applied.unwrap();
+    assert_eq!(applied.file(1), None, "the top file is past the bound");
+    assert_eq!(found.notes.len(), 1);
+    assert!(found.notes[0].starts_with("EditorConfig: a visit looks in at most 64 directories"));
+    let found = scratch.read(&format!("{near}x.rs"));
+    assert!(
+        found.applied.unwrap().file(1).is_some(),
+        "64 directories reach the top"
+    );
 }

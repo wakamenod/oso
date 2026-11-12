@@ -16,6 +16,13 @@ fn rows(app: &mut App, rows: usize) -> Value {
     app.call("get-text", Some(json!({ "start_row": 0, "rows": rows })))["rows"].clone()
 }
 
+/// The state once the prompt that reads a path has its listing.
+fn listed(app: &mut App) -> Value {
+    app.wait_for("a listing", |state| {
+        state["prompts"][0]["completion"]["pending"] == false
+    })
+}
+
 /// The echo area once it says something that starts with `start`.
 fn echoed(app: &mut App, start: &str) -> String {
     let state = app.wait_for("the echo", |state| {
@@ -39,8 +46,8 @@ fn a_file_under_an_editorconfig_takes_its_tab_width_and_indents_with_tabs() {
     let mut app = App::start(Some(&file), scratch.path());
     app.wait_until_ready();
 
-    // A tab four columns wide.
-    app.send_keys("C-n C-a C-f");
+    // A tab four columns wide: past it, the cursor is at column 4.
+    app.send_keys("C-n C-f");
     assert_eq!(app.state()["cursor"]["column"], 4);
 
     // `RET` indents the new line with a tab, and `TAB` puts spaces back to one.
@@ -77,14 +84,18 @@ fn c_x_c_w_takes_the_indentation_of_where_the_file_now_is() {
     app.wait_until_ready();
 
     app.send_keys("C-x C-w");
-    app.wait_for("a listing", |state| {
-        state["prompts"][0]["completion"]["pending"] == false
-    });
+    listed(&mut app);
     // The prompt starts in the file's directory.
     app.send_keys(&typing("../tabs/notes.rs"));
+    // Once its listing is in, so that `RET` takes the name typed, not a row.
+    listed(&mut app);
     app.send_keys("RET");
+    // The buffer has that name before too: wait for the new place.
     app.wait_for("the write", |state| {
-        state["buffer"]["name"] == "notes.rs" && state["buffer"]["modified"] == false
+        state["buffer"]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("tabs/notes.rs"))
+            && state["buffer"]["modified"] == false
     });
     // The read comes back on a thread of its own.
     let mut said = String::new();

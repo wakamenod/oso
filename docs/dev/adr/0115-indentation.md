@@ -871,8 +871,9 @@ step 4's plan and its reviews put:
   its walk, nearest first; the sections past either are skipped with a note in `*Messages*`.
   The bounds the Decision gives a file stay. The walk runs before a file's first screen, so a
   visit compiles no more than this, whatever the files above it hold.
-- **What a visit reads:** at most **32 `.editorconfig` files and 1 MiB** of them, nearest first,
-  read or refused; the walk stops there, and once the compile budget is spent, as no file above
+- **What a visit reads:** it looks in at most **64 directories**, from the file's own up, and
+  reads at most **32 `.editorconfig` files and 1 MiB** of them, nearest first, read or
+  refused; the walk stops there, and once the compile budget is spent, as no file above
   could then add anything, and when the load is cancelled. At most **8 notes** go to
   `*Messages*` a visit, then one that says how many more there were.
 - **A glob that holds a number range** is at most **128 bytes**; a longer one is skipped with a
