@@ -184,10 +184,15 @@ impl Editor {
         // What could go in at most, each cursor's indentation at its deepest, twice between
         // brackets: checked before anything changes, the region too.
         let set = &self.window().selections;
+        let deepest = if indent {
+            2 * (ending.len() + MAX_COLUMN)
+        } else {
+            0
+        };
         let most = ending
             .len()
             .checked_mul(count)
-            .and_then(|breaks| breaks.checked_add(2 * (ending.len() + MAX_COLUMN)))
+            .and_then(|breaks| breaks.checked_add(deepest))
             .and_then(|each| each.checked_mul(set.len()));
         if most.is_none_or(|most| most > limit) {
             return Ok(false);
@@ -244,7 +249,8 @@ impl Editor {
         let Some(rules) = rules else {
             return cursors.iter().map(|&at| plain(at)).collect();
         };
-        let spots = spots(rope, &cursors, mode);
+        let mut spots = spots(rope, &cursors, mode);
+        keep_hard_breaks(rope, settings, &cursors, &mut spots, mode);
         let mut lines = Vec::with_capacity(cursors.len() * 2);
         for (&at, spot) in cursors.iter().zip(&spots) {
             if spot.between {
@@ -357,11 +363,8 @@ fn planned<'a>(
 
 /// Where `RET` breaks the line at each of `cursors`, in order, in a buffer in `mode`: the
 /// spaces and tabs around it, no further than the cursors beside it, and whether it is between
-/// an opener and its closer, which only Rust and TOML open a line between.
+/// an opener and its closer, which only Rust, and TOML's arrays, open a line between.
 fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
-    let brackets = matches!(mode, Mode::Rust | Mode::Toml);
-    // In Markdown, two spaces at a line's end break it: they stay (ADR 0113 keeps them too).
-    let keep_before = mode == Mode::Markdown;
     let mut spots: Vec<Break> = Vec::with_capacity(cursors.len());
     for (index, &at) in cursors.iter().enumerate() {
         let start = rope.line_start(rope.offset_to_point(at).row);
@@ -370,7 +373,7 @@ fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
             .last()
             .map_or(start, |before: &Break| before.range.end.max(start));
         let ceiling = cursors.get(index + 1).copied().unwrap_or(usize::MAX);
-        let before = if keep_before || at <= floor {
+        let before = if at <= floor {
             0
         } else {
             blanks_before(rope, at, floor)
@@ -382,14 +385,57 @@ fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
             .checked_sub(1)
             .and_then(|before| rope.byte_at(before));
         let closer = rope.byte_at(range.end);
-        let between = brackets
-            && matches!(
+        // TOML's inline tables cannot span lines, and `(` means nothing in it.
+        let between = match mode {
+            Mode::Rust => matches!(
                 (opener, closer),
                 (Some(b'{'), Some(b'}')) | (Some(b'('), Some(b')')) | (Some(b'['), Some(b']'))
-            );
+            ),
+            Mode::Toml => (opener, closer) == (Some(b'['), Some(b']')),
+            _ => false,
+        };
         spots.push(Break { range, between });
     }
     spots
+}
+
+/// In Markdown, two spaces or more at the end of a line of text break it (ADR 0113 keeps them
+/// too): a cursor after them at the line's end, outside a fenced code block, keeps them.
+fn keep_hard_breaks(
+    rope: &Rope,
+    settings: Settings,
+    cursors: &[usize],
+    spots: &mut [Break],
+    mode: Mode,
+) {
+    if mode != Mode::Markdown {
+        return;
+    }
+    let ends_line = |at: usize| matches!(rope.byte_at(at), None | Some(b'\n' | b'\r'));
+    let breaking: Vec<usize> = cursors
+        .iter()
+        .zip(spots.iter())
+        .enumerate()
+        .filter_map(|(index, (&at, spot))| {
+            let trimmed = at - spot.range.start;
+            let spaces = trimmed >= 2
+                && text_of(rope, spot.range.start..at)
+                    .bytes()
+                    .all(|b| b == b' ');
+            let text_before = spot.range.start > rope.line_start(rope.offset_to_point(at).row);
+            (spaces && text_before && ends_line(spot.range.end)).then_some(index)
+        })
+        .collect();
+    if breaking.is_empty() {
+        return;
+    }
+    let offsets: Vec<usize> = breaking.iter().map(|&index| cursors[index]).collect();
+    let fenced = indent::markdown_fenced(rope, settings, &offsets);
+    for (index, fenced) in breaking.into_iter().zip(fenced) {
+        if !fenced {
+            spots[index].range.start = cursors[index];
+        }
+    }
 }
 
 /// The spaces and tabs just before `at`, back to `start` at most, in bytes, reading at most

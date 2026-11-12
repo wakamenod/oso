@@ -282,6 +282,7 @@ mod tests {
         "isearch-mark-all",
         "isearch-mark-next",
         "isearch-mark-previous",
+        "isearch-newline",
         "isearch-printing-char",
         "isearch-repeat-backward",
         "isearch-repeat-forward",

@@ -653,9 +653,15 @@ As built:
   author's choice): the app sets the table when the configuration applies, which gives every open
   buffer of the person's its mode's indent size and style; a visit, a mode command (`rust-mode`
   and the others) and a new name that changes the mode (`C-x C-w`) give it the same.
-- **The file named on the command line** is visited before the configuration's first look, so it
-  takes the default tab width of 8 even with a mode's `tab-width` set; its indent size and style
-  follow when the look applies. Visiting it again takes the configured width. A known limit.
+- **The file named on the command line** is visited before the configuration's first look, so its
+  display map is built with the default tab width of 8 even with a mode's `tab-width` set, while
+  its indent size and style follow when the look applies. With `indent-style = "tab"`,
+  `tab-width = 4` and `indent-size = 4`, a level there is then four spaces, not a tab, so
+  indentation mixes tabs and spaces in that file until it is visited again. A known limit;
+  rebuilding the display map, or reading the file again, when the first look changes a mode's
+  tab width would remove it.
+- **Every buffer added** (`Editor::add_buffer`) takes its mode's indent size and style, unless it
+  is internal: a visit, `C-x b` to a new name, a new `*scratch*`.
 - **`RET`** (`newline`, `newline-and-indent`, and `C-j`'s `electric-newline-and-maybe-indent`) is
   `Editor::newline(ending, count, indent, limit)`: a shown region goes first; at each cursor the
   spaces and tabs before and after it go, at most 4 KiB each way and never past the next cursor,
@@ -666,10 +672,19 @@ As built:
   anything changes, with each cursor's indentation counted at its deepest (twice 4096 columns),
   so whether `RET` fits depends only on the count, the line ending and the cursors; past it,
   nothing changes and it signals "Too much text to insert".
-- **In Markdown, `RET` keeps the spaces before the cursor:** two at a line's end break the line,
-  as whitespace cleanup on save (ADR 0113) keeps them too; those after it still go.
+- **In Markdown, `RET` keeps a line break of spaces:** two spaces or more after text, at the
+  line's end and outside a fenced code block, break the line, as whitespace cleanup on save
+  (ADR 0113) keeps them; whether the cursor is in a fence is read in one pass for all such
+  cursors. Other blanks before the cursor go, as in other modes.
 - **The line between brackets** is opened in Rust and TOML only (the author's choice): in Markdown
-  `[|]` is a link's text, and `RET` there breaks the line alone.
+  `[|]` is a link's text, and `RET` there breaks the line alone. In TOML only between `[` and
+  `]`: an inline table cannot span lines in TOML 1.0, and `(` means nothing in it. Two cursors
+  between the same brackets (`{  |  |  }`) open no line between, and the closer goes on the
+  second cursor's line; a known limit.
+- **The limit counts the deepest indentation** only when `RET` indents: `C-j`, and `RET` with
+  `electric-indent-mode` off, reserve nothing for it.
+- **`C-j` in a prompt** answers it (`exit-minibuffer`), and **in a search** adds a line break to
+  the search string (`isearch-newline`), as in Emacs, so the global `C-j` reaches neither.
 - **`TAB`** in Rust and TOML asks the rules for each cursor's line once and replaces only
   indentation that differs. In Markdown it stays `tab-to-tab-stop` until step 3 brings its cycle
   through `markdown_stops`, as in Fundamental mode and internal buffers; `tab-to-tab-stop` keeps

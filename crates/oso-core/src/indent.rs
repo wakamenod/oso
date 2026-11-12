@@ -256,6 +256,12 @@ mod fixed_point;
 mod rust_tests;
 pub(crate) use pass::MAX_COLUMN;
 
+/// Whether each of `offsets`, ascending, of a Markdown buffer is inside a fenced code block,
+/// within the budget: false past it.
+pub(crate) fn markdown_fenced(rope: &Rope, settings: Settings, offsets: &[usize]) -> Vec<bool> {
+    markdown::fenced(rope, settings, offsets, &mut Budget::new())
+}
+
 /// The indentation that `pieces`, a line's text from its start in order, starts with: its
 /// length in bytes and the display column it reaches. Spaces and tabs only, never U+3000, a
 /// tab reaching the next stop of `tab_width`; the rules count indentation the same way.

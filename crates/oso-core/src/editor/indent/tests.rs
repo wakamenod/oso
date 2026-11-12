@@ -344,3 +344,58 @@ proptest::proptest! {
         }
     }
 }
+
+#[test]
+fn markdown_keeps_only_a_line_break_of_two_spaces_after_text_at_the_lines_end() {
+    let cases = [
+        // A break of two spaces after text, at the line's end, stays.
+        ("a  |", "a  \n|"),
+        // One space, a tab, a blank line, or spaces mid-line go, as elsewhere.
+        ("a |", "a\n|"),
+        ("a\t|", "a\n|"),
+        // A line of blanks left becomes empty; the new line copies its indentation.
+        ("    |", "\n    |"),
+        ("- a  |  b", "- a\n  |b"),
+        // In a fenced code block, trailing spaces are no break.
+        ("```\nx  |", "```\nx\n|"),
+    ];
+    for (start, expected) in cases {
+        let (mut editor, id) = editor_in(Mode::Markdown, start);
+        ret(&mut editor);
+        assert_eq!(marked(&editor, id), expected, "{start:?}");
+    }
+}
+
+#[test]
+fn toml_opens_a_line_between_an_arrays_brackets_only() {
+    let (mut editor, id) = editor_in(Mode::Toml, "a = {|}");
+    ret(&mut editor);
+    assert_eq!(marked(&editor, id), "a = {\n|}");
+    let (mut editor, id) = editor_in(Mode::Toml, "a = [|]");
+    ret(&mut editor);
+    assert_eq!(marked(&editor, id), "a = [\n    |\n]");
+}
+
+#[test]
+fn breaks_with_no_indentation_reserve_nothing_for_it() {
+    let at: Vec<usize> = (0..1000).collect();
+    let text = "x".repeat(1000);
+    let mut buffer = Buffer::from_text("t", &text);
+    assert!(buffer.set_mode(Mode::Rust));
+    let mut editor = Editor::with_buffer(buffer);
+    editor.windows[0].selections = set_at(&at);
+    let done = command(&mut editor, |editor| {
+        editor.newline("\n", 9000, false, LIMIT)
+    });
+    assert_eq!(done, Ok(true));
+}
+
+#[test]
+fn a_buffer_added_takes_its_modes_indentation() {
+    let (mut editor, _) = editor_in(Mode::Rust, "|");
+    let two = Settings::new(2, Style::Spaces, 8).unwrap();
+    let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+    editor.set_mode_indents(modes.map(|mode| (mode, two)));
+    let id = editor.add_buffer(Buffer::from_text("new", ""));
+    assert_eq!(editor.buffer(id).unwrap().indent_settings(), two);
+}

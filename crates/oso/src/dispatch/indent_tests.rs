@@ -160,3 +160,14 @@ fn newline_and_indent_indents_whether_electric_indent_is_on_or_not() {
     run(&mut dispatcher, &mut editor, "newline-and-indent", Some(2));
     assert_eq!(marked(&editor), "fn f() {\n\n\n    |");
 }
+
+#[test]
+fn c_j_answers_a_prompt_and_adds_a_line_break_to_a_search() {
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\nb\nc");
+    send(&mut dispatcher, &mut editor, "M-g g 3 C-j");
+    assert_eq!(marked(&editor), "a\nb\n|c", "C-j answered the prompt");
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\nb");
+    send(&mut dispatcher, &mut editor, "C-s a C-j");
+    assert!(editor.isearch().is_some(), "the search goes on");
+    assert_eq!(marked(&editor), "a\n|b", "it found a line break after a");
+}

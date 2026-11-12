@@ -350,7 +350,8 @@ impl Editor {
         editor
     }
 
-    /// Adds a buffer, shown in no window yet.
+    /// Adds a buffer, shown in no window yet, with its mode's indent size and style unless it
+    /// is internal.
     pub fn add_buffer(&mut self, buffer: Buffer) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
@@ -359,6 +360,8 @@ impl Editor {
             .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
         self.buffers.push((id, buffer));
         self.name_files_like(&name);
+        // Its mode's indentation, as the configuration gives it (ADR 0115).
+        self.give_mode_indent(id);
         id
     }
 
