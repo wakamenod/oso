@@ -399,6 +399,13 @@ coordinator.
   not copied: the recording is dropped first.
 - **During a replay, a key from the window goes to the replay first,** before `!`'s hold: `C-g`
   stops the replay, and a second `C-g` stops `!`.
+- **The edited ranges keep a gap where the last edit was** (a follow-up, 2026-11-13): the ranges
+  after it carry one pending shift, so an edit near the one before moves only the ranges between
+  them. A replay's edits, one command each and one after another through the text, follow the
+  ranges in O(log ranges) each, amortized, however many lines it edited; a batch from many
+  cursors still costs at most the ranges and its edits. The ranges, and so the lines a save
+  cleans, are the same. ADR 0119's sliced undo still follows them once a run and budgets every
+  range for it, now an upper bound.
 
 ### 3. Whitespace cleanup on save
 

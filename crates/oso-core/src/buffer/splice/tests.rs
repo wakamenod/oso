@@ -320,7 +320,7 @@ proptest! {
             edited_joined.follow(step);
         }
         prop_assert_eq!(joined, marks);
-        prop_assert_eq!(edited_joined.ranges(), edited.ranges());
+        prop_assert_eq!(edited_joined, edited);
         // Undone and redone, as an undo and a redo cross a group and the one it gives back.
         let (_, again, _) = apply_in_slices(&back, &mut rope, &mut display, None, (work, piece));
         prop_assert_eq!(rope.to_string(), text);
