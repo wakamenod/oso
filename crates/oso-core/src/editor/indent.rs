@@ -1,15 +1,16 @@
 //! Indentation at every cursor of the selected window (ADR 0115): `TAB` reindenting the
-//! cursors' lines, `RET` with the new line's indentation, the line `RET` opens between
-//! brackets, and the line a typed closer starts; and each mode's indentation, which a buffer
-//! takes when it takes the mode. The rules are the buffer's mode's, in `indent`; this applies
-//! their answers as one edit.
+//! cursors' lines, and the line a typed closer starts; each mode's indentation, which a buffer
+//! takes when it takes the mode; and what the commands in the modules below share: `RET`
+//! (`newline`), the region's commands (`region`), a line's (`line`) and Markdown's
+//! (`markdown`), over lines read in one pass (`leads`). The rules are the buffer's mode's, in
+//! `indent`; these apply their answers as one edit.
 //!
 //! Must not depend on: `command` or `keymap`; the commands call this.
 //!
 //! The text around a cursor is read a little at a time, at most [`SCAN`] bytes, so that a
 //! line of a gigabyte of spaces costs no more than a short one.
 
-use std::borrow::Cow;
+use std::fmt;
 use std::ops::Range;
 
 use super::Editor;
@@ -23,28 +24,61 @@ use crate::sum_tree::Bias;
 /// bound on what it reads at a line's start is the same).
 const SCAN: usize = 4096;
 
+mod leads;
+mod line;
+mod markdown;
+mod newline;
+mod region;
+
+use newline::spots;
+pub(super) use region::RigidLayer;
+pub use region::Shift;
+
+/// Why an indentation command changed nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IndentError {
+    /// A cursor has no mark, so no region.
+    NoMark,
+    /// The regions hold more than one command may reindent on the UI thread.
+    TooLarge,
+    /// The buffer's mode has no rules to reindent lines by.
+    NoRules,
+    /// The cursor is in no Markdown list item.
+    NotInList,
+    /// More text would go in than one command may insert.
+    TooMuchText,
+    /// The edit failed.
+    Edit(EditError),
+}
+
+impl fmt::Display for IndentError {
+    /// The message Emacs shows, where it has one.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoMark => f.write_str("The mark is not set now"),
+            Self::TooLarge => f.write_str("Region too large to indent"),
+            Self::NoRules => f.write_str("No indentation rules in this mode"),
+            Self::NotInList => f.write_str("Not in a list"),
+            Self::TooMuchText => f.write_str("Too much text to insert"),
+            Self::Edit(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for IndentError {}
+
+impl From<EditError> for IndentError {
+    fn from(error: EditError) -> Self {
+        Self::Edit(error)
+    }
+}
+
 /// The rules of a mode, as `Mode::indent_rules` gives them.
 type Rules = fn(&Rope, Settings, &[Line], &mut Budget) -> Vec<Answer>;
 
-/// What `RET` inserts at one cursor, what it replaces, and how far back from the end of
-/// what it inserts the cursor goes.
-struct Planned<'a> {
-    text: Cow<'a, str>,
-    range: Range<usize>,
-    back: usize,
-}
-
-/// What `RET` does at one cursor.
-struct Break {
-    /// The spaces and tabs before and after the cursor that go.
-    range: Range<usize>,
-    /// Whether the cursor is between an opener and its closer, with only blanks between.
-    between: bool,
-}
-
-/// The rules `TAB` and a typed closer reindent a buffer's lines by: Rust's and TOML's, in a
-/// buffer of the person's. Markdown's `TAB` cycles through its stops in step 3; until then it
-/// keeps the tab stops, as Fundamental mode does.
+/// The rules `TAB`, `indent-region` and a typed closer reindent a buffer's lines by: Rust's and
+/// TOML's, in a buffer of the person's. Markdown's `TAB` cycles through its stops instead, and
+/// Fundamental mode keeps the tab stops.
 fn reindenting(buffer: &Buffer) -> Option<Rules> {
     let language = matches!(buffer.mode(), Mode::Rust | Mode::Toml) && !buffer.is_internal();
     buffer.mode().indent_rules().filter(|_| language)
@@ -100,11 +134,15 @@ impl Editor {
     /// `TAB` (`indent-for-tab-command`): in Rust and TOML, reindents the line of every cursor
     /// of the selected window, each once, as one edit; on a line reindented, a cursor inside
     /// the indentation goes to its end, and one in the text keeps its place in it. A line
-    /// already right does not change. In Markdown (until its cycle comes), Fundamental mode and
-    /// internal buffers it runs [`Editor::tab_to_tab_stop`].
+    /// already right does not change. In Markdown it cycles each line through the columns its
+    /// list gives it. In Fundamental mode and internal buffers it runs
+    /// [`Editor::tab_to_tab_stop`].
     pub fn indent_for_tab(&mut self) -> Result<(), EditError> {
         let (window, buffer) = self.current();
         let Some(rules) = reindenting(buffer) else {
+            if buffer.mode() == Mode::Markdown && !buffer.is_internal() {
+                return self.markdown_tab();
+            }
             return self.tab_to_tab_stop();
         };
         if let Some(reason) = buffer.read_only() {
@@ -120,18 +158,24 @@ impl Editor {
         let answered = self.reindent_rows(rules, &rows)?;
         // A cursor inside the indentation of a line answered goes to the end of it; one in a
         // string the rules keep stays where it is.
+        self.cursors_past_indentation(&answered);
+        Ok(())
+    }
+
+    /// Moves each cursor of the selected window on one of `rows`, ascending, that is inside its
+    /// line's indentation to the end of it.
+    fn cursors_past_indentation(&mut self, rows: &[usize]) {
         let (window, buffer) = self.current_mut();
         let rope = buffer.text();
         window.selections.update(|selection| {
             let row = rope.offset_to_point(selection.cursor).row;
-            if answered.binary_search(&row).is_ok() {
+            if rows.binary_search(&row).is_ok() {
                 let start = rope.line_start(row);
                 let end = start + leading(rope, start, buffer.tab_width()).0;
                 selection.cursor = selection.cursor.max(end);
             }
             Ok::<(), ()>(())
         });
-        Ok(())
     }
 
     /// After a typed `}`, `)` or `]` (electric closers, ADR 0115): with
@@ -164,114 +208,6 @@ impl Editor {
         self.reindent_rows(rules, &rows).map(|_| ())
     }
 
-    /// `RET` at every cursor of the selected window: `count` line breaks `ending`, as one
-    /// edit. With `indent`, the spaces and tabs around each cursor go (in Markdown, only those
-    /// after it, as two at a line's end break it) and the last new line takes its rules'
-    /// indentation; between an opener and its closer, in Rust and TOML, the closer goes to a
-    /// line of its own and the cursor to an indented line between. A shown region is deleted
-    /// first. Returns false, changing nothing, if more than `limit` bytes could go in.
-    pub fn newline(
-        &mut self,
-        ending: &str,
-        count: usize,
-        indent: bool,
-        limit: usize,
-    ) -> Result<bool, EditError> {
-        let id = self.window().buffer();
-        if let Some(reason) = self.current().1.read_only() {
-            return Err(EditError::ReadOnly(reason));
-        }
-        // What could go in at most, each cursor's indentation at its deepest, twice between
-        // brackets: checked before anything changes, the region too.
-        let set = &self.window().selections;
-        let deepest = if indent {
-            2 * (ending.len() + MAX_COLUMN)
-        } else {
-            0
-        };
-        let most = ending
-            .len()
-            .checked_mul(count)
-            .and_then(|breaks| breaks.checked_add(deepest))
-            .and_then(|each| each.checked_mul(set.len()));
-        if most.is_none_or(|most| most > limit) {
-            return Ok(false);
-        }
-        if set.mark_active().is_active() && set.iter().any(|s| !s.range().is_empty()) {
-            let deletes: Vec<_> = set
-                .iter()
-                .map(|selection| Replacement {
-                    range: selection.range(),
-                    text: "",
-                })
-                .collect();
-            self.apply_edits(id, &deletes)?;
-        }
-        let breaks = ending.repeat(count);
-        let planned = self.planned_breaks(&breaks, ending, indent);
-        let edits: Vec<_> = planned
-            .iter()
-            .map(|planned| Replacement {
-                range: planned.range.clone(),
-                text: &planned.text,
-            })
-            .collect();
-        self.apply_edits(id, &edits)?;
-        // Between brackets, the cursor goes back over the closer's new line.
-        let backs: Vec<usize> = planned.iter().map(|planned| planned.back).collect();
-        let window = &mut self.windows[self.selected];
-        if backs.len() == window.selections.len() && backs.iter().any(|&back| back > 0) {
-            let mut backs = backs.into_iter();
-            window.selections.update(|selection| {
-                selection.cursor -= backs.next().unwrap_or(0);
-                Ok::<(), ()>(())
-            });
-        }
-        Ok(true)
-    }
-
-    /// For each cursor, what `RET` inserts and replaces, and how far back from the end of
-    /// what it inserts the cursor goes.
-    fn planned_breaks<'a>(&self, breaks: &'a str, ending: &str, indent: bool) -> Vec<Planned<'a>> {
-        let (window, buffer) = self.current();
-        let rope = buffer.text();
-        let settings = buffer.indent_settings();
-        let mode = buffer.mode();
-        let cursors: Vec<usize> = window.selections.iter().map(|s| s.cursor).collect();
-        let plain = |at| Planned {
-            text: Cow::Borrowed(breaks),
-            range: at..at,
-            back: 0,
-        };
-        let rules = mode
-            .indent_rules()
-            .filter(|_| indent && !buffer.is_internal());
-        let Some(rules) = rules else {
-            return cursors.iter().map(|&at| plain(at)).collect();
-        };
-        let mut spots = spots(rope, &cursors, mode);
-        keep_hard_breaks(rope, settings, &cursors, &mut spots, mode);
-        let mut lines = Vec::with_capacity(cursors.len() * 2);
-        for (&at, spot) in cursors.iter().zip(&spots) {
-            if spot.between {
-                lines.push(Line::Empty(at));
-            }
-            lines.push(Line::New(at));
-        }
-        let mut answers = rules(rope, settings, &lines, &mut Budget::new()).into_iter();
-        let mut all = Vec::with_capacity(cursors.len());
-        for (&at, spot) in cursors.iter().zip(&spots) {
-            let middle = if spot.between { answers.next() } else { None };
-            // The rules answer every line asked; were one missing, a plain break.
-            let planned = match answers.next() {
-                Some(last) => planned(breaks, ending, settings, (at, spot), middle, last),
-                None => plain(at),
-            };
-            all.push(planned);
-        }
-        all
-    }
-
     /// Reindents `rows` by `rules`, as one edit: each line answered a column it does not
     /// have gets that indentation, in the buffer's style. Returns the rows answered a column,
     /// in order.
@@ -292,12 +228,7 @@ impl Editor {
             answered.push(row);
             let start = rope.line_start(row);
             let (bytes, now) = leading(rope, start, settings.tab_width());
-            // Spaces, or tabs then spaces, are as long as what they reach says: only a line
-            // that reaches the column in as many bytes is read again to compare.
-            if now == column
-                && bytes == indentation_bytes(settings, column)
-                && text_of(rope, start..start + bytes) == settings.indentation(column)
-            {
+            if has_indentation(rope, start..start + bytes, now, column, settings) {
                 continue;
             }
             texts.push(settings.indentation(column));
@@ -315,6 +246,21 @@ impl Editor {
     }
 }
 
+/// Whether the indentation in `range`, which reaches `now`, already is the one that reaches
+/// `column` in `settings`' style. Spaces, or tabs then spaces, are as long as what they reach
+/// says: only an indentation that reaches the column in as many bytes is read to compare.
+fn has_indentation(
+    rope: &Rope,
+    range: Range<usize>,
+    now: usize,
+    column: usize,
+    settings: Settings,
+) -> bool {
+    now == column
+        && range.len() == indentation_bytes(settings, column)
+        && text_of(rope, range) == settings.indentation(column)
+}
+
 /// The length in bytes of the indentation that reaches `column` in `settings`' style.
 fn indentation_bytes(settings: Settings, column: usize) -> usize {
     match settings.style() {
@@ -322,118 +268,6 @@ fn indentation_bytes(settings: Settings, column: usize) -> usize {
         Style::Tabs => {
             let width = settings.tab_width().get() as usize;
             column / width + column % width
-        }
-    }
-}
-
-/// What `RET` inserts at the cursor `at`, given where it is, the answer for the empty line
-/// between brackets if it is between them, and the answer for the last new line.
-fn planned<'a>(
-    breaks: &'a str,
-    ending: &str,
-    settings: Settings,
-    (at, spot): (usize, &Break),
-    middle: Option<Answer>,
-    last: Answer,
-) -> Planned<'a> {
-    match (middle, last) {
-        (Some(Answer::Column(inner)), Answer::Column(outer)) => {
-            let closer = settings.indentation(outer);
-            let back = ending.len() + closer.len();
-            let text = format!("{breaks}{}{ending}{closer}", settings.indentation(inner));
-            Planned {
-                text: Cow::Owned(text),
-                range: spot.range.clone(),
-                back,
-            }
-        }
-        (_, Answer::Column(column)) => Planned {
-            text: Cow::Owned(format!("{breaks}{}", settings.indentation(column))),
-            range: spot.range.clone(),
-            back: 0,
-        },
-        // Inside a string, nothing around the cursor goes and no indentation comes.
-        (_, Answer::Keep) => Planned {
-            text: Cow::Borrowed(breaks),
-            range: at..at,
-            back: 0,
-        },
-    }
-}
-
-/// Where `RET` breaks the line at each of `cursors`, in order, in a buffer in `mode`: the
-/// spaces and tabs around it, no further than the cursors beside it, and whether it is between
-/// an opener and its closer, which only Rust, and TOML's arrays, open a line between.
-fn spots(rope: &Rope, cursors: &[usize], mode: Mode) -> Vec<Break> {
-    let mut spots: Vec<Break> = Vec::with_capacity(cursors.len());
-    for (index, &at) in cursors.iter().enumerate() {
-        let start = rope.line_start(rope.offset_to_point(at).row);
-        // The blanks between two cursors go with the first, so no two ranges overlap.
-        let floor = spots
-            .last()
-            .map_or(start, |before: &Break| before.range.end.max(start));
-        let ceiling = cursors.get(index + 1).copied().unwrap_or(usize::MAX);
-        let before = if at <= floor {
-            0
-        } else {
-            blanks_before(rope, at, floor)
-        };
-        let after = blanks_after(rope, at).min(ceiling.saturating_sub(at));
-        let range = at - before..at + after;
-        let opener = range
-            .start
-            .checked_sub(1)
-            .and_then(|before| rope.byte_at(before));
-        let closer = rope.byte_at(range.end);
-        // TOML's inline tables cannot span lines, and `(` means nothing in it.
-        let between = match mode {
-            Mode::Rust => matches!(
-                (opener, closer),
-                (Some(b'{'), Some(b'}')) | (Some(b'('), Some(b')')) | (Some(b'['), Some(b']'))
-            ),
-            Mode::Toml => (opener, closer) == (Some(b'['), Some(b']')),
-            _ => false,
-        };
-        spots.push(Break { range, between });
-    }
-    spots
-}
-
-/// In Markdown, two spaces or more at the end of a line of text break it (ADR 0113 keeps them
-/// too): a cursor after them at the line's end, outside a fenced code block, keeps them.
-fn keep_hard_breaks(
-    rope: &Rope,
-    settings: Settings,
-    cursors: &[usize],
-    spots: &mut [Break],
-    mode: Mode,
-) {
-    if mode != Mode::Markdown {
-        return;
-    }
-    let ends_line = |at: usize| matches!(rope.byte_at(at), None | Some(b'\n' | b'\r'));
-    let breaking: Vec<usize> = cursors
-        .iter()
-        .zip(spots.iter())
-        .enumerate()
-        .filter_map(|(index, (&at, spot))| {
-            let trimmed = at - spot.range.start;
-            let spaces = trimmed >= 2
-                && text_of(rope, spot.range.start..at)
-                    .bytes()
-                    .all(|b| b == b' ');
-            let text_before = spot.range.start > rope.line_start(rope.offset_to_point(at).row);
-            (spaces && text_before && ends_line(spot.range.end)).then_some(index)
-        })
-        .collect();
-    if breaking.is_empty() {
-        return;
-    }
-    let offsets: Vec<usize> = breaking.iter().map(|&index| cursors[index]).collect();
-    let fenced = indent::markdown_fenced(rope, settings, &offsets);
-    for (index, fenced) in breaking.into_iter().zip(fenced) {
-        if !fenced {
-            spots[index].range.start = cursors[index];
         }
     }
 }
@@ -459,35 +293,6 @@ fn blanks_before(rope: &Rope, at: usize, start: usize) -> usize {
         }
         back = (back * 8).min(SCAN);
     }
-}
-
-/// The spaces and tabs just after `at`, in bytes, reading at most [`SCAN`] of them. A blank a
-/// combining mark is on is the mark's base, not a blank: it stays, with what follows it.
-fn blanks_after(rope: &Rope, at: usize) -> usize {
-    let run = blank_run_after(rope, at);
-    let next = rope.clip_offset(at + run + 4, Bias::Left);
-    let marked = text_of(rope, at + run..next)
-        .chars()
-        .next()
-        .is_some_and(crate::display_map::cell::is_mark);
-    if marked { run.saturating_sub(1) } else { run }
-}
-
-/// The spaces and tabs just after `at`, in bytes, reading at most [`SCAN`] of them.
-fn blank_run_after(rope: &Rope, at: usize) -> usize {
-    let to = rope.clip_offset((at + SCAN).min(rope.len()), Bias::Left);
-    let mut blanks = 0;
-    for chunk in rope.chunks_in_range(at..to) {
-        let run = chunk
-            .bytes()
-            .take_while(|&byte| matches!(byte, b' ' | b'\t'))
-            .count();
-        blanks += run;
-        if run < chunk.len() {
-            break;
-        }
-    }
-    blanks
 }
 
 /// The indentation of the line that starts at `start`, reading at most [`SCAN`] bytes: its

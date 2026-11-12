@@ -432,7 +432,8 @@ impl App {
             composing: self.composing(),
             searching: self.editor.isearch().is_some()
                 || self.editor.jump().is_some()
-                || self.editor.replace().is_some(),
+                || self.editor.replace().is_some()
+                || self.editor.indent_rigidly_layer(),
             macro_running: self.editor.macro_recording() || self.editor.macro_replaying(),
             undoing: self.editor.crossing().is_some(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),
