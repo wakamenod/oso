@@ -189,8 +189,9 @@ question (Q1–Q13), listed under the author's choices with the options not take
 - **Markdown** has two grammars: the block grammar parses the whole buffer, and the inline
   grammar parses each `inline` node on its own, as its injection query says, only in the ranges
   the worker highlights. Inline trees are not kept: they are small, and parsing one again costs
-  less than tracking it through edits. Fenced code is not highlighted yet; a later step injects `rust` and `toml` fences (Q9).
-- **Injections** other than Markdown's inline grammar wait.
+  less than tracking it through edits. Fenced code whose info string names Rust or TOML is
+  parsed with that grammar the same way (Q9, step 7).
+- **Injections** other than Markdown's inline grammar and its fenced code wait.
 
 ### What a frame costs
 
@@ -394,10 +395,11 @@ decision above. The options not taken are listed with their trade-offs.
   grammar crates' bundled queries as they are (capture names differ by crate, and a bump changes
   the look unreviewed), and queries from the configuration directory (a query decides how much
   work a file costs, and it is a second file format to keep).
-- **Q9. Markdown's fenced code:** plain for now, with the inline grammar in. Highlighting fences
-  tagged `rust` and `toml` with those grammars is a later step, once the base is settled: the
-  fence's info string names a mode, and its content is parsed with that grammar over its range
-  (`set_included_ranges`), as the inline grammar is, its runs going into the same `Highlights`.
+- **Q9. Markdown's fenced code:** plain at first, with the inline grammar in. Highlighting
+  fences tagged `rust` and `toml` with those grammars was a later step, once the base was
+  settled: the fence's info string names a language, and its content is parsed with that
+  grammar over its range (`set_included_ranges`), as the inline grammar is, its runs going into
+  the same `Highlights`. Step 7 built it.
   Not taken: the block grammar only (no links, emphasis or code spans).
 - **Q10. Contrast:** 7:1 on every fill a line sits on, as `Text`. Not taken: 4.5:1 for comments
   (the modus themes' faint comments meet 7:1, so the look does not need it).
@@ -524,7 +526,8 @@ decision above. The options not taken are listed with their trade-offs.
     regex had a stray quote and never matched.
   - TOML: only a pair's key is a property (upstream captures the whole pair), and a table's
     name is a type.
-  - Markdown: code blocks and their fences stay plain until injection; heading and list
+  - Markdown: code blocks and their fences stay plain until injection (step 7 injects fenced
+    Rust and TOML, and draws every fence's delimiters and info string as `Markup`); heading and list
     markers are `Markup`, as Emacs's markdown-mode draws them.
 - **Pieces** are whole lines of at most 16 KiB, a longer line cut at a character, so a window
   on a long line waits only for its part; the pending ranges within a piece's reach join it, so
@@ -821,6 +824,107 @@ Built:
   checks the code's end is on its line and at a cluster's start. Budget tests: both walks
   read at most one stop, and a spent command reads nothing. `run_at` is checked against the
   byte-by-byte model of the highlights' property test.
+
+### Step 7: fenced code
+
+The author's choices (2026-11-12, through the coordinator), each the plan's recommendation:
+
+- **A fence is parsed again, not kept** (Q1 of the step's plan), as an inline node is: a
+  Markdown piece widens to the whole of each fence it meets, and the fence's content less its
+  block continuations is parsed from nothing with its grammar (`set_included_ranges`). Not
+  taken: a kept, incremental document per fence (each key costs the edit, not the fence, but
+  fences would need an identity through the block tree's changes, and each keeps a tree), and
+  one tree a language over all its fences (an unclosed `/*` in one would reach the next, as
+  for inline text).
+- **A fence past 16 KiB stays plain** (Q2), the inline cap and a piece's size: about 400
+  lines of Rust. As built, the cap counts the whole block, delimiter lines too, as the review
+  found an info string of any length would otherwise widen a piece past any bound. Not taken: 64 KiB (about 5 ms, which a slow machine brings near a
+  slice, and then the whole document stops as too slow) and 256 KiB (past a slice).
+- **No limit on how many fences** (Q3): bytes bound the work, as each fence in a piece's reach
+  is parsed once for it, pieces shrink to 1 KiB when slices run short, and the time limits
+  hold. Not taken: at most 64 fences a piece.
+- **The info strings** (Q4): the info string's first word, the grammar's `language` node,
+  ignoring ASCII case, at most 16 bytes: `rust` and `rs` are Rust, `toml` TOML. The grammar
+  ends that word at white space, `,`, `{` and `}`, so rustdoc's `rust,ignore` is Rust. Any other
+  word, a fence with none, Pandoc's `{.rust}`, an indented code block and TOML front matter stay
+  plain, and so does `markdown`, which would nest the inline grammar's risk inside a fence. A
+  fence only picks among the grammars compiled in; nothing reads its content to guess one, as
+  nothing reads a file to pick its mode (T1). Not taken: TOML front matter (`+++`) too.
+- **A fence's delimiters and info string are `Markup`** (Q5), as heading and list markers
+  are, whatever the language. Not taken: the language word as `Keyword`, as markdown-mode
+  draws it; and both plain.
+- **Too slow is as for inline text** (Q6): a fence's parse that the slice stops is a stopped
+  piece, so pieces shrink, and a piece widened past their size that still outlasts a slice
+  stops the document as too slow; Markdown is then plain until its mode is set again. Under
+  the cap only crafted text gets there. Not taken: only that fence plain, which needs a list of
+  such fences kept through edits, or it is tried again every slice.
+- **Edits** (Q7): the block tree stays incremental, and what is highlighted again is what it
+  was: the lines edited and the ranges the parse changed. A piece that meets any part of a
+  fence, its content, a delimiter or the info string, does the whole fence again.
+- **`C-e` in Markdown** (Q8) stops before a trailing comment inside a Rust or TOML fence, as
+  the highlights now say one is there. Not taken: only the buffer's own language's comments.
+- **No new public API** (Q9): `Language` already names Rust and TOML, the new code is a
+  private module of `document`, and `guardrails/layers.txt` lists only top-level modules, so
+  neither it nor the API snapshot changes.
+
+Built:
+
+- `document/fence.rs` says which fences a grammar parses, and `document/inline.rs` parses a
+  nested text of any grammar: the query that finds Markdown's inline nodes finds its fences
+  too (`Kind::Injections`), one parser a nested grammar is kept on the document, and a
+  fence's captures are a layer above the inline grammar's. A fence's text holds no inline
+  node, so the inline cap is not involved, and Rust's and TOML's grammars parse 2 MiB of
+  nesting on a small stack (step 1). A Markdown document now compiles Rust's and TOML's
+  queries too, at its first highlight on each thread: about 8 ms once.
+- **A fence that stops being one** is highlighted again. The document keeps the blocks a
+  fence's grammar last painted, mapped through edits. When a piece is painted, what of those
+  lies past the piece's ends was no fence the piece met whole, so it is to highlight again.
+  Without this, a fence whose info string changes to a word oso does not inject, or that grows
+  past the cap, kept the colours of its old grammar outside the edited line, as a test found.
+  The blocks stay apart where they touch, as fences on consecutive lines do (a block ends
+  after its closing line's break, or, in a container, after the next line's continuation): joined, one key in a chain of such fences did all of them
+  again, as the review found. A piece swaps the blocks it meets in place, and a piece in a
+  document with no fence costs nothing more.
+- **Measured** with `syntax_perf -- fenced`, release, on the author's Mac (the others with a
+  scratch program, not kept): 2 MiB of Markdown made of
+  oso-core's Rust sources, every 40 lines in a `rust` fence, take 222 ms to parse and 686 ms to
+  parse and highlight, in 36 slices of 20 ms, the longest 20.2 ms. A fence alone parses and
+  highlights in 0.19 ms at 4 KiB and 0.85 ms at 16 KiB. One key inside a fence costs the
+  worker about 150 to 200 ms there, nearly all of it the block grammar's own parse, which is
+  slow on fenced text after an edit whether fences are highlighted or not: prose Markdown of
+  the same size takes 32 ms. That is the worker's time, under the 1 s limit, and shows as
+  highlights a few frames late in such a file, not as key latency. Then:
+
+  | Input, release | First highlight | One key, highlighted again |
+  |---|---|---|
+  | 256 KiB of fences on consecutive lines | 122 ms | 4.6 ms (69 ms with the blocks joined) |
+  | 1.94 MiB of the same | 853 ms | 51 ms (576 ms with the blocks joined) |
+  | 1.94 MiB of tiny fences between blank lines | 2.0 s, at the total limit | 171 ms |
+  | A fence whose info string is 1 MiB long | 15 ms | 6.6 ms |
+
+  Each fence costs about 14 µs to set up and parse, however small, so a file of nothing but
+  tiny fences reaches the 2 s highlighting limit near 2 MiB and may stop as too slow (Q6), as
+  crafted text does.
+- **Tests:** each language in a fence, rustdoc's info string, a fence in a list and in a quote,
+  other info strings and indented code staying plain, the cap, a fence's own lines, edits in and
+  around a fence (a block comment opened, the info string changed, the opening and closing
+  fences deleted, a fence opened above, a fence grown past the cap) against a fresh document,
+  fences on consecutive lines kept apart through an edit, so that painting one leaves the
+  others alone, and crafted text at the cap and 256 KiB of tiny fences within the limits. The property
+  tests' Markdown texts hold fences in a list, a quote and TOML, and their edits insert fence
+  delimiters and language names; the crafted cases' atoms include fence openers.
+
+Step 6's follow-ups, done in this step:
+
+- A test pins that `C-e` reads no highlights once its stop is spent on the blanks after a
+  comment (the `has_left` guard in `motion/mwim.rs`). A spent command reads nothing at all, so
+  `C-e` then goes straight to the line's end, as ADR 0058 has a spent walk do.
+- **A known limit of step 7:** on a line of only a comment inside a fenced block in a quote
+  (`> // note`), the quote's marker counts as code, so `C-e` stops after it rather than at the
+  text's end as on other comment-only lines.
+- **A known limit:** a full-width space (U+3000) before `//` in Rust is no white space to the
+  grammar, nor to rustc: the error it makes takes the marker in, so no comment is found, and
+  `C-e` ends where the text does. Tests pin both that and that TOML keeps such a comment.
 
 ## Alternatives considered
 

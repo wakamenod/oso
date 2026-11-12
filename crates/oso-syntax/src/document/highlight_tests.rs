@@ -112,17 +112,6 @@ fn markdown_captures() {
 }
 
 #[test]
-fn markdown_code_stays_plain() {
-    let document = highlighted(Language::Markdown, "```rust\nfn main() {}\n```\n");
-    let start = "```rust\n".len();
-    let plain = document
-        .highlights()
-        .runs(start..start + 12)
-        .all(|(_, h)| h.is_none());
-    assert!(plain, "{:?}", runs(&document));
-}
-
-#[test]
 fn toml_captures() {
     let text = "# top\n[package]\nname = \"oso\"\nversion.major = 1\n\
                 ok = true\nwhen = 1979-05-27\n[[bin]]\n";
@@ -299,4 +288,21 @@ fn a_trailing_comment_is_one_run() {
     );
     let toml = "a = 1 # \"s\" true 2 [x]\n";
     assert_has(Language::Toml, toml, &[("# \"s\" true 2 [x]", Comment)]);
+}
+
+/// A full-width space is no white space to Rust: before `//`, it leaves an error that takes the
+/// marker in, so no comment is found and `C-e` ends where the text does (ADR 0111, step 6).
+/// TOML keeps the comment.
+#[test]
+fn a_full_width_space_before_a_comment() {
+    let rust = runs(&highlighted(
+        Language::Rust,
+        "fn f() {\n    let x = 1;\u{3000}// note\n}\n",
+    ));
+    assert!(rust.iter().all(|(_, h)| *h != Comment), "{rust:?}");
+    assert_has(
+        Language::Toml,
+        "a = 1\u{3000}# note\n",
+        &[("# note", Comment)],
+    );
 }

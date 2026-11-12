@@ -1,10 +1,12 @@
-//! Markdown's inline text: each `inline` node of the block tree in a piece, parsed on its own
-//! with the inline grammar and highlighted over its block's captures (ADR 0111).
+//! Markdown's nested text: each `inline` node of the block tree in a piece, parsed on its own
+//! with the inline grammar, and each fenced code block whose info string names a language,
+//! parsed with that language's grammar ([`super::fence`]), all highlighted over their block's
+//! captures (ADR 0111).
 //!
 //! Must not depend on: buffers, windows or faces; it sees a rope and splices, and runs only on
 //! the worker.
 //!
-//! - An inline node is parsed in its own range less its named children, the block
+//! - A nested text is parsed in its node's range less its named children, the block
 //!   continuations, as the grammar's injection query says. It is read from the rope, and its
 //!   tree is not kept.
 //! - An inline node longer than [`MAX_INLINE_BYTES`] stays plain: the inline grammar recurses as
@@ -19,6 +21,7 @@ use std::time::Instant;
 use oso_core::rope::Rope;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
+use super::fence;
 use super::highlight::{Piece, run};
 use super::{Document, reader, until};
 use crate::language::Language;
@@ -29,54 +32,81 @@ use crate::queries::{Kind, Queries};
 /// about 512 KiB of stack, and step 4 gives the worker 8 MiB (ADR 0111, as built).
 pub(crate) const MAX_INLINE_BYTES: usize = 16 << 10;
 
+/// What other grammars parse in a Markdown piece, in order: the inline nodes, and the
+/// fenced code blocks' contents with the language each names.
+#[derive(Default)]
+pub(super) struct Nested<'tree> {
+    pub(super) inlines: Vec<Node<'tree>>,
+    pub(super) fences: Vec<(Node<'tree>, Language)>,
+    /// Each fence's whole block, delimiters and info string too.
+    pub(super) blocks: Vec<Range<usize>>,
+}
+
 /// `piece` widened to the whole of each inline node it meets that is short enough to parse,
-/// with those nodes, in order; or how the piece went if the query to find them did not run to
-/// its end. Inline nodes never overlap, so the nodes the widened piece meets are those.
+/// and of each fenced code block whose content its language parses, with what they hold; or
+/// how the piece went if the query to find them did not run to its end. Neither kind
+/// overlaps another, so the nodes the widened piece meets are those.
 pub(super) fn widen<'tree>(
     text: &Rope,
     queries: &Queries,
     tree: &'tree Tree,
     piece: Range<usize>,
     deadline: Instant,
-) -> Result<(Range<usize>, Vec<Node<'tree>>), Piece> {
-    let Some(inlines) = queries.get(Kind::Inlines) else {
+) -> Result<(Range<usize>, Nested<'tree>), Piece> {
+    let Some(injections) = queries.get(Kind::Injections) else {
         return Err(Piece::Limit);
     };
     let mut widened = piece.clone();
-    let mut nodes: Vec<Node> = Vec::new();
-    let outcome = run(&inlines.query, tree, text, piece, deadline, |node, _, _| {
-        if node.byte_range().len() <= MAX_INLINE_BYTES && nodes.last() != Some(&node) {
+    let mut nested = Nested::default();
+    let outcome = run(
+        &injections.query,
+        tree,
+        text,
+        piece,
+        deadline,
+        |node, _, _| {
+            if let Some(fence) = fence::injectable(text, node) {
+                if nested.fences.last() == Some(&fence) {
+                    return;
+                }
+                nested.fences.push(fence);
+                nested.blocks.push(node.byte_range());
+            } else if node.kind() == fence::KIND
+                || node.byte_range().len() > MAX_INLINE_BYTES
+                || nested.inlines.last() == Some(&node)
+            {
+                // A fence no grammar parses here, or an inline node too long or already found.
+                return;
+            } else {
+                nested.inlines.push(node);
+            }
             widened.start = widened.start.min(node.start_byte());
             widened.end = widened.end.max(node.end_byte());
-            nodes.push(node);
-        }
-    });
+        },
+    );
     match outcome {
         Some(outcome) => Err(outcome),
-        None => Ok((widened, nodes)),
+        None => Ok((widened, nested)),
     }
 }
 
 impl Document {
-    /// Adds the captures of the inline text of `nodes`, the inline nodes `widen` found, cut to
-    /// `piece`, to `captures`. `None` when every inline node ran to its end, or how the piece
-    /// went if one did not.
-    pub(super) fn highlight_inlines(
+    /// Adds the captures of the nested texts of `nodes`, each with its grammar, which `widen`
+    /// found, cut to `piece`, to `captures` as of `layer`. `None` when every one ran to its
+    /// end, or how the piece went if one did not.
+    pub(super) fn highlight_nested(
         &mut self,
         queries: &Queries,
-        nodes: &[Node],
-        piece: Range<usize>,
+        nodes: Vec<(Node<'_>, Language)>,
+        (piece, layer): (Range<usize>, u8),
         deadline: Instant,
         captures: &mut Vec<Capture>,
     ) -> Option<Piece> {
-        if nodes.is_empty() {
-            return None;
-        }
-        let Some(prepared) = queries.get(Kind::Highlights(Language::MarkdownInline)) else {
-            return Some(Piece::Limit);
-        };
-        for &node in nodes {
-            let Some(inline) = self.parse_inline(node, deadline) else {
+        for (node, language) in nodes {
+            let Some(prepared) = queries.get(Kind::Highlights(language)) else {
+                return Some(Piece::Limit);
+            };
+            let Some(nested) = self.parse_nested(language, node, deadline) else {
                 if Instant::now() >= deadline {
                     return Some(Piece::Stopped);
                 }
@@ -87,13 +117,13 @@ impl Document {
                 if let Some(&Some(class)) = prepared.classes.get(index as usize) {
                     captures.push(Capture {
                         range: node.byte_range(),
-                        layer: 1,
+                        layer,
                         pattern,
                         class,
                     });
                 }
             };
-            if let Some(outcome) = run(&prepared.query, &inline, &self.text, range, deadline, found)
+            if let Some(outcome) = run(&prepared.query, &nested, &self.text, range, deadline, found)
             {
                 return Some(outcome);
             }
@@ -101,23 +131,23 @@ impl Document {
         None
     }
 
-    /// Parses one inline node's text until `deadline`; `None` if it did not finish, or its
-    /// ranges could not be set.
-    fn parse_inline(&mut self, node: Node, deadline: Instant) -> Option<Tree> {
+    /// Parses one nested text, `node`'s, with `language` until `deadline`; `None` if it did not
+    /// finish, or its ranges could not be set.
+    fn parse_nested(&mut self, language: Language, node: Node, deadline: Instant) -> Option<Tree> {
         let ranges = own_ranges(node);
         if ranges.is_empty() {
             return None;
         }
-        let parser = match &mut self.inline {
-            Some(parser) => parser,
+        let at = match self.nested.iter().position(|(made, _)| *made == language) {
+            Some(at) => at,
             None => {
                 let mut parser = Parser::new();
-                parser
-                    .set_language(&Language::MarkdownInline.grammar())
-                    .ok()?;
-                self.inline.insert(parser)
+                parser.set_language(&language.grammar()).ok()?;
+                self.nested.push((language, parser));
+                self.nested.len() - 1
             }
         };
+        let parser = &mut self.nested[at].1;
         parser.set_included_ranges(&ranges).ok()?;
         let stopped = Cell::new(false);
         let mut progress = until::<ParseState>(deadline, &stopped);

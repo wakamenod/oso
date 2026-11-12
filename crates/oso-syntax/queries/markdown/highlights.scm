@@ -4,8 +4,8 @@
 ; Written from the block highlights query of tree-sitter-md 0.5.4
 ; (https://github.com/tree-sitter-grammars/tree-sitter-markdown), MIT, by MDeiml, itself
 ; from nvim-treesitter. Cut to oso's highlight classes: each capture
-; names one, and what has none stays plain. Code blocks stay plain until a later step injects
-; their languages.
+; names one, and what has none stays plain. A code block's content is plain here: a fence
+; whose info string names Rust or TOML is highlighted with that grammar (document/fence.rs).
 ;
 ; Predicates: none.
 
@@ -44,6 +44,11 @@
 [
   (block_continuation)
   (block_quote_marker)
+] @markup
+
+[
+  (fenced_code_block_delimiter)
+  (info_string)
 ] @markup
 
 (backslash_escape) @string
