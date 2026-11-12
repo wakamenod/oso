@@ -1,12 +1,16 @@
 //! The rows a frame shows (ADR 0100, ADR 0104): each tiled window's, the selected one with a
 //! preedit laid out in its line, and the preview's of the buffer a prompt previews, wrapped at
-//! the preview's width while that buffer wraps.
+//! the preview's width while that buffer wraps; and the bytes each window shows, for the syntax
+//! worker (ADR 0111).
 //!
 //! Must not depend on: `command`, `keymap` or the host's window.
 //!
 //! The preview's buffer is shown by no window, so the editor keeps its wrap (`wraps.rs`).
 
+use std::ops::Range;
+
 use super::{Editor, Preview};
+use crate::buffer::BufferId;
 use crate::frame::CellRect;
 use crate::window::{Rows, Screen, ScreenSource, Scroll, WindowId};
 
@@ -29,6 +33,18 @@ impl Editor {
         let selected = id == self.tiled_id() && self.prompts.is_empty();
         let preedit = self.preedit.as_ref().filter(|_| selected);
         window.screen_into(&buffer.display(), preedit, out);
+    }
+
+    /// What each tiled window shows of its buffer, as the bytes of its rows in view, into
+    /// `out`, which is emptied first: the syntax worker highlights these first (ADR 0111). A
+    /// few seeks a window, with no row laid out.
+    pub fn shown_ranges(&self, out: &mut Vec<(BufferId, Range<usize>)>) {
+        out.clear();
+        for window in &self.windows {
+            if let Some((window, buffer, _)) = self.window_in_tree(window.id()) {
+                out.push((window.buffer(), window.shown_bytes(&buffer.display())));
+            }
+        }
     }
 
     /// The tiled window's rows as its buffer's text alone lays them out, with no preedit, for

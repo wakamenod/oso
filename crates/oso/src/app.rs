@@ -35,6 +35,7 @@ mod projects;
 mod reloads;
 mod saves;
 mod searches;
+mod syntax;
 mod theme_file;
 mod trims;
 mod wraps;
@@ -86,6 +87,8 @@ pub enum UserEvent {
     Wrap(oso_core::display_map::wrap_map::WrapReport),
     /// A wrap job panicked, so its window asks for it again.
     WrapLost,
+    /// The syntax worker highlighted a buffer, or stopped (ADR 0111).
+    Syntax(oso_syntax::Report<BufferId>),
     /// The completion worker built a list or matched an input (ADR 0096).
     Completion(oso_core::complete::CompletionReport),
     /// A completion job panicked on the worker.
@@ -159,6 +162,8 @@ pub struct App {
     searcher: searches::Searcher,
     /// Soft wrap's worker (ADR 0100).
     wrapper: wraps::Wrapper,
+    /// Syntax highlighting's worker (ADR 0111).
+    syntax: syntax::Syntax,
     /// The completion worker, for a list past 5000 candidates (ADR 0096).
     completer: completions::Completer,
     /// The theme remembered from before, being read until the window opens, what writes the
@@ -295,6 +300,7 @@ impl App {
             clipboard,
             searcher: searches::Searcher::default(),
             wrapper: wraps::Wrapper::default(),
+            syntax: syntax::Syntax::default(),
             completer: completions::Completer::default(),
             theme_read: Some(theme_read),
             theme_writer: theme_file::Writer::start(theme_directory),

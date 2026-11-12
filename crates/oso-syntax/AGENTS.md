@@ -7,8 +7,11 @@ highlighting loop (ADR 0012, ADR 0111). See `docs/dev/display-model.md`.
   grammars (`deny.toml`, `crates/oso/tests/architecture`); only the tip crate depends on it.
 - `#![forbid(unsafe_code)]`: tree-sitter's Rust API is safe, and the C stays in the
   dependencies. No `unwrap` or `expect` outside tests.
-- Nothing here runs on the UI thread. The tip crate's worker calls it, and the UI reads only
+- Nothing here parses on the UI thread. The tip crate's worker calls it, and the UI reads only
   what it reports, through `oso-core` types. tree-sitter types stay out of the public API.
+  `Scheduler`'s bookkeeping runs under a lock the UI thread takes too, so it never calls
+  tree-sitter, nor makes, edits or frees a document: those happen in `Checkout::run` and on the
+  list a thread frees after it unlocks.
 - Every parse and every query is bounded: a time slice, the time limits and the size limit
   of ADR 0111. A callback given to tree-sitter must never panic, as it runs under C.
 - Walk a tree with a `TreeCursor`, never by recursion, so a deep tree cannot overflow a stack.
