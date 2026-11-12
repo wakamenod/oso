@@ -24,8 +24,8 @@ dependency licenses are acceptable.
 
 - Anyone can use, modify and redistribute oso with few obligations.
 - GPL code and data cannot be bundled in the binary. This affects, for
-  example, migemo dictionaries derived from SKK dictionaries; see
-  [`open-questions.md`](../open-questions.md).
+  example, migemo dictionaries derived from SKK dictionaries: oso reads one only from a file
+  the person names ([ADR 0116](0116-migemo-and-jumps.md)).
 
 ## Alternatives considered
 

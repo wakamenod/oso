@@ -1,6 +1,6 @@
 # 0082. isearch
 
-- Status: Accepted, amended by 0091 and 0113
+- Status: Accepted, amended by 0091, 0113 and 0116
 - Date: 2026-11-08
 
 ## Context
