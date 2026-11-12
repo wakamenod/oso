@@ -270,6 +270,10 @@ alongside the steps above, after M2-16:
   the official `claude` TUI in a terminal view, hooks for session identity
   and state, review and worktree tools on the `oso mcp` bridge, session
   list, notifications, worktree sessions, and restore via `--resume`.
+- Agent review ([ADR 0122](adr/0122-agent-review.md)): the changes since a
+  session's baseline, uncommitted, staged, a branch, a commit range or a PR;
+  comments re-anchored as the agent edits, sent as one message; per-hunk
+  accept, reject and viewed; review tools on `oso mcp`. Twelve steps.
 
 ### After M4
 

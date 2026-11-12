@@ -1,6 +1,6 @@
 # 0122. Agent review
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 
 ## Context
@@ -184,11 +184,25 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   and hunk show it. The text is built on the review's worker as a rope with its display map
   (`oso_core::load::Builder`), so the UI thread does no O(n) work, and a refresh replaces one
   file's section as one edit.
-- **Unified is the default (Q6).** `|` switches the selected review to two panes: the old side and
-  the new side as two generated buffers in a side-by-side split, or stacked when the frame is
-  narrower than 160 columns. The two windows scroll together: moving in one moves the other to the
-  aligned row. Rows are aligned by filler rows the generated text holds, marked by a decoration
-  that motion skips and comments refuse (Q7).
+- **The layout follows the width (Q6, the author's choice).** A review takes an area of the frame:
+  one window, or a pair of windows (see Q7). The area shows the two sides side by side when its
+  width is 160 columns or more, as hunk does, and the unified stream when it is narrower.
+  - **Two panes** are the old side and the new side as two generated buffers in a pair of windows
+    that scroll together: moving in one moves the other to the aligned row. Rows are aligned by
+    filler rows the generated text holds, marked by a decoration that motion skips and comments
+    refuse (Q7). Each pane is then at least 80 columns.
+  - **The width is judged only when the review opens and when the area's width changes:** a split,
+    a closed window, a resized frame or a new font size. Never while scrolling, moving or
+    refreshing. A change is judged once the width has stayed the same for 100 ms, so dragging a
+    frame's edge switches at most once.
+  - **Hysteresis:** the area turns side by side at 160 columns or more and unified below 150. Between
+    the two it keeps what it shows, so a width near the line does not flip back and forth.
+  - **Switching keeps the place:** the cursor and each window's first row are carried by anchor
+    (file, side, line), as a refresh carries them. A line only one side has goes to the nearest row
+    of the other.
+  - **`|` toggles** between unified and two panes (stacked when the area is narrower than 160
+    columns), and from then on the review keeps the person's choice through resizes. `C-u |` turns
+    the automatic layout back on.
 - **Intra-line refinement:** within each change block of a hunk, removed and added lines are
   paired in order and diffed by words with `similar`, on the worker, on-screen first, drawn in
   `diff.refine-removed` and `diff.refine-added`. Only blocks of at most 100 lines a side and lines
@@ -443,7 +457,9 @@ Limits for crafted input, each saying what it hides:
   (`similar`), the seams, persistence, and the channel methods' bodies. A new line entry beside
   `walk` in `[oso]`.
 - **`oso-syntax`** gains documents no buffer owns, for the old side and files not open (new public
-  API, this ADR).
+  API, this ADR; its items are approved at step 8).
+- **`oso_core::window` and `oso_core::frame`** gain a pair of windows that scroll together (new
+  public API, this ADR; its items are approved at step 10).
 - **`oso-platform::process`** gains a piped standard input and variables set by value.
 - **No new crate, no new crate edge, no new dependency** on the recommended options.
 
@@ -471,8 +487,21 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
 6. **The files pane, the filter and persistence.**
 7. **Agent tools:** the channel methods, the `oso mcp` tools and instructions, the tour, guard tests
    for authorship and reach.
-8. **Syntax highlighting of sides,** and the two-pane view.
-9. **Sending:** the message and its preview, and the Deliver seam's terminal implementation once
+8. **Documents no buffer owns, in `oso-syntax`** (Q8): parsing and highlighting a text that is not a
+   buffer's, scheduled with the shown buffers, under ADR 0111's limits and secret rules. A new
+   public API of `oso-syntax`; its items (expected: a document id apart from a buffer id, opening a
+   document from a rope snapshot and a language, closing it, and its reports) are listed for the
+   author's approval when this step starts.
+9. **Highlighting the sides in the review:** projecting each side's runs onto the review's rows,
+   on-screen first, and reusing an open buffer's highlights.
+10. **A pair of windows that scroll together, in ADR 0112's tree** (Q7): two windows that move by
+    a row map their owner gives, closed and resized together. A new public API of
+    `oso_core::window` and `oso_core::frame`; its items (expected: making and breaking a pair, the
+    row map's trait or type, and how a pair is laid out and saved across a restart) are listed for
+    the author's approval when this step starts.
+11. **The two-pane view and the automatic layout** (Q6): the filler rows, the 160 and 150 column
+    rules, judging the width only on a change of it, and `|`.
+12. **Sending:** the message and its preview, and the Deliver seam's terminal implementation once
    ADR 0120 lands. PRs through `gh` come here too.
 
 ## Questions
@@ -563,6 +592,25 @@ None on the recommended options. The alternatives that would add one: `gix` (2c,
 `oso-core` (1b) and `notify` (17b). Each would go through the `add-dependency` skill and the
 author's approval.
 
+## The author's choices
+
+The author answered every question on 2026-11-12, through the coordinator: (a) for each, but Q6.
+
+- **Q6: (b).** Side by side automatically when the review's area is wide enough, unified otherwise,
+  and `|` still toggles. The threshold is 160 columns, with unified again below 150, and the width
+  is judged only when it changes, never while scrolling (see "The views").
+- Q7 (a) and Q8 (a) add a pair of windows to ADR 0112's tree and documents no buffer owns to
+  `oso-syntax`. Each is a step of its own (steps 8 and 10), whose public API is listed for approval
+  when it starts.
+- The rest, as recommended: the model in `oso_core::review` (Q1); in-process `similar` (Q2); no
+  review in restricted projects (Q3); the baseline unreferenced (Q4) and taken by the `claude`
+  command and `review-mark-baseline` (Q5); comments as rows (Q9), agent comments always shown (Q10),
+  the agent replying only to the person's comments (Q11); accept, reject and viewed for the person
+  only (Q12); reject through the buffer (Q13); comment tools `Change` (Q14); `review_open` through
+  an `Agent:` question (Q15); always a preview (Q16); polling (Q17); automatic persistence for 30
+  days (Q18); decisions by exact text (Q19); a tour in one call with "fix this" and "fix all" (Q20);
+  hunks in the message (Q21); PR commits fetched into `FETCH_HEAD` only (Q22).
+
 ## Changes to accepted ADRs
 
 - [ADR 0011](0011-git-integration.md), "Read-only information (branch, status, diff gutter) is
@@ -574,6 +622,10 @@ author's approval.
   value. Each spawn's log line names the variables set, without their values.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "What the channel can do" and the `oso mcp` tool
   list: the review methods and tools above join them, with the reach given for each.
+- [ADR 0111](0111-tree-sitter-highlighting.md), "the worker a tree per buffer": the workers also
+  parse documents no buffer owns, a review's sides, under the same limits and secret rules.
+- [ADR 0112](0112-window-splits.md), the window tree: it gains a pair of windows that scroll
+  together and are closed and resized together.
 
 ## Consequences
 
@@ -586,8 +638,11 @@ author's approval.
 - An agent can read the review, point at places, comment, reply and give a tour, but cannot
   decide, change the person's comments, or run git without the person's `y`.
 - Review state is written to the state directory, and holds code text from the reviewed files.
-- Follow-up: the two-pane window pairing (ADR 0112), the BlockMap if comments move there, ADR
-  0121's session and turn seams, posting to GitHub, and in-process review with `gix`.
+- Two new public APIs wait for the author's approval at the start of their steps: documents no
+  buffer owns in `oso-syntax` (step 8) and a pair of windows in `oso_core::window` and
+  `oso_core::frame` (step 10).
+- Follow-up: the BlockMap if comments move there, ADR 0121's session and turn seams, posting to
+  GitHub, and in-process review with `gix`.
 
 ## Alternatives considered
 

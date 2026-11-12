@@ -383,8 +383,8 @@ item notes when it must be settled.
   ([ADR 0031](adr/0031-claude-code-integration.md),
   [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Which worktree tools join `oso mcp`, and the reach of each
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The review's tools, views, refresh and
-  sending are proposed in [ADR 0122](adr/0122-agent-review.md), with 22 questions for the author.
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The review's tools are decided in
+  [ADR 0122](adr/0122-agent-review.md).
 - A review in restricted projects, read in-process with `gix` once ADR 0011's check that it skips
   config commands is done ([ADR 0122](adr/0122-agent-review.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
