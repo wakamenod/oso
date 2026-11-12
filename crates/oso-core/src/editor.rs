@@ -54,6 +54,7 @@ mod kill;
 mod macros;
 mod marks;
 mod messages;
+mod pairs;
 mod project_search;
 mod projects;
 mod prompts;
@@ -91,6 +92,7 @@ pub use jump::{Chose, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
+pub use pairs::NoPair;
 pub use project_search::{
     Excerpt, ProjectPreviewRead, ProjectPreviewRequest, ProjectSearchHit, ProjectSearchRequest,
     ProjectSearchRow,
@@ -155,6 +157,8 @@ pub struct Editor {
     /// The tiled windows other than the selected one whose cursors or tops an edit moved in
     /// the command, which follow their cursors when it ends (ADR 0112).
     moved_windows: Vec<WindowId>,
+    /// The pairs of tiled windows that scroll together (ADR 0122).
+    pairs: Vec<pairs::Pair>,
     undo_scope: Option<UndoScope>,
     /// An undo or a redo under way, a slice at a time (ADR 0119).
     crossing: crossing::Crossings,
@@ -304,6 +308,7 @@ impl Editor {
             recent: vec![FIRST_WINDOW],
             wrap_pool: crate::display_map::wrap_map::COMMAND_BUDGET,
             moved_windows: Vec::new(),
+            pairs: Vec::new(),
             undo_scope: None,
             crossing: crossing::Crossings::default(),
             join_ready: false,
@@ -407,19 +412,6 @@ impl Editor {
             .iter()
             .filter(|(_, buffer)| !buffer.is_internal())
             .map(|(id, buffer)| (*id, buffer))
-    }
-
-    /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
-    /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
-    /// that is not tiled or a buffer that does not exist.
-    pub fn show_in(&mut self, id: WindowId, buffer: BufferId) {
-        let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
-            return;
-        };
-        if self.buffer(buffer).is_some() {
-            self.window_moves_on();
-            self.window_shows(index, buffer);
-        }
     }
 
     /// Shows `buffer` in the selected window, where the window was in it the last time, or from
