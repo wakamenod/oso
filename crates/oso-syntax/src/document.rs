@@ -1,24 +1,31 @@
-//! One buffer's parse state on the worker: its parser, its tree and the text the tree is
-//! for, followed through the buffer's edits and parsed in bounded slices (ADR 0111).
+//! One buffer's parse state on the worker: its parser, its tree, the text the tree is for and
+//! its highlights, followed through the buffer's edits, parsed and highlighted in bounded
+//! slices (ADR 0111).
 //!
-//! Must not depend on: the UI thread; a parse runs only on the worker.
+//! Must not depend on: buffers, windows or faces; it sees a rope and splices, and runs only on
+//! the worker.
 //!
 //! - A parse reads the rope's chunks through a callback, with no copy of the text.
 //! - A slice stops it through tree-sitter's progress callback, and the next call resumes it
 //!   where it stopped. Edits that come meanwhile wait, and do not cancel it: cancelling on every
 //!   key would never finish a large file while someone types.
 //! - A first parse may take [`FIRST_LIMIT`] of the worker's time, and a later one
-//!   [`LATER_LIMIT`]. Past that, or past [`MAX_BYTES`], the document stops for good.
+//!   [`LATER_LIMIT`]. Past that, or past [`MAX_BYTES`] (the inline cap for Markdown's inline
+//!   grammar), the document stops for good.
+//! - The highlights follow each edit at once, and the lines it touched are highlighted again,
+//!   with what the next parse changes (`highlight`).
 
+use std::cell::Cell;
 use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
 use oso_core::rope::Rope;
-use oso_core::syntax::{Splice, compose};
+use oso_core::syntax::{Highlights, Splice, compose};
 use tree_sitter::{ParseOptions, ParseState, Parser, Tree};
 
 use crate::edit::input_edits;
 use crate::language::Language;
+use crate::pending::Pending;
 
 /// The largest text parsed: a larger buffer stays plain. A tree costs 35 to 60 times its text
 /// (ADR 0111, as built). The buffer keeps no log of edits past it either.
@@ -48,11 +55,13 @@ pub enum Parsed {
 /// Why a document stopped for good.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
-    /// The text grew past [`MAX_BYTES`].
+    /// The text grew past [`MAX_BYTES`], or past the inline cap in a document of Markdown's
+    /// inline grammar.
     TooLarge,
-    /// A parse passed its time limit.
+    /// A parse, or highlighting, passed its time limits (ADR 0111).
     TooSlow,
-    /// The grammar does not fit the tree-sitter runtime oso was built with.
+    /// The grammar, or oso's query for it, does not fit the tree-sitter runtime oso was built
+    /// with.
     Incompatible,
 }
 
@@ -72,8 +81,21 @@ pub struct Document {
     /// A parse that a slice stopped part way: what it may take in all, and what it took.
     running: Option<(Duration, Duration)>,
     failed: Option<Failure>,
-    /// [`FIRST_LIMIT`] and [`LATER_LIMIT`], shorter in tests.
-    limits: (Duration, Duration),
+    /// [`FIRST_LIMIT`], [`LATER_LIMIT`] and [`highlight::HIGHLIGHT_LIMIT`], shorter in tests.
+    limits: (Duration, Duration, Duration),
+    /// The worker's time highlighting took since it was last done.
+    spent: Duration,
+    /// How many pieces fitted in a row since pieces last shrank or grew.
+    fits: u32,
+    /// What the newest text is, as far as it is highlighted: it covers the text after every
+    /// edit, waiting ones too.
+    highlights: Highlights,
+    /// What of the newest text is still to highlight.
+    pending: Pending,
+    /// Markdown's inline parser, made at the first inline text.
+    inline: Option<Parser>,
+    /// How many bytes a piece of highlighting may take; less after a piece outlasted a slice.
+    max_piece: usize,
 }
 
 impl Document {
@@ -88,12 +110,18 @@ impl Document {
             language,
             parser,
             tree: None,
+            highlights: Highlights::new(text.len()),
             text,
             current: false,
             waiting: None,
             running: None,
             failed,
-            limits: (FIRST_LIMIT, LATER_LIMIT),
+            limits: (FIRST_LIMIT, LATER_LIMIT, highlight::HIGHLIGHT_LIMIT),
+            spent: Duration::ZERO,
+            fits: 0,
+            pending: Pending::default(),
+            inline: None,
+            max_piece: highlight::PIECE,
         }
     }
 
@@ -105,10 +133,28 @@ impl Document {
     /// Follows one batch of the buffer's edits: `splices`, as [`Splice`] says, which made
     /// `after`. Splices that do not take the document's text to `after` are not trusted: the
     /// next parse starts from nothing.
+    ///
+    /// The highlights follow at once, and the lines the splices touched are to highlight again.
     pub fn edit(&mut self, splices: &[Splice], after: &Rope) {
         if self.failed.is_some() {
+            // Plain, but still the newest text's length.
+            self.highlights = Highlights::new(after.len());
             return;
         }
+        self.highlights.splice(splices);
+        if self.highlights.len() == after.len() {
+            self.pending.map(splices);
+            self.pending
+                .add(highlight::edited(after, splices, self.max_piece));
+        } else {
+            self.highlights = Highlights::new(after.len());
+            self.pending.all(after.len());
+        }
+        self.follow(splices, after);
+    }
+
+    /// Follows a batch in the tree: at once, or after the parse a slice stopped.
+    fn follow(&mut self, splices: &[Splice], after: &Rope) {
         if self.running.is_some() {
             let joined = match self.waiting.take() {
                 None => Some(splices.to_vec()),
@@ -141,7 +187,7 @@ impl Document {
                     return Parsed::Done;
                 };
                 match batch {
-                    Some(batch) => self.edit(&batch, &after),
+                    Some(batch) => self.follow(&batch, &after),
                     None => {
                         self.tree = None;
                         self.text = after;
@@ -150,7 +196,7 @@ impl Document {
                 }
                 continue;
             }
-            if self.text.len() > MAX_BYTES {
+            if self.text.len() > self.most_bytes() {
                 return self.fail(Failure::TooLarge);
             }
             let now = Instant::now();
@@ -171,28 +217,18 @@ impl Document {
             Some(_) => (self.limits.1, Duration::ZERO),
         });
         let stop = deadline.min(now + limit.saturating_sub(spent));
-        let mut progress = |_: &ParseState| {
-            if Instant::now() >= stop {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        };
-        let text = &self.text;
-        // Never panics: a panic here would cross tree-sitter's C.
-        let mut read = |byte: usize, _: tree_sitter::Point| {
-            text.chunks_in_range(byte..text.len())
-                .next()
-                .unwrap_or("")
-                .as_bytes()
-        };
+        let stopped = Cell::new(false);
+        let mut progress = until::<ParseState>(stop, &stopped);
+        let mut read = reader(&self.text);
         let options = ParseOptions::new().progress_callback(&mut progress);
         let tree = self
             .parser
             .parse_with_options(&mut read, self.tree.as_ref(), Some(options));
+        drop(read);
         let spent = spent + now.elapsed();
         match tree {
             Some(tree) => {
+                self.take_changes(&tree);
                 self.tree = Some(tree);
                 self.current = true;
                 self.running = None;
@@ -206,13 +242,43 @@ impl Document {
         }
     }
 
-    /// Stops for good, and frees the tree.
+    /// Marks what a finished parse changed as to highlight again: the ranges `tree` differs in
+    /// from the tree it was parsed from, or all of the text after a parse from nothing. Edits
+    /// waiting for the parse came after it, and move those ranges.
+    fn take_changes(&mut self, tree: &Tree) {
+        let (Some(old), Some((Some(_), _)) | None) = (&self.tree, &self.waiting) else {
+            self.pending.all(self.highlights.len());
+            return;
+        };
+        let mut changed = Pending::default();
+        changed.add(old.changed_ranges(tree).map(|range| {
+            highlight::lines(&self.text, range.start_byte..range.end_byte, self.max_piece)
+        }));
+        if let Some((Some(batch), _)) = &self.waiting {
+            changed.map(batch);
+        }
+        self.pending.add(changed.ranges().iter().cloned());
+    }
+
+    /// The largest text it parses: [`MAX_BYTES`], or for a document of Markdown's inline grammar
+    /// the inline cap, as that grammar overflows a stack on deeply nested inline links.
+    fn most_bytes(&self) -> usize {
+        match self.language {
+            Language::MarkdownInline => inline::MAX_INLINE_BYTES,
+            Language::Rust | Language::Markdown | Language::Toml => MAX_BYTES,
+        }
+    }
+
+    /// Stops for good, and frees the tree; the text is plain.
     fn fail(&mut self, failure: Failure) -> Parsed {
         self.failed = Some(failure);
         self.tree = None;
         self.waiting = None;
         self.running = None;
         self.parser.reset();
+        self.inline = None;
+        self.highlights = Highlights::new(self.highlights.len());
+        self.pending.clear();
         Parsed::Failed(failure)
     }
 
@@ -223,6 +289,45 @@ impl Document {
     }
 }
 
+/// A progress callback that stops tree-sitter at `deadline`, and notes in `stopped` that it did.
+/// It runs under tree-sitter's C, so it never panics.
+pub(super) fn until<State>(
+    deadline: Instant,
+    stopped: &Cell<bool>,
+) -> impl FnMut(&State) -> ControlFlow<()> + '_ {
+    move |_: &State| {
+        if Instant::now() >= deadline {
+            stopped.set(true);
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+}
+
+/// A parser's read callback over `text`: the chunk from a byte to its end. It runs under
+/// tree-sitter's C, so it never panics; a byte past the end reads nothing.
+pub(super) fn reader<'text>(
+    text: &'text Rope,
+) -> impl FnMut(usize, tree_sitter::Point) -> &'text [u8] + 'text {
+    move |byte, _| {
+        text.chunks_in_range(byte..text.len())
+            .next()
+            .unwrap_or("")
+            .as_bytes()
+    }
+}
+
+mod highlight;
+mod inline;
+
+pub use highlight::Highlighted;
+#[cfg(test)]
+mod crafted;
+#[cfg(test)]
+mod highlight_properties;
+#[cfg(test)]
+mod highlight_tests;
 #[cfg(test)]
 mod properties;
 #[cfg(test)]

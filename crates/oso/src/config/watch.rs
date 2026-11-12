@@ -47,7 +47,7 @@ pub enum Report {
 
 /// What the file was when last looked at, to tell when to read it again.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Seen {
+pub(super) enum Seen {
     Missing,
     Stamp(FileStamp),
     /// It could not be looked at, for this reason.
@@ -275,7 +275,7 @@ fn deliver(shared: &Shared, report: Report) {
 
 /// What `file` is now, through links: a change in its time, size, mode, device or inode, or its
 /// coming or going, reads it again.
-fn look(file: &Path) -> Seen {
+pub(super) fn look(file: &Path) -> Seen {
     match fs::metadata(file) {
         Ok(metadata) => match stamp_of(&metadata) {
             Ok(stamp) => Seen::Stamp(stamp),
@@ -287,7 +287,7 @@ fn look(file: &Path) -> Seen {
 }
 
 /// Why the file was not read.
-enum Unread {
+pub(super) enum Unread {
     Missing,
     Refused(String),
 }
@@ -297,7 +297,7 @@ enum Unread {
 /// on the way to it, through every link. The way is judged before the file is opened, and the
 /// file opened must be the one judged. With whether the users of a group can change it or the
 /// way.
-fn read(file: &Path) -> Result<(String, bool), Unread> {
+pub(super) fn read(file: &Path) -> Result<(String, bool), Unread> {
     let refused = |why: &str| Err(Unread::Refused(why.to_owned()));
     let who = match privacy::who_can_change(file) {
         Ok(who) => who,

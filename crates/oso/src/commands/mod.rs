@@ -23,6 +23,7 @@ mod messages;
 mod minibuffer;
 mod motion;
 mod prefix;
+mod projects;
 mod recovery;
 mod replace;
 mod save;
@@ -63,6 +64,7 @@ const TABLES: &[&[Command]] = &[
     minibuffer::COMMANDS,
     motion::COMMANDS,
     prefix::COMMANDS,
+    projects::COMMANDS,
     recovery::COMMANDS,
     replace::COMMANDS,
     save::COMMANDS,
@@ -80,6 +82,21 @@ fn not_in_prompt(ctx: &Ctx<'_>) -> Result<(), CommandError> {
         Some(_) => Err(CommandError::new("Not in the minibuffer")),
         None => Ok(()),
     }
+}
+
+/// `place` as the person reads it in a question or a message: under `home` as `~`, and only its
+/// last `cells` characters, after `…`, when it is longer, as its end tells it from others.
+fn shown_place(place: &std::path::Path, home: Option<&std::path::Path>, cells: usize) -> String {
+    let shown = match home.and_then(|home| place.strip_prefix(home).ok()) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => place.display().to_string(),
+    };
+    let chars: Vec<char> = shown.chars().collect();
+    if chars.len() <= cells {
+        return shown;
+    }
+    let tail: String = chars[chars.len() - cells..].iter().collect();
+    format!("…{tail}")
 }
 
 /// The signal for a command whose budget ran out, after it did what it could.
@@ -217,6 +234,9 @@ mod tests {
             // Killing a buffer, which can lose unsaved text (ADR 0088).
             "kill-buffer",
             "kill-buffer-anyway",
+            // Trusting a project to run its code, and taking that back (ADR 0114).
+            "trust-project",
+            "untrust-project",
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
