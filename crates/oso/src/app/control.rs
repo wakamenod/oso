@@ -18,7 +18,7 @@ use super::draw::with_panes;
 use super::shell::Loop;
 use crate::dev;
 use crate::dev::handoff;
-use oso_platform::window::ImeEvent;
+use oso_platform::window::{ImeEvent, Position, Wheel};
 
 impl App {
     /// Answers a control socket request on the UI thread.
@@ -121,6 +121,7 @@ impl App {
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
             dev::UiOp::Clipboard(op) => self.memory_clipboard(op),
+            dev::UiOp::Wheel { delta, at } => self.dev_wheel(delta, at),
             dev::UiOp::ImportState(state) => return self.answer_import(*state, reply),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
@@ -273,6 +274,35 @@ impl App {
         };
         self.timings.key_handled(received, key);
         Ok(json!({ "ime": true }))
+    }
+
+    /// The result of `wheel`: scrolls as the wheel would with the pointer `at` a pixel, or the
+    /// middle of a cell, so that a cell goes through the same grid as a real pointer
+    /// (ADR 0112). Says which window it scrolled and whether its view moved, but not of a
+    /// buffer that may hold secrets.
+    fn dev_wheel(&mut self, delta: Wheel, at: Option<dev::WheelAt>) -> dev::Reply {
+        let grid = self
+            .view
+            .as_ref()
+            .map(|view| view.render_state.pixel_grid());
+        let at = match (at, grid) {
+            (Some(dev::WheelAt::Pixel(at)), _) => Some(at),
+            (Some(dev::WheelAt::Cell { row, column }), Some(grid)) => {
+                let cell = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
+                let [left, top] = grid.cell(cell(row), cell(column));
+                let [right, bottom] =
+                    grid.cell(cell(row).saturating_add(1), cell(column).saturating_add(1));
+                Some(Position {
+                    x: (f64::from(left) + f64::from(right)) / 2.0,
+                    y: (f64::from(top) + f64::from(bottom)) / 2.0,
+                })
+            }
+            (_, _) => None,
+        };
+        let (window, moved) = self
+            .handle_wheel(delta, at)
+            .ok_or("the window is not open yet")?;
+        Ok(dev::wheel_reply(&self.editor, window, moved))
     }
 
     /// The result of `open-file`: visits a file in the selected window.

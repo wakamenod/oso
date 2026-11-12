@@ -29,7 +29,7 @@ use oso_core::motion;
 use oso_core::rope::Rope;
 use oso_core::selection::{Goal, Selection};
 use oso_core::sum_tree::Bias;
-use oso_core::window::{Screen, Window};
+use oso_core::window::{Screen, Window, WindowId};
 use serde_json::{Value, json};
 
 use super::Reply;
@@ -510,6 +510,16 @@ pub fn screenshot_allowed(editor: &Editor) -> Result<(), String> {
     Ok(())
 }
 
+/// The reply to `wheel`, which scrolled `window`: its id, and whether its view `moved`, but
+/// null for a buffer that may hold secrets, as `get-state` gives no scroll of one: the wheel
+/// stopping at an end would tell its rows and the widths of its lines (ADR 0058, ADR 0112).
+pub fn wheel_reply(editor: &Editor, window: WindowId, moved: bool) -> Value {
+    let secret = editor
+        .window_by_id(window)
+        .is_none_or(|window| editor.shown(window).is_secret());
+    json!({ "window": window.get(), "moved": (!secret).then_some(moved) })
+}
+
 /// Shows the buffer numbered `buffer` in the selected window, from its
 /// start. There is no command for this until M2 (`switch-to-buffer`).
 pub fn show_buffer(editor: &mut Editor, buffer: u64) -> Reply {
@@ -525,7 +535,7 @@ pub fn show_buffer(editor: &mut Editor, buffer: u64) -> Reply {
 mod tests {
     use super::{
         ImeFacts, MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, ime_state,
-        screenshot_allowed, show_buffer,
+        screenshot_allowed, show_buffer, wheel_reply,
     };
     use oso_core::buffer::{Buffer, BufferId, Replacement};
     use oso_core::editor::Editor;
@@ -564,6 +574,29 @@ mod tests {
         let id = editor.add_buffer(buffer);
         editor.show(id);
         (editor, id)
+    }
+
+    #[test]
+    fn the_wheel_says_whether_a_view_moved_but_not_a_secret_buffers() {
+        let (mut editor, _) = visiting("/p/.env", None, &"KEY=value\n".repeat(200));
+        editor.set_view_size(ViewSize::new(20, 40));
+        let secret = editor.window().id();
+        let plain = editor
+            .split_window(oso_core::frame::Way::Down, true)
+            .unwrap();
+        let notes = editor.add_buffer(Buffer::from_text("notes", &"x\n".repeat(200)));
+        editor.show(notes);
+        for moved in [true, false] {
+            assert_eq!(
+                wheel_reply(&editor, plain, moved),
+                json!({ "window": plain.get(), "moved": moved })
+            );
+            assert_eq!(
+                wheel_reply(&editor, secret, moved),
+                json!({ "window": secret.get(), "moved": null }),
+                "the window beside, not selected, shows a secret buffer"
+            );
+        }
     }
 
     #[test]

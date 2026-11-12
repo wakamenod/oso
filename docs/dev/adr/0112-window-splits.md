@@ -329,6 +329,21 @@ file or a 10 MB line.
   selected window's modeline, which then sits mid-frame. While one does, the bottom-most
   window's modeline, the left-most on the bottom row, says `Agent` too (ADR 0085).
 - **`oso-platform`:** the wheel event's position.
+- **As built, step 5:** `Event::Wheel` carries `delta` and `at: Option<Position>`, physical
+  pixels from the drawable's top left: AppKit's `locationInWindow` in the flipped view, times
+  the backing scale, and winit's last `CursorMoved`, none after `CursorLeft`.
+  `PixelGrid::cell_at` turns a pixel into a cell, and `Editor::wheel_window` the cell into
+  the window whose text, gutter or modeline holds it; a divider, the echo area, the margins,
+  past the frame and no position give the selected tiled window. A float takes no wheel, so
+  over one it is the tiled window under it. `Editor::scroll_view` and `scroll_view_sideways`
+  take the window's id, and its cursors move into view, but those of the window beneath a
+  prompt while one is open (ADR 0072), and of the selected window while a preedit is shown,
+  so every other window keeps its cursor in its view. Each event goes to the window under the
+  pointer then, and the app starts the rows and columns left over anew when that window
+  changes (the author's choices, 2026-11-12). The dev socket gains `wheel`, so a flow
+  scrolls at a pixel or a cell; its reply says whether the view moved, but not of a buffer
+  that may hold secrets. A real wheel and trackpad, momentum across a divider among them, are
+  left to the author's daily use after the merge.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.
 

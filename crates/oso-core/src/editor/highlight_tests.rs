@@ -87,7 +87,7 @@ fn shown_ranges_are_what_the_window_shows() {
         range.end > line.len() && range.end < 20 * line.len(),
         "{range:?}"
     );
-    editor.scroll_view(30);
+    editor.scroll_view(editor.tiled().0.id(), 30);
     editor.shown_ranges(&mut shown);
     assert_eq!(shown[0].1.start, 30 * line.len(), "{:?}", shown[0].1);
 }

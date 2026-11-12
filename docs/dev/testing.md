@@ -307,9 +307,9 @@ quote buffer text, so use `assert_visible_row`, and do not `assert_eq!` on a sta
 that holds text.
 
 **What is still manual,** through the `verify-in-app` skill or by hand: resizing
-the window, the mouse wheel, real OS key events, the window's close button, leaving
-while a save runs, IME, and `oso dev`'s build loop, with Ctrl-C and closing the
-terminal.
+the window, a real mouse wheel and trackpad (the `wheel` method stands in for them),
+real OS key events, the window's close button, leaving while a save runs, IME, and
+`oso dev`'s build loop, with Ctrl-C and closing the terminal.
 
 **Layers in real pixels.** No feature draws a pane above another yet, so no flow can see
 it. `just pixel-tests` runs five ignored tests in `oso-render`'s `paint`, which draw panes
@@ -354,6 +354,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   another app would. It works only in an instance started with `--clipboard memory`, which
   the harness always passes, so no flow touches the person's clipboard. Text marked
   concealed reads as null.
+- `wheel` scrolls as the mouse wheel (`lines`) or the trackpad (`pixels`) would, each
+  `[x, y]`, with the pointer `at` a pixel (`x`, `y`) or the middle of a cell (`row`,
+  `column`), or nowhere. It says which window it scrolled, by id, and whether its view
+  moved, null for a buffer that may hold secrets ([ADR 0112](adr/0112-window-splits.md)).
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
