@@ -23,8 +23,7 @@ fn edit(buffer: &mut Buffer, range: std::ops::Range<usize>, text: &str) {
 }
 
 fn cross(buffer: &mut Buffer, direction: Direction) {
-    let staged = buffer.stage_crossing(direction).unwrap();
-    buffer.commit_crossing(staged);
+    buffer.cross_whole(direction).unwrap();
 }
 
 fn undo(buffer: &mut Buffer) {
