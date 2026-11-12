@@ -127,7 +127,8 @@ fn join_spans(rope: &Rope, set: &SelectionSet, next: bool) -> Vec<Range<usize>> 
     set.iter()
         .map(|selection| {
             let row = rope.offset_to_point(selection.cursor).row;
-            if regions {
+            // An empty region is no region, as Emacs's `use-region-p` says.
+            if regions && !selection.range().is_empty() {
                 let range = selection.range();
                 let first = rope.offset_to_point(range.start).row;
                 let end = rope.offset_to_point(range.end).row;

@@ -88,6 +88,12 @@ fn m_ret_starts_the_next_item() {
 }
 
 #[test]
+fn m_ret_with_two_cursors_on_a_blank_line_or_before_a_marker_starts_one_item() {
+    assert_eq!(item("- a\n |  |\n"), Ok("- a\n- |\n".to_string()));
+    assert_eq!(item("x\n | |1. a"), Ok("x\n  1. |\n  1. a".to_string()));
+}
+
+#[test]
 fn m_ret_at_several_cursors_is_one_edit() {
     assert_eq!(
         item("- a|\n- b|\n1. c|"),

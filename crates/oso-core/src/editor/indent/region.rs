@@ -19,7 +19,7 @@ use crate::buffer::{BufferId, ContentId, EditError, Replacement};
 use crate::editor::Editor;
 use crate::indent::{Answer, Budget, LINE_LOOKBACK, Line, Settings, Style};
 use crate::rope::Rope;
-use crate::selection::SelectionSet;
+use crate::selection::{MarkActive, SelectionSet};
 use crate::window::WindowId;
 
 /// What one region command may cover, in bytes of its budget: `bytes + lines * LINE_COST` over
@@ -132,31 +132,48 @@ impl Editor {
             .is_some_and(|layer| layer.window == window.id() && layer.buffer == window.buffer())
     }
 
-    /// Opens or closes the layer of `C-x TAB`. Opening it notes the undo state; closing it
-    /// joins what its keys changed into one undo step, which goes back to the cursors before it,
-    /// unless something else changed the buffer since its last key.
+    /// Opens or closes the layer of `C-x TAB`. Opening it notes the undo state; closing it, for
+    /// whatever reason, hides the region of the window it was open in, as Emacs's transient map
+    /// deactivates the mark, and joins what its keys changed into one undo step, which goes back
+    /// to the cursors before it, unless something else changed the buffer since its last key.
     pub fn set_indent_rigidly_layer(&mut self, open: bool) {
         if !open {
-            if let Some(layer) = self.rigid.take()
-                && let Some(buffer) = self.buffer_mut(layer.buffer)
-                && buffer.undo_mark() == layer.after
-            {
-                buffer.join_undo_since(layer.began, Some(layer.before));
-            }
+            self.close_layer(true);
             return;
         }
         if !self.indent_rigidly_layer() {
-            self.set_indent_rigidly_layer(false);
-            let (window, buffer) = self.current();
-            let mark = buffer.undo_mark();
-            self.rigid = Some(RigidLayer {
-                window: window.id(),
-                buffer: window.buffer(),
-                began: mark,
-                before: window.selections.clone(),
-                after: mark,
-                changed: 0,
-            });
+            self.close_layer(true);
+            self.open_layer();
+        }
+    }
+
+    /// Opens the layer in the selected window, on the buffer it shows.
+    fn open_layer(&mut self) {
+        let (window, buffer) = self.current();
+        let mark = buffer.undo_mark();
+        self.rigid = Some(RigidLayer {
+            window: window.id(),
+            buffer: window.buffer(),
+            began: mark,
+            before: window.selections.clone(),
+            after: mark,
+            changed: 0,
+        });
+    }
+
+    /// Closes the layer, if one is open, joining its keys' edits into one step; with `hide`, the
+    /// region of its window hides too.
+    fn close_layer(&mut self, hide: bool) {
+        let Some(layer) = self.rigid.take() else {
+            return;
+        };
+        if hide && let Some(window) = self.windows.iter_mut().find(|w| w.id() == layer.window) {
+            window.selections.set_mark_active(MarkActive::Inactive);
+        }
+        if let Some(buffer) = self.buffer_mut(layer.buffer)
+            && buffer.undo_mark() == layer.after
+        {
+            buffer.join_undo_since(layer.began, Some(layer.before));
         }
     }
 
@@ -250,16 +267,17 @@ impl Editor {
             .as_ref()
             .is_some_and(|layer| layer.changed > 0 && layer.changed + changed > MAX_CHANGED_LINES);
         if full && self.indent_rigidly_layer() {
-            self.set_indent_rigidly_layer(false);
-            self.set_indent_rigidly_layer(true);
+            // The region stays shown: the layer goes on, in a new step.
+            self.close_layer(false);
+            self.open_layer();
         }
     }
 }
 
-/// The rows of every region of `set`, in order, as runs of rows with overlapping and touching
-/// ones joined: every row that starts before a region's end, from its start's row if `partial`,
-/// and otherwise from the first row that starts in it, as Emacs's `indent-region` and
-/// `indent-rigidly` take them. An empty region has none.
+/// The rows of every region of `set`, in order, as runs of rows with overlapping ones joined:
+/// every row that starts before a region's end, from its start's row if `partial`, and otherwise
+/// from the first row that starts in it, as Emacs's `indent-region` and `indent-rigidly` take
+/// them. An empty region has none.
 fn region_runs(rope: &Rope, set: &SelectionSet, partial: bool) -> Vec<Range<usize>> {
     let mut rows: Vec<Range<usize>> = set
         .iter()
@@ -282,7 +300,9 @@ fn region_runs(rope: &Rope, set: &SelectionSet, partial: bool) -> Vec<Range<usiz
     let mut runs: Vec<Range<usize>> = Vec::with_capacity(rows.len());
     for next in rows {
         match runs.last_mut() {
-            Some(run) if next.start <= run.end => run.end = run.end.max(next.end),
+            // Regions that only touch stay apart: a shift to a tab stop takes each one's own
+            // least indented line.
+            Some(run) if next.start < run.end => run.end = run.end.max(next.end),
             _ => runs.push(next),
         }
     }

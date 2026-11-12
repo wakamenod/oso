@@ -738,8 +738,9 @@ step 3's plan put:
   changes nothing; one such cursor stops them all.
 - **`M-^`** is Emacs 27's: with a prefix argument it joins the next line to this one, and with a
   region shown it joins every line of the region.
-- **`C-g` and any other key** close the layer of `C-x TAB` and run as usual, so `C-g` hides the
-  region, as Emacs's `indent-rigidly-map` does.
+- **`C-g` and any other key** close the layer of `C-x TAB` and run as usual. Closing the layer, for
+  whatever reason, hides the region, as Emacs's `indent-rigidly-map` deactivates the mark, so a
+  character typed after it replaces nothing.
 - **The public items:** `IndentError` (`NoMark`, `TooLarge`, `NoRules`, `NotInList`,
   `TooMuchText`, `Edit`), `Shift` (`Left`, `Right`), and on `Editor` `indent_region`,
   `indent_rigidly`, `indent_rigidly_to_tab_stop`, `indent_rigidly_layer`,
@@ -766,8 +767,8 @@ As built:
   about 2 µs. Past either it signals "Region too large to indent" and changes nothing.
 - **The region commands insert at most 4 MiB** a command, under the 16 MiB any command may (the
   author's choice): a deep column over many lines costs the edit about 3 ms a MiB on top of its
-  splices, so `C-u 559 C-M-\` over 29,000 lines took 93 ms. Past it they signal "Too much text to
-  insert" and change nothing.
+  splices, so `C-u 559 C-M-\` over 29,000 lines took 93 ms without it. Past it they signal "Too
+  much text to insert" and change nothing.
 - **Corrected:** "The keys of one `C-x TAB` session join into one undo step" (Commands and keys)
   holds while they change at most 30,000 lines in all; the key that would take them past it starts
   a new step (the author's choice), so that undoing one replays no more than about that many
@@ -782,11 +783,12 @@ As built:
   part of the regions reindented. A line whose indentation is longer than 4 KiB is left as it is.
 - **A blank a combining mark is on** stays as the mark's base, in a region's commands and in
   `M-^`, as `RET` keeps it (step 2): the indentation ends before it.
+- **Regions that overlap** count their lines once; regions that only touch stay apart, so a shift
+  to a tab stop takes each one's own least indented line.
 - **A region's lines** are Emacs's: every line that starts before its end, from its start's line
   for the rules (`indent-region-line-by-line`), and from the first line that starts in it for a
   column or a shift (`indent-rigidly`, `indent-region` with a count), so a region that starts
-  inside a line leaves that line to them. An empty region has none. Overlapping regions' lines
-  count once.
+  inside a line leaves that line to them. An empty region has none.
 - **The layer of `C-x TAB`** is the editor's, as isearch is, and belongs to the window and buffer
   it opened in: `Keymaps::active` puts its keymap first among the minor layers while it is open
   there and no prefix argument reads. Another buffer shown in that window, by the agent channel
@@ -814,6 +816,11 @@ As built:
   goes on a line before it, with that item's number. Later items are not renumbered, as in Emacs;
   `M-RET` takes no count yet (`open-questions.md`). It is bound in a Markdown keymap above the
   global one, so in other modes `M-RET` is undefined.
+- **`M-^` with an empty region shown** joins the line to the one before, as with none: Emacs's
+  `use-region-p` is false for an empty region.
+- **`M-RET` with several cursors on one row** that is blank, or before its marker, starts one item
+  there, and the cursors go to its text.
+- **The agent channel waits** while the layer of `C-x TAB` is open, as it does during isearch.
 - **A single `M-^`** reads only the ends of its two lines, at most 4 KiB at each, so it works
   beside a line of any length; joins over a region read their lines in one pass.
 - **`M-^`'s space** follows `fixup-whitespace`: none when either side is a line's edge (a blank
@@ -831,10 +838,10 @@ As built:
   | `indent-region`, 2 MiB of tab indentation already right | 10.2 ms | 10.3 ms |
   | `indent-region`, 70,000 lines each before a blank line | 9.9 ms | 10.4 ms |
   | `indent-region`, 1000 regions of 30 lines apart in 5 MiB | 7.5 ms | 7.7 ms |
-  | `indent-region` to column 140 over 29,000 lines (4 MiB inserted) | 38.5 ms | 39.0 ms |
+  | `indent-region` to column 144 over 29,000 lines (4 MiB inserted, the most it takes) | 38.3 ms | 38.7 ms |
   | `indent-rigidly` over 29,000 lines | 30.9 ms | 31.6 ms |
   | `indent-rigidly`, 1000 regions of 30 lines | 38.2 ms | 38.7 ms |
-  | `M-^` over 10,000 lines | 20.1 ms | 20.3 ms |
-  | `M-^` over 15,000 lines, 2 MiB read (the most it takes) | 43.4 ms | 43.6 ms |
+  | `M-^` over 10,000 lines of 14 bytes | 20.2 ms | 21.1 ms |
+  | `M-^` over 15,000 lines of 105 bytes, 2 MiB read (the most it takes) | 40.5 ms | 41.1 ms |
   | Markdown `TAB` at 1000 cursors in a 2 MiB document | 1.7 ms | 1.8 ms |
   | `M-RET` at 1000 cursors | 1.3 ms | 1.3 ms |

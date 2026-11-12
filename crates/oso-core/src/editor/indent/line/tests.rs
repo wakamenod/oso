@@ -91,6 +91,16 @@ fn a_shown_region_joins_all_its_lines() {
 }
 
 #[test]
+fn an_empty_shown_region_joins_as_without_one() {
+    let (mut editor, id) = editor_in(Mode::Fundamental, "a\n  b|c");
+    let set = &mut editor.windows[0].selections;
+    set.push_marks();
+    set.set_mark_active(MarkActive::Active);
+    command(&mut editor, |editor| editor.delete_indentation(false)).unwrap();
+    assert_eq!(marked(&editor, id), "a| bc");
+}
+
+#[test]
 fn a_region_on_one_line_or_hidden_joins_as_without_one() {
     let (mut editor, id) = editor_in(Mode::Fundamental, "|x\nab");
     let region = Selection {

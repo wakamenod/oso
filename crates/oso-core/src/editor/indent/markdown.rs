@@ -7,6 +7,8 @@
 //! The cycle keeps no state between keys: a line at one of its stops goes to the next, and one
 //! at none goes to the first, so that a keyboard macro replays the same.
 
+use std::ops::Range;
+
 use super::{IndentError, leading, spots};
 use crate::buffer::{EditError, Mode, Replacement};
 use crate::editor::Editor;
@@ -124,7 +126,14 @@ impl Editor {
         let spots = spots(rope, &cursors, Mode::Markdown);
         let mut planned = Vec::with_capacity(cursors.len());
         let mut inserted = 0usize;
+        // The row whose whole line or indentation a cursor before replaced, and its cursor's
+        // way back: one item a row, and the other cursors there go where its cursor goes.
+        let mut whole: Option<(usize, usize)> = None;
         for (((&at, &row), lists), spot) in cursors.iter().zip(&rows).zip(lists).zip(&spots) {
+            if let Some((_, back)) = whole.filter(|&(done, _)| done == row) {
+                planned.push((at..at, String::new(), back));
+                continue;
+            }
             let Some(Lists {
                 items,
                 fenced: false,
@@ -142,13 +151,15 @@ impl Editor {
             let before = started && !blank && at <= start + lead;
             let prefix = new_item_text(settings, item, !before);
             let (range, text, back) = if blank {
+                whole = Some((row, 0));
                 (start..rope.line_end(row), prefix, 0)
             } else if before {
-                // The indentation before the cursor goes back after the new line, and the cursor
-                // with it, back to the new item's text.
-                let kept = super::text_of(rope, start..at);
+                // The indentation goes back after the new line, and the cursor back over it, to
+                // the new item's text.
+                let kept = super::text_of(rope, start..start + lead);
                 let back = ending.len() + kept.len();
-                (start..at, format!("{prefix}{ending}{kept}"), back)
+                whole = Some((row, back));
+                (start..start + lead, format!("{prefix}{ending}{kept}"), back)
             } else {
                 (spot.range.clone(), format!("{ending}{prefix}"), 0)
             };
@@ -167,17 +178,43 @@ impl Editor {
             })
             .collect();
         self.apply_edits(id, &edits)?;
-        // A new item before its line: the cursor goes back over the line break to its text.
+        let targets = targets(&planned);
         let window = &mut self.windows[self.selected];
-        if planned.len() == window.selections.len() && planned.iter().any(|p| p.2 > 0) {
-            let mut backs = planned.iter().map(|planned| planned.2);
+        if targets.len() == window.selections.len() {
+            let mut targets = targets.into_iter();
             window.selections.update(|selection| {
-                selection.cursor -= backs.next().unwrap_or(0);
+                if let Some(target) = targets.next() {
+                    selection.cursor = target;
+                }
                 Ok::<(), ()>(())
             });
         }
         Ok(())
     }
+}
+
+/// Where each cursor goes once `planned`, its range, text and way back, are in: to the end of
+/// what went in at it, back over the line break and the indentation for a new item before its
+/// line; an empty plan goes where the cursor before it went, as a cursor on one row with it. The
+/// edit merged cursors that went to one place, and so does this.
+fn targets(planned: &[(Range<usize>, String, usize)]) -> Vec<usize> {
+    let mut targets: Vec<usize> = Vec::with_capacity(planned.len());
+    let (mut added, mut removed) = (0usize, 0usize);
+    for (range, text, back) in planned {
+        let target = if range.is_empty() && text.is_empty() {
+            targets
+                .last()
+                .copied()
+                .unwrap_or(range.start + added - removed)
+        } else {
+            range.start + added - removed + text.len() - back
+        };
+        targets.push(target);
+        added += text.len();
+        removed += range.len();
+    }
+    targets.dedup();
+    targets
 }
 
 /// What `TAB` does to each line that starts at one of `starts`, ascending, read in one pass.

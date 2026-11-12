@@ -97,8 +97,8 @@ pub(super) fn small_command_costs() {
         },
     );
     println!("editor indent-rigidly 29K lines     p50 {p50:>9.2?}  p99 {p99:>9.2?}");
-    for joins in [10_000, 20_000, 29_000] {
-        let lines = "    let x = 1;\n".repeat(joins + 1);
+    for joins in [10_000, 15_000] {
+        let lines = "    let x = 1;\n".repeat(joins);
         let (p50, p99) = command_costs(
             5,
             || {
@@ -247,18 +247,9 @@ pub(super) fn reviewed_costs() {
 /// Deep columns up to the insert limit, and `M-^` over long lines, for the review of step 3.
 pub(super) fn reviewed_edit_costs() {
     let lines = "x\n".repeat(29_000);
-    report(
-        "indent-region to column 559, 29K lines",
-        command_costs(
-            5,
-            || region_editor(&lines),
-            |editor| {
-                quiet(editor.indent_region(Some(559), 16 << 20));
-            },
-        ),
-    );
-    for (joins, width) in [(15_000, 2 * MB / 15_000), (20_000, 150), (10_000, 400)] {
-        let long = format!("{}\n", "y".repeat(width)).repeat(joins + 1);
+    // Within M-^'s bounds, the most it reads: 2 MiB as `bytes + lines * LINE_COST` counts it.
+    for (joins, width) in [(10_000, 170), (15_000, 105)] {
+        let long = format!("{}\n", "y".repeat(width)).repeat(joins);
         report(
             &format!("M-^ over {}K lines of {width} bytes", joins / 1000),
             command_costs(
@@ -269,20 +260,23 @@ pub(super) fn reviewed_edit_costs() {
                     set.set_mark_active(oso_core::selection::MarkActive::Active);
                     editor
                 },
-                |editor| quiet(editor.delete_indentation(false)),
-            ),
-        );
-    }
-    for column in [140, 280] {
-        report(
-            &format!("indent-region to column {column}, 29K lines"),
-            command_costs(
-                5,
-                || region_editor(&lines),
                 |editor| {
-                    quiet(editor.indent_region(Some(column), 16 << 20));
+                    let done = editor.delete_indentation(false);
+                    done.expect("within M-^'s bounds");
                 },
             ),
         );
     }
+    // The most the region commands insert: 4 MiB, at column 144 over 29,000 lines.
+    report(
+        "indent-region to column 144, 29K lines",
+        command_costs(
+            5,
+            || region_editor(&lines),
+            |editor| {
+                let done = editor.indent_region(Some(144), 16 << 20);
+                done.expect("within the insert limit");
+            },
+        ),
+    );
 }

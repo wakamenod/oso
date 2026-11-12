@@ -311,9 +311,17 @@ fn to_a_tab_stop_moves_the_least_indented_line_of_each_region() {
 }
 
 #[test]
+fn regions_that_only_touch_go_to_their_own_tab_stops() {
+    let (mut editor, id) = regions(Mode::Fundamental, "[a\nb\n|[  c\n  d\n|", false);
+    to_stop(&mut editor, Shift::Right);
+    assert_eq!(text(&editor, id), "    a\n    b\n    c\n    d\n");
+}
+
+#[test]
 fn the_layers_keys_keep_the_region_and_undo_as_one_step() {
     let (mut editor, id) = regions(Mode::Fundamental, "x\n[a\nb|\n", true);
     command(&mut editor, |e| e.indent_rigidly(1, LIMIT)).unwrap();
+    // A shift with no layer hides the region, as any edit does.
     assert_eq!(text(&editor, id), "x\n a\n b\n");
     assert!(!editor.window().selections.mark_active().is_active());
 
@@ -328,6 +336,10 @@ fn the_layers_keys_keep_the_region_and_undo_as_one_step() {
     to_stop(&mut editor, Shift::Left);
     editor.set_indent_rigidly_layer(false);
     assert!(!editor.indent_rigidly_layer());
+    assert!(
+        !editor.window().selections.mark_active().is_active(),
+        "closing hides the region"
+    );
     let shifted = format!("x\n{0}a\n{0}b\n", " ".repeat(28));
     assert_eq!(text(&editor, id), shifted);
     command(&mut editor, Editor::undo).unwrap();

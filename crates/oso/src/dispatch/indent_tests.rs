@@ -284,10 +284,19 @@ fn a_key_outside_the_layer_runs_as_usual() {
         "C-SPC C-n C-x TAB <right> C-a",
     );
     assert!(!editor.indent_rigidly_layer());
+    // Leaving the layer hides the region, so typing then replaces nothing.
+    assert!(!region_shown(&editor));
     // The region ends at the second line's start, so only the first shifted.
     assert_eq!(marked(&editor), " ab\n|cd");
     send(&mut dispatcher, &mut editor, "<right>");
     assert_eq!(marked(&editor), " ab\nc|d");
+    let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|ab\ncd\nef");
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "C-SPC C-n C-n C-x TAB <right> C-e x",
+    );
+    assert_eq!(marked(&editor), " ab\n cd\nefx|");
 }
 
 #[test]
@@ -364,6 +373,15 @@ fn a_prefix_argument_before_an_arrow_still_moves() {
     assert_eq!(marked(&editor), "abcd|ef\nx");
     send(&mut dispatcher, &mut editor, "M-- <right> C-u S-<left>");
     assert_eq!(marked(&editor), "|abcdef\nx");
+    // With the layer open too: the prefix argument closes it, and the arrow moves.
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "C-SPC C-n C-x TAB C-u <right>",
+    );
+    assert!(!editor.indent_rigidly_layer());
+    assert_eq!(marked(&editor), "abcdef\nx|");
+    assert_eq!(editor.current().1.text().to_string(), "abcdef\nx");
 }
 
 #[test]
