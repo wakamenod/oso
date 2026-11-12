@@ -118,6 +118,8 @@ fn a_directory_let_go_and_replaced_since_is_not_walked_again() {
     assert!(stack.open_top(&mut spent).unwrap().is_none(), "a link");
 }
 
+// Windows makes no path this long without its long paths turned on.
+#[cfg(unix)]
 #[test]
 fn a_walk_deeper_than_its_bound_stops_and_says_it_was_cut() {
     let scratch = Scratch::new("too-deep");

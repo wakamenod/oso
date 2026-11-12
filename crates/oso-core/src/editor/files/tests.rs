@@ -393,7 +393,9 @@ fn a_directory_prompt_refuses_a_files_row_unless_what_is_typed_names_a_directory
     let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
         panic!("answered");
     };
-    assert_eq!(text, "/home/me/notes/");
+    // A path of the system's, `/` at its end saying it is a directory.
+    assert_eq!(PathBuf::from(&text), Path::new("/home/me").join("notes"));
+    assert!(text.ends_with('/'));
 }
 
 /// A prompt for a directory at `~/`, home being `/home/me`, its listing given.
