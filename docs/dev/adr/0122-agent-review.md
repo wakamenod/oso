@@ -747,57 +747,84 @@ What was built:
 
 ### Step 2: git and diffing
 
-`crates/oso/src/review.rs` and its modules `git`, `batch`, `list`, `scope`, `index`, `side`,
-`diff` and `read`, on the `[oso]` line of `guardrails/layers.txt` with `project` and `walk`.
-`oso-platform::process` gained `Source { Closed, Piped }` and `Spawn::stdin`, refused with a
-terminal; it is the one public item, approved as listed. `similar` was already a dependency of
-the tip crate (ADR 0064), so no dependency changed. The author answered the plan's questions
-(a):
+`crates/oso/src/review.rs` and its modules `git`, `batch`, `id`, `list`, `scope`, `index`,
+`side`, `diff`, `read` and `work`, on the `[oso]` line of `guardrails/layers.txt` with
+`project` and `walk`. `oso-platform::process` gained `Source { Closed, Piped }` and
+`Spawn::stdin`, refused with a terminal, and `oso_core::project::Project` gained `identity`;
+the author approved both as listed. `similar` was already a dependency of the tip crate
+(ADR 0064), so no dependency changed. The author answered the plan's questions and those of
+its reviews (a):
 
 1. **Untracked files are listed through a copy of the index:** the index is copied, keeping
    its modification time, into a private `reviews/tmp/` under the state directory, then
    `git add -A -N --` marks the untracked files as to be added in the copy, which writes no
-   file's contents into the repository, and `git diff --raw --numstat -z -M --no-abbrev OLD --`
-   runs with that copy. The new side is then read from disk, as "Diffing" says, not from a
+   file's contents into the repository, and `git diff --raw -z -M --no-abbrev OLD --` runs
+   with that copy. The new side is then read from disk, as "Diffing" says, not from a
    snapshot tree. Copies are removed after each run, and those an earlier run left behind are
-   swept when a review's thread starts, once they are an hour old.
+   swept when a review's thread starts, once they are an hour old. The index is copied only
+   if it is a regular file, up to 128 MiB.
 2. **Which scopes list untracked files:** uncommitted, session and branch. Unstaged stays the
    index against the tracked files, as git means it.
-3. **`cat-file --batch`,** as written above. A blob past 8 MiB is not read: that process is
-   killed and the next read starts another.
-4. **Myers' diff** as `similar` gives it, with git's work limit, within 1 s per file.
-5. **Bounds:** besides "Cost and limits", a review holds at most 64 MiB of sides; files past
-   it show as too large. Carrying a file's comments spends at most 1 s matching lines.
-6. **The environment** also passes `XDG_CONFIG_HOME` by name, so git finds the person's own
-   configuration and ignore file when they moved it. This adds one name to "Running git and
-   gh".
-7. **Trust by construction:** a review's thread starts only from a `TrustedRoot`, which only
-   `Editor::project_trusted` gives.
-8. **The baseline** runs `git add -A --ignore-errors --`, so a file git cannot read is left
-   out, and the log says how many, not which.
-9. **A merge commit** is read against its first parent.
-10. **Carrying runs on the review's thread:** `Request::Carry` runs step 1's `Carry::run` with
+3. **No `--numstat`.** This changes "What git reports" and "Binary" above: the list is
+   `--raw` alone, a file's line counts come from its hunks, and a side is binary only by a
+   NUL in its first 8,000 bytes, whatever the repository's attributes say.
+4. **`cat-file --batch`,** as written above. A blob past 8 MiB is not read: that process is
+   killed and the next read starts another. A thread of its own reads the answers.
+5. **Myers' diff** as `similar` gives it, with git's work limit, within 1 s per file. It
+   recurses, needing up to half a MiB of stack at 200,000 lines, so the review's thread has a
+   16 MiB stack. `RawMyers` was measured too: it gives up at the deadline on inputs Myers
+   diffs in milliseconds.
+6. **Bounds:** besides "Cost and limits", a request spends at most 5 s reading and diffing
+   files, shown files first; files past it say so and are read by the next refresh. A review
+   holds at most 64 MiB of sides and hunk lines; files past it show their sizes. Carrying a
+   file's comments spends at most 1 s, and says when it was cut short.
+7. **The environment** also passes `XDG_CONFIG_HOME` by name, so git finds the person's own
+   configuration and ignore file when they moved it, and sets `GIT_NO_LAZY_FETCH=1`,
+   `GIT_NO_REPLACE_OBJECTS=1`, and `GIT_CEILING_DIRECTORIES` to the root's parent. The
+   baseline's run adds `LC_ALL=C`. This adds to "Running git and gh".
+8. **Trust by construction:** a review's thread starts only from a `TrustedRoot`, which only
+   `Editor::project_trusted` gives, with the root's device and inode as the project was
+   found. Before each request they are looked at again, and a root that is no longer that
+   directory runs nothing. git never looks above the root, and a work tree whose top is not
+   the root is refused.
+9. **The baseline** runs `git add -A --ignore-errors --`, so a file git cannot read is left
+   out, and the log says at least how many, not which. It writes the untracked files'
+   contents into the repository as unreferenced objects, as any `git add` does; leaving out
+   files whose names may hold secrets is a follow-up.
+10. **A merge commit** is read against its first parent. A commit whose parent a shallow
+    clone lacks is refused.
+11. **Carrying runs on the review's thread:** `Request::Carry` runs step 1's `Carry::run` with
     `similar` as the matcher and old blobs read through `cat-file`.
-11. **No command yet:** `review-mark-baseline` and the menu come with step 3.
+12. **No command yet:** `review-mark-baseline` and the menu come with step 3.
 
 What was built:
 
 - **One thread per review,** `oso-review`, takes `Open`, `Refresh`, `Baseline` and `Carry`
   requests in order and hands reports to the event loop: the listing with its generation,
-  then each file's reading. A request that panics reports a failure and starts afresh.
-- **Each run** is `git --no-pager -c core.quotePath=false` in the work tree's top, with
-  `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0`; its output is read up to a limit per
-  run, standard error up to 4 KiB, and a watcher kills it after 10 s. Revisions are checked,
-  then resolved with `rev-parse --verify --quiet --end-of-options`; only ids go further.
-- **A reading** is a file's entry (paths, status, modes, ids, counts) and its content: both
-  sides and a `Shape`, or binary, too large, withheld (a name that may hold secrets, never
-  read), a submodule, or unreadable. Its signature is the old blob and modes, and the new
-  blob or, for a work tree file, its device, inode, size and modification time, or a link's
+  each changed file's reading, then `Read`. Refreshes waiting one after another are answered
+  as one; a newer request, or the reviewer's end, stops the running one between files, and
+  the next reads the rest. A failure names its request. A request that panics reports a
+  failure and starts afresh with the same scope.
+- **Each run** is `git --no-pager -c core.quotePath=false` in the work tree's top; its output
+  is read on threads of its own up to a limit per run, standard error up to 4 KiB, and a run
+  past 10 s is killed and left, so a process git started that holds the output cannot hold
+  the review. Revisions are checked, then resolved with
+  `rev-parse --verify --quiet --end-of-options`; only ids go further. Each refresh resolves
+  the scope again, as `HEAD` or a branch may have moved.
+- **A reading** is a file's entry (paths, status, modes, ids) and its content: both sides and
+  a `Shape`, or binary, too large, out of time, withheld (a name, or a name before a rename,
+  that may hold secrets: never read), a submodule, or unreadable. Its signature is the old
+  blob and modes, and the new blob or, for a work tree file, its `FileStamp`, or a link's
   target. A refresh reads only files whose signature changed, the caller's shown files first,
-  and lets go of files no longer listed.
-- **Work tree files** are opened from the top a directory at a time, following no link; a
-  link's side is its target's text.
+  and lets go of files no longer listed. A file that could not be read, did not fit or ran out
+  of time is read again next time.
+- **Work tree files** are opened from the top a directory at a time, following no link, as
+  the preview opens them; a link's side is its target's text. The top is the trusted root, so
+  it is not judged again for the home directory as the preview's root is.
 - **Tests** run git in temporary repositories through the process module: every scope, a root
-  commit, an unborn branch, the baseline and a lost one, refreshing, the shown files first,
-  secrets, binaries, large files and links, refused revisions, carrying a comment across a
-  moved old side, the thread's end, and that the person's index is left as it was.
+  commit, an unborn branch, the baseline and a lost one, refreshing after `HEAD` moved, the
+  shown files first, a stopped request, what a review holds, secrets (also by a rename's old
+  name), binaries, attributes that would hide a change, large files and links, refused
+  revisions, a root inside another repository, a root put in the trusted one's place,
+  carrying a comment across a moved old side, the thread's end, and that the person's index
+  is left as it was.

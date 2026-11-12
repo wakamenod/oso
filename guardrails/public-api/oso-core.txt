@@ -3159,6 +3159,7 @@ impl core::fmt::Debug for oso_core::project::LineQuery
 pub fn oso_core::project::LineQuery::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::project::Project
 impl oso_core::project::Project
+pub fn oso_core::project::Project::identity(&self) -> core::option::Option<(u64, u64)>
 pub fn oso_core::project::Project::name(&self) -> &str
 pub fn oso_core::project::Project::root(&self) -> &std::path::Path
 impl core::clone::Clone for oso_core::project::Project

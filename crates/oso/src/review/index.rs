@@ -7,15 +7,20 @@
 //! - A copy keeps the index's modification time, so git's stat cache in it still applies and a
 //!   racily clean entry is checked, not missed.
 //! - Copies live in `reviews/tmp/` under the state directory, private to the user, as an index
-//!   names every path of the repository. A copy is removed when it is dropped, with the lock
+//!   names every path of the repository. Each review's names carry a random token of its own and
+//!   a count, so no two copies ever share a name.
+//! - The index is opened only if it is a regular file, not through a link and without waiting,
+//!   and copied only up to [`MAX_INDEX`]. A copy is removed when it is dropped, with the lock
 //!   git leaves beside it; copies an earlier run left behind are swept when a review's thread
 //!   starts.
 
-use std::fs::{self, File, OpenOptions};
-use std::io;
+use std::fs::{self, File};
+use std::hash::{BuildHasher, RandomState};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use oso_platform::file_meta::{create_private, open_regular_here};
 use oso_platform::privacy::PrivateDir;
 
 /// What every copy's name starts with.
@@ -25,11 +30,17 @@ const PREFIX: &str = "index-";
 const STALE: Duration = Duration::from_secs(60 * 60);
 /// How many names are tried before giving up on making a copy.
 const TRIES: u32 = 1000;
+/// The largest index copied.
+pub(crate) const MAX_INDEX: u64 = 128 * 1024 * 1024;
 
 /// The private directory copies are made in.
 #[derive(Debug)]
 pub(crate) struct Scratch {
     dir: PrivateDir,
+    /// A random token in this review's names.
+    token: u64,
+    /// The next name's count.
+    next: u64,
 }
 
 impl Scratch {
@@ -38,46 +49,48 @@ impl Scratch {
     pub(crate) fn open(state: &Path) -> io::Result<Scratch> {
         let dir = PrivateDir::open(state.join("reviews").join("tmp"))?;
         sweep(dir.path());
-        Ok(Scratch { dir })
+        Ok(Scratch {
+            dir,
+            token: RandomState::new().hash_one(std::process::id()),
+            next: 0,
+        })
     }
 
     /// A copy of the index at `index`, keeping its modification time. With no index there
     /// (a repository with nothing added yet), the copy names a file that does not exist, which
     /// git reads as an empty index.
-    pub(crate) fn copy(&self, index: &Path) -> io::Result<IndexCopy> {
+    pub(crate) fn copy(&mut self, index: &Path) -> io::Result<IndexCopy> {
         let (path, mut copy) = self.create()?;
-        let copy_guard = IndexCopy { path };
-        let mut real = match File::open(index) {
-            Ok(real) => real,
+        let guard = IndexCopy { path };
+        let opened = match open_regular_here(index) {
+            Ok(opened) => opened,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 drop(copy);
-                fs::remove_file(&copy_guard.path)?;
-                return Ok(copy_guard);
+                fs::remove_file(&guard.path)?;
+                return Ok(guard);
             }
             Err(e) => return Err(e),
         };
-        let metadata = real.metadata()?;
-        if !metadata.is_file() {
-            return Err(io::Error::other("the index is not a file"));
+        let Some((real, metadata)) = opened else {
+            return Err(io::Error::other("the index is not a regular file"));
+        };
+        if metadata.len() > MAX_INDEX {
+            return Err(io::Error::other("the index is larger than a review copies"));
         }
-        io::copy(&mut real, &mut copy)?;
+        io::copy(&mut real.take(MAX_INDEX), &mut copy)?;
         copy.set_modified(metadata.modified()?)?;
-        Ok(copy_guard)
+        Ok(guard)
     }
 
-    /// A new file of the user's alone, by a name no other copy has.
-    fn create(&self) -> io::Result<(PathBuf, File)> {
+    /// A new file of the user's alone, by a name no other copy has had.
+    fn create(&mut self) -> io::Result<(PathBuf, File)> {
         let pid = std::process::id();
-        for n in 0..TRIES {
-            let path = self.dir.path().join(format!("{PREFIX}{pid}-{n}"));
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            match options.open(&path) {
+        for _ in 0..TRIES {
+            let n = self.next;
+            self.next += 1;
+            let name = format!("{PREFIX}{pid}-{:016x}-{n}", self.token);
+            let path = self.dir.path().join(name);
+            match create_private(&path) {
                 Ok(file) => return Ok((path, file)),
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(e) => return Err(e),
@@ -169,7 +182,7 @@ mod tests {
             .unwrap()
             .set_modified(old)
             .unwrap();
-        let scratch = Scratch::open(&dir.join("state")).unwrap();
+        let mut scratch = Scratch::open(&dir.join("state")).unwrap();
         let copy = scratch.copy(&index).unwrap();
         let metadata = fs::metadata(copy.path()).unwrap();
         assert_eq!(metadata.modified().unwrap(), old);
@@ -185,6 +198,8 @@ mod tests {
         // No index yet: the copy names nothing, which git reads as empty.
         let none = scratch.copy(&dir.join("missing")).unwrap();
         assert!(!none.path().exists());
+        let again = scratch.copy(&dir.join("missing")).unwrap();
+        assert_ne!(none.path(), again.path(), "a name is never used twice");
         fs::remove_dir_all(dir).unwrap();
     }
 }

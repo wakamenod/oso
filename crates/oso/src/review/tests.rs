@@ -6,15 +6,17 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use oso_core::review::{Anchor, Author, Review, Side};
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
 use super::list::Status;
-use super::read::Reader;
+use super::work::Reader;
 use super::{Content, Entry, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
+
+mod guards;
 
 /// A fresh directory for one test, with no links in its path.
 pub(crate) fn scratch_dir(name: &str) -> PathBuf {
@@ -105,6 +107,8 @@ impl Drop for Repo {
 struct Answers {
     entries: Vec<Entry>,
     readings: Vec<Arc<Reading>>,
+    /// Whether the `Read` that ended the request said it stopped.
+    stopped: Option<bool>,
     other: Vec<Report>,
 }
 
@@ -133,10 +137,11 @@ impl Answers {
 
 fn ask(reader: &mut Reader, request: Request) -> Answers {
     let mut answers = Answers::default();
-    reader.answer(request, &mut |report| {
+    reader.answer(request, &|| false, &mut |report| {
         match report {
-            Report::Listed { entries, .. } => answers.entries = entries,
+            Report::Listed { entries, .. } => answers.entries = entries.to_vec(),
             Report::File { reading, .. } => answers.readings.push(reading),
+            Report::Read { stopped, .. } => answers.stopped = Some(stopped),
             other => answers.other.push(other),
         }
         true
@@ -190,6 +195,7 @@ fn uncommitted_lists_changes_and_untracked_files_and_leaves_the_index_alone() {
     assert_eq!(answers.status("gone.txt"), Some(Status::Deleted));
     assert_eq!(answers.status("dir/new.txt"), Some(Status::Added));
     assert_eq!(added(answers.reading("a.txt")), ["TWO\n"]);
+    assert_eq!(answers.reading("a.txt").counts(), Some((1, 1)));
     let Content::Text { old, new, .. } = &answers.reading("a.txt").content else {
         panic!()
     };
@@ -390,7 +396,7 @@ fn revisions_that_read_as_options_or_name_nothing_are_refused() {
             },
         );
         assert!(
-            matches!(answers.other[..], [Report::Failed(_)]),
+            matches!(answers.other[..], [Report::Failed { .. }]),
             "{revision}"
         );
         assert!(answers.entries.is_empty());
@@ -442,7 +448,7 @@ fn comments_are_carried_across_a_moved_old_side() {
         &mut reader,
         Request::Carry(review.carry(b"a.txt", Arc::clone(shape))),
     );
-    let Some(Report::Carried(carried)) = carried.other.into_iter().next() else {
+    let Some(Report::Carried { carried, .. }) = carried.other.into_iter().next() else {
         panic!("not carried");
     };
     assert_eq!(review.apply(carried).placed, 1);
@@ -463,10 +469,9 @@ fn the_thread_answers_in_turn_and_ends_with_its_reviewer() {
     repo.commit("root");
     repo.write("a.txt", b"b\n");
     let (sent, got) = mpsc::channel();
-    let sent = Mutex::new(sent);
     let root = TrustedRoot::for_tests(repo.root.clone());
     let reviewer = Reviewer::start(root, Some(repo.dir.join("state")), move |report| {
-        sent.lock().unwrap().send(format!("{report:?}")).is_ok()
+        sent.send(format!("{report:?}")).is_ok()
     })
     .unwrap();
     assert!(reviewer.ask(Request::Open(Scope::Uncommitted)));
@@ -477,6 +482,11 @@ fn the_thread_answers_in_turn_and_ends_with_its_reviewer() {
         file.contains("a.txt") && file.contains("text, 1 hunks"),
         "{file}"
     );
+    let read = got.recv_timeout(wait).unwrap();
+    assert!(
+        read.starts_with("Read") && read.contains("stopped: false"),
+        "{read}"
+    );
     drop(reviewer);
     assert!(got.recv_timeout(wait).is_err(), "the thread ends");
 }
@@ -486,50 +496,6 @@ fn a_root_with_no_repository_says_so() {
     let dir = scratch_dir("no-repository");
     let mut reader = Reader::new(&dir, None);
     let answers = open(&mut reader, Scope::Uncommitted);
-    assert!(matches!(answers.other[..], [Report::Failed(_)]));
+    assert!(matches!(answers.other[..], [Report::Failed { .. }]));
     fs::remove_dir_all(dir).unwrap();
-}
-
-/// An editor with one buffer in a project at `/home/me/src/oso`, whose trust is as `record`
-/// reads.
-fn editor_in_a_project(record: &str) -> (oso_core::editor::Editor, oso_core::project::ProjectId) {
-    use oso_core::buffer::{Baseline, Buffer};
-    use oso_core::editor::Editor;
-    use oso_core::project::{Found, RootIdentity, TrustList};
-    let mut buffer = Buffer::visiting(PathBuf::from("/home/me/src/oso/a.rs"));
-    buffer.set_baseline(Baseline {
-        location: PathBuf::from("/home/me/src/oso/a.rs"),
-        file: None,
-    });
-    let mut editor = Editor::with_buffer(buffer);
-    editor.set_home(Some(PathBuf::from("/home/me")));
-    let id = editor.tiled().0.buffer();
-    editor.request_project(id);
-    let request = editor.take_project_requests().pop().unwrap();
-    let found = Found {
-        root: RootIdentity {
-            path: PathBuf::from("/home/me/src/oso"),
-            identity: cfg!(unix).then_some((1, 7)),
-        },
-        worktree_of: None,
-        checked_main: None,
-    };
-    editor.project_found(&request, Some(found));
-    editor.set_trust_list(Some(TrustList::parse(record).0));
-    let project = editor.tiled().1.project().unwrap();
-    (editor, project)
-}
-
-#[test]
-fn only_a_trusted_project_gives_a_root_to_review() {
-    let (editor, project) = editor_in_a_project("");
-    assert!(TrustedRoot::of(&editor, project).is_none(), "restricted");
-    let record = if cfg!(unix) {
-        "/home/me/src/oso\tdev=1 ino=7\n"
-    } else {
-        "/home/me/src/oso\n"
-    };
-    let (editor, project) = editor_in_a_project(record);
-    let root = TrustedRoot::of(&editor, project).expect("trusted");
-    assert_eq!(root.path(), PathBuf::from("/home/me/src/oso"));
 }

@@ -19,7 +19,7 @@ fn a_file_is_found_under_its_directories_and_read() {
         panic!("no file");
     };
     assert_eq!(
-        read(file, stamp.size).unwrap(),
+        read(file, stamp.len).unwrap(),
         Got::Bytes(b"text\n".to_vec())
     );
     assert!(matches!(find(&top, b"a/missing").unwrap(), Found::Nothing));

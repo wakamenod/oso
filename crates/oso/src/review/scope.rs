@@ -21,11 +21,12 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-use super::git::{Git, GitError, Id, MAX_STDERR};
+use super::git::{Git, GitError, MAX_SHORT, MAX_STDERR};
+use super::id::{Id, trim_line};
 use super::index::Scratch;
 use super::list::{self, Listing};
 
-/// The most bytes of `git diff --raw --numstat` output read.
+/// The most bytes of `git diff --raw` output read.
 pub(crate) const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
 
 /// What to review. Revisions are as a person or an agent gave them, and are checked and
@@ -68,6 +69,10 @@ pub(crate) enum ScopeError {
     NoSuchRevision(String),
     /// The session's baseline is gone, as git prunes an unreferenced tree.
     BaselineGone,
+    /// A commit has a parent this clone does not hold, as a shallow clone's oldest have.
+    NoParent,
+    /// git found a work tree whose top is not the trusted root.
+    Elsewhere,
     /// A scope that needs a copy of the index, and no private place to make one.
     NoScratch,
     /// The copy could not be made.
@@ -94,12 +99,23 @@ fn head_or_empty(git: &Git) -> Result<Id, ScopeError> {
     }
 }
 
-/// The first parent of `id`, or the empty tree for a root commit.
+/// The first parent of `id`, or the empty tree for a root commit. A commit whose parent this
+/// clone lacks is refused, rather than read as if it added every file.
 fn parent_or_empty(git: &Git, id: &Id) -> Result<Id, ScopeError> {
-    match git.resolve(&format!("{}^1", id.as_str()), "commit")? {
-        Some(parent) => Ok(parent),
-        None => Ok(git.empty_tree()?),
+    if let Some(parent) = git.resolve(&format!("{}^1", id.as_str()), "commit")? {
+        return Ok(parent);
     }
+    // A commit names its parents in its header, before its message.
+    let args = [OsStr::new("cat-file"), OsStr::new("commit"), id.as_os_str()];
+    let output = git.output(&args, &[], MAX_SHORT)?;
+    let mut header = output
+        .stdout
+        .split(|&byte| byte == b'\n')
+        .take_while(|line| !line.is_empty());
+    if header.any(|line| line.starts_with(b"parent ")) {
+        return Err(ScopeError::NoParent);
+    }
+    Ok(git.empty_tree()?)
 }
 
 /// Resolves `scope` to the ids it compares.
@@ -129,9 +145,9 @@ pub(crate) fn resolve(git: &Git, scope: &Scope) -> Result<Sides, ScopeError> {
             let base = commit(git, base)?;
             let head = commit(git, "HEAD")?;
             let args = [OsStr::new("merge-base"), base.as_os_str(), head.as_os_str()];
-            let out = git.run(&args, &[], super::git::MAX_SHORT)?;
-            let fork = Id::parse(super::git::trim_line(&out))
-                .ok_or(GitError::Unexpected("not an object id"))?;
+            let out = git.run(&args, &[], MAX_SHORT)?;
+            let fork =
+                Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not an object id"))?;
             Sides {
                 old: Some(fork),
                 new: work_tree,
@@ -161,12 +177,11 @@ pub(crate) fn list(
     git: &Git,
     sides: &Sides,
     index: &Path,
-    scratch: Option<&Scratch>,
+    scratch: Option<&mut Scratch>,
 ) -> Result<Listing, ScopeError> {
     let mut args: Vec<&OsStr> = [
         "diff",
         "--raw",
-        "--numstat",
         "-z",
         "-M",
         "--no-abbrev",
@@ -210,11 +225,12 @@ pub(crate) fn list(
 }
 
 /// Takes a baseline: the work tree with its untracked files, as a tree, through a copy of
-/// `index`. It gives the tree and how many files git could not read and left out.
+/// `index`. It gives the tree and at least how many files git could not read and left out:
+/// the count is of the lines git wrote within [`MAX_STDERR`] of its own words, in the C locale.
 pub(crate) fn baseline(
     git: &Git,
     index: &Path,
-    scratch: &Scratch,
+    scratch: &mut Scratch,
 ) -> Result<(Id, usize), ScopeError> {
     let copy = scratch.copy(index).map_err(ScopeError::Copy)?;
     let set = [
@@ -232,6 +248,9 @@ pub(crate) fn baseline(
         .lines()
         .filter(|line| line.starts_with("error: unable to index file"))
         .count();
+    if added.cut {
+        return Err(GitError::TooLong.into());
+    }
     if !added.status.success() && left_out == 0 {
         return Err(GitError::Failed {
             status: added.status.code(),
@@ -239,8 +258,7 @@ pub(crate) fn baseline(
         }
         .into());
     }
-    let out = git.run(&[OsStr::new("write-tree")], &set, super::git::MAX_SHORT)?;
-    let tree =
-        Id::parse(super::git::trim_line(&out)).ok_or(GitError::Unexpected("not a tree id"))?;
+    let out = git.run(&[OsStr::new("write-tree")], &set, MAX_SHORT)?;
+    let tree = Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not a tree id"))?;
     Ok((tree, left_out))
 }

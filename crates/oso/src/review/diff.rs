@@ -15,6 +15,12 @@ use similar::{Algorithm, DiffOp, capture_diff_slices_deadline};
 /// The most lines a side may have to be diffed.
 pub(crate) const MAX_LINES: usize = 200_000;
 
+/// How many lines `text` has, counted before any is split off.
+pub(crate) fn line_count(text: &[u8]) -> usize {
+    let breaks = text.iter().filter(|&&byte| byte == b'\n').count();
+    breaks + usize::from(text.last().is_some_and(|&byte| byte != b'\n'))
+}
+
 /// The lines of `text`, each with its line break.
 pub(crate) fn lines(text: &[u8]) -> Vec<&[u8]> {
     text.split_inclusive(|&byte| byte == b'\n').collect()
@@ -63,10 +69,10 @@ pub(crate) fn hunks(old: &[&[u8]], new: &[&[u8]], deadline: Instant) -> Option<V
 /// The hunks between two old sides, by line numbers, for carrying comments from a reading
 /// against one to a reading against the other; `None` as [`hunks`] gives it.
 pub(crate) fn base_hunks(old: &[u8], new: &[u8], deadline: Instant) -> Option<Vec<BaseHunk>> {
-    let (old, new) = (lines(old), lines(new));
-    if old.len() > MAX_LINES || new.len() > MAX_LINES {
+    if line_count(old) > MAX_LINES || line_count(new) > MAX_LINES {
         return None;
     }
+    let (old, new) = (lines(old), lines(new));
     let ops = ops(&old, &new, deadline)?;
     let mut hunks: Vec<BaseHunk> = Vec::new();
     let mut open: Option<BaseHunk> = None;

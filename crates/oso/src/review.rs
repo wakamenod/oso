@@ -5,23 +5,30 @@
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in
 //! and takes reports out, and supplies the wake-up.
 //!
-//! - It starts only from a [`TrustedRoot`], which only a trusted project gives: a restricted
-//!   project runs no git (ADR 0009, ADR 0011).
-//! - git runs only through `oso-platform::process`, with oso's arguments, and its output is
-//!   read as bytes, each read bounded ([`git`], [`list`]).
+//! - It starts only from a [`TrustedRoot`], which only a trusted project gives, and looks at
+//!   the root's device and inode again before each request: a restricted project, or another
+//!   directory put in a trusted one's place, runs no git (ADR 0009, ADR 0011, ADR 0114).
+//! - git runs only through `oso-platform::process`, with oso's arguments, never finding a
+//!   repository above the root, and its output is read as bytes, each read bounded.
 //! - Old sides, and new sides that are no work tree file, come through one long-lived
-//!   `git cat-file --batch` ([`batch`]); work tree files are read from the work tree's top a
-//!   directory at a time, following no link ([`side`]).
-//! - A file whose name may hold secrets is listed, with its counts, and never read.
+//!   `git cat-file --batch`; work tree files are read from the work tree's top a directory at
+//!   a time, following no link.
+//! - A file whose name, or whose name before a rename, may hold secrets is listed and never
+//!   read.
 //! - A file whose signature did not change since the last reading is not read again, and the
-//!   files the caller shows go first.
+//!   files the caller shows go first. Refreshes asked for meanwhile are answered as one, and a
+//!   newer request, or the reviewer's end, stops the one running between files.
 //! - Limits, each saying what it hides: 10,000 files and 32 MiB of list; a side of 8 MiB and
-//!   200,000 lines, diffed within 1 s; 64 MiB of sides held per review; a git run of 10 s.
+//!   200,000 lines, diffed within 1 s, and 5 s of diffing per request; 64 MiB of sides and
+//!   hunks held per review; a git run of 10 s.
+//! - The thread's stack is [`STACK`]: Myers' diff recurses, and needs up to half a MiB at the
+//!   line limit.
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
 
 mod batch;
 mod diff;
 mod git;
+mod id;
 mod index;
 mod list;
 mod read;
@@ -29,10 +36,12 @@ mod scope;
 mod side;
 #[cfg(test)]
 mod tests;
+mod work;
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -40,13 +49,22 @@ use oso_core::editor::Editor;
 use oso_core::project::ProjectId;
 use oso_core::review::{Carried, Carry, Shape};
 
-pub(crate) use git::Id;
+pub(crate) use id::Id;
 pub(crate) use list::Entry;
 pub(crate) use scope::Scope;
 
-/// The root of a project that is trusted to run git. Only [`TrustedRoot::of`] makes one.
+/// The largest side read: a blob or a work tree file past it shows its size only.
+pub(crate) const MAX_BLOB: u64 = 8 * 1024 * 1024;
+/// The review thread's stack.
+const STACK: usize = 16 * 1024 * 1024;
+
+/// The root of a project that is trusted to run git, with its device and inode as the project
+/// was found. Only [`TrustedRoot::of`] makes one.
 #[derive(Clone, Debug)]
-pub(crate) struct TrustedRoot(PathBuf);
+pub(crate) struct TrustedRoot {
+    path: PathBuf,
+    identity: Option<(u64, u64)>,
+}
 
 impl TrustedRoot {
     /// The root of project `id`, if the editor trusts it.
@@ -54,16 +72,30 @@ impl TrustedRoot {
         if !editor.project_trusted(id) {
             return None;
         }
-        Some(TrustedRoot(editor.project(id)?.root().to_owned()))
+        let project = editor.project(id)?;
+        Some(TrustedRoot {
+            path: project.root().to_owned(),
+            identity: project.identity(),
+        })
     }
 
     #[cfg(test)]
-    pub(crate) fn for_tests(root: PathBuf) -> TrustedRoot {
-        TrustedRoot(root)
+    pub(crate) fn for_tests(path: PathBuf) -> TrustedRoot {
+        let identity = side::identity_of(&path);
+        TrustedRoot { path, identity }
     }
 
     pub(crate) fn path(&self) -> &Path {
-        &self.0
+        &self.path
+    }
+
+    /// Whether the root is still the directory that was trusted, by its device and inode where
+    /// the system has them, not following a link.
+    fn still_there(&self) -> bool {
+        match self.identity {
+            Some(identity) => side::identity_of(&self.path) == Some(identity),
+            None => std::fs::symlink_metadata(&self.path).is_ok_and(|metadata| metadata.is_dir()),
+        }
     }
 }
 
@@ -80,13 +112,23 @@ pub(crate) enum Request {
     Carry(Carry),
 }
 
-/// What the review's thread found. Each listing and the readings after it share a generation.
+/// Which request a failure answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Asked {
+    Open,
+    Refresh,
+    Baseline,
+    Carry,
+}
+
+/// What the review's thread found. Each listing, the readings after it and the `Read` that
+/// ends them share a generation.
 pub(crate) enum Report {
     /// The files the scope differs in, in git's order, and how many more were left out; `cut`
     /// if git wrote more than a review reads.
     Listed {
         generation: u64,
-        entries: Vec<Entry>,
+        entries: Arc<[Entry]>,
         more: usize,
         cut: bool,
     },
@@ -95,16 +137,18 @@ pub(crate) enum Report {
         generation: u64,
         reading: Arc<Reading>,
     },
-    /// A baseline was taken; `left_out` files could not be read.
-    Baseline {
-        tree: Id,
-        left_out: usize,
-    },
+    /// Every file of this generation that changed has been reported, unless `stopped` by a
+    /// newer request, which reads the rest.
+    Read { generation: u64, stopped: bool },
+    /// A baseline was taken; at least `left_out` files could not be read.
+    Baseline { tree: Id, left_out: usize },
     /// The session's baseline is gone.
     BaselineGone,
-    Carried(Carried),
+    /// Comments carried; `cut_short` if matching lines ran out of time, so some may be outdated
+    /// that would not have been.
+    Carried { carried: Carried, cut_short: bool },
     /// A request failed; the message says why, with no file's text.
-    Failed(String),
+    Failed { asked: Asked, why: String },
 }
 
 impl fmt::Debug for Report {
@@ -130,14 +174,29 @@ impl fmt::Debug for Report {
                 .field("generation", generation)
                 .field("reading", reading)
                 .finish(),
+            Self::Read {
+                generation,
+                stopped,
+            } => f
+                .debug_struct("Read")
+                .field("generation", generation)
+                .field("stopped", stopped)
+                .finish(),
             Self::Baseline { tree, left_out } => f
                 .debug_struct("Baseline")
                 .field("tree", tree)
                 .field("left_out", left_out)
                 .finish(),
             Self::BaselineGone => f.write_str("BaselineGone"),
-            Self::Carried(_) => f.write_str("Carried"),
-            Self::Failed(why) => f.debug_tuple("Failed").field(why).finish(),
+            Self::Carried { cut_short, .. } => f
+                .debug_struct("Carried")
+                .field("cut_short", cut_short)
+                .finish_non_exhaustive(),
+            Self::Failed { asked, why } => f
+                .debug_struct("Failed")
+                .field("asked", asked)
+                .field("why", why)
+                .finish(),
         }
     }
 }
@@ -148,12 +207,25 @@ pub(crate) struct Reading {
     pub(crate) content: Content,
 }
 
+impl Reading {
+    /// The lines added and removed, as its hunks count them, for a text reading.
+    pub(crate) fn counts(&self) -> Option<(usize, usize)> {
+        let Content::Text { shape, .. } = &self.content else {
+            return None;
+        };
+        Some(shape.hunks().iter().fold((0, 0), |(added, removed), hunk| {
+            (added + hunk.added.len(), removed + hunk.removed.len())
+        }))
+    }
+}
+
 impl fmt::Debug for Reading {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match &self.content {
             Content::Text { shape, .. } => format!("text, {} hunks", shape.hunks().len()),
             Content::Binary { .. } => "binary".into(),
             Content::TooLarge { .. } => "too large".into(),
+            Content::OutOfTime => "out of time".into(),
             Content::Withheld => "withheld".into(),
             Content::Submodule => "submodule".into(),
             Content::Unreadable(why) => format!("unreadable: {why}"),
@@ -175,22 +247,28 @@ pub(crate) enum Content {
     },
     /// A side is binary: only the sizes are shown.
     Binary { old: u64, new: u64 },
-    /// A side is past a limit, or the diff past its deadline: only the sizes are shown.
+    /// A side is past a limit, the review's room, or the diff past its deadline: only the
+    /// sizes are shown.
     TooLarge { old: u64, new: u64 },
-    /// Its name may hold secrets: it was not read.
+    /// The request's time for diffing ran out before this file; the next refresh reads it.
+    OutOfTime,
+    /// Its name, or its name before a rename, may hold secrets: it was not read.
     Withheld,
     /// A submodule: the entry's ids are what it shows.
     Submodule,
-    /// A side could not be read; why, with no file's text.
+    /// A side could not be read; why, with no file's text. The next refresh reads it again.
     Unreadable(String),
 }
 
 /// Hands a report to the event loop; `false` once it is gone.
-type Send_ = Arc<dyn Fn(Report) -> bool + Send + Sync>;
+type SendReport = Box<dyn FnMut(Report) -> bool + Send>;
 
-/// A review's thread. Dropping it ends the thread once its current request is done.
+/// A review's thread. Dropping it stops the thread between files and ends it.
 pub(crate) struct Reviewer {
     requests: Sender<Request>,
+    /// Requests sent and not yet taken, so that the thread stops one for a newer.
+    waiting: Arc<AtomicUsize>,
+    live: Arc<AtomicBool>,
 }
 
 impl Reviewer {
@@ -199,46 +277,124 @@ impl Reviewer {
     pub(crate) fn start(
         root: TrustedRoot,
         state: Option<PathBuf>,
-        send: impl Fn(Report) -> bool + Send + Sync + 'static,
+        send: impl FnMut(Report) -> bool + Send + 'static,
     ) -> std::io::Result<Reviewer> {
         let (requests, queue) = mpsc::channel::<Request>();
-        let send: Send_ = Arc::new(send);
+        let waiting = Arc::new(AtomicUsize::new(0));
+        let live = Arc::new(AtomicBool::new(true));
+        let send: SendReport = Box::new(send);
+        let (thread_waiting, thread_live) = (Arc::clone(&waiting), Arc::clone(&live));
         thread::Builder::new()
             .name("oso-review".into())
-            .spawn(move || serve(&queue, &*send, &root, state.as_deref()))?;
-        Ok(Reviewer { requests })
+            .stack_size(STACK)
+            .spawn(move || {
+                serve(
+                    &queue,
+                    send,
+                    &root,
+                    state.as_deref(),
+                    &thread_waiting,
+                    &thread_live,
+                );
+            })?;
+        Ok(Reviewer {
+            requests,
+            waiting,
+            live,
+        })
     }
 
     /// Asks the thread for `request`; `false` if it has ended.
     pub(crate) fn ask(&self, request: Request) -> bool {
-        self.requests.send(request).is_ok()
+        self.waiting.fetch_add(1, Ordering::SeqCst);
+        let sent = self.requests.send(request).is_ok();
+        if !sent {
+            self.waiting.fetch_sub(1, Ordering::SeqCst);
+        }
+        sent
+    }
+}
+
+impl Drop for Reviewer {
+    fn drop(&mut self) {
+        self.live.store(false, Ordering::SeqCst);
     }
 }
 
 /// Answers each request in turn until the reviewer is dropped or the event loop has gone.
+/// Refreshes waiting one after another are answered as one, their shown files joined.
 fn serve(
     queue: &Receiver<Request>,
-    send: &(dyn Fn(Report) -> bool + Send + Sync),
+    mut send: SendReport,
     root: &TrustedRoot,
     state: Option<&Path>,
+    waiting: &AtomicUsize,
+    live: &AtomicBool,
 ) {
-    let mut reader = read::Reader::new(root.path(), state);
-    while let Ok(request) = queue.recv() {
-        let mut gone = false;
-        let mut report = |report: Report| {
-            gone = gone || !send(report);
-            !gone
+    let mut reader = work::Reader::new(root.path(), state);
+    let mut next = None;
+    loop {
+        let request = match next.take() {
+            Some(request) => request,
+            None => match queue.recv() {
+                Ok(request) => {
+                    waiting.fetch_sub(1, Ordering::SeqCst);
+                    request
+                }
+                Err(_) => return,
+            },
         };
+        let request = match request {
+            Request::Refresh { mut first } => {
+                while let Ok(newer) = queue.try_recv() {
+                    waiting.fetch_sub(1, Ordering::SeqCst);
+                    match newer {
+                        Request::Refresh { first: more } => first.extend(more),
+                        other => {
+                            next = Some(other);
+                            break;
+                        }
+                    }
+                }
+                Request::Refresh { first }
+            }
+            other => other,
+        };
+        if !live.load(Ordering::SeqCst) {
+            return;
+        }
+        let asked = asked(&request);
+        if !root.still_there() {
+            let why = "the project's root is no longer the directory that was trusted".into();
+            send(Report::Failed { asked, why });
+            continue;
+        }
+        let stop =
+            || !live.load(Ordering::SeqCst) || next.is_some() || waiting.load(Ordering::SeqCst) > 0;
+        let mut gone = false;
         let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            reader.answer(request, &mut report);
+            reader.answer(request, &stop, &mut |report| {
+                gone = gone || !send(report);
+                !gone
+            });
         }));
         if answered.is_err() {
             log::warn!("a review's request panicked");
-            report(Report::Failed("the review's thread failed".into()));
-            reader = read::Reader::new(root.path(), state);
+            let why = "the review's thread failed".into();
+            gone = gone || !send(Report::Failed { asked, why });
+            reader = reader.fresh();
         }
         if gone {
             return;
         }
+    }
+}
+
+fn asked(request: &Request) -> Asked {
+    match request {
+        Request::Open(_) => Asked::Open,
+        Request::Refresh { .. } => Asked::Refresh,
+        Request::Baseline => Asked::Baseline,
+        Request::Carry(_) => Asked::Carry,
     }
 }
