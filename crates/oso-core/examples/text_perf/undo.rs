@@ -1,0 +1,178 @@
+//! Undoing large steps (ADR 0119): a large `!` with what else follows a crossing turned on, a
+//! soft wrap, a second window and highlights, a session answered match by match, and typing at
+//! 1000 cursors joined into one step.
+//! Each case prints the undo and the redo, so that what grows with the step shows. Run with
+//! `-- undo`.
+//!
+//! Must not depend on: crate internals; it uses only the public API, and the text and timing
+//! helpers of `text_perf`.
+
+use std::time::{Duration, Instant};
+
+use oso_core::buffer::{Buffer, Mode, Replacement};
+use oso_core::editor::{Editor, ReplaceAnswer};
+use oso_core::frame::Way;
+use oso_core::syntax::{Highlight, Highlights};
+use oso_core::window::ViewSize;
+
+use super::{MB, editor_with_cursors, file_text};
+
+/// What else a crossing follows in a case.
+#[derive(Clone, Copy)]
+enum With {
+    Nothing,
+    Wrap,
+    Window,
+    Highlights,
+}
+
+/// Runs of 4 bytes over `len`, every other one a keyword, as a worker's report would be.
+fn highlights(len: usize) -> Highlights {
+    let runs: Vec<_> = (0..len.div_ceil(4))
+        .map(|index| {
+            let run = 4.min(len - index * 4);
+            (run, (index % 2 == 0).then_some(Highlight::Keyword))
+        })
+        .collect();
+    let mut highlights = Highlights::new(len);
+    highlights.replace(0..len, runs);
+    highlights
+}
+
+/// The undo and the redo of the editor's newest step.
+fn cross(editor: &mut Editor) -> (Duration, Duration) {
+    let started = Instant::now();
+    editor.undo().expect("a step to undo");
+    let undone = started.elapsed();
+    let started = Instant::now();
+    editor.redo().expect("a step to redo");
+    (undone, started.elapsed())
+}
+
+/// `!` replacing `from` with `to` over `text`, with `with` turned on first, then its undo.
+fn bang(label: &str, text: &str, from: &str, to: &str, with: With) {
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", text));
+    editor.set_view_size(ViewSize::new(60, 100));
+    let id = editor.window().buffer();
+    match with {
+        With::Nothing => {}
+        With::Wrap => {
+            editor.set_wraps(id, true);
+        }
+        With::Window => {
+            editor
+                .split_window(Way::Down, false)
+                .expect("the window splits");
+        }
+        With::Highlights => {
+            let buffer = editor.buffer_mut(id).expect("the buffer");
+            buffer.set_mode(Mode::Rust);
+            let revision = buffer.revision();
+            assert!(
+                buffer.take_highlights(revision, highlights(text.len())),
+                "the buffer takes highlights"
+            );
+        }
+    }
+    editor.begin_undo_group();
+    editor
+        .replace_begin(from, to, false)
+        .expect("the buffer takes edits");
+    editor.end_undo_group();
+    editor.replace_answer(ReplaceAnswer::All);
+    let mut slices = 0;
+    while editor.replace_works() {
+        editor.replace_continue();
+        slices += 1;
+    }
+    let (undone, redone) = cross(&mut editor);
+    println!("{label:<34} {slices:>5} slices: undo {undone:>9.2?}  redo {redone:>9.2?}");
+}
+
+/// A query-replace session over `text` answered `y` at each match, which makes one step of a
+/// splice per answer, joined into one step when it ends, then its undo.
+fn answered(label: &str, text: &str, from: &str, to: &str) {
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", text));
+    editor.begin_undo_group();
+    editor
+        .replace_begin(from, to, false)
+        .expect("the buffer takes edits");
+    editor.end_undo_group();
+    let mut answers = 0;
+    while editor.replace().is_some() {
+        editor.replace_answer(ReplaceAnswer::Replace);
+        answers += 1;
+    }
+    let (undone, redone) = cross(&mut editor);
+    println!("{label:<34} {answers:>5} answers: undo {undone:>9.2?}  redo {redone:>9.2?}");
+}
+
+/// `commands` commands typing "x" at each of 1000 cursors over `text`, joined into one step as
+/// self-inserts are, then its undo.
+fn joined_typing(label: &str, text: &str, commands: usize) {
+    let mut editor = editor_with_cursors(text, 1000);
+    let id = editor.window().buffer();
+    for _ in 0..commands {
+        let edits: Vec<_> = editor
+            .window()
+            .selections
+            .iter()
+            .map(|selection| Replacement {
+                range: selection.cursor..selection.cursor,
+                text: "x",
+            })
+            .collect();
+        editor.begin_undo_group();
+        editor.allow_undo_join();
+        editor
+            .apply_edits(id, &edits)
+            .expect("the buffer is editable");
+        editor.end_undo_group();
+    }
+    let (undone, redone) = cross(&mut editor);
+    println!("{label:<34}       undo {undone:>9.2?}  redo {redone:>9.2?}");
+}
+
+pub(crate) fn undo_costs() {
+    println!("== Undoing large steps (ADR 0119)");
+    let lines = "ab\n".repeat(4_000_000);
+    bang("12 MB, 4M lines of ab", &lines, "ab", "c", With::Nothing);
+    bang("  in a wrapped window", &lines, "ab", "c", With::Wrap);
+    bang("  in two windows", &lines, "ab", "c", With::Window);
+    // Highlighting stops at 2 MiB (`syntax::MAX_BYTES`).
+    let small = "ab\n".repeat(2 * MB / 3);
+    bang("2 MiB, 700k lines of ab", &small, "ab", "c", With::Nothing);
+    bang("  highlighted", &small, "ab", "c", With::Highlights);
+    for answers in [5_000, 10_000, 20_000] {
+        let sparse = "needle\n".repeat(answers) + "end\n";
+        answered(
+            &format!("{answers} lines, each answered y"),
+            &sparse,
+            "needle",
+            "thread",
+        );
+    }
+    // Answers far apart in a large file, each in a chunk of its own.
+    let source = file_text(100 * MB);
+    for answers in [5_000, 10_000, 20_000] {
+        let mut sparse = String::with_capacity(source.len() + answers * 7);
+        let every = source.len() / answers;
+        let (mut placed, mut next) = (0, 0);
+        for line in source.split_inclusive('\n') {
+            if placed < answers && sparse.len() >= next {
+                sparse.push_str("needle\n");
+                placed += 1;
+                next += every;
+            }
+            sparse.push_str(line);
+        }
+        answered(
+            &format!("100 MB, {answers} far apart, each y"),
+            &sparse,
+            "needle",
+            "thread",
+        );
+    }
+    let source = "fn main() {}\n".repeat(8 * MB / 13);
+    joined_typing("8 MB, 1000 cursors, 20 joined", &source, 20);
+}
