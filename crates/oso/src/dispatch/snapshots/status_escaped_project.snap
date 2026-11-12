@@ -4,6 +4,6 @@ description: "text: /w/a\\nb\\u{202e}\\u{1b}c\\tいe\\u{301}"
 ---
 │                                                                      │
 :^                                                                     :
-=-- x.rs  a^JbU+202E^[c^Iいé  1:0  Rust  UTF-8 LF                      =
+=-- x.rs  a^JbU+202E^[c^Iいé  restricted  1:0  Rust  UTF-8 LF          =
 :          ~~ ######~~ ~~<>                                            :
 "                                                                      "

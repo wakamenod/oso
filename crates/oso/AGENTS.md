@@ -21,7 +21,8 @@ often, so it must rebuild within 2 s.
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.
 - `src/config/` reads the user configuration file and turns its text into the user keymap and
-  settings (ADR 0108, ADR 0110). Its parsing does no I/O. Only it uses `toml`, which review
+  settings (ADR 0108, ADR 0110), and reads and writes the record of trusted projects beside it
+  (`config/trust.rs`, ADR 0114). Its parsing does no I/O. Only it uses `toml`, which review
   keeps: no guard test checks it.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
