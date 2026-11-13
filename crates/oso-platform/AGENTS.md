@@ -9,7 +9,7 @@ state and configuration live, and who else can change a file by its mode (ADR 01
 control sockets' transport lives in `control`, in every build, for the dev socket
 and the agent channel (ADR 0085); only the dev tooling and the agent channel
 listen. Process spawning lives in `process`, and pseudo-terminals in
-`process::pty`, in every build (ADR 0120). `window` holds the window layer's
+`process::pty`, in every build (ADR 0120). `notify` asks for the person's attention for agent sessions (ADR 0121). `window` holds the window layer's
 events, which the tip crate's winit adapter builds too, and on macOS the window system itself, in `window/appkit/`
 (ADR 0070).
 

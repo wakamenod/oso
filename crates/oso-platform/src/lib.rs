@@ -1,7 +1,8 @@
 //! OS abstractions (ADR 0003, ADR 0004): the text system backends, the window layer's
 //! events (ADR 0070), what keeps text private to its user, what decides who may reach a
 //! file beyond its mode, the control sockets' transport (ADR 0085), and process spawning
-//! and pseudo-terminals (ADR 0120).
+//! and pseudo-terminals (ADR 0120), and asking for the person's attention for agent
+//! sessions (ADR 0121).
 //!
 //! Must not depend on: any workspace crate (`oso-core`, `oso-render`, `oso`),
 //! wgpu or winit.
@@ -13,6 +14,7 @@
 pub mod clipboard;
 pub mod control;
 pub mod file_meta;
+pub mod notify;
 pub mod privacy;
 pub mod process;
 pub mod text;

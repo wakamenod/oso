@@ -37,7 +37,8 @@ complete decode editorconfig key project review rope secret
 migemo sum_tree
 
 [oso-platform]
-clipboard control process text window
+# `notify` asks for the person's attention for agent sessions (ADR 0121).
+clipboard control notify process text window
 privacy
 file_meta
 
