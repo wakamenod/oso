@@ -419,6 +419,12 @@ impl Regexp {
         self.source.0.len()
     }
 
+    /// Its first match in `text`, for tests of what a pattern matches.
+    #[cfg(test)]
+    pub(crate) fn find_in(&self, text: &str) -> Option<String> {
+        self.regex.find(text).map(|found| found.as_str().to_owned())
+    }
+
     /// The replacement for the match at `range`: `to` with its `$1`, `${name}`, `$0` and `$$`
     /// expanded from the match's groups, as `Regex::replace` expands them. It reads the
     /// match and the character before it, not the whole line.

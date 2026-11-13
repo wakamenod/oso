@@ -2,7 +2,7 @@
 //! file's text in C/Migemo's `migemo-dict` format or SKK's, and the words of the readings a
 //! romaji string's kana start.
 //!
-//! Must not depend on: any other module of this crate, I/O or a log. `Debug` prints only its
+//! Must not depend on: any module of this crate but its parent's, I/O or a log. `Debug` prints only its
 //! counts, as the file is the person's own.
 //!
 //! - Each line is read on its own, by its shape: a reading, a tab and words between tabs
@@ -15,7 +15,8 @@
 //!   and counted, so a crafted file gives a bounded table.
 //! - The table is the text itself and two lists of ranges into it: entries sorted by
 //!   reading, one a reading, and their words, so the entries a prefix starts are found by
-//!   binary search. It takes the text's size, 16 bytes an entry and 8 bytes a word.
+//!   binary search. It takes the text's size, 16 bytes an entry and 8 bytes a word, and 8
+//!   more a word of a reading that several lines give, whose words are put together.
 
 use std::cmp::Reverse;
 use std::fmt;
@@ -42,11 +43,16 @@ pub const MAX_ENTRIES: usize = 1 << 20;
 pub const MAX_WORDS: usize = 1 << 22;
 
 /// The most entries a string's kana may start for their words to go in its pattern: past
-/// it, only the readings that are the kana themselves give theirs (ADR 0116, Q7).
+/// it, only the readings that are the kana themselves give theirs (ADR 0116, Q7). It also
+/// bounds the ranges either of two kana (`ず` or `づ`) splits the table into.
 pub const MAX_PREFIX_ENTRIES: usize = 2048;
 
 /// The most words of a pattern: the exact readings' first, then the shorter readings'.
 pub(crate) const MAX_PATTERN_WORDS: usize = 4096;
+
+/// The most bytes of a pattern's words, about twice those of the largest pattern a common
+/// dictionary gives, so a pattern compiles within a key's time whatever the file holds.
+pub(crate) const MAX_PATTERN_WORD_BYTES: usize = 32 * 1024;
 
 /// A range of bytes of the text, or of indices into the words.
 #[derive(Clone, Copy)]
@@ -127,7 +133,10 @@ impl Dictionary {
 
     /// How many words it holds.
     pub fn words(&self) -> usize {
-        self.words.len()
+        self.entries
+            .iter()
+            .map(|entry| entry.words.range().len())
+            .sum()
     }
 
     /// How many lines, and words of the lines read, were left out.
@@ -139,7 +148,8 @@ impl Dictionary {
         &self.text[entry.reading.range()]
     }
 
-    /// The words to put in `romaji`'s pattern, at most [`MAX_PATTERN_WORDS`]: those of
+    /// The words to put in `romaji`'s pattern, at most [`MAX_PATTERN_WORDS`] and
+    /// [`MAX_PATTERN_WORD_BYTES`]: those of
     /// every reading its kana and an unfinished end start, while at most
     /// [`MAX_PREFIX_ENTRIES`] do, else of the readings that are its kana and an end exactly,
     /// none if it is only an unfinished end. The exact readings' come first, then the
@@ -171,9 +181,14 @@ impl Dictionary {
         let words = chosen
             .into_iter()
             .flat_map(|(at, _)| self.words[self.entries[at].words.range()].iter());
+        let mut bytes = 0;
         words
             .take(MAX_PATTERN_WORDS)
             .map(|span| &self.text[span.range()])
+            .take_while(|word| {
+                bytes += word.len();
+                bytes <= MAX_PATTERN_WORD_BYTES
+            })
             .collect()
     }
 
@@ -199,6 +214,9 @@ impl Dictionary {
                 return None;
             }
             std::mem::swap(&mut live, &mut next);
+            if live.is_empty() {
+                return Some(live);
+            }
         }
         if romaji.ends.is_empty() {
             return Some(live);
@@ -319,46 +337,50 @@ impl Read {
     }
 
     /// The dictionary, its entries sorted, those of one reading made one with at most
-    /// [`MAX_WORDS_A_READING`] words.
-    fn into_dictionary(self, text: String) -> Dictionary {
+    /// [`MAX_WORDS_A_READING`] words. A reading of one line keeps its words where they are;
+    /// only one of several lines has its words put together at the end, so the build takes
+    /// little more than the table.
+    fn into_dictionary(self, mut text: String) -> Dictionary {
         let Self {
             mut entries,
-            words: read,
+            mut words,
             mut skipped,
         } = self;
-        let reading = |entry: &Entry| &text.as_bytes()[entry.reading.range()];
         // Stable, so a reading's words keep the file's order.
+        let reading = |entry: &Entry| &text.as_bytes()[entry.reading.range()];
         entries.sort_by(|a, b| reading(a).cmp(reading(b)));
-        let mut merged: Vec<Entry> = Vec::with_capacity(entries.len());
-        let mut words = Vec::with_capacity(read.len());
-        for entry in entries {
-            let same = merged
-                .last()
-                .is_some_and(|last| reading(last) == reading(&entry));
-            if !same {
-                let at = words.len();
-                merged.push(Entry {
-                    reading: entry.reading,
-                    words: Span::of(at..at),
-                });
-            }
-            let Some(last) = merged.last_mut() else {
-                continue;
-            };
-            for span in &read[entry.words.range()] {
-                if last.words.range().len() == MAX_WORDS_A_READING {
-                    skipped += 1;
-                    continue;
+        let mut kept = 0;
+        let mut at = 0;
+        while at < entries.len() {
+            let first = entries[at];
+            let same = |entry: &Entry| reading(entry) == reading(&first);
+            let end = at + entries[at..].iter().take_while(|entry| same(entry)).count();
+            let mut merged = first;
+            if end - at > 1 {
+                let start = words.len();
+                for entry in &entries[at..end] {
+                    for index in entry.words.range() {
+                        if words.len() - start == MAX_WORDS_A_READING {
+                            skipped += 1;
+                        } else {
+                            words.push(words[index]);
+                        }
+                    }
                 }
-                words.push(*span);
-                last.words = Span::of(last.words.range().start..words.len());
+                merged.words = Span::of(start..words.len());
             }
+            entries[kept] = merged;
+            kept += 1;
+            at = end;
         }
-        merged.shrink_to_fit();
+        entries.truncate(kept);
+        entries.shrink_to_fit();
         words.shrink_to_fit();
+        // Reading a file may have left room past its text.
+        text.shrink_to_fit();
         Dictionary {
             text,
-            entries: merged,
+            entries,
             words,
             skipped,
         }

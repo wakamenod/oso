@@ -34,7 +34,8 @@ pub(super) struct Migemo {
     cache: VecDeque<Entry>,
     /// The dictionary the host gave, if any.
     dictionary: Option<Arc<Dictionary>>,
-    /// Whether migemo's needle was asked for with no dictionary since the host last looked.
+    /// Whether migemo's needle was asked for with no dictionary since the host last looked,
+    /// not around a buffer that may hold secrets.
     wanted: bool,
 }
 
@@ -126,8 +127,11 @@ impl Migemo {
         }
         let at = (self.cache.iter())
             .position(|entry| entry.string == string && entry.case_sensitive == case_sensitive);
+        // Not around a secret: the dictionary coming then would say what kind of string was
+        // typed there.
+        let wanted = self.wanted;
+        self.wanted |= self.dictionary.is_none() && cache == Cache::Keep;
         if let Some(at) = at {
-            self.wanted |= self.dictionary.is_none();
             // Around a secret, the order stays as it was, so it says nothing of the string.
             if cache == Cache::Skip {
                 return Some(self.cache[at].needle.clone());
@@ -138,8 +142,12 @@ impl Migemo {
             return Some(needle);
         }
         // A string that gives no kana costs little to look at again, so it pushes no needle out.
-        let needle = Needle::migemo(string, case_sensitive, self.dictionary.as_deref())?;
-        self.wanted |= self.dictionary.is_none();
+        let Some(needle) = Needle::migemo(string, case_sensitive, self.dictionary.as_deref())
+        else {
+            // A string that gives no kana would use no dictionary.
+            self.wanted = wanted;
+            return None;
+        };
         if cache == Cache::Keep {
             if self.cache.len() == CACHED {
                 self.cache.pop_front();

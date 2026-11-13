@@ -89,7 +89,7 @@ impl App {
         self.write_trust();
         self.find_projects();
         self.read_editorconfigs();
-        self.want_migemo_dictionary();
+        self.read_migemo_dictionary_if_wanted();
         self.check_disk();
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.

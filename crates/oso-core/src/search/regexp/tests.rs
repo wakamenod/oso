@@ -385,3 +385,35 @@ fn the_largest_migemo_patterns_with_words_give_a_needle_on_a_key() {
         }
     }
 }
+
+#[test]
+fn regexp_syntax_in_a_word_is_matched_as_it_is() {
+    let dictionary = migemo::Dictionary::new("か\t.*\nか\ta|b\nか\t(?i)X\nか\t[^x]\n".to_owned());
+    let Some(Needle::Regexp(regexp)) = Needle::migemo("ka", true, Some(&dictionary)) else {
+        panic!("ka gives a needle");
+    };
+    let found = |text: &str| regexp.find_in(text);
+    for word in [".*", "a|b", "(?i)X", "[^x]", "か", "ka"] {
+        assert_eq!(found(word).as_deref(), Some(word), "{word}");
+    }
+    for text in ["zzz", "a", "b", "x", "X", "y"] {
+        assert_eq!(found(text), None, "{text}");
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// Whatever a dictionary holds, romaji that gives kana has a needle, which finds its kana.
+    #[test]
+    fn any_dictionary_gives_romaji_a_needle(
+        text in "[ぁ-ゖa-z\t /;\\n()\\\\.*|?+{}\\[\\]^$漢]{0,2000}",
+        string in "[a-z]{1,6}",
+    ) {
+        let dictionary = migemo::Dictionary::new(text);
+        if migemo::pattern(&string).is_some() {
+            let needle = Needle::migemo(&string, false, Some(&dictionary));
+            prop_assert!(needle.is_some(), "{string}");
+        }
+    }
+}

@@ -168,6 +168,14 @@ network features.
   channel setting starts the channel at launch, and each connection is still
   asked. The channel never saves into oso's configuration directory
   ([ADR 0108](adr/0108-the-user-configuration-file.md)).
+- Migemo's dictionary is a file only `[search] migemo-dictionary` in the user configuration
+  names, by an absolute path or one from an absolute home directory, never a share on another
+  computer; nothing in a project names one. It is read on `oso-migemo` at the first search that
+  would use it, with the configuration file's checks (through links, refused if other users can
+  change it or the way to it, a regular file, at most 64 MiB of UTF-8; one a group can change
+  is read with a warning). Each word enters a search's regexp through `regex::escape`, with
+  bounds on readings, words and a pattern's size, and neither a word nor the path reaches a
+  log or `*Messages*` ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - There are no modelines and no file-local variables that execute anything.
   Org links of type `shell:` or `elisp:` are not supported.
 

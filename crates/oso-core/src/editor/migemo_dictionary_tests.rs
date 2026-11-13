@@ -146,3 +146,17 @@ fn words_nested_past_the_limit_are_dropped_for_the_kana() {
     assert!(editor.isearch().unwrap().migemo());
     assert_eq!(cursor(&editor), text.len());
 }
+
+#[test]
+fn a_search_around_a_secret_wants_no_dictionary() {
+    let mut buffer = super::test_buffers::secret_buffer();
+    buffer.apply_load(crate::load::decode_all(b"TOKEN=kana", Default::default()));
+    let mut editor = Editor::with_buffer(buffer);
+    editor.isearch_begin(false, false);
+    editor.isearch_add("ka");
+    editor.isearch_exit();
+    assert!(editor.jump_begin(Kind::Char, false));
+    editor.jump_add("ka");
+    editor.jump_end();
+    assert!(!editor.take_migemo_dictionary_wanted());
+}

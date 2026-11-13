@@ -8,7 +8,8 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use super::watch::{Seen, Unread, WITHHELD, look, may_hold_secrets, read};
+use super::checked::{Unread, read};
+use super::watch::{Seen, WITHHELD, look, may_hold_secrets};
 use crate::sessions::rules::{self, LOCAL_FILE, RuleSet, Source};
 use crate::sessions::state::Target;
 

@@ -65,10 +65,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
         } => {
             let mut notes = Vec::new();
             if group_writes {
-                notes.push(format!(
-                    "{name}: other users in a group can change it, or the way to it (on macOS, \
-                     a group such as staff can hold every account)"
-                ));
+                notes.push(group_writes_note(name));
             }
             notes.extend(
                 loaded
@@ -104,6 +101,15 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
             }
         }
     }
+}
+
+/// What `*Messages*` says of a file of the person's, `name`, that the users of a group can
+/// change, or the way to it: `config.toml`, or a file it names such as migemo's dictionary.
+pub fn group_writes_note(name: &str) -> String {
+    format!(
+        "{name}: other users in a group can change it, or the way to it (on macOS, a group \
+         such as staff can hold every account)"
+    )
 }
 
 #[cfg(test)]

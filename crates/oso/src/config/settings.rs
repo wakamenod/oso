@@ -64,7 +64,7 @@ pub struct Search {
 }
 
 /// The longest `[search] migemo-dictionary` path, in bytes.
-pub const MAX_DICTIONARY_PATH: usize = 4096;
+pub(super) const MAX_DICTIONARY_PATH: usize = 4096;
 
 /// `[theme]`: built-in themes, by name (ADR 0089).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -229,12 +229,16 @@ fn dictionary_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<St
         return None;
     };
     let absolute = path.starts_with("~/") || std::path::Path::new(path.as_ref()).is_absolute();
+    // A share on another computer, or a Windows device, is no file of the person's here.
+    let elsewhere = path.starts_with("\\\\") || path.starts_with("//");
     let why = if !absolute {
-        "takes an absolute path, or one starting with ~/"
+        "takes an absolute path, or one starting with ~/".to_owned()
+    } else if elsewhere {
+        "takes a path on this computer, not one starting with \\\\ or //".to_owned()
     } else if path.len() > MAX_DICTIONARY_PATH {
-        "takes a path of at most 4096 bytes"
+        format!("takes a path of at most {MAX_DICTIONARY_PATH} bytes")
     } else if path.contains('\0') {
-        "takes a path with no NUL character"
+        "takes a path with no NUL character".to_owned()
     } else {
         return Some(path.as_ref().to_owned());
     };

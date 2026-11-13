@@ -16,7 +16,7 @@
 //! - A letter that starts no spelling before the end (`struct`) gives no pattern, so the
 //!   caller searches for the string as it is.
 //! - The pattern grows with the string, at most about 18 bytes a letter, and has no line
-//!   break. A string longer than [`MAX_CHARS`] has none.
+//!   break. A string longer than `MAX_CHARS` has none.
 
 mod dictionary;
 mod forms;
@@ -189,6 +189,10 @@ impl Romaji {
                 node.insert(&out);
             }
         }
+        // In order, so each goes in after its node's last child, and once.
+        let mut words = words.to_vec();
+        words.sort_unstable();
+        words.dedup();
         for word in words {
             trie.insert(word);
         }

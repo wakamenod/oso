@@ -641,10 +641,14 @@ coordinator; the notes below are those choices as built.
   step 4. The editor gains `Editor::set_migemo_dictionary` and
   `Editor::take_migemo_dictionary_wanted`. Nothing in `guardrails/layers.txt` changes.
 - **The setting.** `[search] migemo-dictionary` takes a path, absolute or starting with `~/`, of
-  at most 4096 bytes; anything else is a problem the file reports, and the setting is left
-  out. Parsing looks at nothing on disk; `~/` is the home directory when the file is read.
+  at most 4096 bytes, and not one starting with `\\` or `//`, a share on another computer or a
+  Windows device; anything else is a problem the file reports, and the setting is left out.
+  Parsing looks at nothing on disk. `~/` is the home directory when the file is read, if that
+  is absolute: else `*Messages*` says the file was not read, so an empty `HOME` never names a
+  file in the directory oso started in.
 - **Reading it.** The editor says when a search, isearch's or a jump's, built or took migemo's
-  needle with no dictionary; before the event loop waits, the app then sends the file to the
+  needle with no dictionary, but not around a buffer that may hold secrets, where the table's
+  coming would say what was typed; before the event loop waits, the app then sends the file to the
   `oso-migemo` thread (`app/migemo.rs`) if one is named and not read yet. The thread reads it
   with `config.toml`'s checks (ADR 0108): through links, refused if other users can change it
   or a directory or link on the way, a regular file, the one judged, at most 64 MiB, in UTF-8;
@@ -656,7 +660,8 @@ coordinator; the notes below are those choices as built.
   again and looks from its match, as typing does, with no step of its own, so `DEL` goes back
   as before; a jump still reading its string finds its matches again, and one at its labels
   stays as it is. A setting changed to another file reads it at once if a table is in, which
-  serves until the new one is; a setting taken away drops the table. A file that could not be
+  serves until the new one is, or, if the new one cannot be read, is dropped; a setting taken
+  away drops the table. A table replaced is freed on the freeing thread, not the UI's. A file that could not be
   read is tried again only when `config.toml` is read again or the setting changes (Q7). A dev
   restart does not carry the table: the next search reads it again.
 - **The formats (Q3, Q4).** Each line by its shape: a tab makes it `migemo-dict`'s, and
@@ -676,9 +681,13 @@ coordinator; the notes below are those choices as built.
   give no words. An unfinished end's spellings are looked for as the last step, one that
   another starts (`きゃ` after `き`) once. While at most 2048 readings start with the kana and
   an end, their words go in; past that, those of the readings that are the kana and an end
-  exactly, none for a string that is only an unfinished end (`k`). At most 4096 words a
-  pattern: the exact readings' first, then the shorter readings', then the table's order.
-- **Compiling.** The words go into the kana's trie, each through `regex::escape`, compiled with
+  exactly, none for a string that is only an unfinished end (`k`). At most 4096 words and
+  32 KiB of them a pattern, about twice the largest the author's dictionary gives (the author's
+  choice of 2026-11-13, so a pattern compiles within a key whatever a file holds): the exact
+  readings' first, then the shorter readings', then the table's order.
+- **Compiling.** The words go into the kana's trie in order, so each is added after its node's
+  last child, every character through `regex::escape`, which changes only ASCII, so the rest
+  goes as it is with nothing allocated. The pattern compiles with
   a size limit of 4 MiB and the nest limit of 32; past either, the pattern drops its words and
   compiles the kana alone within step 2's 256 KiB, so the kana's largest patterns keep their
   bound (`the_largest_migemo_patterns_compile_on_a_key`), and a dictionary at every limit still

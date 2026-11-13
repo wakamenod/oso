@@ -1,13 +1,13 @@
 //! Tests of migemo's dictionary (ADR 0116): both formats, what each line leaves out, the
 //! limits, readings made one, and the words a string's kana give, over synthetic text.
 //!
-//! Must not depend on: any other module of this crate.
+//! Must not depend on: any module of this crate but its parent's.
 
 use proptest::prelude::*;
 
 use super::{
-    Dictionary, MAX_BYTES, MAX_PATTERN_WORDS, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD,
-    MAX_WORDS_A_READING,
+    Dictionary, MAX_BYTES, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS, MAX_PREFIX_ENTRIES,
+    MAX_READING, MAX_WORD, MAX_WORDS_A_READING,
 };
 use crate::migemo::Romaji;
 
@@ -212,6 +212,33 @@ fn a_pattern_takes_at_most_its_limit_of_words_the_exact_and_shorter_first() {
 }
 
 #[test]
+fn a_pattern_takes_at_most_its_limit_of_words_bytes() {
+    // 1024 words of 60 bytes, each of a reading of its own, and the shorter words before.
+    let mut text = many("あい", 600, 1);
+    for n in 0..1024 {
+        text.push_str(&format!(
+            "あいう{}\t{}{n:04}\n",
+            hiragana(n),
+            "x".repeat(56)
+        ));
+    }
+    let dictionary = Dictionary::new(text);
+    let romaji = Romaji::new("ai").unwrap();
+    let words = dictionary.pattern_words(&romaji);
+    let bytes: usize = words.iter().map(|word| word.len()).sum();
+    assert!(bytes <= MAX_PATTERN_WORD_BYTES, "{bytes}");
+    assert!(bytes > MAX_PATTERN_WORD_BYTES - 64, "{bytes}");
+}
+
+/// Three hiragana for `n`, a reading of its own.
+fn hiragana(n: usize) -> String {
+    let kana: Vec<char> = ('ぁ'..='ゖ').collect();
+    [kana[n / 86 / 86 % 86], kana[n / 86 % 86], kana[n % 86]]
+        .iter()
+        .collect()
+}
+
+#[test]
 fn an_unfinished_end_that_starts_another_counts_its_readings_once() {
     let dictionary = Dictionary::new("きゃく\t客\nき\t木\n".to_owned());
     assert_eq!(words(&dictionary, "k"), ["客", "木"]);
@@ -250,7 +277,9 @@ fn debug_prints_only_counts() {
 
 proptest! {
     #[test]
-    fn any_text_gives_a_table_within_its_limits(text in "[ぁ-ゖa-z\t /;\\n()゛]{0,400}") {
+    fn any_text_gives_a_table_within_its_limits(
+        text in "[ぁ-ゖa-z\t /;\\n()゛\u{feff}\\rーゔ漢カ\\\\.*|]{0,400}",
+    ) {
         let dictionary = Dictionary::new(text);
         for (reading, words) in table(&dictionary) {
             prop_assert!(super::is_reading(&reading));

@@ -3,17 +3,20 @@
 //!
 //! Must not depend on: `app`, `dispatch` or the file system; these run on strings alone.
 
+use super::settings::MAX_DICTIONARY_PATH;
 use super::tests::{Fixture, messages};
 
 #[test]
 fn a_migemo_dictionary_is_a_path_absolute_or_from_home() {
     let f = Fixture::new();
-    let long = format!("/{}", "d".repeat(4096));
+    let long = format!("/{}", "d".repeat(MAX_DICTIONARY_PATH));
+    // No escape in it, so the TOML string is the path.
     let absolute = if cfg!(windows) {
-        r"C:\\dict"
+        "C:/dict"
     } else {
         "/usr/share/dict"
     };
+    let elsewhere = r"takes a path on this computer, not one starting with \\ or //";
     for (path, said) in [
         ("~/dict", None),
         (absolute, None),
@@ -27,6 +30,7 @@ fn a_migemo_dictionary_is_a_path_absolute_or_from_home() {
         ),
         (long.as_str(), Some("takes a path of at most 4096 bytes")),
         ("~/a\\u0000b", Some("takes a path with no NUL character")),
+        ("//server/share/dict", Some(elsewhere)),
     ] {
         let loaded = f.parse(&format!("[search]\nmigemo-dictionary = \"{path}\"\n"));
         let settings = &loaded.settings.search;

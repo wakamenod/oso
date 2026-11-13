@@ -289,39 +289,3 @@ fn a_file_that_may_hold_secrets_has_no_text_quoted() {
     );
     assert!(!loaded.problems[0].message.contains("hunter2"));
 }
-
-/// A file the configuration names, migemo's dictionary, is read with the file's own checks
-/// and a limit of its own (ADR 0116), and what refuses it says why without quoting it.
-#[test]
-fn a_file_the_configuration_names_has_the_files_checks_and_its_own_limit() {
-    let scratch = scratch("config-read-named");
-    let fits = file(&scratch, "fits", "かんじ\t漢字\n".as_bytes());
-    assert_eq!(
-        super::read_named(&fits, 64),
-        Ok(("かんじ\t漢字\n".to_owned(), false))
-    );
-    let large = file(&scratch, "large", &vec![b'x'; 2 * 1024 * 1024 + 1]);
-    let binary = file(&scratch, "binary", b"\xa4\xab\xa4\xf3\n");
-    let missing = scratch.path().join("missing");
-    for (path, max, why) in [
-        (&large, 2 * 1024 * 1024, "it is larger than 2 MiB"),
-        (&fits, 8, "it is larger than 8 bytes"),
-        (&binary, 64, "it is not UTF-8 text"),
-        (&missing, 64, "there is no such file"),
-    ] {
-        assert_eq!(
-            super::read_named(path, max),
-            Err(why.to_owned()),
-            "{path:?}"
-        );
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&fits, fs::Permissions::from_mode(0o664)).unwrap();
-        assert!(super::read_named(&fits, 64).is_ok_and(|(_, group)| group));
-        fs::set_permissions(&fits, fs::Permissions::from_mode(0o646)).unwrap();
-        let refused = super::read_named(&fits, 64);
-        assert_eq!(refused, Err("other users can change it".to_owned()));
-    }
-}
