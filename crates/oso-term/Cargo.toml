@@ -1,0 +1,23 @@
+[package]
+name = "oso-term"
+description = "oso's terminal model: libghostty-vt behind an engine trait, the escape-sequence policy and each terminal's thread"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+# Builds libghostty-vt with Zig from the release pinned in ghostty-vt.lock (ADR 0120).
+build = "build.rs"
+links = "ghostty-vt"
+
+[dependencies]
+oso-core.workspace = true
+oso-platform.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+# Reads the library's type manifest in the layout test.
+serde_json.workspace = true
+
+[lints]
+workspace = true
