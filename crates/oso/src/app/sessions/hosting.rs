@@ -22,7 +22,10 @@ use crate::sessions::identity::SessionId;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
+mod adopt;
 mod terminal;
+
+pub(in crate::app) use adopt::Adopting;
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
@@ -38,9 +41,11 @@ pub(in crate::app) struct Hosting {
     baselines: HashMap<SessionKey, (ProjectId, TrustedRoot)>,
     /// The sessions changed since the worker was last given them to remember.
     unsaved: bool,
-    /// The "fork it instead?" question of a refused resume, and the session it is about: its
-    /// `y` forks that session, whichever buffer is selected then.
-    fork_offered: Option<(PromptId, SessionKey)>,
+    /// The "fork it instead?" question of a refused resume, and the conversation it is about:
+    /// its `y` forks that one, whichever buffer is selected then.
+    fork_offered: Option<(PromptId, ForkFrom)>,
+    /// What `session-adopt` lists, and the adoptions being started.
+    pub(in crate::app) adopting: Adopting,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
@@ -66,7 +71,32 @@ impl Hosting {
             baselines: HashMap::new(),
             unsaved: false,
             fork_offered: None,
+            adopting: Adopting::default(),
             explain: None,
+        }
+    }
+}
+
+/// The conversation a fork copies: a hosted session's, or one being adopted, whose name is only
+/// held while its start thread runs.
+#[derive(Debug, Clone)]
+struct ForkFrom {
+    id: SessionId,
+    directory: PathBuf,
+    root: Option<PathBuf>,
+    name: String,
+    /// The registry said it was busy, the last time this oso saw it (an adoption's only).
+    busy: bool,
+}
+
+impl ForkFrom {
+    fn of(session: &crate::sessions::hosted::Hosted) -> Self {
+        Self {
+            id: session.id.clone(),
+            directory: session.directory.clone(),
+            root: session.root.clone(),
+            name: session.name.clone(),
+            busy: false,
         }
     }
 }
@@ -244,21 +274,23 @@ impl App {
     /// under a new id, in a new buffer; or, as the `y` of a refused resume's question, that
     /// session's.
     pub(in crate::app) fn fork_session(&mut self, buffer: BufferId) {
-        let offered = self.answered_fork_offer();
-        let session = match offered {
-            Some(key) => self.hosting.table.get(key),
-            None => self.hosting.table.by_buffer(buffer),
+        let from = match self.answered_fork_offer() {
+            Some(from) => from,
+            None => match self.hosting.table.by_buffer(buffer) {
+                Some(session) => ForkFrom::of(session),
+                None => {
+                    self.editor.message("This buffer holds no session");
+                    return;
+                }
+            },
         };
-        let Some(session) = session else {
-            self.editor.message("This buffer holds no session");
-            return;
-        };
-        let (from, directory, root, base) = (
-            session.id.clone(),
-            session.directory.clone(),
-            session.root.clone(),
-            session.name.clone(),
-        );
+        let ForkFrom {
+            id: from,
+            directory,
+            root,
+            name: base,
+            ..
+        } = from;
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         self.turn_agent_channel_on_for_a_session();
         let terminal = self.session_terminal(key, &name, None);
@@ -277,8 +309,8 @@ impl App {
 
     /// The session of the refused resume whose question just closed, once: the question was
     /// answered `y` if `session-fork` runs now.
-    fn answered_fork_offer(&mut self) -> Option<SessionKey> {
-        let (asked, _) = self.hosting.fork_offered?;
+    fn answered_fork_offer(&mut self) -> Option<ForkFrom> {
+        let asked = self.hosting.fork_offered.as_ref()?.0;
         if self
             .editor
             .prompts()
@@ -287,7 +319,7 @@ impl App {
         {
             return None;
         }
-        self.hosting.fork_offered.take().map(|(_, key)| key)
+        self.hosting.fork_offered.take().map(|(_, from)| from)
     }
 
     /// After the requests of an event: a fork offer whose question closed without a `y` goes,
@@ -309,8 +341,17 @@ impl App {
     /// What a session's start thread found.
     pub(in crate::app) fn session_start_reported(&mut self, report: Report) {
         match report {
-            Report::Ready(ready) => self.session_ready(ready),
+            Report::Ready(ready) => {
+                let key = ready.token;
+                self.session_ready(ready);
+                if let Some(adopted) = self.take_adoption(key)
+                    && self.hosting.table.get(key).is_some()
+                {
+                    self.session_adopted(&adopted);
+                }
+            }
             Report::Refused { token, why } => {
+                self.take_adoption(token);
                 self.session_not_started(token);
                 self.editor.message(why);
             }
@@ -319,16 +360,24 @@ impl App {
                 pid,
                 directory,
             } => {
+                let adopted = self.take_adoption(token);
                 self.session_not_started(token);
-                let name = self
-                    .hosting
-                    .table
-                    .get(token)
-                    .map_or_else(String::new, |session| session.name.clone());
+                let from = adopted
+                    .clone()
+                    .or_else(|| self.hosting.table.get(token).map(ForkFrom::of));
+                let Some(from) = from else {
+                    return;
+                };
+                let name = from.name.clone();
                 let place = directory
                     .map(|directory| format!(" in {}", shown_directory(&directory)))
                     .unwrap_or_default();
                 let question = match pid {
+                    // A live process cannot move into oso: it stops where it runs first.
+                    Some(pid) if adopted.is_some() => format!(
+                        "Session {name} runs as process {pid}{place}: stop it there and adopt it \
+                         again, or fork it instead?"
+                    ),
                     Some(pid) => format!(
                         "Session {name} runs already as process {pid}{place}; fork it instead?"
                     ),
@@ -337,7 +386,7 @@ impl App {
                     ),
                 };
                 match self.editor.ask(question, "session-fork") {
-                    Ok(asked) => self.hosting.fork_offered = Some((asked, token)),
+                    Ok(asked) => self.hosting.fork_offered = Some((asked, from)),
                     Err(e) => self.editor.message(e.to_string()),
                 }
             }
@@ -362,7 +411,10 @@ impl App {
 
     /// Session `key`'s start baseline goes to its project's review, once.
     fn session_baseline_to_review(&mut self, key: SessionKey, tree: &str) {
-        if let Some((project, _)) = self.hosting.baselines.remove(&key) {
+        let own = self.hosting.adopting.own_baselines.remove(&key);
+        if let Some((project, _)) = self.hosting.baselines.remove(&key)
+            && !own
+        {
             self.session_baseline_taken(project, tree);
         }
     }
@@ -381,6 +433,7 @@ impl App {
     fn session_not_started(&mut self, token: SessionKey) {
         self.session_terminal_not_started(token);
         self.hosting.baselines.remove(&token);
+        self.hosting.adopting.own_baselines.remove(&token);
         if self.hosting.table.release(token).is_none()
             && let Some(session) = self.hosting.table.get_mut(token)
             && session.run == Run::Starting

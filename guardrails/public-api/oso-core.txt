@@ -1451,6 +1451,7 @@ pub fn oso_core::editor::ScopeKind::hash<__H: core::hash::Hasher>(&self, &mut __
 impl core::marker::Copy for oso_core::editor::ScopeKind
 impl core::marker::StructuralPartialEq for oso_core::editor::ScopeKind
 pub enum oso_core::editor::SessionRequest
+pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
 pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)

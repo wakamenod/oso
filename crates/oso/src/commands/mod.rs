@@ -286,6 +286,7 @@ mod tests {
         "session-explain-file",
         // A hosted session's `claude`, a process the person starts (ADR 0121).
         "claude",
+        "session-adopt",
         "session-fork",
         "session-resume",
         "session-stop",

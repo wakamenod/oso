@@ -88,6 +88,7 @@ impl App {
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
+            UserEvent::Adoptable(found) => self.adoptable_found(*found),
             UserEvent::SessionChanges(key, changed) => self.session_changes(key, changed),
             UserEvent::Review(event) => self.review_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
@@ -169,6 +170,7 @@ impl App {
             Event::Focused => {
                 self.window_focused();
                 self.look_at_configuration_again();
+                self.list_adoptable_on_focus();
             }
 
             // ---- Elsewhere: kept above, for a terminal's program that asks (ADR 0120) ----

@@ -128,6 +128,8 @@ pub enum UserEvent {
     Sessions(crate::sessions::worker::Out),
     /// A hosted session's start thread found something (ADR 0121).
     SessionStart(crate::sessions::start::Report),
+    /// The list `session-adopt` completes over was made (ADR 0121).
+    Adoptable(Box<crate::sessions::adopt::Found>),
     /// A look for a session's changes after its turn ended: whether its tree differs from its
     /// baseline, `None` if git failed (ADR 0121 step 3).
     SessionChanges(crate::sessions::worker::SessionKey, Option<bool>),

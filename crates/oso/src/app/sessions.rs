@@ -57,6 +57,10 @@ impl App {
                     self.fork_session(buffer);
                     continue;
                 }
+                SessionRequest::Adopt(pick) => {
+                    self.adopt_session(&pick);
+                    continue;
+                }
                 // The list, spaces and live explain (ADR 0121 step 3).
                 request => {
                     match self.session_request(request) {
@@ -117,6 +121,8 @@ impl App {
             Out::Recalled(remembered) => {
                 self.sessions_recalled(remembered);
                 self.sessions_touched();
+                // Once oso knows its own, the others it may adopt.
+                self.list_adoptable();
             }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);

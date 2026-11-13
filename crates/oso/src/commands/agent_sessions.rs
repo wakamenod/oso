@@ -29,6 +29,9 @@ pub const SESSIONS_LIST: &str = "sessions";
 /// The list `space-switch` completes over: each space's name.
 pub const SPACES_LIST: &str = "spaces";
 
+/// The list `session-adopt` completes over: Claude Code's conversations that oso does not host.
+pub const ADOPT_LIST: &str = "adoptable";
+
 /// The sessions commands.
 pub const COMMANDS: &[Command] = &[
     Command {
@@ -58,6 +61,20 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: session_fork,
+        state: None,
+    },
+    Command {
+        name: "session-adopt",
+        doc: "Bring a Claude Code session started outside oso under oso: resume it in a new terminal buffer, `*claude: NAME*`, read with completion.
+
+The list holds the sessions oso does not host: those Claude Code's registry says run, then those that stopped in the last 30 days, newest first, each with its directory and age. A session that runs elsewhere must be stopped there first: oso cannot move a live process, and resuming it twice would fork its conversation silently, so it refuses and offers `session-fork`. If the session was working when it stopped, its last turn may be cut short: ask it to go on. Of a transcript, oso reads only the session's id, its name, when it changed and its directory.",
+        args: ArgSpec::Listed {
+            list: ADOPT_LIST,
+            prompt: "Adopt session:",
+            history: "session-adopt",
+        },
+        reach: Reach::Person,
+        run: session_adopt,
         state: None,
     },
     Command {
@@ -216,6 +233,12 @@ fn session_resume(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let buffer = ctx.editor.window().buffer();
     ctx.editor.request_session(SessionRequest::Resume(buffer));
+    Ok(())
+}
+
+fn session_adopt(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let pick = answer(ctx, "No session to adopt")?;
+    ctx.editor.request_session(SessionRequest::Adopt(pick));
     Ok(())
 }
 
