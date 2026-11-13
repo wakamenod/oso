@@ -136,7 +136,11 @@ impl App {
             None => {
                 if question_waits(
                     &self.editor,
-                    self.dispatcher.keys_in_progress() || self.composing(),
+                    // A question the channel causes waits for an open menu to close too
+                    // (ADR 0117).
+                    self.dispatcher.keys_in_progress()
+                        || self.dispatcher.menu_open()
+                        || self.composing(),
                 ) {
                     return;
                 }

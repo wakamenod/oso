@@ -14,7 +14,7 @@ use oso_core::editor::Editor;
 use oso_core::minibuffer::PromptId;
 
 use super::App;
-use super::draw::with_panes;
+use super::draw::with_frame;
 use super::shell::Loop;
 use crate::dev;
 use crate::dev::handoff;
@@ -177,6 +177,8 @@ impl App {
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
+        // The menu open, as the channel's state names it (ADR 0117).
+        state["menu"] = json!(self.dispatcher.menu_name());
         // The steps of the last live resize and the frames drawn for them (ADR 0077): numbers
         // only, null on winit.
         let resize = self
@@ -347,9 +349,14 @@ impl App {
         super::draw::statuses_into(&self.editor, &mut statuses);
         let render_state = &mut view.render_state;
         let cells = &mut super::draw::Cells::default();
-        let capture = with_panes(&self.editor, &statuses, cells, |panes| {
-            render_state.capture(panes)
-        });
+        let open_menu = self.dispatcher.menu();
+        let capture = with_frame(
+            &self.editor,
+            open_menu.as_ref(),
+            &statuses,
+            cells,
+            |panes| render_state.capture(panes),
+        );
         log::debug!(
             "screenshot submitted on the UI thread in {:?}",
             started.elapsed()

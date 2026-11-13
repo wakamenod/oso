@@ -26,6 +26,7 @@ mod jump;
 mod kill;
 mod macros;
 mod mark;
+mod menus;
 mod png;
 mod projects;
 mod prompts;

@@ -19,6 +19,7 @@ use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{Binding, Layers, display_keys, is_cancel};
+use oso_core::menu::MenuId;
 
 use super::Dispatcher;
 
@@ -31,7 +32,7 @@ impl Dispatcher {
         let mut shortest: HashMap<CommandId, (usize, String)> = HashMap::new();
         for keymap in layers.iter() {
             keymap.bindings(|keys, id| {
-                if !reaches(&layers, keys, id) {
+                if !reaches(&layers, keys, Binding::Command(id)) {
                     return;
                 }
                 let text = display_keys(keys).to_string();
@@ -52,7 +53,7 @@ impl Dispatcher {
         for keymap in self.keymaps.all() {
             let global = std::ptr::eq(keymap, &self.keymaps.global);
             keymap.bindings(|keys, id| {
-                if !global || reaches(&over_global, keys, id) {
+                if !global || reaches(&over_global, keys, Binding::Command(id)) {
                     bound.insert(id);
                 }
             });
@@ -70,6 +71,36 @@ impl Dispatcher {
             .collect()
     }
 
+    /// The menus `open-menu` lists: every menu in force, each with the shortest key that opens
+    /// it in the layers active now and its title, as `M-x` shows a command's (ADR 0117).
+    pub(super) fn menu_candidates(&self, editor: &Editor) -> Arc<[Candidate]> {
+        let reading = self.keymaps.reading();
+        let layers = self.keymaps.active(&reading, None, editor);
+        let mut shortest: HashMap<MenuId, (usize, String)> = HashMap::new();
+        for keymap in layers.iter() {
+            keymap.menu_bindings(|keys, id| {
+                if !reaches(&layers, keys, Binding::Menu(id)) {
+                    return;
+                }
+                let text = display_keys(keys).to_string();
+                let rank = |len: usize, text: &str| (len, text.len(), text.to_owned());
+                let better = shortest
+                    .get(&id)
+                    .is_none_or(|(len, other)| rank(keys.len(), &text) < rank(*len, other));
+                if better {
+                    shortest.insert(id, (keys.len(), text));
+                }
+            });
+        }
+        self.menus_in_force()
+            .iter()
+            .map(|(id, definition)| {
+                let key = shortest.get(&id).map_or("", |(_, text)| text.as_str());
+                Candidate::new(definition.name(), key, definition.title())
+            })
+            .collect()
+    }
+
     /// Whether `M-x` lists the command named `name`, of those it could: in a test that gave
     /// only some, whether it is one of them.
     #[cfg(test)]
@@ -83,10 +114,10 @@ impl Dispatcher {
     }
 }
 
-/// Whether `keys` run `id` in `layers`, as the resolver reads them a key at a time: no shorter
-/// part of them is bound to a command or left undefined, and `C-g` comes only first, where the
-/// user's keys do not bind it (ADR 0108).
-fn reaches(layers: &Layers<'_>, keys: &[KeyPress], id: CommandId) -> bool {
+/// Whether `keys` come to `bound`, a command or a menu, in `layers`, as the resolver reads them
+/// a key at a time: no shorter part of them is bound to a command or a menu or left undefined,
+/// and `C-g` comes only first, where the user's keys do not bind it (ADR 0108).
+fn reaches(layers: &Layers<'_>, keys: &[KeyPress], bound: Binding<'_>) -> bool {
     let cancels = |key: &KeyPress| is_cancel(*key);
     let Some((first, rest)) = keys.split_first() else {
         return false;
@@ -98,11 +129,11 @@ fn reaches(layers: &Layers<'_>, keys: &[KeyPress], id: CommandId) -> bool {
         user: layers.user.filter(|_| !cancels(first)),
         ..*layers
     };
-    layers.lookup(keys) == Some(Binding::Command(id))
+    layers.lookup(keys) == Some(bound)
         && (1..keys.len()).all(|len| {
             !matches!(
                 layers.lookup(&keys[..len]),
-                Some(Binding::Command(_) | Binding::Undefined)
+                Some(Binding::Command(_) | Binding::Menu(_) | Binding::Undefined)
             )
         })
 }

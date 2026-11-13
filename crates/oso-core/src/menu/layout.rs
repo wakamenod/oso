@@ -18,8 +18,11 @@ pub struct Layout {
     pub outer: CellRect,
     /// What it shows, inside the padding; the same as `outer` where no padding fits.
     pub inner: CellRect,
-    /// The title's row.
+    /// The title's row, short of the prefix argument's cells where one is shown.
     pub title: CellRect,
+    /// The prefix argument's cells at the end of the title's row, such as `C-u 5-`, if one is
+    /// being typed and the row has room for it.
+    pub prefix: Option<CellRect>,
     /// The row under the title for a describe function's line, if it gave one.
     pub line: Option<CellRect>,
     /// The columns, row of columns after row of columns, each left to right.
@@ -31,16 +34,37 @@ pub struct Layout {
 /// One group's column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
-    /// The row of its title, if it has one and the frame leaves room for titles. Its `╌` rule is
-    /// the row below.
+    /// Its group, as an index into [`Definition::groups`].
+    pub group: usize,
+    /// The row of its title, if it has one and the frame leaves room for titles.
     pub title: Option<CellRect>,
-    /// The cells its keys take, before the 2 that part them from the labels.
-    pub keys: usize,
-    /// The heads it shows, each with its row: `key  [x] label  note`.
-    pub rows: Vec<(usize, CellRect)>,
-    /// How many of its heads were cut for room: the row below its last shown head then reads
-    /// `… N more`. Hidden heads are not counted.
-    pub more: usize,
+    /// The row of the `╌` rule under its title.
+    pub rule: Option<CellRect>,
+    /// The heads it shows, each on a row of its own: `key  [x] label  note`, the labels and the
+    /// notes each starting in one column of their own.
+    pub rows: Vec<Row>,
+    /// How many of its heads were cut for room, and the row below its last shown head that says
+    /// `… N more`, sized for the number. Hidden heads are not counted. `None` where none was cut,
+    /// or where even that row has no room.
+    pub more: Option<(usize, CellRect)>,
+}
+
+/// One shown head's row, and its parts' cells. Each part is cut to its column, and a part with
+/// no room left is `None`, or has no columns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Row {
+    /// The head, as an index into [`Definition::heads`].
+    pub head: usize,
+    /// The whole row.
+    pub cells: CellRect,
+    /// Its keys, as wide as they are spelled: their chip.
+    pub key: CellRect,
+    /// The cells of `[x]` or `[ ]`, for a switch or a command with a state.
+    pub check: Option<CellRect>,
+    /// Its label.
+    pub label: CellRect,
+    /// Its note, if it has one.
+    pub note: Option<CellRect>,
 }
 
 /// The columns and rows a float keeps from each edge of the area.
@@ -63,11 +87,28 @@ const CHECK: usize = 4;
 /// What the last row says where `q` quits.
 const QUIT: &str = "q quit";
 
+/// The most bytes of a note that are measured or drawn, as a label's are capped where it is
+/// defined: a describe function is built in, but what it reads may be long.
+const MAX_NOTE_BYTES: usize = 512;
+
+/// `text`, cut to at most [`MAX_NOTE_BYTES`] bytes at a character's boundary.
+pub(crate) fn capped(text: &str) -> &str {
+    if text.len() <= MAX_NOTE_BYTES {
+        return text;
+    }
+    let mut end = MAX_NOTE_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
 /// Where `definition`'s float and its parts go, centred in `area`, the tiled area, and fitted to
 /// its content: the title, the describe function's line, then its rows of columns, each column
 /// with an optional title over a rule and a head per row, then `q quit`. `checks` has, by head,
 /// `Some(on)` for a switch or a command with a state, and `None` for any other or a head past
-/// its end. Hidden heads are left out, and a group left with none.
+/// its end. Hidden heads are left out, and a group left with none. `prefix` is the cells of the
+/// prefix argument being typed, shown at the end of the title's row, or 0 for none.
 ///
 /// A float never comes closer than 2 columns or 1 row to an edge. Where it does not fit, it gives
 /// up its padding, then the column titles, then moves columns of a row onto a new row below,
@@ -77,6 +118,7 @@ pub fn layout(
     definition: &Definition,
     notes: &Notes,
     checks: &[Option<bool>],
+    prefix: usize,
     area: CellRect,
 ) -> Layout {
     let mut blocks = blocks(definition, notes, checks);
@@ -89,6 +131,7 @@ pub fn layout(
     let shape = Shape {
         line: notes.line.is_some(),
         quit: definition.quits_on_q(),
+        prefix,
     };
     let fits = |fit: &Fit, blocks: &[Block<'_>]| {
         let (columns, rows) = fit.outer_size(blocks, shape);
@@ -131,21 +174,39 @@ pub fn layout(
 struct Shape {
     line: bool,
     quit: bool,
+    /// The prefix argument's cells.
+    prefix: usize,
 }
 
 /// One group's column, measured.
 struct Block<'d> {
+    /// Its group's index in the definition.
+    group: usize,
     title: Option<&'d str>,
     title_cells: usize,
     row: u8,
     /// Its shown heads.
     heads: Vec<usize>,
+    /// Each shown head's parts, measured.
+    measures: Vec<Measure>,
     /// The cells of its widest key.
     keys: usize,
-    /// The cells of its widest head's row.
+    /// The cells of its widest `[x]` and label.
+    labels: usize,
+    /// The cells of its widest head's row: the keys, the labels and the notes, each column as
+    /// wide as its widest.
     body: usize,
     /// The most rows it takes: with more heads, it shows one fewer, and then `… N more`.
     limit: usize,
+}
+
+/// The cells of one head's parts.
+struct Measure {
+    key: usize,
+    /// Whether it has `[x]` or `[ ]` before its label.
+    check: bool,
+    label: usize,
+    note: usize,
 }
 
 /// How a float is fitted to the room it has.
@@ -259,7 +320,7 @@ fn blocks<'d>(
     }
     let mut spelled = String::new();
     let mut blocks = Vec::with_capacity(definition.groups().len());
-    for group in definition.groups() {
+    for (index, group) in definition.groups().iter().enumerate() {
         let shown: Vec<usize> = group
             .heads()
             .filter(|&i| !by_head[i].is_some_and(|note| note.hidden))
@@ -267,36 +328,34 @@ fn blocks<'d>(
         if shown.is_empty() {
             continue;
         }
-        let keys = shown
+        let measures: Vec<Measure> = shown
             .iter()
             .map(|&i| {
                 spelled.clear();
                 let _ = write!(spelled, "{}", heads[i].keys);
-                cells_of(&spelled)
+                Measure {
+                    key: cells_of(&spelled),
+                    check: checks.get(i).copied().flatten().is_some(),
+                    label: cells_of(&heads[i].label),
+                    note: by_head[i].map_or(0, |note| cells_of(capped(&note.text))),
+                }
             })
-            .max()
-            .unwrap_or(0);
-        let body = shown
-            .iter()
-            .map(|&i| {
-                let check = if checks.get(i).copied().flatten().is_some() {
-                    CHECK
-                } else {
-                    0
-                };
-                let note = by_head[i].map_or(0, |note| cells_of(&note.text));
-                let note = if note > 0 { GAP + note } else { 0 };
-                keys + GAP + check + cells_of(&heads[i].label) + note
-            })
-            .max()
-            .unwrap_or(0);
+            .collect();
+        let widest = |part: fn(&Measure) -> usize| measures.iter().map(part).max().unwrap_or(0);
+        let keys = widest(|m| m.key);
+        let labels = widest(|m| if m.check { CHECK } else { 0 } + m.label);
+        let notes = widest(|m| m.note);
+        let body = keys + GAP + labels + if notes > 0 { GAP + notes } else { 0 };
         let title = group.title();
         blocks.push(Block {
+            group: index,
             title,
             title_cells: title.map_or(0, cells_of),
             row: group.row(),
             heads: shown,
+            measures,
             keys,
+            labels,
             body,
             limit: usize::MAX,
         });
@@ -348,120 +407,9 @@ fn reflowed(blocks: &[Block<'_>], fit: &Fit, columns: usize) -> Vec<Vec<usize>> 
     lines
 }
 
-/// The cells of each part, for `fit`, centred in `room`.
-fn place(
-    definition: &Definition,
-    notes: &Notes,
-    blocks: &[Block<'_>],
-    fit: &Fit,
-    shape: Shape,
-    room: CellRect,
-) -> Layout {
-    let (columns_width, columns_rows) = fit.columns_size(blocks);
-    let text = |text: &str| cells_of(text);
-    let line_cells = notes.line.as_deref().map_or(0, text);
-    let quit_cells = if shape.quit { cells_of(QUIT) } else { 0 };
-    let (side, ends) = if fit.padded {
-        (SIDE_COLUMNS, SIDE_ROWS)
-    } else {
-        (0, 0)
-    };
-    let wanted = columns_width
-        .max(quit_cells)
-        .max(text(definition.title()))
-        .max(line_cells);
-    let inner_columns = wanted.min(room.columns.saturating_sub(2 * side));
-    let inner_rows = fit
-        .inner_rows(columns_rows, shape)
-        .min(room.rows.saturating_sub(2 * ends));
-    let outer = CellRect {
-        row: room.row + room.rows.saturating_sub(inner_rows + 2 * ends) / 2,
-        column: room.column + room.columns.saturating_sub(inner_columns + 2 * side) / 2,
-        rows: (inner_rows + 2 * ends).min(room.rows),
-        columns: (inner_columns + 2 * side).min(room.columns),
-    };
-    let inner = CellRect {
-        row: outer.row + ends.min(outer.rows),
-        column: outer.column + side.min(outer.columns),
-        rows: inner_rows,
-        columns: inner_columns,
-    };
-    let bottom = inner.row + inner.rows;
-    // The quit row is the last, below the title, and the columns end above it.
-    let quit_row = (shape.quit && inner.rows > 1).then(|| bottom - 1);
-    let rect_at = |row: usize, column: usize, columns: usize, below: usize| {
-        let end = inner.column + inner.columns;
-        (row < below && column < end).then(|| CellRect {
-            row,
-            column,
-            rows: 1,
-            columns: columns.min(end - column),
-        })
-    };
-    let row_at = |row, column, columns| rect_at(row, column, columns, quit_row.unwrap_or(bottom));
-    let title = CellRect {
-        rows: inner.rows.min(1),
-        ..inner
-    };
-    let mut y = inner.row + 1;
-    let line = shape
-        .line
-        .then(|| row_at(y, inner.column, inner.columns))
-        .flatten();
-    y += usize::from(shape.line) + fit.blank();
-    let mut columns = Vec::new();
-    for (i, line) in fit.lines.iter().enumerate() {
-        if i > 0 {
-            y += fit.blank();
-        }
-        let mut x = inner.column;
-        let mut height = 0;
-        for &b in line {
-            let block = &blocks[b];
-            let width = block.width(fit);
-            columns.push(column(block, fit, x, y, width, &row_at));
-            height = height.max(block.height(fit));
-            x += width + COLUMN_GAP;
-        }
-        y += height;
-    }
-    let quit = quit_row.and_then(|row| rect_at(row, inner.column, quit_cells, bottom));
-    Layout {
-        outer,
-        inner,
-        title,
-        line,
-        columns,
-        quit,
-    }
-}
+mod place;
 
-/// One block's column at row `y` and column `x`, `width` cells wide, its rows cut where
-/// `row_at` finds no room.
-fn column(
-    block: &Block<'_>,
-    fit: &Fit,
-    x: usize,
-    y: usize,
-    width: usize,
-    row_at: &impl Fn(usize, usize, usize) -> Option<CellRect>,
-) -> Column {
-    let titled = fit.titled && block.title.is_some();
-    let title = if titled { row_at(y, x, width) } else { None };
-    let first = y + if titled { 2 } else { 0 };
-    let more = block.cut();
-    let rows = block.heads[..block.heads.len() - more]
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &head)| Some((head, row_at(first + i, x, width)?)))
-        .collect();
-    Column {
-        title,
-        keys: block.keys,
-        rows,
-        more,
-    }
-}
+use place::place;
 
 #[cfg(test)]
 mod tests;

@@ -287,17 +287,31 @@ are rounded.
 
 ## Menus
 
-Hydra/transient-style menus float at the **center** of the frame, as they do
-with hydra-posframe today ([ADR 0117](adr/0117-menus.md)):
+Hydra/transient-style menus float at the **center** of the tiled area, as they do
+with hydra-posframe today ([ADR 0117](adr/0117-menus.md)). Steps 1 and 2 are built:
+menus from `config.toml` and the open menu with its float. The built-in menus and the key list
+are planned.
 
 - A head closes the menu unless it says `stay`; switches (`[x]`/`[ ]`) stay and are read by the
-  head that runs. A key the menu does not bind is refused with `q to quit`. `C-g` closes one
-  level of submenus; `q` closes the menu unless a head binds it.
-- Built-in menus are defaults: `toggles` on `C-c t`, `review` on `C-x v r`, and `windows`,
-  `jumps` and `search` through `M-x open-menu`. `[menus.<name>]` in `config.toml` adds a menu,
-  replaces one of the same name whole, or removes it with `false`.
-- After a prefix key waits 1.0 s, a panel along the bottom of the frame lists the keys that may
-  follow, as which-key does; `C-h` shows it at once and pages it.
+  head that runs. A key the menu does not bind is refused with `x is not in this menu: q to quit`
+  and drops the prefix argument. `C-g` first ends a half-typed head or the prefix argument, then
+  closes one level of submenus; `q` closes one level too unless a head binds it.
+- The float is completion's panel at the center of the tiled area. Each key is a chip: the usual
+  colour for a head that closes the menu, a red one for a head that stays, and a third for a
+  switch, whose `[x]` sits on a chip of its colour while it is on. Titles are in their own colour,
+  notes dim and aligned in a column, and a head that cannot run now is dim with no chip. The head
+  `RET` runs is marked with a box. `C-u 5-` shows at the end of the title's row while it is typed.
+- `C-u`, `M-<digit>` and `M--` build a prefix argument for the next head; plain digits are heads.
+- A head that opens a prompt, a search or a replay closes the menu first; no menu opens in a
+  prompt (`Not in the minibuffer`). A menu's key ends isearch, query-replace or the layer of
+  `C-x TAB` and opens the menu; during a jump it ends the jump and does not run, as any key
+  the jump does not bind. The input method is off while a menu is open, and the agent
+  channel waits (`the person is in a menu`). `M-x open-menu` opens any menu by name.
+- `[menus.<name>]` in `config.toml` adds a menu, replaces one of the same name whole, or removes
+  it with `false`. Planned (step 3): built-in menus as defaults, `toggles` on `C-c t`, `review`
+  on `C-x v r`, and `windows`, `jumps` and `search` through `M-x open-menu`.
+- Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
+  the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
 
 ## Echo area
 

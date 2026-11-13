@@ -41,20 +41,34 @@ pub(super) fn reads_passphrase(editor: &Editor) -> bool {
         .is_some_and(|prompt| prompt.kind() == Kind::Passphrase)
 }
 
+/// Writes `prefix` as the echo area shows it, `C-u 5`, after what `out` holds; nothing for none.
+pub(super) fn prefix_text(prefix: Option<Prefix>, out: &mut String) {
+    match prefix {
+        None => {}
+        Some(Prefix::Universal(4)) => out.push_str("C-u"),
+        Some(Prefix::Negative) => out.push_str("C-u -"),
+        Some(prefix) => {
+            let _ = write!(out, "C-u {}", prefix.value());
+        }
+    }
+}
+
 impl Dispatcher {
     /// Tells the echo area the keys in progress: the prefix argument and the keys of a
-    /// pending prefix (ADR 0058, ADR 0063).
+    /// pending prefix (ADR 0058, ADR 0063). In an open menu, only the keys that begin a head
+    /// or a pending prefix: its title row shows the prefix argument (ADR 0117).
     pub(super) fn show_keys_in_progress(&self, editor: &mut Editor) {
-        let pending = self.resolver.pending();
         let mut keys = String::new();
-        match self.prefix {
-            None => {}
-            Some(Prefix::Universal(4)) => keys.push_str("C-u"),
-            Some(Prefix::Negative) => keys.push_str("C-u -"),
-            Some(prefix) => {
-                let _ = write!(keys, "C-u {}", prefix.value());
+        let pending = match self.menus.pending() {
+            Some(in_menu) => {
+                let pending = self.resolver.pending();
+                if pending.is_empty() { in_menu } else { pending }
             }
-        }
+            None => {
+                prefix_text(self.prefix, &mut keys);
+                self.resolver.pending()
+            }
+        };
         if !pending.is_empty() {
             if !keys.is_empty() {
                 keys.push(' ');

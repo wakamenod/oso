@@ -2947,6 +2947,7 @@ pub fn oso_core::keymap::Keymap::get(&self, oso_core::key::KeyPress) -> core::op
 pub fn oso_core::keymap::Keymap::is_empty(&self) -> bool
 pub fn oso_core::keymap::Keymap::len(&self) -> usize
 pub fn oso_core::keymap::Keymap::lookup(&self, &[oso_core::key::KeyPress]) -> core::option::Option<oso_core::keymap::Binding<'_>>
+pub fn oso_core::keymap::Keymap::menu_bindings(&self, impl core::ops::function::FnMut(&[oso_core::key::KeyPress], oso_core::menu::MenuId))
 pub fn oso_core::keymap::Keymap::new() -> Self
 pub fn oso_core::keymap::Keymap::set_text_command(&mut self, oso_core::command::CommandId)
 pub fn oso_core::keymap::Keymap::text_command(&self) -> core::option::Option<oso_core::command::CommandId>
@@ -3221,9 +3222,10 @@ pub fn oso_core::menu::Stay::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::
 impl core::marker::Copy for oso_core::menu::Stay
 impl core::marker::StructuralPartialEq for oso_core::menu::Stay
 pub struct oso_core::menu::Column
-pub oso_core::menu::Column::keys: usize
-pub oso_core::menu::Column::more: usize
-pub oso_core::menu::Column::rows: alloc::vec::Vec<(usize, oso_core::frame::CellRect)>
+pub oso_core::menu::Column::group: usize
+pub oso_core::menu::Column::more: core::option::Option<(usize, oso_core::frame::CellRect)>
+pub oso_core::menu::Column::rows: alloc::vec::Vec<oso_core::menu::Row>
+pub oso_core::menu::Column::rule: core::option::Option<oso_core::frame::CellRect>
 pub oso_core::menu::Column::title: core::option::Option<oso_core::frame::CellRect>
 impl core::clone::Clone for oso_core::menu::Column
 pub fn oso_core::menu::Column::clone(&self) -> oso_core::menu::Column
@@ -3289,6 +3291,7 @@ pub oso_core::menu::Layout::columns: alloc::vec::Vec<oso_core::menu::Column>
 pub oso_core::menu::Layout::inner: oso_core::frame::CellRect
 pub oso_core::menu::Layout::line: core::option::Option<oso_core::frame::CellRect>
 pub oso_core::menu::Layout::outer: oso_core::frame::CellRect
+pub oso_core::menu::Layout::prefix: core::option::Option<oso_core::frame::CellRect>
 pub oso_core::menu::Layout::quit: core::option::Option<oso_core::frame::CellRect>
 pub oso_core::menu::Layout::title: oso_core::frame::CellRect
 impl core::clone::Clone for oso_core::menu::Layout
@@ -3369,6 +3372,21 @@ impl core::clone::Clone for oso_core::menu::Open
 pub fn oso_core::menu::Open::clone(&self) -> oso_core::menu::Open
 impl core::fmt::Debug for oso_core::menu::Open
 pub fn oso_core::menu::Open::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::menu::Row
+pub oso_core::menu::Row::cells: oso_core::frame::CellRect
+pub oso_core::menu::Row::check: core::option::Option<oso_core::frame::CellRect>
+pub oso_core::menu::Row::head: usize
+pub oso_core::menu::Row::key: oso_core::frame::CellRect
+pub oso_core::menu::Row::label: oso_core::frame::CellRect
+pub oso_core::menu::Row::note: core::option::Option<oso_core::frame::CellRect>
+impl core::clone::Clone for oso_core::menu::Row
+pub fn oso_core::menu::Row::clone(&self) -> oso_core::menu::Row
+impl core::cmp::Eq for oso_core::menu::Row
+impl core::cmp::PartialEq for oso_core::menu::Row
+pub fn oso_core::menu::Row::eq(&self, &oso_core::menu::Row) -> bool
+impl core::fmt::Debug for oso_core::menu::Row
+pub fn oso_core::menu::Row::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::Row
 pub const oso_core::menu::MAX_COLUMNS: usize
 pub const oso_core::menu::MAX_COUNT: i16
 pub const oso_core::menu::MAX_DEPTH: usize
@@ -3378,7 +3396,8 @@ pub const oso_core::menu::MAX_LABEL_CELLS: usize
 pub const oso_core::menu::MAX_MENUS: usize
 pub const oso_core::menu::MAX_NAME_BYTES: usize
 pub const oso_core::menu::MAX_ROWS: u8
-pub fn oso_core::menu::layout(&oso_core::menu::Definition, &oso_core::menu::Notes, &[core::option::Option<bool>], oso_core::frame::CellRect) -> oso_core::menu::Layout
+pub fn oso_core::menu::builds_prefix(oso_core::key::KeyPress) -> bool
+pub fn oso_core::menu::layout(&oso_core::menu::Definition, &oso_core::menu::Notes, &[core::option::Option<bool>], usize, oso_core::frame::CellRect) -> oso_core::menu::Layout
 pub type oso_core::menu::Describe = fn(&oso_core::editor::Editor, &oso_core::menu::Open) -> oso_core::menu::Notes
 pub mod oso_core::migemo
 pub struct oso_core::migemo::Dictionary
