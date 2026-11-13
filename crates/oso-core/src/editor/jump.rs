@@ -9,7 +9,7 @@
 //! The only time read here is a key's, for its matches (`search::KEY_TIME`).
 //!
 //! - Only the text in view is looked at: each window's rows in view, within [`WINDOW_BUDGET`]
-//!   of text a window and [`JUMP_BUDGET`] in all, and a string's matches within a key's time
+//!   of text a window and [`JUMP_BUDGET`] in all, and a regexp's matches within a key's time
 //!   (`search::KEY_TIME`), the selected window first, then the others in the tree's order,
 //!   and each window's rows from its cursor's outward, so a budget that runs out leaves out
 //!   the farthest. A key costs as much as the view, not the buffer, and
@@ -27,7 +27,7 @@ use std::time::Instant;
 use super::{Editor, Isearch};
 use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
-use crate::search;
+use crate::search::{self, Needle};
 use crate::window::{Screen, WindowId};
 
 mod cells;
@@ -364,9 +364,11 @@ impl Editor {
             Kind::Isearch => self.isearch_needle(),
             Kind::LineStart | Kind::LineEnd => None,
         };
-        // One time for the key's matches in every window. Its needle, of at most
-        // [`MAX_STRING`] characters, compiles well within a key, or comes from the cache.
+        // One time for a regexp's matches in every window, as a literal string's are linear
+        // in the bytes the budgets bound. Its needle, of at most [`MAX_STRING`] characters,
+        // compiles well within a key, or comes from the cache.
         let until = Instant::now() + search::KEY_TIME;
+        let timed = matches!(needle, Some(Needle::Regexp(_)));
         let mut scratch = std::mem::take(&mut self.jump_scratch);
         let Scratch {
             found,
@@ -406,7 +408,7 @@ impl Editor {
             };
             let room = (&mut *ranges, &mut *line);
             left -= candidates_in(&place, (kind, needle.as_ref()), within, found, room);
-            if left == 0 || found.len() >= MAX_FOUND || Instant::now() >= until {
+            if left == 0 || found.len() >= MAX_FOUND || (timed && Instant::now() >= until) {
                 break;
             }
         }

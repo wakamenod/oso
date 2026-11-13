@@ -40,8 +40,8 @@ pub(in crate::editor) fn outward(at: usize, count: usize) -> impl Iterator<Item 
 }
 
 /// Adds the candidates of `kind` in a window's rows in view to `found`, reading at most
-/// `budget` bytes, adding at most `most` and looking until `until`, from the cursor's row
-/// outward. Returns about how many bytes it read. `room` is room to work in: a
+/// `budget` bytes, adding at most `most` and, for a regexp, looking until `until`, from the
+/// cursor's row outward. Returns about how many bytes it read. `room` is room to work in: a
 /// match's ranges and a line's text.
 pub(super) fn candidates_in(
     place: &Place<'_>,
@@ -84,12 +84,13 @@ pub(super) fn candidates_in(
         }
         (_, Some(needle)) => {
             let (ranges, kept) = room;
+            let timed = matches!(needle, Needle::Regexp(_));
             let mut left = budget;
             // The rows of one line are matched together, as isearch's highlights are, so that
             // a match running into the next row hides the one it overlaps there.
             let mut done = 0..0;
             for index in outward(cursor_row, shown.len()) {
-                if left == 0 || found.len() >= limit || Instant::now() >= until {
+                if left == 0 || found.len() >= limit || (timed && Instant::now() >= until) {
                     break;
                 }
                 if done.contains(&index) {

@@ -4,8 +4,8 @@
 //! Must not depend on: any module of this crate.
 //!
 //! No spelling starts another, so the longest one that matches is the only one. A doubled
-//! consonant (`kka`), `tch`, `n'` and an `n` before a consonant are rules of [`super`], not
-//! rows.
+//! consonant (`kka`), `tch`, `n'`, an `n` before a consonant and an `m` before `b` or `p`
+//! are rules of [`super`], not rows.
 
 /// Every spelling and its hiragana.
 pub(super) const ROWS: &[(&str, &str)] = &[
@@ -24,6 +24,7 @@ pub(super) const ROWS: &[(&str, &str)] = &[
     ("kyu", "きゅ"),
     ("kye", "きぇ"),
     ("kyo", "きょ"),
+    ("kwa", "くぁ"),
     ("ga", "が"),
     ("gi", "ぎ"),
     ("gu", "ぐ"),
@@ -34,6 +35,7 @@ pub(super) const ROWS: &[(&str, &str)] = &[
     ("gyu", "ぎゅ"),
     ("gye", "ぎぇ"),
     ("gyo", "ぎょ"),
+    ("gwa", "ぐぁ"),
     ("sa", "さ"),
     ("si", "し"),
     ("shi", "し"),
@@ -232,10 +234,14 @@ pub(super) const ROWS: &[(&str, &str)] = &[
     ("le", "ぇ"),
     ("lo", "ぉ"),
     ("xya", "ゃ"),
+    ("xyi", "ぃ"),
     ("xyu", "ゅ"),
+    ("xye", "ぇ"),
     ("xyo", "ょ"),
     ("lya", "ゃ"),
+    ("lyi", "ぃ"),
     ("lyu", "ゅ"),
+    ("lye", "ぇ"),
     ("lyo", "ょ"),
     ("xtu", "っ"),
     ("xtsu", "っ"),
@@ -248,3 +254,8 @@ pub(super) const ROWS: &[(&str, &str)] = &[
     ("lka", "ゕ"),
     ("lke", "ゖ"),
 ];
+
+/// The spellings that give a second kana besides their row's, and that kana: Hepburn and
+/// kunrei write `づ` and `ぢ` as `zu` and `ji` (`zi`), so those find both, as C/Migemo has
+/// it. Each kana is one character, as is its row's.
+pub(super) const ALSO: &[(&str, &str)] = &[("zi", "ぢ"), ("zu", "づ"), ("ji", "ぢ")];

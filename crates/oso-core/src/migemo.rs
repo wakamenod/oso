@@ -7,19 +7,20 @@
 //!
 //! - A string is romaji while it holds only lowercase ASCII letters, `'` and `-`, and at
 //!   least one letter. It converts the longest spelling first, so it has one reading: `nn`
-//!   is `ん`, as C/Migemo and input methods have it.
+//!   is `ん`, as C/Migemo and input methods have it. Within it, `zu` is `ず` or `づ`, and
+//!   `ji` and `zi` are `じ` or `ぢ`.
 //! - An unfinished end matches every kana it can start: `k` is `か`, `き`, `く`, `け`,
 //!   `こ` or `っ`.
 //! - A letter that starts no spelling before the end (`struct`) gives no pattern, so the
 //!   caller searches for the string as it is.
-//! - The pattern grows with the string, at most about 16 bytes a letter, and has no line
+//! - The pattern grows with the string, at most about 18 bytes a letter, and has no line
 //!   break. A string longer than [`MAX_CHARS`] has none.
 
 mod forms;
 mod table;
 mod trie;
 
-use trie::Trie;
+use trie::{Key, Trie};
 
 /// The most characters of a string that has a pattern. Its pattern then compiles in under a
 /// millisecond on a key; a longer string is searched for as it is.
@@ -34,11 +35,11 @@ pub(crate) fn is_romaji(string: &str) -> bool {
         && string.bytes().any(|b| b.is_ascii_lowercase())
 }
 
-/// The kana a romaji string gives: the hiragana of what it spells, and the hiragana an
-/// unfinished end can become, none if it ends finished.
+/// The kana a romaji string gives: the hiragana of what it spells, a character or either of
+/// two each, and the hiragana an unfinished end can become, none if it ends finished.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Romaji {
-    hiragana: String,
+    hiragana: Vec<Key>,
     ends: Vec<&'static str>,
 }
 
@@ -50,27 +51,33 @@ impl Romaji {
             return None;
         }
         let bytes = string.as_bytes();
-        let mut hiragana = String::new();
+        let mut hiragana = Vec::new();
         let mut at = 0;
         while at < bytes.len() {
             let rest = &string[at..];
             if let Some((spelling, kana)) = longest(rest) {
-                hiragana.push_str(kana);
+                match also(spelling) {
+                    Some(other) => hiragana.push((one(kana), Some(one(other)))),
+                    None => hiragana.extend(kana.chars().map(|c| (c, None))),
+                }
                 at += spelling.len();
                 continue;
             }
             let next = bytes.get(at + 1).copied();
             match bytes[at] {
-                b'-' => hiragana.push('ー'),
+                b'-' => hiragana.push(('ー', None)),
                 b'\'' => {}
                 b'n' if next == Some(b'\'') => {
-                    hiragana.push('ん');
+                    hiragana.push(('ん', None));
                     at += 1;
                 }
                 b'n' if next.is_some_and(|next| next == b'-' || takes_n(next)) => {
-                    hiragana.push('ん');
+                    hiragana.push(('ん', None));
                 }
-                letter if doubles(letter, &bytes[at + 1..]) => hiragana.push('っ'),
+                // Hepburn's `m` for `ん` (`shimbun`). Before `m` it doubles, as input
+                // methods have it: `mma` is `っま`.
+                b'm' if matches!(next, Some(b'b' | b'p')) => hiragana.push(('ん', None)),
+                letter if doubles(letter, &bytes[at + 1..]) => hiragana.push(('っ', None)),
                 _ => {
                     let ends = ends(rest);
                     return (!ends.is_empty()).then_some(Self { hiragana, ends });
@@ -94,6 +101,19 @@ fn longest(rest: &str) -> Option<(&'static str, &'static str)> {
         .copied()
 }
 
+/// The second kana `spelling` gives besides its row's, if it gives one.
+fn also(spelling: &str) -> Option<&'static str> {
+    table::ALSO
+        .iter()
+        .find(|(also, _)| *also == spelling)
+        .map(|(_, kana)| *kana)
+}
+
+/// The one character of `kana`, a kana of [`table::ALSO`] or its row's.
+fn one(kana: &str) -> char {
+    kana.chars().next().unwrap_or_default()
+}
+
 /// Whether an `n` before `letter` is `ん`: before a consonant other than `n` and `y`.
 fn takes_n(letter: u8) -> bool {
     letter.is_ascii_lowercase() && !b"aeiouny".contains(&letter)
@@ -114,9 +134,11 @@ fn doubles(letter: u8, after: &[u8]) -> bool {
 /// The hiragana an unfinished end can become: every spelling it starts, and `っ` after a
 /// consonant that doubles.
 fn ends(rest: &str) -> Vec<&'static str> {
+    let started = |spelling: &str| spelling.len() > rest.len() && spelling.starts_with(rest);
     let mut ends: Vec<&'static str> = table::ROWS
         .iter()
-        .filter(|(spelling, _)| spelling.len() > rest.len() && spelling.starts_with(rest))
+        .chain(table::ALSO)
+        .filter(|(spelling, _)| started(spelling))
         .map(|(_, kana)| *kana)
         .collect();
     if let [letter] = rest.as_bytes()
@@ -137,27 +159,50 @@ pub(crate) fn pattern(string: &str) -> Option<String> {
     let mut trie = Trie::default();
     trie.insert(string);
     trie.insert(&string.chars().map(forms::full_width).collect::<String>());
-    let katakana = |kana: &str| kana.chars().map(forms::katakana).collect::<String>();
-    let half_width = |kana: &str| {
-        let mut out = String::new();
-        for c in kana.chars() {
-            forms::push_half_width(forms::katakana(c), &mut out);
-        }
-        out
-    };
-    let forms: [&dyn Fn(&str) -> String; 3] = [&str::to_owned, &katakana, &half_width];
+    let forms: [Form; 3] = [
+        |c, out| out.push(c),
+        |c, out| out.push(forms::katakana(c)),
+        |c, out| forms::push_half_width(forms::katakana(c), out),
+    ];
     for form in forms {
-        let node = trie.node(&form(&romaji.hiragana));
+        let node = trie.node(keys(&romaji.hiragana, form));
         if romaji.ends.is_empty() {
             node.end();
         }
         for end in &romaji.ends {
-            node.insert(&form(end));
+            let mut out = String::new();
+            end.chars().for_each(|c| form(c, &mut out));
+            node.insert(&out);
         }
     }
     let mut out = String::new();
     trie.write(&mut out);
     Some(out)
+}
+
+/// A form of the kana: a hiragana's own, pushed onto a string.
+type Form = fn(char, &mut String);
+
+/// The keys of `hiragana` in `form`. Either of two kana gives either of two characters at
+/// each place their forms differ (`[ｽﾂ]ﾞ`), as both have the same number of characters in
+/// each form.
+fn keys(hiragana: &[Key], form: Form) -> Vec<Key> {
+    let (mut keys, mut first, mut second) = (Vec::new(), String::new(), String::new());
+    for &(c, other) in hiragana {
+        first.clear();
+        form(c, &mut first);
+        second.clear();
+        if let Some(other) = other {
+            form(other, &mut second);
+        }
+        if second.chars().count() == first.chars().count() {
+            let pairs = first.chars().zip(second.chars());
+            keys.extend(pairs.map(|(a, b)| (a, (a != b).then_some(b))));
+        } else {
+            keys.extend(first.chars().map(|a| (a, None)));
+        }
+    }
+    keys
 }
 
 /// Every spelling of the table, for tests that build romaji strings from them.

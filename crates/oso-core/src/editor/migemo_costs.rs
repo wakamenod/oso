@@ -77,9 +77,11 @@ fn strings() -> Vec<(&'static str, String)> {
         ("kanjinohenkan*", long("kanjinohenkan")),
         ("n*256", long("n")),
         ("a*256", long("a")),
-        ("aiueo*", long("aiueo")),
-        ("ga*128", long("ga")),
-        ("vu*128", long("vu")),
+        ("-ja*85", long("-ja")),
+        ("-vo*85", long("-vo")),
+        ("kk*128", long("kk")),
+        ("ss*128", long("ss")),
+        ("zu*128", long("zu")),
     ]
 }
 
@@ -136,7 +138,7 @@ fn migemo_key_costs() {
 #[ignore = "a measure, in a release build"]
 fn migemo_typing_costs() {
     let [(_, text), _] = texts();
-    for unit in ["kanjinohenkan", "a", "aiueo", "ga"] {
+    for unit in ["kanjinohenkan", "a", "aiueo", "ga", "-ja", "kk"] {
         let string = unit.repeat(256 / unit.len());
         for backward in [false, true] {
             let (mut typed, mut deleted) = (Vec::new(), Vec::new());
@@ -229,7 +231,7 @@ fn jump_editor(text: &str, windows: usize, secret: bool) -> Editor {
 #[ignore = "a measure, in a release build"]
 fn migemo_jump_costs() {
     // The needles of the jump's longest strings, which a key builds before its time starts.
-    for unit in ["a", "aiueo", "ga", "vu", "n", "kanjinohenkan"] {
+    for unit in ["a", "aiueo", "ga", "vu", "n", "kanjinohenkan", "-ja", "kk"] {
         let string = unit.repeat(crate::jump::MAX_STRING / unit.len());
         let mut times = Vec::new();
         for _ in 0..30 {

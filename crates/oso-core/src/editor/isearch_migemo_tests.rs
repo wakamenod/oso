@@ -1,7 +1,7 @@
 //! Tests of migemo on the editor (ADR 0116): a romaji string's kana in isearch, its line,
 //! `M-m`, the setting, `M-r` and `M-c` with it, the history, cursors from it, the cache
-//! and `Debug`, a secret kill yanked into the string, and a jump's string, also around a
-//! secret.
+//! and `Debug`, a secret kill yanked into the string, `C-w`, `C-y` and `M-p` with romaji,
+//! and a jump's string, also around a secret.
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
@@ -303,4 +303,52 @@ fn a_line_too_long_for_a_regexp_takes_the_search_on_literally() {
     drain(&mut editor);
     assert!(!migemo(&editor));
     assert_eq!(line(&editor), "I-search: ka [1/1]");
+}
+
+#[test]
+fn c_w_after_a_kana_match_adds_kana_and_the_search_turns_literal() {
+    // As any character other than romaji's does (ADR 0116): `kaんじ` is searched as it is.
+    let mut kana = editor("かんじ kanji");
+    search(&mut kana, "ka");
+    assert_eq!(cursor(&kana), "か".len());
+    kana.isearch_yank_word();
+    drain(&mut kana);
+    assert_eq!(kana.isearch().unwrap().string(), "kaんじ");
+    assert!(!migemo(&kana));
+    assert_eq!(line(&kana), "Failing I-search: kaんじ [0/0]");
+    // After a match of the letters, the word's letters keep it migemo's.
+    let mut other = editor("kanji かんじ");
+    search(&mut other, "ka");
+    other.isearch_yank_word();
+    drain(&mut other);
+    assert_eq!(other.isearch().unwrap().string(), "kanji");
+    assert!(migemo(&other));
+    assert_eq!(line(&other), "[migemo] I-search: kanji [1/2]");
+}
+
+#[test]
+fn c_y_and_m_p_bring_romaji_that_is_searched_by_migemo() {
+    let mut editor = editor("kana かな");
+    editor
+        .kill(std::iter::once(0..4), crate::kill::Direction::Forward, true)
+        .unwrap();
+    editor.isearch_begin(false, false);
+    editor.isearch_yank_kill();
+    drain(&mut editor);
+    assert_eq!(editor.isearch().unwrap().string(), "kana");
+    assert!(migemo(&editor));
+    assert_eq!(line(&editor), "[migemo] I-search: kana [1/2]");
+    editor.isearch_repeat(false);
+    assert_eq!(cursor(&editor), "kana かな".len());
+    editor.isearch_exit();
+    // The history gives the string as typed, and migemo searches it again.
+    editor.window_mut(0).0.selections = SelectionSet::new(0);
+    editor.isearch_begin(false, false);
+    editor.isearch_history(true);
+    drain(&mut editor);
+    assert_eq!(editor.isearch().unwrap().string(), "kana");
+    assert!(migemo(&editor));
+    assert_eq!(cursor(&editor), "kana".len());
+    editor.isearch_repeat(false);
+    assert_eq!(cursor(&editor), "kana かな".len());
 }

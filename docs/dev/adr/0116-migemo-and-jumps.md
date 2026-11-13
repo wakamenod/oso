@@ -540,7 +540,17 @@ editor.
   one reading: `nn` is `ん`, as C/Migemo and input methods have it, so `konnichiha` is
   `こんいちは` and `konnnichiha` finds `こんにちは`. Besides the table, `tch` and a doubled
   consonant give `っ`, and `n'`, an `n` before a consonant other than `y` and an `n` before `-`
-  give `ん`.
+  give `ん`, as does Hepburn's `m` before `b` or `p` (`shimbun` finds `しんぶん`). An `m`
+  before `m` doubles, as input methods have it (`mma` is `っま`), so Hepburn's `semmon` does
+  not find `せんもん`: the author chose this on 2026-11-13 over `ん` alone and over either,
+  which made the largest pattern of all. The table also takes the input methods' `kwa`,
+  `gwa`, `xyi`, `xye`, `lyi` and `lye`.
+- **`ず` and `づ`, `じ` and `ぢ`.** Hepburn and kunrei write both of each pair alike, so `zu`
+  matches `ず` or `づ`, and `ji` and `zi` match `じ` or `ぢ`, as C/Migemo has it: `tsuzuku`
+  finds `つづく` and `hanaji` finds `はなぢ`. The reading keeps one place for either, and
+  the trie writes it as a class in each form (`[ずづ]`, `[ズヅ]`, `[ｽﾂ]ﾞ`), so a string of
+  many grows its pattern no faster than one of other kana. `du` and `di` stay `づ` and `ぢ`
+  alone, and `ja` stays `じゃ`.
 - **A letter that starts no spelling** before the end (`struct`, `rust`, `http`) leaves the string
   literal: no `[migemo]`, the literal matcher, and no limit on a line's length.
 - **The forms:** the string, its hiragana, katakana and half-width katakana (`ｶﾞ`, a katakana with
@@ -555,12 +565,19 @@ editor.
   takes it back. In a regexp's search it turns the switch, which shows once `M-r` makes the
   string literal. `M-c` makes the letters case-sensitive; kana have no case. The line puts
   `[migemo]` before Emacs's words: `[migemo] Failing I-search: kan`.
-- **Limits.** A string of at most 256 characters has a pattern, at most about 16 bytes a letter
+- **Limits.** A string of at most 256 characters has a pattern, at most about 18 bytes a letter
   with a constant for an unfinished end; a longer one searches literally, as no one types that
   much romaji and its compile would pass a key's millisecond. The pattern compiles on a key,
   within 0113's 256 KiB and a nest limit of 32, in under a millisecond at 256 characters; over
-  that it would search literally, which no romaji string reaches. 0116's 4 MiB and the build on
+  that it would search literally, which no romaji string reaches. The largest patterns, by
+  what they take of the size limit, are those of a `-` and a spelling such as `ja`, `va` or
+  `vo` repeated, then of a doubled consonant (`kk`, `ss`); `a` repeated takes about a quarter
+  less. `the_largest_migemo_patterns_compile_on_a_key` compiles them. 0116's 4 MiB and the build on
   the worker wait for the dictionary (step 3). Searching keeps step 1's limits.
+- **`C-w` after a kana match** adds the kana after it: with `かんじ kanji`, `C-s ka C-w` makes
+  the string `kaんじ`, which is not romaji, so the search turns literal and fails, by the rule
+  above. After a match of the letters, `C-w` adds letters and migemo goes on. `C-y` and `M-p`
+  bring a string as it is, so romaji from either is migemo's.
 - **The cache** holds the last 32 compiled needles, by string and case, in the editor
   (`editor/migemo.rs`, beside isearch and jumps), so `DEL`, a repeat and `C-s C-s` compile no
   pattern again; a string that gives no kana is not kept, as it costs little to look at
@@ -587,9 +604,9 @@ editor.
   tests in `editor/migemo_costs.rs`, where step 1's literal `zzq` took its 0.58 ms again).
   Building a needle takes 0.06 ms p50 for `k` and `kanji` and 0.4 to 0.7 ms for 256
   characters, at most 1 ms. Over 20 MB of short English lines, forward and backward, a key
-  takes 0.2 ms p50 for `k`, 1.2 to 1.5 ms for `kanji`, and 1.4 to 1.8 ms for 256 characters,
-  the strings of the largest patterns among them (`a`, `aiueo`, `ga` and `vu` repeated); over
-  20 MB of short Japanese lines, 0.3 ms, 1.3 to 1.7 ms and 1.4 to 2.0 ms. All but two keys
+  takes 0.2 ms p50 for `k`, 1.2 to 1.5 ms for `kanji`, and 1.4 to 1.8 ms for 256 characters
+  (`kanjinohenkan`, `n`, `a`, `aiueo`, `ga` and `vu` repeated); over 20 MB of short Japanese
+  lines, 0.3 ms, 1.3 to 1.7 ms and 1.4 to 2.0 ms. All but two keys
   took at most 2.2 ms. Typing 256 characters one at a time over the English lines and taking
   them back, forward and backward, a key takes 1.3 to 1.7 ms p50 and `DEL`, whose needle the
   cache keeps, 0.2 to 0.3 ms; that run's slowest keys, as other work loaded the machine again,
@@ -597,11 +614,15 @@ editor.
   so the needle and the key's 3 ms stay well within the 8 ms of a key. A jump's key takes 0.25
   to 0.55 ms p50 in one window of 120 by 400 and 0.35 to 0.9 ms in four; around a secret,
   which builds its needle each key, within 0.2 ms of that. At a line of 100 MB, a migemo
-  search's key takes 0.7 ms, and the worker goes on literally to the match.
+  search's key takes 0.7 ms, and the worker goes on literally to the match. The strings of the
+  largest patterns (`-ja`, `-vo`, `kk`, `ss` and `zu` repeated) joined those tests after these
+  timings, and were not timed on an idle machine.
 - **Jumps** look for their string through the same cache, by the setting: `ka` labels `か` too.
-  As migemo makes a regexp the usual needle of a jump, a jump's key has one time for matching
-  in every window, isearch's 3 ms, once its needle is built, which a string of at most 64
-  characters keeps short; the rows past it, the farthest from each cursor, get no label. A regexp's highlights and a
+  As migemo makes a regexp the usual needle of a jump, a jump's key has one time for a
+  regexp's matches in every window, isearch's 3 ms, once its needle is built, which a string
+  of at most 64 characters keeps short; the rows past it, the farthest from each cursor, get no
+  label. A literal string keeps step 5's byte and candidate budgets alone, as its search is
+  linear in the bytes they bound, so a loaded machine labels as many as an idle one. A regexp's highlights and a
   jump's key read each line into room they keep, so neither allocates once it has grown.
 
 #### As built (step 5, 2026-11-12)

@@ -330,10 +330,16 @@ proptest! {
     }
 }
 
+/// The strings whose patterns are the largest compile on a key: a `-` and a spelling of
+/// `ja`'s, `va`'s or `vo`'s size repeated, a doubled consonant, and the spellings of two kana
+/// (ADR 0116).
 #[test]
 fn the_largest_migemo_patterns_compile_on_a_key() {
     let longest = |unit: &str| unit.repeat(migemo::MAX_CHARS / unit.len());
-    for unit in ["a", "aiueo", "ga", "vu", "n", "kyo", "xtsu"] {
+    let units = [
+        "-ja", "-va", "-vo", "kk", "ss", "a", "zu", "ji", "mm", "n", "kyo",
+    ];
+    for unit in units {
         let string = longest(unit);
         assert!(migemo::pattern(&string).is_some(), "{unit}");
         assert!(Needle::migemo(&string, false).is_some(), "{unit}");

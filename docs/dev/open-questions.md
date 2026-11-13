@@ -329,7 +329,10 @@ item notes when it must be settled.
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - Migemo matches precomposed kana only: text whose voiced kana are decomposed, as `か` and
   U+3099 in file names macOS gives, is not found by `ga`. Settle it with step 4, where file
-  names meet migemo ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+  names meet migemo ([ADR 0116](adr/0116-migemo-and-jumps.md)). Two cases to settle with it:
+  - a half-width voiced mark: in `ｶﾞ`, `ka` matches the `ｶ`, so a search for `か` lands inside
+    `ガ`'s half-width form;
+  - decomposed kana: in `か` followed by U+3099, `ka` matches the `か`, and `ga` finds nothing.
 
 - After indentation: a query-based indenter on the worker for `indent-region` in more languages;
   fenced code in Markdown indented by its language's rules; detecting a file's indentation when

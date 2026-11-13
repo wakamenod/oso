@@ -4,18 +4,21 @@
 //!
 //! Must not depend on: any module of this crate.
 
-/// A node: the strings that end here, and the next character of the others.
+/// A step of the trie: a character, or either of two (`ず` or `づ`), written as a class.
+pub(super) type Key = (char, Option<char>);
+
+/// A node: the strings that end here, and the next step of the others.
 #[derive(Default)]
 pub(super) struct Trie {
     end: bool,
-    /// Sorted by character, so the pattern is the same for the same strings.
-    next: Vec<(char, Trie)>,
+    /// Sorted by key, so the pattern is the same for the same strings.
+    next: Vec<(Key, Trie)>,
 }
 
 impl Trie {
     /// Adds `string`.
     pub(super) fn insert(&mut self, string: &str) {
-        self.node(string).end();
+        self.node(string.chars().map(|c| (c, None))).end();
     }
 
     /// Makes a string end here.
@@ -23,14 +26,14 @@ impl Trie {
         self.end = true;
     }
 
-    /// The node `string` leads to from here, made if it is not there yet.
-    pub(super) fn node(&mut self, string: &str) -> &mut Self {
+    /// The node `keys` lead to from here, made if it is not there yet.
+    pub(super) fn node(&mut self, keys: impl IntoIterator<Item = Key>) -> &mut Self {
         let mut node = self;
-        for c in string.chars() {
-            let at = match node.next.binary_search_by_key(&c, |(key, _)| *key) {
+        for key in keys {
+            let at = match node.next.binary_search_by_key(&key, |(next, _)| *next) {
                 Ok(at) => at,
                 Err(at) => {
-                    node.next.insert(at, (c, Self::default()));
+                    node.next.insert(at, (key, Self::default()));
                     at
                 }
             };
@@ -43,24 +46,23 @@ impl Trie {
     /// A string that ends where others go on makes the rest optional, which the regexp then
     /// takes as far as it can.
     pub(super) fn write(&self, out: &mut String) {
-        let mut one = [0; 4];
         let mut node = self;
         // A run with one way on and no end is written plainly.
-        while let [(c, only)] = node.next.as_slice()
+        while let [(key, only)] = node.next.as_slice()
             && !node.end
         {
-            out.push_str(&regex::escape(c.encode_utf8(&mut one)));
+            write_key(*key, out);
             node = only;
         }
         if node.next.is_empty() {
             return;
         }
         out.push_str("(?:");
-        for (index, (c, child)) in node.next.iter().enumerate() {
+        for (index, (key, child)) in node.next.iter().enumerate() {
             if index > 0 {
                 out.push('|');
             }
-            out.push_str(&regex::escape(c.encode_utf8(&mut one)));
+            write_key(*key, out);
             child.write(out);
         }
         out.push(')');
@@ -68,4 +70,18 @@ impl Trie {
             out.push('?');
         }
     }
+}
+
+/// `key` onto `out`: its character, or a class of its two. An escaped character is one
+/// inside a class too.
+fn write_key((c, other): Key, out: &mut String) {
+    let mut one = [0; 4];
+    let Some(other) = other else {
+        out.push_str(&regex::escape(c.encode_utf8(&mut one)));
+        return;
+    };
+    out.push('[');
+    out.push_str(&regex::escape(c.encode_utf8(&mut one)));
+    out.push_str(&regex::escape(other.encode_utf8(&mut one)));
+    out.push(']');
 }

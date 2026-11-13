@@ -29,8 +29,18 @@ fn matches_whole(string: &str, texts: &[&str]) {
     }
 }
 
+/// The first of each kana `string` gives, its second written after a `|`: `ず|づ`.
 fn hiragana(string: &str) -> Option<String> {
-    Romaji::new(string).map(|romaji| romaji.hiragana)
+    let romaji = Romaji::new(string)?;
+    let mut out = String::new();
+    for (c, other) in romaji.hiragana {
+        out.push(c);
+        if let Some(other) = other {
+            out.push('|');
+            out.push(other);
+        }
+    }
+    Some(out)
 }
 
 #[test]
@@ -43,9 +53,48 @@ fn no_spelling_starts_another_and_each_is_its_row() {
             );
         }
         let romaji = Romaji::new(spelling).unwrap();
-        assert_eq!((romaji.hiragana.as_str(), romaji.ends.len()), (*kana, 0));
+        assert!(romaji.ends.is_empty(), "{spelling:?}");
+        let first: String = romaji.hiragana.iter().map(|(c, _)| c).collect();
+        assert_eq!(first, *kana);
         matches_whole(spelling, &[kana]);
     }
+}
+
+#[test]
+fn a_spelling_that_gives_two_kana_finds_both_in_every_form() {
+    for (spelling, other) in table::ALSO {
+        let row = table::ROWS.iter().find(|(row, _)| row == spelling);
+        let (_, kana) = row.unwrap_or_else(|| panic!("{spelling:?} has no row"));
+        assert_eq!((kana.chars().count(), other.chars().count()), (1, 1));
+        assert_eq!(hiragana(spelling), Some(format!("{kana}|{other}")));
+        matches_whole(spelling, &[kana, other]);
+    }
+    matches_whole("zu", &["ず", "づ", "ズ", "ヅ", "ｽﾞ", "ﾂﾞ"]);
+    matches_whole("ji", &["じ", "ぢ", "ジ", "ヂ", "ｼﾞ", "ﾁﾞ"]);
+    matches_whole("tsuzuku", &["つづく", "つずく", "ツヅク", "ﾂﾂﾞｸ"]);
+    matches_whole("hanaji", &["はなぢ", "はなじ", "ハナヂ"]);
+    matches_whole("chijimu", &["ちぢむ"]);
+    // An unfinished end takes them too.
+    matches_whole("tsuz", &["つづ", "つず", "つざ"]);
+    matches_whole("hanaj", &["はなぢ", "はなじゃ"]);
+    // `ja` and `du` are not ones.
+    assert!(!compiled("ja").is_match("ぢゃ"));
+    assert!(!compiled("du").is_match("ず"));
+}
+
+#[test]
+fn hepburns_m_before_b_and_p_is_n() {
+    assert_eq!(hiragana("shimbunsha").as_deref(), Some("しんぶんしゃ"));
+    assert_eq!(hiragana("tempura").as_deref(), Some("てんぷら"));
+    matches_whole("shimbun", &["しんぶん", "シンブン", "ｼﾝﾌﾞﾝ"]);
+    // Before `m` it is a doubled consonant, as input methods have it.
+    assert_eq!(hiragana("semmei").as_deref(), Some("せっめい"));
+    matches_whole("mma", &["っま", "ッマ"]);
+    assert!(!compiled("mma").is_match("んま"));
+    // At the end an `m` starts what it always did.
+    let regex = compiled("shim");
+    assert!(regex.is_match("しま") && regex.is_match("しみゃ"));
+    assert!(!regex.is_match("しん"));
 }
 
 #[test]
@@ -67,13 +116,19 @@ fn spellings_of_each_system_and_the_rules_between_them() {
         ("xtsu", "っ"),
         ("kka", "っか"),
         ("matcha", "まっちゃ"),
-        ("kanji", "かんじ"),
+        ("kanji", "かんじ|ぢ"),
         ("shinbunsha", "しんぶんしゃ"),
         ("konnichiha", "こんいちは"),
         ("konnnichiha", "こんにちは"),
         ("kan'i", "かんい"),
         ("wo", "を"),
         ("ra-menn", "らーめん"),
+        ("kwa", "くぁ"),
+        ("gwa", "ぐぁ"),
+        ("xyi", "ぃ"),
+        ("lye", "ぇ"),
+        ("tsuzuku", "つず|づく"),
+        ("zizi", "じ|ぢじ|ぢ"),
         ("n-", "んー"),
     ] {
         assert_eq!(hiragana(string).as_deref(), Some(kana), "{string:?}");
@@ -139,19 +194,22 @@ fn the_pattern_takes_common_prefixes_out_and_escapes_every_character() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    /// However long or odd a romaji string, its pattern stays within about 16 bytes a letter,
+    /// However long or odd a romaji string, its pattern stays within about 18 bytes a letter,
     /// compiles within a key's limits, and matches the string and its hiragana.
     #[test]
     fn any_romaji_gives_a_bounded_pattern(string in "[a-z'-]{1,256}") {
         let Some(text) = pattern(&string) else {
             return Ok(());
         };
-        prop_assert!(text.len() <= 16 * string.len() + 2048, "{} bytes", text.len());
+        prop_assert!(text.len() <= 18 * string.len() + 2048, "{} bytes", text.len());
         let regex = compiled(&string);
         prop_assert!(regex.is_match(&string));
         let romaji = Romaji::new(&string).unwrap();
         let end = romaji.ends.first().copied().unwrap_or_default();
-        let kana = format!("{}{end}", romaji.hiragana);
-        prop_assert!(regex.is_match(&kana));
+        let first: String = romaji.hiragana.iter().map(|(c, _)| c).collect();
+        let second: String = romaji.hiragana.iter().map(|(c, other)| other.unwrap_or(*c)).collect();
+        for kana in [first + end, second + end] {
+            prop_assert!(regex.is_match(&kana));
+        }
     }
 }
