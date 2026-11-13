@@ -9,7 +9,9 @@ use super::App;
 
 impl App {
     /// Each terminal as the dev socket's state gives it: its buffer, whether a program runs,
-    /// how it reads keys, its size, scroll, modes, cursor and visible rows' text.
+    /// how it reads keys, its size, scroll, modes, cursor and visible rows' text. While its
+    /// program reads a password the rows are null, as dev tooling withholds the text of any
+    /// buffer that may hold secrets (ADR 0044, ADR 0120 Q17).
     pub(in crate::app) fn terminals_state(&self) -> serde_json::Value {
         let mut terminals: Vec<(BufferId, serde_json::Value)> = self
             .terminals
@@ -18,9 +20,12 @@ impl App {
             .map(|(id, hosted)| {
                 let grid = &hosted.grid;
                 let size = grid.size();
-                let rows: Vec<String> = (0..size.map_or(0, |size| usize::from(size.rows)))
-                    .filter_map(|row| grid.row_text(row))
-                    .collect();
+                let secret = self.editor.buffer(id).is_some_and(super::reads_a_password);
+                let rows: Option<Vec<String>> = (!secret).then(|| {
+                    (0..size.map_or(0, |size| usize::from(size.rows)))
+                        .filter_map(|row| grid.row_text(row))
+                        .collect()
+                });
                 let (row, column) = grid.cursor_cell();
                 let modes = grid.modes();
                 let input = match self.dispatcher.terminal_input(id) {
@@ -34,7 +39,7 @@ impl App {
                     "running": hosted.running() && hosted.terminal.is_some(),
                     "ended": hosted.ended,
                     "title": hosted.title,
-                    "echo_off": hosted.echo_off,
+                    "echo_off": secret,
                     "input": input,
                     "size": size.map(|size| serde_json::json!({
                         "rows": size.rows,

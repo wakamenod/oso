@@ -39,6 +39,7 @@ impl App {
         let buffer = match reuse.filter(|id| self.editor.buffer(*id).is_some()) {
             Some(id) => {
                 self.terminals.map.restart(id);
+                self.terminal_restarted(id);
                 id
             }
             None => {

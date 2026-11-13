@@ -179,7 +179,7 @@ fn a_password_prompt_heard_of_after_the_keys_still_drops_the_recording() {
     send(&mut dispatcher, &mut editor, "C-x ( s e c r e t");
     assert!(editor.macro_recording());
     // The snapshot says so of a prompt that was open when the keys went.
-    dispatcher.terminal_read_a_password(&mut editor, id);
+    dispatcher.terminal_reported(&mut editor, id, true);
     assert!(!editor.macro_recording());
 }
 
@@ -188,7 +188,7 @@ fn a_password_prompt_in_a_terminal_the_recording_never_typed_into_keeps_it() {
     let (mut dispatcher, mut editor) = in_terminal();
     let id = editor.current().0.buffer();
     send(&mut dispatcher, &mut editor, "C-x ( C-x 2");
-    dispatcher.terminal_read_a_password(&mut editor, id);
+    dispatcher.terminal_reported(&mut editor, id, true);
     assert!(editor.macro_recording());
 }
 
@@ -251,4 +251,45 @@ fn typed_text_carries_no_control_character() {
         dispatcher.take_terminal_sends(&mut editor),
         [(id, TerminalSend::Text("a[201~b\tcd".into()))]
     );
+}
+
+#[test]
+fn a_password_prompt_heard_of_after_the_recording_ended_drops_the_macro() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.current().0.buffer();
+    send(&mut dispatcher, &mut editor, "C-x ( s e c r e t RET C-x )");
+    let _ = sent(&mut dispatcher, &mut editor);
+    // The terminal's first snapshot since says it read a password then.
+    dispatcher.terminal_reported(&mut editor, id, true);
+    replay(&mut dispatcher, &mut editor);
+    assert!(
+        sent(&mut dispatcher, &mut editor).is_empty(),
+        "no macro holds it"
+    );
+}
+
+#[test]
+fn only_the_first_snapshot_after_the_recording_counts_for_the_last_macro() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.current().0.buffer();
+    send(&mut dispatcher, &mut editor, "C-x ( l s C-x )");
+    let _ = sent(&mut dispatcher, &mut editor);
+    dispatcher.terminal_reported(&mut editor, id, false);
+    // A prompt that opened later says nothing of what the macro typed.
+    dispatcher.terminal_reported(&mut editor, id, true);
+    replay(&mut dispatcher, &mut editor);
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("l s"));
+}
+
+#[test]
+fn a_replay_stops_before_a_command_sends_to_a_password_prompt() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.current().0.buffer();
+    // `C-c C-c` runs `terminal-send-interrupt`, whose send a command asks for.
+    send(&mut dispatcher, &mut editor, "C-x ( C-c C-c C-x )");
+    let _ = sent(&mut dispatcher, &mut editor);
+    editor.set_echo_off(id, true);
+    replay(&mut dispatcher, &mut editor);
+    assert!(dispatcher.take_terminal_sends(&mut editor).is_empty());
+    assert!(!editor.macro_replaying());
 }

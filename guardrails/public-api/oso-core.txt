@@ -1935,6 +1935,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::macro_call(&mut self, core::option::Option<usize>) -> core::result::Result<(), oso_core::editor::MacroError>
 pub fn oso_core::editor::Editor::macro_cancel(&mut self, &str)
 pub fn oso_core::editor::Editor::macro_end(&mut self) -> core::result::Result<(), oso_core::editor::MacroError>
+pub fn oso_core::editor::Editor::macro_forget_last(&mut self, &str)
 pub fn oso_core::editor::Editor::macro_next(&mut self) -> core::option::Option<oso_core::editor::MacroEvent>
 pub fn oso_core::editor::Editor::macro_record(&mut self, impl core::iter::traits::collect::IntoIterator<Item = oso_core::editor::MacroEvent>)
 pub fn oso_core::editor::Editor::macro_recording(&self) -> bool

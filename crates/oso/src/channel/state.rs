@@ -143,7 +143,9 @@ pub(crate) fn begin_a_large_undo(editor: &mut Editor) {
 /// shown (ADR 0079).
 ///
 /// A terminal's says that it is one, whether a program runs in it and whether the person
-/// let agents read it, and nothing of its title or rows (ADR 0120, Q16).
+/// let agents read it, and nothing of its title or rows (ADR 0120, Q16). It leaves out
+/// `secret`, which follows a password prompt there, so that no agent learns when one opens
+/// or how long it stays (Q17).
 fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     let shown = !(buffer.is_secret() && shows_secret);
     let mut state = json!({
@@ -156,6 +158,9 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "wrapped": shown.then(|| buffer.wraps()),
     });
     if buffer.is_terminal() {
+        if let Some(fields) = state.as_object_mut() {
+            fields.remove("secret");
+        }
         state["kind"] = json!("terminal");
         state["running"] = json!(buffer.is_running());
         state["agent_reads"] = json!(buffer.agent_reads());
@@ -602,9 +607,19 @@ mod tests {
         assert_eq!(listed["running"], true);
         assert_eq!(listed["agent_reads"], false);
         assert!(!listed.to_string().contains("a title"), "{listed}");
+        assert!(listed.get("secret").is_none(), "{listed}");
         editor.set_agent_reads(id, true);
         let state = super::state(&editor, None, 0);
         assert!(state.to_string().contains("\"agent_reads\":true"));
+    }
+
+    #[test]
+    fn a_password_prompt_in_a_terminal_not_shown_changes_nothing_in_the_state() {
+        let mut editor = Editor::default();
+        let id = editor.add_terminal_buffer("*terminal*");
+        let before = state(&editor, None, 0);
+        editor.set_echo_off(id, true);
+        assert_eq!(state(&editor, None, 0), before);
     }
 
     #[test]

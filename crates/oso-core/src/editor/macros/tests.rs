@@ -165,3 +165,19 @@ fn a_passphrase_prompt_drops_the_recording_and_stops_a_replay_as_it_opens() {
         .unwrap();
     assert!(!editor.macro_replaying());
 }
+
+#[test]
+fn the_last_macro_is_forgotten_and_its_replay_stopped() {
+    let mut editor = editor();
+    editor.macro_start().unwrap();
+    editor.macro_record([text_event("x"), text_event("y")]);
+    editor.macro_end().unwrap();
+    editor.macro_call(Some(1)).unwrap();
+    assert!(editor.macro_replaying());
+    editor.macro_forget_last("dropped");
+    assert!(!editor.macro_replaying());
+    assert_eq!(editor.macro_next(), None);
+    assert_eq!(editor.macro_call(Some(1)), Err(MacroError::NoMacro));
+    // Nothing to forget says nothing more.
+    editor.macro_forget_last("again");
+}

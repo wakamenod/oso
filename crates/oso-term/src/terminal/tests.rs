@@ -223,6 +223,16 @@ fn echo_turned_off_after_the_last_output_is_seen() {
 }
 
 #[test]
+fn a_synchronized_update_never_holds_a_password_prompt_back() {
+    // The hold would last a minute: only the prompt itself lets the snapshot go.
+    let mut seen = Seen::start_holding(
+        sh("printf '\\033[?2026h'; stty -echo; read x"),
+        Duration::from_secs(60),
+    );
+    seen.until(|s| s.echo_off);
+}
+
+#[test]
 fn echo_back_on_with_no_output_is_seen() {
     let mut seen = Seen::start(sh(
         "stty -echo; printf 'ready\\n'; read x; stty echo; read y",

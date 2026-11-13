@@ -33,9 +33,6 @@ impl Dispatcher {
             return None;
         }
         let id = window.buffer();
-        if self.replay_meets_a_password(editor) {
-            return Some(Effects::default());
-        }
         // `C-c` and a key the terminal's keymap does not bind after it send both (ADR 0120).
         let pending_c_c = self.resolver.pending() == [route::C_C] && self.prefix.is_none();
         if pending_c_c
@@ -44,9 +41,7 @@ impl Dispatcher {
         {
             self.resolver.reset();
             self.forget_keys(editor);
-            self.macro_typed_into(editor, id);
-            self.terminal_sends
-                .push((id, ToProgram::Keys(vec![route::C_C, key])));
+            self.send_to_program(editor, id, ToProgram::Keys(vec![route::C_C, key]));
             return Some(Effects::default());
         }
         let busy = self.oso_busy(editor);
@@ -65,8 +60,7 @@ impl Dispatcher {
         match routed {
             Route::Oso => None,
             Route::Send(keys) => {
-                self.macro_typed_into(editor, id);
-                self.terminal_sends.push((id, ToProgram::Keys(keys)));
+                self.send_to_program(editor, id, ToProgram::Keys(keys));
                 Some(Effects::default())
             }
             Route::Hold => {
@@ -107,23 +101,18 @@ impl Dispatcher {
             return false;
         }
         let id = window.buffer();
-        if self.replay_meets_a_password(editor) {
+        let state = self.terminal_keys.entry(id).or_default();
+        let held_c_c = std::mem::take(&mut state.held_c_c);
+        state.quoted = false;
+        if held_c_c && !self.send_to_program(editor, id, ToProgram::Keys(vec![route::C_C])) {
             return true;
         }
-        self.macro_typed_into(editor, id);
-        let state = self.terminal_keys.entry(id).or_default();
-        if state.held_c_c {
-            self.terminal_sends
-                .push((id, ToProgram::Keys(vec![route::C_C])));
-        }
-        state.held_c_c = false;
-        state.quoted = false;
         let clean: String = text
             .chars()
             .filter(|c| *c == '\t' || !c.is_control())
             .collect();
         if !clean.is_empty() {
-            self.terminal_sends.push((id, ToProgram::Text(clean)));
+            self.send_to_program(editor, id, ToProgram::Text(clean));
         }
         true
     }
@@ -143,17 +132,29 @@ impl Dispatcher {
                 TerminalRequest::QuoteNext => self.quote_next(selected),
                 TerminalRequest::ToggleCharMode => self.toggle_char_mode(selected),
                 TerminalRequest::Keys(keys) => {
-                    self.terminal_sends.push((selected, ToProgram::Keys(keys)))
+                    self.send_to_program(editor, selected, ToProgram::Keys(keys));
                 }
                 TerminalRequest::Paste { text } => {
-                    self.terminal_sends.push((selected, ToProgram::Paste(text)));
+                    self.send_to_program(editor, selected, ToProgram::Paste(text));
                 }
                 TerminalRequest::PasteLines => {
-                    self.terminal_sends.push((selected, ToProgram::PasteLines));
+                    self.send_to_program(editor, selected, ToProgram::PasteLines);
                 }
                 TerminalRequest::Open { .. } => editor.request_terminal(request),
             }
         }
+    }
+
+    /// Queues `send` for the terminal `id`'s program. Every send goes through here: a replay
+    /// stops before it reaches a terminal whose program reads a password, and a recording
+    /// notes the terminal (ADR 0120, Q17). Returns whether it was queued.
+    fn send_to_program(&mut self, editor: &mut Editor, id: BufferId, send: ToProgram) -> bool {
+        if self.replay_meets_a_password(editor, id) {
+            return false;
+        }
+        self.macro_typed_into(editor, id);
+        self.terminal_sends.push((id, send));
+        true
     }
 
     /// What waits to go to terminals' programs, each with its terminal, oldest first. What

@@ -16,7 +16,7 @@ use oso_core::display_map::DisplaySnapshot;
 use oso_core::editor::Editor;
 use oso_core::motion;
 use oso_core::rope::Rope;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::protocol::TextOf;
 use super::server::Reply;
@@ -45,19 +45,34 @@ const TERMINAL: &str = "the person has not let agents read that terminal \
 const ECHO_OFF: &str = "echo off: the terminal's program reads a password, so its rows stay \
                         in the editor";
 
-/// A terminal's screen as the host keeps it, for `text` where the person let agents read it
-/// (ADR 0120, Q16): each row's text with its trailing blanks dropped, which rows go on in the
-/// next, where the view is, and whether the last snapshot said the program read a password.
-pub struct Screen {
-    pub rows: Vec<String>,
-    pub wraps: Vec<bool>,
-    pub history: usize,
-    pub scrolled: usize,
-    pub echo_off: bool,
+/// What `text` asks of a terminal's screen: rows from `start_row`, at most `rows` of them, and
+/// at most `budget` bytes of their text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreenAsk {
+    pub start_row: usize,
+    pub rows: usize,
+    pub budget: usize,
 }
 
-/// The host's terminals' screens, by their buffers.
-pub type Screens<'a> = &'a dyn Fn(BufferId) -> Option<Screen>;
+/// Rows of a terminal's screen as the host keeps it, for `text` where the person let agents
+/// read it and its program reads no password (ADR 0120, Q16, Q17). The host copies only the
+/// rows asked, within the budget.
+pub struct TerminalScreen {
+    /// Rows the screen has.
+    pub row_count: usize,
+    /// The first row given, and each given row's text with its trailing blanks dropped.
+    pub start_row: usize,
+    pub rows: Vec<String>,
+    /// Whether each given row goes on in the next, soft-wrapped.
+    pub wraps: Vec<bool>,
+    /// The next row would have taken the text past the budget.
+    pub truncated: bool,
+    pub history: usize,
+    pub scrolled: usize,
+}
+
+/// How `text` gets the rows it asks of a terminal's screen from the host, by its buffer.
+pub type ScreenOf<'a> = &'a dyn Fn(BufferId, ScreenAsk) -> Option<TerminalScreen>;
 
 /// A `text` request, with a snapshot of a buffer that may hold no secrets.
 pub struct TextJob {
@@ -82,8 +97,9 @@ enum What {
         rows: usize,
     },
     Region(Range<usize>),
-    /// A terminal's rows, copied on the UI thread already: a screen is small.
-    Ready(Value),
+    /// A terminal's rows the host copied, within the budget; the reply is made off the UI
+    /// thread.
+    Terminal(TerminalScreen),
 }
 
 /// Starts `text`, on the UI thread: an error if the buffer is not there or may hold
@@ -92,7 +108,7 @@ enum What {
 /// # Errors
 ///
 /// What is wrong, to send back.
-pub fn start(editor: &Editor, screens: Screens<'_>, of: TextOf) -> Result<TextJob, String> {
+pub fn start(editor: &Editor, screen_of: ScreenOf<'_>, of: TextOf) -> Result<TextJob, String> {
     let (id, what) = match of {
         TextOf::Rows {
             buffer,
@@ -108,7 +124,7 @@ pub fn start(editor: &Editor, screens: Screens<'_>, of: TextOf) -> Result<TextJo
                 .buffer(id)
                 .is_some_and(oso_core::buffer::Buffer::is_terminal)
             {
-                return terminal_rows(editor, screens, id, start_row, rows);
+                return terminal_rows(editor, screen_of, id, start_row, rows);
             }
             (id, What::Rows { start_row, rows })
         }
@@ -142,7 +158,7 @@ pub fn start(editor: &Editor, screens: Screens<'_>, of: TextOf) -> Result<TextJo
 /// has its trailing blanks dropped; `wraps` says which go on in the next, soft-wrapped.
 fn terminal_rows(
     editor: &Editor,
-    screens: Screens<'_>,
+    screen_of: ScreenOf<'_>,
     id: BufferId,
     start_row: usize,
     rows: usize,
@@ -151,43 +167,22 @@ fn terminal_rows(
     if !buffer.agent_reads() {
         return Err(TERMINAL.into());
     }
+    // The buffer's verdict is the one record of a password prompt, set from the snapshot
+    // the rows came with.
     if buffer.is_secret() {
         return Err(ECHO_OFF.into());
     }
-    let screen = screens(id).ok_or("the terminal is starting")?;
-    // The snapshot's flag too: it says so of a prompt that ended since the frame before.
-    if screen.echo_off {
-        return Err(ECHO_OFF.into());
-    }
-    let count = screen.rows.len();
-    let end = start_row.saturating_add(rows).min(count);
-    let range = start_row.min(end)..end;
-    let mut budget = MAX_ROWS_TEXT;
-    let (mut out, mut wraps, mut truncated) = (Vec::new(), Vec::new(), false);
-    for row in range.clone() {
-        let text = &screen.rows[row];
-        if text.len() > budget {
-            truncated = true;
-            break;
-        }
-        budget -= text.len();
-        out.push(text.as_str());
-        wraps.push(screen.wraps.get(row).copied().unwrap_or(false));
-    }
+    let ask = ScreenAsk {
+        start_row,
+        rows,
+        budget: MAX_ROWS_TEXT,
+    };
+    let screen = screen_of(id, ask).ok_or("the terminal is starting")?;
     Ok(TextJob {
         buffer: id.get(),
         text: Rope::new(),
         display: buffer.display(),
-        what: What::Ready(json!({
-            "buffer": id.get(),
-            "start_row": range.start,
-            "row_count": count,
-            "rows": out,
-            "wraps": wraps,
-            "truncated": truncated,
-            "history": screen.history,
-            "scrolled": screen.scrolled,
-        })),
+        what: What::Terminal(screen),
     })
 }
 
@@ -255,7 +250,16 @@ impl TextJob {
 
     fn run(&self) -> Reply {
         match &self.what {
-            What::Ready(value) => Ok(value.clone()),
+            What::Terminal(screen) => Ok(json!({
+                "buffer": self.buffer,
+                "start_row": screen.start_row,
+                "row_count": screen.row_count,
+                "rows": screen.rows,
+                "wraps": screen.wraps,
+                "truncated": screen.truncated,
+                "history": screen.history,
+                "scrolled": screen.scrolled,
+            })),
             What::Region(range) => Ok(json!({
                 "buffer": self.buffer,
                 "region": slice(&self.text, range.clone()),
@@ -280,8 +284,8 @@ impl TextJob {
 
 #[cfg(test)]
 mod tests {
-    use super::Screen;
     use super::{ECHO_OFF, MAX_REGION, TERMINAL, row_range, row_texts, start};
+    use super::{ScreenAsk, TerminalScreen};
     use crate::channel::protocol::TextOf;
     use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
@@ -337,7 +341,7 @@ mod tests {
         let id = editor.add_buffer(opening).get();
         let why = start(
             &editor,
-            &|_| None,
+            &|_, _| None,
             TextOf::Rows {
                 buffer: id,
                 start_row: 0,
@@ -354,7 +358,7 @@ mod tests {
         let editor = editor("one\ntwo\nthree");
         let job = start(
             &editor,
-            &|_| None,
+            &|_, _| None,
             TextOf::Rows {
                 buffer: id(&editor),
                 start_row: 1,
@@ -368,7 +372,7 @@ mod tests {
         assert!(
             start(
                 &editor,
-                &|_| None,
+                &|_, _| None,
                 TextOf::Rows {
                     buffer: 999,
                     start_row: 0,
@@ -383,12 +387,12 @@ mod tests {
     fn gives_the_region_only_while_it_is_active_and_short() {
         let mut editor = editor("abcdef");
         assert!(
-            start(&editor, &|_| None, TextOf::Region)
+            start(&editor, &|_, _| None, TextOf::Region)
                 .unwrap_err()
                 .contains("no region")
         );
         select(&mut editor, 1, 4);
-        let text = start(&editor, &|_| None, TextOf::Region)
+        let text = start(&editor, &|_, _| None, TextOf::Region)
             .unwrap()
             .run()
             .unwrap();
@@ -396,7 +400,7 @@ mod tests {
         let mut long = self::editor(&"a".repeat(MAX_REGION + 1));
         select(&mut long, 0, MAX_REGION + 1);
         assert!(
-            start(&long, &|_| None, TextOf::Region)
+            start(&long, &|_, _| None, TextOf::Region)
                 .unwrap_err()
                 .contains("more than")
         );
@@ -409,7 +413,7 @@ mod tests {
         let prompt = editor.prompt().unwrap().buffer().get();
         let refused = start(
             &editor,
-            &|_| None,
+            &|_, _| None,
             TextOf::Rows {
                 buffer: prompt,
                 start_row: 0,
@@ -426,7 +430,7 @@ mod tests {
         let buffer = id(&editor);
         let refused = start(
             &editor,
-            &|_| None,
+            &|_, _| None,
             TextOf::Rows {
                 buffer,
                 start_row: 0,
@@ -435,7 +439,7 @@ mod tests {
         );
         assert!(refused.unwrap_err().contains("may hold secrets"));
         // The region gets the same answer, whether there is one or not.
-        let region = start(&editor, &|_| None, TextOf::Region).unwrap_err();
+        let region = start(&editor, &|_, _| None, TextOf::Region).unwrap_err();
         assert!(region.contains("may hold secrets"), "{region}");
     }
 
@@ -446,13 +450,20 @@ mod tests {
         (editor, id)
     }
 
-    fn screen(echo_off: bool) -> Option<Screen> {
-        Some(Screen {
-            rows: vec!["hello".into(), "x".into()],
-            wraps: vec![true, false],
+    /// The screen a host gives for `ask`: `hello` above `x`, the first going on in the
+    /// second.
+    fn screen(ask: ScreenAsk) -> Option<TerminalScreen> {
+        let all = [("hello", true), ("x", false)];
+        let end = ask.start_row.saturating_add(ask.rows).min(all.len());
+        let given = &all[ask.start_row.min(end)..end];
+        Some(TerminalScreen {
+            row_count: all.len(),
+            start_row: ask.start_row,
+            rows: given.iter().map(|(text, _)| (*text).to_owned()).collect(),
+            wraps: given.iter().map(|(_, wraps)| *wraps).collect(),
+            truncated: false,
             history: 3,
             scrolled: 0,
-            echo_off,
         })
     }
 
@@ -467,7 +478,7 @@ mod tests {
     #[test]
     fn a_terminal_gives_its_rows_only_once_the_person_allows_it() {
         let (mut editor, id) = terminal();
-        let shown = |_| screen(false);
+        let shown = |_, ask| screen(ask);
         let refused = start(&editor, &shown, rows_of(id)).unwrap_err();
         assert_eq!(refused, TERMINAL);
         editor.set_agent_reads(id, true);
@@ -485,12 +496,8 @@ mod tests {
         let (mut editor, id) = terminal();
         editor.set_agent_reads(id, true);
         editor.set_echo_off(id, true);
-        let shown = |_| screen(false);
+        let shown = |_, ask| screen(ask);
         assert_eq!(start(&editor, &shown, rows_of(id)).unwrap_err(), ECHO_OFF);
-        // The snapshot said so of a prompt that ended since: still withheld this once.
-        editor.set_echo_off(id, false);
-        let said = |_| screen(true);
-        assert_eq!(start(&editor, &said, rows_of(id)).unwrap_err(), ECHO_OFF);
     }
 
     #[test]
@@ -498,7 +505,7 @@ mod tests {
         let (mut editor, id) = terminal();
         editor.set_agent_reads(id, true);
         editor.show(id);
-        let shown = |_| screen(false);
+        let shown = |_, ask| screen(ask);
         assert!(start(&editor, &shown, TextOf::Region).is_err());
     }
 }

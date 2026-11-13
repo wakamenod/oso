@@ -2,7 +2,9 @@
 //! writes, and the slave end a child of [`super::spawn`] runs in.
 //!
 //! Must not depend on: `control` or `text`, or any idea of what runs in the
-//! terminal or how its output is parsed.
+//! terminal or how its output is parsed. The terminal's own settings (whether it
+//! echoes, edits lines) are read here; what they mean for a program is the
+//! caller's.
 //!
 //! - Both ends are close-on-exec from the moment they are opened, so no other
 //!   child inherits them; the master is non-blocking.
@@ -16,10 +18,10 @@
 //! macOS and Linux only for now; elsewhere [`open`] and [`wake_pair`] return
 //! [`io::ErrorKind::Unsupported`]. ConPTY will fill `open`, `read`, `write`,
 //! `resize` and `wait`; it has no echo flag, process groups or hang-up, so there
-//! [`Master::echoes`], [`Master::foreground_group`] and [`Master::hang_up`] will
-//! return [`io::ErrorKind::Unsupported`]. A caller treats any error from
-//! `echoes` as echo off (a secret), and any error from `foreground_group` as a
-//! shell that is not in the foreground.
+//! [`Master::reads_secret`], [`Master::foreground_group`] and [`Master::hang_up`]
+//! will return [`io::ErrorKind::Unsupported`]. A caller treats any error from
+//! `reads_secret` as a password prompt (a secret), and any error from
+//! `foreground_group` as a shell that is not in the foreground.
 
 #[cfg(not(unix))]
 mod other;
@@ -83,9 +85,10 @@ impl Master {
         self.0.resize(size)
     }
 
-    /// Whether the program reads a password: echo off while line editing is on, as `sudo`,
-    /// `ssh` and `read -s` have it (ADR 0120). A program that reads keys raw, such as a
-    /// shell's line editor or `vim`, turns echo off too, and does not count.
+    /// Whether the terminal is set as for a password prompt: echo off while the terminal
+    /// edits lines (canonical mode), as `sudo`, `ssh` and `read -s` set it (ADR 0120). A
+    /// terminal set to pass keys raw, as a shell's line editor or `vim` set it, has echo off
+    /// too, and does not count.
     pub fn reads_secret(&self) -> io::Result<bool> {
         self.0.reads_secret()
     }

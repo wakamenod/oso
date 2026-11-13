@@ -388,16 +388,13 @@ fn echo_off(state: &Value) -> bool {
 fn a_password_prompt_is_a_secret_and_a_raw_read_is_not() {
     let (_scratch, mut app) = start("terminal-echo-off");
     open_terminal(&mut app);
-    type_line(
-        &mut app,
-        "stty -echo; echo pw-ready; read x; stty echo; echo pw-done",
-    );
-    let state = app.wait_for("the password prompt", |state| {
-        shows_row(state, "pw-ready") && echo_off(state)
-    });
+    type_line(&mut app, "stty -echo; read x; stty echo; echo pw-done");
+    let state = app.wait_for("the password prompt", echo_off);
     assert_eq!(state["buffer"]["secret"], true, "{}", state["buffer"]);
-    let modeline = state["modeline"].as_str().unwrap_or_default();
-    assert!(modeline.contains("Terminal  secret"), "{modeline}");
+    // Dev tooling withholds its rows, and the modeline too, as around any buffer that may
+    // hold secrets; the modeline's `secret` mark has unit tests.
+    assert!(terminal(&state)["rows"].is_null());
+    assert!(state["modeline"].is_null());
     if let Some(wanted) = state["secure_input"]["wanted"].as_bool() {
         assert!(wanted, "secure input is asked for while it is selected");
     }
@@ -457,10 +454,8 @@ fn an_agent_reads_a_terminal_only_once_let_and_never_a_password_prompt() {
     assert!(read.to_string().contains("shown-to-the-agent"), "{read}");
 
     // At a password prompt the rows are withheld, and the channel waits for the person.
-    type_line(&mut app, "stty -echo; echo pw-ready; read x; stty echo");
-    app.wait_for("the password prompt", |state| {
-        shows_row(state, "pw-ready") && echo_off(state)
-    });
+    type_line(&mut app, "stty -echo; read x; stty echo");
+    app.wait_for("the password prompt", echo_off);
     let withheld = agent.call("text", Some(text())).unwrap_err();
     assert!(withheld.contains("echo off"), "{withheld}");
     let waits = agent.run("forward-char", None, "look").unwrap_err();

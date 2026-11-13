@@ -1,8 +1,9 @@
 //! A terminal's thread (ADR 0120, Q4): it makes the engine, opens the PTY and starts the child
 //! in it, and then reads at most 64 KiB at a time, parses for at most 4 ms (and at most 1 MiB)
 //! before it looks at the UI's requests again, encodes and writes what is queued, judges each
-//! effect, and sends a snapshot when the last one was taken and no synchronized update holds
-//! it back. When the PTY ends it reaps the child and sends the end.
+//! effect, looks at the PTY's flags for a password prompt around input and output (Q17), and
+//! sends a snapshot when the last one was taken and no synchronized update holds it back. When
+//! the PTY ends it reaps the child and sends the end.
 //!
 //! Must not depend on: the UI thread's state; it shares only the channels and `Shared`.
 
@@ -231,11 +232,13 @@ struct Running<'a> {
     hold: Hold,
     hold_limit: Duration,
     inputs: Inputs,
-    /// What the thread knows of a password prompt, and when it last looked.
+    /// What the thread knows of a password prompt.
     echo: EchoWatch,
-    looked: Instant,
     /// Output was read since the flags were last looked at.
     fed: bool,
+    /// Output, input or a request reached the engine since it last built a snapshot: a wake
+    /// that only looked at the flags builds none.
+    touched: bool,
     /// The requests ended: the handle is gone.
     detached: bool,
 }
@@ -295,8 +298,8 @@ impl<'a> Running<'a> {
             hold_limit,
             inputs: Inputs::new(),
             echo: EchoWatch::default(),
-            looked: Instant::now(),
             fed: false,
+            touched: true,
             detached: false,
         })
     }
@@ -305,11 +308,7 @@ impl<'a> Running<'a> {
     fn run(&mut self) -> End {
         loop {
             self.serve_requests();
-            if self
-                .echo
-                .due(self.looked)
-                .is_some_and(|due| Instant::now() >= due)
-            {
+            if self.echo.due().is_some_and(|due| Instant::now() >= due) {
                 self.look();
             }
             if self.detached {
@@ -324,8 +323,13 @@ impl<'a> Running<'a> {
                 Err(error) => return End::Failed(error),
             };
             if std::mem::take(&mut self.fed) {
-                self.echo.activity(Instant::now());
-                self.look();
+                self.touched = true;
+                // A PTY that ended has no flags worth reading: a failed look would read as a
+                // password prompt.
+                if !matches!(slice, Slice::Ended) {
+                    self.echo.activity(Instant::now());
+                    self.look();
+                }
             }
             self.engine.take_effects(&mut self.effects);
             let (next, hold) = (&mut self.next, &mut self.hold);
@@ -346,7 +350,7 @@ impl<'a> Running<'a> {
                 Slice::Drained => {
                     let echo = self
                         .echo
-                        .due(self.looked)
+                        .due()
                         .map(|due| due.saturating_duration_since(now));
                     let hold = self.hold.left(now, self.hold_limit);
                     hold.into_iter().chain(echo).min()
@@ -366,7 +370,9 @@ impl<'a> Running<'a> {
             .requested
             .store(false, Ordering::Release);
         loop {
-            match self.channels.requests.try_recv() {
+            let request = self.channels.requests.try_recv();
+            self.touched |= request.is_ok();
+            match request {
                 Ok(Request::Input(input)) => self.serve_input(input),
                 Ok(Request::Scroll(scroll)) => {
                     self.engine.scroll(scroll);
@@ -487,15 +493,17 @@ impl<'a> Running<'a> {
     }
 
     /// Sends a snapshot if the UI took the last one, something changed since, and no
-    /// synchronized update holds it back: the hold's end sends all it held.
+    /// synchronized update holds it back: the hold's end sends all it held. A password prompt
+    /// coming or going is never held back, as the UI must hear of it at once (ADR 0120, Q17).
     fn publish(&mut self) {
         let shared = self.channels.shared;
-        if shared.in_flight.load(Ordering::Acquire)
-            || self.hold.holds(Instant::now(), self.hold_limit)
-        {
+        let held = self.hold.holds(Instant::now(), self.hold_limit) && !self.echo.changed();
+        if shared.in_flight.load(Ordering::Acquire) || held {
             return;
         }
-        self.changed |= self.engine.snapshot(&mut self.next, &mut self.spare);
+        if std::mem::take(&mut self.touched) {
+            self.changed |= self.engine.snapshot(&mut self.next, &mut self.spare);
+        }
         if !std::mem::take(&mut self.changed) {
             return;
         }
@@ -533,8 +541,7 @@ impl<'a> Running<'a> {
     /// side, as on systems with no such flags.
     fn look(&mut self) {
         let off = self.master.reads_secret().unwrap_or(true);
-        self.echo.saw(off);
-        self.looked = Instant::now();
+        self.echo.saw(off, Instant::now());
         self.changed |= self.echo.changed();
     }
 

@@ -124,18 +124,22 @@ impl Grid {
 
     /// The text of row `index`, trailing blanks dropped, for the dev socket's state and the
     /// agent channel's `text` where the person allowed it (ADR 0120, Q16).
+    /// One pass over the cells and the clusters, which come in column order, so a row of
+    /// clusters costs its length and not its length times their count.
     pub(crate) fn row_text(&self, index: usize) -> Option<String> {
         let kept = self.rows.get(index)?;
-        let mut text = String::new();
+        let mut text = String::with_capacity(kept.cells.len());
+        let mut clusters = kept.graphemes.iter().peekable();
         for (column, cell) in kept.cells.iter().enumerate() {
+            // A cluster before this column was a cell passed over.
+            while clusters
+                .next_if(|(at, _)| usize::from(*at) < column)
+                .is_some()
+            {}
             if cell.style.contains(oso_render::GridStyle::WIDE_SPACER) {
                 continue;
             }
-            match kept
-                .graphemes
-                .iter()
-                .find(|(at, _)| usize::from(*at) == column)
-            {
+            match clusters.next_if(|(at, _)| usize::from(*at) == column) {
                 Some((_, range)) => text.push_str(
                     kept.text
                         .get(range.start as usize..range.end as usize)
@@ -144,7 +148,9 @@ impl Grid {
                 None => text.push(if cell.ch == '\0' { ' ' } else { cell.ch }),
             }
         }
-        Some(text.trim_end().to_owned())
+        let kept_len = text.trim_end().len();
+        text.truncate(kept_len);
+        Some(text)
     }
 }
 
@@ -222,6 +228,19 @@ mod tests {
         let mut rows: Vec<GridRow<'_>> = Vec::new();
         grid.rows_into(&mut rows);
         rows.iter().map(|row| row.generation).collect()
+    }
+
+    #[test]
+    fn a_rows_text_takes_its_clusters_in_one_pass_and_drops_trailing_blanks() {
+        // "e\u{301}" at 0, a wide "日" at 1 with its spacer at 2, "u\u{308}" at 3, blanks after.
+        let text = "e\u{301}u\u{308}";
+        let mut row = row(0, "e日 u   ");
+        row.cells[2].attrs = oso_term::Attrs::WIDE_SPACER;
+        row.text = text.to_owned();
+        row.graphemes = vec![(0, 0..3), (3, 3..6)];
+        let mut grid = Grid::default();
+        grid.apply(&snapshot(size(1, 7), vec![row]));
+        assert_eq!(grid.row_text(0).as_deref(), Some("e\u{301}日u\u{308}"));
     }
 
     #[test]

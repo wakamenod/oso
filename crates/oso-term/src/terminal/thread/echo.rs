@@ -24,13 +24,16 @@ pub(in crate::terminal) struct EchoWatch {
     said: bool,
     /// When input or output last came, for the tail.
     active: Option<Instant>,
+    /// When the thread last looked.
+    looked: Option<Instant>,
 }
 
 impl EchoWatch {
-    /// A look saw a password prompt (`off`) or not.
-    pub(in crate::terminal) fn saw(&mut self, off: bool) {
+    /// A look at `now` saw a password prompt (`off`) or not.
+    pub(in crate::terminal) fn saw(&mut self, off: bool, now: Instant) {
         self.off = off;
         self.seen |= off;
+        self.looked = Some(now);
     }
 
     /// Input was written or output read at `now`: the tail of looks starts again.
@@ -38,9 +41,9 @@ impl EchoWatch {
         self.active = Some(now);
     }
 
-    /// When the thread looks next with nothing else to wake it, if it does, given the last
-    /// look was at `looked`.
-    pub(in crate::terminal) fn due(&self, looked: Instant) -> Option<Instant> {
+    /// When the thread looks next with nothing else to wake it, if it does.
+    pub(in crate::terminal) fn due(&self) -> Option<Instant> {
+        let looked = self.looked?;
         let tail = self.active.and_then(|active| {
             TAIL.iter()
                 .map(|after| active + *after)
@@ -76,8 +79,8 @@ mod tests {
     fn a_prompt_seen_between_two_snapshots_is_said_once() {
         let mut watch = EchoWatch::default();
         assert!(!watch.echo_off() && !watch.changed());
-        watch.saw(true);
-        watch.saw(false);
+        watch.saw(true, Instant::now());
+        watch.saw(false, Instant::now());
         assert!(watch.echo_off() && watch.changed());
         watch.published();
         // Said once; the next snapshot says it is back on.
@@ -89,19 +92,19 @@ mod tests {
     #[test]
     fn echo_off_stays_said_while_it_lasts() {
         let mut watch = EchoWatch::default();
-        watch.saw(true);
+        watch.saw(true, Instant::now());
         watch.published();
-        watch.saw(true);
+        watch.saw(true, Instant::now());
         assert!(watch.echo_off() && !watch.changed());
     }
 
     #[test]
     fn echo_back_on_is_said_after_a_prompt_was() {
         let mut watch = EchoWatch::default();
-        watch.saw(true);
+        watch.saw(true, Instant::now());
         watch.published();
-        watch.saw(true);
-        watch.saw(false);
+        watch.saw(true, Instant::now());
+        watch.saw(false, Instant::now());
         assert!(!watch.echo_off() && watch.changed());
     }
 
@@ -109,20 +112,23 @@ mod tests {
     fn an_idle_terminal_with_echo_on_is_not_looked_at() {
         let now = Instant::now();
         let mut watch = EchoWatch::default();
-        assert_eq!(watch.due(now), None);
+        assert_eq!(watch.due(), None);
         watch.activity(now);
-        assert_eq!(watch.due(now), Some(now + TAIL[0]));
-        assert_eq!(watch.due(now + TAIL[0]), Some(now + TAIL[1]));
-        assert_eq!(watch.due(now + TAIL[1]), None);
+        watch.saw(false, now);
+        assert_eq!(watch.due(), Some(now + TAIL[0]));
+        watch.saw(false, now + TAIL[0]);
+        assert_eq!(watch.due(), Some(now + TAIL[1]));
+        watch.saw(false, now + TAIL[1]);
+        assert_eq!(watch.due(), None);
     }
 
     #[test]
     fn echo_off_is_looked_at_until_it_comes_back() {
         let now = Instant::now();
         let mut watch = EchoWatch::default();
-        watch.saw(true);
-        assert_eq!(watch.due(now), Some(now + WHILE_OFF));
-        watch.saw(false);
-        assert_eq!(watch.due(now + WHILE_OFF), None);
+        watch.saw(true, now);
+        assert_eq!(watch.due(), Some(now + WHILE_OFF));
+        watch.saw(false, now + WHILE_OFF);
+        assert_eq!(watch.due(), None);
     }
 }
