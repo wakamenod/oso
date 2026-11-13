@@ -3219,6 +3219,7 @@ pub fn oso_core::menu::Stay::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::
 impl core::marker::Copy for oso_core::menu::Stay
 impl core::marker::StructuralPartialEq for oso_core::menu::Stay
 pub struct oso_core::menu::Column
+pub oso_core::menu::Column::group: usize
 pub oso_core::menu::Column::more: core::option::Option<(usize, oso_core::frame::CellRect)>
 pub oso_core::menu::Column::rows: alloc::vec::Vec<oso_core::menu::Row>
 pub oso_core::menu::Column::rule: core::option::Option<oso_core::frame::CellRect>

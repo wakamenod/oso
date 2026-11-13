@@ -160,6 +160,37 @@ fn hidden_heads_and_groups_left_with_none_are_left_out() {
 }
 
 #[test]
+fn each_column_names_its_group_past_hidden_groups_and_by_rows() {
+    let menu = menu(&[
+        (Some("Late"), 2, &[("a", "first")]),
+        (Some("Gone"), 1, &[("b", "second")]),
+        (Some("Early"), 1, &[("c", "third")]),
+    ]);
+    let notes = Notes {
+        heads: vec![(
+            1,
+            Note {
+                hidden: true,
+                ..Note::default()
+            },
+        )],
+        ..Notes::default()
+    };
+    let placed = layout(&menu, &notes, &[], 0, area(40, 100));
+    let groups: Vec<usize> = placed.columns.iter().map(|column| column.group).collect();
+    assert_eq!(groups, [2, 0]);
+    // A column cut to `… N more` alone still names its group.
+    let placed = layout(&menu_of_many(), &Notes::default(), &[], 0, area(6, 100));
+    assert!(placed.columns.iter().all(|column| column.group == 0));
+}
+
+/// One group of 20 heads.
+fn menu_of_many() -> Definition {
+    let heads = many("k", 20);
+    menu(&[(Some("Many"), 1, &borrowed(&heads))])
+}
+
+#[test]
 fn groups_sit_side_by_side_in_their_rows() {
     let menu = menu(&[
         (Some("Size"), 1, &[("a", "narrower"), ("b", "wider")]),

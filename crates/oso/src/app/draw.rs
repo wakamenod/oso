@@ -142,13 +142,19 @@ pub(super) fn with_frame<R>(
     }
     // A menu never shows with a prompt, which closes it (ADR 0117, Q20).
     let menu_open = open_menu.filter(|_| menu_shown).map(OpenMenu::open);
-    let menu_spans = menu_open.and_then(|open| menu::MenuSpans::of(&cells.menu, open));
-    let menu_lines = menu_spans.as_ref().map(menu::MenuSpans::lines);
-    if let (Some(open), Some(lines)) = (menu_open, &menu_lines) {
-        menu::panes(editor, (&cells.menu, open), lines, &mut list);
+    let mut menu_room = cells.menu.take_room();
+    let menu_spans =
+        menu_open.and_then(|open| menu::MenuSpans::of(&cells.menu, open, &mut menu_room));
+    let menu_lines = menu_spans.as_ref().map(|spans| spans.lines(&mut menu_room));
+    if let Some(lines) = &menu_lines {
+        menu::panes(editor, &cells.menu, lines, &mut list);
     }
     let result = draw(&list);
     cells.panes = reuse(list);
+    let menu_room = menu::lines_back(menu_room, menu_lines);
+    cells
+        .menu
+        .give_back(menu::spans_back(menu_room, menu_spans));
     tiled::give_back_rows(&mut room, rows);
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;

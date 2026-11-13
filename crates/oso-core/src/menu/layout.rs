@@ -34,6 +34,8 @@ pub struct Layout {
 /// One group's column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
+    /// Its group, as an index into [`Definition::groups`].
+    pub group: usize,
     /// The row of its title, if it has one and the frame leaves room for titles.
     pub title: Option<CellRect>,
     /// The row of the `╌` rule under its title.
@@ -178,6 +180,8 @@ struct Shape {
 
 /// One group's column, measured.
 struct Block<'d> {
+    /// Its group's index in the definition.
+    group: usize,
     title: Option<&'d str>,
     title_cells: usize,
     row: u8,
@@ -316,7 +320,7 @@ fn blocks<'d>(
     }
     let mut spelled = String::new();
     let mut blocks = Vec::with_capacity(definition.groups().len());
-    for group in definition.groups() {
+    for (index, group) in definition.groups().iter().enumerate() {
         let shown: Vec<usize> = group
             .heads()
             .filter(|&i| !by_head[i].is_some_and(|note| note.hidden))
@@ -344,6 +348,7 @@ fn blocks<'d>(
         let body = keys + GAP + labels + if notes > 0 { GAP + notes } else { 0 };
         let title = group.title();
         blocks.push(Block {
+            group: index,
             title,
             title_cells: title.map_or(0, cells_of),
             row: group.row(),

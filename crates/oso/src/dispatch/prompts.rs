@@ -542,7 +542,16 @@ impl Dispatcher {
         let effects = self
             .execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)
             .0;
-        effects.union(self.after_prompts(editor))
+        let effects = effects.union(self.after_prompts(editor));
+        // The question takes the keys from an open menu, which closes, as it would from a key
+        // (ADR 0117). This runs outside an input, so nothing else closes it.
+        if self.close_menus_if_taken(editor) {
+            return effects.union(Effects {
+                redraw: true,
+                ..Effects::default()
+            });
+        }
+        effects
     }
 
     /// Runs the command named `name`, given to `M-x`, with `M-x`'s prefix argument, reading

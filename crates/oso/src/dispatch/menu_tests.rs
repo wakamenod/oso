@@ -17,7 +17,7 @@ use super::Dispatcher;
 use super::motion_tests::{at, cursors, send};
 use crate::{bindings, commands};
 
-fn echo(editor: &Editor) -> String {
+pub(super) fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
     editor.status_into(editor.tiled().0.id(), &mut status);
     status.echo
@@ -37,7 +37,7 @@ fn say_switches(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 }
 
 /// A dispatcher with the default commands and keys, and `say-switches`.
-fn dispatcher() -> Dispatcher {
+pub(super) fn dispatcher() -> Dispatcher {
     let mut registry = commands::registry();
     registry
         .register(Command {
@@ -65,7 +65,7 @@ fn head(keys: &str, label: &str, action: HeadAction) -> Head {
 }
 
 /// The command `name`'s head, staying or not.
-fn command(d: &Dispatcher, keys: &str, name: &str, stay: Option<Stay>) -> Head {
+pub(super) fn command(d: &Dispatcher, keys: &str, name: &str, stay: Option<Stay>) -> Head {
     Head {
         stay,
         ..head(
@@ -121,7 +121,7 @@ fn menus(d: &Dispatcher, foreign: ForeignKeys) -> (Menus, MenuId) {
 }
 
 /// A user keymap binding `keys` to `menu`.
-fn opening(keys: &str, menu: MenuId) -> Keymap {
+pub(super) fn opening(keys: &str, menu: MenuId) -> Keymap {
     let mut keymap = Keymap::new();
     let keys: KeySequence = keys.parse().unwrap();
     keymap.bind_menu(&keys.0, menu).unwrap();
@@ -130,7 +130,7 @@ fn opening(keys: &str, menu: MenuId) -> Keymap {
 
 /// A dispatcher with the test menus in force, `C-c m` opening `test`, and an editor showing
 /// `text` with its cursor at `cursor`.
-fn with_menus(text: &str, cursor: usize, foreign: ForeignKeys) -> (Dispatcher, Editor) {
+pub(super) fn with_menus(text: &str, cursor: usize, foreign: ForeignKeys) -> (Dispatcher, Editor) {
     let (_, editor) = at(text, &[cursor]);
     let mut d = dispatcher();
     let (menus, test) = menus(&d, foreign);
@@ -459,11 +459,13 @@ fn a_describe_function_hides_heads_refuses_unavailable_ones_and_names_the_ret_he
     assert_eq!((cursors(&editor), d.menu_name()), (vec![3], Some("live")));
     send(&mut d, &mut editor, "RET");
     assert_eq!((cursors(&editor), d.menu_name()), (vec![4], None));
-    let notes = {
-        send(&mut d, &mut editor, "C-c l");
-        d.menu().unwrap().notes(&editor)
-    };
-    assert_eq!(notes.line.as_deref(), Some("about this"));
+    send(&mut d, &mut editor, "C-c l");
+    let mut notes = super::Described::default();
+    d.menu().unwrap().notes_into(&editor, &mut notes);
+    assert_eq!(notes.notes().line.as_deref(), Some("about this"));
+    assert_eq!(notes.now(0), super::HeadNow::Hidden);
+    assert_eq!(notes.now(1), super::HeadNow::Unavailable("Not now"));
+    assert_eq!(notes.get(2).map(|note| &note.text[..]), Some("(last)"));
 }
 
 #[test]

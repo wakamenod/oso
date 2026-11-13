@@ -36,7 +36,7 @@ mod jump;
 mod keymaps;
 mod macros;
 mod menus;
-pub use menus::OpenMenu;
+pub use menus::{Described, HeadNow, OpenMenu};
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
 mod run_command;
@@ -625,6 +625,8 @@ mod kill_tests;
 mod macro_tests;
 #[cfg(test)]
 mod mark_tests;
+#[cfg(test)]
+mod menu_close_tests;
 #[cfg(test)]
 mod menu_tests;
 #[cfg(test)]

@@ -216,6 +216,7 @@ fn column(
             .map(|rect| (cut, rect)),
     };
     Column {
+        group: block.group,
         title,
         rule,
         rows,

@@ -724,17 +724,19 @@ pub(crate) mod tests {
         }
     }
 
-    /// A menu's key chips are marks on its panel, the text's background, at 3:1, and the three
-    /// kinds are told apart by their fills (ADR 0117).
+    /// A menu's key chips are marks on its panel, the text's background, and on the box that
+    /// marks the default head's row, at 3:1, and the three kinds are told apart by their fills
+    /// (ADR 0117).
     #[test]
     fn a_menus_key_chips_stand_out_on_its_panel_and_apart() {
         let chips = [Face::MenuKey, Face::MenuKeyStay, Face::MenuKeySwitch];
         for theme in &themes() {
             let name = theme.name();
-            let panel = theme.background(Face::Text);
-            for chip in chips {
-                let ratio = contrast(theme.background(chip), panel);
-                assert!(ratio >= 3.0, "{name}: {chip:?} {ratio:.2}");
+            for under in [Face::Text, Face::CompletionSelected] {
+                for chip in chips {
+                    let ratio = contrast(theme.background(chip), theme.background(under));
+                    assert!(ratio >= 3.0, "{name}: {chip:?} on {under:?} {ratio:.2}");
+                }
             }
             for (i, a) in chips.iter().enumerate() {
                 for b in &chips[i + 1..] {

@@ -175,10 +175,9 @@ fn key_chip(
     }
     let cells = grid.rect(cells);
     let [inset, up] = style.key_inset.map(|inset| (inset * pt).round());
-    let across = if face == Face::Key {
-        inset
-    } else {
-        -(style.key_reach * pt).round()
+    let across = match face {
+        Face::MenuKey | Face::MenuKeyStay | Face::MenuKeySwitch => -(style.key_reach * pt).round(),
+        _ => inset,
     };
     Rounded {
         rect: [

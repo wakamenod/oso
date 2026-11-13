@@ -12,40 +12,25 @@ use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{Binding, Layers, is_cancel};
 use oso_core::menu::{
-    Definition, ForeignKeys, HeadAction, Lookup, MAX_DEPTH, MenuId, Menus, Notes, Open, Stay,
+    Definition, ForeignKeys, HeadAction, Lookup, MAX_DEPTH, MenuId, Menus, Open, Stay,
     builds_prefix,
 };
 
 use super::Dispatcher;
 
-mod shown;
+mod open_menu;
+mod set;
 
 use super::shown::{masked, reads_passphrase};
-pub use shown::OpenMenu;
-use shown::notes_of;
+use open_menu::described;
+pub use open_menu::{Described, HeadNow, OpenMenu};
+pub(super) use set::MenuSet;
 
 /// `RET`, which runs a menu's default head where no head binds it.
 const RET: KeyPress = KeyPress::plain(oso_core::key::Key::Named(oso_core::key::NamedKey::Return));
 
-/// The menus in force, those given while a prefix key was pending, and the open ones.
-#[derive(Debug, Default)]
-pub(super) struct MenuSet {
-    /// The built-in menus, which apply with no configuration file.
-    builtin: Arc<Menus>,
-    menus: Arc<Menus>,
-    /// The set given with a user's keymap that waits for a prefix key, which goes in with it.
-    waiting: Option<Arc<Menus>>,
-    /// Sets that ones waiting replaced, for the caller to drop elsewhere.
-    replaced: Vec<Arc<Menus>>,
-    /// The open menus, if any.
-    open: Option<Stack>,
-    /// How many times a menu has opened, closed or been pushed over another: what the float's
-    /// layout is kept by.
-    changes: u64,
-}
-
 /// The open menus: the set the first one came from, so that a submenu's id names the menu it
-/// named when that one opened, whatever a reload has put in since (ADR 0117, Q6), and each
+/// named when that one opened, whatever a reload has put in since (ADR 0117 step 2), and each
 /// level over the one that opened it.
 #[derive(Debug)]
 struct Stack {
@@ -65,69 +50,6 @@ struct Level {
     open: Open,
 }
 
-impl MenuSet {
-    /// The built-in menus, in force.
-    pub(super) fn new(builtin: Menus) -> Self {
-        let builtin = Arc::new(builtin);
-        Self {
-            menus: Arc::clone(&builtin),
-            builtin,
-            ..Self::default()
-        }
-    }
-
-    /// Puts in the set that waited, as the user's keymap that waited goes in.
-    pub(super) fn take_waiting(&mut self) {
-        if let Some(menus) = self.waiting.take() {
-            let old = std::mem::replace(&mut self.menus, menus);
-            self.replaced.push(old);
-        }
-    }
-
-    /// The keys typed in the open menu that begin a head's, if a menu is open.
-    pub(super) fn pending(&self) -> Option<&[KeyPress]> {
-        self.open.as_ref().map(|stack| &stack.pending[..])
-    }
-
-    /// Whether a menu is open.
-    pub(super) fn is_open(&self) -> bool {
-        self.open.is_some()
-    }
-
-    /// Closes every open menu.
-    fn close(&mut self) {
-        if self.open.take().is_some() {
-            self.changes += 1;
-        }
-    }
-}
-
-/// What a head of `definition` is now, by `notes`: hidden, unavailable, or as defined.
-fn shown(notes: &Notes, head: usize) -> Result<(), Option<&str>> {
-    match notes.get(head) {
-        Some(note) if note.hidden => Err(None),
-        Some(note) => note
-            .unavailable
-            .as_deref()
-            .map_or(Ok(()), |why| Err(Some(why))),
-        None => Ok(()),
-    }
-}
-
-/// The head `RET` runs in `definition` now, where no head binds `RET`: the one its describe
-/// function names, or its own. A describe function names one only where no head is on `RET`,
-/// as a definition's own may not be (ADR 0117 step 2, Q8).
-fn ret_head(definition: &Definition, notes: &Notes) -> Option<usize> {
-    let named = notes
-        .ret_head
-        .filter(|&head| head < definition.heads().len());
-    debug_assert!(
-        named.is_none() || definition.lookup(&[RET]) == Lookup::Unbound,
-        "a describe function named a default head in a menu with a head on RET"
-    );
-    named.or(definition.ret_head())
-}
-
 /// What a key typed in an open menu comes to.
 enum InMenu {
     /// Handled: what the host should do.
@@ -137,45 +59,6 @@ enum InMenu {
 }
 
 impl Dispatcher {
-    /// Puts in the menus from the configuration, or the built-in ones for `None`, in place of
-    /// those before. While a prefix key is pending they wait for it, as
-    /// [`Dispatcher::set_user_keymap`]'s keymap does, so that a key always names a menu of the
-    /// set its keymap was built with. Give them with the keymap. A menu open now keeps the set
-    /// it came from (ADR 0117).
-    ///
-    /// Returns the set this replaces now, the one in force or one that was waiting, for the
-    /// caller to drop elsewhere. One that a waiting set replaces later is kept for
-    /// [`Dispatcher::take_replaced_menus`].
-    pub fn set_menus(&mut self, menus: Option<Menus>) -> Option<Arc<Menus>> {
-        let set = &mut self.menus;
-        let menus = menus.map_or_else(|| Arc::clone(&set.builtin), Arc::new);
-        if self.resolver.pending().is_empty() {
-            if let Some(stale) = set.waiting.take() {
-                set.replaced.push(stale);
-            }
-            Some(std::mem::replace(&mut set.menus, menus))
-        } else {
-            set.waiting.replace(menus)
-        }
-    }
-
-    /// A set of menus that a waiting one replaced, once its prefix key resolved, for the caller
-    /// to drop elsewhere. Call it until it gives `None`.
-    pub fn take_replaced_menus(&mut self) -> Option<Arc<Menus>> {
-        self.menus.replaced.pop()
-    }
-
-    /// The menus in force.
-    pub(super) fn menus_in_force(&self) -> &Menus {
-        &self.menus.menus
-    }
-
-    /// The menus in force.
-    #[cfg(test)]
-    pub fn menus(&self) -> &Menus {
-        self.menus_in_force()
-    }
-
     /// The open menu on top, if one is open, to draw.
     pub fn menu(&self) -> Option<OpenMenu<'_>> {
         let stack = self.menus.open.as_ref()?;
@@ -228,7 +111,7 @@ impl Dispatcher {
             return Effects::default();
         }
         let Some(definition) = set.get(menu) else {
-            // One the file removed, bound by a default key (ADR 0117 Q7): step 3 unbinds such
+            // One the file removed, bound by a default key (ADR 0117): step 3 unbinds such
             // keys in the user's keymap, so that they say what an undefined key says.
             log::debug!("a key names a menu no longer defined");
             editor.echo("That key is undefined");
@@ -236,7 +119,13 @@ impl Dispatcher {
             return Effects::default();
         };
         log::debug!("menu {} opens", definition.name());
-        self.menus.open = Some(Stack {
+        // Its key is one a search, a jump or the layer of `C-x TAB` does not bind, which ends
+        // them first (ADR 0117), so that the menu opens over none of them.
+        editor.isearch_exit();
+        editor.replace_exit();
+        editor.jump_end();
+        editor.set_indent_rigidly_layer(false);
+        self.menus.open(Stack {
             set: Arc::clone(set),
             levels: vec![Level {
                 id: menu,
@@ -245,7 +134,6 @@ impl Dispatcher {
             pending: Vec::new(),
             in_replay: editor.macro_replaying(),
         });
-        self.menus.changes += 1;
         // A command keeps the run it counts only across keys of its own.
         self.last = None;
         redraw()
@@ -278,9 +166,13 @@ impl Dispatcher {
     }
 
     /// Handles `key` in the open menu, if one is open and no prefix key of the usual keymaps
-    /// waits; `None` where it goes on as usual.
+    /// waits; `None` where it goes on as usual. A menu that something took the keys from
+    /// outside an input closes first, and the key goes where they went.
     pub(super) fn menu_takes(&mut self, editor: &mut Editor, key: KeyPress) -> Option<Effects> {
         if !self.menus.is_open() || !self.resolver.pending().is_empty() {
+            return None;
+        }
+        if self.close_menus_if_taken(editor) {
             return None;
         }
         match self.in_menu(editor, key) {
@@ -293,9 +185,16 @@ impl Dispatcher {
         if is_cancel(key) {
             return InMenu::Done(self.menu_cancel(editor));
         }
-        let Some((definition, notes)) = self.top_menu(editor) else {
+        let Some(definition) = self.top_definition() else {
             return InMenu::Through;
         };
+        let notes = self
+            .menus
+            .open
+            .as_ref()
+            .and_then(|stack| stack.levels.last())
+            .map(|level| described(editor, &level.open))
+            .unwrap_or_default();
         let Some(stack) = self.menus.open.as_mut() else {
             return InMenu::Through;
         };
@@ -314,27 +213,34 @@ impl Dispatcher {
                 self.forget_keys(editor);
                 return InMenu::Done(self.close_level());
             }
-            Lookup::Unbound if keys == [RET] => ret_head(&definition, &notes),
+            Lookup::Unbound if keys == [RET] => notes.ret_head(&definition),
             Lookup::Unbound => None,
         };
-        match head.map(|head| (head, shown(&notes, head))) {
-            Some((head, Ok(()))) => InMenu::Done(self.run_head(editor, &definition, head)),
-            Some((_, Err(Some(why)))) => {
+        match head.map(|head| (head, notes.now(head))) {
+            Some((head, HeadNow::Shown)) => InMenu::Done(self.run_head(editor, &definition, head)),
+            Some((_, HeadNow::Unavailable(why))) => {
                 editor.echo(why.to_owned());
                 self.forget_keys(editor);
                 InMenu::Done(Effects::default())
             }
-            Some((_, Err(None))) | None => self.foreign(editor, &definition, keys),
+            Some((_, HeadNow::Hidden)) | None => self.foreign(editor, &definition, keys),
         }
     }
 
-    /// The menu on top, as the set it came from holds it, and what its describe function says
-    /// of it now.
-    fn top_menu(&self, editor: &Editor) -> Option<(Arc<Definition>, Notes)> {
+    /// The menu on top, as the set it came from holds it. The set always holds it, as a level
+    /// opens only from it; were it missing, the menus close, so no hidden menu takes keys.
+    fn top_definition(&mut self) -> Option<Arc<Definition>> {
         let stack = self.menus.open.as_ref()?;
-        let level = stack.levels.last()?;
-        let definition = Arc::clone(stack.set.get(level.id)?);
-        Some((definition, notes_of(editor, &level.open)))
+        let found = stack
+            .levels
+            .last()
+            .and_then(|level| stack.set.get(level.id))
+            .map(Arc::clone);
+        if found.is_none() {
+            log::error!("an open menu is not in the set it came from");
+            self.menus.close();
+        }
+        found
     }
 
     /// `C-g` in a menu: it ends the keys that begin a head, else the prefix argument, else
@@ -369,7 +275,7 @@ impl Dispatcher {
     }
 
     /// `C-u`, `M-<digit>` or `M--` in a menu: they build a prefix argument for the next head,
-    /// as the default global keymap binds them, whatever the user's keys bind (Q15). Plain
+    /// as the default global keymap binds them, whatever the user's keys bind (ADR 0117, Q15). Plain
     /// digits and `-` are keys for heads.
     fn menu_prefix(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         let Some(Binding::Command(id)) = Layers::global(&self.keymaps.global).lookup(&[key]) else {
@@ -420,7 +326,7 @@ impl Dispatcher {
                     .map(|level| level.open.switches_on().map(str::to_owned).collect())
                     .unwrap_or_default();
                 let switches: Vec<&str> = switches.iter().map(String::as_str).collect();
-                // A head's count replaces a prefix argument typed before it (Q14, Q15).
+                // A head's count replaces a prefix argument typed before it (ADR 0117, Q14, Q15).
                 let prefix = self.prefix.take();
                 let args = Args::with_prefix(count.or(prefix));
                 if definition.stay(head) == Stay::Exit {
@@ -437,7 +343,7 @@ impl Dispatcher {
     }
 
     /// Opens the menu `id` names in the set the open ones came from over the one on top,
-    /// unless it is open already or the stack is as deep as it goes (Q16). `count` passes on as
+    /// unless it is open already or the stack is as deep as it goes (ADR 0117, Q16). `count` passes on as
     /// the prefix argument.
     fn push_menu(&mut self, editor: &mut Editor, id: MenuId, count: Option<Prefix>) -> Effects {
         let Some(stack) = self.menus.open.as_mut() else {
@@ -511,10 +417,13 @@ impl Dispatcher {
     /// Text in an open menu, which binds none: refused, or put in as usual with the menu closed
     /// first or kept, as its `foreign-keys` says (ADR 0117). `true` where it was refused.
     pub(super) fn menu_refuses_text(&mut self, editor: &mut Editor) -> bool {
-        if !self.resolver.pending().is_empty() {
+        if !self.menus.is_open() || !self.resolver.pending().is_empty() {
             return false;
         }
-        let Some((definition, _)) = self.top_menu(editor) else {
+        if self.close_menus_if_taken(editor) {
+            return false;
+        }
+        let Some(definition) = self.top_definition() else {
             return false;
         };
         match definition.foreign_keys() {

@@ -221,3 +221,61 @@ fn no_float_is_drawn_under_a_prompt_nor_once_the_menu_closes() {
     assert!(chips.is_empty());
     assert!(floats.iter().all(|(id, ..)| *id < super::MENU_PANES));
 }
+
+#[test]
+fn a_label_of_controls_and_invisible_characters_stays_in_its_columns_pane() {
+    let crafted = "\u{202e}ab\u{200b}\n\u{1b}[31m\u{2066}cd";
+    let registry = commands::registry();
+    let id = registry.lookup("forward-char").unwrap();
+    let head = |keys: &str, label: &str| Head {
+        keys: keys.parse().unwrap(),
+        label: label.to_owned(),
+        action: HeadAction::Command(id),
+        stay: None,
+        count: None,
+    };
+    let mut menu = Definition::new("odd", "Odd").unwrap();
+    menu.add_group(Some("One"), 1).unwrap();
+    menu.add_head(head("a", crafted)).unwrap();
+    menu.add_group(Some("Two"), 1).unwrap();
+    menu.add_head(head("b", "plain")).unwrap();
+    let mut menus = Menus::new();
+    let odd = menus.id("odd").unwrap();
+    menus.define(odd, menu).unwrap();
+    let global = bindings::global_keymap(&registry);
+    let mut d = Dispatcher::with(registry, global);
+    d.set_menus(Some(menus));
+    let mut user = Keymap::new();
+    user.bind_menu(&"C-c o".parse::<KeySequence>().unwrap().0, odd)
+        .unwrap();
+    d.set_user_keymap(user);
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", "abc"));
+    editor.set_frame_size(FrameSize {
+        rows: 30,
+        columns: 100,
+    });
+    d.handle_keys(&mut editor, "C-c o".parse::<KeySequence>().unwrap().0);
+    let (floats, ..) = drawn(&d, &editor);
+    let content: Vec<_> = floats
+        .iter()
+        .filter(|(_, layer, ..)| *layer == Layer::FLOAT_CONTENT)
+        .collect();
+    for (i, a) in content.iter().enumerate() {
+        for b in &content[i + 1..] {
+            let (a, b) = (a.2, b.2);
+            let apart = a.row + a.rows <= b.row
+                || b.row + b.rows <= a.row
+                || a.column + a.columns <= b.column
+                || b.column + b.columns <= a.column;
+            assert!(apart, "{a:?} overlaps {b:?}");
+        }
+    }
+    // The label goes to the renderer whole, as a span of its column's pane only, which boxes
+    // what it cannot show and cuts what passes the pane's region.
+    let holding: Vec<_> = content
+        .iter()
+        .filter(|(.., rows)| rows.iter().flatten().any(|(text, _)| text == crafted))
+        .collect();
+    assert_eq!(holding.len(), 1, "{content:?}");
+    assert_eq!(holding[0].3[0][0].0, "One");
+}
