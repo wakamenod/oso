@@ -1,6 +1,6 @@
 # 0117. Menus
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-13
 
 ## Context
@@ -145,8 +145,8 @@ docstring, and transient's dynamic labels need Lisp too.
 
 ## Decision
 
-Draft, with the recommended option (a) of every question under [Questions](#questions). Nothing here
-is decided until the author answers.
+As the author chose (see [The author's choices](#the-authors-choices)): option (a) of every
+question under [Questions](#questions), but Q1 (d) and Q24, which the author changed.
 
 ### What a menu is (Q2, Q3, Q4, Q5)
 
@@ -478,7 +478,8 @@ one with completion's 18 rows. The perf scenario checks it.
 
 ## Questions
 
-To put to the author, the recommended option first. Each stands on its own.
+As put to the author, the recommended option first; the answers are under
+[The author's choices](#the-authors-choices).
 
 ### What to port
 
@@ -727,7 +728,7 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
    hidden built-in menu.
 5. **The perf scenario:** `menu_open_p99_ms` and `menu_head_p99_ms` in `just perf`, report-only.
    The `bench.rs` registration is a guard-file edit, asked for when the step starts.
-6. **The key list (which-key)** as Q26–Q32 settle it: the delay, the bottom panel, what it lists,
+6. **The key list (which-key)** as Q26–Q32 (a) settle it: the delay, the bottom panel, what it lists,
    labels from `[which-key.labels]`, paging, `C-h`, its faces, an end-to-end flow. A public way to
    list a prefix's entries in `keymap`, if the dispatcher needs one, is listed for approval when the
    step starts.
@@ -736,13 +737,17 @@ Steps 3 to 6 follow step 2 in any order.
 
 ## The author's choices
 
-The author answered Q1–Q25 on 2026-11-13, through the coordinator: (a) for each, but these.
+The author answered every question on 2026-11-13, through the coordinator: (a) for each, but
+these.
 
 - **Q1: (d).** The built-in menus are the review scope menu, toggles, windows and buffers, jumps,
   and the search menu with the heads oso has today.
 - **Q24: changed.** The author needs which-key, behaving as which-key does: a panel at the bottom
   of the frame lists a waiting prefix's keys, and the next key goes on as usual. It is not drawn
-  in the menu's float. It is step 6 of this ADR; Q26–Q32 settle its design.
+  in the menu's float. It is step 6 of this ADR, and Q26–Q32 (all (a)) settle its design: a 1.0 s
+  delay, a bottom panel drawn over the windows up to a quarter of the frame, which-key's paging,
+  every key the dispatcher would resolve, `key → command-name` with labels, `C-h` showing it at
+  once, and three faces.
 - On Q11 the author asked whether the menus are the user's configuration: they are (see "How
   menus are defined"); the built-in ones are defaults the file adds to, replaces or removes.
 - On Q22 the author asked whether agents can open menus: they cannot, and need not, since an agent
