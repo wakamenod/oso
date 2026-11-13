@@ -407,6 +407,23 @@ impl Editor {
         if self.buffer(id).is_some_and(Buffer::is_internal) {
             return;
         }
+        self.remove_buffer(id);
+    }
+
+    /// Takes the internal buffer `id` away as [`Editor::kill_buffer`] takes a user's, as when
+    /// its review closes: each window that showed it shows one of the user's, and no window's
+    /// way back leads to it.
+    pub(super) fn drop_internal_buffer(&mut self, id: BufferId) {
+        if !self.buffer(id).is_some_and(Buffer::is_internal) {
+            return;
+        }
+        self.remove_buffer(id);
+        for window in &mut self.windows {
+            window.way_back_mut().retain(|other| *other != id);
+        }
+    }
+
+    fn remove_buffer(&mut self, id: BufferId) {
         if self.buffer(id).is_none() {
             return;
         }

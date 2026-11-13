@@ -275,6 +275,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::Count => "count",
                     ArgSpec::Number { .. } => "number",
                     ArgSpec::Text { .. } => "text",
+                    ArgSpec::TextOnPrefix { .. } => "optional text",
                     // The name of a buffer `C-x b` lists (ADR 0094).
                     ArgSpec::Buffer {
                         purpose: BufferPurpose::Switch,

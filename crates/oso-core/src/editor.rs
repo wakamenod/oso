@@ -61,15 +61,14 @@ mod projects;
 mod prompts;
 mod reload;
 mod replace;
+mod reviews;
 mod save;
 mod screen;
 mod sessions;
-mod side;
 mod status;
 mod switch;
 mod tab;
 mod themes;
-mod trees;
 mod trim;
 mod undo_group;
 mod view;
@@ -104,12 +103,12 @@ pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
+pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use sessions::{RowAction, SessionMarks, SessionRequest};
+pub use sessions::{RowAction, SessionMarks, SessionRequest, WindowTree};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
-pub use trees::WindowTree;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
 pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
@@ -292,6 +291,7 @@ pub struct Editor {
     replacing: replace::Replacing,
     /// Keyboard macros: the recording, the last one and a replay (ADR 0113).
     macros: macros::Macros,
+    reviews: reviews::Reviews,
 }
 
 impl Default for Editor {
@@ -377,6 +377,7 @@ impl Editor {
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
             macros: macros::Macros::default(),
+            reviews: reviews::Reviews::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));
@@ -428,8 +429,7 @@ impl Editor {
     pub fn show(&mut self, buffer: BufferId) {
         if self.buffer(buffer).is_some() {
             self.window_moves_on();
-            let index = self.tree_index();
-            self.leave_side();
+            let index = self.leave_side_at();
             self.window_shows(index, buffer);
         }
     }
@@ -1088,11 +1088,19 @@ mod migemo_dictionary_costs;
 #[cfg(test)]
 mod migemo_dictionary_tests;
 #[cfg(test)]
+mod migemo_lookup_costs;
+#[cfg(test)]
+mod migemo_prompt_costs;
+#[cfg(test)]
+mod migemo_prompt_tests;
+#[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod prompt_tests;
 #[cfg(test)]
 mod reload_tests;
+#[cfg(test)]
+mod reviews_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

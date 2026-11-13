@@ -14,6 +14,7 @@ oso-core = { path = "crates/oso-core" }
 oso-render = { path = "crates/oso-render" }
 oso-platform = { path = "crates/oso-platform" }
 oso-syntax = { path = "crates/oso-syntax" }
+oso-term = { path = "crates/oso-term" }
 
 winit = "0.30"
 # Backends are enabled per OS in crates/oso-render (ADR 0003): no GL and no

@@ -32,6 +32,9 @@ jobs:
       - run: rustup toolchain install
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       - uses: taiki-e/install-action@v2.87.29
         id: tools
         continue-on-error: true

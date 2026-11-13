@@ -221,7 +221,7 @@ pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
 /// match with no wildcard, so that a new mode says.
 fn has_own_keys(mode: Mode) -> bool {
     match mode {
-        Mode::CopyList | Mode::CopyView | Mode::Sessions => true,
+        Mode::CopyList | Mode::CopyView | Mode::Review | Mode::Sessions => true,
         Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }
 }

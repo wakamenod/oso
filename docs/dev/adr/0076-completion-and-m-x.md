@@ -78,7 +78,9 @@ on nothing of the editor, so M2-18's worker can run it on a snapshot.
   | `~` | flex: the letters in order, anything between | `~fwc` → `forward-char` |
   | `&` | matches the annotation instead of the candidate | `&region` → commands whose doc says it |
 
-  `%` (char folding) is left out until migemo (M3) decides how Japanese is matched.
+  `%` (char folding) is left out until migemo (M3) decides how Japanese is matched. Changed by
+  [ADR 0116](0116-migemo-and-jumps.md): `%` makes a component migemo's, and char folding gets
+  no affix.
 - **Case is smart over the whole input** (`orderless-smart-case`, and isearch in M2-20): an input
   with no upper-case letter ignores case, and one with any matches it exactly.
 - **Expressions and searchers are compiled once per input,** a failure to compile too, and kept while

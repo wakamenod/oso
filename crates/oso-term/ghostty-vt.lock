@@ -1,0 +1,16 @@
+# The libghostty-vt release oso-term builds (ADR 0120). `just ghostty-vt` fetches the two
+# tarballs and checks each against the minisign key and its sha256 below; build.rs checks the
+# sha256 again before it unpacks, and fails unless the dependency tarball holds exactly the
+# packages listed (each read and listed in third-party.md). A bump changes every line here,
+# is fuzzed again (`just fuzz-term`) and re-reads third-party.md before it lands.
+version 1.0.1
+url https://release.files.ghostty.org/libghostty-vt/1.0.1
+minisign RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV
+zig 0.17
+source libghostty-vt-1.0.1.tar.gz 333dfce97641ef9b536bb9e08907ad86abaaada50e8f7417b70d9284adef37aa
+deps libghostty-vt-1.0.1-deps.tar.gz 91a4e10960a52bf5bf4b15aa2a2cddaff8a89d6cd903d3055bda4fd17de3356d
+package aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa
+package N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE
+package N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI
+package translate_c-2.0.0-Q_BUWltOBwBYABF84EUL208pIFeUIwbBs29FmVBaafN5
+package uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv

@@ -26,7 +26,9 @@ impl Language {
             Mode::Rust => Some(Self::Rust),
             Mode::Markdown => Some(Self::Markdown),
             Mode::Toml => Some(Self::Toml),
-            Mode::Fundamental | Mode::CopyList | Mode::CopyView | Mode::Sessions => None,
+            Mode::Fundamental | Mode::CopyList | Mode::CopyView | Mode::Review | Mode::Sessions => {
+                None
+            }
         }
     }
 

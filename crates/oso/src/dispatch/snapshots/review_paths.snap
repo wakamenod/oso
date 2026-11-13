@@ -1,0 +1,42 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: "
+---
+keys: none
+│Review · uncommitted · oso                                  │
+:^                                                           :
+│modified  a␤modified  b.rs  +1 −1                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -1 +1 @@                                                 │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-x                                                          │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│+y                                                          │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│added  evilU+202Esr.txt                                     │
+:           #####]                                           :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│binary: 0 B → 3 B                                           │
+│added  esc^[[31mred                                         │
+:          ~~                                                :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│may hold secrets: not shown                                 │
+│added  bad\xFFbyte.rs                                       │
+:          ~~~~                                              :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│may hold secrets: not shown                                 │
+│modified  lines.rs  +1 −1                                   │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│line endings differ: CR LF on the new side                  │
+│@@ -1 +1 @@                                                 │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-@@ -1 +1 @@                                                │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│++++ b/x                                                    │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+=[bidi controls] %% *review: uncommitte…  1:0  Review  UTF-8 =
+"                                                            "

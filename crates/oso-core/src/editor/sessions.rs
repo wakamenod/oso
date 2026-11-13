@@ -1,4 +1,5 @@
-//! What commands ask of the host about agent sessions (ADR 0121).
+//! What commands ask of the host about agent sessions (ADR 0121), and what the editor keeps
+//! for them: the side window (`side`) and the window trees of spaces (`trees`).
 //!
 //! Must not depend on: the host's threads or I/O. A command asks; the host takes the request
 //! after the command, does the work on its sessions worker, and fills an internal buffer with
@@ -8,9 +9,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::Editor;
-use super::side::SideWindow;
 use crate::buffer::BufferId;
 use crate::complete::Candidate;
+
+mod side;
+mod trees;
+
+use side::SideWindow;
+pub use trees::WindowTree;
 
 /// What the editor keeps for agent sessions.
 #[derive(Default)]

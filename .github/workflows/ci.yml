@@ -70,6 +70,12 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120); Windows
+      # builds no terminal yet.
+      - if: runner.os != 'Windows'
+        uses: $/.github/actions/install-zig
+      - if: runner.os != 'Windows'
+        uses: $/.github/actions/fetch-ghostty-vt
       # On Windows, just runs recipes with Git Bash's sh. Fail early if missing.
       - run: sh -c 'command -v sh'
       - run: just ci
@@ -115,6 +121,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       - run: just release-safety
 
   # The public API must match guardrails/public-api (ADR 0038). Nightly is

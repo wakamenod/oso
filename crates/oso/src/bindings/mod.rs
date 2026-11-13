@@ -25,6 +25,7 @@ mod prefix;
 mod projects;
 mod recovery;
 mod replace;
+mod review;
 mod save;
 mod scroll;
 mod session;
@@ -187,6 +188,12 @@ pub fn isearch_commands(registry: &Registry) -> Vec<oso_core::command::CommandId
 /// commands, as in tests that bring their own.
 pub fn rigid_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, indent::RIGID).unwrap_or_default()
+}
+
+/// A review buffer's own keymap, above the global one (ADR 0122). Empty for a registry without
+/// its commands, as in tests that bring their own.
+pub fn review_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, review::REVIEW).unwrap_or_default()
 }
 
 /// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry

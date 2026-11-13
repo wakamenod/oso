@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::merge::{exact_in, merge_in};
 use super::path::{self, Found, Name, Reached};
 use super::{Candidate, MAX_INPUT_BYTES, Query, offset_u32};
+use crate::migemo::Table;
 
 /// The most candidates a list builds and matches on the UI thread; a longer one is a job for
 /// the worker (ADR 0076, ADR 0096).
@@ -54,12 +55,13 @@ pub(crate) fn matched_part(input: &str, last_segment: bool) -> Option<&str> {
 }
 
 /// Matches `input` over `items` in `order`, looking only at the matches of `before` where the
-/// input narrows that one. `None` if `stop` says so first.
+/// input narrows that one, a migemo component with `table`'s words. `None` if `stop`
+/// says so first.
 pub(crate) fn match_over(
     items: &[Candidate],
     order: &[u32],
     before: Option<(&[u32], &Query)>,
-    input: Option<&str>,
+    (input, table): (Option<&str>, Option<&Table>),
     stop: &dyn Fn() -> bool,
 ) -> Option<Matched> {
     let Some(input) = input else {
@@ -69,7 +71,7 @@ pub(crate) fn match_over(
         });
     };
     let empty = Query::default();
-    let query = Query::parse_after(input, before.map_or(&empty, |(_, query)| query));
+    let query = Query::parse_after(input, before.map_or(&empty, |(_, query)| query), table);
     // A candidate shown only while nothing is typed never matches an input (ADR 0091).
     let typed = !input.is_empty();
     let shows = |item: &Candidate| !(typed && item.hidden_by_input);
@@ -183,6 +185,8 @@ pub(crate) struct Build {
     pub(crate) history: Vec<String>,
     /// The part of what is typed that the list matches, or `None` for one too long.
     pub(crate) input: Option<String>,
+    /// The dictionary a migemo component takes words from (ADR 0116), held while it runs.
+    pub(crate) table: Option<Table>,
 }
 
 /// A list built: the candidates, the path each stands for, their order, and the input matched.
@@ -232,7 +236,8 @@ impl Build {
         }
         let items: Arc<[Candidate]> = items.into();
         let order = order_of(&items, self.history.iter().map(String::as_str), stop)?;
-        let matched = match_over(&items, &order, None, self.input.as_deref(), stop)?;
+        let input = (self.input.as_deref(), self.table.as_ref());
+        let matched = match_over(&items, &order, None, input, stop)?;
         // Compared as bytes: a path's own comparison reads its components.
         let kept = self.keep.as_ref().and_then(|keep| {
             found
@@ -256,6 +261,8 @@ pub(crate) struct Matching {
     pub(crate) order: Arc<[u32]>,
     pub(crate) before: Option<(Arc<[u32]>, Query)>,
     pub(crate) input: Option<String>,
+    /// The dictionary a migemo component takes words from (ADR 0116), held while it runs.
+    pub(crate) table: Option<Table>,
 }
 
 /// Paths a walk found, to add to a list past [`WORKER_PAST`], and the input to match then
@@ -271,6 +278,8 @@ pub(crate) struct Merge {
     pub(crate) history: Arc<[String]>,
     /// The part of what is typed that the list matches now, or `None` for one too long.
     pub(crate) input: Option<String>,
+    /// The dictionary a migemo component takes words from (ADR 0116), held while it runs.
+    pub(crate) table: Option<Table>,
 }
 
 impl Merge {
@@ -308,7 +317,7 @@ impl Merge {
                 &items,
                 &self.order,
                 Some(matched),
-                self.input.as_deref(),
+                (self.input.as_deref(), self.table.as_ref()),
                 stop,
             )?
         };
@@ -434,7 +443,7 @@ impl CompletionJob {
                     &matching.items,
                     &matching.order,
                     before,
-                    matching.input.as_deref(),
+                    (matching.input.as_deref(), matching.table.as_ref()),
                     &stop,
                 )?;
                 Report::Matched {
