@@ -10,14 +10,14 @@ use std::time::Duration;
 
 use oso_platform::process::pty::Size;
 
-use super::{BLOCK, Driver, Grammar, input, requests, scrollback};
+use super::{BLOCK, Driver, input, requests, scrollback};
 use crate::limits;
 
 /// The script that rebuilds `iteration`'s terminal: its block's inputs up to it.
 pub(super) fn script_of(seed: u64, iteration: u64, resizes: bool) -> String {
     let mut script = format!("new 80 24 {}\n", scrollback(iteration));
     for i in iteration - iteration % BLOCK..=iteration {
-        let case = input(seed, i, resizes, Grammar::Full);
+        let case = input(seed, i, resizes);
         for request in &case.requests {
             script.push_str(&requests::line(request));
             script.push('\n');

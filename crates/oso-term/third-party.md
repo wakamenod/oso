@@ -12,15 +12,22 @@ does their work by hand, the way ADR 0111 does for the grammars' C.
 - **The library's own report:** the release's `deps/libghostty-vt-third-party.json` names each
   package, its version, commit, licence and whether it is linked or used only to build. The
   table copies it.
+- **oso's patch:** `patches/0001-row-copies.patch` changes four files of the library's source
+  (`src/terminal/PageList.zig`, `Screen.zig`, `page.zig` and `c/terminal.zig`) so that row
+  copies never abort; its lines say so where they change the code. The changed files stay
+  under the library's MIT licence, whose text in `licenses/` is unchanged. `build.rs` checks
+  the patch and each file it changes against the lock.
 - **At a bump:** read the new report and the diff of each linked package, update the lock and
-  this table, and copy any licence text that changed into `licenses/`. Then fuzz again with
-  `just fuzz-term`, ReleaseFast and ReleaseSafe, an hour each, before the bump lands.
+  this table, and copy any licence text that changed into `licenses/`. Drop the patch if the
+  new release makes it needless, or rebase it and update its hashes. Then fuzz again with
+  `just fuzz-term`, ReleaseFast and ReleaseSafe, an hour each, and on Linux as well, before
+  the bump lands.
 
 ## libghostty-vt 1.0.1
 
 | Package | Version | Commit | Licence | Use | Zig package (lock) |
 |---|---|---|---|---|---|
-| libghostty-vt | 1.0.1 | release tarball | MIT | linked | the source tarball |
+| libghostty-vt | 1.0.1 with one oso patch | release tarball | MIT | linked | the source tarball |
 | simdutf | 9.0.0 | vendored in `pkg/simdutf/vendor` | Apache-2.0 OR MIT | linked | the source tarball |
 | highway | 1.2.0 | `66486a10623fa0d72fe91260f96c892e41aceb06` | Apache-2.0 OR BSD-3-Clause | linked | `N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE` |
 | Wuffs | 0.4.0-alpha.10 | `7411f488fe2e2c205c3d3b3d28638b7356522930` | Apache-2.0 OR MIT | linked | `N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI` |

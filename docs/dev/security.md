@@ -506,8 +506,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ([ADR 0120](adr/0120-the-terminal.md)).
 - The terminal engine, libghostty-vt, parses untrusted output in `oso-term`'s FFI: memory-unsafe
   Zig and C++ in oso's process, the second exception after the grammars. It is pinned to a signed
-  release, built offline, and fuzzed through `oso-term`'s target at each bump (`just fuzz-term`, an
-  hour each built ReleaseFast and ReleaseSafe, on the Mac mini; a short run in `just test`); a crash in it ends
+  release with one checked-in patch, so that row copies never abort (step 3 as built), built
+  offline, and fuzzed through `oso-term`'s target at each change to its lock (`just fuzz-term`,
+  an hour each built ReleaseFast and ReleaseSafe, on the Mac mini, and on Linux; a short run in
+  `just test`); a crash in it ends
   oso with no emergency save, as one in a grammar does. Its Kitty images are decoded by Wuffs inside
   it, not by a pure-Rust decoder, unless ADR 0120's step 12 builds it without them
   ([ADR 0120](adr/0120-the-terminal.md), step 1 as built).
