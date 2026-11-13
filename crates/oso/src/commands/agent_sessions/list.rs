@@ -4,20 +4,25 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host for the rest.
 //!
-//! Showing, folding, regrouping and explaining are `Look`; pinning and archiving change what
-//! oso remembers, `Change`; resuming and stopping run or end a process, `Person`.
+//! Moving, folding, regrouping and explaining are `Look`. Showing a session puts its terminal
+//! in front of the person's keys, pinning and archiving change which sessions ask for them,
+//! and resuming and stopping run or end a process: those are `Person`.
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{RowAction, SessionRequest};
 use oso_core::selection::SelectionSet;
 
+/// The marks a row of `*Sessions*` begins with, after its indent: a group's fold, then each
+/// state's. The list draws them, and never begins another line with one.
+pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■";
+
 /// The commands of `*Sessions*`.
 pub const COMMANDS: &[Command] = &[
     row(
         "sessions-show",
         "Show the session on this row in the window selected last, and select that window.\n\nA session of another space switches to that space first.",
-        Reach::Look,
+        Reach::Person,
         show,
     ),
     Command {
@@ -61,13 +66,13 @@ pub const COMMANDS: &[Command] = &[
     row(
         "sessions-pin",
         "Pin the session on this row, or unpin it: pinned sessions come first in their group.",
-        Reach::Change,
+        Reach::Person,
         pin,
     ),
     row(
         "sessions-archive",
         "Archive the session on this row, or bring an archived one back.\n\nAn archived session is listed last, folded, and is not brought back at the next start.",
-        Reach::Change,
+        Reach::Person,
         archive,
     ),
     row(
@@ -186,7 +191,7 @@ fn step(ctx: &mut Ctx<'_>, count: isize) -> Result<(), CommandError> {
             .chunks_in_range(start..end)
             .flat_map(str::chars)
             .find(|c| *c != ' ');
-        first.is_some_and(|c| "▾▸⚠✗▶◆●○■".contains(c))
+        first.is_some_and(|c| ROW_MARKS.contains(c))
     };
     let mut row = from;
     for _ in 0..count.unsigned_abs() {

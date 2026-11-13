@@ -819,6 +819,8 @@ a switch made with its command stands until that setting changes in the file
     if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
     for again. `C-x o` skips it; a click or `windmove-left` reaches it. While it is selected,
     `C-x 2`, `C-x 3`, `C-x 1` and showing a buffer act on the window selected before it.
+  - The commands that show a session or the list, and pinning and archiving, need a person at
+    the keyboard: the agent channel cannot run them.
   - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
     renders again with fresh ages, `s` groups by space instead, `P` pins, `A` archives or
     brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`

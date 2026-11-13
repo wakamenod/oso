@@ -12,10 +12,11 @@ mod dev_state;
 mod requests;
 mod view;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use oso_core::buffer::BufferId;
 use oso_core::complete::Candidate;
 use oso_core::editor::SessionMarks;
 use oso_core::minibuffer::PromptId;
@@ -25,6 +26,7 @@ use crate::app::App;
 use crate::commands::agent_sessions::{SESSIONS_LIST, SPACES_LIST};
 use crate::sessions::attention::{Attention, Toggles};
 use crate::sessions::hosted::{Hosted, Run};
+use crate::sessions::identity::SessionId;
 use crate::sessions::list::{Entry, Key, List};
 use crate::sessions::screen::Evidence;
 use crate::sessions::spaces::Spaces;
@@ -61,8 +63,14 @@ pub(in crate::app) struct Watch {
     made: Option<Instant>,
     /// The worker looks at Claude Code's registry: asked once oso has a session.
     polling: bool,
-    /// How many sessions the modeline last counted as needing input.
-    needs_input: u16,
+    /// The marks the modeline was last given.
+    marks: SessionMarks,
+    /// The table changed since the views were made: spaces and the poll are looked at again.
+    touched: bool,
+    /// The views are made again for their ages only.
+    aging: bool,
+    /// Each hosted session's space's name.
+    placed: HashMap<SessionKey, String>,
     /// How many notices asked for attention, for end-to-end flows: the Dock cannot be seen.
     #[cfg(feature = "dev")]
     asked: u32,
@@ -72,7 +80,7 @@ impl Watch {
     /// How many sessions the modeline last counted as needing input.
     #[cfg(feature = "dev")]
     pub(in crate::app) fn needs_input(&self) -> u16 {
-        self.needs_input
+        self.marks.needs_input
     }
 
     /// `[sessions.notify]` in force.
@@ -89,8 +97,9 @@ impl App {
             return;
         };
         let now = Instant::now();
-        for (id, terminal) in self.terminals.map.iter() {
-            let Some(session) = self.hosting.table().by_buffer(id) else {
+        // By the table, whose sessions each name their buffer: one lookup each.
+        for session in self.hosting.table().iter() {
+            let Some(terminal) = session.buffer.and_then(|id| self.terminals.map.get(id)) else {
                 continue;
             };
             let progress = terminal.progress.and_then(feed::progress);
@@ -106,6 +115,21 @@ impl App {
                     Evidence::new(rows.iter().map(String::as_str), &terminal.title, progress);
                 worker.send_screen(session.key, evidence);
             }
+        }
+        // A change still due was of a session or terminal that went: it is forgotten, so
+        // that the loop does not wake for it again and again.
+        if self.watch.feed.due().is_some_and(|due| due <= now) {
+            let live: std::collections::HashSet<SessionKey> = self
+                .hosting
+                .table()
+                .iter()
+                .filter(|s| {
+                    s.buffer
+                        .is_some_and(|id| self.terminals.map.get(id).is_some())
+                })
+                .map(|s| s.key)
+                .collect();
+            self.watch.feed.keep(|key| live.contains(&key));
         }
     }
 
@@ -181,6 +205,7 @@ impl App {
     /// pinned or archived.
     pub(in crate::app) fn sessions_touched(&mut self) {
         self.watch.stale = true;
+        self.watch.touched = true;
     }
 
     /// Makes the views of sessions again if something they show changed, and asks for a
@@ -191,30 +216,39 @@ impl App {
         }
     }
 
-    /// Makes the views of sessions again if something they show changed. Returns whether it
-    /// did.
+    /// Makes the views of sessions again if something they show changed. Returns whether
+    /// something visible changed, which needs a frame.
     fn remake_sessions(&mut self) -> bool {
         let person_hid = self.watch.view.shown && self.editor.side_window().is_none();
         if !self.watch.stale && !person_hid {
             return false;
         }
         self.watch.stale = false;
+        let aging = std::mem::take(&mut self.watch.aging);
         let now = Instant::now();
         self.watch.made = Some(now);
-        self.place_sessions();
-        self.forget_gone_sessions();
-        self.poll_externals();
+        if std::mem::take(&mut self.watch.touched) {
+            self.place_sessions();
+            self.forget_gone_sessions();
+            self.poll_externals();
+        }
         let entries = self.session_entries(now);
         let marks = marks(&entries, self.watch.attention.dark(now));
-        self.watch.needs_input = marks.needs_input;
-        self.editor.set_session_marks(marks);
-        let candidates = self.session_candidates(&entries);
-        self.editor.set_listed(SESSIONS_LIST, candidates);
-        self.editor
-            .set_listed(SPACES_LIST, self.watch.spaces.candidates());
-        self.note_sessions(&entries, now);
-        self.show_sessions_list(&entries, now);
-        true
+        let mut visible = marks != self.watch.marks;
+        if visible {
+            self.watch.marks = marks;
+            self.editor.set_session_marks(marks);
+        }
+        // Ages alone change no candidate.
+        if !aging {
+            let candidates = self.session_candidates(&entries);
+            self.editor.set_listed(SESSIONS_LIST, candidates);
+            self.editor
+                .set_listed(SPACES_LIST, self.watch.spaces.candidates());
+        }
+        visible |= self.note_sessions(&entries, now);
+        visible |= self.show_sessions_list(&entries, now);
+        visible
     }
 
     /// A frame is drawn anyway: the ages shown are made again once they may have moved on,
@@ -229,18 +263,24 @@ impl App {
         {
             // The frame being drawn shows them.
             self.watch.stale = true;
+            self.watch.aging = true;
             self.remake_sessions();
         }
     }
 
-    /// Asks the worker to look at Claude Code's registry once oso has a session of its own.
+    /// Asks the worker to look at Claude Code's registry while a session of oso's runs, and
+    /// to stop when none does.
     fn poll_externals(&mut self) {
-        if self.watch.polling || self.hosting.table().iter().next().is_none() {
+        let runs = self.hosting.table().iter().any(Hosted::runs);
+        if self.watch.polling == runs {
             return;
         }
         if let Some(worker) = &self.sessions {
-            worker.send(crate::sessions::worker::Job::Externals(true));
-            self.watch.polling = true;
+            worker.send(crate::sessions::worker::Job::Externals(runs));
+            self.watch.polling = runs;
+            if !runs {
+                self.watch.externals.clear();
+            }
         }
     }
 
@@ -249,12 +289,30 @@ impl App {
     pub(in crate::app) fn externals_found(&mut self, live: Vec<External>) {
         let now = Instant::now();
         let table = self.hosting.table();
-        let ours = |external: &External| {
-            table.iter().any(|session| {
-                external.session_id.as_ref() == Some(&session.id)
-                    || matches!(session.run, Run::Running { child: Some(pid) } if pid == external.pid)
+        let ids: HashSet<&SessionId> = table.iter().map(|session| &session.id).collect();
+        let children: HashSet<u32> = table
+            .iter()
+            .filter_map(|session| match session.run {
+                Run::Running { child } => child,
+                _ => None,
             })
+            .collect();
+        let ours = |external: &External| {
+            external
+                .session_id
+                .as_ref()
+                .is_some_and(|id| ids.contains(id))
+                || children.contains(&external.pid)
         };
+        let before: HashMap<u32, (State, Instant)> = self
+            .watch
+            .externals
+            .iter()
+            .filter_map(|kept| match kept.key {
+                Key::External(pid) => Some((pid, (kept.state, kept.since))),
+                Key::Hosted(_) => None,
+            })
+            .collect();
         let mut externals = Vec::new();
         for external in live.iter().filter(|external| !ours(external)) {
             let space = external
@@ -269,12 +327,10 @@ impl App {
                 State::Idle
             };
             // Its age counts from when oso first saw it in this state.
-            let since = self
-                .watch
-                .externals
-                .iter()
-                .find(|kept| kept.key == Key::External(external.pid) && kept.state == state)
-                .map_or(now, |kept| kept.since);
+            let since = before
+                .get(&external.pid)
+                .filter(|(kept, _)| *kept == state)
+                .map_or(now, |(_, since)| *since);
             externals.push(Entry {
                 key: Key::External(external.pid),
                 name: external.name.clone(),
@@ -294,12 +350,12 @@ impl App {
 
     /// What is kept of sessions no longer in the table goes.
     fn forget_gone_sessions(&mut self) {
-        let table = self.hosting.table();
+        let keys: HashSet<SessionKey> = self.hosting.table().iter().map(|s| s.key).collect();
         let gone: Vec<SessionKey> = self
             .watch
             .known
             .keys()
-            .filter(|key| table.get(**key).is_none())
+            .filter(|key| !keys.contains(key))
             .copied()
             .collect();
         for key in gone {
@@ -326,27 +382,46 @@ impl App {
         for root in roots {
             self.watch.spaces.add(&root, None);
         }
+        // Each session's space's name, worked out once a change of the table.
+        let placed: HashMap<SessionKey, String> = self
+            .hosting
+            .table()
+            .iter()
+            .map(|session| {
+                let name = self
+                    .watch
+                    .spaces
+                    .of_path(place(session))
+                    .and_then(|at| self.watch.spaces.get(at))
+                    .map_or_else(String::new, |space| space.name.clone());
+                (session.key, name)
+            })
+            .collect();
+        self.watch.placed = placed;
     }
 
     /// What the list shows of each session: hosted ones, then other programs'.
     fn session_entries(&self, now: Instant) -> Vec<Entry> {
         let table = self.hosting.table();
+        let by_id: HashMap<&SessionId, SessionKey> = table
+            .iter()
+            .map(|session| (&session.id, session.key))
+            .collect();
         let mut entries: Vec<Entry> = table
             .iter()
             .map(|session| {
                 let (state, since) = self.state_of(session, now);
                 let space = self
                     .watch
-                    .spaces
-                    .of_path(place(session))
-                    .and_then(|at| self.watch.spaces.get(at))
-                    .map_or_else(String::new, |space| space.name.clone());
-                let parent = session.parent.as_ref().and_then(|id| {
-                    table
-                        .iter()
-                        .find(|other| other.id == *id)
-                        .map(|other| Key::Hosted(other.key))
-                });
+                    .placed
+                    .get(&session.key)
+                    .cloned()
+                    .unwrap_or_default();
+                let parent = session
+                    .parent
+                    .as_ref()
+                    .and_then(|id| by_id.get(id))
+                    .map(|key| Key::Hosted(*key));
                 Entry {
                     key: Key::Hosted(session.key),
                     name: session.name.clone(),
@@ -394,6 +469,7 @@ impl App {
     /// name, annotated with its state, space, branch and recap, so that `&needs` finds those
     /// that need input.
     fn session_candidates(&self, entries: &[Entry]) -> Arc<[Candidate]> {
+        let buffers = self.session_buffers();
         entries
             .iter()
             .filter(|entry| !entry.archived)
@@ -401,7 +477,7 @@ impl App {
                 let Key::Hosted(key) = entry.key else {
                     return None;
                 };
-                let buffer = self.hosting.table().get(key)?.buffer?;
+                let buffer = *buffers.get(&key)?;
                 let name = self.editor.buffer(buffer)?.name();
                 let mut annotation = format!("{} · {}", entry.state, entry.space);
                 if let Some(branch) = &entry.branch {
@@ -419,13 +495,15 @@ impl App {
 
     /// Puts each hosted session's state and age in its terminal's modeline, beside the title
     /// (`needs input (permission) 3m`).
-    fn note_sessions(&mut self, entries: &[Entry], now: Instant) {
+    /// Returns whether a note changed.
+    fn note_sessions(&mut self, entries: &[Entry], now: Instant) -> bool {
+        let buffers = self.session_buffers();
         let mut changed = false;
         for entry in entries {
             let Key::Hosted(key) = entry.key else {
                 continue;
             };
-            let Some(buffer) = self.hosting.table().get(key).and_then(|s| s.buffer) else {
+            let Some(&buffer) = buffers.get(&key) else {
                 continue;
             };
             let Some(hosted) = self.terminals.map.get_mut(buffer) else {
@@ -441,8 +519,8 @@ impl App {
                     crate::sessions::list::age(entry.since, now)
                 )
             };
-            if hosted.session != note {
-                hosted.session = note;
+            if hosted.session_note != note {
+                hosted.session_note = note;
                 hosted.note_stale = true;
                 changed = true;
             }
@@ -450,6 +528,16 @@ impl App {
         if changed {
             self.note_terminals();
         }
+        changed
+    }
+
+    /// Each hosted session's terminal buffer, by its key.
+    fn session_buffers(&self) -> HashMap<SessionKey, BufferId> {
+        self.hosting
+            .table()
+            .iter()
+            .filter_map(|session| Some((session.key, session.buffer?)))
+            .collect()
     }
 }
 
@@ -485,3 +573,6 @@ fn marks(entries: &[Entry], dark: bool) -> SessionMarks {
         dark,
     }
 }
+
+#[cfg(test)]
+mod tests;

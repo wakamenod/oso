@@ -981,6 +981,29 @@ approved these points:
 - **`k` in the list hangs up a session's terminal**, asking first while it works or needs
   input. The question is the app's, as only the app knows the state; its yes runs
   `session-stop` again, which finds it answered.
+- **What differs from the decision above.** `sessions` shows, selects and hides in three
+  steps rather than toggling. The side window and spaces' trees are two new modules under
+  `editor/sessions/`, not a window flag. `session-switch` searches names, spaces and recaps
+  (in their annotation), not directories. The list where `ArgSpec::Listed` reads its
+  candidates is kept in the same `Sessions` field, as sessions are its only lists so far.
+- **Reaches, the author's choice (2026-11-13):** what puts a session's terminal or
+  `*Sessions*` in front of the person's keys is `Person`, as the host selects the window after
+  the command: `sessions`, `session-next-waiting`, `session-next-done`, `space-switch`,
+  `space-zoom` and the list's `sessions-show`. So are `sessions-pin` and `sessions-archive`,
+  which change which sessions ask for the person. `session-switch` (whose list the channel
+  cannot answer), `session-explain` and the list's moving, folding, regrouping, refreshing
+  and explaining stay `Look`.
+- **The views are made once a batch:** a change from the worker marks them stale, and they
+  are made once before the event loop waits; what the person asked is made at once. The list's
+  text is set only when it changed, and a frame is asked for only when the list, the marks or
+  a modeline note changed. Spaces are placed again only when the table changed.
+- **The list's untrusted lines never begin with a mark:** a space or recap that does loses
+  its leading blanks and marks, so that it never reads as a row, and `n`/`p` never stop on it.
+- **A restart leaves the side window out** of the handed-over windows, as the layout is the
+  tree's; it comes back by itself while sessions exist. A project no longer trusted revokes
+  the root of a running look for a session's changes, as it does a review's.
+- **The registry poll runs while a session of oso's runs,** and stops when none does. It looks
+  at most at 1,024 names, and reads a file again only when it changed.
 - **Not done in step 3:** the branch in each row (it needs git on a trusted project, and
   comes with step 4's worktrees); finding a session's trusted project needs one of its
   buffers open.

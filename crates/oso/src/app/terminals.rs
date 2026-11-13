@@ -240,7 +240,9 @@ impl App {
         }
         // The frame being drawn shows the notes.
         self.note_terminals();
-        self.feed_sessions();
+        if again {
+            self.feed_sessions();
+        }
         again
     }
 

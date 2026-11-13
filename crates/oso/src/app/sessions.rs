@@ -41,6 +41,7 @@ pub(super) fn worker(waker: &Waker, state: Option<&std::path::Path>) -> Option<W
 impl App {
     /// After each event: hands what commands asked about sessions to the worker.
     pub(super) fn sync_sessions(&mut self) {
+        let mut asked = false;
         for request in self.editor.take_session_requests() {
             let job = match request {
                 SessionRequest::ExplainFile(path) => Job::ExplainFile(path),
@@ -57,13 +58,13 @@ impl App {
                     continue;
                 }
                 // The list, spaces and live explain (ADR 0121 step 3).
-                request => match self.session_request(request) {
-                    Some(other) => {
-                        log::debug!("a session request not carried out: {other:?}");
-                        continue;
+                request => {
+                    match self.session_request(request) {
+                        Some(other) => log::debug!("a session request not carried out: {other:?}"),
+                        None => asked = true,
                     }
-                    None => continue,
-                },
+                    continue;
+                }
             };
             match &self.sessions {
                 Some(worker) => worker.send(job),
@@ -72,9 +73,15 @@ impl App {
                     .message("Sessions are not available: see the log"),
             }
         }
+        // After the requests, so that a `session-stop` that a question's yes ran finds its
+        // stop still asked.
         self.drop_unasked_stop();
         self.sync_seen();
-        self.refresh_sessions();
+        // What the person asked shows at once; the worker's changes wait for the loop, so
+        // that many make the views once.
+        if asked {
+            self.refresh_sessions();
+        }
     }
 
     /// The configuration's thread read the agent rules file: what it says goes to

@@ -18,6 +18,9 @@ use oso_core::display_map::cell::classify;
 use super::state::State;
 use super::worker::SessionKey;
 
+/// The marks a row of the list begins with, after its indent: `n` and `p` move between them.
+pub use crate::commands::agent_sessions::ROW_MARKS as MARKS;
+
 /// The narrowest window that shows a session on one line; narrower ones take three.
 pub const WIDE_FROM: usize = 60;
 
@@ -189,25 +192,34 @@ impl List {
         // which only made-up parents do, stays at the top level.
         let top = |entry: &'e Entry| -> &'e Entry {
             let mut at = entry;
-            let mut seen = vec![entry.key];
+            let mut seen = HashSet::from([entry.key]);
+            let group = group_of(entry);
             while let Some(parent) = at.parent.and_then(|key| by_key.get(&key)) {
-                if seen.contains(&parent.key) {
+                if !seen.insert(parent.key) {
                     return entry;
                 }
-                if group_of(parent) != group_of(entry) {
+                if group_of(parent) != group {
                     break;
                 }
-                seen.push(parent.key);
                 at = parent;
             }
             at
         };
+        // Each entry's top, worked out once.
+        let tops: HashMap<Key, Key> = entries
+            .iter()
+            .map(|entry| (entry.key, top(entry).key))
+            .collect();
         let mut groups: Vec<(Group, Vec<&Entry>)> = Vec::new();
+        let mut group_at: HashMap<Group, usize> = HashMap::new();
         for entry in entries {
             let group = group_of(entry);
-            match groups.iter_mut().find(|(g, _)| *g == group) {
-                Some((_, members)) => members.push(entry),
-                None => groups.push((group, vec![entry])),
+            match group_at.get(&group) {
+                Some(&at) => groups[at].1.push(entry),
+                None => {
+                    group_at.insert(group.clone(), groups.len());
+                    groups.push((group, vec![entry]));
+                }
             }
         }
         groups.sort_by(|(a, _), (b, _)| group_order(a).cmp(&group_order(b)));
@@ -216,18 +228,21 @@ impl List {
             .map(|(group, mut members)| {
                 members.sort_by(|a, b| order(a).cmp(&order(b)));
                 let mut families: Vec<Family<'_>> = Vec::new();
+                let mut family_of: HashMap<Key, usize> = HashMap::new();
                 for &entry in &members {
-                    if std::ptr::eq(top(entry), entry) {
+                    if tops.get(&entry.key) == Some(&entry.key) {
+                        family_of.insert(entry.key, families.len());
                         families.push((entry, Vec::new()));
                     }
                 }
                 for &entry in &members {
-                    let top = top(entry);
-                    if !std::ptr::eq(top, entry)
-                        && let Some((_, nested)) =
-                            families.iter_mut().find(|(t, _)| std::ptr::eq(*t, top))
+                    let Some(&top) = tops.get(&entry.key) else {
+                        continue;
+                    };
+                    if top != entry.key
+                        && let Some(&at) = family_of.get(&top)
                     {
-                        nested.push(entry);
+                        families[at].1.push(entry);
                     }
                 }
                 (group, families)
@@ -353,9 +368,13 @@ impl Row<'_> {
         let name = cut(&entry.name, room);
         let first = format!("{head}{}{age}", pad(&name, room + 1));
         out.push(&cut(&first, width), line.clone());
+        // A space or recap that began with a mark would read as a row of its own.
         let under = format!("{}  ", self.indent);
-        out.push(&cut(&format!("{under}{place}"), width), line.clone());
-        out.push(&cut(&format!("{under}{recap}"), width), line);
+        out.push(
+            &cut(&format!("{under}{}", unmarked(&place)), width),
+            line.clone(),
+        );
+        out.push(&cut(&format!("{under}{}", unmarked(&recap)), width), line);
     }
 }
 
@@ -376,6 +395,12 @@ fn cells(text: &str) -> usize {
 fn char_cells(c: char) -> usize {
     let mut buffer = [0; 4];
     classify(c.encode_utf8(&mut buffer)).1
+}
+
+/// `text` without what it begins with that could pass for a row's start: blanks, marks and
+/// characters that take no cell.
+pub fn unmarked(text: &str) -> &str {
+    text.trim_start_matches(|c: char| c.is_whitespace() || MARKS.contains(c) || char_cells(c) == 0)
 }
 
 /// `text` cut to `width` cells, ending in `…` if cut; a line break ends it.

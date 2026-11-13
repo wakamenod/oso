@@ -9,11 +9,16 @@
 //! [`registry::MAX_FILES`] of them. A look is one listing, a `stat` of each, and the start
 //! time of each process read, as a process that ends leaves its file behind.
 
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::sessions::identity::SessionId;
 use crate::sessions::registry::{self, Live};
+
+/// The most names of the registry's directory looked at, entries or not.
+const MAX_LISTED: usize = 4 * registry::MAX_FILES;
 
 /// How often the registry is looked at.
 pub const POLL_EVERY: Duration = Duration::from_secs(1);
@@ -36,9 +41,10 @@ pub struct Poll {
     dir: Option<PathBuf>,
     next: Option<Instant>,
     /// Each `<pid>.json` file's name and change time at the last look.
-    stamps: Vec<(std::ffi::OsString, Option<SystemTime>)>,
-    /// The entries read at the last change: whether each process lives is asked each look.
-    entries: Vec<registry::Entry>,
+    stamps: Vec<(OsString, Option<SystemTime>)>,
+    /// The entries read, by file name: whether each process lives is asked each look, and a
+    /// file is read again only when it changed.
+    entries: HashMap<OsString, registry::Entry>,
     /// What went to the app last.
     told: Option<Vec<External>>,
 }
@@ -66,10 +72,21 @@ impl Poll {
         self.next = Some(now + POLL_EVERY);
         let stamps = stamps(dir);
         if stamps != self.stamps || self.told.is_none() {
+            let before: HashMap<&OsString, &Option<SystemTime>> =
+                self.stamps.iter().map(|(name, at)| (name, at)).collect();
+            let mut entries = HashMap::new();
+            for (name, at) in &stamps {
+                let kept = (before.get(name) == Some(&at) && self.told.is_some())
+                    .then(|| self.entries.remove(name))
+                    .flatten();
+                if let Some(entry) = kept.or_else(|| registry::read_file(dir, name)) {
+                    entries.insert(name.clone(), entry);
+                }
+            }
+            self.entries = entries;
             self.stamps = stamps;
-            self.entries = registry::read(dir);
         }
-        let live = live(&self.entries);
+        let live = live(self.entries.values());
         if self.told.as_ref() == Some(&live) {
             return None;
         }
@@ -78,12 +95,14 @@ impl Poll {
     }
 }
 
-/// Each file of the registry the reader would open, with when it changed, in name order.
-fn stamps(dir: &Path) -> Vec<(std::ffi::OsString, Option<SystemTime>)> {
+/// Each file of the registry the reader would open, with when it changed, in name order. At
+/// most [`MAX_LISTED`] names are looked at, whatever they are.
+fn stamps(dir: &Path) -> Vec<(OsString, Option<SystemTime>)> {
     let Ok(listing) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
     let mut stamps: Vec<_> = listing
+        .take(MAX_LISTED)
         .filter_map(Result::ok)
         .filter(|entry| registry::is_entry_name(&entry.file_name()))
         .take(registry::MAX_FILES)
@@ -97,10 +116,9 @@ fn stamps(dir: &Path) -> Vec<(std::ffi::OsString, Option<SystemTime>)> {
 }
 
 /// The entries whose process still runs, by process id.
-fn live(entries: &[registry::Entry]) -> Vec<External> {
+fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External> {
     let started = oso_platform::process::start_time;
     let mut live: Vec<External> = entries
-        .iter()
         .filter(|entry| registry::liveness(entry, started) == Live::Yes)
         .map(|entry| External {
             pid: entry.pid,

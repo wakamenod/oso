@@ -9,6 +9,7 @@
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
+use oso_core::project::ProjectId;
 
 use crate::app::{App, UserEvent};
 use crate::review::{self, Reviewer, TrustedRoot};
@@ -34,10 +35,20 @@ impl Seen {
     }
 }
 
+/// A look for changes under way.
+struct Look {
+    key: SessionKey,
+    project: ProjectId,
+    root: TrustedRoot,
+    _reviewer: Reviewer,
+}
+
 /// The looks for changes under way, and those waiting for one to end.
 #[derive(Default)]
 pub(super) struct Looks {
-    running: Vec<(SessionKey, Reviewer)>,
+    /// Each look's session, project, root and thread: an untrusted project's root is revoked
+    /// and its thread dropped.
+    running: Vec<Look>,
     waiting: Vec<SessionKey>,
 }
 
@@ -146,7 +157,7 @@ impl App {
     /// Session `key`'s turn ended: in a trusted project, with a baseline, a review's thread
     /// takes the tree as it is now, and the worker is told whether it differs (ADR 0122).
     pub(super) fn look_for_changes(&mut self, key: SessionKey) {
-        if self.watch.looks.running.iter().any(|(k, _)| *k == key) {
+        if self.watch.looks.running.iter().any(|look| look.key == key) {
             if !self.watch.looks.waiting.contains(&key) {
                 self.watch.looks.waiting.push(key);
             }
@@ -164,9 +175,10 @@ impl App {
         let (Some(baseline), Some(root)) = (session.baseline.clone(), session.root.clone()) else {
             return;
         };
-        let Some(trusted) = self.trusted_root(&root) else {
+        let Some((project, trusted)) = self.trusted_root(&root) else {
             return;
         };
+        let kept = trusted.clone();
         let waker = std::sync::Mutex::new(self.waker.clone());
         let started = Reviewer::start(trusted, self.hosting.state_directory(), move |report| {
             let changed = match report {
@@ -182,7 +194,12 @@ impl App {
         });
         match started {
             Ok(reviewer) if reviewer.ask(review::Request::Baseline) => {
-                self.watch.looks.running.push((key, reviewer));
+                self.watch.looks.running.push(Look {
+                    key,
+                    project,
+                    root: kept,
+                    _reviewer: reviewer,
+                });
             }
             Ok(_) => {}
             Err(e) => log::warn!("cannot look for a session's changes: {e}"),
@@ -192,7 +209,7 @@ impl App {
     /// A look for session `key`'s changes ended: `None` if git failed, which leaves its
     /// state as it is.
     pub(in crate::app) fn session_changes(&mut self, key: SessionKey, changed: Option<bool>) {
-        self.watch.looks.running.retain(|(k, _)| *k != key);
+        self.watch.looks.running.retain(|look| look.key != key);
         if let (Some(changed), Some(worker)) = (changed, &self.sessions) {
             worker.send(Job::Changes(key, changed));
         }
@@ -218,16 +235,29 @@ impl App {
 
     /// The trusted root of the project at `root`, if a buffer of that project is open and
     /// the project is trusted.
-    fn trusted_root(&self, root: &std::path::Path) -> Option<TrustedRoot> {
-        self.editor
+    fn trusted_root(&self, root: &std::path::Path) -> Option<(ProjectId, TrustedRoot)> {
+        let id = self
+            .editor
             .buffers()
             .filter_map(|(_, buffer)| buffer.project())
             .find(|id| {
                 self.editor
                     .project(*id)
                     .is_some_and(|project| project.root() == root)
-            })
-            .and_then(|id| TrustedRoot::of(&self.editor, id))
+            })?;
+        Some((id, TrustedRoot::of(&self.editor, id)?))
+    }
+
+    /// Stops the looks of projects no longer trusted: git runs no more for them (ADR 0122).
+    pub(in crate::app) fn revoke_untrusted_looks(&mut self) {
+        let editor = &self.editor;
+        self.watch.looks.running.retain(|look| {
+            let kept = editor.project_trusted(look.project);
+            if !kept {
+                look.root.revoke();
+            }
+            kept
+        });
     }
 }
 

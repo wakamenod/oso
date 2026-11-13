@@ -33,6 +33,8 @@ pub(super) struct View {
     pub(super) shown: bool,
     /// The person hid it: it is not shown again on its own while this oso runs.
     pub(super) hidden: bool,
+    /// The text it was last given, so that the same text is not set again.
+    text: String,
 }
 
 impl App {
@@ -79,8 +81,10 @@ impl App {
     }
 
     /// Shows the side window on its own while a session is not archived, unless the person
-    /// hid it (Q1), and renders `*Sessions*` while it is shown.
-    pub(super) fn show_sessions_list(&mut self, entries: &[Entry], now: Instant) {
+    /// hid it (Q1), and renders `*Sessions*` while it is shown. Returns whether what shows
+    /// changed.
+    pub(super) fn show_sessions_list(&mut self, entries: &[Entry], now: Instant) -> bool {
+        let mut changed = false;
         if self.watch.view.shown && !self.sessions_list_shown() {
             // `C-x 0` in it, or another command, took it away.
             self.watch.view.shown = false;
@@ -93,19 +97,23 @@ impl App {
             let buffer = self.sessions_buffer();
             self.editor.show_side_window(buffer, SIDE_COLUMNS);
             self.watch.view.shown = true;
+            self.watch.view.text.clear();
+            changed = true;
         }
         if self.sessions_list_shown() {
-            self.render_sessions(entries, now);
+            changed |= self.render_sessions(entries, now);
         }
+        changed
     }
 
     /// Renders `*Sessions*` to the side window's width, point kept on what its row showed.
-    fn render_sessions(&mut self, entries: &[Entry], now: Instant) {
+    /// Returns whether its text changed.
+    fn render_sessions(&mut self, entries: &[Entry], now: Instant) -> bool {
         let (Some(side), Some(buffer)) = (self.editor.side_window(), self.watch.view.buffer) else {
-            return;
+            return false;
         };
         let Some(window) = self.editor.window_by_id(side) else {
-            return;
+            return false;
         };
         let width = window.size().columns;
         let cursor = window.selections.primary().cursor;
@@ -116,6 +124,15 @@ impl App {
             .map(|text| text.text().offset_to_point(cursor).row);
         let was = on.and_then(|line| self.watch.view.lines.get(line).cloned());
         let rendered = self.watch.list.render(entries, width, now);
+        let same = rendered.text == self.watch.view.text
+            && self
+                .editor
+                .buffer(buffer)
+                .is_some_and(|kept| kept.text().len() == rendered.text.len());
+        if same {
+            self.watch.view.lines = rendered.lines;
+            return false;
+        }
         self.editor.set_internal_text(buffer, &rendered.text);
         let line = was
             .and_then(|was| rendered.lines.iter().position(|line| *line == was))
@@ -131,6 +148,8 @@ impl App {
                 .restore_positions_in(side, SelectionSet::new(offset), scroll);
         }
         self.watch.view.lines = rendered.lines;
+        self.watch.view.text = rendered.text;
+        true
     }
 
     /// What line `line` of `*Sessions*` shows, as last rendered.

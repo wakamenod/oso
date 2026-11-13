@@ -206,6 +206,16 @@ mod tests {
             history: "command",
         };
         assert!(refused(command, Given::Text("forward-char")).contains("command's name"));
+        // A list the host keeps holds what an agent must not read, such as sessions' recaps.
+        for list in ["sessions", "spaces"] {
+            let listed = ArgSpec::Listed {
+                list,
+                prompt: "Session: ",
+                history: "session",
+            };
+            assert!(map("cmd", listed, Given::Text("x"), None).is_err());
+            assert!(map("cmd", listed, Given::Nothing, None).is_err());
+        }
         let buffer = ArgSpec::Buffer {
             prompt: "Switch to buffer: ",
             history: "buffer",
