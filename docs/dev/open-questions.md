@@ -273,8 +273,6 @@ item notes when it must be settled.
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
-  have ([ADR 0069](adr/0069-macos-input-method.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
@@ -313,9 +311,9 @@ item notes when it must be settled.
   0.7 ms for 100 MB of prose at 40 columns and 5.5 ms the first time. Hand old trees to a
   thread, as a reload's leftovers are ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
-  modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
-  every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start
-  from the configuration's `[aids]`
+  modes are. They toggle for every buffer by `M-x` (`global-…` names, leaving the buffer-local
+  ones for then) and the toggles menu on `C-c t` (ADR 0117), and start from the
+  configuration's `[aids]`
   ([ADR 0097](adr/0097-visual-aids.md), [ADR 0108](adr/0108-the-user-configuration-file.md)).
 
 - After query-replace, keyboard macros and whitespace cleanup: the kmacro ring, counters, naming

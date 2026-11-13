@@ -223,7 +223,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   keymap. A key finds the candidates in every tiled window's rows in view, within 256 KiB a window
   and 1 MiB a jump, its matches within a key's 3 ms, nearest the window's primary cursor first, and labels them with avy's tree; a
   frame draws only those found. The tip crate runs the timer that shows the labels
-  (`app/jumps.rs`).
+  (`app/jumps.rs`). An action's key at the labels acts on the target instead
+  (`editor/jump/actions.rs`), through the kill ring's own kill and yank, so its kills reach the
+  clipboard as any kill does.
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
@@ -267,7 +269,7 @@ A panicking command is caught at the command boundary
 
 ### Keymaps
 
-- `oso_core::keymap::Keymap` maps a key press to a command, a menu
+- `oso_core::keymap::Keymap` maps a key press to a command, a menu of `oso_core::menu`
   ([ADR 0117](adr/0117-menus.md)) or a nested prefix keymap. Bindings refer to commands by id, resolved from names
   once, when a keymap is built from a table in Emacs notation
   ([ADR 0033](adr/0033-key-presses-and-notation.md)). Default bindings are
@@ -486,9 +488,11 @@ process module's rules ([ADR 0015](adr/0015-terminal.md),
 [ADR 0120](adr/0120-the-terminal.md)).
 
 The minibuffer, completion popups and hover documentation are buffers shown in
-floating windows; a menu (hydra/transient-style) is a float with no window or
-buffer, whose heads act on the window beneath ([ADR 0117](adr/0117-menus.md)). Editing commands work
-inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). A command never
+floating windows, and editing commands work inside them unchanged. See
+[ADR 0008](adr/0008-floating-ui.md). A menu (hydra/transient-style) is a float with no window or
+buffer, whose heads act on the window beneath ([ADR 0117](adr/0117-menus.md)). The open menus are
+the dispatcher's, a stack over the set the first came from, and their keys come first while one
+is open; the app draws the one on top over the tiled panes. A command never
 waits for an answer: the dispatcher reads what its `ArgSpec` asks for in a prompt
 before running it, and a command that has to ask leaves a question whose `y` runs a
 command of its own, which checks again. `C-g` does one thing at a time, in
@@ -655,8 +659,10 @@ read. See [ADR 0019](adr/0019-configuration.md).
   then, through a part file renamed over it, and reads it back. The editor holds the record
   (`Editor::set_trust_list`) and asks it in `Editor::project_trusted`
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
-- `config::parse` is a pure function from the file's text to the user keymap, the settings
-  and the problems, with their lines. A syntax error rejects the file; a bad entry is skipped
+- `config::parse` is a pure function from the file's text to the user keymap, the menus
+  in force, the settings and the problems, with their lines. The user keymap also leaves
+  undefined each default key of a built-in menu the file removes
+  ([ADR 0117](adr/0117-menus.md)). A syntax error rejects the file; a bad entry is skipped
   and the rest applies. See [ADR 0110](adr/0110-adr-0108-as-built.md).
 - User keys are a keymap directly above the global one, which can also leave a
   key undefined. A setting applies at start and when its value in the file

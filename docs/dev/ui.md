@@ -298,17 +298,73 @@ are rounded.
 
 ## Menus
 
-Hydra/transient-style menus float at the **center** of the frame, as they do
-with hydra-posframe today ([ADR 0117](adr/0117-menus.md)):
+Hydra/transient-style menus float at the **center** of the tiled area, as they do
+with hydra-posframe today ([ADR 0117](adr/0117-menus.md)). Steps 1 to 3 are built: menus
+from `config.toml`, the open menu with its float, and the built-in menus. The key list is
+planned.
 
 - A head closes the menu unless it says `stay`; switches (`[x]`/`[ ]`) stay and are read by the
-  head that runs. A key the menu does not bind is refused with `q to quit`. `C-g` closes one
-  level of submenus; `q` closes the menu unless a head binds it.
-- Built-in menus are defaults: `toggles` on `C-c t`, `review` on `C-x v r`, and `windows`,
-  `jumps` and `search` through `M-x open-menu`. `[menus.<name>]` in `config.toml` adds a menu,
-  replaces one of the same name whole, or removes it with `false`.
-- After a prefix key waits 1.0 s, a panel along the bottom of the frame lists the keys that may
-  follow, as which-key does; `C-h` shows it at once and pages it.
+  head that runs. A key the menu does not bind is refused with `x is not in this menu: q to quit`
+  and drops the prefix argument. `C-g` first ends a half-typed head or the prefix argument, then
+  closes one level of submenus; `q` closes one level too unless a head binds it.
+- The float is completion's panel at the center of the tiled area. Each key is a chip: the usual
+  colour for a head that closes the menu, a red one for a head that stays, and a third for a
+  switch, whose `[x]` sits on a chip of its colour while it is on. Titles are in their own colour,
+  notes dim and aligned in a column, and a head that cannot run now is dim with no chip. The head
+  `RET` runs is marked with a box. `C-u 5-` shows at the end of the title's row while it is typed.
+- `C-u`, `M-<digit>` and `M--` build a prefix argument for the next head; plain digits are heads.
+- A head that opens a prompt, a search or a replay closes the menu first; no menu opens in a
+  prompt (`Not in the minibuffer`). A menu's key ends isearch, query-replace or the layer of
+  `C-x TAB` and opens the menu; during a jump it ends the jump and does not run, as any key
+  the jump does not bind. The input method is off while a menu is open, and the agent
+  channel waits (`the person is in a menu`). `M-x open-menu` opens any menu by name.
+- Built-in menus, each with heads only for commands oso has:
+  - `toggles` on `C-c t`: whitespace, whitespace cleanup, the cursor flash, truncation, line
+    numbers, the current line's band, highlighting, and the theme pair, whose note names the
+    theme drawn now. Each toggle shows `[x]` or `[ ]`, and every head closes the menu.
+  - `windows`: the arrows resize the window by 3 and stay, `=` balances and stays, `-` and `/`
+    split, `d` kills a buffer, `0` deletes the window and `O` the others, `b` switches buffer,
+    `,` and `.` go to the previous and next buffer and stay, `f` finds a project's file and `F`
+    a file.
+  - `jumps`: `t` the timed character jump, `l` and `h` a line, `e` a line's end, `n` a line by
+    number.
+  - `search`: `f` a project's file, `r` the project's lines.
+  The review menu on `C-x v r` comes with ADR 0122. `windows`, `jumps` and `search` have no
+  key: `M-x open-menu` opens them, or a key in `config.toml`.
+- `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
+  or removes it with `false`. A removed menu's default key is then undefined. There are at most
+  256 menus, the four built-in ones among them even when removed. For example
+  (`config/menus_tests.rs` loads this sample, and changes with it):
+
+  ```toml
+  [menus]
+  search = false                    # removes the built-in search menu
+
+  [menus.toggles]                   # replaces the built-in toggles; C-c t opens this one
+  title = "Toggles"
+  [[menus.toggles.groups]]
+  title = "Aids"
+  heads = [
+    ["w", "global-whitespace-mode", "whitespace"],
+    ["n", "global-display-line-numbers-mode", "line numbers", { stay = true }],
+  ]
+
+  [menus.buffers]                   # adds a menu
+  title = "Buffers"
+  [[menus.buffers.groups]]
+  heads = [
+    ["b", "switch-to-buffer", "switch"],
+    [",", "previous-buffer", "previous", { stay = true }],
+    [".", "next-buffer", "next", { stay = true }],
+    ["w", { menu = "windows" }, "windows…"],
+  ]
+
+  [keys.global]
+  "C-c w" = { menu = "windows" }
+  "C-c b" = { menu = "buffers" }
+  ```
+- Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
+  the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
 
 ## Echo area
 
@@ -493,7 +549,7 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   the last key, or at `RET`, each match shows a label; with no string yet, it waits
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit that no label
-  takes, typed before any of a label, opens `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key. `M-j` in
+  takes, typed before any of a label, opens `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key but `e` in the `jumps` menu. `M-j` in
   isearch (`avy-isearch`) labels the search's matches in the selected window, and ends the search
   at the one chosen, as `RET` does.
 - Labels show in every tiled window, nearest the window's cursor first, over the first cells of
@@ -504,6 +560,14 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - The primary cursor jumps and the others stay. A jump into another window selects it. With a
   region shown, the jump extends it; otherwise the place left is pushed onto the mark ring.
   `C-u` keeps to the selected window.
+- At the labels, an action's key acts on the label typed next instead of going there, as avy's
+  dispatch keys: `SPC` sets the region from the cursor to it; `W` copies its whole line and `K`
+  kills it, and the cursor stays; `Y` copies it and `T` kills it, and each yanks it at every
+  cursor as `C-u C-y` does; `c` adds a cursor there, and the primary stays. What is typed of a
+  label stays, another action's key takes the place of the first, and the echo row shows the one
+  armed: `Jump to a line  [kill line]`. While a string is read, these keys are characters of it.
+  An action is one undo step in each buffer it changes; in a read-only buffer it says so and does
+  nothing (ADR 0116 step 6).
 - `C-g` ends a jump with nothing moved, before anything else it would do. A key that is not a
   label, `DEL` and `RET` among them, says `No such candidate` and does not run; while the string
   is read, a key the jump does not bind ends it silently. A change to the text or a scroll under
@@ -577,7 +641,7 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 
 On by default, each toggled by an `M-x` command for every buffer, which a prefix argument
 turns on (positive) or off (zero or negative) as Emacs's minor modes do, and from the
-toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
+toggles menu on `C-c t` ([ADR 0097](adr/0097-visual-aids.md), [ADR 0117](adr/0117-menus.md)):
 
 - **Whitespace** (`global-whitespace-mode`):
   - a full-width space shows as `□`, a tab as a dim `»` in its first cell, and the other

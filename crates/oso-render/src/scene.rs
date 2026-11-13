@@ -934,13 +934,14 @@ mod tests {
 
     #[test]
     fn a_panel_is_rounded_boxes_cut_to_the_region_and_the_margin_above_it() {
-        let keys = [rect(3, 4, 1, 3), rect(3, 8, 1, 3)];
+        let keys = [(rect(3, 4, 1, 3), Face::Key), (rect(3, 8, 1, 3), Face::Key)];
         let panes = [Pane {
             panel: Some(Panel {
                 cells: rect(0, 2, 4, 10),
                 field: Some(rect(2, 4, 1, 6)),
                 field_room: rect(1, 3, 3, 8),
                 keys: &keys,
+                marked: None,
                 selected: None,
                 border: false,
             }),
@@ -980,7 +981,7 @@ mod tests {
 
     #[test]
     fn a_field_reaches_only_into_its_room_and_a_box_out_of_the_region_is_dropped() {
-        let keys = [rect(9, 4, 1, 3)];
+        let keys = [(rect(9, 4, 1, 3), Face::Key)];
         let panes = [Pane {
             panel: Some(Panel {
                 cells: rect(0, 2, 2, 10),
@@ -988,6 +989,7 @@ mod tests {
                 field: Some(rect(1, 4, 1, 6)),
                 field_room: rect(1, 4, 1, 6),
                 keys: &keys,
+                marked: None,
                 selected: None,
                 border: false,
             }),
@@ -1011,6 +1013,7 @@ mod tests {
                 field: None,
                 field_room: rect(0, 0, 0, 0),
                 keys: &[],
+                marked: None,
                 selected: Some(rect(4, 2, 1, 8)),
                 border: false,
             }),
@@ -1030,6 +1033,35 @@ mod tests {
     }
 
     #[test]
+    fn a_menus_chips_reach_past_their_keys_and_its_default_head_is_marked_in_its_column() {
+        let keys = [(rect(2, 3, 1, 1), Face::MenuKeyStay)];
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(0, 1, 6, 30),
+                field: None,
+                field_room: rect(0, 0, 0, 0),
+                keys: &keys,
+                marked: Some(rect(3, 3, 1, 8)),
+                selected: None,
+                border: true,
+            }),
+            ..pane(0, rect(0, 0, 8, 40), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS, theme());
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rounded = scene.rounded();
+        let chip = rounded.last().unwrap();
+        assert_eq!(chip.fill, theme().background(Face::MenuKeyStay));
+        // The key's cell is x 38..48: the chip reaches 3 points (4 px of a 20 px cell) past it.
+        assert_eq!((chip.rect[0], chip.rect[2]), (34.0, 18.0));
+        let marked = rounded[rounded.len() - 2];
+        assert_eq!(marked.fill, theme().background(Face::CompletionSelected));
+        // The row's cells are x 38..118; under a border it is not stretched across the panel.
+        let [x, _, width, _] = marked.rect;
+        assert!(x < 38.0 && x > 18.0 && x + width > 118.0 && x + width < 318.0);
+    }
+
+    #[test]
     fn a_panel_with_a_border_has_it_in_place_of_the_hairline() {
         let panes = [Pane {
             panel: Some(Panel {
@@ -1037,6 +1069,7 @@ mod tests {
                 field: None,
                 field_room: rect(0, 0, 0, 0),
                 keys: &[],
+                marked: None,
                 selected: Some(rect(4, 3, 1, 6)),
                 border: true,
             }),
@@ -1073,6 +1106,7 @@ mod tests {
                 field: None,
                 field_room: rect(0, 0, 0, 0),
                 keys: &[],
+                marked: None,
                 selected: None,
                 border: false,
             }),

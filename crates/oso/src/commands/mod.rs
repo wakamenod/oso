@@ -24,6 +24,7 @@ mod jump;
 mod kill;
 mod macros;
 mod mark;
+mod menus;
 mod messages;
 mod minibuffer;
 mod modes;
@@ -85,6 +86,7 @@ const TABLES: &[&[Command]] = &[
     kill::COMMANDS,
     macros::COMMANDS,
     mark::COMMANDS,
+    menus::COMMANDS,
     buffers::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,
@@ -251,6 +253,7 @@ mod tests {
         // its own `open`.
         "find-file",
         "open-large-file",
+        "open-menu",
         "write-file",
         "write-file-over",
         // Killing a buffer, which can lose unsaved text (ADR 0088).

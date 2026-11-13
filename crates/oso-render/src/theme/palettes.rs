@@ -77,6 +77,12 @@ pub(super) enum Name {
     BgJump,
     FgJumpNext,
     BgJumpNext,
+    /// A menu's key chips (ADR 0117): an exit head's, a stay head's in a red hue, and a switch's
+    /// in a third, each a fill at 3:1 on the panel with its key at 4.5:1 on it.
+    FgMenuKey,
+    BgMenuKey,
+    BgMenuStay,
+    BgMenuSwitch,
 }
 
 /// Near-black, with a high-contrast foreground: the default.
@@ -134,6 +140,11 @@ pub(super) fn dark(name: Name) -> Color {
         BgJump => rgb(0xff6ad5),
         FgJumpNext => rgb(0x0d0e12),
         BgJumpNext => rgb(0x4fe0d0),
+        // Light chips with the background's ink: slate, coral and amber.
+        FgMenuKey => rgb(0x0d0e12),
+        BgMenuKey => rgb(0xa9b4d8),
+        BgMenuStay => rgb(0xff8f87),
+        BgMenuSwitch => rgb(0xf2c46a),
     }
 }
 
@@ -190,6 +201,11 @@ pub(super) fn light(name: Name) -> Color {
         BgJump => rgb(0x9c1a80),
         FgJumpNext => rgb(0xffffff),
         BgJumpNext => rgb(0x005c5a),
+        // Dark chips with white keys: slate, red and amber.
+        FgMenuKey => rgb(0xffffff),
+        BgMenuKey => rgb(0x46507a),
+        BgMenuStay => rgb(0xb02a22),
+        BgMenuSwitch => rgb(0x7a4a00),
     }
 }
 
@@ -248,5 +264,9 @@ pub(super) fn dusk(name: Name) -> Color {
         BgJump => rgb(0xff7ae0),
         FgJumpNext => rgb(0x1a1a22),
         BgJumpNext => rgb(0x5ee8d6),
+        FgMenuKey => rgb(0x1a1a22),
+        BgMenuKey => rgb(0xb4bee2),
+        BgMenuStay => rgb(0xff9d95),
+        BgMenuSwitch => rgb(0xffcf7e),
     }
 }

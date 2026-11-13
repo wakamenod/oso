@@ -312,9 +312,10 @@ question under [Questions](#questions), but Q1 (d) and Q24, which the author cha
   prefix; the resolver returns `Resolution::Menu`, and the dispatcher opens it. `M-x open-menu`
   reads a menu's name with completion over every menu (`ArgSpec::Menu`). `where-is` and the
   completion's key column show a menu's key for `open-menu`'s candidates.
-- **Limits:** 256 menus, 128 heads per menu, 8 columns per row, 3 rows, keys of 3 key presses,
-  counts up to 1,000, labels and titles of 64 cells (and 512 bytes, see [As built](#as-built)),
-  menu and switch names of 64 bytes in kebab case. Past them an entry is refused with its line.
+- **Limits:** 256 menus (the built-in ones among them, see [As built](#as-built)), 128 heads
+  per menu, 8 columns per row, 3 rows, keys of 3 key presses, counts up to 1,000, labels and
+  titles of 64 cells (and 512 bytes, see [As built](#as-built)), menu and switch names of 64
+  bytes in kebab case. Past them an entry is refused with its line.
 
 ### The prefix argument (Q15)
 
@@ -756,6 +757,110 @@ Steps 3 to 6 follow step 2 in any order.
 - `Definition`'s default head is `ret_head` (`set_ret_head`), and its default for heads that say
   nothing is `default_stay` (`set_default_stay`); a describe function's is `Notes::ret_head`. The
   file's names stay `default = true` and `default-head`.
+
+### Step 2: the open menu and its float (2026-11-13)
+
+The author approved the public items and chose (a) for each of step 2's questions (Q1–Q14,
+asked through the coordinator). After review, the author added `Column::group` and chose to keep
+`Describe`'s signature and the layout's measuring as they are (three more questions, each (a)).
+
+- **The float is completion's panel exactly** (`Panel::border`): the text's background, a 5-point
+  border a little lighter than it, square corners and no shadow. This corrects "all four corners
+  rounded" and "a little darker" above, which misread completion's look.
+- **Chips:** `Panel::keys` gives each chip its face. A menu's chips reach 3 points past the key's
+  cells, which hold only the key. Each chip's fill is at least 3:1 against the panel, as a mark,
+  and its key at least 4.5:1 on it; the three kinds of key are told apart by their fills, which a
+  test keeps apart. This is what "3.0 between the key faces" means. A switch's `[x]` sits on a
+  chip in `MenuKeySwitch` while it is on; `[ ]` is plain in `MenuNote`, and a command's toggle
+  shows `[x]`/`[ ]` in the text's face. `RET`'s head is marked by a box behind its row in its own
+  column (`Panel::marked`).
+- **The layout** gives each shown head a `Row` with its key's, check's, label's and note's cells.
+  Labels and notes each start in a column of their own per group. A column gives its rule's row
+  and the row of `… N more`, and the layout takes the prefix argument's width, whose cells end the
+  title's row (`Layout::prefix`), and each column names its group (`Column::group`), so the draw
+  repeats none of the layout's rules. The dispatcher cuts a note, its reason and the describe
+  function's line to 512 bytes once, as the layout measures them. The layout is worked out again
+  only when the menu shown, the tiled area or the prefix argument's width change, or the notes'
+  cells, hidden heads, line or default head; a note whose text changes in the same cells is drawn
+  in place. A relayout measures every label and note: about 1–2 ms for a crafted menu of 128 heads
+  with notes, against about 80 µs for a frame that keeps its layout and at most 15 µs for a key.
+  A describe function whose notes change width on every key pays a relayout per key, and a live
+  resize pays one per step, so step 3's describe functions keep their notes' widths steady, for
+  example by padding counts.
+- **The stack keeps the set its first menu came from** (`Arc<Menus>`), so a submenu's id names
+  the menu it named when that one opened, whatever a reload has put in since. A menu on the stack
+  is not pushed again, and the stack is at most 8 deep; both refusals say so in the echo area.
+- **`q` closes one level**, as `C-g` does. `C-g` first ends a half-typed head's keys, then the
+  prefix argument, then closes a level.
+- **A key the menu does not bind** says `x is not in this menu: q to quit` (`C-g to quit` where a
+  head binds `q`) and drops the prefix argument, as an undefined key does. Under
+  `foreign-keys = "run"`, a prefix key so run goes on through the usual keymaps, and the menu's
+  keys come first again once it ends. Text from an input method follows the same rule and is
+  never echoed. A foreign key that types a character is echoed as typed, as `x is undefined` is.
+- **Inside a menu, `C-u`, `M-<digit>` and `M--` run the default global keymap's prefix
+  commands**, whatever the user's keys bind them to, and the prefix argument shows only on the
+  title's row; the echo area shows a half-typed head's keys (`Z-`).
+- **The head on `RET` wins** over a describe function's `Notes::ret_head`, which a built-in menu
+  names only where no head is on `RET` (checked in debug builds). The default head is marked
+  wherever `RET` runs it, a default head whose own keys are `RET` included.
+- **No keymap is built for a menu,** in place of "the keymap built from each when it opens" and
+  "its keymap replaces the global one" above: `Definition::lookup` resolves its heads ahead of the
+  usual keymaps, and the dispatcher applies `foreign-keys` to text, so no text command is needed.
+- **An unavailable head is dim with no chip**, and its key says why.
+- **A head's command reads its menu's switches** also when it first reads an argument in a prompt
+  or waits for the clipboard: the command that waits keeps them.
+- **The menu closes** when a prompt or a question opens, a search, a jump or a query-replace
+  starts, the layer of `C-x TAB` opens, a command waits for an argument or the clipboard, or a
+  macro's replay begins. The window's close button closes it as its question opens. A replay that
+  opened the menu presses its heads, and one that ends with a menu open leaves it open, the
+  person's then: the next replay closes it as it begins, and the macro's repeat key is the menu's
+  while it is open. A menu's key ends isearch, query-replace or the layer of `C-x TAB` and then
+  opens the menu; during a jump it ends the jump and does not run, as any key the jump's keymap
+  does not bind (ADR 0116).
+- **The channel** waits with "the person is in a menu", and a question it causes waits for the
+  menu to close. Both the channel's state and the dev socket's `get-state` gain `menu`, the name
+  of the menu shown or null; the channel's state version stays 1, as the field is added.
+- **The mouse** acts as usual while a menu is open, and the menu stays.
+- `Keymap::menu_bindings` lists the keys bound to menus, for `open-menu`'s key column; the
+  default keys' count and step 3's unbinding of removed menus' keys will use it. `menu::builds_prefix`
+  is public, so the dispatcher and a definition's checks share one rule.
+- The menu's panes take ids from `1 << 21`, as the preview's do from `1 << 20`.
+
+### Step 3: the built-in menus (2026-11-13)
+
+The author approved the plan and chose the recommended answer to each of its eight questions,
+through the coordinator.
+
+- **Heads only for commands oso has**, with the author's keys where the command matches. The
+  author's heads with no command yet stay out, and their keys stay free for them. Where the
+  author's menus have no head, the new ones take `S` (highlighting) and `T` (the theme pair) in
+  `toggles`, and `=` (balance), `0` (delete the window) and `F` (find a file) in `windows`.
+- **`toggles`** heads all close the menu, as the author's do. Seven commands gained
+  `Command::state`: the four visual aids, `toggle-truncate-lines` (on while the selected window's
+  buffer truncates), `global-font-lock-mode`, and `electric-indent-mode`, which no built-in menu
+  has but a configured one may. `toggle-theme` is not on or off: its head is labelled `theme`,
+  as it switches the pair `[theme] pair` names, and the menu's describe function gives it a
+  note naming the theme drawn now, padded to the longest built-in theme's name, so a theme a
+  reload of `config.toml` changes while the menu is open keeps the note's width.
+- The describe function sits with the built-in tables in `bindings/menus.rs`, as it is small and
+  reads only the theme's name. A larger one, as the review's, belongs with its feature's
+  commands, which `bindings` names.
+- **`windows`:** `d` runs `kill-buffer`, whose prompt offers the current buffer first; the
+  arrows resize by a fixed count of 3 and stay. No head selects another window, as the author's
+  menu has none. **`jumps`** keeps both `l` and `h` on `avy-goto-line`, as the author's does.
+- **Only `C-c t` has a default key.** A head whose command a registry lacks is left out, so the
+  built-in menus and their ids are the same over any registry. `bindings::global_keymap` still
+  takes only the registry, and builds the built-in menus itself to find the toggles' id, in
+  place of the plan's `&Menus` argument; the ids follow the tables' order, so its menus and the
+  dispatcher's agree.
+- **The built-in menus count toward the 256 menus,** a removed one too, as its id keeps its
+  slot: a file may add 252.
+- **A removed built-in menu's default key is unbound in the user's layer** as the file is read,
+  unless the file binds or unbinds that key itself, and the checks of `[keys.global]` take it
+  as unbound, so `"C-c t w"` may make it a prefix with no `"C-c t" = false`, so it is undefined as any unbound key is, and
+  `open-menu`'s key column and the key list do not show it. A replaced menu keeps its id, so its
+  default key opens the file's menu.
+- The sample `[menus]` is in [`ui.md`](../ui.md)'s Menus section.
 
 ## The author's choices
 

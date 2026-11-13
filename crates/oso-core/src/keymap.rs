@@ -250,6 +250,25 @@ impl Keymap {
         }
     }
 
+    /// Calls `f` with every key sequence bound to a menu here, through prefix keymaps, in no
+    /// particular order, as `open-menu`'s completion shows a menu's key (ADR 0117).
+    pub fn menu_bindings(&self, mut f: impl FnMut(&[KeyPress], MenuId)) {
+        let mut keys = Vec::new();
+        self.visit_menus(&mut keys, &mut f);
+    }
+
+    fn visit_menus(&self, keys: &mut Vec<KeyPress>, f: &mut impl FnMut(&[KeyPress], MenuId)) {
+        for (key, entry) in &self.bindings {
+            keys.push(*key);
+            match entry {
+                Entry::Menu(menu) => f(keys, *menu),
+                Entry::Prefix(sub) => sub.visit_menus(keys, f),
+                Entry::Command(_) | Entry::Undefined => {}
+            }
+            keys.pop();
+        }
+    }
+
     /// The number of keys bound at this level, prefixes and undefined keys included.
     pub fn len(&self) -> usize {
         self.bindings.len()
@@ -665,6 +684,26 @@ mod tests {
     }
 
     // --- Menus ---
+
+    #[test]
+    fn menu_bindings_list_every_key_bound_to_a_menu_and_nothing_else() {
+        let registry = registry(&["save"]);
+        let save = registry.lookup("save").unwrap();
+        let mut menus = crate::menu::Menus::new();
+        let (toggles, windows) = (menus.id("toggles").unwrap(), menus.id("windows").unwrap());
+        let mut keymap = Keymap::new();
+        keymap.bind_menu(&keys("C-c t"), toggles).unwrap();
+        keymap.bind_menu(&keys("<f5>"), windows).unwrap();
+        keymap.bind(&keys("C-c s"), save).unwrap();
+        keymap.unbind(&keys("C-c u")).unwrap();
+        let mut listed = Vec::new();
+        keymap.menu_bindings(|keys, menu| listed.push((display_keys(keys).to_string(), menu)));
+        listed.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            listed,
+            [("<f5>".to_owned(), windows), ("C-c t".to_owned(), toggles)]
+        );
+    }
 
     #[test]
     fn a_key_opens_a_menu_with_the_rules_of_a_command() {

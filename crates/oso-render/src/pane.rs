@@ -112,6 +112,17 @@ pub enum Face {
     JumpLabel,
     /// The keys of a jump's label after its first, in a fill of their own, as strong.
     JumpLabelNext,
+    /// A menu head's key and its chip (ADR 0117): a head that closes the menu.
+    MenuKey,
+    /// The key and chip of a head that keeps the menu open, in a red hue.
+    MenuKeyStay,
+    /// The key and chip of a switch, and the chip of a switch's `[x]` while it is on.
+    MenuKeySwitch,
+    /// A menu's title and its columns' titles, on the panel.
+    MenuTitle,
+    /// A menu's notes, rules, `… N more`, the prefix argument and an unavailable head, dim on
+    /// the panel.
+    MenuNote,
 }
 
 impl Face {
@@ -292,11 +303,18 @@ pub struct Panel<'a> {
     /// The cells the field may reach into past its own, such as the padding around them. Its
     /// box, outline included, is cut to them.
     pub field_room: CellRect,
-    /// Cells drawn as key chips, such as ` y ` and ` n `, in [`Face::Key`].
-    pub keys: &'a [CellRect],
+    /// Cells drawn as key chips, each in its face's background: ` y ` and ` n ` in
+    /// [`Face::Key`], inside their cells, and a menu's keys in [`Face::MenuKey`],
+    /// [`Face::MenuKeyStay`] or [`Face::MenuKeySwitch`], reaching a little past theirs, as their
+    /// cells hold only the key (ADR 0117).
+    pub keys: &'a [(CellRect, Face)],
     /// A row of cells drawn as the selected candidate's box, a little wider than they are,
     /// in [`Face::CompletionSelected`] (ADR 0076).
     pub selected: Option<CellRect>,
+    /// A row of cells marked as a menu's default head, the one `RET` runs: a box a little wider
+    /// than they are, in [`Face::CompletionSelected`], never stretched across the panel
+    /// (ADR 0117).
+    pub marked: Option<CellRect>,
     /// A completion's float (ADR 0076): filled with the text's background and framed by a
     /// border in place of the hairline, with square corners and no shadow, and its selected row
     /// a bar across the whole panel.

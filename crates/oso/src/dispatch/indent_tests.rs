@@ -403,3 +403,14 @@ fn a_layer_left_in_another_buffer_shifts_nothing_there() {
     send(&mut dispatcher, &mut editor, "<right>");
     assert_eq!(editor.current().1.text().to_string(), "c\nd");
 }
+
+#[test]
+fn electric_indent_modes_state_reads_whether_it_is_on() {
+    let registry = crate::commands::registry();
+    let id = registry.lookup("electric-indent-mode").unwrap();
+    let state = registry.get(id).unwrap().state.unwrap();
+    let (mut dispatcher, mut editor) = at(Mode::Rust, "fn f() {|");
+    assert!(state(&editor));
+    run(&mut dispatcher, &mut editor, "electric-indent-mode", None);
+    assert!(!state(&editor));
+}

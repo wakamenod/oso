@@ -26,7 +26,7 @@ mod set;
 
 pub use definition::Definition;
 pub use error::MenuError;
-pub use layout::{Column, Layout, layout};
+pub use layout::{Column, Layout, Row, layout};
 pub use open::{Describe, Note, Notes, Open};
 pub use set::Menus;
 
@@ -168,9 +168,10 @@ fn is_name(name: &str) -> bool {
 }
 
 /// Whether `key` builds a prefix argument in an open menu (ADR 0117, Q15): `C-u`, `M-<digit>`
-/// or `M--`, so a head on it could never run. The same keys as the tip crate's prefix bindings
-/// (`bindings/prefix.rs`), which must change with these.
-fn builds_prefix(key: KeyPress) -> bool {
+/// or `M--`, so a head on it could never run, and the dispatcher reads it as the prefix
+/// argument's. The same keys as the tip crate's prefix bindings (`bindings/prefix.rs`), which
+/// must change with these.
+pub fn builds_prefix(key: KeyPress) -> bool {
     match key.key {
         Key::Char('u') => key.modifiers == Modifiers::CONTROL,
         Key::Char(c) if c.is_ascii_digit() || c == '-' => key.modifiers == Modifiers::META,
