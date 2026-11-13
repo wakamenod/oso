@@ -18,6 +18,10 @@ use crate::terminal::hosted;
 /// What a stopped session's modeline says.
 pub(super) const STOPPED: &str = "stopped: session-resume to continue";
 
+/// What the modeline of a buffer says whose session oso no longer keeps, past the most it
+/// keeps.
+const FORGOTTEN: &str = "forgotten: oso keeps the 256 sessions that changed last";
+
 /// A session buffer's name.
 fn buffer_name(name: &str) -> String {
     format!("*claude: {name}*")
@@ -168,6 +172,13 @@ impl App {
     }
 
     /// `buffer`'s terminal has no program, and its modeline says `note`.
+    /// Keeps the table within its cap: a buffer whose session went past it says so.
+    pub(super) fn prune_sessions(&mut self) {
+        for buffer in self.hosting.table.prune() {
+            self.show_stopped(buffer, FORGOTTEN);
+        }
+    }
+
     fn show_stopped(&mut self, buffer: BufferId, note: &str) {
         if let Some(hosted) = self.terminals.map.get_mut(buffer) {
             hosted.ended = Some(note.to_owned());
@@ -205,7 +216,7 @@ impl App {
                 worker.send(Job::Exited(key, Exit::Stopped));
             }
         }
-        self.hosting.table.prune();
+        self.prune_sessions();
         self.remember_sessions();
     }
 }

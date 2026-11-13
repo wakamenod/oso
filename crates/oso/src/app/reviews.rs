@@ -542,6 +542,7 @@ impl App {
         let editor = &self.editor;
         self.reviews
             .revoke_untrusted(|project| editor.project_trusted(project));
+        self.revoke_untrusted_session_baselines();
         // And the looks for a session's changes (ADR 0121, step 3).
         self.revoke_untrusted_looks();
     }

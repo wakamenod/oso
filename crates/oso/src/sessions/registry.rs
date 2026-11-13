@@ -79,16 +79,17 @@ pub enum Live {
 /// is always given oso's own, so that the registry it writes is the one oso reads.
 pub const CONFIG_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 
-/// The registry's directory: `sessions` under `$CLAUDE_CONFIG_DIR` if that is an absolute
-/// path, else under `~/.claude`.
+/// The registry's directory: `sessions` under `$CLAUDE_CONFIG_DIR`, else under `~/.claude`.
+/// `None` when it cannot be told: `$CLAUDE_CONFIG_DIR` is not an absolute path, which a
+/// session would read from its own directory, or there is no absolute home.
 pub fn directory() -> Option<PathBuf> {
     directory_from(std::env::var_os(CONFIG_VARIABLE), std::env::var_os("HOME"))
 }
 
 fn directory_from(config_dir: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
     let absolute = |dir: OsString| Some(PathBuf::from(dir)).filter(|dir| dir.is_absolute());
-    if let Some(dir) = config_dir.and_then(absolute) {
-        return Some(dir.join("sessions"));
+    if let Some(dir) = config_dir {
+        return absolute(dir).map(|dir| dir.join("sessions"));
     }
     home.and_then(absolute)
         .map(|home| home.join(".claude").join("sessions"))
@@ -96,15 +97,36 @@ fn directory_from(config_dir: Option<OsString>, home: Option<OsString>) -> Optio
 
 /// The entries in `dir`, in no order. A directory that cannot be listed has none.
 pub fn read(dir: &Path) -> Vec<Entry> {
+    list(dir).entries
+}
+
+/// What a read of the registry found.
+#[derive(Debug, Default)]
+pub struct Listing {
+    pub entries: Vec<Entry>,
+    /// It holds more than [`MAX_FILES`] entry files, so some were not read: whether a session
+    /// runs cannot be told from it.
+    pub cut: bool,
+}
+
+/// The entries in `dir`, in no order, and whether files were left unread. A directory that
+/// cannot be listed has none.
+pub fn list(dir: &Path) -> Listing {
     let Ok(listing) = std::fs::read_dir(dir) else {
-        return Vec::new();
+        return Listing::default();
     };
-    listing
+    let mut files: Vec<(u32, PathBuf)> = listing
         .filter_map(Result::ok)
         .filter_map(|item| pid_of(&item.file_name()).map(|pid| (pid, item.path())))
-        .take(MAX_FILES)
+        .take(MAX_FILES + 1)
+        .collect();
+    let cut = files.len() > MAX_FILES;
+    files.truncate(MAX_FILES);
+    let entries = files
+        .into_iter()
         .filter_map(|(pid, path)| read_entry(&path, pid))
-        .collect()
+        .collect();
+    Listing { entries, cut }
 }
 
 /// The entry in the file called `name` in `dir`, if `name` is one [`read`] opens and the file
@@ -265,7 +287,8 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use super::{
-        Entry, Live, MAX_FILES, directory_from, live_with, liveness, parse_ctime, pid_of, read,
+        Entry, Live, MAX_FILES, directory_from, list, live_with, liveness, parse_ctime, pid_of,
+        read,
     };
     use crate::sessions::identity::SessionId;
 
@@ -354,10 +377,8 @@ mod tests {
             directory_from(some("/c"), some("/h")),
             Some(PathBuf::from("/c/sessions"))
         );
-        assert_eq!(
-            directory_from(some("relative"), some("/h")),
-            Some(PathBuf::from("/h/.claude/sessions"))
-        );
+        // A session would read a relative one from its own directory: oso cannot tell where.
+        assert_eq!(directory_from(some("relative"), some("/h")), None);
         assert_eq!(
             directory_from(None, some("/h")),
             Some(PathBuf::from("/h/.claude/sessions"))
@@ -580,6 +601,14 @@ mod tests {
             scratch.write(&format!("{pid}.json"), &entry_json(pid, ""));
         }
         assert_eq!(read(&scratch.0).len(), MAX_FILES);
+        let listing = list(&scratch.0);
+        assert!(listing.cut, "more were there than were read");
+        assert_eq!(listing.entries.len(), MAX_FILES);
+        std::fs::remove_file(scratch.0.join("300.json")).unwrap();
+        for pid in 257..300 {
+            std::fs::remove_file(scratch.0.join(format!("{pid}.json"))).unwrap();
+        }
+        assert!(!list(&scratch.0).cut, "exactly as many as are read");
     }
 
     /// The pid of a child that has ended and been reaped.
