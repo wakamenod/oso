@@ -949,7 +949,17 @@ question, and after the reviews, the restored guards below.
   other libc call in the parent has a block of its own, each with its `// SAFETY:` comment:
   `posix_openpt` and taking its descriptor, `grantpt` with `unlockpt`, the slave's name, `fcntl` for
   `O_NONBLOCK`, `TIOCSWINSZ`, `tcgetattr` and reading its result, `tcgetpgrp`, `TIOCSIG`, `getpgrp`,
-  `kill`, `poll`, `getrlimit`, `sysctlbyname` on macOS, and `getpwuid_r`.
+  `kill`, `poll`, `getrlimit`, `sysctlbyname` and `notify_is_valid_token` on macOS, and
+  `getpwuid_r`.
+- **libnotify is set up before a terminal's fork, on macOS.** A fork while another thread sets
+  libnotify up for the first time aborts the child in libSystem's after-fork handler, before
+  `exec`: the terminal ends with no output, as a PTY test found under load. The parent first calls
+  `notify_is_valid_token(0)`, which waits for that set-up and leaves it done. Other libraries'
+  after-fork handlers could in principle stop a child the same way. `posix_spawn` for terminals,
+  which runs no such handlers, stays the alternative that removes the cause; it would need an ADR.
+- **An open of `/dev/ptmx` that races others** on macOS can fail with XNU's own `EREDRIVEOPEN`
+  (-6) as its error number. `open` tries again up to 8 times, and then says that no terminal could
+  be opened; any other error is returned as it is.
 - **`process::account_shell()`**, in a module of its own, reads the account's shell from the user
   database for step 4's order of shells; it may wait on a directory service, so it never runs on the
   UI thread. The order and `-l` are step 4's.
