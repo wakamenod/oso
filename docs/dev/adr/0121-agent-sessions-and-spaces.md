@@ -1251,7 +1251,9 @@ for each, and the coordinator approved these points:
 - **An agent's `worktree_remove`** runs step 4's checks and the removal in one job, and refuses a
   worktree its own session runs in. Once the checks hold, the app clears the worktree as for the
   person's removal: what the UI holds is looked at again, and its idle or done sessions are
-  hung up, so that they end stopped. Check 4 reads the sessions' live states for both. Its reply
+  hung up, so that they end stopped. So an agent's removal, which asks no question, stops the
+  worktree's idle or done sessions, and refuses while one works or needs input (the author's
+  choice, 2026-11-14). Check 4 reads the sessions' live states for both. Its reply
   names what git ignored there, which went with it, and the echo area says which session removed
   which worktree.
 - **The steering hook's reason** now names `start_worktree_session`.
