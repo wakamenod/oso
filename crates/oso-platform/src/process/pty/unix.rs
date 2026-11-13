@@ -56,6 +56,14 @@ const SET_CONTROLLING_TERMINAL: libc::Ioctl = libc::TIOCSCTTY;
 #[cfg(target_os = "macos")]
 const SEND_SIGNAL: libc::c_ulong = libc::TIOCSIG as libc::c_ulong;
 
+// libnotify is part of libSystem, which every macOS process links. No crate binds it.
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// Whether `token` names one of this process's registrations. Its first call sets
+    /// libnotify up.
+    fn notify_is_valid_token(token: libc::c_int) -> bool;
+}
+
 /// Signals a child gets back at their default action, whatever oso was started
 /// with: `nohup` and a shell's background jobs ignore some, and a terminal's
 /// shell must still end on a hang-up and stop on Ctrl-Z.
@@ -76,18 +84,19 @@ const DEFAULT_SIGNALS: [libc::c_int; 10] = [
 /// system cannot mark them all at once.
 const MAX_MARKED: libc::c_int = 1 << 20;
 
+/// XNU's `EREDRIVEOPEN`, "open again": an open of `/dev/ptmx` that races others can return it
+/// as its error number, which no other system gives.
+const OPEN_AGAIN: libc::c_int = -6;
+
+/// How many times [`open_master`] opens `/dev/ptmx` while it says to open again.
+const OPEN_TRIES: usize = 8;
+
 /// The longest name of a terminal's slave: macOS's `TIOCPTYGNAME` fills 128
 /// bytes.
 const NAME_LEN: usize = 128;
 
 pub(super) fn open(size: Size) -> io::Result<(Master, Slave)> {
-    // SAFETY: `posix_openpt` takes only flags, and returns a new descriptor or -1.
-    let fd = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
-    if fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: `fd` was just opened, is valid, and nothing else owns it.
-    let master = unsafe { OwnedFd::from_raw_fd(fd) };
+    let master = open_master()?;
     // SAFETY: both take a descriptor, which `master` keeps open, and nothing else.
     let unlocked = unsafe {
         libc::grantpt(master.as_raw_fd()) == 0 && libc::unlockpt(master.as_raw_fd()) == 0
@@ -107,6 +116,25 @@ pub(super) fn open(size: Size) -> io::Result<(Master, Slave)> {
     set_non_blocking(&master.0)?;
     master.resize(size)?;
     Ok((master, Slave(slave.into())))
+}
+
+/// A new master, close-on-exec. On macOS an open of `/dev/ptmx` that races others may fail
+/// with XNU's own "open again" code: it opens again a few times, and then says that no
+/// terminal could be opened.
+fn open_master() -> io::Result<OwnedFd> {
+    for _ in 0..OPEN_TRIES {
+        // SAFETY: `posix_openpt` takes only flags, and returns a new descriptor or -1.
+        let fd = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
+        if fd >= 0 {
+            // SAFETY: `fd` was just opened, is valid, and nothing else owns it.
+            return Ok(unsafe { OwnedFd::from_raw_fd(fd) });
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(OPEN_AGAIN) {
+            return Err(error);
+        }
+    }
+    Err(io::Error::other("no terminal could be opened"))
 }
 
 /// The path of the slave that belongs to `master`.
@@ -351,6 +379,15 @@ pub(super) fn group_to_signal(group: u32, own: libc::pid_t) -> Option<libc::pid_
 }
 
 pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
+    // A fork while another thread sets libnotify up for the first time kills the child in
+    // libSystem's after-fork handler, before `exec`, and the terminal ends with no output.
+    // Asking libnotify anything first waits for that set-up and leaves it done.
+    #[cfg(target_os = "macos")]
+    // SAFETY: `notify_is_valid_token` takes a plain number and reads only libnotify's own
+    // state, which it sets up on its first call, behind its own lock.
+    unsafe {
+        notify_is_valid_token(0);
+    }
     // Each is a new close-on-exec copy, which the spawn puts at 0, 1 and 2.
     let stream = || slave.0.try_clone().map(Stdio::from);
     command.stdin(stream()?).stdout(stream()?).stderr(stream()?);
