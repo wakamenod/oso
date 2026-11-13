@@ -52,6 +52,9 @@ pub(super) struct Reader {
 
 type Out<'a> = dyn FnMut(Report) -> bool + 'a;
 
+/// Gives the next carry waiting, if any.
+pub(super) type Carries<'a> = dyn FnMut() -> Option<Carry> + 'a;
+
 impl Reader {
     /// State for the project at `root`, with index copies under `state`, swept now.
     pub(super) fn new(root: &Path, state: Option<&Path>) -> Reader {
@@ -80,11 +83,18 @@ impl Reader {
         fresh
     }
 
-    pub(super) fn answer(&mut self, request: Request, stop: &dyn Fn() -> bool, out: &mut Out<'_>) {
+    /// Answers `request`, taking each carry `carries` gives between its files.
+    pub(super) fn answer(
+        &mut self,
+        request: Request,
+        stop: &dyn Fn() -> bool,
+        carries: &mut Carries<'_>,
+        out: &mut Out<'_>,
+    ) {
         let asked = super::asked(&request);
         let answered = match request {
-            Request::Open(scope) => self.open(&scope, stop, out),
-            Request::Refresh { first } => self.refresh(&first, stop, out),
+            Request::Open(scope) => self.open(&scope, stop, carries, out),
+            Request::Refresh { first } => self.refresh(&first, stop, carries, out),
             Request::Baseline => self.baseline(stop, out),
             Request::Carry(carry) => self.carry(carry, out),
         };
@@ -180,19 +190,21 @@ impl Reader {
         &mut self,
         scope: &Scope,
         stop: &dyn Fn() -> bool,
+        carries: &mut Carries<'_>,
         out: &mut Out<'_>,
     ) -> Result<(), ScopeError> {
         if self.scope.as_ref() != Some(scope) {
             self.kept.clear();
         }
         self.scope = Some(scope.clone());
-        self.refresh(&[], stop, out)
+        self.refresh(&[], stop, carries, out)
     }
 
     fn refresh(
         &mut self,
         first: &[Box<[u8]>],
         stop: &dyn Fn() -> bool,
+        carries: &mut Carries<'_>,
         out: &mut Out<'_>,
     ) -> Result<(), ScopeError> {
         let Some(scope) = self.scope.clone() else {
@@ -246,6 +258,12 @@ impl Reader {
             budget: Instant::now() + REQUEST_BUDGET,
         };
         for entry in order {
+            // A file's comments are carried as they come, the running request going on.
+            while let Some(carry) = carries() {
+                if !out(carry_with(&git, cx.batch, carry)) {
+                    return Ok(());
+                }
+            }
             if stop() {
                 out(Report::Read {
                     generation,
@@ -285,35 +303,39 @@ impl Reader {
     }
 
     fn carry(&mut self, carry: Carry, out: &mut Out<'_>) -> Result<(), ScopeError> {
-        let deadline = Instant::now() + CARRY_DEADLINE;
         let git = self.repository()?.git.clone();
-        let batch = &mut self.batch;
-        let mut cut_short = false;
-        let carried = carry.run(
-            |a, b| {
-                let mut blob = |id: &[u8]| {
-                    if Instant::now() >= deadline {
-                        return None;
-                    }
-                    match batch.read(&git, &Id::parse(id)?) {
-                        Ok(Blob::Bytes(bytes)) => Some(bytes),
-                        _ => None,
-                    }
-                };
-                let old = blob(a)?;
-                let new = blob(b)?;
-                diff::base_hunks(&old, &new, deadline)
-            },
-            |a, b| {
-                let pairs = diff::matches(a, b, deadline);
-                cut_short = cut_short || Instant::now() >= deadline;
-                pairs
-            },
-        );
-        let cut_short = cut_short || Instant::now() >= deadline;
-        out(Report::Carried { carried, cut_short });
+        out(carry_with(&git, &mut self.batch, carry));
         Ok(())
     }
+}
+
+/// Carries `carry` within [`CARRY_DEADLINE`], reading old sides through `batch`.
+fn carry_with(git: &Git, batch: &mut Batch, carry: Carry) -> Report {
+    let deadline = Instant::now() + CARRY_DEADLINE;
+    let mut cut_short = false;
+    let carried = carry.run(
+        |a, b| {
+            let mut blob = |id: &[u8]| {
+                if Instant::now() >= deadline {
+                    return None;
+                }
+                match batch.read(git, &Id::parse(id)?) {
+                    Ok(Blob::Bytes(bytes)) => Some(bytes),
+                    _ => None,
+                }
+            };
+            let old = blob(a)?;
+            let new = blob(b)?;
+            diff::base_hunks(&old, &new, deadline)
+        },
+        |a, b| {
+            let pairs = diff::matches(a, b, deadline);
+            cut_short = cut_short || Instant::now() >= deadline;
+            pairs
+        },
+    );
+    let cut_short = cut_short || Instant::now() >= deadline;
+    Report::Carried { carried, cut_short }
 }
 
 /// The repository whose work tree's top is `root`: git to run there, and its index. git never

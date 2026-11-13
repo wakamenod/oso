@@ -120,7 +120,7 @@ impl Editor {
     }
 
     /// Copies the innermost draft's text, unless empty, into the kill ring before `C-g` closes
-    /// it, and says so. Returns whether it was a draft.
+    /// it; `keyboard-quit` says so once it closed. Returns whether it was a draft.
     pub(in crate::editor) fn keep_quit_draft(&mut self) -> bool {
         if self.draft().is_none() {
             return false;
@@ -129,12 +129,8 @@ impl Editor {
             return false;
         };
         let len = self.buffer(buffer).map_or(0, |shown| shown.text().len());
-        if len > 0
-            && self
-                .kill_in(buffer, std::iter::once(0..len), Direction::Forward, true)
-                .is_ok()
-        {
-            self.echo("Draft in the kill ring: C-y");
+        if len > 0 {
+            let _ = self.kill_in(buffer, std::iter::once(0..len), Direction::Forward, true);
         }
         true
     }

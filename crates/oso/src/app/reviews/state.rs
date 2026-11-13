@@ -6,13 +6,15 @@
 //! frame is drawn. Nothing here runs git: it starts, revokes and drops the threads that do.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use oso_core::editor::ReviewId;
 use oso_core::project::ProjectId;
+use oso_core::window::Screen;
 
 use crate::review::count::Counter;
 use crate::review::view::{Tell, Text, View};
-use crate::review::{Id, Reviewer, Scope, TrustedRoot};
+use crate::review::{Id, Reading, Reviewer, Scope, TrustedRoot};
 
 /// What the review's note says once its project is no longer trusted.
 pub(super) const UNTRUSTED: &str = "the project is no longer trusted: M-x trust-project, then g";
@@ -31,6 +33,11 @@ pub(super) struct Running {
     pub(super) texts: VecDeque<Box<Text>>,
     /// Whether the root was revoked as its project stopped being trusted.
     pub(super) revoked: bool,
+    /// The readings whose comments the review's own thread carries, in the order asked, which
+    /// is the order it answers.
+    pub(super) carrying: VecDeque<Arc<Reading>>,
+    /// Whether the view was last told that agent cards fold.
+    pub(super) folded: bool,
 }
 
 /// What opening a review that is open already does.
@@ -88,6 +95,8 @@ pub(in crate::app) struct Reviews {
     pub(super) next_serial: u64,
     /// Room for the paths of the files a review's windows show.
     pub(super) shown: Vec<Box<[u8]>>,
+    /// Room for the rows a review window shows, to find the comments read.
+    pub(super) screen: Screen,
 }
 
 impl Reviews {

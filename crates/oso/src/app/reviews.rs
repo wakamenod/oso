@@ -19,8 +19,8 @@ use oso_core::project::ProjectId;
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
 use crate::review::count::Counted;
-use crate::review::view::{Carrying, Tell, Text, View};
-use crate::review::{Content, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
+use crate::review::view::{Tell, Text, View};
+use crate::review::{Asked, Content, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
 pub(in crate::app) use state::Reviews;
 use state::{Baseliner, Reopen, Running};
 
@@ -144,6 +144,7 @@ impl App {
             self.review_request(request);
         }
         self.put_in_review_texts();
+        self.sync_review_comments();
     }
 
     fn review_request(&mut self, request: ReviewRequest) {
@@ -156,8 +157,9 @@ impl App {
             ReviewRequest::Baseline { project } => self.take_baseline(project),
             ReviewRequest::Refresh(id) => self.refresh_review(id),
             ReviewRequest::Close(id) => self.close_review(id),
-            // Comments and visits come with later steps of ADR 0122.
-            ReviewRequest::Redraw { .. } | ReviewRequest::Visit { .. } => {
+            ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
+            // Visits come with a later step of ADR 0122.
+            ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");
             }
         }
@@ -236,6 +238,8 @@ impl App {
             view,
             texts: VecDeque::new(),
             revoked: false,
+            carrying: VecDeque::new(),
+            folded: false,
         });
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
@@ -245,6 +249,8 @@ impl App {
 
     /// Starts the review's own thread over its root, dropping the one before.
     fn start_reviewer(&mut self, index: usize) {
+        // What the thread before was carrying is carried on the view thread.
+        self.carries_failed(index, true);
         let serial = self.reviews.serial();
         let running = &mut self.reviews.open[index];
         running.serial = serial;
@@ -373,16 +379,24 @@ impl App {
         let tell = match report {
             Report::Listed {
                 entries, more, cut, ..
-            } => Tell::Listed { entries, more, cut },
-            Report::File { reading, .. } => {
-                let carry = match self.carry_for(review, &reading) {
-                    Some(carry) => Carrying::Here(carry),
-                    None => Carrying::Nothing,
-                };
-                Tell::File { reading, carry }
+            } => {
+                let whole = more == 0 && !cut;
+                self.reviews.open[index].view.tell(Tell::Listed {
+                    entries: Arc::clone(&entries),
+                    more,
+                    cut,
+                });
+                return self.forget_unlisted(index, &entries, whole);
+            }
+            Report::File { reading, .. } => return self.tell_file(index, reading),
+            Report::Carried { carried, cut_short } => {
+                return self.review_carried(index, carried, cut_short);
             }
             Report::Read { .. } => Tell::Read,
-            Report::Failed { why, .. } => {
+            Report::Failed { asked, why } => {
+                if asked == Asked::Carry {
+                    self.carries_failed(index, false);
+                }
                 let why = one_line(&why, MAX_MESSAGE);
                 self.editor.message(format!("The review failed: {why}"));
                 Tell::Said(vec![why])
@@ -394,8 +408,6 @@ impl App {
                 self.editor.message(gone);
                 Tell::Said(vec![gone.to_owned()])
             }
-            // Carrying comments on the review's own thread comes with comments (ADR 0122).
-            Report::Carried { .. } => return,
             Report::Baseline { .. } => return,
         };
         self.reviews.open[index].view.tell(tell);
@@ -501,13 +513,11 @@ impl App {
             let Some(model) = self.editor.review_mut(id) else {
                 break;
             };
-            if !model.apply(carried).again {
-                continue;
-            }
-            if let Some(carry) = self.carry_for(id, &reading) {
-                self.reviews.open[index]
-                    .view
-                    .tell(Tell::Carry { reading, carry });
+            let again = model.apply(carried).again;
+            // Its cards are placed in the model now as they show.
+            self.tell_cards(index, &reading.entry.path);
+            if again {
+                self.carry_again(index, reading);
             }
         }
         self.editor.set_review_reading(id, reading);
@@ -527,6 +537,7 @@ impl App {
     }
 }
 
+mod comments;
 mod menu;
 mod state;
 #[cfg(test)]

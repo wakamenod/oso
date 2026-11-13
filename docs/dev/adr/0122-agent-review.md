@@ -965,6 +965,59 @@ replaced (below). What the first PR built:
   that would pass for another row); the glue's choices; and an end-to-end flow that trusts a
   project, opens a review over the window's keys, moves, refreshes and quits.
 
+### Step 3: the unified view, part two
+
+The second PR adds comments, drafts and cards. The author approved its plan and its public items
+on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a). What it built:
+
+- **Public items:** `minibuffer::Kind::Draft`; `editor::DraftFor` (`Comment { path, anchor }`,
+  `Reply { to }`, `Edit { comment }`); `Editor::open_draft(review, draft, text)`;
+  `Editor::draft()`, the innermost prompt's draft; `Editor::kill_review_comment(review,
+  comment)`; `Review::comments_on(path)`; and `Carried::placed()`. A comment's text and path are
+  shared (`Arc`) inside the model, so the copy of a file's comments the view thread gets costs a
+  count per comment.
+- **The draft is a prompt in the top float, as the author chose (Q3 (a)), in place of "a draft
+  buffer in a float under the line".** Its label says what it is for: `Comment on <path> L42
+  (new)`, `Comment on <path> hunk 3`, `Reply to #7` or `Edit #7`, the path on one line and cut
+  to 80 characters. Its text wraps, and its answer grows with it up to 10 rows, then scrolls
+  (Q-D (a)); it is the only prompt whose window wraps. `RET` breaks a line, `C-c C-c` keeps it
+  (`review-keep-draft`) and `C-g` drops it, copying a draft that holds text to the kill ring.
+  A draft opens only when no prompt is open, and it keeps no history. Review texts wait while it
+  is open, as under any prompt, so the line it is on cannot move under it. Keeping it refuses
+  text over 64 KiB, leaving it open; a target gone meanwhile, as a comment removed, leaves the
+  text in the kill ring.
+- **Keys:** `c` comments on a line, on a hunk's header, or replies on a card (Q15); `e` edits the
+  person's own comment; `k` removes the person's own comment with its whole thread at once, with
+  no question, putting the thread in the kill ring as text, each comment after its label line
+  (Q-A (a)); `r` resolves the thread or opens it again; `a` folds every agent card to its label
+  and first line; `{`/`}` move between comments, with a count, on every cursor. All but the
+  motions are `Person`, so no agent channel command touches the person's comments (Q11). `a`
+  is taken by folding here; accepting a hunk gets its key with step 5.
+- **Cards** are rows of the review buffer's text, laid out on the view thread: every row starts
+  with four spaces and a bar in its author's face; the label row says `You  #7` or `Agent  #12`,
+  with `· new` while an agent's comment is unread; the text follows, one row per line of it,
+  under the label; replies go two columns further in, at most three deep. What a row is comes
+  from the rows alone, so an agent's text shaped like a label still stands after the agent's
+  bar, indented as text. A line comment goes under its line, an old side's under its removed
+  row, a hunk comment after the hunk's last line, and outdated comments above the first hunk,
+  saying `· outdated, was L42 (new)`. A resolved thread folds to one row. A file's header counts
+  its comments, the agent's and the unread. Cards hold their whole text (Q-B (a)) and count
+  toward the text's 64 MiB; past it, cards show their label alone.
+- **Carrying and refresh:** a file with no comments is carried on the view thread, as in part
+  one; a file with comments on the review's own thread, which reads old sides, and the view keeps
+  its last section until the result comes (Q-C (a)). **A carry is no newer request:** carries wait
+  in a queue of their own, answered between the files of a running request and when nothing
+  runs, so a file's comments never stop a refresh. The result is applied as the text that shows
+  it goes in, so the model's reading of a file is always the one on screen.
+- **A file that leaves the listing** with comments is taken out of the model, its comments
+  outdated, and stays under the listed files as `no longer changed <path>` with its cards
+  (Q-E (a)).
+- **Read:** an agent comment is marked read once its label and every row of its text shown were
+  in the selected window after a command (Q7 (a)); its label then loses `· new`.
+- **Closing** counts an open draft as a comment of the person's not sent.
+- A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
+  it on `RET` comes with part three.
+
 ### Step 8: documents no buffer owns
 
 The author approved the plan's API and its nine answers, each the recommended one (2026-11-13,

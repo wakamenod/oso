@@ -113,6 +113,8 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         view: View::start("t".into(), |_| true).unwrap(),
         texts: VecDeque::new(),
         revoked: false,
+        carrying: VecDeque::new(),
+        folded: false,
     }
 }
 

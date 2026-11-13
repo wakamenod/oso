@@ -72,10 +72,6 @@ pub(crate) enum Tell {
     /// What the review's thread carried to `reading`; `cut_short` if matching ran out of time.
     /// Dropped unless `reading` is still the file's current one, the one waiting for its carry
     /// included.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the UI sends these from ADR 0122's step 3b")
-    )]
     Carried {
         reading: Arc<Reading>,
         carried: Carried,
@@ -83,20 +79,12 @@ pub(crate) enum Tell {
     },
     /// The model's comments on the file at `path` now, oldest first, and its reading of the
     /// file.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the UI sends these from ADR 0122's step 3b")
-    )]
     Cards {
         path: Box<[u8]>,
         comments: Vec<Comment>,
         reading: Option<Arc<Shape>>,
     },
     /// Whether agent cards fold to their first line.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the UI sends these from ADR 0122's step 3b")
-    )]
     Folded(bool),
     /// Every file of the listing that changed has been read.
     Read,
@@ -110,10 +98,6 @@ pub(crate) enum Carrying {
     Here(Carry),
     /// On the review's thread, whose result comes as [`Tell::Carried`]: until then the file
     /// shows its reading before.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the UI sends these from ADR 0122's step 3b")
-    )]
     Elsewhere,
     /// Not at all: the reading is not text.
     Nothing,
