@@ -10,7 +10,7 @@
 //!   A name the person types is cleaned the same way.
 
 use std::fmt;
-use std::io::{self, Read as _};
+use std::io;
 
 /// The longest name, in bytes, before a `-N` that tells it from another.
 pub const MAX_NAME: usize = 48;
@@ -72,6 +72,8 @@ impl fmt::Display for SessionId {
 /// 16 bytes from `/dev/urandom`, for an id. It reads a file, so never on the UI thread.
 #[cfg(unix)]
 pub fn random_bytes() -> io::Result<[u8; 16]> {
+    use std::io::Read as _;
+
     let mut bytes = [0; 16];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
     Ok(bytes)
