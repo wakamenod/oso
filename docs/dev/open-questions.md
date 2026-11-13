@@ -387,13 +387,17 @@ item notes when it must be settled.
 
 - Check on the current Claude Code CLI, before the step that relies on each
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)): that hooks given with `--settings` merge
-  with the person's own, that `--append-system-prompt` applies to interactive sessions, which of
-  two MCP servers named `oso` wins, and that auto memory is shared by a repository's worktrees.
+  with the person's own, that `--append-system-prompt` applies to interactive sessions, and that
+  auto memory is shared by a repository's worktrees. Step 1's run of the CLI settled the rest:
+  the `oso` server given with `--mcp-config` is the one started, `claude` is its parent, and both
+  `claude`'s environment and the server's `env` reach it. That the registry entry's `sessionId`
+  and `name` are the ones oso passed is checked only with a fake `claude` in the end-to-end flows
+  (ADR 0121, "Step 1, as built").
 - A review in restricted projects, read in-process with `gix` once ADR 0011's check that it skips
   config commands is done ([ADR 0122](adr/0122-agent-review.md)).
 - Agent identity in a review: `Author::Agent` names no session yet, so "its own" comments are any
-  agent's. Settle it with the agent tools (ADR 0122 step 7), when ADR 0121's session id reaches
-  the bridge ([ADR 0122](adr/0122-agent-review.md)).
+  agent's. Settle it with the agent tools (ADR 0122 step 7): since ADR 0121's step 1, a hosted
+  session's bridge connection knows its session ([ADR 0122](adr/0122-agent-review.md)).
 - A public form of `oso-core`'s path judgement for secrets (`secret::judge`), so that a review
   can give `oso_syntax::Scheduler::open` the verdict on every path a side names. Settle it before
   ADR 0122 step 9 opens review sides, or in step 3 ([ADR 0122](adr/0122-agent-review.md),
