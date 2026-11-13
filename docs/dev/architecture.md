@@ -43,7 +43,9 @@ crates/
 │                   only the tip crate uses it (ADR 0120)
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
-                    clipboard, filesystem and paths, process spawning, PTY
+                    clipboard, filesystem and paths (the home
+                    directory among them), process spawning, PTY,
+                    random bytes
 ```
 
 Commands live in the tip crate because it changes most often and rebuilds
@@ -630,7 +632,7 @@ The UI thread never blocks on I/O or parsing:
   it against recorded screens, and `session-explain-file` explains a saved one in
   `*Session explain*`, a buffer the agent channel cannot read.
 - A hosted session (`claude`, ADR 0121 step 1) gets ready on a short `oso-session-start`
-  thread of its own (`sessions/start.rs`): the id from `/dev/urandom`, the directory and
+  thread of its own (`sessions/start.rs`): the id from `oso_platform::random`, the directory and
   `[sessions] claude` checked, Claude Code's registry read before a resume and again 5 s after
   (`sessions/registry.rs`, liveness by `oso_platform::process::start_time`), the shell found, and
   in a trusted project ADR 0122's baseline, waited for at most 2 s. Its command line is built by
