@@ -219,10 +219,8 @@ impl Dispatcher {
             // Sessions and spaces complete over what the host last listed (ADR 0121).
             Kind::Complete { history } if let Some(ArgSpec::Listed { list, .. }) = spec => {
                 let items = editor.listed_candidates(list);
-                // `session-adopt` lists live sessions, then the newest stopped ones: an order
-                // a history or the names' lengths must not undo.
                 let style = CompletionStyle {
-                    given_order: list == crate::commands::agent_sessions::ADOPT_LIST,
+                    given_order: crate::commands::agent_sessions::listed_in_given_order(list),
                     ..CompletionStyle::default()
                 };
                 editor.open_completion_as(prompt, history, items, style)

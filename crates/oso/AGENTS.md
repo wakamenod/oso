@@ -40,8 +40,9 @@ often, so it must rebuild within 2 s.
   sessions get ready and start their terminal on `oso-session-start` (`start`), with a command
   line built by pure functions (`command`, `launch`); Claude Code's registry (`registry`) and
   oso's record (`record`) are read off the UI thread, and a bridge's claim is judged by one pure
-  function (`bridge`). `app/sessions.rs` and `app/sessions/` carry out what the worker and the
-  start thread find.
+  function (`bridge`). `session-adopt` reads Claude Code's transcripts (`transcripts`) only
+  for ids, names, times and directories, on its own `oso-session-adopt-list` thread (`adopt`).
+  `app/sessions.rs` and `app/sessions/` carry out what the worker and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and

@@ -32,6 +32,25 @@ pub const SPACES_LIST: &str = "spaces";
 /// The list `session-adopt` completes over: Claude Code's conversations that oso does not host.
 pub const ADOPT_LIST: &str = "adoptable";
 
+/// The history of `session-adopt`'s answers, which names its prompt.
+const ADOPT_HISTORY: &str = "session-adopt";
+
+/// Whether the prompt of a command over `list` keeps the order the host gave: `session-adopt`
+/// lists live sessions, then the newest stopped ones, an order a history or the names' lengths
+/// must not undo.
+pub fn listed_in_given_order(list: &str) -> bool {
+    list == ADOPT_LIST
+}
+
+/// Whether `prompt` is `session-adopt`'s, whose answer the host looks up in the list it
+/// showed.
+pub fn is_adopt_prompt(prompt: &oso_core::minibuffer::Prompt) -> bool {
+    matches!(
+        prompt.kind(),
+        oso_core::minibuffer::Kind::Complete { history } if history == ADOPT_HISTORY
+    )
+}
+
 /// The sessions commands.
 pub const COMMANDS: &[Command] = &[
     Command {
@@ -71,7 +90,7 @@ The list holds the sessions oso does not host: those Claude Code's registry says
         args: ArgSpec::Listed {
             list: ADOPT_LIST,
             prompt: "Adopt session:",
-            history: "session-adopt",
+            history: ADOPT_HISTORY,
         },
         reach: Reach::Person,
         run: session_adopt,

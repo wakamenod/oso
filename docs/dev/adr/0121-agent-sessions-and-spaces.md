@@ -781,12 +781,13 @@ points:
   `--mcp-config` takes several values and would take a brief as one. A fork passes oso's new id
   with `--session-id`, which the CLI accepts only together with `--fork-session`. A test keeps the
   line to these flags only.
-- **The login-shell wrapper** is `SHELL -l -c SCRIPT CLAUDE ARGS…` for a shell whose file name is
+- **The login-shell wrapper** is `SHELL -l -c SCRIPT PROJECT CLAUDE ARGS…` for a shell whose file name is
   `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with `$(…)`,
   backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments. The
   script runs `[sessions] claude` as given. Else it looks for `claude` on the `PATH` the login
   shell set, as oso's own look does when the shell is not one of these: only in absolute
-  entries, and in none inside the session's directory, compared with links resolved.
+  entries, and in none inside the session's directory or its project (`-` for none), compared
+  with links resolved (the project since `session-adopt`'s fix round).
   The shell is ADR 0120's: `[terminal] shell`, then `$SHELL`, then the account's, then `/bin/sh`.
 - **The registry reader** (`sessions::registry`) reads only names of the form `<digits>.json` in
   `$CLAUDE_CONFIG_DIR/sessions`, else `~/.claude/sessions`: at most 256 files of 64 KiB, opened
@@ -1073,15 +1074,21 @@ coordinator approved these points:
     `type` first, as 2.1.32x does. If it stops, names are lost, not misread.
   - The directory is the top-level `cwd` of the first line in the first 64 KiB that has one. A
     scanner finds it and skips every other value by its brackets and quotes without decoding it.
-    A conversation with no absolute `cwd` is not listed.
+    A conversation whose `cwd` is not absolute, or holds a `.` or `..` part, is not listed. The
+    registry's `cwd` is held to the same rule, as a session is placed by a directory's text.
   - At most 1,024 project directories and 4,096 names. Files are opened without following a link,
-    and only the reading user's. What was read is kept by path, length and change time, so only a
-    changed file is read again.
+    and only the reading user's with one name. What was read is kept by path, length and change
+    time, so only a changed file is read again. At most 200 files are read in one list. Past that,
+    the files read before are still listed and the rest wait for the next list, so newer files
+    cannot hide conversations already read.
 - **A name** is the one the registry gave while the conversation ran, as this oso saw it (at most
   256 kept in memory), then the transcript's, then the directory's name. One that two share, or
-  none, gets the id's first 8 digits. Text from either file is escaped onto one row and cut short
-  before it is shown. The session's own name is cleaned as a typed one is, and is the
-  directory's when nothing of it is left.
+  none, gets the id's first 8 digits, and the whole id if that is still another's text. No two
+  candidates share a text, and a conversation listed twice is offered once. Text from either
+  file is escaped onto one row, loses the `·` that splits the annotations, and is cut short
+  before it is shown; a long directory is cut in the middle, so its last names show. The
+  session's own name is cleaned as a typed one is, and is the directory's when nothing of it is
+  left.
 - **The list is made on its own short thread,** `oso-session-adopt-list`, never the sessions
   worker, whose screen looks must not wait. At most one runs at a time. It is made:
   - at start, once the record is read;
@@ -1089,15 +1096,22 @@ coordinator approved these points:
   - when step 3's poll sees another program's session end;
   - after each adoption.
 
-  A stale list risks nothing, since the start thread looks at the registry again.
+  A stale list risks nothing, since the start thread looks at the registry again. While a
+  `session-adopt` prompt is open, a new list waits until it closes, so an answer is always looked
+  up in the list its prompt showed. If the list thread panics, it reports an empty list and an
+  empty cache, so the next list starts afresh.
 - **The resume is step 1's.** A new buffer `*claude: NAME*`, a held name, then the start thread
   with `Kind::Resume`. A live process with the id refuses, naming it and its directory: "stop it
-  there and adopt it again, or fork it instead?". The fork offer now holds the conversation it
-  forks, not a table key, since an adoption's held name goes when it is refused. A registry that
+  there and adopt it again, or fork it instead?". Each fork offer now holds the conversation it
+  forks, not a table key, since an adoption's held name goes when it is refused. Offers are kept
+  by their question, so with two questions stacked, a `y` forks the conversation of the question
+  it answered. A registry that
   cannot tell refuses as for any resume. Two live processes 5 s later give the same warning.
   - It runs in the transcript's or the registry's directory. The session is placed by the open
     project that holds that directory, else the directory itself. `claude` is never looked for
-    inside either.
+    on `PATH` inside either. For this, the POSIX login shell's script (`launch::SCRIPT`) now
+    leaves out the project as well as the session's directory, for every hosted session, as
+    oso's own `PATH` look already did.
   - The agent channel turns on, as for `claude`.
 - **The baseline is the session's own.** At a trusted project's root, the start thread takes one
   as for `claude`, for ready for review, but the project's review does not take it, so what the
@@ -1107,7 +1121,17 @@ coordinator approved these points:
   oso last saw the registry say the conversation was busy, the echo area says its last turn may
   have been cut short and to ask it to go on. Otherwise it says where the session came from.
 - **`oso-core` gained `SessionRequest::Adopt(String)`,** the candidate's text. Nothing else is
-  public. The dispatcher opens the list's prompt with `CompletionStyle::given_order`.
+  public. The dispatcher opens a listed prompt with `CompletionStyle::given_order` when
+  `commands::agent_sessions::listed_in_given_order` says so, which it does for `adoptable` only;
+  `Editor::set_listed` carries no order.
+- **Not done, and why:**
+  - Each list reads the registry again rather than taking step 3's poll's entries: at most 256
+    small files on a thread of its own.
+  - A list is set again even when nothing changed, since ages change anyway.
+  - The cost of a list on a large transcript tree, and of startup with one, was not measured.
+    The bounds above cap it: 200 reads of at most 192 KiB each, and 4,096 names.
+  - The adopt list's live sessions and step 3's poll each turn registry entries into live
+    sessions in their own way (`adopt::Running`, `externals::External`).
 - **Not verified on the CLI** (no real run was allowed):
   - that `--resume` takes up a conversation another host first ran headless (`-p`);
   - that `--name` on a resume renames it;

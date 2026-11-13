@@ -243,3 +243,48 @@ fn at_most_so_many_files_are_read_in_one_list() {
     // Those read are kept as read, so the next list reads past them.
     assert_eq!(listed(&scratch.0, &mut cache).len(), 1);
 }
+
+#[test]
+fn past_the_budget_conversations_read_before_stay_listed() {
+    let scratch = Scratch::new("budget-kept");
+    let oldest = scratch.write("-p-oso", &format!("{}.jsonl", id(0)), &user_line("/p/oso"));
+    let file = std::fs::File::options().write(true).open(&oldest).unwrap();
+    file.set_modified(SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    let mut cache = Cache::default();
+    assert_eq!(listed(&scratch.0, &mut cache).len(), 1);
+    // Newer files with no directory use the whole budget: the one read before still shows.
+    for n in 1..=(MAX_READS as u8) {
+        scratch.write(
+            "-p-oso",
+            &format!("{}.jsonl", id(n)),
+            "{\"type\":\"user\"}\n",
+        );
+    }
+    assert_eq!(listed(&scratch.0, &mut cache).len(), 1);
+}
+
+#[test]
+fn a_directory_with_dots_in_it_is_not_taken() {
+    let scratch = Scratch::new("dots");
+    scratch.write(
+        "-p-a",
+        &format!("{}.jsonl", id(1)),
+        &user_line("/p/proj/x/../../elsewhere"),
+    );
+    scratch.write("-p-b", &format!("{}.jsonl", id(2)), &user_line("/p/./proj"));
+    scratch.write(
+        "-p-c",
+        &format!("{}.jsonl", id(3)),
+        &user_line("p/relative"),
+    );
+    assert!(listed(&scratch.0, &mut Cache::default()).is_empty());
+}
+
+#[test]
+fn a_transcript_with_two_names_is_not_read() {
+    let scratch = Scratch::new("links");
+    let path = scratch.write("-p-oso", &format!("{}.jsonl", id(1)), &user_line("/p/oso"));
+    std::fs::hard_link(&path, scratch.0.join("other")).unwrap();
+    assert!(listed(&scratch.0, &mut Cache::default()).is_empty());
+}

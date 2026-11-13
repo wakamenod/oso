@@ -8,14 +8,16 @@
 //! - Only `<projects>/<slug>/<uuid>.jsonl` is opened: a top-level file whose name is a session
 //!   id as oso writes one. Subdirectories (a session's subagents) and other files are not.
 //! - At most [`MAX_PROJECTS`] project directories and [`MAX_NAMES`] names in all are looked at;
-//!   each file is a regular file of this user's, opened without following a link.
+//!   each file is a regular file of this user's with one name, opened without following a
+//!   link.
 //! - Of a file, at most [`HEAD`] bytes at its start and [`TAIL`] at its end are read. A name is
 //!   taken only from a line whose bytes *start* as a title line does, such as
 //!   `{"type":"custom-title"`: a message's text can never start a line. The directory is the
 //!   top-level `cwd` of the first line in the head that has one, found by a scanner that skips
-//!   every other value without decoding it.
+//!   every other value without decoding it; it must be absolute, with no `.` or `..` in it.
 //! - What was read is kept by file, length and change time, so a file is read again only when
-//!   it changed.
+//!   it changed. At most [`MAX_READS`] files are read in one list; past that, files already
+//!   read are still listed, and the others wait for the next list.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -24,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use oso_platform::file_meta;
-use oso_platform::privacy::is_this_users;
+use oso_platform::privacy::{has_one_name, is_this_users};
 
 use super::identity::SessionId;
 use super::registry;
@@ -39,7 +41,7 @@ pub const MAX_NAMES: usize = 4096;
 pub const MAX_LISTED: usize = 100;
 
 /// The most transcripts read in one list, as one with no directory found is read but not
-/// listed.
+/// listed. Those read before, unchanged, are not counted.
 pub const MAX_READS: usize = 2 * MAX_LISTED;
 
 /// How long ago a conversation may have changed and still be listed.
@@ -156,10 +158,12 @@ pub fn list(
         let read = match cache.read.remove(&path) {
             Some((was_len, was_changed, read)) if was_len == len && was_changed == changed => read,
             _ => {
-                reads += 1;
-                if reads > MAX_READS {
-                    break;
+                // Past the budget, only what was read before is listed: files that changed
+                // lately, of any kind, cannot hide older conversations already read.
+                if reads == MAX_READS {
+                    continue;
                 }
+                reads += 1;
                 // One that cannot be read is kept as read too, so that it is not opened again
                 // until it changes.
                 read_transcript(&path).ok().flatten().unwrap_or(Read {
@@ -193,7 +197,7 @@ fn read_transcript(path: &Path) -> io::Result<Option<Read>> {
     let Some((mut file, meta)) = file_meta::open_regular_here(path)? else {
         return Ok(None);
     };
-    if !is_this_users(&meta) {
+    if !is_this_users(&meta) || !has_one_name(&meta) {
         return Ok(None);
     }
     let len = meta.len();
@@ -212,7 +216,7 @@ fn read_transcript(path: &Path) -> io::Result<Option<Read>> {
         .find_map(|line| top_level_string(line, "cwd"))
         .filter(|cwd| cwd.len() <= MAX_CWD)
         .map(PathBuf::from)
-        .filter(|cwd| cwd.is_absolute());
+        .filter(|cwd| registry::is_plain_directory(cwd));
     let title = title(head_lines.iter().chain(tail_lines.iter()).copied());
     Ok(Some(Read { directory, title }))
 }

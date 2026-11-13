@@ -28,7 +28,8 @@ pub const POLL_EVERY: Duration = Duration::from_secs(1);
 pub struct External {
     pub pid: u32,
     pub session_id: Option<SessionId>,
-    pub name: String,
+    /// The name the registry gives it, if any.
+    pub name: Option<String>,
     pub directory: Option<PathBuf>,
     /// The CLI says it is busy.
     pub working: bool,
@@ -122,10 +123,7 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
         .filter(|entry| registry::liveness(entry, started) == Live::Yes)
         .map(|entry| External {
             pid: entry.pid,
-            name: entry
-                .name
-                .clone()
-                .unwrap_or_else(|| format!("claude {}", entry.pid)),
+            name: entry.name.clone(),
             directory: entry.cwd.clone(),
             working: entry.status.as_deref() == Some("busy"),
             session_id: entry.session_id.clone(),

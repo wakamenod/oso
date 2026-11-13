@@ -340,7 +340,10 @@ impl App {
                 .map_or(now, |(_, since)| *since);
             externals.push(Entry {
                 key: Key::External(external.pid),
-                name: external.name.clone(),
+                name: external
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("claude {}", external.pid)),
                 space,
                 branch: None,
                 state,

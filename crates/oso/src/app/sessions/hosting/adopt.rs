@@ -4,6 +4,9 @@
 //! check refuses a live one and offers a fork.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
+//!
+//! - An answer is looked up in the list its prompt showed: a list made while the prompt is
+//!   open waits until it closes.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -11,11 +14,14 @@ use std::time::{Duration, Instant, SystemTime};
 
 use oso_core::project::ProjectId;
 
-use super::{ForkFrom, base_name};
+use super::fork::ForkFrom;
+use super::{Baseline, base_name};
 use crate::app::{App, UserEvent};
-use crate::commands::agent_sessions::ADOPT_LIST;
+use crate::commands::agent_sessions::{ADOPT_LIST, is_adopt_prompt};
 use crate::review::TrustedRoot;
-use crate::sessions::adopt::{self, Found, Order as ListOrder, Pick, Seen};
+use crate::sessions::adopt::{self, Found, Offered, Order as ListOrder, RegistryNames};
+use crate::sessions::identity::cleaned;
+use crate::sessions::registry::{is_plain_directory, shown_directory};
 use crate::sessions::start::{Kind, Order};
 use crate::sessions::transcripts::Cache;
 use crate::sessions::worker::SessionKey;
@@ -37,13 +43,12 @@ pub(in crate::app) struct Adopting {
     /// read their transcripts for nothing.
     pub(in crate::app) recalled: bool,
     /// The registry's names this oso saw.
-    seen: Seen,
-    /// What each candidate of the last list stands for, by its text.
-    picks: HashMap<String, Pick>,
+    names: RegistryNames,
+    /// What the editor's list stands for, and a list made while a `session-adopt` prompt was
+    /// open, given to the editor once it closes.
+    offered: Offered,
     /// The conversations being adopted, by their key, until the start thread reports.
-    pending: HashMap<SessionKey, ForkFrom>,
-    /// The sessions whose baseline is their own, not their project's review's.
-    pub(super) own_baselines: HashSet<SessionKey>,
+    pending: HashMap<SessionKey, Adoption>,
 }
 
 impl Default for Adopting {
@@ -53,21 +58,27 @@ impl Default for Adopting {
             again: false,
             focused: None,
             recalled: false,
-            seen: Seen::default(),
-            picks: HashMap::new(),
+            names: RegistryNames::default(),
+            offered: Offered::default(),
             pending: HashMap::new(),
-            own_baselines: HashSet::new(),
         }
     }
+}
+
+/// A conversation being adopted.
+#[derive(Debug)]
+pub(super) struct Adoption {
+    /// What a fork copies, if its start is refused as it runs elsewhere.
+    pub(super) from: ForkFrom,
+    /// The registry said it was busy, the last time this oso saw it.
+    busy: bool,
 }
 
 /// The name an adopted session asks for: its own, if any of it is left once cleaned, else its
 /// directory's.
 fn base_of(name: Option<&str>, directory: &Path) -> String {
-    match name {
-        Some(name) if name.chars().any(|c| c.is_ascii_alphanumeric()) => name.to_owned(),
-        _ => base_name(directory),
-    }
+    name.and_then(cleaned)
+        .unwrap_or_else(|| base_name(directory))
 }
 
 impl App {
@@ -124,14 +135,11 @@ impl App {
     /// list is made again when one of them ended, as it may be adopted now.
     pub(in crate::app) fn adoptable_externals(&mut self, before: &[u32], live: &[External]) {
         for external in live {
-            // A registry entry with no name is listed as `claude PID`, which is no name.
-            let named = external.name != format!("claude {}", external.pid);
             if let Some(id) = &external.session_id {
-                self.hosting.adopting.seen.note(
-                    id,
-                    named.then_some(external.name.as_str()),
-                    external.working,
-                );
+                self.hosting
+                    .adopting
+                    .names
+                    .note(id, external.name.as_deref(), external.working);
             }
         }
         if before
@@ -142,27 +150,44 @@ impl App {
         }
     }
 
-    /// The list thread found the conversations oso may adopt.
+    /// The list thread found the conversations oso may adopt. While a `session-adopt` prompt
+    /// is open, the editor keeps the list it shows, and the answer is looked up in that one.
     pub(in crate::app) fn adoptable_found(&mut self, found: Found) {
         let adopting = &mut self.hosting.adopting;
         for running in &found.running {
             adopting
-                .seen
+                .names
                 .note(&running.id, running.name.as_deref(), running.busy);
         }
-        let choices = adopt::choices(&found, &adopting.seen, SystemTime::now());
-        adopting.picks = choices.picks;
+        let choices = adopt::choices(&found, &adopting.names, SystemTime::now());
         adopting.cache = Some(found.cache);
-        self.editor.set_listed(ADOPT_LIST, choices.candidates);
+        let shown = self.editor.prompts().iter().any(is_adopt_prompt);
+        if let Some(candidates) = self.hosting.adopting.offered.list(choices, shown) {
+            self.editor.set_listed(ADOPT_LIST, candidates);
+        }
         if std::mem::take(&mut self.hosting.adopting.again) {
             self.list_adoptable();
+        }
+    }
+
+    /// After the requests of an event: a list made while a `session-adopt` prompt was open is
+    /// given to the editor once no such prompt is.
+    pub(in crate::app) fn show_waiting_adoptable(&mut self) {
+        if self.hosting.adopting.offered.waiting()
+            && !self.editor.prompts().iter().any(is_adopt_prompt)
+            && let Some(candidates) = self.hosting.adopting.offered.unshown()
+        {
+            self.editor.set_listed(ADOPT_LIST, candidates);
         }
     }
 
     /// `session-adopt`: resumes the conversation the candidate `text` stands for, in a new
     /// buffer.
     pub(in crate::app) fn adopt_session(&mut self, text: &str) {
-        let Some(pick) = self.hosting.adopting.picks.get(text).cloned() else {
+        // Looked up in the list the prompt showed, before a list made since replaces it.
+        let pick = self.hosting.adopting.offered.pick(text).cloned();
+        self.show_waiting_adoptable();
+        let Some(pick) = pick else {
             self.editor
                 .message("No such session to adopt now: run session-adopt again");
             self.list_adoptable();
@@ -182,7 +207,7 @@ impl App {
                 .message(format!("Session {name} is oso's already"));
             return;
         }
-        let Some(directory) = pick.directory.clone().filter(|dir| dir.is_absolute()) else {
+        let Some(directory) = pick.directory.clone().filter(|dir| is_plain_directory(dir)) else {
             self.editor
                 .message("oso cannot tell where that session ran, so it cannot resume it");
             return;
@@ -190,7 +215,7 @@ impl App {
         let base = base_of(pick.name.as_deref(), &directory);
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         // The open project that holds the directory: the session is placed in its space, and
-        // `claude` is never looked for inside it, nor inside the directory itself.
+        // `claude` is never looked for on `PATH` inside it.
         let project = self.project_holding(&directory);
         let root = project
             .and_then(|id| self.editor.project(id))
@@ -201,20 +226,24 @@ impl App {
         let trusted = project
             .filter(|_| root == directory)
             .and_then(|id| Some((id, TrustedRoot::of(&self.editor, id)?)));
-        if let Some((id, root)) = &trusted {
-            self.hosting.baselines.insert(key, (*id, root.clone()));
-            self.hosting.adopting.own_baselines.insert(key);
+        if let Some((project, root)) = &trusted {
+            let baseline = Baseline {
+                project: *project,
+                root: root.clone(),
+                to_review: false,
+            };
+            self.hosting.baselines.insert(key, baseline);
         }
-        self.hosting.adopting.pending.insert(
-            key,
-            ForkFrom {
+        let adoption = Adoption {
+            from: ForkFrom {
                 id: pick.id.clone(),
                 directory: directory.clone(),
                 root: Some(root.clone()),
                 name: name.clone(),
-                busy: pick.busy,
             },
-        );
+            busy: pick.busy,
+        };
+        self.hosting.adopting.pending.insert(key, adoption);
         self.turn_agent_channel_on_for_a_session();
         let terminal = self.session_terminal(key, &name, None);
         self.order_session(Order {
@@ -233,26 +262,30 @@ impl App {
     /// The deepest open project whose root holds `directory`.
     fn project_holding(&self, directory: &Path) -> Option<ProjectId> {
         let mut seen = HashSet::new();
-        self.editor
+        let roots: Vec<(ProjectId, PathBuf)> = self
+            .editor
             .buffers()
             .filter_map(|(_, buffer)| buffer.project())
             .filter(|id| seen.insert(*id))
             .filter_map(|id| Some((id, self.editor.project(id)?.root().to_path_buf())))
-            .filter(|(_, root)| directory.starts_with(root))
-            .max_by_key(|(_, root): &(ProjectId, PathBuf)| root.components().count())
-            .map(|(id, _)| id)
+            .collect();
+        adopt::holding(
+            directory,
+            roots.iter().map(|(id, root)| (*id, root.as_path())),
+        )
     }
 
     /// The adoption started with `key`, if it is one, as its start was refused or it is
     /// ready: what it forks if offered, and what the echo area says.
-    pub(super) fn take_adoption(&mut self, key: SessionKey) -> Option<ForkFrom> {
+    pub(super) fn take_adoption(&mut self, key: SessionKey) -> Option<Adoption> {
         self.hosting.adopting.pending.remove(&key)
     }
 
-    /// The adopted session `from` started: the echo area says so, and the list leaves it out.
-    pub(super) fn session_adopted(&mut self, from: &ForkFrom) {
-        let name = &from.name;
-        let said = if from.busy {
+    /// The adopted session `adopted` started: the echo area says so, and the list leaves it
+    /// out.
+    pub(super) fn session_adopted(&mut self, adopted: &Adoption) {
+        let name = &adopted.from.name;
+        let said = if adopted.busy {
             format!(
                 "Adopted {name}: it was working when it stopped, so its last turn may be cut \
                  short; ask it to go on"
@@ -260,7 +293,7 @@ impl App {
         } else {
             format!(
                 "Adopted {name} from {}",
-                super::shown_directory(&from.directory)
+                shown_directory(&adopted.from.directory)
             )
         };
         self.editor.message(said);
@@ -278,8 +311,10 @@ mod tests {
     fn an_adopted_session_is_named_after_itself_else_its_directory() {
         let dir = Path::new("/p/oso");
         assert_eq!(base_of(Some("fix-tests"), dir), "fix-tests");
+        assert_eq!(base_of(Some("fix tests!"), dir), "fix-tests");
         assert_eq!(base_of(Some("保険の手続き"), dir), "oso");
         assert_eq!(base_of(Some("---"), dir), "oso");
+        assert_eq!(base_of(Some("..."), dir), "oso");
         assert_eq!(base_of(None, dir), "oso");
     }
 }

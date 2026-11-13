@@ -78,6 +78,7 @@ impl App {
             }
         }
         self.drop_unanswered_fork_offer();
+        self.show_waiting_adoptable();
         // After the requests, so that a `session-stop` that a question's yes ran finds its
         // stop still asked.
         self.drop_unasked_stop();
