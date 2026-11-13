@@ -378,6 +378,7 @@ impl App {
                     });
                     let complete = redraw == Redraw::NotNeeded;
                     let withheld = self.editor.shows_secret();
+                    self.timings.session_marks(self.watch.needs_input());
                     self.timings.frame_presented(complete, withheld);
                 }
                 // A frame skipped while the window is hidden draws

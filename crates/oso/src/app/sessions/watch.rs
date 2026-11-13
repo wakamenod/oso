@@ -61,12 +61,20 @@ pub(in crate::app) struct Watch {
     made: Option<Instant>,
     /// The worker looks at Claude Code's registry: asked once oso has a session.
     polling: bool,
+    /// How many sessions the modeline last counted as needing input.
+    needs_input: u16,
     /// How many notices asked for attention, for end-to-end flows: the Dock cannot be seen.
     #[cfg(feature = "dev")]
     asked: u32,
 }
 
 impl Watch {
+    /// How many sessions the modeline last counted as needing input.
+    #[cfg(feature = "dev")]
+    pub(in crate::app) fn needs_input(&self) -> u16 {
+        self.needs_input
+    }
+
     /// `[sessions.notify]` in force.
     pub(in crate::app) fn set_toggles(&mut self, toggles: Toggles) {
         self.attention.set_toggles(toggles);
@@ -198,6 +206,7 @@ impl App {
         self.poll_externals();
         let entries = self.session_entries(now);
         let marks = marks(&entries, self.watch.attention.dark(now));
+        self.watch.needs_input = marks.needs_input;
         self.editor.set_session_marks(marks);
         let candidates = self.session_candidates(&entries);
         self.editor.set_listed(SESSIONS_LIST, candidates);

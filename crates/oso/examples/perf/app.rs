@@ -44,7 +44,17 @@ impl App {
     /// names, to measure with. An environment variable and not an option, so that a base built
     /// before the configuration was read runs the same.
     pub fn start(exe: &Path, file: Option<&Path>) -> Result<Self, String> {
-        let config_home = config_home()?;
+        Self::start_with_config(exe, file, None)
+    }
+
+    /// Starts `exe` as [`App::start`] does, with `config` as its configuration file in place
+    /// of the one `OSO_PERF_CONFIG` names, if given.
+    pub fn start_with_config(
+        exe: &Path,
+        file: Option<&Path>,
+        config: Option<&Path>,
+    ) -> Result<Self, String> {
+        let config_home = config_home(config)?;
         let mut command = process::command(exe);
         // Where `oso_platform::privacy::config_home` looks.
         let variable = if cfg!(windows) {
@@ -231,7 +241,7 @@ impl Drop for App {
 
 /// A configuration directory of the harness's own, as `XDG_CONFIG_HOME`: `oso/config.toml` in it
 /// is a copy of the file `OSO_PERF_CONFIG` names, or missing.
-fn config_home() -> Result<PathBuf, String> {
+fn config_home(config: Option<&Path>) -> Result<PathBuf, String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -244,7 +254,10 @@ fn config_home() -> Result<PathBuf, String> {
     // Modes that oso reads whatever the umask: only this user may change the way to the file.
     set_mode(&home, 0o700)?;
     set_mode(&directory, 0o700)?;
-    if let Some(config) = std::env::var_os("OSO_PERF_CONFIG") {
+    let config = config
+        .map(|config| config.as_os_str().to_owned())
+        .or_else(|| std::env::var_os("OSO_PERF_CONFIG"));
+    if let Some(config) = config {
         let file = directory.join("config.toml");
         std::fs::copy(&config, &file).map_err(|e| format!("cannot copy OSO_PERF_CONFIG: {e}"))?;
         set_mode(&file, 0o644)?;
