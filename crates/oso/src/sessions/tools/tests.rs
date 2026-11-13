@@ -22,7 +22,7 @@ fn session(n: u8) -> SessionId {
 fn the_tools_and_their_reach() {
     let table: Vec<_> = TOOLS
         .iter()
-        .map(|t| (t.name, t.reach, t.asks, t.counted, t.outside))
+        .map(|t| (t.name, t.reach, t.asks, t.counted(), t.outside))
         .collect();
     assert_eq!(
         table,
@@ -56,9 +56,13 @@ fn every_tool_keeps_the_rules_of_reach() {
         // No tool is the person's: those never reach the channel.
         assert_ne!(t.reach, Reach::Person, "{}", t.name);
         // What changes or asks counts, and only it; only what reads is open to outsiders.
-        assert_eq!(t.counted, t.reach == Reach::Change || t.asks == Asks::Each);
-        assert_eq!(t.read_only, t.reach == Reach::Look && t.asks == Asks::No);
-        assert!(!t.outside || t.read_only, "{}", t.name);
+        assert_eq!(
+            t.counted(),
+            t.reach == Reach::Change || t.asks == Asks::Each
+        );
+        assert_eq!(t.read_only(), t.reach == Reach::Look && t.asks == Asks::No);
+        assert!(!t.outside || t.read_only(), "{}", t.name);
+        assert!(!t.destructive || t.counted(), "{}", t.name);
         assert_eq!(tool(t.name), Some(t));
     }
     assert!(tool("state").is_none());
@@ -105,6 +109,21 @@ fn a_refusal_holds_the_same_call_from_the_same_session_for_a_minute() {
         guard.admit(&a, "start_worktree_session", "x", now + REFUSED_FOR),
         Ok(())
     );
+}
+
+/// A resolved target, such as the branch git names, is looked up without counting a call.
+#[test]
+fn a_refusal_is_seen_by_its_resolved_target_without_a_count() {
+    let mut guard = Guard::default();
+    let a = session(1);
+    let now = Instant::now();
+    guard.refused(&a, "start_worktree_session", "main", now);
+    let soon = now + Duration::from_secs(30);
+    assert!(guard.was_refused(&a, "start_worktree_session", "main", soon));
+    assert!(!guard.was_refused(&a, "start_worktree_session", "other", soon));
+    assert!(!guard.was_refused(&session(2), "start_worktree_session", "main", soon));
+    assert!(!guard.was_refused(&a, "start_worktree_session", "main", now + REFUSED_FOR));
+    assert_eq!(guard.calls(&a), 0, "looking counts nothing");
 }
 
 #[test]
@@ -172,7 +191,8 @@ fn the_bridge_lists_each_tool_with_its_hints() {
             .find(|entry| entry["name"] == t.name)
             .unwrap_or_else(|| panic!("{} is not listed", t.name));
         assert_eq!(
-            entry["annotations"]["readOnlyHint"], t.read_only,
+            entry["annotations"]["readOnlyHint"],
+            t.read_only(),
             "{}",
             t.name
         );

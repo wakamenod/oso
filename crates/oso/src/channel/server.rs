@@ -16,6 +16,9 @@
 //!   keeps to. Anything else goes on as above.
 //! - Once let in, a connection sends at most [`MAX_RATE`] requests a second, one at a time,
 //!   with no idle limit.
+//! - A reply waits for the UI for [`REPLY_TIMEOUT`], except where its method holds it longer
+//!   (`held`): a worktree job's for as long as the job is given, and a session tool's that
+//!   asks, as the connection's question, until the person answers or the client goes.
 
 use std::io::{self, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};

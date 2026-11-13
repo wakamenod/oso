@@ -280,7 +280,8 @@ pub(super) fn resolve(
 }
 
 /// A new branch's base in `git`'s checkout, by the name to show and its commit: the one typed,
-/// else `HEAD`, shown as its branch or its commit's first 12 digits.
+/// else `HEAD`, named by its branch or its commit's first 12 digits. The name is as git or the
+/// caller gave it, not yet made printable.
 fn base_of(git: &Git, typed: Option<&str>) -> Result<(String, String), String> {
     let revision = typed.unwrap_or("HEAD");
     let id = git
@@ -301,7 +302,8 @@ fn base_of(git: &Git, typed: Option<&str>) -> Result<(String, String), String> {
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| id.chars().take(12).collect()),
     };
-    Ok((porcelain::printable(&name, 120), id))
+    // Raw: whoever shows it makes it printable, once.
+    Ok((name, id))
 }
 
 /// Where `HEAD` is in `directory`, the repository's main checkout or one of its linked

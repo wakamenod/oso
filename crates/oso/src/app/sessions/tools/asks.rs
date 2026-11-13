@@ -17,7 +17,6 @@ use oso_core::minibuffer::PromptId;
 use super::super::super::App;
 use super::super::hosting::Begin;
 use super::{Caller, Job, Pending, shown};
-use crate::channel::protocol::sessions::Call;
 use crate::sessions::identity::SessionId;
 use crate::sessions::tools::{self as rules, Branch, Tool};
 use crate::sessions::worktree::create::{Handover, Order};
@@ -81,6 +80,23 @@ enum Then {
     },
 }
 
+/// `start_worktree_session`'s arguments.
+#[derive(Debug)]
+pub(in crate::app) struct WorktreeCall {
+    pub(in crate::app) branch: String,
+    pub(in crate::app) base: Option<String>,
+    pub(in crate::app) brief: String,
+    pub(in crate::app) name: Option<String>,
+}
+
+/// `session_start`'s arguments.
+#[derive(Debug)]
+pub(in crate::app) struct StartCall {
+    pub(in crate::app) directory: Option<PathBuf>,
+    pub(in crate::app) name: Option<String>,
+    pub(in crate::app) brief: Option<String>,
+}
+
 /// A worktree being made after the person's `y`.
 #[derive(Debug)]
 pub(in crate::app) struct Creating {
@@ -90,67 +106,87 @@ pub(in crate::app) struct Creating {
 }
 
 impl App {
-    /// `start_worktree_session` or `session_start` from `caller`.
-    pub(super) fn tool_start(
+    /// `start_worktree_session` from `caller`: a job resolves the branch and its start before
+    /// the person is asked.
+    pub(super) fn tool_start_worktree(
         &mut self,
         pending: Pending,
         tool: &Tool,
         caller: &Caller,
-        call: Call,
+        call: WorktreeCall,
     ) {
-        let (target, then, prepare) = match call {
-            Call::StartWorktree {
-                branch,
-                base,
-                brief,
-                name,
-            } => (
-                branch.clone(),
-                Then::Worktree {
-                    brief,
-                    name,
-                    base: base.clone(),
-                },
-                Some(Prepare::Worktree {
-                    branch,
-                    base,
-                    caller: caller.directory.clone(),
-                }),
-            ),
-            Call::Start {
-                directory,
-                name,
-                brief,
-            } => {
-                let directory = directory.unwrap_or_else(|| caller.directory.clone());
-                // Another directory than the caller's own is looked at by git first.
-                let prepare =
-                    (directory != caller.directory).then(|| Prepare::Directory(directory.clone()));
-                // Kept by the path's parts, so that `/r/` and `/r` are one target.
-                let key: PathBuf = directory.components().collect();
-                (shown(&key), Then::Start { brief, name }, prepare)
-            }
-            _ => return pending.answer(Err("not a tool that starts a session".into())),
+        let WorktreeCall {
+            branch,
+            base,
+            brief,
+            name,
+        } = call;
+        let then = Then::Worktree {
+            brief,
+            name,
+            base: base.clone(),
         };
+        let prepare = Prepare::Worktree {
+            branch: branch.clone(),
+            base,
+            caller: caller.directory.clone(),
+        };
+        // Kept by the name typed until the job resolves it; then by the branch git names.
+        self.tool_prepare(pending, tool, caller, branch, (then, prepare));
+    }
+
+    /// `session_start` from `caller`: in its own directory at once, elsewhere once a job has
+    /// looked that the directory is its repository's.
+    pub(super) fn tool_session_start(
+        &mut self,
+        pending: Pending,
+        tool: &Tool,
+        caller: &Caller,
+        call: StartCall,
+    ) {
+        let StartCall {
+            directory,
+            name,
+            brief,
+        } = call;
+        let directory = directory.unwrap_or_else(|| caller.directory.clone());
+        // Kept by the path's parts, so that `/r/` and `/r` are one target.
+        let key: PathBuf = directory.components().collect();
+        let target = shown(&key);
+        if directory != caller.directory {
+            // Another directory than the caller's own is looked at by git first.
+            let then = Then::Start { brief, name };
+            let prepare = Prepare::Directory(directory);
+            return self.tool_prepare(pending, tool, caller, target, (then, prepare));
+        }
         if let Err(why) = self.admit_tool(tool, caller, &target) {
             return pending.answer(Err(why));
         }
-        let Some(prepare) = prepare else {
-            // The caller's own directory: no git, so a restricted project may host it too.
-            let Then::Start { brief, name } = then else {
-                return;
-            };
-            let trusted = self.hosting.trusts.get(&caller.key).cloned();
-            let begin = Begin {
-                name,
-                directory: Some(caller.directory.clone()),
-                brief,
-                parent: Some(caller.id.clone()),
-                check_shared: false,
-                trusted,
-            };
-            return self.queue_start_question(pending, caller, target, begin);
+        // The caller's own directory: no git, so a restricted project may host it too.
+        let begin = Begin {
+            name,
+            directory: Some(caller.directory.clone()),
+            brief,
+            parent: Some(caller.id.clone()),
+            check_shared: false,
+            trusted: self.caller_root(caller),
         };
+        self.queue_start_question(pending, caller, target, begin);
+    }
+
+    /// Admits `pending`'s call on `target`, and starts the job that looks at what `prepare`
+    /// names before the person is asked.
+    fn tool_prepare(
+        &mut self,
+        pending: Pending,
+        tool: &Tool,
+        caller: &Caller,
+        target: String,
+        (then, prepare): (Then, Prepare),
+    ) {
+        if let Err(why) = self.admit_tool(tool, caller, &target) {
+            return pending.answer(Err(why));
+        }
         let trust = match self.caller_trust(caller) {
             Ok(trust) => trust,
             Err(why) => return pending.answer(Err(why)),
@@ -194,7 +230,21 @@ impl App {
                 },
                 Then::Worktree { brief, name, base },
             ) => {
-                let from = start.as_ref().map(|(_, shown)| shown.as_str());
+                // The person's `n` is kept by the branch git resolved the name to, so that
+                // another spelling of the same branch is refused as well.
+                let tool = pending.tool;
+                if branch != target
+                    && self.hosting.tools.guard.was_refused(
+                        &caller.id,
+                        tool,
+                        &branch,
+                        Instant::now(),
+                    )
+                {
+                    return pending.answer(Err(rules::Refusal::Person.why().into()));
+                }
+                let target = branch.clone();
+                let from = start.as_ref().map(|(_, name)| name.as_str());
                 let label = rules::worktree_question(
                     &caller.name,
                     &shown(&place),

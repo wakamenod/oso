@@ -150,7 +150,7 @@ impl App {
                 tool.name
             )));
         }
-        if tool.read_only {
+        if tool.read_only() {
             // Reads may come many times a second, as `state` does.
             self.agent_log_often(tool.name);
         } else {
@@ -172,8 +172,37 @@ impl App {
             (Call::WorktreeRemove { path }, Some(caller)) => {
                 self.tool_worktree_remove(pending, &tool, &caller, path);
             }
-            (call @ (Call::StartWorktree { .. } | Call::Start { .. }), Some(caller)) => {
-                self.tool_start(pending, &tool, &caller, call);
+            (
+                Call::StartWorktree {
+                    branch,
+                    base,
+                    brief,
+                    name,
+                },
+                Some(caller),
+            ) => {
+                let call = asks::WorktreeCall {
+                    branch,
+                    base,
+                    brief,
+                    name,
+                };
+                self.tool_start_worktree(pending, &tool, &caller, call);
+            }
+            (
+                Call::Start {
+                    directory,
+                    name,
+                    brief,
+                },
+                Some(caller),
+            ) => {
+                let call = asks::StartCall {
+                    directory,
+                    name,
+                    brief,
+                };
+                self.tool_session_start(pending, &tool, &caller, call);
             }
             (_, None) => pending.answer(Err("this tool is only for a session oso started".into())),
         }
@@ -198,25 +227,35 @@ impl App {
             .map_err(|refusal| refusal.why().to_owned())
     }
 
-    /// The trust `caller`'s worktree jobs run under: the one it started with, else that of
-    /// an open project whose root is its own, if trusted.
+    /// The trust `caller`'s worktree jobs run under: that of an open project whose root is the
+    /// session's, as it is now, else the one the session started with.
     fn caller_trust(&self, caller: &Caller) -> Result<Trust, String> {
-        let started = self.hosting.trusts.get(&caller.key).cloned();
-        let root = started.or_else(|| {
-            let root = caller.root.as_deref()?;
-            self.editor
-                .buffers()
-                .filter_map(|(_, buffer)| buffer.project())
-                .find(|&id| self.editor.project(id).is_some_and(|p| p.root() == root))
-                .and_then(|id| crate::review::TrustedRoot::of(&self.editor, id))
-        });
-        let root = root.ok_or(
+        let root = self.caller_root(caller).ok_or(
             "your session's project is not trusted; the person trusts it with trust-project",
         )?;
         Ok(Trust {
             root,
             trusted: self.trusted_list(),
         })
+    }
+
+    /// The trusted root of `caller`'s project: an open project's whose root is the session's,
+    /// looked up now so that the person's later trust or distrust counts, else the one the
+    /// session started with (a worktree just made, which no buffer opened).
+    fn caller_root(&self, caller: &Caller) -> Option<crate::review::TrustedRoot> {
+        let open = caller.root.as_deref().and_then(|root| {
+            let id = self
+                .editor
+                .buffers()
+                .filter_map(|(_, buffer)| buffer.project())
+                .find(|&id| self.editor.project(id).is_some_and(|p| p.root() == root))?;
+            // An open project that is not trusted is not trusted, whatever the session began with.
+            Some(crate::review::TrustedRoot::of(&self.editor, id))
+        });
+        match open {
+            Some(now) => now,
+            None => self.hosting.trusts.get(&caller.key).cloned(),
+        }
     }
 
     /// The person's input reached the terminal of the session `buffer` holds: its agent may
@@ -355,18 +394,13 @@ fn shown(path: &Path) -> String {
 
 /// A reply for a session, as `session_list` and `session_state` give it.
 fn session_json(session: &Hosted, caller: Option<&SessionId>, now_ms: u64) -> Value {
-    use crate::sessions::hosted::Run;
     // The taxonomy of states comes with ADR 0121 step 3; until then, the process's.
-    let state = match session.run {
-        Run::Starting => "starting",
-        Run::Running { .. } => "running",
-        Run::Stopped => "stopped",
-        Run::Failed => "failed",
-    };
+    let state = session.run.label();
     json!({
         "id": session.id.as_str(),
         "name": session.name,
-        // The name Claude Code's own SendMessage and ListAgents know it by.
+        // The `--name` oso gave its claude, which Claude Code's SendMessage and ListAgents know
+        // it by; the CLI may suffix a duplicate. Step 3's registry poll can give the real one.
         "messaging_name": session.name,
         "directory": shown(&session.directory),
         "project": session.root.as_deref().map(shown),

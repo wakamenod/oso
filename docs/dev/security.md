@@ -458,7 +458,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     `worktree_list` runs git and `gh` without a question; both need a trusted project.
   - Each session may make 20 calls that change or ask until the person types in its terminal,
     and the person's `n` refuses the same call from it for 60 s. Both are kept by session, so a
-    new connection resets neither.
+    new connection resets neither, and a branch's refusal by the name git resolved it to.
+  - A tool's worktree jobs take the trust of the session's open project as it is at the call,
+    and again at the person's `y`, so a project the person no longer trusts runs nothing.
 - Worktree sessions run git and `gh` only for a trusted project whose main repository is
   trusted too, on `oso-sessions-git`, through `oso-platform::process`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).

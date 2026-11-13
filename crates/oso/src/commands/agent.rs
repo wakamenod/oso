@@ -83,6 +83,7 @@ fn allow(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 mod tests {
     use super::super::tests::{editor, run};
     use oso_core::command::Args;
+    use oso_core::editor::SessionRequest;
 
     #[test]
     fn start_and_stop_ask_the_host() {
@@ -94,6 +95,30 @@ mod tests {
         assert_eq!(editor.take_agent_channel_request(), Some(true));
         assert_eq!(run(&mut editor, "agent-channel-stop", Args::NONE).0, Ok(()));
         assert_eq!(editor.take_agent_channel_request(), Some(false));
+    }
+
+    #[test]
+    fn question_details_need_an_agents_question_open() {
+        let mut editor = editor("");
+        let (result, _) = run(&mut editor, "agent-question-details", Args::NONE);
+        assert!(result.is_err(), "no question is open");
+        assert!(editor.take_session_requests().is_empty());
+        editor
+            .ask_for_agent(
+                "let session \"a\" start a session?",
+                "agent-channel-allow",
+                ["allow", "refuse"],
+            )
+            .unwrap();
+        assert_eq!(
+            run(&mut editor, "agent-question-details", Args::NONE).0,
+            Ok(())
+        );
+        assert_eq!(
+            editor.take_session_requests(),
+            [SessionRequest::QuestionDetails]
+        );
+        assert!(editor.prompt().is_some(), "the question stays open");
     }
 
     #[test]

@@ -748,6 +748,11 @@ Each passage stays in its ADR as written; what holds now follows it.
   never starts a process by itself": except an agent's `worktree_remove`, which runs `git worktree
   remove` without a question once every check above holds (Q14). "At most 2 clients": a hosted
   session's proven bridge is outside the 2 (the author's choice, see "Step 1, as built").
+  Step 6a ("Step 6, as built"): "anything that spawns a process" is `Person` and "A channel
+  action never starts a process by itself": also except an agent's `worktree_list`, which runs
+  git and `gh` with no question in a trusted project. "10 s for the UI to reply": a session tool
+  that asks the person holds its reply with no time limit, until they answer or the client goes,
+  and a worktree listing or removal holds it for at most 65 s.
 - [ADR 0122](0122-agent-review.md), "Turns: … with ADR 0121, the Stop and PostToolUse hooks": a turn's end is the state's
   transition; a write tool's end is not given.
 
@@ -1045,8 +1050,10 @@ for each, and the coordinator approved these points:
   selected window's project; starting, removing and the rest need a session oso started.
 - **What the lists show (the author's choice).** `session_list` and `session_state` show every
   hosted session, of every repository, as `*Sessions*` does; acting stays within the caller's
-  repository. Each session has its id, name, `messaging_name` (the name Claude Code's own
-  `SendMessage` knows it by), directory, project, state, age, pin and archive marks, parent, and
+  repository. Each session has its id, name, `messaging_name` (the `--name` oso gave its
+  `claude`, which Claude Code's own `SendMessage` knows it by; the CLI may add a suffix to a
+  duplicate, and step 3's registry poll can give the real one), directory, project, state, age,
+  pin and archive marks, parent, and
   whether it is the caller. Never a transcript path, and no recap until a terminal can allow agent
   reads (ADR 0120 step 7). Until step 3 gives hosted sessions the taxonomy, the state is the
   process's: `starting`, `running`, `stopped` or `failed`.
@@ -1056,8 +1063,8 @@ for each, and the coordinator approved these points:
   question, and answers anything else the client sends meanwhile with "wait". When the client goes
   (Esc in Claude Code cancels the call, and the bridge closes its connection), the question
   closes and nothing the person had not allowed runs. What a `y` started goes on as the person's
-  act. A worktree listing or a removal holds its reply for at most 65 s, as its git calls are
-  bounded.
+  act. A worktree listing or a removal holds its reply for at most 65 s (its job's 60 s and 5 s
+  more), as its git calls are bounded.
 - **Before the person is asked,** a job looks at what would happen (`worktree::prepare`):
   whether the branch is new, where it would start and where its worktree would go; or whether a
   session's directory is the repository's root or one of its linked worktrees. So the question
@@ -1077,10 +1084,17 @@ for each, and the coordinator approved these points:
   `session_start` by session, not by connection, so a session that connects again keeps its
   count. Only the person's input into that session's terminal resets it (the author's choice);
   a `y` to its question does not. The call that resets it is in place for ADR 0120 step 4a's
-  terminal input to make. A refused call is not counted.
+  terminal input to make. A call is counted once the guard lets it through, whatever oso refuses
+  later (an untrusted project, the caller's own worktree, what the job found, another question
+  waiting); only a call the guard itself or the person's earlier refusal stops is not counted.
 - **A refusal** (`n` or `C-g`) refuses the same tool on the same target (the branch, or the
   directory) from the same session for 60 s, without asking, and says it is the person's
-  decision. At most 256 refusals are kept.
+  decision. A branch is kept by the name git resolved it to, so another spelling of the same
+  branch is refused too, once the job has looked. At most 256 refusals are kept.
+- **Trust is looked up at each call.** A session's worktree jobs run under the trust of an open
+  project whose root is the session's, as it is at the call, and again at the person's `y`;
+  only when no open project has that root (a worktree just made) do they run under the trust the
+  session started with, which oso drops when it forgets the session.
 - **`worktree_list` runs git and `gh` without a question,** as step 4 recorded. This is a second
   exception to ADR 0085's "anything that spawns a process is `Person`", beside an agent's
   `worktree_remove`: a trusted project only, with every git run ADR 0122's runner. Each caller

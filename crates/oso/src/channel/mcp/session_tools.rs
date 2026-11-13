@@ -30,7 +30,7 @@ pub(super) fn reading() -> Vec<Value> {
     vec![
         tool(
             "session_list",
-            "The agent sessions oso hosts, with each one's id, name, directory, state and age, the session that started it, and which one is you. Use it to follow the sessions you started.",
+            "The agent sessions oso hosts, with each one's id, name, directory, state and age, the session that started it, and which one is you. Use it to follow the sessions you started. messaging_name is the name oso gave the session's claude; Claude Code may add a suffix when two sessions share a name, so check ListAgents before SendMessage.",
             json!({
                 "offset": { "type": "integer", "minimum": 0, "description": "Where the list starts, when it holds more than one reply." },
             }),

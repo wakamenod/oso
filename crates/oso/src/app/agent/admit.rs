@@ -12,7 +12,7 @@ use oso_core::editor::Editor;
 use oso_platform::control::PeerProcess;
 
 use super::super::{App, UserEvent};
-use super::CONNECTION_VERBS;
+use super::AGENT_VERBS;
 use crate::channel;
 
 /// Whether the question about a connection waits: for a prompt to close, for keys `typing`
@@ -143,13 +143,17 @@ impl App {
     /// Whether a question the agent causes may open now: no connection waits to be asked
     /// about, and the person is free as the connection's question needs them to be.
     pub(in crate::app) fn agent_question_may_open(&self) -> bool {
-        !self.agent_asks()
-            && !question_waits(
-                &self.editor,
-                self.dispatcher.keys_in_progress()
-                    || self.dispatcher.menu_open()
-                    || self.composing(),
-            )
+        !self.agent_asks() && !self.person_busy()
+    }
+
+    /// Whether a question an agent causes must wait: a prompt is open, keys or a jump are under
+    /// way, a keyboard macro is recorded or replayed, a menu is open (ADR 0117) or the input
+    /// method composes.
+    fn person_busy(&self) -> bool {
+        question_waits(
+            &self.editor,
+            self.dispatcher.keys_in_progress() || self.dispatcher.menu_open() || self.composing(),
+        )
     }
 
     /// A question the agent caused just opened: it takes no answer until a quiet moment.
@@ -163,29 +167,21 @@ impl App {
         self.agent.orphaned.push(id);
     }
 
-    /// Asks about the waiting connection once no prompt is open, no keys are in progress, no
-    /// jump is under way and no keyboard macro is recorded or replayed, and takes the person's answer once its
-    /// question has closed.
+    /// Asks about the waiting connection once the person is not busy, and takes their answer
+    /// once its question has closed.
     pub(super) fn ask_about_a_connection(&mut self) {
         let Some(asking) = &self.agent.asking else {
             return;
         };
         match asking.question {
             None => {
-                if question_waits(
-                    &self.editor,
-                    // A question the channel causes waits for an open menu to close too
-                    // (ADR 0117).
-                    self.dispatcher.keys_in_progress()
-                        || self.dispatcher.menu_open()
-                        || self.composing(),
-                ) {
+                if self.person_busy() {
                     return;
                 }
                 let label = channel::question::connection(&asking.peer);
-                let Ok(id) =
-                    self.editor
-                        .ask_for_agent(label, "agent-channel-allow", CONNECTION_VERBS)
+                let Ok(id) = self
+                    .editor
+                    .ask_for_agent(label, "agent-channel-allow", AGENT_VERBS)
                 else {
                     return;
                 };

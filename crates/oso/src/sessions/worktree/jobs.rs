@@ -113,10 +113,13 @@ pub enum Report {
         path: PathBuf,
         result: Result<Vec<PathBuf>, String>,
     },
-    /// A listing ended: every row and every answer of `gh` came.
+    /// A listing ended: every row and every answer of `gh` came. It follows every listing
+    /// job that reached its repository, a stopped one too; one that could not open the
+    /// repository sends [`Report::Listed`] with an error instead.
     ListEnded { token: u64 },
     /// What an agent's session tool needs to know before the person is asked (ADR 0121,
     /// step 6).
+    ///
     /// A directory found is given with its trust, which a session started there takes.
     Prepared {
         token: u64,

@@ -12,7 +12,6 @@ use oso_core::selection::SelectionSet;
 
 use super::super::super::App;
 use super::{LIST, Listing};
-use crate::sessions::hosted::Run;
 use crate::sessions::worktree::checks::Looked;
 use crate::sessions::worktree::list::{self, Row, Shown};
 use crate::sessions::worktree::merged::Merged;
@@ -139,14 +138,7 @@ impl App {
             .all()
             .iter()
             .filter(|session| session.directory.starts_with(path))
-            .map(|session| {
-                let state = match session.run {
-                    Run::Starting | Run::Running { .. } => "running",
-                    Run::Stopped => "stopped",
-                    Run::Failed => "failed",
-                };
-                format!("{} ({state})", session.name)
-            })
+            .map(|session| format!("{} ({})", session.name, session.run.label()))
             .collect()
     }
 

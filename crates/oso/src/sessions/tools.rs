@@ -34,14 +34,23 @@ pub struct Tool {
     pub name: &'static str,
     pub reach: Reach,
     pub asks: Asks,
-    /// Whether it counts toward the loop guard: every tool that asks or changes.
-    pub counted: bool,
-    /// The MCP hints: it only reads; it may destroy what cannot be had back.
-    pub read_only: bool,
+    /// The MCP hint that it may destroy what cannot be had back.
     pub destructive: bool,
     /// Whether a connection that is no hosted session's bridge may call it (the author's
     /// choice, step 6): only the reading tools, within the selected window's project.
     pub outside: bool,
+}
+
+impl Tool {
+    /// Whether it counts toward the loop guard: every tool that asks or changes.
+    pub const fn counted(&self) -> bool {
+        matches!(self.reach, Reach::Change) || matches!(self.asks, Asks::Each)
+    }
+
+    /// The MCP hint that it only reads: it neither changes nor asks.
+    pub const fn read_only(&self) -> bool {
+        !self.counted()
+    }
 }
 
 const fn reads(name: &'static str) -> Tool {
@@ -49,8 +58,6 @@ const fn reads(name: &'static str) -> Tool {
         name,
         reach: Reach::Look,
         asks: Asks::No,
-        counted: false,
-        read_only: true,
         destructive: false,
         outside: true,
     }
@@ -68,8 +75,6 @@ pub const TOOLS: [Tool; 6] = [
         name: "worktree_remove",
         reach: Reach::Change,
         asks: Asks::No,
-        counted: true,
-        read_only: false,
         destructive: true,
         outside: false,
     },
@@ -77,8 +82,6 @@ pub const TOOLS: [Tool; 6] = [
         name: "start_worktree_session",
         reach: Reach::Change,
         asks: Asks::Each,
-        counted: true,
-        read_only: false,
         destructive: false,
         outside: false,
     },
@@ -86,8 +89,6 @@ pub const TOOLS: [Tool; 6] = [
         name: "session_start",
         reach: Reach::Change,
         asks: Asks::Each,
-        counted: true,
-        read_only: false,
         destructive: false,
         outside: false,
     },
@@ -135,7 +136,7 @@ pub struct Guard {
 
 impl Guard {
     /// Counts a call of `tool` on `target` from `session` at `now`, or says why it is refused.
-    /// A refused call is not counted.
+    /// A call this refuses is not counted; one it lets through is, whatever stops it later.
     pub fn admit(
         &mut self,
         session: &SessionId,
@@ -159,6 +160,21 @@ impl Guard {
         }
         *calls += 1;
         Ok(())
+    }
+
+    /// Whether the person refused `tool` on `target` from `session` less than
+    /// [`REFUSED_FOR`] before `now`: for a target only known once a job has looked, such as
+    /// the branch git resolved a name to. It counts nothing.
+    pub fn was_refused(
+        &self,
+        session: &SessionId,
+        tool: &'static str,
+        target: &str,
+        now: Instant,
+    ) -> bool {
+        self.refused
+            .get(&(session.clone(), tool, target.to_owned()))
+            .is_some_and(|&at| now.saturating_duration_since(at) < REFUSED_FOR)
     }
 
     /// The person's input reached `session`'s terminal: it may make [`MAX_CALLS`] again.

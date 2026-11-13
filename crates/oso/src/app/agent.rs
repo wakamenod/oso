@@ -50,8 +50,7 @@ pub const MAX_TEXT_A_MINUTE: usize = 4 << 20;
 pub const PERSON_TYPING: Duration = Duration::from_secs(1);
 
 /// The verbs of the connection's question, after `y` and `n`, and of a session tool's.
-const CONNECTION_VERBS: [&str; 2] = ["allow", "refuse"];
-pub(in crate::app) const AGENT_VERBS: [&str; 2] = CONNECTION_VERBS;
+pub(in crate::app) const AGENT_VERBS: [&str; 2] = ["allow", "refuse"];
 
 /// The agent channel's part of the app.
 #[derive(Debug, Default)]

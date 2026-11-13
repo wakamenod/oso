@@ -34,6 +34,18 @@ pub enum Run {
     Failed,
 }
 
+impl Run {
+    /// How lists show it: `*Worktrees*` and the agents' session tools alike.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Starting => "starting",
+            Self::Running { .. } => "running",
+            Self::Stopped => "stopped",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 /// One hosted session.
 #[derive(Debug, Clone)]
 pub struct Hosted {

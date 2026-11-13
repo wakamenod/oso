@@ -35,7 +35,8 @@ pub(in crate::app) struct Hosting {
     shared: Option<Begin>,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
     pub(in crate::app) worktrees: super::worktrees::Worktrees,
-    /// The trust each session started under, for its agent's worktree tools (step 6).
+    /// The trust each session started under, for its agent's worktree tools (step 6), until
+    /// it is forgotten.
     pub(in crate::app) trusts: HashMap<SessionKey, TrustedRoot>,
     /// The agents' session tools (ADR 0121 step 6).
     pub(in crate::app) tools: super::tools::Tools,
@@ -75,7 +76,7 @@ impl Hosting {
 }
 
 /// Now, in ms since the epoch, for a session's last change.
-fn now_ms() -> u64 {
+pub(in crate::app) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| {
@@ -355,6 +356,7 @@ impl App {
     /// A start that did not happen: a held name goes, and a resumed session is stopped again.
     fn session_not_started(&mut self, token: SessionKey) {
         if self.hosting.table.release(token).is_some() {
+            self.hosting.trusts.remove(&token);
             return;
         }
         if let Some(session) = self.hosting.table.get_mut(token)
@@ -394,6 +396,7 @@ impl App {
         if let Err(why) = started {
             if new {
                 self.hosting.table.forget(key);
+                self.hosting.trusts.remove(&key);
             } else {
                 self.session_not_started(key);
             }

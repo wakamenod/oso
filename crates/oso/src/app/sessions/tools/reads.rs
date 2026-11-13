@@ -6,11 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
 use super::super::super::App;
+use super::super::hosting::now_ms;
 use super::{Caller, Job, Lister, Pending, session_json, shown};
 use crate::channel::Reply;
 use crate::channel::protocol::sessions::JOB_ANSWER_WITHIN;
@@ -42,14 +43,6 @@ struct ListedRow {
     looked: Looked,
     held: Held,
     sessions: Vec<String>,
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| {
-            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-        })
 }
 
 impl App {
