@@ -177,7 +177,7 @@ fn a_link_on_the_way_or_at_the_end_is_not_followed() {
 #[cfg(unix)]
 #[test]
 fn a_pipe_is_not_read() {
-    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+    use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
     let scratch = Scratch::new("pipe");
     let mkfifo = Executable::from_path("mkfifo", None).expect("mkfifo is on PATH");
     let status = spawn(&Spawn {
@@ -186,6 +186,7 @@ fn a_pipe_is_not_read() {
         cwd: None,
         project: None,
         inherit: &[],
+        stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,

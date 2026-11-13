@@ -21,7 +21,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
-use oso_platform::process::{Executable, Sink, Spawn, spawn};
+use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use crate::png::Png;
@@ -119,6 +119,7 @@ pub fn start_without_a_window_system(cwd: &Path) -> (ExitStatus, String) {
         cwd: Some(cwd),
         project: None,
         inherit: &["RUST_LOG", "RUST_BACKTRACE"],
+        stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Piped,
         own_process_group: false,
@@ -468,6 +469,7 @@ impl App {
             cwd: None,
             project: None,
             inherit: &["XDG_RUNTIME_DIR"],
+            stdin: Source::Closed,
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
@@ -502,6 +504,7 @@ impl App {
             cwd: None,
             project: None,
             inherit: &["XDG_RUNTIME_DIR"],
+            stdin: Source::Closed,
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
@@ -584,6 +587,7 @@ impl Process {
             cwd: Some(cwd),
             project: None,
             inherit: &INSTANCE_ENV,
+            stdin: Source::Closed,
             stdout: Sink::Null,
             stderr: Sink::Piped,
             own_process_group: false,
@@ -767,6 +771,7 @@ fn run_osascript(script: &str) -> Result<(), String> {
         cwd: None,
         project: None,
         inherit: &[],
+        stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Piped,
         own_process_group: false,
@@ -792,6 +797,7 @@ pub fn process_exists(pid: u32) -> bool {
         cwd: None,
         project: None,
         inherit: &[],
+        stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,

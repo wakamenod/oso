@@ -197,6 +197,12 @@ impl Project {
         &self.found.root.path
     }
 
+    /// Its root's device and inode as they were when it was found, where the system has them,
+    /// so that a worker can look again before running anything there.
+    pub fn identity(&self) -> Option<(u64, u64)> {
+        self.found.root.identity
+    }
+
     /// Its name, as the modeline shows it.
     pub fn name(&self) -> &str {
         &self.name

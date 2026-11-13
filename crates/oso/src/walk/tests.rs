@@ -247,7 +247,7 @@ fn a_deeper_ignore_file_and_a_negation_decide_and_rgignore_comes_first() {
 #[cfg(unix)]
 #[test]
 fn an_ignore_file_that_is_a_pipe_does_not_hold_the_walk() {
-    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+    use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
     let scratch = Scratch::new("ignore-pipe");
     scratch.dir(".git/info");
     scratch.file("src/main.rs", "");
@@ -259,6 +259,7 @@ fn an_ignore_file_that_is_a_pipe_does_not_hold_the_walk() {
             cwd: None,
             project: None,
             inherit: &[],
+            stdin: Source::Closed,
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
