@@ -48,6 +48,8 @@ pub(super) struct Keymaps {
     pub(super) rigid_commands: Vec<CommandId>,
     /// Markdown's own keys, above the global ones in a Markdown buffer.
     pub(super) markdown: Keymap,
+    /// `*Sessions*`'s own keys, above the global ones in it (ADR 0121).
+    pub(super) sessions: Keymap,
 }
 
 impl Keymaps {
@@ -71,12 +73,13 @@ impl Keymaps {
             rigid: bindings::rigid_keymap(registry),
             rigid_commands: bindings::rigid_commands(registry),
             markdown: bindings::markdown_keymap(registry),
+            sessions: bindings::sessions_keymap(registry),
         }
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 14] {
+    pub(super) fn all(&self) -> [&Keymap; 15] {
         let Self {
             global,
             user,
@@ -91,10 +94,11 @@ impl Keymaps {
             rigid,
             rigid_commands: _,
             markdown,
+            sessions,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            jump, replace, rigid, markdown,
+            jump, replace, rigid, markdown, sessions,
         ]
     }
 
@@ -144,8 +148,9 @@ impl Keymaps {
             }
         } else {
             match editor.current().1.mode() {
-                Mode::Fundamental | Mode::Rust | Mode::Toml | Mode::Sessions => None,
+                Mode::Fundamental | Mode::Rust | Mode::Toml => None,
                 Mode::Markdown => Some(&self.markdown),
+                Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
             }

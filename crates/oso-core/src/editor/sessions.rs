@@ -70,6 +70,47 @@ pub enum SessionRequest {
     /// Copy the conversation of the session whose terminal is this buffer under a new id, in a
     /// new buffer (`session-fork`).
     Fork(BufferId),
+    /// Show `*Sessions*` in the side window and select it; select it if shown; hide it if
+    /// selected (`sessions`).
+    ShowList,
+    /// Show the session whose buffer has this name, switching to its space (`session-switch`).
+    Switch(String),
+    /// Show the session that has needed input longest (`session-next-waiting`).
+    NextWaiting,
+    /// Show the session done or ready for review longest (`session-next-done`).
+    NextDone,
+    /// Show the space of this name (`space-switch`).
+    Space(String),
+    /// The selected window alone, and back (`space-zoom`).
+    Zoom,
+    /// Explain the last look at the screen of the session whose terminal is this buffer
+    /// (`session-explain`).
+    Explain(BufferId),
+    /// Act on what line `line` of `*Sessions*`, from 0, shows.
+    Row { line: usize, action: RowAction },
+    /// Group `*Sessions*` by state, or by space.
+    Regroup,
+    /// Render `*Sessions*` again, with its ages as of now.
+    Refresh,
+}
+
+/// What a key of `*Sessions*` does to the row it is on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowAction {
+    /// Show the session in the tree's window selected last, and select that window.
+    Show,
+    /// Fold or open the group, or the sessions nested under the session.
+    Fold,
+    /// Pin or unpin the session: pinned ones come first in their group.
+    Pin,
+    /// Archive the session, or bring an archived one back.
+    Archive,
+    /// Resume the stopped session.
+    Resume,
+    /// Hang up the session's terminal, asking first while it works or needs input.
+    Stop,
+    /// Explain the last look at the session's screen.
+    Explain,
 }
 
 impl Editor {

@@ -1343,6 +1343,23 @@ pub fn oso_core::editor::ReplaceError::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::fmt::Display for oso_core::editor::ReplaceError
 pub fn oso_core::editor::ReplaceError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::ReplaceError
+pub enum oso_core::editor::RowAction
+pub oso_core::editor::RowAction::Archive
+pub oso_core::editor::RowAction::Explain
+pub oso_core::editor::RowAction::Fold
+pub oso_core::editor::RowAction::Pin
+pub oso_core::editor::RowAction::Resume
+pub oso_core::editor::RowAction::Show
+pub oso_core::editor::RowAction::Stop
+impl core::clone::Clone for oso_core::editor::RowAction
+pub fn oso_core::editor::RowAction::clone(&self) -> oso_core::editor::RowAction
+impl core::cmp::Eq for oso_core::editor::RowAction
+impl core::cmp::PartialEq for oso_core::editor::RowAction
+pub fn oso_core::editor::RowAction::eq(&self, &oso_core::editor::RowAction) -> bool
+impl core::fmt::Debug for oso_core::editor::RowAction
+pub fn oso_core::editor::RowAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::RowAction
+impl core::marker::StructuralPartialEq for oso_core::editor::RowAction
 pub enum oso_core::editor::SaveRefused
 pub oso_core::editor::SaveRefused::AlreadySaving
 pub oso_core::editor::SaveRefused::ChangedOnDisk
@@ -1363,12 +1380,24 @@ pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
 pub enum oso_core::editor::SessionRequest
+pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::NextDone
+pub oso_core::editor::SessionRequest::NextWaiting
+pub oso_core::editor::SessionRequest::Refresh
+pub oso_core::editor::SessionRequest::Regroup
 pub oso_core::editor::SessionRequest::Resume(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::Row
+pub oso_core::editor::SessionRequest::Row::action: oso_core::editor::RowAction
+pub oso_core::editor::SessionRequest::Row::line: usize
+pub oso_core::editor::SessionRequest::ShowList
+pub oso_core::editor::SessionRequest::Space(alloc::string::String)
 pub oso_core::editor::SessionRequest::Start
 pub oso_core::editor::SessionRequest::Start::directory: core::option::Option<std::path::PathBuf>
 pub oso_core::editor::SessionRequest::Start::name: core::option::Option<alloc::string::String>
+pub oso_core::editor::SessionRequest::Switch(alloc::string::String)
+pub oso_core::editor::SessionRequest::Zoom
 impl core::clone::Clone for oso_core::editor::SessionRequest
 pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest
 impl core::cmp::Eq for oso_core::editor::SessionRequest

@@ -648,6 +648,8 @@ mod replace_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]
+mod sessions_tests;
+#[cfg(test)]
 mod status_tests;
 #[cfg(test)]
 mod undo_tests;

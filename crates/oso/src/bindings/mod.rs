@@ -189,6 +189,12 @@ pub fn rigid_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, indent::RIGID).unwrap_or_default()
 }
 
+/// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry
+/// without its commands, as in tests that bring their own.
+pub fn sessions_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, agent_sessions::LIST).unwrap_or_default()
+}
+
 /// Markdown's own keymap, above the global one in a Markdown buffer (ADR 0115). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn markdown_keymap(registry: &Registry) -> Keymap {

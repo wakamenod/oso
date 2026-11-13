@@ -53,6 +53,18 @@ impl App {
                     self.fork_session(buffer);
                     continue;
                 }
+                // The list, spaces and live explain are carried out once sessions are fed
+                // (ADR 0121 step 3).
+                SessionRequest::ShowList
+                | SessionRequest::Switch(_)
+                | SessionRequest::NextWaiting
+                | SessionRequest::NextDone
+                | SessionRequest::Space(_)
+                | SessionRequest::Zoom
+                | SessionRequest::Explain(_)
+                | SessionRequest::Row { .. }
+                | SessionRequest::Regroup
+                | SessionRequest::Refresh => continue,
             };
             match &self.sessions {
                 Some(worker) => worker.send(job),

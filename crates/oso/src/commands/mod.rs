@@ -100,6 +100,7 @@ const TABLES: &[&[Command]] = &[
     scroll::COMMANDS,
     session::COMMANDS,
     agent_sessions::COMMANDS,
+    agent_sessions::LIST_COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -271,6 +272,8 @@ mod tests {
         "claude",
         "session-fork",
         "session-resume",
+        "session-stop",
+        "sessions-resume",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

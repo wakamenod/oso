@@ -105,7 +105,7 @@ pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use sessions::{SessionMarks, SessionRequest};
+pub use sessions::{RowAction, SessionMarks, SessionRequest};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
