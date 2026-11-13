@@ -6,19 +6,8 @@
 
 use oso_core::editor::Editor;
 
-use super::motion_tests::{at, cursors, send, text};
+use super::motion_tests::{at, cursors, drain, send, text};
 use crate::commands::kept_messages;
-
-/// Runs the worker's jobs in place, as the host's thread would.
-fn drain(editor: &mut Editor) {
-    while let Some(job) = editor.take_isearch_job() {
-        let mut reports = Vec::new();
-        job.run(|report| reports.push(report));
-        for report in reports {
-            editor.isearch_reported(report);
-        }
-    }
-}
 
 fn last_message(editor: &Editor) -> Option<String> {
     kept_messages(editor).pop()
@@ -88,7 +77,11 @@ fn every_c_g_drops_a_search_for_cursors_also_under_a_prefix() {
 #[test]
 fn c_greater_in_a_search_marks_the_match_and_the_next() {
     let (mut d, mut editor) = at("ab AB ab", &[0]);
-    send(&mut d, &mut editor, "C-s a b C->");
+    send(&mut d, &mut editor, "C-s a b");
+    drain(&mut editor);
+    send(&mut d, &mut editor, "C->");
+    // `C->` searches for the next match itself.
+    drain(&mut editor);
     assert!(editor.isearch().is_none());
     assert_eq!(cursors(&editor), [2, 5]);
 }
@@ -96,14 +89,31 @@ fn c_greater_in_a_search_marks_the_match_and_the_next() {
 #[test]
 fn c_c_c_less_in_a_search_marks_every_match() {
     let (mut d, mut editor) = at("ab x ab x ab", &[0]);
-    send(&mut d, &mut editor, "C-s a b C-c C-<");
+    send(&mut d, &mut editor, "C-s a b");
+    // The match, which the key finds itself when it has the time, and not yet the count,
+    // which comes after it.
+    let mut held = Vec::new();
+    if let Some(job) = editor.take_isearch_job() {
+        job.run(|report| held.push(report));
+    }
+    let mut held = held.into_iter();
+    while cursors(&editor) != [2] {
+        editor.isearch_reported(held.next().expect("a report finds the match"));
+    }
+    assert_eq!(editor.isearch().and_then(|search| search.count()), None);
+    send(&mut d, &mut editor, "C-c C-<");
     assert!(editor.isearch().is_some(), "it waits for the count");
     assert_eq!(
         last_message(&editor).as_deref(),
         Some("Still counting matches")
     );
+    for report in held {
+        editor.isearch_reported(report);
+    }
     drain(&mut editor);
     send(&mut d, &mut editor, "C-c C-<");
+    // It finds every match itself.
+    drain(&mut editor);
     assert!(editor.isearch().is_none());
     assert_eq!(cursors(&editor), [2, 7, 12]);
 }

@@ -13,6 +13,7 @@ use oso_core::selection::{Selection, SelectionSet};
 use oso_core::window::{Scroll, ViewSize};
 
 use super::Dispatcher;
+use super::motion_tests::drain;
 
 /// A dispatcher and an editor showing `marked` in `mode`, with a cursor at each `|`, which is
 /// taken out.
@@ -169,6 +170,7 @@ fn c_j_answers_a_prompt_and_adds_a_line_break_to_a_search() {
     assert_eq!(marked(&editor), "a\nb\n|c", "C-j answered the prompt");
     let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\nb");
     send(&mut dispatcher, &mut editor, "C-s a C-j");
+    drain(&mut editor);
     assert!(editor.isearch().is_some(), "the search goes on");
     assert_eq!(marked(&editor), "a\n|b", "it found a line break after a");
 }
@@ -176,12 +178,15 @@ fn c_j_answers_a_prompt_and_adds_a_line_break_to_a_search() {
 #[test]
 fn a_line_break_in_a_search_string_goes_in_its_history_and_comes_back() {
     let (mut dispatcher, mut editor) = at(Mode::Fundamental, "|a\nb\na\nc");
-    send(&mut dispatcher, &mut editor, "C-s a C-j RET");
+    send(&mut dispatcher, &mut editor, "C-s a C-j");
+    drain(&mut editor);
+    send(&mut dispatcher, &mut editor, "RET");
     assert!(editor.isearch().is_none());
     assert_eq!(marked(&editor), "a\n|b\na\nc");
     send(&mut dispatcher, &mut editor, "C-s M-p");
     assert_eq!(editor.isearch().map(|search| search.string()), Some("a\n"));
     send(&mut dispatcher, &mut editor, "C-s");
+    drain(&mut editor);
     assert_eq!(
         marked(&editor),
         "a\nb\na\n|c",
