@@ -110,16 +110,17 @@ pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 }
 
 /// The keymaps of a prompt that reads an answer, above the global one, of a question, in
-/// place of it (ADR 0072), and of a prompt that completes, with the first one's keys
-/// (ADR 0076). Empty for a registry without their commands, as in tests that bring their
-/// own.
-pub fn prompt_keymaps(registry: &Registry) -> [Keymap; 3] {
+/// place of it (ADR 0072), of a prompt that completes, with the first one's keys
+/// (ADR 0076), and of a review comment's draft, above the global one (ADR 0122). Empty for a
+/// registry without their commands, as in tests that bring their own.
+pub fn prompt_keymaps(registry: &Registry) -> [Keymap; 4] {
     let keymap = |table: &[(&str, &str)]| Keymap::from_table(registry, table).unwrap_or_default();
     let completing = [minibuffer::MINIBUFFER, complete::COMPLETION].concat();
     [
         keymap(minibuffer::MINIBUFFER),
         keymap(minibuffer::QUESTION),
         keymap(&completing),
+        keymap(minibuffer::DRAFT),
     ]
 }
 
@@ -228,7 +229,8 @@ mod tests {
     use super::{
         TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
         jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
-        recovery, recovery_keymaps, rigid_commands, rigid_keymap, terminal, terminal_keymap,
+        recovery, recovery_keymaps, review, review_keymap, rigid_commands, rigid_keymap, terminal,
+        terminal_keymap,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -284,6 +286,19 @@ mod tests {
     }
 
     #[test]
+    fn the_review_keymap_binds_all_its_rows() {
+        let registry = commands::registry();
+        let keymap = review_keymap(&registry);
+        for (keys, name) in review::REVIEW {
+            let keys: KeySequence = keys.parse().unwrap();
+            let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
+                panic!("{keys} is not bound to a command");
+            };
+            assert_eq!(registry.get(id).unwrap().name, *name);
+        }
+    }
+
+    #[test]
     fn the_prefix_keymaps_bind_all_their_rows() {
         let (digits, minus) = prefix_keymaps(&commands::registry());
         assert_eq!(digits.len(), prefix::DIGITS.len());
@@ -293,11 +308,19 @@ mod tests {
     #[test]
     fn the_prompt_keymaps_bind_all_their_rows() {
         // A clash would leave a keymap empty, and `RET` in `M-x` to the global keymap.
-        let [minibuffer, question, completing] = prompt_keymaps(&commands::registry());
+        let registry = commands::registry();
+        let [minibuffer, question, completing, draft] = prompt_keymaps(&registry);
         assert_eq!(minibuffer.len(), minibuffer::MINIBUFFER.len());
         assert_eq!(question.len(), minibuffer::QUESTION.len());
         let both = minibuffer::MINIBUFFER.len() + complete::COMPLETION.len();
         assert_eq!(completing.len(), both);
+        for (keys, name) in minibuffer::DRAFT {
+            let keys: KeySequence = keys.parse().unwrap();
+            let Some(Binding::Command(id)) = draft.lookup(&keys.0) else {
+                panic!("{keys} is not bound to a command");
+            };
+            assert_eq!(registry.get(id).unwrap().name, *name);
+        }
     }
 
     #[test]

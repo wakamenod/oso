@@ -337,22 +337,13 @@ pub(super) fn panes<'a>(
     if inner.rows == 0 {
         return;
     }
-    // The answer's row, or the keys'.
-    let last = inner.row + inner.rows - 1;
-    // A pane's glyphs keep a band only into the float's padding, where its region borders on
-    // it, and each row of padding goes to the panes of one row at most, so that no glyph draws
-    // over another pane of the float or outside it (ADR 0072, ADR 0075). The gap and the
-    // padding below both go to the answer's row; the label keeps to its own rows.
     let content = |id, region: CellRect, content| Pane {
         id: PaneId(id),
         region,
         layer: Layer::FLOAT_CONTENT,
         background: None,
         panel: None,
-        bands: Bands {
-            above: regions.gap && region.row == last,
-            below: regions.padded_below() && region.row == last,
-        },
+        bands: content_bands(layout, region),
         content,
     };
     let field = Some(layout.field).filter(|field| field.columns > 0);
@@ -413,6 +404,30 @@ pub(super) fn panes<'a>(
     }
     list_panes(parts, lines, list);
     preview_panes(editor, (parts, screens), lines, list);
+}
+
+/// The bands of a pane of what the float shows, at `region`. A pane's glyphs keep a band only
+/// into the float's padding, where its region borders on it, and each row of padding goes to
+/// the panes of one row at most, so that no glyph draws over another pane of the float or
+/// outside it (ADR 0072, ADR 0075). The gap goes to the answer's first row and the padding
+/// below to its last, which a draft's answer of several rows tells apart (ADR 0122); the label
+/// keeps to its own rows.
+fn content_bands(layout: &PromptLayout, region: CellRect) -> Bands {
+    let regions = layout.regions;
+    let inner = regions.inner;
+    // The answer's last row, or the keys'.
+    let last = (inner.row + inner.rows).saturating_sub(1);
+    let first = if layout.input.rows > 1 {
+        layout.input.row
+    } else {
+        last
+    };
+    Bands {
+        above: regions.gap && region.row == first,
+        below: regions.padded_below()
+            && region.row >= first
+            && region.row + region.rows.max(1) - 1 == last,
+    }
 }
 
 /// Adds a list's panes to `list`: its count, and its candidates' rows, which keep the padding

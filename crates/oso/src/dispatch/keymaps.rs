@@ -1,7 +1,7 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
-//! argument's, the layer `C-x TAB` opens, a prompt's, a completion's or a question's, a jump's,
-//! isearch's, a mode's, the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082,
-//! ADR 0108, ADR 0115, ADR 0116).
+//! argument's, the layer `C-x TAB` opens, a prompt's, a completion's, a review comment's
+//! draft's or a question's, a jump's, isearch's, a mode's, the user's and the global one
+//! (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108, ADR 0115, ADR 0116, ADR 0122).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
@@ -36,6 +36,8 @@ pub(super) struct Keymaps {
     /// The keys of a prompt that completes, with the minibuffer's, above the global ones
     /// (ADR 0076).
     pub(super) completing: Keymap,
+    /// The keys of a review comment's draft, above the global ones (ADR 0122).
+    pub(super) draft: Keymap,
     /// The keys of a search under way, in place of the others (ADR 0082).
     pub(super) isearch: Keymap,
     /// The keys of a jump under way, in place of the others, isearch's too (ADR 0116).
@@ -60,7 +62,7 @@ impl Keymaps {
     pub(super) fn new(registry: &Registry, global: Keymap) -> Self {
         let (digits, minus) = bindings::prefix_keymaps(registry);
         let (list, copy) = bindings::recovery_keymaps(registry);
-        let [minibuffer, question, completing] = bindings::prompt_keymaps(registry);
+        let [minibuffer, question, completing, draft] = bindings::prompt_keymaps(registry);
         Self {
             global,
             user: Keymap::new(),
@@ -69,6 +71,7 @@ impl Keymaps {
             minibuffer,
             question,
             completing,
+            draft,
             isearch: bindings::isearch_keymap(registry),
             jump: bindings::jump_keymap(registry),
             replace: bindings::replace_keymap(registry),
@@ -82,7 +85,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 16] {
+    pub(super) fn all(&self) -> [&Keymap; 17] {
         let Self {
             global,
             user,
@@ -91,6 +94,7 @@ impl Keymaps {
             minibuffer,
             question,
             completing,
+            draft,
             isearch,
             jump,
             replace,
@@ -101,8 +105,8 @@ impl Keymaps {
             terminal,
         } = self;
         [
-            global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            jump, replace, rigid, markdown, review, terminal,
+            global, user, digits, minus, list, copy, minibuffer, question, completing, draft,
+            isearch, jump, replace, rigid, markdown, review, terminal,
         ]
     }
 
@@ -114,7 +118,7 @@ impl Keymaps {
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
     /// no other key reaches a command, and a prompt's go above it (ADR 0072), a completion's
-    /// with them (ADR 0076). So do isearch's, and a key they do not bind ends the search first
+    /// with them (ADR 0076), and a draft's in their place (ADR 0122). So do isearch's, and a key they do not bind ends the search first
     /// (ADR 0082). The user's keys go just above the global ones, so neither a question nor a
     /// search under way sees them (ADR 0108). `reading` holds the keymaps of a prefix argument,
     /// then the layer of `C-x TAB`, first while it is open and no prefix argument reads.
@@ -148,6 +152,8 @@ impl Keymaps {
         let major = if let Some(prompt) = editor.prompt() {
             match prompt.kind() {
                 Kind::Complete { .. } => Some(&self.completing),
+                // `RET` breaks a line in a draft, which `C-c C-c` keeps (ADR 0122).
+                Kind::Draft => Some(&self.draft),
                 _ => Some(&self.minibuffer),
             }
         } else {

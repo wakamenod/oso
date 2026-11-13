@@ -99,6 +99,7 @@ const TABLES: &[&[Command]] = &[
     recovery::COMMANDS,
     replace::COMMANDS,
     review::COMMANDS,
+    review::COMMENT_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
@@ -252,10 +253,17 @@ mod tests {
         "recover-session",
         "revert-buffer",
         // A review runs git, on a worker, in a trusted project (ADR 0122), and killing one may
-        // lose the person's comments, which only they may agree to.
+        // lose the person's comments, which only they may agree to. The person's comments are
+        // theirs alone to write (ADR 0122, Q11).
         "review-branch",
+        "review-comment",
         "review-commit",
+        "review-edit-comment",
+        "review-fold-agents",
+        "review-keep-draft",
         "review-kill",
+        "review-remove-comment",
+        "review-resolve",
         "review-mark-baseline",
         "review-range",
         "review-refresh",
