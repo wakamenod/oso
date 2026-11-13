@@ -112,7 +112,14 @@ fn global(
     binds.sort_unstable_by(|(a, _), (b, _)| {
         (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled))
     });
-    let unbound: HashSet<&[KeyPress]> = unbinds.iter().map(|entry| &entry.keys[..]).collect();
+    // The default keys of the built-in menus the file removes are undefined too (ADR 0117), so
+    // keys under them may make them prefixes, and Shift finds nothing there.
+    let removed = super::menus::removed_menu_keys(menus, defaults);
+    let unbound: HashSet<&[KeyPress]> = unbinds
+        .iter()
+        .map(|entry| &entry.keys[..])
+        .chain(removed.iter().map(Vec::as_slice))
+        .collect();
     let mut shadows = Shadows::new(registry, defaults, &unbound);
     // An unbinding that is refused is still among `unbound`: one under it is refused for the same
     // keys, which the walk meets first.
@@ -131,6 +138,7 @@ fn global(
             shadows.warn(entry, true, found);
         }
     }
+    super::menus::unbind_removed_menus(&mut keymap, menus, defaults);
     for entry in &unbinds {
         warn_if_shift_finds_more(&keymap, entry, defaults, found);
     }

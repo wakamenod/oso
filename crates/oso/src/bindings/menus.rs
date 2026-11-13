@@ -13,7 +13,7 @@ use oso_core::menu::{Definition, Head, HeadAction, Note, Notes, Open, Stay};
 use oso_core::menu::{Describe, Menus};
 
 /// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`. Only the
-/// toggles have one (ADR 0117, Q25); the rest are reached with `BuiltInMenu-x open-menu` or a key in
+/// toggles have one (ADR 0117, Q25); the rest are reached with `M-x open-menu` or a key in
 /// `config.toml`.
 pub const MENU_KEYS: &[(&str, &str)] = &[("C-c t", "toggles")];
 

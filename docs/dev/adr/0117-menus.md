@@ -312,9 +312,10 @@ question under [Questions](#questions), but Q1 (d) and Q24, which the author cha
   prefix; the resolver returns `Resolution::Menu`, and the dispatcher opens it. `M-x open-menu`
   reads a menu's name with completion over every menu (`ArgSpec::Menu`). `where-is` and the
   completion's key column show a menu's key for `open-menu`'s candidates.
-- **Limits:** 256 menus, 128 heads per menu, 8 columns per row, 3 rows, keys of 3 key presses,
-  counts up to 1,000, labels and titles of 64 cells (and 512 bytes, see [As built](#as-built)),
-  menu and switch names of 64 bytes in kebab case. Past them an entry is refused with its line.
+- **Limits:** 256 menus (the built-in ones among them, see [As built](#as-built)), 128 heads
+  per menu, 8 columns per row, 3 rows, keys of 3 key presses, counts up to 1,000, labels and
+  titles of 64 cells (and 512 bytes, see [As built](#as-built)), menu and switch names of 64
+  bytes in kebab case. Past them an entry is refused with its line.
 
 ### The prefix argument (Q15)
 
@@ -848,9 +849,15 @@ through the coordinator.
   arrows resize by a fixed count of 3 and stay. No head selects another window, as the author's
   menu has none. **`jumps`** keeps both `l` and `h` on `avy-goto-line`, as the author's does.
 - **Only `C-c t` has a default key.** A head whose command a registry lacks is left out, so the
-  built-in menus and their ids are the same over any registry.
+  built-in menus and their ids are the same over any registry. `bindings::global_keymap` still
+  takes only the registry, and builds the built-in menus itself to find the toggles' id, in
+  place of the plan's `&Menus` argument; the ids follow the tables' order, so its menus and the
+  dispatcher's agree.
+- **The built-in menus count toward the 256 menus,** a removed one too, as its id keeps its
+  slot: a file may add 252.
 - **A removed built-in menu's default key is unbound in the user's layer** as the file is read,
-  unless the file binds or unbinds that key itself, so it is undefined as any unbound key is, and
+  unless the file binds or unbinds that key itself, and the checks of `[keys.global]` take it
+  as unbound, so `"C-c t w"` may make it a prefix with no `"C-c t" = false`, so it is undefined as any unbound key is, and
   `open-menu`'s key column and the key list do not show it. A replaced menu keeps its id, so its
   default key opens the file's menu.
 - The sample `[menus]` is in [`ui.md`](../ui.md)'s Menus section.

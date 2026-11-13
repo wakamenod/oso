@@ -534,3 +534,25 @@ fn the_sample_in_the_docs_loads_with_no_problem() {
         assert_eq!(f.bound(keys(&loaded), sequence), Some("menu"));
     }
 }
+
+#[test]
+fn a_removed_menus_key_may_become_a_prefix_and_shift_finds_nothing_there() {
+    let f = Fixture::new();
+    // Without the removal, keys under `C-c t` are refused: it opens a menu by default.
+    let kept = f.parse("[keys.global]\n\"C-c t w\" = \"global-whitespace-mode\"\n");
+    assert_eq!(f.bound(keys(&kept), "C-c t w"), None);
+    assert_eq!(messages(&kept).len(), 1, "{:?}", messages(&kept));
+    let loaded = f.parse(
+        "[menus]\ntoggles = false\n[keys.global]\n\"C-c t w\" = \"global-whitespace-mode\"\n",
+    );
+    assert!(messages(&loaded).is_empty(), "{:?}", messages(&loaded));
+    assert_eq!(
+        f.bound(keys(&loaded), "C-c t w"),
+        Some("global-whitespace-mode")
+    );
+    assert_eq!(f.bound(keys(&loaded), "C-c t"), Some("prefix"));
+    // `C-c T` = false says nothing of `C-c t`, which runs nothing now.
+    let loaded = f.parse("[menus]\ntoggles = false\n[keys.global]\n\"C-c T\" = false\n");
+    assert!(messages(&loaded).is_empty(), "{:?}", messages(&loaded));
+    assert_eq!(f.bound(keys(&loaded), "C-c t"), Some("undefined"));
+}

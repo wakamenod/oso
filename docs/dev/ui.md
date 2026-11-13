@@ -321,7 +321,8 @@ planned.
   The review menu on `C-x v r` comes with ADR 0122. `windows`, `jumps` and `search` have no
   key: `M-x open-menu` opens them, or a key in `config.toml`.
 - `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
-  or removes it with `false`. A removed menu's default key is then undefined. For example
+  or removes it with `false`. A removed menu's default key is then undefined. There are at most
+  256 menus, the four built-in ones among them even when removed. For example
   (`config/menus_tests.rs` loads this sample, and changes with it):
 
   ```toml

@@ -522,15 +522,26 @@ impl std::fmt::Display for Choices<'_> {
     }
 }
 
+/// The default keys bound to a built-in menu `menus` no longer has.
+pub(super) fn removed_menu_keys(menus: &Menus, defaults: &Keymap) -> Vec<Vec<KeyPress>> {
+    let mut keys = Vec::new();
+    defaults.menu_bindings(|sequence, id| {
+        if menus.get(id).is_none() {
+            keys.push(sequence.to_vec());
+        }
+    });
+    keys
+}
+
 /// Unbinds, in the user's keymap `user`, each default key whose built-in menu `menus` no longer
 /// has, so that the key is undefined as any unbound key is, and `open-menu` and the key list do
 /// not show it (ADR 0117, step 1's Q7). A key the file binds or unbinds itself is the file's.
 pub(super) fn unbind_removed_menus(user: &mut Keymap, menus: &Menus, defaults: &Keymap) {
-    defaults.menu_bindings(|keys, id| {
-        if menus.get(id).is_none() && user.lookup(keys).is_none() {
+    for keys in removed_menu_keys(menus, defaults) {
+        if user.lookup(&keys).is_none() {
             // Fails only under a key the file binds to a command or a menu, which the default
             // key cannot reach then anyway.
-            let _ = user.unbind(keys);
+            let _ = user.unbind(&keys);
         }
-    });
+    }
 }
