@@ -85,7 +85,8 @@ impl Ghostty {
 
     /// Warns once per terminal when the library copied rows without their styles, links or
     /// clusters because they did not fit their page (oso's patch, `patches/`). The terminal
-    /// keeps running; the warning holds a count, never text.
+    /// keeps running; the warning holds a count, never text. The count of an alternate screen
+    /// the same feed opened and closed is not seen.
     fn note_plain_copies(&mut self) {
         if self.warned_plain_copies {
             return;
@@ -97,6 +98,13 @@ impl Ghostty {
                 "a terminal copied {copies} rows without their styling: their page was full"
             );
         }
+    }
+
+    /// The rows copied without their styling so far, and whether the terminal warned, for
+    /// the tests.
+    #[cfg(test)]
+    pub(crate) fn plain_copies(&self) -> (Option<u64>, bool) {
+        (self.vt.plain_copies(), self.warned_plain_copies)
     }
 
     /// The settings bounding memory, for the tests: the scrollback's bytes, then the Kitty

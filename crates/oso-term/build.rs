@@ -33,6 +33,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "build/patch_check.rs"]
+mod patch_check;
+
 const OPTIMIZE_MODES: [&str; 4] = ["Debug", "ReleaseSafe", "ReleaseFast", "ReleaseSmall"];
 
 /// What `ghostty-vt.lock` pins.
@@ -51,6 +54,7 @@ struct Lock {
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=ghostty-vt.lock");
+    println!("cargo:rerun-if-changed=build/patch_check.rs");
     for name in [
         "OSO_TERM_ENGINE",
         "OSO_GHOSTTY_VT_DIR",
@@ -176,9 +180,10 @@ fn unpack(dir: &Path, (name, sum): &(String, String), into: &Path) -> PathBuf {
     entries.remove(0)
 }
 
-/// Applies the lock's patches to the unpacked source `src`, in order, each copied into `into`
-/// and checked against its sha256 first; then checks the sha256 of every file the lock lists
-/// as patched. Fails if `dir` holds a patch the lock does not list.
+/// Applies the lock's patches to the unpacked source `src`, in order, each copied into `into`,
+/// checked against its sha256 and read by `patch_check` first; then checks that `patch`
+/// changed exactly the files the check read, that the lock hashes exactly those files, and
+/// their sha256. Fails if `dir` holds a patch the lock does not list.
 fn apply_patches(dir: &Path, src: &Path, into: &Path, lock: &Lock) {
     if dir.exists() {
         println!("cargo:rerun-if-changed={}", dir.display());
@@ -212,12 +217,11 @@ fn apply_patches(dir: &Path, src: &Path, into: &Path, lock: &Lock) {
         if have != *sum {
             panic!("patches/{name}: sha256 {have} is not the lock's {sum}");
         }
-        touched.extend(changed_files(name, &copy));
-        run(Command::new("patch")
-            .current_dir(src)
-            .args(["-p1", "--batch", "--forward", "--fuzz=0", "-i"])
-            .arg(&copy)
-            .stdout(Stdio::null()));
+        let text = fs::read_to_string(&copy).expect("read a patch");
+        let files = patch_check::changed_files(&text)
+            .unwrap_or_else(|why| panic!("patches/{name} is refused: {why}"));
+        run_patch(src, &copy, name, &files);
+        touched.extend(files);
     }
     touched.sort();
     touched.dedup();
@@ -234,40 +238,47 @@ fn apply_patches(dir: &Path, src: &Path, into: &Path, lock: &Lock) {
     }
 }
 
-/// The files a patch changes, from its `+++ b/` lines. Fails on what a plain change to
-/// existing files never holds: a path leaving the source, or git's headers for renames,
-/// copies, modes, new or deleted files and binary data.
-fn changed_files(name: &str, patch: &Path) -> Vec<String> {
-    let text = fs::read_to_string(patch).expect("read a patch");
-    let mut files = Vec::new();
-    for line in text.lines() {
-        let refused = [
-            "rename ",
-            "copy ",
-            "old mode",
-            "new mode",
-            "new file mode",
-            "deleted file mode",
-            "similarity index",
-            "GIT binary patch",
-            "Binary files",
-        ];
-        if refused.iter().any(|head| line.starts_with(head)) {
-            panic!("patches/{name}: {line:?} is not a plain change to an existing file");
-        }
-        let Some(rest) = line.strip_prefix("+++ ") else {
-            continue;
-        };
-        let path = rest.split('\t').next().unwrap_or(rest);
-        let Some(path) = path.strip_prefix("b/") else {
-            panic!("patches/{name}: {path:?} does not start with b/");
-        };
-        if path.starts_with('/') || path.split('/').any(|part| part == ".." || part.is_empty()) {
-            panic!("patches/{name}: {path:?} leaves the library's source");
-        }
-        files.push(path.to_owned());
+/// Runs `patch` with `copy` in `src`, and fails unless it changed exactly `files`, the files
+/// `patch_check` read.
+fn run_patch(src: &Path, copy: &Path, name: &str, files: &[String]) {
+    let mut command = Command::new("patch");
+    command
+        .current_dir(src)
+        .args(["-p1", "--batch", "--forward", "--fuzz=0", "-i"])
+        .arg(copy);
+    // Settings that would change what `patch` reads or writes.
+    for setting in [
+        "POSIXLY_CORRECT",
+        "PATCH_GET",
+        "PATCH_VERSION_CONTROL",
+        "VERSION_CONTROL",
+        "SIMPLE_BACKUP_SUFFIX",
+    ] {
+        command.env_remove(setting);
     }
-    files
+    let output = command
+        .output()
+        .unwrap_or_else(|e| panic!("could not run {command:?}: {e}"));
+    if !output.status.success() {
+        panic!(
+            "{command:?} failed: {}\n{}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    // What `patch` says it changed must be what the check read.
+    let mut patched: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|l| l.strip_prefix("patching file "))
+        .map(|f| f.trim_matches(['\'', '"', '`']).to_owned())
+        .collect();
+    patched.sort();
+    let mut read = files.to_vec();
+    read.sort();
+    if patched != read {
+        panic!("patches/{name}: patch changed {patched:?}, the check read {read:?}");
+    }
 }
 
 fn sha256(file: &Path) -> String {

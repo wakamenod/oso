@@ -1042,9 +1042,8 @@ each of its sixteen questions.
   Mac mini needs nothing installed. Step 3's runs, on 2026-11-13: ReleaseFast 1,380,942
   inputs, ReleaseSafe 1,096,148, and 80 × 24 without resizes 4,104,012, with 0 stops in all
   6,581,102. 991 and 1,134 inputs were slow (over 500 ms), all after resizes to large
-  terminals, as in step 1, and none without resizes. After those runs the review added the
-  largest grid (1000 × 500), clusters longer than the library keeps and a link on each of many
-  cells to the generator; the patched build's runs cover them ("Step 3, after merge" below).
+  terminals, as in step 1, and none without resizes. After those runs the review widened the
+  generator; the patched build's runs cover it ("Step 3, after merge" below).
 - **The policy (Q11 to Q14):** besides the table, enquiry gets no answer and XTVERSION answers
   `oso <version>`; the checksum report (DECRQCRA) is off; DECRQSS's replies are dropped, as the
   library answers it through the same callback as the reports it may make: replies go back
@@ -1096,16 +1095,24 @@ each of its sixteen questions.
   reads the count after each feed and resize and logs one warning per terminal, a count and no
   text (the author's choice; ending or resetting the terminal were the others).
 - **How it is applied.** `build.rs` checks the tarball as before, then checks the patch against
-  its sha256 in `ghostty-vt.lock`, refuses a patch that renames, creates, deletes or changes a
-  file outside the source, applies it with `patch -p1 --batch --forward --fuzz=0`, and fails
-  unless the lock's `patched` lines hash exactly the files the patch changes and `patches/`
-  holds exactly the lock's patches. A bump drops a patch the new release makes needless, or
+  its sha256 in `ghostty-vt.lock`. `build/patch_check.rs` reads it and refuses anything but a
+  plain unified diff of existing files inside the source, each named the same on its `--- a/`
+  and `+++ b/` lines: no other diff format, no creating, deleting or renaming, no git headers
+  for modes or binary data. `build.rs` applies it with `patch -p1 --batch --forward --fuzz=0`
+  (with the environment settings that change `patch`'s behaviour removed) and fails unless
+  `patch` changed exactly the files the check read, the lock's `patched` lines hash exactly
+  those files, and `patches/` holds exactly the lock's patches. A bump drops a patch the new release makes needless, or
   rebases it and updates its hashes. Any change to the lock, a bump or a patch, is fuzzed again
   before it lands, on Linux (a container) as well as macOS. Building needs `patch`, which macOS
   and the CI runners have.
 - **The smallest grid is 4 × 1.**
 - **Tests.** The 500 inputs in `just test` use the long run's grammar (before the patch they
-  kept to step 1's); a test checks the count is known and stays 0 for ordinary output; the
-  manifest test checks the new data key, and that each patch is in `third-party.md`.
+  kept to step 1's) and check each terminal's count is known; a test checks it stays 0 for
+  ordinary output; the manifest test checks the new data key, and that each patch is in
+  `third-party.md`; `patch_check` has a test for the checked-in patch and one for each kind
+  of patch it refuses. No test in the repository raises the count; the inputs that do are
+  kept outside it.
   The patched build was fuzzed with the long run's grammar before it landed: Linux, one hour,
-  ReleaseFast, 485,868 inputs, no stop. One more `unsafe` block reads the count (68, six only in tests).
+  ReleaseFast, 485,868 inputs, no stop; after the review round, macOS, ten minutes,
+  ReleaseFast, 89,624 inputs, no stop. One more `unsafe` block reads the count (68, six only
+  in tests).

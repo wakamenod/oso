@@ -16,7 +16,7 @@ diff -ruN a/src/terminal/PageList.zig b/src/terminal/PageList.zig
  /// If this is true then verifyIntegrity will do nothing. This is
  /// only present with runtime safety enabled.
  pause_integrity_checks: if (build_options.slow_runtime_safety) usize else void =
-@@ -2329,6 +2333,14 @@
+@@ -2329,6 +2333,15 @@
          repeat,
          skip_next,
      } {
@@ -26,12 +26,36 @@ diff -ruN a/src/terminal/PageList.zig b/src/terminal/PageList.zig
 +        if (self.page_cell.hasStyling()) {
 +            self.page.styles.release(self.page.memory, self.page_cell.style_id);
 +            self.page_cell.style_id = stylepkg.default_id;
++            self.style_cache = .invalid;
 +        }
 +
          // Initialize self.page_cell with basic, unmanaged memory contents.
          {
              // This must not fail because we want to make sure we atomically
-@@ -5047,8 +5059,10 @@
+@@ -2746,12 +2759,17 @@
+             old_page,
+             self.page_row,
+             old_row,
+-        ) catch |err| {
+-            log.err(
+-                "error cloning single row for moveLastRowToNewPage err={}",
+-                .{err},
++        ) catch {
++            // oso patch: copy the row without what did not fit, and
++            // count it.
++            self.page.clonePartialRowPlain(
++                old_page,
++                self.page_row,
++                old_row,
++                0,
++                self.page.size.cols,
+             );
+-            @panic("unexpected copy row failure");
++            list.oso_plain_copies +|= 1;
+         };
+ 
+         // Move any tracked pins from that last row into this new node.
+@@ -5047,8 +5065,10 @@
          // from the source page but we're only increasing capacity so
          // this should never be possible. If it happens, we should crash
          // because we're in no man's land and can't safely recover.
@@ -43,7 +67,7 @@ diff -ruN a/src/terminal/PageList.zig b/src/terminal/PageList.zig
      };
  
      // Preserve page-level dirty flag (cloneFrom only copies row data)
-@@ -5927,16 +5941,18 @@
+@@ -5927,16 +5947,18 @@
              current = self.increaseCapacity(
                  current,
                  IncreaseCapacity.forCloneError(err),

@@ -440,13 +440,18 @@ fn check(event: &Event) {
 #[test]
 fn smoke() {
     let mut driver = Driver::new(scrollback(0));
+    let mut blocks = Vec::new();
     for iteration in 0..500u64 {
         if iteration.is_multiple_of(BLOCK) {
+            blocks.push(driver.engine.plain_copies());
             driver = Driver::new(scrollback(iteration));
         }
         let (data, resize) = input(0x5eed, iteration, true);
         driver.feed(&data, resize);
     }
+    blocks.push(driver.engine.plain_copies());
+    // The library oso links is the patched one: each terminal knows its count.
+    assert!(blocks.iter().all(|(copies, _)| copies.is_some()));
 }
 
 fn setting(name: &str) -> Option<u64> {
