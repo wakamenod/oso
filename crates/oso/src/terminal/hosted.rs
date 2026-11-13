@@ -50,8 +50,11 @@ pub(crate) struct Hosted {
     pub note: String,
     /// The title or the end changed since the note was made.
     pub note_stale: bool,
-    /// The input mode the note was made with.
+    /// The input mode, and whether the agent reads, the note was made with.
     pub noted_input: Input,
+    pub noted_reads: bool,
+    /// The program reads a password, as the last snapshot said (ADR 0120, Q17).
+    pub echo_off: bool,
     /// What was typed or pasted while the shell is found, sent once it starts.
     pub waiting: Vec<ToProgram>,
 }
@@ -72,6 +75,8 @@ impl Hosted {
             note: String::new(),
             note_stale: false,
             noted_input: Input::SemiChar,
+            noted_reads: false,
+            echo_off: false,
             waiting: Vec::new(),
         }
     }
@@ -103,10 +108,10 @@ impl Hosted {
         self.ended.is_none()
     }
 
-    /// What the modeline says after `Terminal`: oso's own marks, the input mode and how the
-    /// program ended, then the program's title last and in quotes, so that a title can never
-    /// pass for one of them.
-    pub(crate) fn note_text(&self, input: Input) -> String {
+    /// What the modeline says after `Terminal`: oso's own marks, the input mode, a password
+    /// prompt, the agent's leave to read and how the program ended, then the program's title
+    /// last and in quotes, so that a title can never pass for one of them.
+    pub(crate) fn note_text(&self, input: Input, agent_reads: bool) -> String {
         let mut note = String::new();
         let mut push = |part: &str| {
             if !note.is_empty() {
@@ -116,6 +121,12 @@ impl Hosted {
         };
         if input == Input::Char {
             push("char");
+        }
+        if self.echo_off {
+            push("secret");
+        }
+        if agent_reads {
+            push("agent reads");
         }
         if let Some(ended) = &self.ended {
             push(ended);
@@ -149,6 +160,14 @@ impl Terminals {
 
     pub(crate) fn get(&self, buffer: BufferId) -> Option<&Hosted> {
         self.map.get(&buffer)
+    }
+
+    /// Whether the program in `buffer`'s terminal reads a password, as its last snapshot
+    /// said (ADR 0120, Q17), for what must not send to it then, such as a session's send
+    /// (ADR 0121). A snapshot says so also of a prompt that ended since the one before, so a
+    /// password typed between two frames is seen.
+    pub(crate) fn echo_off(&self, buffer: BufferId) -> bool {
+        self.map.get(&buffer).is_some_and(|hosted| hosted.echo_off)
     }
 
     pub(crate) fn get_mut(&mut self, buffer: BufferId) -> Option<&mut Hosted> {
@@ -341,24 +360,30 @@ mod tests {
         let (a, _) = ids();
         let mut terminals = Terminals::default();
         let hosted = terminals.add(a);
-        assert_eq!(hosted.note_text(Input::SemiChar), "");
+        assert_eq!(hosted.note_text(Input::SemiChar, false), "");
         hosted.title = "vim".into();
         hosted.ended = Some("exited 1".into());
         assert_eq!(
-            hosted.note_text(Input::Char),
+            hosted.note_text(Input::Char, false),
             "char  exited 1  \u{201c}vim\u{201d}"
         );
+        hosted.echo_off = true;
+        assert_eq!(
+            hosted.note_text(Input::Char, true),
+            "char  secret  agent reads  exited 1  \u{201c}vim\u{201d}"
+        );
+        hosted.echo_off = false;
         // A title that reads as oso's own mark stays a title.
         hosted.ended = None;
         hosted.title = "exited 0".into();
         assert_eq!(
-            hosted.note_text(Input::SemiChar),
+            hosted.note_text(Input::SemiChar, false),
             "\u{201c}exited 0\u{201d}"
         );
         // Nor can it close oso's quotes to put a mark of its own after them.
         hosted.title = "x\u{201d}  exited 0  \u{201c}y".into();
         assert_eq!(
-            hosted.note_text(Input::SemiChar),
+            hosted.note_text(Input::SemiChar, false),
             "\u{201c}x\"  exited 0  \"y\u{201d}"
         );
     }

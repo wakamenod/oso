@@ -83,10 +83,11 @@ impl Master {
         self.0.resize(size)
     }
 
-    /// Whether the terminal echoes what is typed. A password prompt turns echo
-    /// off.
-    pub fn echoes(&self) -> io::Result<bool> {
-        self.0.echoes()
+    /// Whether the program reads a password: echo off while line editing is on, as `sudo`,
+    /// `ssh` and `read -s` have it (ADR 0120). A program that reads keys raw, such as a
+    /// shell's line editor or `vim`, turns echo off too, and does not count.
+    pub fn reads_secret(&self) -> io::Result<bool> {
+        self.0.reads_secret()
     }
 
     /// The terminal's foreground process group, `None` if it has none.

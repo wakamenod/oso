@@ -6,6 +6,9 @@
 //!
 //! Must not depend on: the UI thread's state; it shares only the channels and `Shared`.
 
+mod echo;
+mod hold;
+
 use std::collections::VecDeque;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -25,6 +28,8 @@ use crate::input::{self, Refused};
 use crate::limits;
 use crate::policy::{self, Verdict};
 use crate::snapshot::{Row, Scroll, Snapshot};
+use echo::EchoWatch;
+pub(super) use hold::Hold;
 
 /// How often, and for how long, a child is looked for after the PTY ended.
 const REAP_EVERY: Duration = Duration::from_millis(50);
@@ -60,45 +65,6 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
     // The end goes even with a snapshot in flight; nothing follows it.
     if channels.snapshots.send(last).is_ok() {
         (channels.wake)();
-    }
-}
-
-/// A synchronized update (mode 2026) as the thread keeps it: when the open one began, and
-/// whether one ended since a snapshot last went.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct Hold {
-    began: Option<Instant>,
-    ended: bool,
-}
-
-impl Hold {
-    /// The program began (true) or ended (false) a hold at `now`. A beginning while one is
-    /// open keeps the time it began, so nothing makes a hold last longer.
-    pub(super) fn set(&mut self, held: bool, now: Instant) {
-        if !held {
-            self.began = None;
-            self.ended = true;
-        } else if self.began.is_none() {
-            self.began = Some(now);
-        }
-    }
-
-    /// A snapshot went. Until then, a hold that ended lets the next one go, even if another
-    /// began in the same read: ending and beginning again cannot hold the screen forever.
-    pub(super) fn published(&mut self) {
-        self.ended = false;
-    }
-
-    /// Whether snapshots wait at `now`: a hold is open and younger than `limit`. Past it,
-    /// snapshots go as if none were open, until the program ends it and begins another.
-    pub(super) fn holds(&self, now: Instant, limit: Duration) -> bool {
-        !self.ended && self.left(now, limit).is_some()
-    }
-
-    /// How long from `now` the open hold still holds snapshots back, if it does.
-    pub(super) fn left(&self, now: Instant, limit: Duration) -> Option<Duration> {
-        let age = now.saturating_duration_since(self.began?);
-        limit.checked_sub(age).filter(|left| !left.is_zero())
     }
 }
 
@@ -264,7 +230,11 @@ struct Running<'a> {
     hold: Hold,
     hold_limit: Duration,
     inputs: Inputs,
-    echo_off: bool,
+    /// What the thread knows of a password prompt, and when it last looked.
+    echo: EchoWatch,
+    looked: Instant,
+    /// Output was read since the flags were last looked at.
+    fed: bool,
     /// The requests ended: the handle is gone.
     detached: bool,
 }
@@ -321,7 +291,9 @@ impl<'a> Running<'a> {
             hold: Hold::default(),
             hold_limit,
             inputs: Inputs::new(),
-            echo_off: false,
+            echo: EchoWatch::default(),
+            looked: Instant::now(),
+            fed: false,
             detached: false,
         })
     }
@@ -330,6 +302,13 @@ impl<'a> Running<'a> {
     fn run(&mut self) -> End {
         loop {
             self.serve_requests();
+            if self
+                .echo
+                .due(self.looked)
+                .is_some_and(|due| Instant::now() >= due)
+            {
+                self.look();
+            }
             if self.detached {
                 let _ = self.master.hang_up();
                 return End::Closed;
@@ -341,6 +320,10 @@ impl<'a> Running<'a> {
                 Ok(slice) => slice,
                 Err(error) => return End::Failed(error),
             };
+            if std::mem::take(&mut self.fed) {
+                self.echo.activity(Instant::now());
+                self.look();
+            }
             self.engine.take_effects(&mut self.effects);
             let (next, hold) = (&mut self.next, &mut self.hold);
             self.changed |= judge(
@@ -351,11 +334,20 @@ impl<'a> Running<'a> {
                 Instant::now(),
             );
             self.publish();
+            let now = Instant::now();
             let timeout = match slice {
                 Slice::Ended => return End::Closed,
                 Slice::Cut => Some(Duration::ZERO),
-                // An open hold is looked at again when it stops holding.
-                Slice::Drained => self.hold.left(Instant::now(), self.hold_limit),
+                // An open hold is looked at again when it stops holding, and the flags when
+                // they are due.
+                Slice::Drained => {
+                    let echo = self
+                        .echo
+                        .due(self.looked)
+                        .map(|due| due.saturating_duration_since(now));
+                    let hold = self.hold.left(now, self.hold_limit);
+                    hold.into_iter().chain(echo).min()
+                }
             };
             let writable = !self.replies.is_empty() || !self.input.is_empty();
             let channels = &self.channels;
@@ -444,6 +436,14 @@ impl<'a> Running<'a> {
                 self.input.pop_front();
                 continue;
             }
+            // What is typed at a password prompt is seen as such, before it goes.
+            if self.written == 0 {
+                self.echo.activity(Instant::now());
+                self.look();
+            }
+            let Some(chunk) = self.input.front() else {
+                return Ok(());
+            };
             let Some(n) = written(self.master.write(&chunk[self.written..]))? else {
                 return Ok(());
             };
@@ -467,6 +467,7 @@ impl<'a> Running<'a> {
                 Ok(n) => {
                     self.engine.feed(&self.read[..n]);
                     parsed += n;
+                    self.fed = true;
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Slice::Drained),
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
@@ -491,15 +492,12 @@ impl<'a> Running<'a> {
         {
             return;
         }
-        // A failed check reads as echo off, as on systems with no echo flag.
-        let echo_off = !self.master.echoes().unwrap_or(false);
-        self.changed |= echo_off != self.echo_off;
-        self.echo_off = echo_off;
         self.changed |= self.engine.snapshot(&mut self.next, &mut self.spare);
         if !std::mem::take(&mut self.changed) {
             return;
         }
-        self.next.echo_off = echo_off;
+        self.next.echo_off = self.echo.echo_off();
+        self.echo.published();
         let size = self.next.size;
         let fresh = self.recycled.take().unwrap_or_else(|| Snapshot::new(size));
         let snapshot = std::mem::replace(&mut self.next, fresh);
@@ -523,9 +521,18 @@ impl<'a> Running<'a> {
             Instant::now(),
         );
         self.engine.snapshot(&mut self.next, &mut self.spare);
-        self.next.echo_off = self.echo_off;
+        self.next.echo_off = self.echo.echo_off();
         let size = self.next.size;
         std::mem::replace(&mut self.next, Snapshot::new(size))
+    }
+
+    /// Looks at the PTY's flags for a password prompt. A failed look reads as one, the safe
+    /// side, as on systems with no such flags.
+    fn look(&mut self) {
+        let off = self.master.reads_secret().unwrap_or(true);
+        self.echo.saw(off);
+        self.looked = Instant::now();
+        self.changed |= self.echo.changed();
     }
 
     /// The child's exit status, if it exits within `REAP_FOR`. One that outlives its

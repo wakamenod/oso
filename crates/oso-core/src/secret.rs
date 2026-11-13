@@ -51,6 +51,9 @@ pub enum Verdict {
     /// Judging its path does not change it; the file opened again in a new buffer is
     /// judged anew.
     Yanked,
+    /// A terminal whose program reads a password: its PTY has echo off with line editing on
+    /// (ADR 0120, Q17). The host sets it and takes it back as the program does.
+    EchoOff,
 }
 
 impl Verdict {
@@ -69,7 +72,8 @@ impl Verdict {
             | Self::Ordinary
             | Self::Unresolved
             | Self::SecretName
-            | Self::Yanked => true,
+            | Self::Yanked
+            | Self::EchoOff => true,
             Self::Passphrase => false,
         }
     }

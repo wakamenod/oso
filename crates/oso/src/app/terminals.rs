@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::editor::TerminalRequest;
 use oso_core::key::KeyPress;
 use oso_platform::process::pty::Size;
@@ -181,6 +181,7 @@ impl App {
     pub(super) fn take_terminal_snapshots(&mut self) -> bool {
         let mut ended = Vec::new();
         let mut said = Vec::new();
+        let mut secret = Vec::new();
         let mut again = false;
         for (id, hosted) in self.terminals.map.iter_mut() {
             if !hosted.ready {
@@ -198,6 +199,11 @@ impl App {
             // looks again, so that this one takes one only.
             again = true;
             hosted.grid.apply(&snapshot);
+            if snapshot.echo_off != hosted.echo_off {
+                hosted.echo_off = snapshot.echo_off;
+                hosted.note_stale = true;
+                secret.push((id, snapshot.echo_off));
+            }
             for event in snapshot.events.drain(..) {
                 match event {
                     Event::Title(title) => {
@@ -230,6 +236,18 @@ impl App {
         }
         for id in ended {
             self.editor.set_running(id, false);
+        }
+        // A password prompt is a secret from the snapshot on: secure input, the log and the
+        // input method follow at once, between events (ADR 0120, Q17).
+        for (id, echo_off) in &secret {
+            self.editor.set_echo_off(*id, *echo_off);
+            if *echo_off {
+                self.dispatcher
+                    .terminal_read_a_password(&mut self.editor, *id);
+            }
+        }
+        if !secret.is_empty() {
+            self.secret_changed();
         }
         for text in said {
             self.editor.message(text);
@@ -431,6 +449,23 @@ impl App {
         }
     }
 
+    /// The terminal `buffer`'s screen as the UI keeps it, for the agent channel's `text`,
+    /// which checks first that the person let agents read it (ADR 0120, Q16).
+    pub(super) fn terminal_screen(&self, buffer: BufferId) -> Option<crate::channel::text::Screen> {
+        let hosted = self.terminals.map.get(buffer)?;
+        let grid = &hosted.grid;
+        let count = grid.row_count();
+        Some(crate::channel::text::Screen {
+            rows: (0..count)
+                .map(|row| grid.row_text(row).unwrap_or_default())
+                .collect(),
+            wraps: (0..count).map(|row| grid.row_wraps(row)).collect(),
+            history: grid.history(),
+            scrolled: grid.scrolled(),
+            echo_off: self.terminals.map.echo_off(buffer),
+        })
+    }
+
     /// Puts each terminal's mode, end and title in its modeline, when one of them changed.
     /// Returns whether a note changed, which the frame being drawn already shows.
     fn note_terminals(&mut self) -> bool {
@@ -438,15 +473,17 @@ impl App {
         let ids: Vec<BufferId> = self.terminals.map.iter().map(|(id, _)| id).collect();
         for id in ids {
             let input = self.dispatcher.terminal_input(id);
+            let reads = self.editor.buffer(id).is_some_and(Buffer::agent_reads);
             let Some(hosted) = self.terminals.map.get_mut(id) else {
                 continue;
             };
-            if !hosted.note_stale && hosted.noted_input == input {
+            if !hosted.note_stale && hosted.noted_input == input && hosted.noted_reads == reads {
                 continue;
             }
             hosted.note_stale = false;
             hosted.noted_input = input;
-            let note = hosted.note_text(input);
+            hosted.noted_reads = reads;
+            let note = hosted.note_text(input, reads);
             if note != hosted.note {
                 hosted.note.clone_from(&note);
                 self.editor.set_mode_note(id, note);

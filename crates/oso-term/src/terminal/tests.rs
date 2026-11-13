@@ -204,6 +204,36 @@ fn echo_off_is_reported() {
 }
 
 #[test]
+fn a_program_reading_keys_raw_is_not_a_password_prompt() {
+    let mut seen = Seen::start(sh(
+        "stty raw -echo; printf 'raw\\n'; read x; stty -raw; printf 'done\\n'; read y",
+    ));
+    seen.until(|s| s.shows("raw"));
+    assert!(!seen.echo_off);
+    // Raw, a carriage return is not a new line.
+    seen.terminal.send(b"\n".to_vec()).expect("queued");
+    seen.until(|s| s.shows("done"));
+}
+
+#[test]
+fn echo_turned_off_after_the_last_output_is_seen() {
+    // Nothing is printed after `stty`: a look after the output finds it.
+    let mut seen = Seen::start(sh("printf 'ready\\n'; sleep 0.1; stty -echo; read x"));
+    seen.until(|s| s.shows("ready") && s.echo_off);
+}
+
+#[test]
+fn echo_back_on_with_no_output_is_seen() {
+    let mut seen = Seen::start(sh(
+        "stty -echo; printf 'ready\\n'; read x; stty echo; read y",
+    ));
+    seen.until(|s| s.shows("ready") && s.echo_off);
+    seen.terminal.send(b"secret\r".to_vec()).expect("queued");
+    seen.until(|s| !s.echo_off);
+    assert!(!seen.shows("secret"), "{:?}", seen.screen);
+}
+
+#[test]
 fn a_hang_up_ends_the_terminal() {
     let mut seen = Seen::start(sh("printf 'up\\n'; while :; do sleep 1; done"));
     seen.until(|s| s.shows("up"));

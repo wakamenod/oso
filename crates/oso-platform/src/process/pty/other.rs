@@ -53,7 +53,7 @@ impl Master {
         match self.0 {}
     }
 
-    pub(super) fn echoes(&self) -> io::Result<bool> {
+    pub(super) fn reads_secret(&self) -> io::Result<bool> {
         match self.0 {}
     }
 

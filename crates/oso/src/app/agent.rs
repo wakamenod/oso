@@ -207,7 +207,8 @@ impl App {
                     // These reply later: once the text is copied, or the file shown.
                     Op::Text(of) => {
                         self.agent_log_often("text");
-                        match channel::text::start(&self.editor, of) {
+                        match channel::text::start(&self.editor, &|id| self.terminal_screen(id), of)
+                        {
                             Ok(job) => job.spawn(reply),
                             Err(why) => {
                                 let _ = reply.send(Err(why));

@@ -1,6 +1,6 @@
 //! Keys in a terminal through the dispatcher (ADR 0120, Q12): which reach the program as
-//! requests for the host, which oso keeps, the `C-c` prefix, `C-q`, char mode, and that keys
-//! sent to a program are not recorded into a keyboard macro.
+//! requests for the host, which oso keeps, the `C-c` prefix, `C-q`, char mode, and how keys
+//! sent to a program are recorded into a keyboard macro, but never at a password prompt.
 //!
 //! Must not depend on: `app`, winit or the terminal's thread; the host's part is the
 //! requests the editor holds.
@@ -106,33 +106,102 @@ fn a_prompt_takes_its_keys() {
     assert!(sent(&mut dispatcher, &mut editor).is_empty());
 }
 
+/// Runs the last macro to its end.
+fn replay(dispatcher: &mut Dispatcher, editor: &mut Editor) {
+    send(dispatcher, editor, "C-x e");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while editor.macro_replaying() {
+        dispatcher.replay(editor, until);
+    }
+}
+
 #[test]
-fn keys_sent_to_a_program_are_not_recorded_into_a_macro() {
+fn keys_sent_to_a_program_are_recorded_into_a_macro() {
     let (mut dispatcher, mut editor) = in_terminal();
-    send(&mut dispatcher, &mut editor, "C-x ( s e c r e t C-x )");
+    send(&mut dispatcher, &mut editor, "C-x ( l s RET C-x )");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("l s RET"));
+    replay(&mut dispatcher, &mut editor);
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("l s RET"));
+}
+
+#[test]
+fn text_sent_to_a_program_is_recorded_into_a_macro() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    send(&mut dispatcher, &mut editor, "C-x (");
+    dispatcher.commit_text(&mut editor, "日本");
+    send(&mut dispatcher, &mut editor, "C-x )");
+    let texts = |dispatcher: &mut Dispatcher, editor: &mut Editor| -> Vec<String> {
+        dispatcher
+            .take_terminal_sends(editor)
+            .into_iter()
+            .filter_map(|(_, send)| match send {
+                TerminalSend::Text(text) => Some(text),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(texts(&mut dispatcher, &mut editor), ["日本"]);
+    replay(&mut dispatcher, &mut editor);
+    assert_eq!(texts(&mut dispatcher, &mut editor), ["日本"]);
+}
+
+#[test]
+fn a_c_c_sent_with_the_next_key_is_replayed_with_it() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    send(&mut dispatcher, &mut editor, "C-x ( C-c a C-x 2 C-x )");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c a"));
+    send(&mut dispatcher, &mut editor, "C-x 1");
+    replay(&mut dispatcher, &mut editor);
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c a"));
+    assert_eq!(editor.frame().windows().len(), 2);
+}
+
+#[test]
+fn typing_at_a_password_prompt_drops_the_recording() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.current().0.buffer();
+    editor.set_echo_off(id, true);
+    send(&mut dispatcher, &mut editor, "C-x ( s e c r e t");
+    assert!(!editor.macro_recording());
     assert_eq!(sent(&mut dispatcher, &mut editor), keys("s e c r e t"));
-    send(&mut dispatcher, &mut editor, "C-x e");
+    send(&mut dispatcher, &mut editor, "C-x )");
+    replay(&mut dispatcher, &mut editor);
     assert!(
         sent(&mut dispatcher, &mut editor).is_empty(),
-        "the macro holds none of them"
+        "no macro holds it"
     );
 }
 
 #[test]
-fn a_c_c_sent_with_the_next_key_leaves_nothing_in_a_recording() {
+fn a_password_prompt_heard_of_after_the_keys_still_drops_the_recording() {
     let (mut dispatcher, mut editor) = in_terminal();
-    send(&mut dispatcher, &mut editor, "C-x ( C-c a C-x 2 C-x )");
-    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c a"));
-    send(&mut dispatcher, &mut editor, "C-x 1 C-x e");
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while editor.macro_replaying() {
-        dispatcher.replay(&mut editor, until);
-    }
-    assert!(
-        sent(&mut dispatcher, &mut editor).is_empty(),
-        "the replay splits the window and sends nothing"
-    );
-    assert_eq!(editor.frame().windows().len(), 2);
+    let id = editor.current().0.buffer();
+    send(&mut dispatcher, &mut editor, "C-x ( s e c r e t");
+    assert!(editor.macro_recording());
+    // The snapshot says so of a prompt that was open when the keys went.
+    dispatcher.terminal_read_a_password(&mut editor, id);
+    assert!(!editor.macro_recording());
+}
+
+#[test]
+fn a_password_prompt_in_a_terminal_the_recording_never_typed_into_keeps_it() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.current().0.buffer();
+    send(&mut dispatcher, &mut editor, "C-x ( C-x 2");
+    dispatcher.terminal_read_a_password(&mut editor, id);
+    assert!(editor.macro_recording());
+}
+
+#[test]
+fn a_replay_stops_before_it_types_at_a_password_prompt() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.current().0.buffer();
+    send(&mut dispatcher, &mut editor, "C-x ( a b C-x )");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("a b"));
+    editor.set_echo_off(id, true);
+    replay(&mut dispatcher, &mut editor);
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    assert!(!editor.macro_replaying());
 }
 
 #[test]

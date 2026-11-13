@@ -6,7 +6,7 @@
 //! host through `Editor::request_terminal`, and the host acts on the terminal after it.
 //!
 //! Each is `Person`: it starts a process, or types into a program, which only a person does
-//! (ADR 0120, Q15).
+//! (ADR 0120, Q15), or gives or takes back an agent's leave to read a terminal (Q16).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::TerminalRequest;
@@ -63,6 +63,22 @@ pub const COMMANDS: &[Command] = &[
         run: paste_lines,
         state: None,
     },
+    Command {
+        name: "terminal-allow-agent-read",
+        doc: "Let the agent channel read this terminal's rows until its buffer is killed.\n\nThe modeline says `agent reads`. While the program reads a password, its rows are withheld even so. An agent never types into a terminal.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: allow_agent_read,
+        state: None,
+    },
+    Command {
+        name: "terminal-deny-agent-read",
+        doc: "Take back the agent channel's leave to read this terminal's rows.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: deny_agent_read,
+        state: None,
+    },
 ];
 
 fn terminal(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -97,6 +113,31 @@ fn char_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     in_terminal(ctx)?;
     ctx.editor.request_terminal(TerminalRequest::ToggleCharMode);
     ctx.request_redraw();
+    Ok(())
+}
+
+fn allow_agent_read(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_agent_reads(ctx, true)
+}
+
+fn deny_agent_read(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_agent_reads(ctx, false)
+}
+
+/// Gives or takes back the agent's leave to read the selected terminal, and says so.
+fn set_agent_reads(ctx: &mut Ctx<'_>, reads: bool) -> Result<(), CommandError> {
+    in_terminal(ctx)?;
+    let (window, buffer) = ctx.editor.current();
+    let (id, was) = (window.buffer(), buffer.agent_reads());
+    if was != reads {
+        ctx.editor.set_agent_reads(id, reads);
+        ctx.request_redraw();
+    }
+    ctx.editor.message(if reads {
+        "Agents may read this terminal"
+    } else {
+        "Agents may not read this terminal"
+    });
     Ok(())
 }
 
@@ -254,6 +295,18 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn leave_to_read_is_given_and_taken_back_only_in_a_terminal() {
+        let mut editor = Editor::default();
+        assert!(run(&mut editor, "terminal-allow-agent-read", Args::NONE).is_err());
+        let mut editor = in_terminal();
+        let id = editor.current().0.buffer();
+        run(&mut editor, "terminal-allow-agent-read", Args::NONE).unwrap();
+        assert!(editor.buffer(id).unwrap().agent_reads());
+        run(&mut editor, "terminal-deny-agent-read", Args::NONE).unwrap();
+        assert!(!editor.buffer(id).unwrap().agent_reads());
     }
 
     #[test]

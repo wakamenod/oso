@@ -34,6 +34,7 @@ impl App {
                     "running": hosted.running() && hosted.terminal.is_some(),
                     "ended": hosted.ended,
                     "title": hosted.title,
+                    "echo_off": hosted.echo_off,
                     "input": input,
                     "size": size.map(|size| serde_json::json!({
                         "rows": size.rows,

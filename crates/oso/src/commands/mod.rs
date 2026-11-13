@@ -284,7 +284,11 @@ mod tests {
         // A hosted session's saved screen, which an agent must not read (ADR 0121).
         "session-explain-file",
         "terminal",
+        // Letting an agent read a terminal is the person's to give and to take back
+        // (ADR 0120, Q16).
+        "terminal-allow-agent-read",
         "terminal-char-mode",
+        "terminal-deny-agent-read",
         "terminal-paste-lines",
         "terminal-send-interrupt",
         "terminal-send-next-key",

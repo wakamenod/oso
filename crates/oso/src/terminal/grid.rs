@@ -20,6 +20,8 @@ struct Kept {
     cells: Vec<GridCell>,
     text: String,
     graphemes: Vec<(u16, Range<u32>)>,
+    /// The row goes on in the next, soft-wrapped.
+    wrapped: bool,
 }
 
 /// A terminal's screen as the UI last took it.
@@ -97,14 +99,22 @@ impl Grid {
         self.modes
     }
 
-    #[cfg(feature = "dev")]
     pub(crate) fn scrolled(&self) -> usize {
         self.scrolled
     }
 
-    #[cfg(feature = "dev")]
     pub(crate) fn history(&self) -> usize {
         self.history
+    }
+
+    /// How many rows the screen has.
+    pub(crate) fn row_count(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Whether row `index` goes on in the next, soft-wrapped.
+    pub(crate) fn row_wraps(&self, index: usize) -> bool {
+        self.rows.get(index).is_some_and(|kept| kept.wrapped)
     }
 
     #[cfg(feature = "dev")]
@@ -112,8 +122,8 @@ impl Grid {
         self.size
     }
 
-    /// The text of row `index`, trailing blanks dropped, for the dev socket's state.
-    #[cfg(feature = "dev")]
+    /// The text of row `index`, trailing blanks dropped, for the dev socket's state and the
+    /// agent channel's `text` where the person allowed it (ADR 0120, Q16).
     pub(crate) fn row_text(&self, index: usize) -> Option<String> {
         let kept = self.rows.get(index)?;
         let mut text = String::new();
@@ -153,6 +163,7 @@ fn fill(kept: &mut Kept, row: &Row, generation: u64) {
     kept.text.push_str(&row.text);
     kept.graphemes.clear();
     kept.graphemes.extend(row.graphemes.iter().cloned());
+    kept.wrapped = row.wrapped;
 }
 
 #[cfg(test)]

@@ -181,14 +181,28 @@ fn what_is_written_reaches_the_child() {
 }
 
 #[test]
-fn echo_off_is_seen() {
-    let (master, child) = start("echo ready; read line; stty -echo; echo off; exec sleep 60");
+fn a_password_prompt_is_seen_and_raw_reads_are_not() {
+    let (master, child) = start(
+        "echo ready; read line; stty -echo; echo off; read line; stty raw; echo raw; exec sleep 60",
+    );
     read_until(&master, "ready");
-    assert!(master.echoes().unwrap());
+    assert!(!master.reads_secret().unwrap());
     master.write(b"\n").unwrap();
     read_until(&master, "off");
-    assert!(!master.echoes().unwrap());
+    assert!(master.reads_secret().unwrap());
+    master.write(b"\n").unwrap();
+    read_until(&master, "raw");
+    assert!(!master.reads_secret().unwrap());
     hang_up(&master, child);
+}
+
+#[test]
+fn only_echo_off_with_line_editing_reads_a_secret() {
+    use super::unix::reads_secret;
+    assert!(reads_secret(libc::ICANON));
+    assert!(!reads_secret(libc::ICANON | libc::ECHO));
+    assert!(!reads_secret(0));
+    assert!(!reads_secret(libc::ECHO));
 }
 
 #[test]

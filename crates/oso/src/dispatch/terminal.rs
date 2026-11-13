@@ -5,8 +5,9 @@
 //! Must not depend on: `app` or the terminal's thread. What goes to a program waits here, each
 //! send bound to the terminal it was meant for, until the host takes it after the event, so that
 //! a batch of keys that moves to another window sends nothing to the wrong one. Keys sent to a
-//! program are not recorded into a keyboard macro (the author's choice on 2026-11-13): until
-//! echo off is told apart, a password typed at `sudo` would enter it.
+//! program are recorded into a keyboard macro as any key is, but input typed at a password
+//! prompt drops the recording, and a replay stops before it would type at one (the author's
+//! choice, 2026-11-14; ADR 0120, Q17).
 
 use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
@@ -32,6 +33,9 @@ impl Dispatcher {
             return None;
         }
         let id = window.buffer();
+        if self.replay_meets_a_password(editor) {
+            return Some(Effects::default());
+        }
         // `C-c` and a key the terminal's keymap does not bind after it send both (ADR 0120).
         let pending_c_c = self.resolver.pending() == [route::C_C] && self.prefix.is_none();
         if pending_c_c
@@ -40,8 +44,7 @@ impl Dispatcher {
         {
             self.resolver.reset();
             self.forget_keys(editor);
-            // The `C-c` a recording noted went to the program too.
-            self.macro_forget_input();
+            self.macro_typed_into(editor, id);
             self.terminal_sends
                 .push((id, ToProgram::Keys(vec![route::C_C, key])));
             return Some(Effects::default());
@@ -62,6 +65,7 @@ impl Dispatcher {
         match routed {
             Route::Oso => None,
             Route::Send(keys) => {
+                self.macro_typed_into(editor, id);
                 self.terminal_sends.push((id, ToProgram::Keys(keys)));
                 Some(Effects::default())
             }
@@ -103,6 +107,10 @@ impl Dispatcher {
             return false;
         }
         let id = window.buffer();
+        if self.replay_meets_a_password(editor) {
+            return true;
+        }
+        self.macro_typed_into(editor, id);
         let state = self.terminal_keys.entry(id).or_default();
         if state.held_c_c {
             self.terminal_sends
