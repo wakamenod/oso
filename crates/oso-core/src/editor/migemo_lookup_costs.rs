@@ -1,7 +1,8 @@
 //! Measures of migemo's dictionary lookups on crafted dictionaries (ADR 0116, Q7), ignored
 //! by default: one lookup, and a paste of components that each look up, in a project's search
-//! and in completion, with the steps an input's lookups share. The dictionaries are built at
-//! run time, of no person's file. Run in a release build on an idle machine:
+//! and in completion, with the steps an input's lookups share; and a look at whether a
+//! project's search narrows at its caps (Q8). The dictionaries are built at run time, of no
+//! person's file. Run in a release build on an idle machine:
 //! `cargo test -p oso-core --release --lib migemo_lookup_costs -- --ignored --nocapture --test-threads 1`.
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
@@ -167,5 +168,121 @@ fn migemo_lookup_costs_of_crafted_dictionaries() {
             }
             report(&format!("{what}, a paste, {shape}"), times);
         }
+    }
+}
+
+/// A dictionary built to make a look at whether a project's search narrows slow (ADR 0116,
+/// Q8), and the components it takes: each of `count` components is `ず` `pairs` times,
+/// `tail` × `あ` and a kana of its own, so that their patterns match as many strings as
+/// narrowing reads, of about as many bytes, and finds 128 words of 60 bytes, the input's word
+/// budget over 4: kanji spread over their block, or with `kana`, `ず` or `づ` along the
+/// strings the pattern matches. Built at run time, of no person's file.
+fn slow_narrowing(
+    (count, pairs, tail): (usize, usize, usize),
+    kana: bool,
+) -> (Dictionary, Vec<String>) {
+    let ends = [
+        ("ka", 'か'),
+        ("ki", 'き'),
+        ("ku", 'く'),
+        ("ke", 'け'),
+        ("ko", 'こ'),
+    ];
+    // Kanji spread over the block, so a pattern's words share few prefixes.
+    let kanji = |n: usize| {
+        let code = u32::try_from(0x4e00 + (n * 7919) % 20_000).expect("in range");
+        char::from_u32(code).expect("a kanji")
+    };
+    let mut text = String::new();
+    let mut components = Vec::new();
+    for (at, &(end, last)) in ends.iter().take(count).enumerate() {
+        let reading = format!("{}{}{last}", "ず".repeat(pairs), "あ".repeat(tail));
+        for n in 0..128 {
+            let word: String = if kana {
+                let sounds = (0..20).map(|bit| {
+                    if n >> (bit % 8) & 1 == 0 {
+                        'ず'
+                    } else {
+                        'づ'
+                    }
+                });
+                sounds.collect()
+            } else {
+                (0..20).map(|c| kanji(at * 4096 + n * 20 + c)).collect()
+            };
+            text.push_str(&format!("{reading}{}\t{word}\n", ['ん', 'の'][n % 2]));
+        }
+        components.push(format!("{}{}{end}", "zu".repeat(pairs), "a".repeat(tail)));
+    }
+    (Dictionary::new(text), components)
+}
+
+#[test]
+#[ignore = "a measure, in a release build"]
+fn migemo_narrowing_costs_of_crafted_dictionaries() {
+    use crate::migemo::Table;
+    use crate::project::LineQuery;
+    // Past the strings at the first component, then at the totals with each component within
+    // them, of letters and kana alone or with words along them.
+    let shapes = [(4, 8, 12), (5, 6, 13), (5, 6, 13), (5, 6, 0)];
+    for (at, shape) in shapes.into_iter().enumerate() {
+        let kana = at == 2;
+        let (dictionary, components) = slow_narrowing(shape, kana);
+        let (count, pairs, tail) = shape;
+        let input = components.join(" ");
+        let (strings, bytes) = (components.iter()).fold((0, 0), |(strings, bytes), component| {
+            let all = crate::migemo::alternatives(component, &[], (usize::MAX, usize::MAX));
+            let all = all.expect("romaji");
+            (
+                strings + all.len(),
+                bytes + all.iter().map(|s| s.len()).sum::<usize>(),
+            )
+        });
+        let shape = format!(
+            "{count} components of ず×{pairs} あ×{tail}, kana words {kana}: {strings} strings of {bytes} bytes besides words"
+        );
+        let dictionary = Arc::new(dictionary);
+        // The same dictionary read again, as when the file is: every component looks again.
+        let tables = [1, 2].map(|generation| Table {
+            generation,
+            dictionary: Arc::clone(&dictionary),
+        });
+        let mut times = Vec::new();
+        let mut narrowed = false;
+        for _ in 0..20 {
+            // Compiled anew each time, so their matchers' caches start cold.
+            let before =
+                LineQuery::parse_after(&input, &LineQuery::empty(), true, Some(&tables[0]));
+            let after = LineQuery::parse_after(&input, &before, true, Some(&tables[1]));
+            let started = Instant::now();
+            narrowed = std::hint::black_box(after.narrows(&before));
+            times.push(ms(started));
+        }
+        let (p50, p99, max) = spread(&mut times);
+        println!(
+            "narrows, {shape}: {narrowed}, {p50:.3} ms p50, {p99:.3} ms p99, {max:.3} ms most"
+        );
+        // The whole event on the UI thread: the dictionary read again under an ended search.
+        let mut editor = searching(&dictionary);
+        let mut times = Vec::new();
+        for _ in 0..10 {
+            clear(&mut editor);
+            key(&mut editor, &input);
+            let request = editor.take_search_request().expect("a search");
+            editor.rows_found(
+                request.generation,
+                Vec::new(),
+                Some(super::WalkEnd { cut: false }),
+            );
+            let started = Instant::now();
+            editor.set_migemo_dictionary(Some(Arc::clone(&dictionary)));
+            times.push(ms(started));
+            let again = editor.take_search_request().expect("searched again");
+            narrowed = again.narrow.is_some();
+        }
+        let (p50, p99, max) = spread(&mut times);
+        println!(
+            "dictionary again, {shape}: narrowed {narrowed}, {p50:.3} ms p50, {p99:.3} ms p99, {max:.3} ms most"
+        );
     }
 }

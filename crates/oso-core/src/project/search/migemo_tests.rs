@@ -102,6 +102,35 @@ fn a_component_whose_lookup_ran_out_of_steps_is_kept_only_as_it_would_compile() 
     assert!(matches(&alone, &word));
 }
 
+#[test]
+fn a_component_given_fewer_words_before_does_not_narrow_to_the_same_text() {
+    let table = heavy();
+    let parse =
+        |input: &str, before: &LineQuery| LineQuery::parse_after(input, before, true, Some(&table));
+    let before = parse("ka sa ta", &LineQuery::empty());
+    // The literals spend no words, so `ta` has them all now.
+    let after = parse("ka1 sa1 ta", &before);
+    let line = format!("ka1 sa1 {}", heavy_word('田', 249));
+    assert!(after.matches_line(line.as_bytes()).is_some());
+    assert!(before.matches_line(line.as_bytes()).is_none());
+    assert!(!after.narrows(&before));
+}
+
+#[test]
+fn a_component_with_another_dictionarys_words_does_not_narrow_to_the_same_text() {
+    // The same readings and as many bytes of words, so it spends the same.
+    let one = dictionary("かんじ\t漢字\n");
+    let other = Table {
+        generation: 2,
+        ..dictionary("かんじ\t感じ\n")
+    };
+    let before = LineQuery::parse_after("kanji", &LineQuery::empty(), true, Some(&one));
+    let after = LineQuery::parse_after("kanji", &before, true, Some(&other));
+    assert!(after.matches_line("感じ".as_bytes()).is_some());
+    assert!(before.matches_line("感じ".as_bytes()).is_none());
+    assert!(!after.narrows(&before));
+}
+
 /// Lines that hold [`heavy`]'s words, early and late, and their kana.
 fn heavy_lines() -> Vec<String> {
     let mut lines = Vec::new();
@@ -114,16 +143,26 @@ fn heavy_lines() -> Vec<String> {
     lines
 }
 
-/// A small dictionary for the narrowing property: words in kanji, kana and letters.
-fn small() -> Table {
-    dictionary("かんじ\t漢字\nかな\t仮名\tカナ\nずつう\t頭痛\nつづき\t続き\nなまえ\t名前\tName\n")
+/// The dictionaries a search may have had for the narrowing property: none, a small one with
+/// words in kanji, kana and letters, the same in a new generation, and another one.
+fn tables() -> [Option<Table>; 4] {
+    let small = "かんじ\t漢字\nかな\t仮名\tカナ\nずつう\t頭痛\nつづき\t続き\nなまえ\t名前\tName\n";
+    let again = Table {
+        generation: 2,
+        ..dictionary(small)
+    };
+    let other = Table {
+        generation: 3,
+        ..dictionary("かんじ\t感じ\tkanji\nかな\t金\nずつう\t図\nなまえ\tnamae\tName\n")
+    };
+    [None, Some(dictionary(small)), Some(again), Some(other)]
 }
 
 /// Pieces a line for the narrowing property is made of.
 const PIECES: &[&str] = &[
     "か", "ん", "な", "じ", "ず", "づ", "ま", "え", "カ", "ン", "ナ", "ズ", "ｶ", "ﾝ", "ｽﾞ", "ﾂﾞ",
-    "漢字", "仮名", "頭痛", "名前", "k", "a", "n", "z", "u", "j", "i", "m", "e", "N", "ｋ", " ",
-    "Ｋ", "\u{212a}", "ſ", "İ", "i\u{307}",
+    "漢字", "仮名", "頭痛", "名前", "感じ", "金", "図", "k", "a", "n", "z", "u", "j", "i", "m",
+    "e", "N", "ｋ", " ", "=", "!", "Ｋ", "\u{212a}", "ſ", "İ", "i\u{307}",
 ];
 
 proptest! {
@@ -154,39 +193,46 @@ proptest! {
     }
 
     /// Whenever a query narrows the one before, a search that ran, every line it matches is
-    /// one that one matched, with and without a dictionary (ADR 0116, Q8).
+    /// one that one matched (ADR 0116, Q8): with and without a dictionary, with the same
+    /// settings or as the setting flips and a dictionary comes, goes or is another, so that a
+    /// component is a literal before and migemo's after or the other way, and with `=` and
+    /// `!` at a component's start.
     #[test]
     fn a_query_that_narrows_matches_no_line_the_one_before_did_not(
-        old in "[kanszujimetKN' -]{1,6}",
+        old in "[kanszujimetKN'=! -]{1,6}",
         added in "[kanszujimeNKİſ\u{212a} ]{0,3}",
-        prefix in "[kanszujime ]{0,3}",
-        other in "[kanszujimeKİ\u{212a}ſ ]{0,6}",
+        prefix in "[kanszujime=! ]{0,3}",
+        other in "[kanszujimeKİ\u{212a}ſ=! ]{0,6}",
         lines in prop::collection::vec(prop::collection::vec(0usize..PIECES.len(), 0..6), 1..24),
-        with_words: bool,
+        settings in (any::<bool>(), 0usize..4, any::<bool>(), 0usize..4),
     ) {
-        let table = small();
-        let table = with_words.then_some(&table);
+        let tables = tables();
+        let (old_migemo, old_table, new_migemo, new_table) = settings;
         let lines: Vec<String> = (lines.iter())
             .map(|pieces| pieces.iter().map(|&at| PIECES[at]).collect())
             .collect();
-        let before = LineQuery::parse_after(&old, &LineQuery::empty(), true, table);
+        let empty = LineQuery::empty();
+        let before = LineQuery::parse_after(&old, &empty, old_migemo, tables[old_table].as_ref());
         if !before.starts() {
             return Ok(());
         }
         for new in [format!("{old}{added}"), format!("{prefix}{old}{added}"), other] {
-            for query in [
-                LineQuery::parse_after(&new, &before, true, table),
-                LineQuery::parse_after(&new, &LineQuery::empty(), true, table),
-            ] {
-                if !query.narrows(&before) {
-                    continue;
-                }
-                for line in &lines {
-                    if query.matches_line(line.as_bytes()).is_some() {
-                        prop_assert!(
-                            before.matches_line(line.as_bytes()).is_some(),
-                            "{:?} narrows {:?} but matches {:?}", new, old, line
-                        );
+            for (migemo, table) in [(old_migemo, old_table), (new_migemo, new_table)] {
+                let table = tables[table].as_ref();
+                for query in [
+                    LineQuery::parse_after(&new, &before, migemo, table),
+                    LineQuery::parse_after(&new, &empty, migemo, table),
+                ] {
+                    if !query.narrows(&before) {
+                        continue;
+                    }
+                    for line in &lines {
+                        if query.matches_line(line.as_bytes()).is_some() {
+                            prop_assert!(
+                                before.matches_line(line.as_bytes()).is_some(),
+                                "{:?} narrows {:?} but matches {:?}", new, old, line
+                            );
+                        }
                     }
                 }
             }

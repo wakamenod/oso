@@ -22,10 +22,12 @@
 //! - The migemo components of an input share one pattern's words, taken in order, so one event
 //!   compiles at most that many on the UI thread; a component past them has its kana alone.
 //! - A query narrows the one before when every line it matches is one that one matched: for a
-//!   migemo component, when the old one matches each string the new one's pattern matches.
+//!   migemo component, when the old one matches each string the new one's pattern matches,
+//!   and has each of its words.
 //! - `Debug` gives how many components, never what they say, which may be about a file that
 //!   may hold secrets.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::ops::Range;
 
@@ -54,9 +56,11 @@ const MAX_INPUT_BYTES: usize = 1024;
 /// The most components an input is matched with; one with more searches for nothing.
 const MAX_COMPONENTS: usize = 32;
 
-/// The most strings, and bytes of them, one look at whether a query narrows another matches
-/// with the old one's components: past either, it does not narrow (ADR 0116, Q8).
-const MAX_NARROWING: (usize, usize) = (4096, 256 * 1024);
+/// The most letter and kana strings of migemo components, and bytes of them, one look at
+/// whether a query narrows another matches with the old one's components: past either, it
+/// does not narrow (ADR 0116, Q8). Their words are looked up among the old one's, which an
+/// input's budget of words bounds.
+const MAX_NARROWING: (usize, usize) = (1024, 64 * 1024);
 
 /// How many characters a component that is not excluded needs before a search starts.
 const STARTS_AT: usize = 2;
@@ -79,6 +83,20 @@ pub struct LineQuery {
     ignore_case: bool,
     /// The input is past [`MAX_INPUT_BYTES`] or [`MAX_COMPONENTS`]: nothing matches.
     too_long: bool,
+}
+
+/// Whether each of `words` is one of the words `old`, a migemo component, has, which its
+/// pattern matches: a word is not matched with the pattern, as a pattern of many words reads
+/// a word's characters far slower than kana (ADR 0116, Q8). The words of either input are
+/// at most its budget's.
+fn old_has(old: &Component, words: &[Box<str>]) -> bool {
+    let Some(alternatives) = &old.alternatives else {
+        return false;
+    };
+    let has: HashSet<&str> = (alternatives.split().1.iter())
+        .map(|word| &**word)
+        .collect();
+    (words.iter()).all(|word| has.contains(&**word))
 }
 
 /// A line of a block that matched: which line it is, counted from the block's first, where it
@@ -168,11 +186,20 @@ impl LineQuery {
     }
 
     /// Whether a component matches as migemo's pattern, so a dictionary that comes would
-    /// change what it matches.
+    /// change what it matches, for tests.
+    #[cfg(test)]
     pub(crate) fn uses_migemo(&self) -> bool {
         self.components
             .iter()
             .any(|component| component.kind == Kind::Migemo)
+    }
+
+    /// Whether a migemo component took its words from another dictionary than that of
+    /// `generation`, or from none while there is one.
+    pub(crate) fn compiled_for_another(&self, generation: Option<u64>) -> bool {
+        (self.components.iter()).any(|component| {
+            component.kind == Kind::Migemo && component.asked != Asked::Migemo(generation)
+        })
     }
 
     /// Whether a migemo component was compiled with no dictionary, so one would add words.
@@ -205,8 +232,8 @@ impl LineQuery {
     /// place, and an expression or an exclusion the same. A literal one may be longer at its
     /// end. Where either is migemo's, the old one matches as a literal or migemo's pattern,
     /// and so a line holding one of its strings: it narrows when it matches each string the new
-    /// one matches, which a migemo one keeps unless they are too many (ADR 0116, Q8). Case may
-    /// stop being ignored, and never start.
+    /// one matches, which a migemo one keeps unless they are too many, a word only as one of
+    /// its own (ADR 0116, Q8). Case may stop being ignored, and never start.
     pub fn narrows(&self, before: &Self) -> bool {
         if before.too_long || self.too_long {
             return false;
@@ -220,6 +247,12 @@ impl LineQuery {
         let same_case = self.ignore_case == before.ignore_case;
         // What one call looks through is bounded, past which it does not narrow.
         let (mut strings, mut bytes) = MAX_NARROWING;
+        let mut room = |string: &str| {
+            let room = strings > 0 && bytes >= string.len();
+            strings = strings.saturating_sub(1);
+            bytes = bytes.saturating_sub(string.len());
+            room
+        };
         self.components
             .iter()
             .zip(&before.components)
@@ -256,12 +289,10 @@ impl LineQuery {
                             && old.regex.is_match(new.pattern.as_bytes())
                     }
                     _ => new.alternatives.as_ref().is_some_and(|alternatives| {
-                        (alternatives.iter()).all(|string| {
-                            let room = strings > 0 && bytes >= string.len();
-                            strings = strings.saturating_sub(1);
-                            bytes = bytes.saturating_sub(string.len());
-                            room && old.regex.is_match(string.as_bytes())
-                        })
+                        let (typed, words) = alternatives.split();
+                        (typed.iter())
+                            .all(|string| room(string) && old.regex.is_match(string.as_bytes()))
+                            && (words.is_empty() || old_has(old, words))
                     }),
                 }
             })

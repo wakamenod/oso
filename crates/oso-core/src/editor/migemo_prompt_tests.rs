@@ -8,12 +8,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::Editor;
 use super::edit_tests::edit;
 use super::test_buffers::secret_buffer;
+use super::{Editor, Quit, WalkEnd};
 use crate::buffer::Buffer;
 use crate::complete::{Candidate, WORKER_PAST};
 use crate::migemo::Dictionary;
+use crate::minibuffer::Kind;
 
 fn dictionary() -> Option<Arc<Dictionary>> {
     Some(Arc::new(Dictionary::new("かんじ\t漢字\n".to_owned())))
@@ -43,6 +44,8 @@ fn a_project_search_takes_the_dictionary_and_searches_again_when_it_comes() {
     assert!(first.query.matches_line("かんじ".as_bytes()).is_some());
     assert!(first.query.matches_line("漢字".as_bytes()).is_none());
     assert!(editor.take_migemo_dictionary_wanted());
+    // Ended whole, so only new words keep the next search from narrowing it.
+    editor.rows_found(first.generation, Vec::new(), Some(WalkEnd { cut: false }));
     editor.set_migemo_dictionary(dictionary());
     let again = editor.take_search_request().expect("searched again");
     assert!(again.generation > first.generation);
@@ -53,6 +56,30 @@ fn a_project_search_takes_the_dictionary_and_searches_again_when_it_comes() {
     typing(&mut editor, " x1");
     let next = editor.take_search_request().unwrap();
     assert!(next.query.matches_line("漢字 x1".as_bytes()).is_some());
+}
+
+/// Opens a prompt over the innermost one.
+fn nested(editor: &mut Editor) {
+    let kind = Kind::Number { history: None };
+    editor.open_prompt("Go to line: ", kind).unwrap();
+}
+
+#[test]
+fn a_project_search_under_a_prompt_searches_again_once_that_closes() {
+    let mut editor = searching(Buffer::from_text("t", ""));
+    typing(&mut editor, "kanji");
+    let first = editor.take_search_request().unwrap();
+    // A prompt closing over it with no new dictionary leaves it as it is.
+    nested(&mut editor);
+    assert_eq!(editor.quit(), Quit::Prompt);
+    assert!(editor.take_search_request().is_none());
+    nested(&mut editor);
+    editor.set_migemo_dictionary(dictionary());
+    assert!(editor.take_search_request().is_none(), "covered");
+    assert_eq!(editor.quit(), Quit::Prompt);
+    let again = editor.take_search_request().expect("searched again");
+    assert!(again.generation > first.generation);
+    assert!(again.query.matches_line("漢字".as_bytes()).is_some());
 }
 
 #[test]
@@ -124,6 +151,21 @@ fn a_completion_matches_again_when_the_dictionary_comes() {
 }
 
 #[test]
+fn a_completion_under_a_prompt_matches_again_once_that_closes() {
+    let mut editor = completing(Buffer::from_text("t", ""), &names());
+    typing(&mut editor, "%kan");
+    assert_eq!(shown(&editor), 1);
+    nested(&mut editor);
+    editor.set_migemo_dictionary(dictionary());
+    assert_eq!(editor.quit(), Quit::Prompt);
+    assert_eq!(shown(&editor), 2);
+    nested(&mut editor);
+    editor.set_migemo_dictionary(None);
+    assert_eq!(editor.quit(), Quit::Prompt);
+    assert_eq!(shown(&editor), 1);
+}
+
+#[test]
 fn around_a_secret_a_completion_wants_no_dictionary() {
     let mut editor = completing(secret_buffer(), &names());
     typing(&mut editor, "%kan");
@@ -183,11 +225,7 @@ fn no_query_keeps_a_table_alive() {
     editor.set_migemo_dictionary(table.clone());
     typing(&mut editor, "kanji");
     let request = editor.take_search_request().unwrap();
-    editor.rows_found(
-        request.generation,
-        Vec::new(),
-        Some(super::WalkEnd { cut: false }),
-    );
+    editor.rows_found(request.generation, Vec::new(), Some(WalkEnd { cut: false }));
     drop(request);
     let mut completing = completing(Buffer::from_text("t", ""), &names());
     completing.set_migemo_dictionary(table.clone());

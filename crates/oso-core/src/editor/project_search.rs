@@ -337,11 +337,14 @@ impl Editor {
         }
     }
 
-    /// Searches again, as the dictionary changed, if the innermost prompt searches a project
-    /// for a migemo component: its words change what it matches (ADR 0116).
+    /// Searches again if the innermost prompt searches a project for a migemo component that
+    /// took its words from another dictionary than the one migemo has now, as one came or
+    /// went (ADR 0116): its words change what it matches.
     pub(super) fn project_search_look_again(&mut self) {
-        let uses = (self.project_search.query.as_ref()).is_some_and(|query| query.uses_migemo());
-        if !self.searches_project() || !uses {
+        let generation = crate::migemo::generation(self.migemo.table().as_ref());
+        let stale = (self.project_search.query.as_ref())
+            .is_some_and(|query| query.compiled_for_another(generation));
+        if !self.searches_project() || !stale {
             return;
         }
         self.project_search.input = None;

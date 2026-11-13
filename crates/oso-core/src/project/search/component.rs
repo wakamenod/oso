@@ -49,8 +49,21 @@ pub(super) struct Component {
     pub(super) fresh: bool,
 }
 
-/// The strings a migemo component's pattern matches, shared by the components that keep it.
-pub(super) type Strings = Arc<[Box<str>]>;
+/// The strings a migemo component's pattern matches, shared by the components that keep it:
+/// its letters and kana, then the dictionary's words.
+#[derive(Clone)]
+pub(super) struct Strings {
+    all: Arc<[Box<str>]>,
+    /// How many of the last are words.
+    words: usize,
+}
+
+impl Strings {
+    /// The letters and kana, and the words.
+    pub(super) fn split(&self) -> (&[Box<str>], &[Box<str>]) {
+        self.all.split_at(self.all.len() - self.words)
+    }
+}
 
 /// What a component was asked to be, by its text, its affix and the setting.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -135,7 +148,11 @@ fn line_pattern(
         });
     let regex = compiled.compiled.map(|regex| {
         let alternatives = migemo::alternatives(string, &compiled.words, MAX_ALTERNATIVES);
-        (regex, alternatives.map(Arc::from))
+        let alternatives = alternatives.map(|all| Strings {
+            all: Arc::from(all),
+            words: compiled.words.len(),
+        });
+        (regex, alternatives)
     });
     (regex, compiled.spent)
 }

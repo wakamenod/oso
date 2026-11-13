@@ -482,6 +482,10 @@ impl Editor {
         let id = prompt.buffer;
         self.buffers.retain(|(other, _)| *other != id);
         self.relayout_prompt();
+        // A dictionary that came or went while the prompt now innermost was covered is taken
+        // now (ADR 0116).
+        self.project_search_look_again();
+        self.completion_look_again();
         Some(prompt)
     }
 

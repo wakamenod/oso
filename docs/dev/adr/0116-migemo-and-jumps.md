@@ -779,15 +779,21 @@ built.
   match each string the new one's pattern matches: the string, its full-width letters, its
   hiragana, katakana and half-width forms, each with either of two kana (`ず` or `づ`) and each
   unfinished end, and its words. A migemo component keeps them, an `Arc`'d list built when it
-  compiles, while they are at most 1024 besides the words; past that it never narrows, and
-  the search starts again. A literal one is its text. So typing `n`, `na`, `nam`, `name`
-  narrows on each key, and so do `kan` then `kanj` with a dictionary, but not `ji` then
-  `kanji`, whose `漢字` holds no `じ`. Case may stop being ignored, never start, and an
-  exclusion or an expression narrows only as it is. A literal narrows on that case change only
-  if it is ASCII, in a project's search and in completion: `İ` lowers to `i` and U+0307, which
-  `i` ignoring case does not match. A proptest checks that a query that
-  narrows matches no line the one before did not, with and without a dictionary. Completion
-  still narrows only on the same component.
+  compiles, while they are at most 1024 besides the words and 64 KiB with them; past that it
+  never narrows, and the search starts again. A literal one is its text. A word must be one
+  of the old component's own words, which its pattern matches, rather than be matched with
+  that pattern: a pattern of many words reads a word's characters far slower than kana. One
+  look matches at most 1024 strings and 64 KiB of the rest with the old components, past
+  which it does not narrow; the words are at most an input's budget (Q7). So typing `n`,
+  `na`, `nam`, `name` narrows on each key, and so do `kan` then `kanj` with a dictionary,
+  but not `ji` then `kanji`, whose `漢字` holds no `じ`. Case may stop being ignored, never
+  start, and an exclusion or an expression narrows only as it is. A component the same as
+  before, with the same dictionary and words, still narrows when case starts to count, as it
+  then matches less. Otherwise a literal narrows on that case change only if it is ASCII, in a
+  project's search and in completion: `İ` lowers to `i` and U+0307, which `i` ignoring case
+  does not match. A proptest checks that a query that narrows matches no line the one before
+  did not, with and without a dictionary, as the setting flips and as a dictionary comes,
+  goes or is another, with `=` and `!`. Completion still narrows only on the same component.
 - **Completion's `%` (Q4).** `%` at a component's start or end, as every affix, makes romaji
   migemo's: `%kan` matches `かんじ.md`, `カンジ`, `ｶﾝｼﾞ` and `kanji`, and `漢字.md` with a
   dictionary. After `%`, anything that is not romaji, or whose letters spell no kana, is a
@@ -812,7 +818,9 @@ built.
   candidates. The worker's jobs (`Build`, `Matching`, `Merge`) carry the table. A job that ran
   with the table before it is superseded by the new match. A job dropped before the host took
   it goes to a job of its own that frees it on the worker, as it may hold the last copy of a
-  table that was replaced.
+  table that was replaced. A search or a completion under another prompt looks again when
+  that prompt closes, if its migemo components were compiled with another table than the one
+  there is then.
 - **Secrets.** No string or pattern reaches a log. `Debug` gives counts only, and `get-state`
   is as it was.
 - **A key's cost (Q3, Q7, Q8),** with the author's dictionary in a release build, load about
@@ -824,7 +832,9 @@ built.
   0.35 ms over 5000 candidates. With every search ending, so that each key may narrow the one
   before, a key takes 0.17 ms p50 and 2.2 ms p99, and 1647 of 2466 searches narrowed. Telling
   whether a letter typed onto a prefix narrows takes 0.015 ms p50, 0.3 ms p99 and 1.1 ms at
-  most, and 565 of those 822 narrowed. In a first probe over 109 of those prefixes, one
+  most, and 565 of those 822 narrowed; once words were looked up rather than matched, 0.014
+  ms p50, 0.08 ms p99 and 0.09 ms at most at load about 15, and as many narrowed. A
+  generated dictionary at every cap is measured in `editor/migemo_lookup_costs.rs`. In a first probe over 109 of those prefixes, one
   component compiled in 0.15 to 0.18 ms p50, 1.5 to 1.7 ms p99 and at most about 3.4 ms. A
   migemo component's search through 20 MB of mixed code and Japanese on an `oso-grep` thread
   takes 1.3 to 11 ms, against 1 to 2 ms for a literal. Later measures, at load 5 to 9: after a
@@ -963,7 +973,11 @@ after review, named the error `JumpActionError`, so that it reads as a jump's be
   decides how Japanese is matched" becomes: `%` makes a component migemo's. Char folding gets no
   affix.
 - **[ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md):** a component that is
-  romaji matches as its migemo pattern; `=` keeps it literal.
+  romaji matches as its migemo pattern; `=` keeps it literal. A migemo component narrows by
+  Q8's rule of the project search's own, when the old component matches every string of the
+  new one's pattern, rather than by ADR 0076's. A project's search keeps what a component
+  compiled while the input before had it, as completion does, where each key compiled the
+  whole input.
 - **[ADR 0085](0085-agent-channel-and-oso-mcp.md):** the channel also waits while a jump is on.
 - **[ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md):** the `C-g` chain gains a jump, ended before the
   region (`Quit::Jump`).
