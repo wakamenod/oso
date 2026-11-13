@@ -414,7 +414,10 @@ fn a_password_prompt_is_a_secret_and_a_raw_read_is_not() {
     assert!(!echo_off(&state), "{}", terminal(&state));
     assert_eq!(state["buffer"]["secret"], false);
     app.send_keys("x");
-    wait_for_row(&mut app, "raw-done");
+    // Raw output's new line has no carriage return, so the row may start indented.
+    app.wait_for("raw-done", |state| {
+        rows(state).iter().any(|row| row.trim_start() == "raw-done")
+    });
 }
 
 #[test]
