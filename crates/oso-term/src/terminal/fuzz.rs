@@ -2,7 +2,8 @@
 //! sequences fed through the engine and the policy, as a terminal's thread feeds them.
 //! libFuzzer's coverage does not reach inside Zig, so inputs come from a grammar: CSI with huge
 //! parameters, private modes, SGR's colon forms, OSC numbers with fixed payloads, DCS heads,
-//! Kitty APC keys, ESC forms, REP and margins, invalid UTF-8, and resizes.
+//! Kitty APC keys, ESC forms, REP and margins, invalid UTF-8, long clusters, a link on each
+//! of many cells, and resizes up to the largest grid.
 //!
 //! Must not depend on: the thread or a PTY; it drives the engine directly.
 //!
@@ -70,6 +71,7 @@ const SIZES: &[(u16, u16)] = &[
     (80, 24),
     (300, 100),
     (500, 300),
+    (1000, 500),
     (13, 7),
 ];
 
@@ -159,10 +161,39 @@ fn text(rng: &mut Rng, out: &mut Vec<u8>) {
         "ｱ",
         "\u{10ffff}",
     ];
-    match rng.below(4) {
+    match rng.below(6) {
         0 | 1 => (0..rng.below(40)).for_each(|_| out.push(b' ' + rng.below(95) as u8)),
         2 => (0..rng.below(20)).for_each(|_| out.extend_from_slice(rng.pick(CLUSTERS).as_bytes())),
+        3 => long_clusters(rng, out),
+        4 => linked_cells(rng, out),
         _ => (0..rng.below(8)).for_each(|_| out.push(0x80 + rng.below(0x80) as u8)),
+    }
+}
+
+/// Cells of a base and up to 80 marks, past the most the library keeps of one cluster.
+fn long_clusters(rng: &mut Rng, out: &mut Vec<u8>) {
+    const BASES: &[&str] = &["a", "\u{1F600}", "日", "\u{10ffff}"];
+    const MARKS: &[&str] = &["\u{301}", "\u{E0100}", "\u{FE0F}", "\u{200D}", "\u{1F3FB}"];
+    for _ in 0..1 + rng.below(8) {
+        out.extend_from_slice(rng.pick(BASES).as_bytes());
+        for _ in 0..rng.below(81) {
+            out.extend_from_slice(rng.pick(MARKS).as_bytes());
+        }
+    }
+}
+
+/// A new OSC 8 link on each of many cells, some with ids, some ended.
+fn linked_cells(rng: &mut Rng, out: &mut Vec<u8>) {
+    for cell in 0..rng.below(300) {
+        let id = if rng.chance(50) {
+            format!("id={}", rng.below(1000))
+        } else {
+            String::new()
+        };
+        out.extend_from_slice(format!("\x1b]8;{id};http://e/{cell}\x1b\\x").as_bytes());
+        if rng.chance(10) {
+            out.extend_from_slice(b"\x1b]8;;\x1b\\");
+        }
     }
 }
 

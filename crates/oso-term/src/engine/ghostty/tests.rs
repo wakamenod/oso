@@ -50,7 +50,7 @@ pub(crate) fn engine(columns: u16, rows: u16) -> Ghostty {
 }
 
 /// Takes one snapshot, returning its rows.
-fn snapshot(engine: &mut Ghostty) -> (Snapshot, bool) {
+pub(crate) fn snapshot(engine: &mut Ghostty) -> (Snapshot, bool) {
     let mut out = Snapshot::new(size(1, 1));
     let changed = engine.snapshot(&mut out, &mut Vec::new());
     (out, changed)
@@ -105,6 +105,48 @@ fn wide_characters_take_two_cells_and_clusters_keep_their_text() {
         .collect();
     assert!(texts.contains(&"\u{1F1EF}\u{1F1F5}"), "{texts:?}");
     assert!(texts.contains(&"e\u{301}"), "{texts:?}");
+}
+
+#[test]
+fn the_longest_cluster_the_library_keeps_arrives_whole() {
+    let mut e = engine(10, 1);
+    // A 4-byte code point and 70 4-byte marks: the library keeps the first 64 marks.
+    let mut text = String::from("\u{1F600}");
+    text.extend(std::iter::repeat_n('\u{E0100}', 70));
+    e.feed(text.as_bytes());
+    let (s, _) = snapshot(&mut e);
+    let row = &s.rows[0];
+    assert!(
+        row.cells[0].attrs.contains(Attrs::GRAPHEME),
+        "{:?}",
+        row.cells[0]
+    );
+    assert_eq!(row.graphemes.len(), 1);
+    let kept: String = text.chars().take(65).collect();
+    assert_eq!(row.text, kept);
+    assert_eq!(row.text.len(), crate::limits::GRAPHEME_MAX);
+}
+
+#[test]
+fn row_reads_out_of_their_order_read_nothing() {
+    let mut vt = super::raw::Vt::new(10, 2, 100, XTVERSION).expect("a terminal");
+    vt.write(b"ab");
+    let mut raw = Vec::new();
+    let mut buf = [0; crate::limits::GRAPHEME_MAX];
+    // Before `frame`: no rows.
+    assert!(!vt.next_row());
+    assert!(!vt.row(&mut raw) && raw.is_empty());
+    vt.update();
+    let _ = vt.frame();
+    assert!(vt.next_row());
+    // On a row, before `row` points the cells at it: no cell.
+    assert_eq!(vt.grapheme(0, &mut buf), None);
+    vt.row(&mut raw);
+    assert!(!raw.is_empty());
+    // Writing changes the terminal: the rows end until the next `frame`.
+    vt.write(b"c");
+    assert!(!vt.next_row());
+    assert!(!vt.row(&mut raw) && raw.is_empty());
 }
 
 #[test]
@@ -173,6 +215,17 @@ fn scrollback_keeps_the_lines_asked_for_and_not_a_small_default() {
     }
     let (s, _) = snapshot(&mut small);
     assert!(s.history < 1000, "history {}", s.history);
+}
+
+#[test]
+fn scrollback_memory_is_bounded_and_plain_lines_all_fit() {
+    let mut e = Ghostty::new(size(200, 24), 10_000, XTVERSION).expect("an engine");
+    assert_eq!(e.memory_settings().0, crate::limits::SCROLLBACK_BYTES_MAX);
+    for i in 0..10_000 {
+        e.feed(format!("{i:x<199}\r\n").as_bytes());
+    }
+    let (s, _) = snapshot(&mut e);
+    assert!(s.history >= 9_400, "history {}", s.history);
 }
 
 #[test]

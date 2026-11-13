@@ -33,14 +33,18 @@ unsafe fn sink<'a>(ud: *mut c_void) -> &'a mut Sink {
 }
 
 /// A `GhosttyString`'s bytes; empty for NULL.
-pub(super) fn bytes(s: &ffi::GString) -> &[u8] {
+///
+/// # Safety
+/// `s` must be empty, static text (`from_static`), or a string the library wrote for the
+/// call that is running (a callback's argument, or what a `get` inside it returned), and the
+/// returned borrow must not outlive that call. A `GString` is `Copy`, so its borrow says
+/// nothing about how long the bytes it points to live.
+pub(super) unsafe fn bytes(s: &ffi::GString) -> &[u8] {
     let (ptr, len) = s.parts();
     if ptr.is_null() || len == 0 {
         return &[];
     }
-    // SAFETY: a `GString` is empty, static text (`from_static`), or written by the library,
-    // whose strings point to `len` readable bytes for as long as the struct holding them (a
-    // callback's argument, or static build info), which the returned borrow cannot outlive.
+    // SAFETY: the function's contract: `ptr` points to `len` readable bytes for the borrow.
     unsafe { std::slice::from_raw_parts(ptr, len) }
 }
 
@@ -54,7 +58,8 @@ unsafe fn terminal_string(terminal: ffi::Terminal, data: c_int) -> Vec<u8> {
     // SAFETY: the function's contract; both data have the output type `GhosttyString`.
     let read = unsafe { ffi::ghostty_terminal_get(terminal, data, (&raw mut s).cast()) };
     if read == ffi::SUCCESS {
-        let mut text = bytes(&s).to_vec();
+        // SAFETY: the library wrote `s` for this call, and it is copied out at once.
+        let mut text = unsafe { bytes(&s) }.to_vec();
         text.truncate(limits::TERMINAL_STRING_MAX);
         text
     } else {
@@ -150,8 +155,10 @@ pub(super) extern "C" fn on_clipboard_write(
         };
         let text = contents
             .iter()
-            .find(|c| bytes(&c.mime).starts_with(b"text/plain"))
-            .map(|c| bytes(&c.data));
+            // SAFETY: the request's strings, for the length of this callback.
+            .find(|c| unsafe { bytes(&c.mime) }.starts_with(b"text/plain"))
+            // SAFETY: as above; `text` is copied out before the callback returns.
+            .map(|c| unsafe { bytes(&c.data) });
         // A write not taken (no text, too large, or a request to clear) gets no reply, which
         // denies it.
         let Some(text) = text.filter(|t| t.len() <= limits::CLIPBOARD_WRITE_MAX) else {
@@ -170,7 +177,10 @@ pub(super) extern "C" fn on_clipboard_write(
                 remember: false,
             };
             // SAFETY: the reply function the library gave, with its own request and a live
-            // sized reply, inside the callback as terminal.h requires.
+            // sized reply, inside the callback as terminal.h requires. It only records the
+            // result: OSC 52 ignores it, and OSC 5522 answers the program with it after this
+            // callback returns (through `on_write_pty` then), so no callback runs inside it
+            // and the sink, last used above, is not reached twice.
             unsafe { reply(write, &answer) };
         }
     });
@@ -187,8 +197,10 @@ pub(super) extern "C" fn on_notification(
             return;
         };
         let effect = Effect::Notification {
-            title: bytes(&notification.title).to_vec(),
-            body: bytes(&notification.body).to_vec(),
+            // SAFETY: the notification's strings, for this callback, copied out at once.
+            title: unsafe { bytes(&notification.title) }.to_vec(),
+            // SAFETY: as above.
+            body: unsafe { bytes(&notification.body) }.to_vec(),
         };
         // SAFETY: called by the library with `configure`'s userdata.
         unsafe { sink(ud) }.push(effect);
@@ -233,7 +245,9 @@ pub(super) extern "C" fn on_prompt(
             ffi::SEMANTIC_PROMPT_PROMPT_START => Effect::Prompt(PromptMark::Start),
             ffi::SEMANTIC_PROMPT_INPUT_START => Effect::Prompt(PromptMark::Input),
             ffi::SEMANTIC_PROMPT_OUTPUT_START => {
-                Effect::Prompt(PromptMark::Output(bytes(&mark.command).to_vec()))
+                // SAFETY: the mark's command, for this callback, copied out at once.
+                let command = unsafe { bytes(&mark.command) }.to_vec();
+                Effect::Prompt(PromptMark::Output(command))
             }
             ffi::SEMANTIC_PROMPT_COMMAND_END => Effect::Prompt(PromptMark::End(
                 mark.has_exit_code.then_some(mark.exit_code),
@@ -267,6 +281,8 @@ pub(super) extern "C" fn on_unknown(
             ffi::UNKNOWN_SEQUENCE_APC => unsafe { sequence.value.apc }.content,
             _ => return,
         };
-        sink.push(Effect::Unknown(bytes(&content).to_vec()));
+        // SAFETY: the sequence's content, for this callback, copied out at once.
+        let content = unsafe { bytes(&content) }.to_vec();
+        sink.push(Effect::Unknown(content));
     });
 }

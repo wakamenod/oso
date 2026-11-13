@@ -27,7 +27,7 @@ mod table {
     use super::*;
     use crate::engine::Engine;
     use crate::engine::ghostty::Ghostty;
-    use crate::engine::ghostty::tests::{engine, size};
+    use crate::engine::ghostty::tests::{engine, size, snapshot};
 
     /// What feeding `bytes` to a fresh 80 × 24 terminal comes to.
     fn feed(bytes: &[u8]) -> (Vec<u8>, Vec<Event>) {
@@ -177,6 +177,40 @@ mod table {
             })
             .collect();
         assert_eq!(titles, ["first", "second"]);
+    }
+
+    /// OSC 8 links: the engine keeps the target with the cells, for the view's step; nothing
+    /// is answered or raised, and the text reaches the grid.
+    #[test]
+    fn hyperlinks_are_kept_with_their_text_and_answer_nothing() {
+        let mut e = engine(20, 2);
+        let (replies, events) = feed_to(
+            &mut e,
+            b"\x1b]8;id=a;https://example.com/\x1b\\link\x1b]8;;\x1b\\ \x1b]8;;file:///tmp\x07f\x1b]8;;\x07",
+        );
+        assert!(replies.is_empty() && events.is_empty(), "{events:?}");
+        let (s, _) = snapshot(&mut e);
+        let text: String = s.rows[0].cells.iter().map(|c| c.ch).collect();
+        assert!(text.starts_with("link f"), "{text:?}");
+    }
+
+    /// The table's "Allowed" modes: each is set, and a mode report says so. Synchronized
+    /// updates (2026) are reported set; holding the drawing for them is the view's (step 4).
+    #[test]
+    fn the_allowed_modes_are_set_and_reported() {
+        for mode in [2004, 1004, 2026, 1049, 1000, 1002, 1003, 1006] {
+            let mut e = engine(80, 24);
+            let set = format!("\x1b[?{mode}h\x1b[?{mode}$p");
+            let (replies, events) = feed_to(&mut e, set.as_bytes());
+            assert!(events.is_empty(), "{mode}: {events:?}");
+            assert_eq!(
+                String::from_utf8_lossy(&replies),
+                format!("\x1b[?{mode};1$y"),
+                "{mode}"
+            );
+        }
+        // A cursor shape, undercurl and an underline color answer nothing.
+        nothing(b"\x1b[4 q\x1b[4:3m\x1b[58;2;1;2;3m");
     }
 
     #[test]
@@ -354,6 +388,19 @@ mod table {
     }
 
     #[test]
+    fn in_band_size_reports_are_answered() {
+        // Mode 2048: the size now, then after each resize.
+        let mut e = engine(80, 24);
+        let (replies, _) = feed_to(&mut e, b"\x1b[?2048h");
+        let replies = String::from_utf8_lossy(&replies).into_owned();
+        assert!(replies.starts_with("\x1b[48;24;80;"), "{replies:?}");
+        e.resize(size(100, 30));
+        let (replies, _) = feed_to(&mut e, b"");
+        let replies = String::from_utf8_lossy(&replies).into_owned();
+        assert!(replies.starts_with("\x1b[48;30;100;"), "{replies:?}");
+    }
+
+    #[test]
     fn the_reply_allowlist_takes_only_the_tables_shapes() {
         for good in [
             &b"\x1b[?62;22c"[..],
@@ -363,6 +410,7 @@ mod table {
             b"\x1b[?2004;1$y",
             b"\x1b[?0u",
             b"\x1b[8;24;80t",
+            b"\x1b[48;24;80;384;640t",
             b"\x1bP>|oso 1\x1b\\",
             b"\x1bP!|00000000\x1b\\",
             b"\x1b]4;1;rgb:0a0a/0101/0202\x07",
@@ -386,7 +434,23 @@ mod table {
 
     #[test]
     fn kitty_mediums_and_the_image_store_are_off() {
-        assert_eq!(engine(10, 3).kitty_settings(), (0, false, false));
+        let (_, store, file, shm) = engine(10, 3).memory_settings();
+        assert_eq!((store, file, shm), (0, false, false));
+    }
+
+    #[test]
+    fn a_directory_also_comes_as_a_plain_path() {
+        for (bytes, path) in [
+            (&b"\x1b]9;9;/tmp/nine\x07"[..], "/tmp/nine"),
+            (b"\x1b]1337;CurrentDir=/tmp/iterm\x07", "/tmp/iterm"),
+        ] {
+            let (replies, events) = feed(bytes);
+            assert!(replies.is_empty());
+            assert!(
+                matches!(&events[..], [Event::Directory(d)] if d == path),
+                "{bytes:?}: {events:?}"
+            );
+        }
     }
 
     #[test]

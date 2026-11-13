@@ -407,6 +407,9 @@ item notes when it must be settled.
   ([`crates/oso-term/third-party.md`](../../crates/oso-term/third-party.md)).
 - Whether terminals start with grapheme clustering (mode 2027) on, as Ghostty does, so that a
   flag or a ZWJ emoji takes one cell pair; libghostty-vt starts with it off. ADR 0120's step 4.
+- Synchronized updates (mode 2026): `oso-term` reports the mode set but holds nothing. Step 4a
+  installs the library's render-hold callback and keeps the last snapshot on screen while a
+  program holds it, up to a timeout ([ADR 0120](adr/0120-the-terminal.md), step 3 as built).
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,

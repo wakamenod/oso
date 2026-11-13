@@ -43,7 +43,8 @@ pub const SUCCESS: GResult = 0;
 pub const OUT_OF_SPACE: GResult = -3;
 
 /// `GhosttyString`: borrowed bytes. Its fields are private, so that outside the library a
-/// value is only ever empty or static text, and `raw`'s `bytes` can read any value soundly.
+/// value is only ever empty or static text; how long the library's own stay readable is up
+/// to the caller of `raw`'s `bytes`, an `unsafe fn` for that reason.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GString {
@@ -400,6 +401,7 @@ pub const DATA_SCROLLBACK_ROWS: c_int = 15;
 pub const DATA_KITTY_IMAGE_STORAGE_LIMIT: c_int = 26;
 pub const DATA_KITTY_IMAGE_MEDIUM_FILE: c_int = 27;
 pub const DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM: c_int = 29;
+pub const DATA_SCROLLBACK_MAX_BYTES: c_int = 34;
 pub const DATA_MODE: c_int = 37;
 pub const DATA_CLIPBOARD_WRITE_MAX_BYTES: c_int = 40;
 

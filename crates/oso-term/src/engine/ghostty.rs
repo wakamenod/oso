@@ -79,10 +79,11 @@ impl Ghostty {
         })
     }
 
-    /// The Kitty graphics settings, for the policy's tests.
+    /// The settings bounding memory, for the tests: the scrollback's bytes, then the Kitty
+    /// image store's limit and its file and shared-memory mediums.
     #[cfg(test)]
-    pub(crate) fn kitty_settings(&self) -> (u64, bool, bool) {
-        raw::kitty_settings(&self.vt)
+    pub(crate) fn memory_settings(&self) -> (usize, u64, bool, bool) {
+        raw::memory_settings(&self.vt)
     }
 
     fn build_row(&mut self, index: u16, row: &mut Row) {
@@ -130,9 +131,12 @@ impl Ghostty {
                 ffi::CELL_WIDE_SPACER_TAIL => cell.attrs = cell.attrs.with(Attrs::WIDE_SPACER),
                 _ => {}
             }
-            if tag == ffi::CELL_CONTENT_CODEPOINT_GRAPHEME {
+            // A cluster the library cannot give stays its first code point.
+            let cluster = (tag == ffi::CELL_CONTENT_CODEPOINT_GRAPHEME)
+                .then(|| self.vt.grapheme(column, &mut self.grapheme))
+                .flatten();
+            if let Some(len) = cluster {
                 cell.attrs = cell.attrs.with(Attrs::GRAPHEME);
-                let len = self.vt.grapheme(column, &mut self.grapheme);
                 // Borrowed, not copied, when the bytes are UTF-8, as the library's are.
                 let start = row.text.len();
                 row.text

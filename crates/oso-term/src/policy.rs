@@ -50,7 +50,8 @@ pub(crate) fn judge(effect: Effect) -> Verdict {
 ///
 /// - device attributes (`CSI ? … c`, `CSI > … c`, `DCS ! | … ST`), device status and the
 ///   cursor position (`CSI … n`, `CSI … R`), mode reports (`CSI ? … $ y`, `CSI … $ y`), the
-///   kitty keyboard query (`CSI ? … u`), the text area and cell sizes (`CSI 4|6|8 ; … t`);
+///   kitty keyboard query (`CSI ? … u`), the text area and cell sizes (`CSI 4|6|8 ; … t`),
+///   and in-band size reports (mode 2048, `CSI 48 ; … t`);
 /// - XTVERSION (`DCS > | … ST`);
 /// - the theme's colors (`OSC 4|10|11|12 ; … rgb:… ST|BEL`).
 ///
@@ -95,7 +96,7 @@ fn csi_reply(csi: &[u8]) -> bool {
     match (private, end) {
         (Some(b'?' | b'>'), b"c") | (None | Some(b'?'), b"n" | b"R" | b"$y") => true,
         (Some(b'?'), b"u") => true,
-        (None, b"t") => matches!(first, b"4" | b"6" | b"8"),
+        (None, b"t") => matches!(first, b"4" | b"6" | b"8" | b"48"),
         _ => false,
     }
 }
@@ -141,7 +142,8 @@ fn prompt(mark: PromptMark) -> Verdict {
     Verdict::Event(Event::Prompt(mark))
 }
 
-/// OSC 7's URI sets the terminal's directory, so it is kept as sent, not cleaned for showing:
+/// The directory (OSC 7's URI, or OSC 9;9's or OSC 1337 `CurrentDir`'s path) sets the
+/// terminal's, so it is kept as sent, not cleaned for showing:
 /// one that is not UTF-8, holds a control character or is longer than 4 KiB is dropped
 /// whole, never cut into another path. Whether it names a local directory is the host's.
 fn directory(uri: Vec<u8>) -> Verdict {

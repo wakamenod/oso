@@ -9,6 +9,10 @@ use oso_platform::process::pty::Size;
 pub const SCROLLBACK_DEFAULT: usize = 10_000;
 /// The most scrollback lines a terminal keeps.
 pub const SCROLLBACK_MAX: usize = 100_000;
+/// The most memory a terminal's scrollback holds (ADR 0120, step 1's condition 4): lines of
+/// many cells, or of cells that each hold a long cluster, are dropped sooner than the line
+/// count says.
+pub(crate) const SCROLLBACK_BYTES_MAX: usize = 256 << 20;
 /// The most input bytes queued for a program; `Terminal::send` refuses more.
 pub const INPUT_QUEUE_MAX: usize = 16 << 20;
 
@@ -26,8 +30,9 @@ pub(crate) const UNKNOWN_SEQUENCE_MAX: usize = 4096;
 pub(crate) const TERMINAL_STRING_MAX: usize = 4096;
 /// The longest OSC 7 URI taken; a longer one is dropped.
 pub(crate) const DIRECTORY_MAX: usize = 4096;
-/// The most bytes of one cell's grapheme cluster read.
-pub(crate) const GRAPHEME_MAX: usize = 256;
+/// The most bytes of one cell's grapheme cluster: the library keeps a code point and at most
+/// 64 more, of at most 4 bytes each, so every cluster fits.
+pub(crate) const GRAPHEME_MAX: usize = 260;
 /// Effects raised but not taken yet are dropped past this many.
 pub(crate) const EFFECTS_PENDING_MAX: usize = 1024;
 /// The most a Kitty graphics command may buffer (ADR 0120, step 1's condition 4).

@@ -120,9 +120,13 @@ impl Terminal {
         let _ = self.requests.send(Request::Recycle(snapshot));
     }
 
-    /// Queues bytes for the program, already encoded. Refused while 16 MiB wait.
+    /// Queues bytes for the program, already encoded. Refused while 16 MiB wait; nothing
+    /// is queued for no bytes.
     pub fn send(&self, bytes: Vec<u8>) -> Result<(), QueueFull> {
         let len = bytes.len();
+        if len == 0 {
+            return Ok(());
+        }
         self.shared
             .queued
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {

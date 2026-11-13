@@ -13,7 +13,9 @@ pub enum Event {
     /// OSC 0, 1 or 2.
     Title(String),
     Bell,
-    /// OSC 7's URI, as the program sent it: at most 4 KiB, UTF-8, no control characters.
+    /// The working directory as the program sent it: OSC 7's `file:` URI, or a plain path
+    /// from OSC 9;9 or OSC 1337 `CurrentDir`. At most 4 KiB, UTF-8, no control characters;
+    /// whether it names a local directory is the host's to check.
     Directory(String),
     /// OSC 9 or 777.
     Notification {
@@ -24,7 +26,8 @@ pub enum Event {
     Progress(Progress),
     /// OSC 133.
     Prompt(Prompt),
-    /// OSC 52's text, at most 1 MiB, for the kill ring.
+    /// The text of an OSC 52, OSC 5522 or OSC 1337 `Copy` write, at most 1 MiB, for the
+    /// kill ring.
     ClipboardWrite(String),
     /// The terminal ended; nothing follows.
     Ended(End),
