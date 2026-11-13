@@ -258,7 +258,7 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     assert_eq!(app.state()["echo"], "Draft in the kill ring: C-y");
 
     // Closing asks while the comment was not sent.
-    app.send_keys("C-x k RET");
+    app.send_keys(&format!("M-x {} RET", typing("review-kill")));
     assert_eq!(
         prompt_label(&mut app).as_deref(),
         Some("1 comment of yours will be lost; kill? (y or n)")
