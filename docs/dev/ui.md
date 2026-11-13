@@ -291,8 +291,18 @@ Hydra/transient-style menus float at the **center** of the frame, as they do
 with hydra-posframe today ([ADR 0117](adr/0117-menus.md)):
 
 - A head closes the menu unless it says `stay`; switches (`[x]`/`[ ]`) stay and are read by the
-  head that runs. A key the menu does not bind is refused with `q to quit`. `C-g` closes one
-  level of submenus; `q` closes the menu unless a head binds it.
+  head that runs. A key the menu does not bind is refused with `x is not in this menu: q to quit`
+  and drops the prefix argument. `C-g` first ends a half-typed head or the prefix argument, then
+  closes one level of submenus; `q` closes one level too unless a head binds it.
+- The float is completion's panel at the center of the tiled area. Each key is a chip: the usual
+  colour for a head that closes the menu, a red one for a head that stays, and a third for a
+  switch, whose `[x]` sits on a chip of its colour while it is on. Titles are in their own colour,
+  notes dim and aligned in a column, and a head that cannot run now is dim with no chip. The head
+  `RET` runs is marked with a box. `C-u 5-` shows at the end of the title's row while it is typed.
+- `C-u`, `M-<digit>` and `M--` build a prefix argument for the next head; plain digits are heads.
+- A head that opens a prompt, a search or a replay closes the menu first; no menu opens in a
+  prompt (`Not in the minibuffer`). The input method is off while a menu is open, and the agent
+  channel waits (`the person is in a menu`). `M-x open-menu` opens any menu by name.
 - Built-in menus are defaults: `toggles` on `C-c t`, `review` on `C-x v r`, and `windows`,
   `jumps` and `search` through `M-x open-menu`. `[menus.<name>]` in `config.toml` adds a menu,
   replaces one of the same name whole, or removes it with `false`.

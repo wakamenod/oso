@@ -273,8 +273,6 @@ item notes when it must be settled.
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
-  have ([ADR 0069](adr/0069-macos-input-method.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
