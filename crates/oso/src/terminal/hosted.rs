@@ -37,7 +37,8 @@ pub(crate) struct Hosted {
     pub title: String,
     /// The OSC 9;4 progress the program reported last, for agent sessions (ADR 0121).
     pub progress: Option<oso_term::Progress>,
-    /// How the program ended, for the modeline: `exited 0`, `ended`.
+    /// How the program ended, for the modeline: `exited 0`, `ended`. A hosted session's buffer
+    /// says what to do next instead, such as `stopped: session-resume to continue` (ADR 0121).
     pub ended: Option<String>,
     /// A paste of several lines waits for the person's yes to the question asked, without
     /// bracketed paste.
@@ -206,9 +207,14 @@ impl Terminals {
 
     /// Drops the terminals whose buffers are gone, which hangs each up. `alive` says which
     /// buffers still are.
-    pub(crate) fn retain(&mut self, mut alive: impl FnMut(BufferId) -> bool) -> Vec<Hosted> {
+    pub(crate) fn retain(
+        &mut self,
+        mut alive: impl FnMut(BufferId) -> bool,
+    ) -> Vec<(BufferId, Hosted)> {
         let gone: Vec<BufferId> = self.map.keys().copied().filter(|id| !alive(*id)).collect();
-        gone.iter().filter_map(|id| self.map.remove(id)).collect()
+        gone.into_iter()
+            .filter_map(|id| Some((id, self.map.remove(&id)?)))
+            .collect()
     }
 }
 
@@ -263,6 +269,21 @@ pub(crate) fn start(
         .map(drop)
 }
 
+/// The shell a terminal runs: `[terminal] shell`, `$SHELL` if absolute, the account's, then
+/// `/bin/sh`, the first that is an executable (ADR 0120). A session's terminal finds it so too.
+///
+/// # Errors
+///
+/// When none is an executable, the last one's error.
+pub(crate) fn find_shell(settings: &shell::Settings) -> io::Result<shell::Resolved<Executable>> {
+    let candidates = shell::candidates(
+        settings.shell.as_deref(),
+        std::env::var_os("SHELL").as_deref(),
+        process::account_shell,
+    );
+    shell::resolve(candidates, |path| Executable::absolute(path))
+}
+
 fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched> {
     let Request {
         settings,
@@ -272,12 +293,7 @@ fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched>
         palette,
         ..
     } = request;
-    let candidates = shell::candidates(
-        settings.shell.as_deref(),
-        std::env::var_os("SHELL").as_deref(),
-        process::account_shell,
-    );
-    let found = shell::resolve(candidates, |path| Executable::absolute(path))?;
+    let found = find_shell(&settings)?;
     let start = Start {
         executable: found.executable,
         args: shell::args(settings.login),

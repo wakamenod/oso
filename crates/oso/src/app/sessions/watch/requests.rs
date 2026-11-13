@@ -262,9 +262,8 @@ impl App {
             return self.editor.message("That session does not run");
         };
         terminal.hang_up();
-        if let Some(session) = self.hosting.table.get_mut(key) {
-            session.ended_by_oso = true;
-        }
+        // oso stopped it: its end by the signal is no failure (Q8).
+        self.watch.hung_up.insert(key);
     }
 
     /// Drops a stop whose question closed without a yes, so that a later `k` asks again.

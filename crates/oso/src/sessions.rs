@@ -18,7 +18,7 @@
 //! - `record`: the sessions oso remembers, in its state directory.
 //! - `hosted`: the table of the sessions oso hosts.
 //! - `bridge`: whether a connection is a hosted session's bridge.
-//! - `start`: getting a session ready on a thread of its own.
+//! - `start`: getting a session ready and starting its terminal, on a thread of its own.
 //! - `recap`: a session's one-line recap, from a rule's `recap` pattern or the title.
 //! - `attention`: when a session's state asks for the person's attention.
 //! - `list`: `*Sessions*`, grouped, nested and folded, rendered to a width.

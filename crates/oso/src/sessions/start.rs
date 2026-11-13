@@ -15,7 +15,7 @@
 //! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one
 //!   that runs the wrapper, as [`launch`](super::launch) has it.
 //! - The terminal starts here too, with ADR 0120's environment, `[sessions] env`'s names and
-//!   `OSO_SESSION`, so that the UI thread never waits on the spawn.
+//!   `CLAUDE_CONFIG_DIR` and `OSO_SESSION`, so that the UI thread never waits on the spawn.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -33,6 +33,7 @@ use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
 use super::registry;
 use crate::review::{self, Reviewer, TrustedRoot};
+use crate::terminal::hosted;
 use crate::terminal::shell::{self, Settings};
 
 /// The longest a session waits for its baseline before it starts (ADR 0122).
@@ -167,7 +168,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
             Err(e) => return refuse(format!("The session did not start: {e}")),
         },
     };
-    let found = match found_shell(&order.terminal.settings) {
+    let found = match hosted::find_shell(&order.terminal.settings) {
         Ok(found) => found,
         Err(e) => return refuse(format!("The session did not start: no shell is found: {e}")),
     };
@@ -225,23 +226,17 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
     }
 }
 
-/// The shell, as a terminal finds it: `[terminal] shell`, `$SHELL` if absolute, the account's,
-/// then `/bin/sh` (ADR 0120).
-fn found_shell(settings: &Settings) -> std::io::Result<shell::Resolved<Executable>> {
-    let candidates = shell::candidates(
-        settings.shell.as_deref(),
-        std::env::var_os("SHELL").as_deref(),
-        process::account_shell,
-    );
-    shell::resolve(candidates, |path| Executable::absolute(path))
-}
-
-/// The names a session's terminal passes on: a terminal's, then `[sessions] env`'s.
+/// The names a session's terminal passes on: a terminal's, `[sessions] env`'s, and
+/// `CLAUDE_CONFIG_DIR`, so that the session's registry is the one oso reads.
 fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
     let mut names = shell::inherit(terminal);
-    for name in sessions {
-        if !names.contains(name) {
-            names.push(name.clone());
+    for name in sessions
+        .iter()
+        .map(String::as_str)
+        .chain([registry::CONFIG_VARIABLE])
+    {
+        if !names.iter().any(|known| known == name) {
+            names.push(name.to_owned());
         }
     }
     names
@@ -346,12 +341,17 @@ mod tests {
     use crate::sessions::identity::SessionId;
 
     #[test]
-    fn a_session_passes_on_a_terminals_names_then_its_own_once_each() {
+    fn a_session_passes_on_a_terminals_names_its_own_and_the_config_directory_once_each() {
         let names = inherit(
             &["LANG".to_owned()],
             &["HTTPS_PROXY".to_owned(), "LANG".to_owned()],
         );
-        assert_eq!(names, ["SSH_AUTH_SOCK", "LANG", "HTTPS_PROXY"]);
+        assert_eq!(
+            names,
+            ["SSH_AUTH_SOCK", "LANG", "HTTPS_PROXY", "CLAUDE_CONFIG_DIR"]
+        );
+        let named = inherit(&[], &["CLAUDE_CONFIG_DIR".to_owned()]);
+        assert_eq!(named, ["SSH_AUTH_SOCK", "CLAUDE_CONFIG_DIR"]);
     }
 
     #[test]

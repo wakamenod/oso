@@ -15,7 +15,7 @@
 //!   again to another process is not the session's.
 
 use std::ffi::OsString;
-use std::io::Read as _;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -70,18 +70,19 @@ pub enum Live {
     Yes,
     /// No such process, or one that started at another time: the id was given again.
     No,
-    /// The entry says nothing of when its process started. Callers count it as live: refusing
-    /// a resume is the safe side.
+    /// The entry says nothing of when its process started, or the system does not say when the
+    /// process with its pid did. Callers count it as live: refusing a resume is the safe side.
     Unknown,
 }
+
+/// The variable that moves Claude Code's configuration, and with it the registry. A session
+/// is always given oso's own, so that the registry it writes is the one oso reads.
+pub const CONFIG_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 
 /// The registry's directory: `sessions` under `$CLAUDE_CONFIG_DIR` if that is an absolute
 /// path, else under `~/.claude`.
 pub fn directory() -> Option<PathBuf> {
-    directory_from(
-        std::env::var_os("CLAUDE_CONFIG_DIR"),
-        std::env::var_os("HOME"),
-    )
+    directory_from(std::env::var_os(CONFIG_VARIABLE), std::env::var_os("HOME"))
 }
 
 fn directory_from(config_dir: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
@@ -167,11 +168,14 @@ fn parse(bytes: &[u8]) -> Option<Entry> {
     })
 }
 
-/// Whether `entry`'s process still runs, by `started`, which gives when a process started, or
-/// `None` if there is none: `oso_platform::process::start_time`.
-pub fn liveness(entry: &Entry, started: impl Fn(u32) -> Option<SystemTime>) -> Live {
-    let Some(start) = started(entry.pid) else {
-        return Live::No;
+/// Whether `entry`'s process still runs, by `started`, which gives when a process started,
+/// `None` if there is none, or an error if the system does not say:
+/// `oso_platform::process::start_time`.
+pub fn liveness(entry: &Entry, started: impl Fn(u32) -> io::Result<Option<SystemTime>>) -> Live {
+    let start = match started(entry.pid) {
+        Ok(Some(start)) => start,
+        Ok(None) => return Live::No,
+        Err(_) => return Live::Unknown,
     };
     let near = |then: SystemTime, slack: Duration| {
         let apart = start
@@ -193,7 +197,7 @@ pub fn liveness(entry: &Entry, started: impl Fn(u32) -> Option<SystemTime>) -> L
 pub fn live_with<'a>(
     entries: &'a [Entry],
     id: &SessionId,
-    started: impl Fn(u32) -> Option<SystemTime>,
+    started: impl Fn(u32) -> io::Result<Option<SystemTime>>,
 ) -> Vec<&'a Entry> {
     entries
         .iter()
@@ -415,7 +419,7 @@ mod tests {
 
     #[test]
     fn liveness_holds_within_its_slack() {
-        let started = |pid| (pid == 7).then(|| at(1_000));
+        let started = |pid| Ok((pid == 7).then(|| at(1_000)));
         let mut entry = entry(7);
         assert_eq!(liveness(&entry, started), Live::Unknown);
         entry.started_at = Some(1_010_000);
@@ -436,14 +440,27 @@ mod tests {
         assert_eq!(liveness(&entry, started), Live::Yes);
         // No such process.
         assert_eq!(
-            liveness(&super::Entry { pid: 8, ..entry }, started),
+            liveness(
+                &super::Entry {
+                    pid: 8,
+                    ..entry.clone()
+                },
+                started
+            ),
             Live::No
         );
+        // A process whose start the system does not say may run.
+        let untold = |_| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        assert_eq!(liveness(&entry, untold), Live::Unknown);
     }
 
     #[test]
     fn live_with_keeps_live_and_unknown_entries_of_the_id() {
-        let started = |pid| (pid != 3).then(|| at(1_000));
+        let started = |pid| match pid {
+            3 => Ok(None),
+            6 => Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            _ => Ok(Some(at(1_000))),
+        };
         let mut live = entry(1);
         live.proc_start = Some(ctime(at(1_000)));
         let unknown = entry(2);
@@ -452,12 +469,14 @@ mod tests {
         reused.proc_start = Some(ctime(at(90_000)));
         let mut other = entry(5);
         other.session_id = SessionId::parse("ffffffff-ffff-4fff-bfff-ffffffffffff");
-        let entries = [live, unknown, dead, reused, other];
+        let mut untold = entry(6);
+        untold.proc_start = Some(ctime(at(1_000)));
+        let entries = [live, unknown, dead, reused, other, untold];
         let found: Vec<u32> = live_with(&entries, &id(), started)
             .iter()
             .map(|entry| entry.pid)
             .collect();
-        assert_eq!(found, [1, 2]);
+        assert_eq!(found, [1, 2, 6]);
     }
 
     #[test]
@@ -595,7 +614,7 @@ mod tests {
         use oso_platform::process::start_time;
         let scratch = Scratch::new("table");
         let me = std::process::id();
-        let mine = start_time(me).unwrap();
+        let mine = start_time(me).unwrap().unwrap();
         scratch.write(&format!("{me}.json"), &entry_json(me, &ctime(mine)));
         let stale = reaped_pid();
         scratch.write(&format!("{stale}.json"), &entry_json(stale, &ctime(mine)));

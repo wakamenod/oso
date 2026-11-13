@@ -33,7 +33,7 @@ pub const SPACES_LIST: &str = "spaces";
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "claude",
-        doc: "Start a Claude Code session in a terminal buffer, `*claude: NAME*`.\n\nIt runs in the selected window's project root, else the buffer's directory, and is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
+        doc: "Start a Claude Code session in a terminal buffer, `*claude: NAME*`.\n\nIt runs in the selected buffer's project root, else its file's directory, as a new terminal does, else the directory oso started in. It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
         args: ArgSpec::DirectoryAndTextOnPrefix {
             directory: "Session in directory:",
             directory_history: "session-directory",

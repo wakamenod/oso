@@ -645,8 +645,10 @@ The UI thread never blocks on I/O or parsing:
   `[sessions] claude` checked, Claude Code's registry read before a resume and again 5 s after
   (`sessions/registry.rs`, liveness by `oso_platform::process::start_time`), the shell found, and
   in a trusted project ADR 0122's baseline, waited for at most 2 s. Its command line is built by
-  pure functions (`sessions/command.rs`, `sessions/launch.rs`), and its terminal starts through
-  ADR 0120's start path. The app's table of hosted sessions (`sessions/hosted.rs`, glue in
+  pure functions (`sessions/command.rs`, `sessions/launch.rs`). The same thread starts its
+  `oso_term::Terminal`, with the shell ADR 0120's terminal finds (`terminal::hosted::find_shell`)
+  and that terminal's environment, and the app installs it in the buffer as it installs a
+  terminal's (`app/terminals/start.rs`). The app's table of hosted sessions (`sessions/hosted.rs`, glue in
   `app/sessions/hosting.rs`) holds each session's buffer and its `claude`'s process id
   (`oso_term::Terminal::pid`); the set oso remembers, `sessions` in the state directory
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is

@@ -57,6 +57,8 @@ pub(in crate::app) struct Watch {
     looks: alerts::Looks,
     /// A stop that asked first: the question, and the session it stops on a yes.
     stop: Option<(PromptId, SessionKey)>,
+    /// Sessions `k` hung up, whose end is then a stop and not a failure.
+    hung_up: HashSet<SessionKey>,
     /// Something the views show changed since they were last made.
     stale: bool,
     /// When the views were last made, for their ages.
@@ -81,6 +83,11 @@ impl Watch {
     #[cfg(feature = "dev")]
     pub(in crate::app) fn needs_input(&self) -> u16 {
         self.marks.needs_input
+    }
+
+    /// Whether `k` hung session `key` up, which its end then answers.
+    pub(in crate::app) fn take_hung_up(&mut self, key: SessionKey) -> bool {
+        self.hung_up.remove(&key)
     }
 
     /// `[sessions.notify]` in force.

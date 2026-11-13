@@ -69,8 +69,9 @@ impl fmt::Debug for ReviewEvent {
 }
 
 /// oso's own directory in the per-user state directory, where reviews keep their index
-/// copies. Asks the environment and not the disk.
-fn state() -> Option<PathBuf> {
+/// copies. Asks the environment and not the disk. A session's start baseline is taken there
+/// too (ADR 0121).
+pub(in crate::app) fn state() -> Option<PathBuf> {
     oso_platform::privacy::state_home().map(|home| home.join("oso"))
 }
 
@@ -409,10 +410,7 @@ impl App {
         }
         match report {
             Report::Baseline { tree, left_out } => {
-                self.reviews.baselines.retain(|(id, _)| *id != project);
-                self.reviews.baselines.push((project, tree));
-                self.editor.set_baseline_taken(project, Some(now()));
-                self.count_session(project);
+                self.keep_baseline(project, tree);
                 self.editor.message(if left_out == 0 {
                     "Baseline taken: D reviews what changed since".to_owned()
                 } else {
@@ -442,6 +440,26 @@ impl App {
         };
         let model = self.editor.review(review)?;
         Some(model.carry(&reading.entry.path, Arc::clone(shape)))
+    }
+
+    /// `tree` is `project`'s baseline from now on: the session review compares with it.
+    fn keep_baseline(&mut self, project: ProjectId, tree: Id) {
+        self.reviews.baselines.retain(|(id, _)| *id != project);
+        self.reviews.baselines.push((project, tree));
+        self.editor.set_baseline_taken(project, Some(now()));
+        self.count_session(project);
+    }
+
+    /// A hosted session's start thread took `tree` as `project`'s baseline before its
+    /// `claude` ran (ADR 0121, ADR 0122): the review takes it as if `B` had, while the
+    /// project is still trusted.
+    pub(in crate::app) fn session_baseline_taken(&mut self, project: ProjectId, tree: &str) {
+        if !self.editor.project_trusted(project) {
+            return;
+        }
+        if let Some(tree) = Id::parse(tree.as_bytes()) {
+            self.keep_baseline(project, tree);
+        }
     }
 
     fn forget_baseline(&mut self, project: ProjectId) {

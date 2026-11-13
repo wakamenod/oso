@@ -130,8 +130,8 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 - **A session is a hosted `claude` in an oso terminal, plus its identity:** the session id, a name,
   the directory it runs in (a repository or a worktree), the transcript's path once found, the
   space it belongs to, and the session that started it, if any.
-- **`claude` (`Person`)** starts a session in the selected window's project root, else the buffer's
-  directory. With a prefix argument it asks for a name and a directory. The session's terminal is a
+- **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
+  directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
 - **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for
@@ -791,11 +791,14 @@ points:
   process is live if `process::start_time` of its pid is within 2 s of the entry's `procStart`
   (the start as C `ctime` text in UTC), or, when that does not parse, within 10 s of `startedAt`
   (ms since the epoch). A process whose start cannot be told counts as live, so a resume is
-  refused rather than risked. Step 1 reads it only before and 5 s after a resume; the poll comes
+  refused rather than risked: an entry with neither field, and a pid the system gives no start
+  time for, though it may run. Step 1 reads it only before and 5 s after a resume; the poll comes
   with step 3's list.
-- **`oso-platform` gained `process::start_time(pid: u32) -> Option<SystemTime>`,** with 3
-  `unsafe` blocks, each with its `// SAFETY:` comment: `proc_pidinfo` and reading its result on
-  macOS, and `sysconf(_SC_CLK_TCK)` on Linux.
+- **`oso-platform` gained `process::start_time(pid: u32) -> io::Result<Option<SystemTime>>`,**
+  with 3 `unsafe` blocks, each with its `// SAFETY:` comment: `proc_pidinfo` and reading its
+  result on macOS, and `sysconf(_SC_CLK_TCK)` on Linux. `Ok(None)` is no such process; an error
+  is a process the system does not say the start of, such as another user's, or any process on
+  a system it does not support, and the registry reader counts it as live.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
@@ -807,7 +810,19 @@ points:
 - **The start thread** (`oso-session-start`, one per start) makes the id, checks the directory and
   `[sessions] claude`, reads the registry before a resume and 5 s after it, finds the shell, and
   in a trusted project takes ADR 0122's baseline, waiting at most 2 s; past that, `claude` starts
-  and the baseline follows.
+  and the baseline follows. It then starts the session's `oso_term::Terminal` itself, so the UI
+  thread never waits on the spawn. The shell is found by the same function as a terminal's
+  (`terminal::hosted::find_shell`), and the app puts the terminal in its buffer with the same code
+  (`app/terminals/start.rs`).
+- **The environment** is ADR 0120's terminal environment, `[sessions] env`'s names,
+  `OSO_SESSION`, and always `CLAUDE_CONFIG_DIR` when oso has it: the session's registry entry is
+  then in the directory oso reads.
+- **The start baseline is the project's review baseline:** when it comes, in time or late, the
+  review takes it as if `B` had been pressed (ADR 0122), and the review menu shows when it was
+  taken. The review's index copies for it are in the same state directory as the review's own.
+- **A refused resume's fork question forks that session,** whichever buffer is selected when `y`
+  is answered. A start that is refused turns the agent channel off again if that start turned it
+  on and no session runs, starts or holds a connection.
 - **`C-u claude` reads a directory, then a name,** each with its own history. `oso-core` gained
   `ArgSpec::DirectoryAndTextOnPrefix { directory, directory_history, prompt, history }` and
   `Ctx::directory_and_text(&self) -> Option<(&str, &str)>`, and the new
@@ -816,8 +831,10 @@ points:
 - **Keys:** `C-x a c` (`claude`) and `C-x a r` (`session-resume`); the rest of `C-x a` comes
   with step 3. `claude`, `session-resume` and `session-fork` are `Person`.
 - **`C-x k` on a session's buffer archives the session:** it is not brought back at the next
-  start, and step 3's list shows and restores it. Exits oso caused (`C-x k`, `C-x C-c`, a hang-up)
-  make a session stopped, not failed.
+  start, and step 3's list shows and restores it. Its `claude` is hung up, and the session counts
+  as stopped, not failed. Any other end is stopped for status 0 and failed otherwise; the buffer
+  keeps the last screen and its modeline says `stopped: session-resume to continue`, or `failed
+  (exited 3): …`.
 - **ADR 0122's seams in step 1:** the baseline at start, and "which review is this agent's" as
   the connection's session. Delivering comments as a paste and "a turn ended" wait for step 3,
   which feeds screens to the states: until oso reads a session's screen it cannot refuse a paste
