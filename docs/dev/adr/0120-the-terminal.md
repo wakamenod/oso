@@ -716,7 +716,8 @@ where they chose both, and asked for more on Q5, Q12 and Q18; each question ends
 Each passage stays in its ADR as written; what holds now follows it.
 
 - [ADR 0015](0015-terminal.md), "The terminal engine is `alacritty_terminal`": chosen by step 1's
-  comparison. "PTYs go through the process module: openpty on Unix, ConPTY on Windows": macOS and Linux
+  comparison, which chose libghostty-vt 1.0.1 (see As built); the FFI, memory-safety and toolchain
+  costs ADR 0015 rejected it for are taken, under step 1's conditions. "PTYs go through the process module: openpty on Unix, ConPTY on Windows": macOS and Linux
   first. "OSC 8 links show the real target before opening": and open under the rules above. "It exposes
   the content as searchable text, so isearch, line search, copy and selection work as in text
   buffers": the live search covers isearch's keys, and copy mode's buffer the rest. "The terminal may
@@ -771,6 +772,127 @@ Each passage stays in its ADR as written; what holds now follows it.
   read and show.
 
 ## As built
+
+### Step 1: the engine comparison
+
+**The engine is libghostty-vt 1.0.1,** in oso's process, built `ReleaseFast` from the signed
+release. The author chose it on 2026-11-13, through the coordinator, after the comparison below,
+with the five conditions at the end of this step.
+
+- **How it ran:** in one day of the three, in a workspace of its own on the branch
+  `m4-terminal-engines` (`spikes/term-engines`), which is pushed for the record and never merged.
+  - Both engines sat behind one `Engine` trait: feed bytes, resize, publish a snapshot of the rows
+    that changed, read rows as text, modes, effects.
+  - `alacritty_terminal` 0.26.0 ran with the second `vte` 0.15 parser this ADR planned.
+  - libghostty-vt started on a pre-release commit (`83fb956`, 1.4.0-main) and moved to the 1.0.1
+    release (2026-11-11) once it was out: Zig 0.17.1, offline from the release's source and
+    dependency tarballs, both checked against the published signature and sha256.
+  - It is called through hand-written FFI: 23 functions and 49 `unsafe` blocks, each with its
+    `// SAFETY:` comment, and a test that checks every struct and constant against the library's own
+    type manifest. The third-party `ghostty-vt-sys` crate was not usable: its build script downloads
+    the source with `ureq`, which `deny.toml` bans.
+  - `vim`, `less`, `htop`, `lazygit`, `vttest` and Claude Code (its start screen, `/help` and typed
+    wide text, no prompt sent) were recorded in a PTY at 120 × 40 and replayed in 4 KiB reads. The
+    recordings were not committed.
+  - The benchmarks ran on an Apple Silicon Mac that other work shared, twice; the ratios held.
+
+| | `alacritty_terminal` 0.26.0 | libghostty-vt 1.0.1 |
+|---|---|---|
+| Recorded programs | The same final screens | The same, and DECCOLM (80 and 132 columns), a flag emoji as one 2-cell grapheme, XTVERSION, in-band resize (mode 2048) |
+| Parse, MB/s: plain, SGR-heavy, CJK and emoji, a TUI's redraws | 225, 148, 147, 143, both parsers | 1,789, 326, 453, 163 |
+| A snapshot of 300 × 100, p50: every row, one row | 58 µs, 1.2 µs | 135 µs, 3.4 µs |
+| Memory, 10,000 lines of 120 and of 200 columns | 36 and 55 MB | 13 and 20 MB |
+| Memory, 100,000 lines of 200 columns | 533 MB | 175 MB |
+| Binary size added, stripped | 116 KB | 1.27 MB |
+| Clean build | 4 s, crates.io only | 35 to 75 s a target; Zig, with bundled C++ (simdutf, highway) and C (Wuffs) |
+| Windows (MSVC) | Builds | Needs the MSVC SDK: a Windows runner, or `xwin` and a local patch |
+| `cargo deny`, `cargo audit`, licences | Nothing new; Apache-2.0 and MIT; 10 new crates | Not a crate, so neither sees it; MIT, with bundled code under MIT, Apache-2.0 and BSD |
+| A control string that never ends | An OSC string is buffered without limit: `oso-term` would need a 4 KiB pre-filter | Bounded |
+| Fuzzing with generated escape sequences, two hours or more each | Stopped only in a 1-column terminal; with 2 columns at least, none in 7.7 million inputs | The pre-release commit stopped on crafted output; 1.0.1 did not, in 8.4 million inputs, `ReleaseSafe` included |
+| Memory safety | Safe Rust; its `unsafe` is in PTY code oso never calls | Zig built `ReleaseFast`, and C++, in oso's process |
+| OSC 7, 133, 9, 777 and 9;4; OSCs it does not know | Through the second parser | Callbacks, and unknown OSCs up to a size oso sets |
+| Kitty graphics | oso's to build; `vte` drops APC strings | Built in |
+
+- **Why:** libghostty-vt takes about a third of the memory for the same scrollback and parses
+  faster, and it brings what steps 6, 10 and 12 would otherwise build on top of
+  `alacritty_terminal`. A 100 MB `cat` is bound by the PTY either way, about 0.75 s on this Mac, and
+  a TUI at 60 frames a second uses under a tenth of either engine. The author took the build and
+  toolchain cost as solvable. libghostty-vt's 1.0 release gives a stable C ABI, signed source and
+  dependency tarballs and an independent release cycle. herdr and ghostel embed it in-process;
+  JetBrains' IDEs and KDE's Kwi are built on it, and Neovim's `:terminal` is moving to it.
+- **Rejected:** running the engine in a helper process per terminal. Moving a full 300 × 100
+  snapshot through a pipe costs about 0.15 ms on the terminal's thread, but the protocol, restarts
+  and a sandbox per system were judged two to three weeks more. It stays possible behind `Engine`.
+- **The conditions** the choice came with:
+  1. `oso-term`'s fuzz target runs against the pinned release, and every bump of libghostty-vt is
+     fuzzed again before it lands.
+  2. `oso_term::Engine` stays, so that the engine can move to a helper process, or back to
+     `alacritty_terminal`, if the library ever aborts on crafted output.
+  3. Zig is pinned to 0.17; the build is offline from the release's tarballs, checked against
+     their signature; `just clippy-windows` builds with a stub in place of the library; Windows
+     (MSVC) builds on a Windows runner when Windows terminals come.
+  4. The Kitty graphics buffer is capped at 16 MiB (the library's default is larger), and the
+     scrollback byte limit is set to `SIZE_MAX`, so that `[terminal] scrollback`'s lines decide: in
+     1.0, a NULL byte limit restores a small default instead of removing it.
+  5. A remaining cost the author accepted is recorded privately.
+
+What this changes in the steps after it, which were written for `alacritty_terminal`:
+
+- **The engine and the crates, and step 3:** the second `vte` parser and its 4 KiB cap are not
+  built. The library reports OSC 7, 133, 9, 777 and 9;4 through callbacks, and an OSC it does not
+  know, oso's shell command sequence among them, through its unknown-sequence callback, capped at
+  4 KiB. No pre-filter and no 2-column floor are needed.
+  - `oso-term` holds the FFI (hand-written, checked against the library's manifest), a `build.rs`
+    that runs Zig, and the safe `Engine` over them; all its `unsafe` is there.
+  - Each terminal's thread owns one terminal handle and one render state: the library makes no
+    threads and its handles are not thread-safe, which fits one thread per terminal. A snapshot is
+    built from the render state's dirty rows.
+  - The policy acts on the library's callbacks. Two are never installed: the clipboard read, since
+    with it even a denied read answers an empty OSC 52, and the window resize. The title report is
+    turned off. The theme's colors are set in the library, so that it answers OSC 4, 10, 11 and 12
+    from them, and device attributes are answered through their callback; step 3's tests check
+    each against the table.
+  - The key encoder: oso's own, as Input says, or the library's (`key.h`), which knows the modes
+    already. Step 3 decides.
+  - The fuzz target feeds `oso-term` through the FFI. libFuzzer's coverage does not reach inside
+    Zig, so a generator of escape sequences runs as well; the library is fuzzed upstream with AFL++.
+- **Cost and scrollback (Q11):** a cell takes about 9 bytes, not 24, so 10,000 lines of 200 columns
+  take about 20 MB. The library frees scrollback a page at a time, so a terminal keeps up to a few
+  hundred lines fewer than `[terminal] scrollback` says (9,410 of 10,000 at 80 columns).
+- **Step 5:** the live search stays oso's, with isearch's regexp and migemo, on the terminal's
+  thread; it reads rows through the FFI. Whether the library's own search (`search.h`) can serve it
+  is step 5's to check.
+- **Step 6:** OSC 7, 133, the notifications and progress come from callbacks. OSC 133's parameters
+  arrive parsed, and the ones it does not know, `aid=` among them, are not passed on; moving between
+  prompts needs none of them.
+- **Step 11:** the screen and the scrollback re-encoded as escape sequences come from the library's
+  formatter.
+- **Step 12:** Kitty graphics are the library's: the image store (10 MB by default, set to this
+  ADR's 64 MiB a terminal), the 16 MiB cap on what it buffers, and transmission from a file, a
+  temporary file or shared memory left off. It decodes PNG with Wuffs, generated C, in oso's process
+  while it parses, so on the terminal's thread, not with a pure-Rust decoder on a worker, as Q10's answer and
+  [`security.md`](../security.md)'s T10 have it. Step 12 decides between that and building the
+  library without Kitty graphics and decoding in oso. `oso-render` draws the images the render
+  state lists.
+
+What step 3 needs besides its own crate, each through the `add-dependency` skill or the author first:
+
+- **No new crate:** the FFI is hand-written, with no `bindgen`, `cc` or sys crate. `cargo deny` and
+  `cargo audit` do not see libghostty-vt or what it bundles (simdutf, highway, Wuffs, uucode), so
+  each version and licence is listed by hand, and read again at each bump, as the grammars' C is
+  ([ADR 0111](0111-tree-sitter-highlighting.md)). The MIT licence's notice ships with oso.
+- **The source:** the release's two tarballs, about 10 MB, are either committed or fetched and
+  checked by a `just` recipe; `build.rs` never downloads. Step 3 asks.
+- **The toolchain:** Zig 0.17 on every machine and CI runner that builds `oso-term`, which needs a
+  `.github/` change, and a Windows runner later.
+- **The guard files:** `build.rs` runs Zig with `std::process::Command` and prints to cargo, which
+  `clippy.toml`'s rules forbid elsewhere. The architecture test's list of where they may be
+  silenced, `just clippy-windows`'s stub tools and `just release-safety` change with it.
+- **`deny.toml`:** nothing to add for the library. As tree-sitter is, `oso-term` alone may use it,
+  which the architecture test checks for an FFI module rather than `deny.toml`'s wrappers.
+- **`security.md`:** T10 names libghostty-vt as the second exception after the grammars: a
+  memory-unsafe parser of untrusted bytes in oso's process, pinned to a signed release and fuzzed at
+  each bump. A crash in it ends oso with no emergency save, as one in a grammar does.
 
 ### Step 2: the PTY
 

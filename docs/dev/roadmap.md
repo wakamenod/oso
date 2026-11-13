@@ -264,12 +264,12 @@ alongside the steps above, after M2-16:
   conflict resolution.
 - Compile buffer (running `just ci`), format on save.
 - The terminal, replacing a terminal app
-  ([ADR 0120](adr/0120-the-terminal.md)): a PTY of oso's own, the engine chosen by
-  a time-boxed comparison, a thread per terminal, semi-char keys with `C-s` search
-  and copy mode, the escape-sequence policy, project terminals (`C-x p m`,
-  `C-x p M`), a floating terminal (`` C-` ``), shell commands that run listed oso
-  commands, Kitty images, the seam for the compile buffer, and terminals that
-  survive `oso dev`'s restart. OSC 7501 status comes with sessions (ADR 0121).
+  ([ADR 0120](adr/0120-the-terminal.md)): a PTY of oso's own, libghostty-vt as the
+  engine (chosen by a time-boxed comparison), a thread per terminal, semi-char
+  keys with `C-s` search and copy mode, the escape-sequence policy, project
+  terminals (`C-x p m`, `C-x p M`), a floating terminal (`` C-` ``), shell commands
+  that run listed oso commands, Kitty images, the seam for the compile buffer, and
+  terminals that survive `oso dev`'s restart. OSC 7501 status comes with sessions (ADR 0121).
 - Claude Code integration ([ADR 0031](adr/0031-claude-code-integration.md)):
   the official `claude` TUI in a terminal view. Sessions and spaces
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)): state read from the
