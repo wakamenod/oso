@@ -36,6 +36,7 @@ mod replace;
 mod review;
 #[cfg(target_os = "macos")]
 mod secure;
+mod session_tools;
 mod sessions;
 mod terminal;
 mod undo;
