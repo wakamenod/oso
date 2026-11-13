@@ -334,11 +334,24 @@ mod tests {
         result.map(|()| redraw).map_err(|e| e.to_string())
     }
 
+    /// Runs the worker's jobs in place, as the host's thread would: a key searches on its
+    /// own for a few milliseconds only, counted from before it builds the pattern.
+    fn drain(editor: &mut Editor) {
+        while let Some(job) = editor.take_isearch_job() {
+            let mut reports = Vec::new();
+            job.run(|report| reports.push(report));
+            for report in reports {
+                editor.isearch_reported(report);
+            }
+        }
+    }
+
     #[test]
     fn a_search_starts_types_and_ends() {
         let mut editor = Editor::with_buffer(Buffer::from_text("a", "say foo"));
         assert_eq!(run(&mut editor, "isearch-forward", ""), Ok(true));
         assert_eq!(run(&mut editor, "isearch-printing-char", "fo"), Ok(true));
+        drain(&mut editor);
         assert_eq!(editor.window().selections.primary().cursor, 6);
         assert_eq!(run(&mut editor, "isearch-exit", ""), Ok(true));
         assert!(editor.isearch().is_none());
@@ -350,8 +363,10 @@ mod tests {
         assert_eq!(run(&mut editor, "isearch-forward-regexp", ""), Ok(true));
         assert!(editor.isearch().is_some_and(|search| search.regexp()));
         assert_eq!(run(&mut editor, "isearch-printing-char", "b."), Ok(true));
+        drain(&mut editor);
         assert_eq!(editor.window().selections.primary().cursor, 7);
         assert_eq!(run(&mut editor, "isearch-toggle-regexp", ""), Ok(true));
+        drain(&mut editor);
         assert!(editor.isearch().is_some_and(|search| !search.regexp()));
         // `b.` literally is nowhere.
         assert!(editor.isearch().is_some_and(|search| search.failing()));
