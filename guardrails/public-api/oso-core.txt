@@ -41,12 +41,14 @@ pub fn oso_core::buffer::EditError::hash<__H: core::hash::Hasher>(&self, &mut __
 impl core::marker::Copy for oso_core::buffer::EditError
 impl core::marker::StructuralPartialEq for oso_core::buffer::EditError
 pub enum oso_core::buffer::Mode
+pub oso_core::buffer::Mode::Brief
 pub oso_core::buffer::Mode::CopyList
 pub oso_core::buffer::Mode::CopyView
 pub oso_core::buffer::Mode::Fundamental
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::Rust
 pub oso_core::buffer::Mode::Toml
+pub oso_core::buffer::Mode::Worktrees
 impl oso_core::buffer::Mode
 pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
 pub fn oso_core::buffer::Mode::indent_rules(self) -> core::option::Option<fn(&oso_core::rope::Rope, oso_core::indent::Settings, &[oso_core::indent::Line], &mut oso_core::indent::Budget) -> alloc::vec::Vec<oso_core::indent::Answer>>
@@ -251,6 +253,10 @@ impl<'a> core::clone::Clone for oso_core::buffer::Replacement<'a>
 pub fn oso_core::buffer::Replacement<'a>::clone(&self) -> oso_core::buffer::Replacement<'a>
 pub mod oso_core::command
 pub enum oso_core::command::ArgSpec
+pub oso_core::command::ArgSpec::BranchAndBaseOnPrefix
+pub oso_core::command::ArgSpec::BranchAndBaseOnPrefix::base_prompt: &'static str
+pub oso_core::command::ArgSpec::BranchAndBaseOnPrefix::history: &'static str
+pub oso_core::command::ArgSpec::BranchAndBaseOnPrefix::prompt: &'static str
 pub oso_core::command::ArgSpec::Buffer
 pub oso_core::command::ArgSpec::Buffer::history: &'static str
 pub oso_core::command::ArgSpec::Buffer::prompt: &'static str
@@ -450,6 +456,7 @@ pub struct oso_core::command::Ctx<'a>
 pub oso_core::command::Ctx::editor: &'a mut oso_core::editor::Editor
 impl<'a> oso_core::command::Ctx<'a>
 pub fn oso_core::command::Ctx<'a>::answer(&self) -> core::option::Option<&'a str>
+pub fn oso_core::command::Ctx<'a>::branch_and_base(&self) -> core::option::Option<(&'a str, core::option::Option<&'a str>)>
 pub fn oso_core::command::Ctx<'a>::clipboard(&self) -> core::option::Option<&'a oso_core::kill::FromClipboard>
 pub fn oso_core::command::Ctx<'a>::confirmed(&self) -> bool
 pub fn oso_core::command::Ctx<'a>::directory_and_text(&self) -> core::option::Option<(&'a str, &'a str)>
@@ -1358,12 +1365,21 @@ pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
 pub enum oso_core::editor::SessionRequest
+pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Resume(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::SendBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Start
 pub oso_core::editor::SessionRequest::Start::directory: core::option::Option<std::path::PathBuf>
 pub oso_core::editor::SessionRequest::Start::name: core::option::Option<alloc::string::String>
+pub oso_core::editor::SessionRequest::StartShared
+pub oso_core::editor::SessionRequest::Worktree
+pub oso_core::editor::SessionRequest::Worktree::base: core::option::Option<alloc::string::String>
+pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String
+pub oso_core::editor::SessionRequest::WorktreeList
+pub oso_core::editor::SessionRequest::WorktreeRemove(core::option::Option<std::path::PathBuf>)
+pub oso_core::editor::SessionRequest::WorktreeRemoveConfirmed
 impl core::clone::Clone for oso_core::editor::SessionRequest
 pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest
 impl core::cmp::Eq for oso_core::editor::SessionRequest
