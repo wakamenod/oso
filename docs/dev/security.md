@@ -480,8 +480,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Image and PDF support (M4 and later) will use pure-Rust decoders, or isolate
   parsing in a separate process. The terminal's Kitty images use a pure-Rust PNG decoder on a
   worker ([ADR 0120](adr/0120-the-terminal.md)).
-- The terminal engine parses untrusted output in `oso-term`, which has a fuzz target. Which engine
-  is decided by ADR 0120's step 1; libghostty-vt would be memory-unsafe parsing in oso's process.
+- The terminal engine, libghostty-vt, parses untrusted output in `oso-term`'s FFI: memory-unsafe
+  Zig and C++ in oso's process, the second exception after the grammars. It is pinned to a signed
+  release, built offline, and fuzzed through `oso-term`'s target at each bump; a crash in it ends
+  oso with no emergency save, as one in a grammar does. Its Kitty images are decoded by Wuffs inside
+  it, not by a pure-Rust decoder, unless ADR 0120's step 12 builds it without them
+  ([ADR 0120](adr/0120-the-terminal.md), step 1 as built).
 - Tree-sitter's grammars are the exception: generated and hand-written C that runs in the oso
   process on untrusted files ([ADR 0012](adr/0012-tree-sitter.md)). They are few, pinned to exact
   versions, with each `build.rs` and scanner read before a bump, and never run on a buffer that
