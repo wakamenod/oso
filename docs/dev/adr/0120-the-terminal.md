@@ -327,6 +327,7 @@ bidi and invisible characters dropped and is cut at 256 bytes.
 |---|---|
 | OSC 52 clipboard read | Denied (ADR 0015). |
 | OSC 52 clipboard write | Into the kill ring. Into the OS clipboard too when the person pressed a key in that terminal in the last 2 s; the echo area names the terminal and the length (Q8). |
+| OSC 5522 (kitty clipboard) writes, OSC 1337 `Copy` | As OSC 52 writes: into the kill ring, and into the OS clipboard under the same 2 s rule, on the host's side (Q8). Their replies are dropped. |
 | OSC 0, 1, 2 title | Shown in the modeline, and kept for the host API. |
 | Title report (`CSI 21 t`), OSC 50 font, `DECRQSS` | Denied (ADR 0015). |
 | Title stack (`CSI 22 t`, `CSI 23 t`) | Allowed. |
@@ -1002,6 +1003,11 @@ each of its sixteen questions.
   `Palette`, `Underline`, `Attrs`, `Cursor`, `CursorShape`, `Modes`, `Mouse`; `Event`,
   `Progress`, `Prompt`, `End`; and three limits. `Rgb` and `Palette` sit in `snapshot`, below
   the engine that uses them, and are re-exported at the crate root. `Engine` is crate-private.
+  The modules `event`, `snapshot` and `terminal` are private too: the items are reached through
+  the root's re-exports, and `limits` is the one public module. A `Row` holds the text of all
+  its cells of more than one code point in one `text` string, and `graphemes` gives each such
+  cell's column and byte range in it, so a snapshot allocates nothing per cluster and a
+  recycled row keeps its buffer (an approved change of the planned `Vec<(u16, String)>`).
 - **The `unsafe` (Q9):** 23 foreign functions, and 54 blocks of one operation each (four only
   in tests), each with its `// SAFETY:` comment: one per foreign call in `raw`, and in each
   callback one for its sink and one per pointer it reads. Every callback catches panics.
@@ -1015,12 +1021,25 @@ each of its sixteen questions.
   without resizes, for this step and at every bump.
 - **The policy (Q11 to Q14):** besides the table, enquiry gets no answer and XTVERSION answers
   `oso <version>`; the checksum report (DECRQCRA) is off; DECRQSS's replies are dropped, as the
-  library answers it through the same callback as the reports it may make. Kitty graphics are
+  library answers it through the same callback as the reports it may make: replies go back
+  only in the shapes the table's answered rows name, and the rest the library would answer is
+  dropped. OSC 5522 writes and OSC 1337 `Copy` reach the kill ring as OSC 52 writes do, under
+  the same 1 MiB limit, and the library's acknowledgements of them are dropped. Kitty graphics are
   off until step 12 (an image store of 0 bytes, which turns the protocol off; its buffer at
   16 MiB, the file, temporary-file and shared-memory mediums off). OSC 52 writes over 1 MiB are
   dropped. The thread reads 64 KiB at a time and parses at most 1 MiB before it looks at
   requests; replies are dropped past 64 KiB waiting; a snapshot carries at most 256 events,
   bells joined; a grid is between 2 × 1 and 1000 × 500 cells.
+- **Cost:** a full snapshot of a 300 × 100 screen, every row dirty, on the author's MacBook
+  (p50 / p99 of 200, the `measure` test): plain text 0.10–0.12 / 0.13–0.17 ms; a new color on
+  every cell 0.31 / 0.36 ms; two styles alternating 0.19 / 0.21–0.23 ms; a cluster of two code
+  points in every cell 0.76–0.78 / 0.84–0.85 ms, down from 1.05 / 1.16–1.19 ms with one string
+  per cell. The last two cases are crafted and over the 0.3 ms budget; what is left of the
+  clusters' cost is the library's lookup of each cell's cluster, across the foreign call. Step 4
+  measures snapshots in context, with the view. Parsing: about 980 MB/s of plain text and
+  290 MB/s of SGR-heavy text.
+- **Backpressure:** while the UI leaves snapshots untaken, the thread keeps parsing into the
+  next one; whether that costs the UI anything is measured in step 4's flow of 8 terminals.
 - **The end (Q15):** after the PTY's end the thread looks for the child's exit every 50 ms for
   2 s and reports its status; a child that outlives that is reaped on a thread of its own and
   the end is reported as `Closed`.
