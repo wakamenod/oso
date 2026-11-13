@@ -10,6 +10,7 @@ mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
 mod requests;
+mod sending;
 mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -73,6 +74,8 @@ pub(in crate::app) struct Watch {
     aging: bool,
     /// Each hosted session's space's name.
     placed: HashMap<SessionKey, String>,
+    /// Who messaged each session, and which can take a paste (step 5).
+    sending: sending::Sending,
     /// How many notices asked for attention, for end-to-end flows: the Dock cannot be seen.
     #[cfg(feature = "dev")]
     asked: u32,
@@ -252,6 +255,7 @@ impl App {
             self.editor.set_listed(SESSIONS_LIST, candidates);
             self.editor
                 .set_listed(SPACES_LIST, self.watch.spaces.candidates());
+            self.sending_lists(&entries);
         }
         visible |= self.note_sessions(&entries, now);
         visible |= self.show_sessions_list(&entries, now);
@@ -436,11 +440,7 @@ impl App {
                     branch: None,
                     state,
                     since,
-                    recap: self
-                        .watch
-                        .known
-                        .get(&session.key)
-                        .map_or_else(String::new, |known| known.recap.clone()),
+                    recap: self.recap_of(session.key),
                     pinned: session.pinned,
                     archived: session.archived,
                     parent,
@@ -449,6 +449,21 @@ impl App {
             .collect();
         entries.extend(self.watch.externals.iter().cloned());
         entries
+    }
+
+    /// What session `key`'s row says under its name: who messaged it while the person has
+    /// not seen it since, then its recap.
+    fn recap_of(&self, key: SessionKey) -> String {
+        let recap = self
+            .watch
+            .known
+            .get(&key)
+            .map_or("", |known| known.recap.as_str());
+        match self.message_note(key) {
+            Some(note) if recap.is_empty() => note,
+            Some(note) => format!("{note} · {recap}"),
+            None => recap.to_owned(),
+        }
     }
 
     /// Session `session`'s state and since when: as the worker told it, while that agrees

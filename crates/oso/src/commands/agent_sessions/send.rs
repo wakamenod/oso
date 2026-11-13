@@ -156,7 +156,17 @@ fn excerpt(buffer: &Buffer, range: std::ops::Range<usize>, text: Option<String>)
 
 fn session_mention(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let name = super::answer(ctx, "No session")?;
-    insert_at_cursors(ctx, &format!("@{name}"), 1)
+    if !ctx.editor.current().1.is_terminal() {
+        return insert_at_cursors(ctx, &format!("@{name}"), 1);
+    }
+    // In a terminal: pasted, as the person's typing, into the session it holds; the host
+    // refuses a terminal that holds none.
+    let id = ctx.editor.window().buffer();
+    ctx.editor.request_session(SessionRequest::Send {
+        to: SendTo::Buffer(id),
+        parts: vec![SendPart::Note(format!("@{name} "))],
+    });
+    Ok(())
 }
 
 fn session_follow_message(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

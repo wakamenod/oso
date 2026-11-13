@@ -294,9 +294,9 @@ impl App {
         self.editor.message(said);
     }
 
-    /// `C-y` in a terminal: with bracketed paste off, text of several lines asks first
-    /// (ADR 0120, Q13).
-    fn paste(&mut self, buffer: BufferId, text: String) {
+    /// `C-y` in a terminal, or a send to an agent session (ADR 0121, Q17): with bracketed
+    /// paste off, text of several lines asks first (ADR 0120, Q13).
+    pub(in crate::app) fn paste(&mut self, buffer: BufferId, text: String) {
         let Some(hosted) = self.terminals.map.get_mut(buffer) else {
             return;
         };

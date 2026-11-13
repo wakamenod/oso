@@ -15,14 +15,6 @@
 //! (`@diagnostics`, `session-fix-error`) would be one more kind of part, put together here
 //! too, once oso has them.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the app pastes what it gives once sessions are fed (ADR 0121 step 5)"
-    )
-)]
-
 use std::fmt::Write as _;
 use std::path::Path;
 

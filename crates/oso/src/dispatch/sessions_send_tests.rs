@@ -194,6 +194,21 @@ fn a_mention_inserts_the_name_at_each_cursor() {
 }
 
 #[test]
+fn a_mention_in_a_terminal_asks_to_paste_the_name_into_its_session() {
+    let (mut d, mut editor) = (Dispatcher::new(), notes());
+    let buffer = editor.add_terminal_buffer("*claude: api*");
+    editor.show(buffer);
+    send(&mut d, &mut editor, "C-x a @ RET");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::Send {
+            to: SendTo::Buffer(buffer),
+            parts: vec![SendPart::Note("@api ".to_owned())],
+        }]
+    );
+}
+
+#[test]
 fn c_x_a_f_asks_for_the_sender_of_this_sessions_newest_message() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
     let buffer = editor.window().buffer();

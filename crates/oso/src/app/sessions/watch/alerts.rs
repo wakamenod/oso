@@ -115,6 +115,7 @@ impl App {
         if self.watched_session() != Some(key) {
             return;
         }
+        self.message_seen(key);
         if let Some(worker) = &self.sessions {
             worker.send(Job::Seen(key));
         }

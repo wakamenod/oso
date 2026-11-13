@@ -1,6 +1,7 @@
 //! What the commands of ADR 0121 step 3 ask, carried out: `*Sessions*` and its rows, showing a
 //! session (in its space, Q2), spaces and zoom, a live explain, and a stop that asks first
-//! while a session works or needs input (Q8). The question is the host's, as only the app
+//! while a session works or needs input (Q8); and step 5's sends and message follows, in
+//! `sending`. The question is the host's, as only the app
 //! knows a session's state.
 //!
 //! Must not depend on: how a frame is drawn, or key presses.
@@ -50,6 +51,8 @@ impl App {
             SessionRequest::Row { line, action } => self.on_row(line, action),
             SessionRequest::Regroup => self.watch.list.regroup(),
             SessionRequest::Refresh => {}
+            SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
+            SessionRequest::FollowMessage(buffer) => self.follow_message(buffer),
             other => return Some(other),
         }
         self.watch.stale = true;
@@ -74,7 +77,7 @@ impl App {
     }
 
     /// The hosted session whose terminal's buffer is called `name`.
-    fn session_named(&self, name: &str) -> Option<SessionKey> {
+    pub(super) fn session_named(&self, name: &str) -> Option<SessionKey> {
         self.hosting.table().iter().find_map(|session| {
             let buffer = session.buffer?;
             (self.editor.buffer(buffer)?.name() == name).then_some(session.key)

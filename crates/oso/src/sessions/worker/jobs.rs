@@ -42,6 +42,8 @@ struct Session {
     recap: String,
     /// The message lines of the last look judged in time.
     messages: Seen,
+    /// Whether the last look judged in time matched a hold rule; `None` before the first.
+    held: Option<bool>,
 }
 
 impl Session {
@@ -142,6 +144,7 @@ impl Core {
                     late: 0,
                     recap: String::new(),
                     messages: Seen::default(),
+                    held: None,
                 };
                 self.sessions.insert(key, session);
                 return Vec::new();
@@ -218,6 +221,7 @@ impl Core {
             }
             let mut recapped = None;
             let mut sent_by = Vec::new();
+            let mut judged = None;
             let target = if screen_due {
                 let Some(evidence) = &session.evidence else {
                     continue;
@@ -252,6 +256,11 @@ impl Core {
                     let deadline = Deadline::after(*budget);
                     sent_by = senders(rules.messages(), evidence, &mut session.messages, &deadline)
                         .unwrap_or_default();
+                    let held = matches!(verdict.target, Target::Hold);
+                    if session.held != Some(held) {
+                        session.held = Some(held);
+                        judged = Some(held);
+                    }
                 }
                 session.last = Some(verdict.target);
                 verdict.target
@@ -268,6 +277,7 @@ impl Core {
                 found.push(Out::Recap(key, recap));
             }
             found.extend(sent_by.into_iter().map(|from| Out::Message(key, from)));
+            found.extend(judged.map(|held| Out::Judged(key, held)));
         }
         found
     }
