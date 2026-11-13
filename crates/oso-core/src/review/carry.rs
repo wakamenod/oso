@@ -90,6 +90,14 @@ pub struct Applied {
     pub marks_changed: bool,
 }
 
+impl Carried {
+    /// Where each comment of the snapshot goes in the new reading, by id; `None` for one that
+    /// goes outdated. A comment added after the snapshot is not here.
+    pub fn placed(&self) -> &[(CommentId, Option<Anchor>)] {
+        &self.placed
+    }
+}
+
 impl Carry {
     /// Places every comment in the new reading and carries the marks. `base` is asked for the
     /// hunks between two old blobs ([`base_pair`]), at most once per pair, and answers `None`

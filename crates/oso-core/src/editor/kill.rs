@@ -168,6 +168,14 @@ impl Editor {
         self.apply_edits(id, &edits)
     }
 
+    /// Puts `pieces` in the ring as an entry of its own, which goes to the clipboard as a
+    /// kill's does, as a removed review comment does (ADR 0122).
+    pub(super) fn push_kill(&mut self, pieces: Vec<Piece>) {
+        let entry = self.kills.ring.push(pieces, false);
+        self.kills.killed = true;
+        self.kills.to_write = Some(entry);
+    }
+
     /// Puts `pieces` in the ring, appended to the newest entry if this follows a kill.
     fn add_kill(&mut self, pieces: Vec<Piece>, direction: Direction, secret: bool) {
         let kills = &mut self.kills;

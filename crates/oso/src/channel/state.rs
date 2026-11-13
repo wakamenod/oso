@@ -209,6 +209,7 @@ pub const fn kind(kind: Kind) -> &'static str {
         Kind::Passphrase => "passphrase",
         Kind::Complete { .. } => "complete",
         Kind::Question { .. } => "question",
+        Kind::Draft => "draft",
     }
 }
 

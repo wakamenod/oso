@@ -243,6 +243,16 @@ impl Review {
         self.comments.values()
     }
 
+    /// The comments on the file at `path`, oldest first, outdated ones included. Costs its
+    /// comments, not the review's.
+    pub fn comments_on(&self, path: &[u8]) -> impl Iterator<Item = &Comment> {
+        self.files
+            .get(path)
+            .into_iter()
+            .flat_map(|state| &state.comments)
+            .filter_map(|id| self.comments.get(id))
+    }
+
     /// Adds `by`'s comment on a line or hunk the current reading of `path` shows.
     pub fn add_comment(
         &mut self,
@@ -272,7 +282,7 @@ impl Review {
             anchor,
             shape: Some(Arc::clone(shape)),
             reading: state.readings,
-            text,
+            text: text.into(),
             reply_to: None,
             sent: false,
             resolved: false,
@@ -293,7 +303,7 @@ impl Review {
         let parent = self.comments.get(&to).ok_or(CommentError::NoSuchComment)?;
         let comment = Comment {
             author: by,
-            text,
+            text: text.into(),
             reply_to: Some(to),
             sent: false,
             resolved: false,
@@ -314,7 +324,7 @@ impl Review {
             return Err(CommentError::TooLong);
         }
         let comment = self.own(by, id)?;
-        comment.text = text;
+        comment.text = text.into();
         comment.sent = false;
         comment.read = by == Author::Person;
         Ok(())
@@ -350,7 +360,7 @@ impl Review {
         let thread = self.thread(id).ok_or(CommentError::NoSuchComment)?;
         for id in &thread {
             if let Some(comment) = self.comments.remove(id)
-                && let Some(state) = self.files.get_mut(&comment.path)
+                && let Some(state) = self.files.get_mut(&*comment.path)
             {
                 state.comments.remove(id);
             }
@@ -425,7 +435,7 @@ impl Review {
         let id = CommentId(self.next_id);
         self.next_id += 1;
         comment.id = id;
-        let state = self.files.entry(comment.path.clone()).or_default();
+        let state = self.files.entry(Box::from(&*comment.path)).or_default();
         state.comments.insert(id);
         state.added += 1;
         self.comments.insert(id, comment);
@@ -462,7 +472,7 @@ impl Review {
     fn thread(&self, id: CommentId) -> Option<Vec<CommentId>> {
         let root = self.comments.get(&id)?;
         let mut replies: HashMap<CommentId, Vec<CommentId>> = HashMap::new();
-        let file = self.files.get(&root.path).map(|state| &state.comments);
+        let file = self.files.get(&*root.path).map(|state| &state.comments);
         for comment in file
             .into_iter()
             .flatten()

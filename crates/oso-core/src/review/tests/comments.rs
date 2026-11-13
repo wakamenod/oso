@@ -8,6 +8,62 @@ use proptest::prelude::*;
 use super::*;
 
 #[test]
+fn comments_on_a_file_are_only_its_own_outdated_ones_included() {
+    let base = blob("b1");
+    let mut review = review_of(Shape::new(base.clone(), vec![hunk(7, &[], 7, &["one"])]).unwrap());
+    let other: &[u8] = b"src/b.rs";
+    let carried = review
+        .carry(
+            other,
+            Arc::new(Shape::new(base.clone(), vec![hunk(1, &[], 1, &["x"])]).unwrap()),
+        )
+        .run(|_, _| None, |a: &[&[u8]], b: &[&[u8]]| lcs(a, b));
+    review.apply(carried);
+    let a = review
+        .add_comment(Author::Person, FILE, new_line(7), "a".into())
+        .unwrap();
+    let b = review
+        .add_comment(Author::Agent, other, new_line(1), "b".into())
+        .unwrap();
+    let reply = review.reply(Author::Agent, a, "r".into()).unwrap();
+    let ids = |review: &Review, path: &[u8]| -> Vec<CommentId> {
+        review.comments_on(path).map(Comment::id).collect()
+    };
+    assert_eq!(ids(&review, FILE), [a, reply]);
+    assert_eq!(ids(&review, other), [b]);
+    assert!(ids(&review, b"none").is_empty());
+    review.remove_file(FILE);
+    assert_eq!(ids(&review, FILE), [a, reply], "outdated ones stay");
+}
+
+#[test]
+fn a_carried_result_says_where_each_comment_of_its_snapshot_goes() {
+    let base = blob("b1");
+    let mut review =
+        review_of(Shape::new(base.clone(), vec![hunk(7, &[], 7, &["one", "two"])]).unwrap());
+    let kept = review
+        .add_comment(Author::Person, FILE, new_line(7), "one".into())
+        .unwrap();
+    let gone = review
+        .add_comment(Author::Person, FILE, new_line(8), "two".into())
+        .unwrap();
+    let to = Shape::new(
+        base,
+        vec![hunk(1, &[], 1, &["use"]), hunk(7, &[], 8, &["one", "TWO"])],
+    );
+    let carried = review
+        .carry(FILE, Arc::new(to.unwrap()))
+        .run(|_, _| None, |a: &[&[u8]], b: &[&[u8]]| lcs(a, b));
+    let mut placed = carried.placed().to_vec();
+    placed.sort_by_key(|(id, _)| *id);
+    assert_eq!(placed, [(kept, Some(new_line(8))), (gone, None)]);
+    let late = review
+        .add_comment(Author::Person, FILE, new_line(7), "late".into())
+        .unwrap();
+    assert!(carried.placed().iter().all(|(id, _)| *id != late));
+}
+
+#[test]
 fn a_line_comment_follows_its_line_and_goes_outdated_when_it_changes() {
     let base = blob("b1");
     let mut review =

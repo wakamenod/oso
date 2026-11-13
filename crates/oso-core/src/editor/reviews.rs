@@ -16,6 +16,7 @@
 //!   free off the UI thread, as a 64 MiB text's highlights take milliseconds to drop.
 
 mod cells;
+mod draft;
 mod menu;
 
 use super::Editor;
@@ -27,6 +28,7 @@ use crate::sum_tree::Bias;
 use crate::syntax::Highlights;
 
 pub use cells::ReviewCells;
+pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
 
 /// A review's id, never reused while the editor runs.
@@ -122,6 +124,8 @@ pub(super) struct Reviews {
     open: Vec<Open>,
     requests: Vec<ReviewRequest>,
     menus: Vec<(ProjectId, ScopeMenu)>,
+    /// The open draft, if any.
+    draft: Option<draft::Draft>,
 }
 
 impl Reviews {
