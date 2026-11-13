@@ -160,3 +160,41 @@ fn a_completion_on_the_worker_takes_the_dictionary_and_matches_again_when_it_com
     work(&mut editor);
     assert_eq!(shown(&editor), 2);
 }
+
+#[test]
+fn a_prompt_opened_around_a_secret_wants_no_dictionary_once_it_no_longer_shows() {
+    // As when the window that showed the secret shows another buffer under the prompt.
+    let mut editor = searching(Buffer::from_text("t", ""));
+    editor.prompts.last_mut().unwrap().around_secret = true;
+    assert!(!editor.shows_secret());
+    typing(&mut editor, "kanji");
+    assert!(editor.take_search_request().is_some());
+    assert!(!editor.take_migemo_dictionary_wanted());
+    let mut editor = completing(Buffer::from_text("t", ""), &names());
+    editor.prompts.last_mut().unwrap().around_secret = true;
+    typing(&mut editor, "%kan");
+    assert!(!editor.take_migemo_dictionary_wanted());
+}
+
+#[test]
+fn no_query_keeps_a_table_alive() {
+    let mut editor = searching(Buffer::from_text("t", ""));
+    let table = dictionary();
+    editor.set_migemo_dictionary(table.clone());
+    typing(&mut editor, "kanji");
+    let request = editor.take_search_request().unwrap();
+    editor.rows_found(
+        request.generation,
+        Vec::new(),
+        Some(super::WalkEnd { cut: false }),
+    );
+    drop(request);
+    let mut completing = completing(Buffer::from_text("t", ""), &names());
+    completing.set_migemo_dictionary(table.clone());
+    typing(&mut completing, "%kan");
+    // The editors hold one each, and their queries none.
+    assert_eq!(Arc::strong_count(table.as_ref().unwrap()), 3);
+    editor.set_migemo_dictionary(dictionary());
+    completing.set_migemo_dictionary(None);
+    assert_eq!(Arc::strong_count(table.as_ref().unwrap()), 1);
+}

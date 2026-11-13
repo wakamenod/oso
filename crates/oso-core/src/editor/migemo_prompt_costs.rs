@@ -3,7 +3,7 @@
 //! migemo component compiled with the dictionary a person names, and a paste of several. The
 //! dictionary is read from the file `OSO_MIGEMO_DICTIONARY` names; only these measures read a
 //! file, and they print no word of it. Run in a release build on an idle machine:
-//! `OSO_MIGEMO_DICTIONARY=… cargo test -p oso-core --release --lib migemo_elsewhere_costs -- --ignored --nocapture --test-threads 1`.
+//! `OSO_MIGEMO_DICTIONARY=… cargo test -p oso-core --release --lib migemo_prompt_costs -- --ignored --nocapture --test-threads 1`.
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
@@ -119,7 +119,7 @@ fn pasted(editor: &mut Editor, prefix: &str, count: usize) -> Vec<f64> {
 
 #[test]
 #[ignore = "a measure for the ADR's notes, which needs a dictionary"]
-fn migemo_elsewhere_costs_of_a_key() {
+fn migemo_prompt_costs_of_a_key() {
     let dictionary = dictionary();
     let report = |what: &str, mut times: Vec<f64>| {
         let (p50, p99, max) = spread(&mut times);

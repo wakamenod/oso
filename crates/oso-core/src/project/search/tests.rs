@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use super::{LineHit, LineQuery, MAX_ROW_BYTES, compile, row_text};
-use crate::migemo::Dictionary;
+use crate::migemo::{Dictionary, Table};
 
 fn hits(input: &str, block: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
@@ -282,9 +282,12 @@ fn a_match_that_crosses_lines_is_not_looked_through_again_from_each_of_them() {
     );
 }
 
-/// A dictionary of `text`, in `migemo-dict`'s format.
-fn dictionary(text: &str) -> Arc<Dictionary> {
-    Arc::new(Dictionary::new(text.to_owned()))
+/// A dictionary of `text`, in `migemo-dict`'s format, as the editor's first.
+fn dictionary(text: &str) -> Table {
+    Table {
+        generation: 1,
+        dictionary: Arc::new(Dictionary::new(text.to_owned())),
+    }
 }
 
 /// The lines of `block` that `query` matches.
@@ -341,7 +344,7 @@ fn a_romaji_exclusion_leaves_out_its_kana_too() {
 #[test]
 fn a_romaji_component_narrows_only_as_it_is_with_its_dictionary() {
     let words = dictionary("かんじ\t漢字\n");
-    let parse = |input: &str, words: Option<&Arc<Dictionary>>| {
+    let parse = |input: &str, words: Option<&Table>| {
         LineQuery::parse_after(input, &LineQuery::empty(), true, words)
     };
     // A longer string's words need not be the shorter one's.
@@ -359,13 +362,18 @@ fn a_romaji_component_narrows_only_as_it_is_with_its_dictionary() {
 #[test]
 fn a_component_the_input_before_had_keeps_what_it_compiled() {
     let words = dictionary("かんじ\t漢字\n");
-    let parse = |input: &str, before: &LineQuery, words: Option<&Arc<Dictionary>>| {
+    let parse = |input: &str, before: &LineQuery, words: Option<&Table>| {
         LineQuery::parse_after(input, before, true, words)
     };
     let first = parse("kan a.*b f00", &LineQuery::empty(), None);
     assert_eq!(first.fresh(), [true, true, true]);
     let second = parse("kan a.*b f00 ji", &first, None);
     assert_eq!(second.fresh(), [false, false, false, true]);
+    // A component repeated compiles once.
+    assert_eq!(
+        parse("kan kan !kan", &LineQuery::empty(), None).fresh(),
+        [true, false, false]
+    );
     // A pasted input compiles each new component once, and the next key only what changed.
     let pasted = parse("kan a.*b f00 ji zu do ma", &second, None);
     assert_eq!(
@@ -375,14 +383,15 @@ fn a_component_the_input_before_had_keeps_what_it_compiled() {
     // A dictionary that came compiles migemo's components again, and only them.
     let third = parse("kan a.*b f00 ji", &second, Some(&words));
     assert_eq!(third.fresh(), [true, false, false, true]);
-    // A case that changes compiles everything again, and so does `=` or `!` before it.
+    // A case that changes compiles everything again, and `=` before one compiles it again;
+    // `!` keeps what it compiled.
     assert_eq!(
         parse("kan a.*b F00", &third, Some(&words)).fresh(),
         [true; 3]
     );
     assert_eq!(
         parse("=kan !a.*b f00", &third, Some(&words)).fresh(),
-        [true, true, false]
+        [true, false, false]
     );
     // What is kept matches as it did.
     let block = "漢字\nかん\n";

@@ -48,8 +48,8 @@ impl Folded {
     /// `text` with each kana and the combining sound mark after it composed (`か` and U+3099
     /// are `が`), `None` where it holds no such pair.
     pub(super) fn composed(text: &str) -> Option<Self> {
-        // The marks are U+3099 and U+309A, whose UTF-8 is `E3 82 99` and `E3 82 9A`.
-        if !text.contains(['\u{3099}', '\u{309A}']) {
+        // Most names are ASCII, which a vectorised look tells at once.
+        if text.is_ascii() || !text.contains(migemo::SOUND_MARKS) {
             return None;
         }
         let mut composed = String::with_capacity(text.len());
@@ -58,9 +58,7 @@ impl Folded {
         let mut changed = false;
         while let Some((offset, c)) = chars.next() {
             let mark = chars.peek().map(|&(_, mark)| mark);
-            let one = mark
-                .filter(|&mark| migemo::is_sound_mark(mark))
-                .and_then(|mark| migemo::composed(c, mark));
+            let one = mark.and_then(|mark| migemo::composed(c, mark));
             match one {
                 Some(one) => {
                     composed.push(one);

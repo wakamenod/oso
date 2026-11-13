@@ -24,9 +24,8 @@
 
 use std::fmt;
 use std::ops::Range;
-use std::sync::Arc;
 
-use crate::migemo::Dictionary;
+use crate::migemo::Table;
 #[cfg(test)]
 use component::compile;
 use component::{Asked, Component, Kind};
@@ -109,12 +108,13 @@ impl LineQuery {
     }
 
     /// [`LineQuery::parse`], reusing what `before` compiled for a component that is the same,
-    /// with romaji components migemo's if `migemo`, with `dictionary`'s words if one is given.
+    /// or an earlier one of the same input, with romaji components migemo's if `migemo`,
+    /// with `table`'s words if one is given.
     pub(crate) fn parse_after(
         input: &str,
         before: &Self,
         migemo: bool,
-        dictionary: Option<&Arc<Dictionary>>,
+        table: Option<&Table>,
     ) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
@@ -138,10 +138,11 @@ impl LineQuery {
         if raw.len() > MAX_COMPONENTS {
             return Self::too_long();
         }
-        let components = raw
-            .iter()
-            .filter_map(|raw| Component::parse(raw, ignore_case, before, migemo, dictionary))
-            .collect();
+        let mut components: Vec<Component> = Vec::with_capacity(raw.len());
+        for raw in &raw {
+            let parsed = Component::parse(raw, ignore_case, (before, &components), migemo, table);
+            components.extend(parsed);
+        }
         Self {
             components,
             ignore_case,
@@ -159,7 +160,7 @@ impl LineQuery {
 
     /// Whether a migemo component was compiled with no dictionary, so one would add words.
     pub(crate) fn wants_dictionary(&self) -> bool {
-        self.components.iter().any(|component| {
+        (self.components.iter()).any(|component| {
             component.kind == Kind::Migemo && component.asked == Asked::Migemo(None)
         })
     }
@@ -260,8 +261,11 @@ impl LineQuery {
             .iter()
             .filter(|component| !component.not)
             .max_by_key(|component| {
-                let literal = component.kind == Kind::Literal;
-                (component.pattern.chars().count(), literal)
+                // A literal or an expression has a prefilter, which a migemo pattern's words
+                // may not.
+                let chars = component.pattern.chars().count();
+                let quick = component.kind != Kind::Migemo && chars >= 3;
+                (quick, chars, component.kind == Kind::Literal)
             });
         let Some(driver) = driver.filter(|_| !self.too_long) else {
             return newlines(block);

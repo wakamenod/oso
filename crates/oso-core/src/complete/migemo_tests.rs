@@ -10,17 +10,20 @@ use std::sync::Arc;
 use proptest::prelude::*;
 
 use super::{Candidate, Candidates, Query};
-use crate::migemo::Dictionary;
+use crate::migemo::{Dictionary, Table};
 
 fn candidate(text: &str) -> Candidate {
     Candidate::new(text, "", "")
 }
 
-fn words() -> Arc<Dictionary> {
-    Arc::new(Dictionary::new("かんじ\t漢字\n".to_owned()))
+fn words() -> Table {
+    Table {
+        generation: 1,
+        dictionary: Arc::new(Dictionary::new("かんじ\t漢字\n".to_owned())),
+    }
 }
 
-fn query(input: &str, dictionary: Option<&Arc<Dictionary>>) -> Query {
+fn query(input: &str, dictionary: Option<&Table>) -> Query {
     Query::parse_after(input, &Query::default(), dictionary)
 }
 
@@ -126,17 +129,26 @@ fn a_dictionary_that_comes_matches_the_input_again() {
     let mut list = Candidates::new(items, []);
     list.set_input("%kan");
     assert_eq!(list.len(), 1);
-    assert!(
-        !list.use_dictionary(None),
-        "the same: nothing to match again"
-    );
+    assert!(!list.stale_for(None), "the same: nothing to match again");
     let words = words();
-    assert!(list.use_dictionary(Some(&words)));
-    list.set_input("%kan");
+    assert!(list.stale_for(Some(words.generation)));
+    list.set_input_with("%kan", Some(&words));
     assert_eq!(list.len(), 2);
+    assert!(!list.stale_for(Some(words.generation)));
+    // And when it goes.
+    assert!(list.stale_for(None));
     // An input with no migemo component need not be matched again.
     list.set_input("other");
-    assert!(!list.use_dictionary(None));
+    assert!(!list.stale_for(Some(2)));
+}
+
+#[test]
+fn a_component_repeated_in_one_input_compiles_once_and_romaji_without_kana_is_a_literal() {
+    let query = Query::parse("%kan %kan %struct");
+    assert!(query.uses_migemo());
+    assert!(!query.compiled_for_another(None));
+    // `struct` gives no kana, so it is a literal, which no dictionary changes.
+    assert!(!Query::parse("%struct").compiled_for_another(Some(1)));
 }
 
 proptest! {

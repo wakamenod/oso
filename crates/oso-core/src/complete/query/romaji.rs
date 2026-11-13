@@ -1,25 +1,15 @@
-//! A completion component that `%` makes migemo's (ADR 0116): its pattern compiled with a
-//! dictionary's words, or kept from the input before for the same text, case and dictionary,
+//! A completion component that `%` makes migemo's, as its romaji gives (ADR 0116): its
+//! pattern compiled with a dictionary's words, or kept for the same text, case and dictionary,
 //! and where it matches a candidate, whose kana are composed first.
 //!
 //! Must not depend on: `editor`, `minibuffer` or `display_map`; it works on strings alone.
 
 use std::ops::Range;
-use std::sync::Arc;
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 
-use super::{Candidate, Component, Query, Style, compile_within};
-use crate::migemo::{self, Dictionary};
-
-/// Whether `a` and `b` are the same dictionary, or both none.
-pub(super) fn same_dictionary(a: Option<&Arc<Dictionary>>, b: Option<&Arc<Dictionary>>) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-        (None, None) => true,
-        _ => false,
-    }
-}
+use super::{Candidate, Component, Query, Style};
+use crate::migemo::{self, Dictionary, Table};
 
 /// Migemo's pattern for `string`, ignoring case if `ignore_case`, with `dictionary`'s words,
 /// `None` if it gives no kana.
@@ -32,35 +22,43 @@ fn compile_migemo(
         string,
         dictionary,
         migemo::WORDS_SIZE_LIMIT,
-        |pattern, size_limit| compile_within(pattern, ignore_case, size_limit),
+        |pattern, size_limit| {
+            RegexBuilder::new(pattern)
+                .case_insensitive(ignore_case)
+                .size_limit(size_limit)
+                .nest_limit(migemo::NEST_LIMIT)
+                .build()
+                .ok()
+        },
     )
 }
 
 impl Component {
     /// The migemo component romaji `rest` stands for, `pattern` as kept, or `None` if it is
-    /// not romaji that gives kana, which is then a literal.
+    /// not romaji that gives kana, which is then a literal. What a component of `before`, or
+    /// one `built` before it of the same input, compiled for the same text, case and table is
+    /// kept.
     pub(super) fn migemo(
-        rest: &str,
-        pattern: &str,
+        (rest, pattern): (&str, &str),
         ignore_case: bool,
-        before: &Query,
-        dictionary: Option<&Arc<Dictionary>>,
+        (before, built): (&Query, &[Self]),
+        table: Option<&Table>,
     ) -> Option<Self> {
-        if !migemo::is_romaji(rest) {
+        if !migemo::gives_kana(rest) {
             return None;
         }
-        let same = before
-            .components
-            .iter()
+        let generation = migemo::generation(table);
+        let same = (before.components.iter())
             .filter(|_| before.ignore_case == ignore_case)
+            .chain(built)
             .find(|old| {
                 old.style == Style::Migemo
                     && &*old.pattern == pattern
-                    && same_dictionary(old.dictionary.as_ref(), dictionary)
+                    && old.dictionary == generation
             });
         let regex = match same {
             Some(old) => old.regex.clone(),
-            None => compile_migemo(rest, ignore_case, dictionary.map(|d| &**d)),
+            None => compile_migemo(rest, ignore_case, table.map(|t| &*t.dictionary)),
         }?;
         Some(Self {
             style: Style::Migemo,
@@ -72,7 +70,7 @@ impl Component {
             not: false,
             annotation: false,
             pattern: pattern.into(),
-            dictionary: dictionary.cloned(),
+            dictionary: generation,
         })
     }
 

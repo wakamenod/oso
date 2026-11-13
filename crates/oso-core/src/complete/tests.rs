@@ -517,7 +517,7 @@ fn a_merge_on_the_worker_gives_what_merging_here_gives() {
                 batches: vec![more.clone().into()],
                 history: history.iter().map(|text| (*text).to_owned()).collect(),
                 input: Some(input.to_owned()),
-                dictionary: None,
+                table: None,
             },
             1,
             Arc::new(AtomicU64::new(1)),

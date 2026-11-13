@@ -4,15 +4,13 @@
 
 use std::fmt;
 use std::ops::Range;
-use std::sync::Arc;
 
 use regex::{Regex, RegexBuilder};
 
 use super::{AFFIXES, Candidate};
-use crate::migemo::Dictionary;
-use migemo::same_dictionary;
+use crate::migemo::Table;
 
-mod migemo;
+mod romaji;
 
 /// The most memory a component's expression may take once compiled, so that one pasted in
 /// cannot take long to compile. A larger one matches as a literal. It admits ordinary Perl
@@ -79,14 +77,15 @@ struct Component {
     annotation: bool,
     /// What it matches, in lower case where case is ignored.
     pattern: Box<str>,
-    /// For a migemo one, the dictionary its pattern took words from, if any.
-    dictionary: Option<Arc<Dictionary>>,
+    /// For a migemo one, the generation of the dictionary its pattern took words from, if
+    /// any: never the table, so a query keeps none alive.
+    dictionary: Option<u64>,
 }
 
 impl PartialEq for Component {
     /// The expression and the searcher follow from the rest: whether it is tried as an
-    /// expression too, as `=` says it is not, and for a migemo one the dictionary, which it
-    /// holds, so the one compared is the one it was compiled with.
+    /// expression too, as `=` says it is not, and for a migemo one the dictionary's
+    /// generation.
     fn eq(&self, other: &Self) -> bool {
         (
             self.style,
@@ -100,7 +99,7 @@ impl PartialEq for Component {
             other.annotation,
             other.tried,
             &other.pattern,
-        ) && same_dictionary(self.dictionary.as_ref(), other.dictionary.as_ref())
+        ) && self.dictionary == other.dictionary
     }
 }
 
@@ -128,8 +127,8 @@ impl Component {
     fn parse(
         raw: &str,
         ignore_case: bool,
-        before: &Query,
-        dictionary: Option<&Arc<Dictionary>>,
+        (before, built): (&Query, &[Self]),
+        table: Option<&Table>,
     ) -> Option<Self> {
         let first = raw.chars().next()?;
         let last = raw.chars().next_back()?;
@@ -156,7 +155,8 @@ impl Component {
         };
         // `%` and romaji that gives kana is migemo's; anything else after it is a literal.
         if affix == Some('%')
-            && let Some(component) = Self::migemo(rest, &pattern, ignore_case, before, dictionary)
+            && let Some(component) =
+                Self::migemo((rest, &pattern), ignore_case, (before, built), table)
         {
             return Some(component);
         }
@@ -239,8 +239,9 @@ impl Component {
         // An expression matches the original text, ignoring case itself, so where it matched
         // needs no mapping back.
         let mut original = false;
-        // A text of fewer bytes than the component has characters cannot hold it.
-        let literal = if self.chars > text.len() {
+        // A text of fewer bytes than the component has characters cannot hold it, and a
+        // migemo one looks for its own pattern.
+        let literal = if self.style == Style::Migemo || self.chars > text.len() {
             None
         } else if let Some(finder) = &self.finder {
             finder.find(text).map(|hit| {
@@ -386,13 +387,9 @@ impl Query {
         Self::parse_after(input, &Self::default(), None)
     }
 
-    /// [`Query::parse`], reusing what `before` compiled for a component that is the same,
-    /// a migemo one taking `dictionary`'s words.
-    pub(crate) fn parse_after(
-        input: &str,
-        before: &Query,
-        dictionary: Option<&Arc<Dictionary>>,
-    ) -> Self {
+    /// [`Query::parse`], reusing what `before`, or an earlier component of the same input,
+    /// compiled for a component that is the same, a migemo one taking `table`'s words.
+    pub(crate) fn parse_after(input: &str, before: &Query, table: Option<&Table>) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
         }
@@ -416,10 +413,11 @@ impl Query {
         if raw.len() > MAX_COMPONENTS {
             return Self::too_long();
         }
-        let components = raw
-            .iter()
-            .filter_map(|raw| Component::parse(raw, ignore_case, before, dictionary))
-            .collect();
+        let mut components: Vec<Component> = Vec::with_capacity(raw.len());
+        for raw in &raw {
+            let parsed = Component::parse(raw, ignore_case, (before, &components), table);
+            components.extend(parsed);
+        }
         Self {
             components,
             ignore_case,
@@ -427,12 +425,20 @@ impl Query {
         }
     }
 
-    /// Whether a component matches as migemo's pattern, so a dictionary that comes would
-    /// change what it matches.
+    /// Whether a component matches as migemo's pattern, for tests.
+    #[cfg(test)]
     pub(crate) fn uses_migemo(&self) -> bool {
         self.components
             .iter()
             .any(|component| component.style == Style::Migemo)
+    }
+
+    /// Whether a migemo component took its words from another dictionary than that of
+    /// `generation`, or from none while there is one.
+    pub(crate) fn compiled_for_another(&self, generation: Option<u64>) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.style == Style::Migemo && component.dictionary != generation)
     }
 
     /// Whether a migemo component was compiled with no dictionary, so one would add words.

@@ -193,8 +193,6 @@ pub struct Candidates {
     given_order: bool,
     /// Only what is typed after the last `/` is matched, as a path's last segment (ADR 0087).
     last_segment: bool,
-    /// The dictionary a migemo component takes words from (ADR 0116).
-    dictionary: Option<Arc<migemo::Dictionary>>,
 }
 
 impl Candidates {
@@ -242,7 +240,6 @@ impl Candidates {
             previews: false,
             given_order: false,
             last_segment: false,
-            dictionary: None,
         }
     }
 
@@ -320,8 +317,15 @@ impl Candidates {
     }
 
     /// Matches `input`, looking only at what matched before where it narrows that, and
-    /// selects the first match. Nothing changes for the input matched last.
+    /// selects the first match, with no dictionary. Nothing changes for the input matched
+    /// last.
+    #[cfg(test)]
     pub(crate) fn set_input(&mut self, input: &str) {
+        self.set_input_with(input, None);
+    }
+
+    /// [`Candidates::set_input`], a migemo component taking `table`'s words (ADR 0116).
+    pub(crate) fn set_input_with(&mut self, input: &str, table: Option<&migemo::Table>) {
         let Some(part) = matched_part(input, self.last_segment) else {
             self.set_too_long();
             return;
@@ -334,15 +338,26 @@ impl Candidates {
             &self.items,
             &self.order,
             Some(before),
-            (Some(part), self.dictionary.as_ref()),
+            (Some(part), table),
             &|| false,
         ) {
             self.apply(matched, false);
         }
     }
 
-    /// What a worker needs to match `input`, unless it is the input matched last.
+    /// What a worker needs to match `input`, unless it is the input matched last, with no
+    /// dictionary.
+    #[cfg(test)]
     pub(crate) fn matching(&self, input: &str) -> Option<Matching> {
+        self.matching_with(input, None)
+    }
+
+    /// [`Candidates::matching`], a migemo component taking `table`'s words (ADR 0116).
+    pub(crate) fn matching_with(
+        &self,
+        input: &str,
+        table: Option<&migemo::Table>,
+    ) -> Option<Matching> {
         let part = matched_part(input, self.last_segment);
         if part.is_some() && self.input.as_deref() == part {
             return None;
@@ -352,7 +367,7 @@ impl Candidates {
             order: Arc::clone(&self.order),
             before: Some((Arc::clone(&self.matches), self.query.clone())),
             input: part.map(str::to_owned),
-            dictionary: self.dictionary.clone(),
+            table: table.cloned(),
         })
     }
 
@@ -376,24 +391,15 @@ impl Candidates {
         }
     }
 
-    /// Takes `dictionary` for a migemo component's words from the next input matched on
-    /// (ADR 0116). Whether the input matched last must be matched anew, as the dictionary is
-    /// not the one it had and a component is migemo's: what it matched stays until then.
-    pub(crate) fn use_dictionary(&mut self, dictionary: Option<&Arc<migemo::Dictionary>>) -> bool {
-        let same = match (&self.dictionary, dictionary) {
-            (Some(had), Some(given)) => Arc::ptr_eq(had, given),
-            (None, None) => true,
-            _ => false,
-        };
-        if same {
-            return false;
-        }
-        self.dictionary = dictionary.cloned();
-        let again = self.query.uses_migemo();
-        if again {
+    /// Whether the input matched last must be matched anew, as a migemo component took its
+    /// words from another dictionary than that of `generation` (ADR 0116): it is then
+    /// forgotten, and what it matched stays until the next match.
+    pub(crate) fn stale_for(&mut self, generation: Option<u64>) -> bool {
+        let stale = self.query.compiled_for_another(generation);
+        if stale {
             self.input = None;
         }
-        again
+        stale
     }
 
     /// Forgets that a candidate was moved to, as an input was typed after it.

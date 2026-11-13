@@ -4,12 +4,10 @@
 //!
 //! Must not depend on: `complete`, `editor` or file I/O.
 
-use std::sync::Arc;
-
 use regex::bytes::{Regex, RegexBuilder};
 
 use super::LineQuery;
-use crate::migemo::{self, Dictionary};
+use crate::migemo::{self, Dictionary, Table};
 
 /// The most memory a component's expression may take once compiled, as in completion.
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
@@ -40,30 +38,15 @@ pub(super) struct Component {
 }
 
 /// What a component was asked to be, by its text, its affix and the setting.
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Asked {
-    /// `=` or no character an expression reads, and not romaji.
+    /// `=` or no character an expression reads, and not romaji that gives kana.
     Literal,
     /// A literal, and an expression too if it is one alone.
     Expression,
-    /// Migemo's pattern, with the dictionary given, if any.
-    Migemo(Option<Arc<Dictionary>>),
-}
-
-impl PartialEq for Asked {
-    /// A migemo component is the same only with the same dictionary, which it holds, so the
-    /// one compared is the one it was compiled with.
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Literal, Self::Literal) | (Self::Expression, Self::Expression) => true,
-            (Self::Migemo(a), Self::Migemo(b)) => match (a, b) {
-                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-                (None, None) => true,
-                _ => false,
-            },
-            _ => false,
-        }
-    }
+    /// Migemo's pattern, with the words of the dictionary of this generation, if any: only
+    /// its generation is kept, so a query never keeps a table alive.
+    Migemo(Option<u64>),
 }
 
 /// What a component matches as.
@@ -132,7 +115,7 @@ fn compile_migemo(
             RegexBuilder::new(pattern)
                 .case_insensitive(ignore_case)
                 .size_limit(size_limit)
-                .nest_limit(REGEX_NEST_LIMIT)
+                .nest_limit(migemo::NEST_LIMIT)
                 .build()
                 .ok()
         },
@@ -141,14 +124,15 @@ fn compile_migemo(
 
 impl Component {
     /// The component `raw` stands for, with its affix read, reusing what a component of
-    /// `before` compiled for the same text and request, or `None` if nothing is left to match
-    /// or not even its literal compiles. `migemo` is the setting and `dictionary` the table.
+    /// `before`, or one `built` before it of the same input, compiled for the same text and
+    /// request, or `None` if nothing is left to match or not even its literal compiles.
+    /// `migemo` is the setting, and `table` the dictionary.
     pub(super) fn parse(
         raw: &str,
         ignore_case: bool,
-        before: &LineQuery,
+        (before, built): (&LineQuery, &[Self]),
         migemo: bool,
-        dictionary: Option<&Arc<Dictionary>>,
+        table: Option<&Table>,
     ) -> Option<Self> {
         let (not, literal, rest) = match raw.chars().next() {
             Some('!') => (true, false, &raw[1..]),
@@ -160,8 +144,8 @@ impl Component {
         }
         let asked = if literal {
             Asked::Literal
-        } else if migemo && migemo::is_romaji(rest) {
-            Asked::Migemo(dictionary.cloned())
+        } else if migemo && migemo::gives_kana(rest) {
+            Asked::Migemo(migemo::generation(table))
         } else if rest.contains(REGEX_META) {
             Asked::Expression
         } else {
@@ -172,11 +156,11 @@ impl Component {
         } else {
             rest.into()
         };
-        let same = before
-            .components
-            .iter()
+        // What is excluded compiles as what is not, so either is kept for the other.
+        let same = (before.components.iter())
             .filter(|_| before.ignore_case == ignore_case)
-            .find(|old| old.not == not && old.asked == asked && old.pattern == pattern);
+            .chain(built)
+            .find(|old| old.asked == asked && old.pattern == pattern);
         if let Some(old) = same {
             return Some(Self {
                 regex: old.regex.clone(),
@@ -189,7 +173,7 @@ impl Component {
             });
         }
         let migemo = match &asked {
-            Asked::Migemo(dictionary) => compile_migemo(rest, ignore_case, dictionary.as_deref()),
+            Asked::Migemo(_) => compile_migemo(rest, ignore_case, table.map(|t| &*t.dictionary)),
             _ => None,
         };
         let (regex, kind) = match migemo {

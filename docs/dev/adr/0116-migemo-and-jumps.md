@@ -770,7 +770,7 @@ coordinator; the notes below are those choices as built.
 - **Secrets.** No string or pattern reaches a log. `Debug` gives counts only, and `get-state`
   is as it was.
 - **A key's cost (Q3),** with the author's dictionary in a release build, load about 2–3 (the
-  ignored `editor/migemo_elsewhere_costs.rs`): every prefix of step 3's 174 common words,
+  ignored `editor/migemo_prompt_costs.rs`): every prefix of step 3's 174 common words,
   typed three times. A project's search key takes 0.14 ms p50, 2.1 ms p99 and 4.2 ms at most, and a key
   over 5000 candidates with `%` 0.28 ms, 2.3 ms and 2.5 ms. A paste of 3, 8 or 32 of the words
   takes about 2.0, 3.4 and 8.0 ms at p99 in either. The key after a paste takes 0.11 ms p99 in

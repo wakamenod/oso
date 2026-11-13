@@ -4,8 +4,11 @@
 //! [`Dictionary`], the words of the readings its hiragana start, joined as a trie.
 //!
 //! Must not depend on: any module of this crate, I/O or a log. It uses only
-//! `regex::escape`, and compiling the pattern is the caller's; reading a dictionary's file is
-//! the host's.
+//! `regex::escape`. [`compile`] holds the pattern's limits, and the caller's builder compiles
+//! it, of bytes or of text; reading a dictionary's file is the host's.
+//!
+//! It also composes a kana and a combining sound mark after it (`か` and U+3099 are `が`), for
+//! completion to match file names macOS writes decomposed.
 //!
 //! - A string is romaji while it holds only lowercase ASCII letters, `'` and `-`, and at
 //!   least one letter. It converts the longest spelling first, so it has one reading: `nn`
@@ -17,6 +20,8 @@
 //!   caller searches for the string as it is.
 //! - The pattern grows with the string, at most about 18 bytes a letter, and has no line
 //!   break. A string longer than `MAX_CHARS` has none.
+
+use std::sync::Arc;
 
 mod dictionary;
 mod forms;
@@ -34,6 +39,10 @@ use trie::{Key, Trie};
 /// The most memory a pattern with a dictionary's words may take once compiled (ADR 0116, Q7):
 /// past it, [`compile`] drops the words and keeps the kana.
 pub(crate) const WORDS_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
+/// The deepest a pattern may nest: past it, as past the words' size limit, [`compile`] drops
+/// the words.
+pub(crate) const NEST_LIMIT: u32 = 32;
 
 /// The most memory the kana's pattern alone may take once compiled, an isearch key's: the
 /// largest, of 256 characters, compiles within it on a key.
@@ -241,7 +250,7 @@ fn keys(hiragana: &[Key], form: Form) -> Vec<Key> {
 /// limit (ADR 0116): with `dictionary`'s words within [`WORDS_SIZE_LIMIT`], or, if there are
 /// none or that does not compile, the kana alone within [`KANA_SIZE_LIMIT`]. `None` if the
 /// string gives no kana (see [`Romaji::new`]) or not even the kana's pattern compiles, and
-/// the caller matches the string as it is. `build` sets the case and the nest limit.
+/// the caller matches the string as it is. `build` sets the case and [`NEST_LIMIT`].
 pub(crate) fn compile<R>(
     string: &str,
     dictionary: Option<&Dictionary>,
@@ -258,10 +267,26 @@ pub(crate) fn compile<R>(
     build(&romaji.pattern(string, &[]), KANA_SIZE_LIMIT)
 }
 
-/// Whether `c` is a combining sound mark, U+3099 or U+309A, which a kana before it may compose
-/// with.
-pub(crate) fn is_sound_mark(c: char) -> bool {
-    matches!(c, '\u{3099}' | '\u{309A}')
+/// The combining sound marks, U+3099 and U+309A, which a kana before them may compose with.
+pub(crate) const SOUND_MARKS: [char; 2] = ['\u{3099}', '\u{309A}'];
+
+/// A dictionary the editor holds, and the generation that tells it from every other it held.
+/// A compiled query keeps only the generation, so it never keeps a table alive, and only a
+/// job holds the table, while it runs.
+#[derive(Clone)]
+pub(crate) struct Table {
+    pub(crate) generation: u64,
+    pub(crate) dictionary: Arc<Dictionary>,
+}
+
+/// The generation of `table`, `None` for none: what a migemo component compiled with it keeps.
+pub(crate) fn generation(table: Option<&Table>) -> Option<u64> {
+    table.map(|table| table.generation)
+}
+
+/// Whether `string` is romaji that gives kana, and so has migemo's pattern.
+pub(crate) fn gives_kana(string: &str) -> bool {
+    Romaji::new(string).is_some()
 }
 
 /// The kana `base` and `mark`, a combining sound mark, compose to: `か` and U+3099 are `が`,
