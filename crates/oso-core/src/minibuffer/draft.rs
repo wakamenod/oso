@@ -1,18 +1,15 @@
 //! A review comment's draft in the top float (ADR 0122, step 3): the answer's rows grow with
-//! its text, wrapped, up to [`MAX_DRAFT_ROWS`], and scroll past them.
+//! its text, wrapped as its window wraps it, up to [`MAX_DRAFT_ROWS`], and scroll past them.
 //!
 //! Must not depend on: `editor`, `command` or `keymap`, or the host's window.
 
-use super::{Kind, PromptLayout, cut::cells_of, layout};
+use super::{Kind, PromptLayout, layout};
+use crate::display_map::DisplaySnapshot;
+use crate::display_map::wrap_map;
 use crate::frame::{CellRect, FrameLayout};
-use crate::rope::Rope;
 
 /// The most rows a draft's answer takes; past them it scrolls.
 pub(crate) const MAX_DRAFT_ROWS: usize = 10;
-
-/// The most bytes of a draft looked at to count its rows: more than [`MAX_DRAFT_ROWS`] rows
-/// of the widest float hold, so that a long draft costs no more than a short one.
-const LOOKED_AT: usize = 64 * 1024;
 
 /// Where a draft's parts go: as a prompt that reads text, its answer `rows` rows tall where
 /// the frame has room below, the field and its room with it.
@@ -44,40 +41,17 @@ pub(crate) fn draft_layout(
     placed
 }
 
-/// The rows `text` takes wrapped `columns` wide, as a window's wrap breaks a row a column short
-/// of its width, at most [`MAX_DRAFT_ROWS`]. Counts cells, not words, which is close enough for
-/// a panel's height, and looks at no more than [`LOOKED_AT`] bytes.
-pub(crate) fn draft_rows(text: &Rope, columns: usize) -> usize {
-    let width = columns.saturating_sub(1).max(1);
-    let mut rows = 1;
-    let mut cells = 0;
-    let mut looked = 0;
-    for chunk in text.chunks() {
-        for c in chunk.chars() {
-            looked += c.len_utf8();
-            if looked > LOOKED_AT || rows >= MAX_DRAFT_ROWS {
-                return MAX_DRAFT_ROWS;
-            }
-            if c == '\n' {
-                rows += 1;
-                cells = 0;
-                continue;
-            }
-            let mut buf = [0; 4];
-            let wide = cells_of(c.encode_utf8(&mut buf));
-            if cells + wide > width {
-                rows += 1;
-                cells = 0;
-            }
-            cells += wide;
-        }
-    }
-    rows.min(MAX_DRAFT_ROWS)
+/// The view rows the draft's text `display` takes in its window `columns` wide, broken where
+/// the window's wrap breaks them, at most [`MAX_DRAFT_ROWS`]: it reads only those rows, so a
+/// long draft costs no more than a short one.
+pub(crate) fn draft_rows(display: &DisplaySnapshot, columns: usize) -> usize {
+    wrap_map::rows_at_most(display, columns, MAX_DRAFT_ROWS)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::Buffer;
     use crate::frame::{FrameSize, single};
 
     fn frame() -> FrameLayout {
@@ -90,27 +64,29 @@ mod tests {
         )
     }
 
+    fn rows_of(text: &str, columns: usize) -> usize {
+        draft_rows(&Buffer::from_text("draft", text).display(), columns)
+    }
+
     #[test]
     fn rows_grow_with_lines_and_wrapping_and_stop_at_ten() {
-        assert_eq!(draft_rows(&Rope::from(""), 20), 1);
-        assert_eq!(draft_rows(&Rope::from("a\nb"), 20), 2);
-        assert_eq!(
-            draft_rows(&Rope::from("a\n"), 20),
-            2,
-            "the row after a break"
-        );
-        assert_eq!(draft_rows(&Rope::from(&*"x".repeat(19)), 20), 1);
-        assert_eq!(
-            draft_rows(&Rope::from(&*"x".repeat(20)), 20),
-            2,
-            "a column short"
-        );
-        assert_eq!(
-            draft_rows(&Rope::from(&*"\n".repeat(50)), 20),
-            MAX_DRAFT_ROWS
-        );
+        assert_eq!(rows_of("", 20), 1);
+        assert_eq!(rows_of("a\nb", 20), 2);
+        assert_eq!(rows_of("a\n", 20), 2, "the row after a break");
+        assert_eq!(rows_of(&"x".repeat(19), 20), 1);
+        assert_eq!(rows_of(&"x".repeat(20), 20), 2, "a column short");
+        assert_eq!(rows_of(&"\n".repeat(50), 20), MAX_DRAFT_ROWS);
         let long = "x".repeat(10 * 1024 * 1024);
-        assert_eq!(draft_rows(&Rope::from(&*long), 2000), MAX_DRAFT_ROWS);
+        assert_eq!(rows_of(&long, 2000), MAX_DRAFT_ROWS);
+    }
+
+    #[test]
+    fn rows_break_between_words_as_the_window_does() {
+        // 19 cells a row: four words of four fit; three of twelve take a row each, where
+        // counting 38 cells would make two.
+        assert_eq!(rows_of("aaaa bbbb cccc dddd", 20), 1);
+        let words = ["a", "b", "c"].map(|letter| letter.repeat(12)).join(" ");
+        assert_eq!(rows_of(&words, 20), 3);
     }
 
     #[test]

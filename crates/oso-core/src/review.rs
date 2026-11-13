@@ -469,7 +469,7 @@ impl Review {
 
     /// `id` and every reply under it, at any depth, found among its file's comments, where
     /// every reply is.
-    fn thread(&self, id: CommentId) -> Option<Vec<CommentId>> {
+    pub(crate) fn thread(&self, id: CommentId) -> Option<Vec<CommentId>> {
         let root = self.comments.get(&id)?;
         let mut replies: HashMap<CommentId, Vec<CommentId>> = HashMap::new();
         let file = self.files.get(&*root.path).map(|state| &state.comments);

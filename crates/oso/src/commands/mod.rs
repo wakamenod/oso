@@ -253,17 +253,10 @@ mod tests {
         "recover-session",
         "revert-buffer",
         // A review runs git, on a worker, in a trusted project (ADR 0122), and killing one may
-        // lose the person's comments, which only they may agree to. The person's comments are
-        // theirs alone to write (ADR 0122, Q11).
+        // lose the person's comments, which only they may agree to.
         "review-branch",
-        "review-comment",
         "review-commit",
-        "review-edit-comment",
-        "review-fold-agents",
-        "review-keep-draft",
         "review-kill",
-        "review-remove-comment",
-        "review-resolve",
         "review-mark-baseline",
         "review-range",
         "review-refresh",
@@ -271,6 +264,15 @@ mod tests {
         "review-staged",
         "review-uncommitted",
         "review-unstaged",
+        // The person's comments are theirs alone to write (ADR 0122, Q11).
+        "review-comment",
+        "review-edit-comment",
+        "review-keep-draft",
+        "review-remove-comment",
+        "review-resolve",
+        // Folding the agent's comments hides what it wrote from the person, who alone chooses
+        // how much of it to see.
+        "review-fold-agents",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
         // Opening and writing files by a path the person typed (ADR 0087); the channel has

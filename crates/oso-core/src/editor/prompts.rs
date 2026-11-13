@@ -452,28 +452,16 @@ impl Editor {
                 ),
                 // A draft's answer grows with its text (ADR 0122).
                 None if prompt.kind == Kind::Draft => {
-                    let columns =
-                        minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message)
-                            .input
-                            .columns;
-                    let rows = self.draft_answer_rows(columns).unwrap_or(1);
-                    minibuffer::draft_layout(&self.frame, &prompt.label, message, rows)
+                    self.draft_prompt_layout(&prompt.label, message)
                 }
                 None => minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message),
             }
         });
         if let Some(layout) = &self.prompt_layout {
-            let rows = if self.draft().is_some() {
-                layout.input.rows.max(1)
-            } else {
-                1
-            };
+            let rows = self.draft_window_rows(layout);
             let size = ViewSize::new(rows, layout.input.columns);
             self.windows[self.selected].set_size(size);
-            if self.draft().is_some() {
-                // It wraps at its width, and its cursor stays in view.
-                self.follow_window(self.selected);
-            }
+            self.follow_draft();
         }
         self.keep_selection_in_view();
     }
@@ -527,7 +515,7 @@ impl Editor {
                 self.reset_exit_guard();
             }
             // A draft's text is not lost: it goes to the kill ring (ADR 0122).
-            self.keep_quit_draft();
+            self.kill_draft_text();
             self.close_innermost();
             return Quit::Prompt;
         }

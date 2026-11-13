@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use super::super::ReviewId;
-use super::DraftFor;
+use super::{DraftFor, MAX_KILLED_THREAD};
 use crate::buffer::Replacement;
 use crate::editor::{Editor, Quit};
 use crate::frame::FrameSize;
@@ -219,7 +219,7 @@ fn removing_a_thread_puts_it_in_the_kill_ring_and_refuses_an_agents() {
             .get(0)
             .map(|entry| entry.joined())
             .as_deref(),
-        Some("You #0\nwhy?\nAgent #1\nbecause\nYou #2\nok")
+        Some("You  #0\nwhy?\nAgent  #1\nbecause\nYou  #2\nok")
     );
     let left: Vec<_> = editor
         .review(id)
@@ -231,5 +231,79 @@ fn removing_a_thread_puts_it_in_the_kill_ring_and_refuses_an_agents() {
     assert_eq!(
         editor.kill_review_comment(id, mine),
         Err(CommentError::NoSuchComment)
+    );
+}
+
+#[test]
+fn a_thread_an_agent_wrote_in_stays_off_the_clipboard_and_the_persons_goes_there() {
+    let (mut editor, id) = editor_with_file();
+    let review = editor.review_mut(id).unwrap();
+    let mine = review
+        .add_comment(Author::Person, FILE, line(1), "mine".into())
+        .unwrap();
+    let asked = review
+        .add_comment(Author::Person, FILE, line(2), "why?".into())
+        .unwrap();
+    review
+        .reply(Author::Agent, asked, "because".into())
+        .unwrap();
+    editor.kill_review_comment(id, mine).unwrap();
+    let written = editor.take_clipboard_write().expect("the person's thread");
+    assert_eq!(written.text(), "You  #0\nmine");
+    editor.note_command_ended(false);
+    editor.kill_review_comment(id, asked).unwrap();
+    assert!(editor.take_clipboard_write().is_none(), "an agent's words");
+    let newest = editor.kill_ring().get(0).unwrap();
+    assert_eq!(newest.joined(), "You  #1\nwhy?\nAgent  #2\nbecause");
+    // A kill after it makes an entry of its own, which alone goes to the clipboard.
+    editor.note_command_ended(false);
+    editor.quit();
+    editor
+        .open_draft(
+            id,
+            DraftFor::Comment {
+                path: FILE.into(),
+                anchor: line(1),
+            },
+            "draft",
+        )
+        .unwrap();
+    editor.quit();
+    assert_eq!(editor.kill_ring().get(0).unwrap().joined(), "draft");
+    assert_eq!(editor.take_clipboard_write().unwrap().text(), "draft");
+}
+
+#[test]
+fn a_thread_past_a_mebibyte_is_cut_and_says_how_many_were_left_out() {
+    let (mut editor, id) = editor_with_file();
+    let long = "x".repeat(60 * 1024);
+    let review = editor.review_mut(id).unwrap();
+    let root = review
+        .add_comment(Author::Person, FILE, line(1), long.clone())
+        .unwrap();
+    let mut to = root;
+    for _ in 0..19 {
+        to = review.reply(Author::Person, to, long.clone()).unwrap();
+    }
+    assert_eq!(editor.kill_review_comment(id, root), Ok(20));
+    let text = editor.kill_ring().get(0).unwrap().joined();
+    assert!(text.len() <= MAX_KILLED_THREAD + 64, "{}", text.len());
+    // 17 comments of 60 KiB fit in 1 MiB with their labels; 3 do not.
+    assert!(text.ends_with("\n\u{2026} 3 more comments not copied"));
+    assert_eq!(text.matches("You  #").count(), 17);
+}
+
+#[test]
+fn a_label_shows_what_the_display_map_boxes_as_a_question_mark() {
+    let (mut editor, id) = editor_with_file();
+    let path = "a\u{200b}b\u{202e}c\u{2066}\td.rs".as_bytes();
+    let draft = DraftFor::Comment {
+        path: path.into(),
+        anchor: line(1),
+    };
+    editor.open_draft(id, draft, "").unwrap();
+    assert_eq!(
+        editor.prompt().unwrap().label(),
+        "Comment on a?b?c??d.rs L1 (new)"
     );
 }

@@ -118,9 +118,9 @@ impl Keymaps {
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
     /// no other key reaches a command, and a prompt's go above it (ADR 0072), a completion's
-    /// with them (ADR 0076), and a draft's in their place (ADR 0122). So do isearch's, and a key they do not bind ends the search first
-    /// (ADR 0082). The user's keys go just above the global ones, so neither a question nor a
-    /// search under way sees them (ADR 0108). `reading` holds the keymaps of a prefix argument,
+    /// with them (ADR 0076), and a draft's in their place (ADR 0122). So do isearch's, and a
+    /// key they do not bind ends the search first (ADR 0082). The user's keys go just above
+    /// the global ones, so neither a question nor a search under way sees them (ADR 0108). `reading` holds the keymaps of a prefix argument,
     /// then the layer of `C-x TAB`, first while it is open and no prefix argument reads.
     pub(super) fn active<'a>(
         &'a self,

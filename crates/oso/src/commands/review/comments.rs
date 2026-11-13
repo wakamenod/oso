@@ -11,9 +11,13 @@
 //! - The comment commands act on the primary cursor, and refuse inside a prompt.
 //! - What a draft holds is never lost: a draft that cannot be kept goes to the kill ring as
 //!   `C-g` sends it. No comment's text reaches a message or the log.
+//! - A draft whose buffer turned secret, as a yank of a secret entry turns it, is not kept: its
+//!   text stays out of the review, whose comments the agent reads.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{DraftFor, Quit, ReviewId, ReviewRequest};
+use oso_core::editor::{DraftFor, ReviewId, ReviewRequest};
+use oso_core::kill::Direction;
+use oso_core::minibuffer::PromptError;
 use oso_core::review::{Anchor, Author, CommentError, CommentId, MAX_COMMENT_BYTES, RowKind, Seek};
 
 /// The commands of a review's comments.
@@ -25,7 +29,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     person_command!(
         "review-edit-comment",
-        "Edit your comment at point in a draft, which keeps it unsent again.",
+        "Edit your comment at point in a draft; keeping it makes it unsent again.",
         review_edit_comment
     ),
     person_command!(
@@ -61,7 +65,7 @@ pub const COMMANDS: &[Command] = &[
     },
     person_command!(
         "review-keep-draft",
-        "Keep the comment's draft: add it, the reply or the new text to the review, as yours.\n\nA draft whose line, hunk or comment is gone, or that the review cannot take, goes to the kill ring.",
+        "Keep the comment's draft: add it, the reply or the new text to the review, as yours.\n\nA draft whose line, hunk or comment is gone, or that the review cannot take, goes to the kill ring. A secret draft stays open: C-g puts it in the kill ring.",
         review_keep_draft
     ),
 ];
@@ -71,6 +75,9 @@ const NOT_YOURS: &str = "Not yours: c replies";
 
 /// What the draft says when it is over [`MAX_COMMENT_BYTES`].
 const TOO_LONG: &str = "Too long: a comment holds 64 KiB at most";
+
+/// What a draft whose buffer may hold secrets says.
+const SECRET: &str = "Secret text is not kept as a comment: C-g puts it in the kill ring";
 
 /// What the line at the primary cursor of a review buffer is, for a comment.
 enum Point {
@@ -135,7 +142,12 @@ fn open(
 ) -> Result<(), CommandError> {
     ctx.editor
         .open_draft(review, draft, text)
-        .map_err(|error| CommandError::new(error.to_string()))?;
+        .map_err(|error| match error {
+            // A draft opens over no other prompt.
+            PromptError::TooDeep => CommandError::new("Close the open prompt first"),
+            PromptError::Invalid => CommandError::new("The review is no longer open"),
+            other => CommandError::new(other.to_string()),
+        })?;
     ctx.request_redraw();
     Ok(())
 }
@@ -283,6 +295,12 @@ fn review_keep_draft(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         return Err(CommandError::new("Not in a comment's draft"));
     };
     let buffer = ctx.editor.current().1;
+    // The agent reads the review's comments, and a secret one would reach it.
+    if buffer.is_secret() {
+        ctx.editor.prompt_says(SECRET);
+        ctx.request_redraw();
+        return Ok(());
+    }
     // Its length is looked at before its text is copied.
     if buffer.text().len() > MAX_COMMENT_BYTES {
         ctx.editor.prompt_says(TOO_LONG);
@@ -330,22 +348,21 @@ fn review_keep_draft(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             Ok(())
         }
         Err(error) => {
-            let held = !ctx.editor.current().1.text().is_empty();
-            let mut closed = false;
-            // `C-g` puts the draft in the kill ring as it closes it; a region in it goes first.
-            for _ in 0..3 {
-                match ctx.editor.quit() {
-                    Quit::Prompt => {
-                        closed = true;
-                        break;
-                    }
-                    Quit::Nothing => break,
-                    _ => {}
-                }
-            }
+            // The draft is the selected window: its text is copied to the kill ring, then it
+            // closes as kept, whatever else `C-g` would deal with first.
+            let len = ctx.editor.current().1.text().len();
+            let copied = ctx
+                .editor
+                .kill(std::iter::once(0..len), Direction::Forward, true)
+                .is_ok();
+            ctx.editor
+                .submit_prompt()
+                .map_err(|error| CommandError::new(error.to_string()))?;
+            // The answer is the comment's, which no command waits for.
+            let _ = ctx.editor.take_prompt_outcome();
             ctx.request_redraw();
             let why = refused(error);
-            if closed && held {
+            if copied && len > 0 {
                 ctx.editor.message(format!("{why}: text in the kill ring"));
             } else {
                 ctx.editor.message(why);

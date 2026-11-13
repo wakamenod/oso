@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use oso_core::editor::ReviewId;
 use oso_core::project::ProjectId;
-use oso_core::window::Screen;
+use oso_core::window::{Screen, ViewSize, WindowId};
 
 use crate::review::count::Counter;
 use crate::review::view::{Tell, Text, View};
@@ -97,6 +97,12 @@ pub(in crate::app) struct Reviews {
     pub(super) shown: Vec<Box<[u8]>>,
     /// Room for the rows a review window shows, to find the comments read.
     pub(super) screen: Screen,
+    /// Whether the person's own input came since reading marks were last looked for: what the
+    /// agent channel brings into view is not read.
+    pub(super) person_acted: bool,
+    /// The selected window, its first row's offset, its size and its buffer's revision when
+    /// reading marks were last looked for: the same view of the same text shows nothing new.
+    pub(super) looked: Option<(WindowId, usize, ViewSize, u64)>,
 }
 
 impl Reviews {

@@ -11,7 +11,7 @@ use oso_core::review::{Anchor, CommentId};
 
 use super::cards::Cards;
 use super::section;
-use crate::review::{Entry, Reading};
+use crate::review::{Content, Entry, Reading};
 
 /// Where a carry placed each comment, by id.
 pub(super) type Placed = Box<[(CommentId, Option<Anchor>)]>;
@@ -59,6 +59,14 @@ impl File {
         self.pending.as_ref().or(self.reading.as_ref())
     }
 
+    /// Whether the reading shown, or the one waiting, was withheld as it may hold secrets.
+    pub(super) fn withheld(&self) -> bool {
+        [&self.reading, &self.pending]
+            .into_iter()
+            .flatten()
+            .any(|reading| matches!(reading.content, Content::Withheld))
+    }
+
     /// Its section, given the bytes the review's text has room for.
     pub(super) fn render(&self, room: usize, folded: bool) -> section::Rendered {
         match &self.reading {
@@ -77,9 +85,11 @@ impl File {
     }
 }
 
-/// A file no longer listed whose comments stay to be seen.
+/// A file no longer listed whose comments stay to be seen: only counted if its last reading
+/// was withheld, as a withheld file's are.
 pub(super) struct Gone {
     pub(super) cards: Cards,
+    pub(super) withheld: bool,
     pub(super) rendered: Option<Kept>,
 }
 
@@ -90,11 +100,14 @@ pub(super) struct Kept {
 }
 
 impl Kept {
-    /// Its section, if laying it out with `room` gives the same: the same room, or room for all
-    /// of it when no card was cut.
+    /// Its section, if laying it out with `room` gives the same: the same room, any room but
+    /// none for a section with no card, or room for all of it when no card was cut.
     fn fits(&self, room: usize) -> Option<Arc<section::Rendered>> {
+        let rendered = &self.rendered;
         let same = (self.room == 0) == (room == 0)
-            && (self.room == room || (!self.rendered.cut && room >= self.rendered.bytes.len()));
+            && (self.room == room
+                || !rendered.cards
+                || (!rendered.cut && room >= rendered.bytes.len()));
         same.then(|| Arc::clone(&self.rendered))
     }
 }
@@ -114,4 +127,22 @@ pub(super) fn section_in(
         room,
     });
     rendered
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{Kept, section};
+
+    #[test]
+    fn a_section_with_no_card_fits_any_room_but_none() {
+        let kept = Kept {
+            rendered: Arc::new(section::title("t", &[])),
+            room: 1000,
+        };
+        assert!(kept.fits(1).is_some());
+        assert!(kept.fits(usize::MAX).is_some());
+        assert!(kept.fits(0).is_none());
+    }
 }

@@ -24,7 +24,7 @@ use super::id::trim_line;
 use super::index::Scratch;
 use super::read::{self, Context, Kept};
 use super::scope::{self, Scope, ScopeError};
-use super::{Report, Request};
+use super::{Asked, Report, Request};
 
 /// How long one request may spend reading and diffing files.
 pub(crate) const REQUEST_BUDGET: Duration = Duration::from_secs(5);
@@ -258,12 +258,15 @@ impl Reader {
             budget: Instant::now() + REQUEST_BUDGET,
         };
         for entry in order {
-            // A file's comments are carried as they come, the running request going on.
+            // A file's comments are carried as they come, the running request going on. Their
+            // time is not the request's: its budget moves on by what they took.
+            let started = Instant::now();
             while let Some(carry) = carries() {
-                if !out(carry_with(&git, cx.batch, carry)) {
+                if !out(carry_caught(&git, cx.batch, carry)) {
                     return Ok(());
                 }
             }
+            cx.budget += started.elapsed();
             if stop() {
                 out(Report::Read {
                     generation,
@@ -307,6 +310,27 @@ impl Reader {
         out(carry_with(&git, &mut self.batch, carry));
         Ok(())
     }
+}
+
+/// [`carry_with`], answered as a failed carry if it panics, so that each carry asked is
+/// answered once, in order, and the request that took it goes on. `batch` starts over then, as
+/// what it was reading is unknown.
+fn carry_caught(git: &Git, batch: &mut Batch, carry: Carry) -> Report {
+    caught(|| carry_with(git, batch, carry)).unwrap_or_else(|why| {
+        *batch = Batch::default();
+        why
+    })
+}
+
+/// What `run` reports, or a failed carry's report if it panics.
+fn caught(run: impl FnOnce() -> Report) -> Result<Report, Report> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).map_err(|_| {
+        log::warn!("a review's carry panicked");
+        Report::Failed {
+            asked: Asked::Carry,
+            why: "the review's thread failed to carry comments".into(),
+        }
+    })
 }
 
 /// Carries `carry` within [`CARRY_DEADLINE`], reading old sides through `batch`.
@@ -398,5 +422,22 @@ fn message(error: &ScopeError) -> String {
         }
         ScopeError::Copy(e) => format!("cannot copy the index: {e}"),
         ScopeError::Stopped => "stopped".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Asked, Report, caught};
+
+    #[test]
+    fn a_carry_that_panics_is_answered_as_a_failed_carry() {
+        let failed = caught(|| panic!("forced")).unwrap_err();
+        assert!(matches!(
+            failed,
+            Report::Failed {
+                asked: Asked::Carry,
+                ..
+            }
+        ));
     }
 }

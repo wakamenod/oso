@@ -37,6 +37,8 @@ pub(crate) struct Rendered {
     pub(crate) valid: bool,
     /// Whether a card showed its label alone, as the section was past its room.
     pub(crate) cut: bool,
+    /// Whether it holds a card's row: one with none is laid out the same in any room but none.
+    pub(crate) cards: bool,
 }
 
 /// A file's comments and how to show them beside its reading.
@@ -60,6 +62,8 @@ pub(super) struct Writer {
     pending: Option<(RowKind, usize)>,
     /// Whether a card showed its label alone.
     pub(super) cut: bool,
+    /// Whether a card's row was written.
+    cards: bool,
 }
 
 impl Writer {
@@ -70,6 +74,7 @@ impl Writer {
             runs: Vec::new(),
             pending: None,
             cut: false,
+            cards: false,
         }
     }
 
@@ -89,6 +94,7 @@ impl Writer {
             runs: self.runs,
             valid,
             cut: self.cut,
+            cards: self.cards,
         }
     }
 
@@ -100,6 +106,7 @@ impl Writer {
         }
         self.bytes.push(b'\n');
         self.run(1, None);
+        self.cards |= matches!(kind, RowKind::Label { .. } | RowKind::Card { .. });
         match &mut self.pending {
             Some((pending, lines)) if *pending == kind => *lines += 1,
             pending => {
@@ -314,8 +321,15 @@ pub(crate) fn unread(entry: &Entry, cards: &Cards) -> Rendered {
 }
 
 /// The section of a file that left the review with comments on it: its header and every card,
-/// outdated. `room` is as for [`render`].
-pub(crate) fn gone(path: &[u8], cards: &Cards, room: usize, folded: bool) -> Rendered {
+/// outdated, or, if its last reading was withheld as it may hold secrets, the header alone,
+/// with how many it has. `room` is as for [`render`].
+pub(crate) fn gone(
+    path: &[u8],
+    cards: &Cards,
+    room: usize,
+    folded: bool,
+    withheld: bool,
+) -> Rendered {
     let mut writer = Writer::new(path);
     let mut text = b"no longer changed  ".to_vec();
     shown_path(path, &mut text);
@@ -324,7 +338,9 @@ pub(crate) fn gone(path: &[u8], cards: &Cards, room: usize, folded: bool) -> Ren
     }
     let highlight = Some(Highlight::DiffFileHeader);
     writer.line(RowKind::File, &[(&text, highlight)]);
-    Plan::new(&cards.comments, None, Placing::Outdated, folded, room).rest(&mut writer);
+    if !withheld {
+        Plan::new(&cards.comments, None, Placing::Outdated, folded, room).rest(&mut writer);
+    }
     writer.done()
 }
 

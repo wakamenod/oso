@@ -513,9 +513,13 @@ impl App {
             let Some(model) = self.editor.review_mut(id) else {
                 break;
             };
-            let again = model.apply(carried).again;
-            // Its cards are placed in the model now as they show.
-            self.tell_cards(index, &reading.entry.path);
+            let applied = model.apply(carried);
+            let again = applied.again;
+            // The view placed the file's cards by this carry, as the model now does, unless
+            // some went outdated, which the model may say otherwise, or came meanwhile.
+            if applied.outdated > 0 || again {
+                self.tell_cards(index, &reading.entry.path);
+            }
             if again {
                 self.carry_again(index, reading);
             }

@@ -23,7 +23,8 @@
 //!   newer request, or the reviewer's end, stops the one running between files.
 //! - Carrying comments is no newer request: carries wait in a queue of their own, answered
 //!   between the files of a running request and when nothing runs, so that a file's comments
-//!   never stop a refresh (ADR 0122, step 3b).
+//!   never stop a refresh (ADR 0122, step 3b). Before each, the root is checked as before a
+//!   request, and a newer request stops the run of them, the rest waiting.
 //! - Limits, each saying what it hides: 10,000 files and 32 MiB of list; a side of 8 MiB and
 //!   200,000 lines, diffed within 1 s, and 5 s of diffing per request; 64 MiB of sides and
 //!   hunks held per review; a git run of 10 s.
@@ -377,7 +378,7 @@ impl Drop for Reviewer {
 
 /// Answers each request in turn until the reviewer is dropped or the event loop has gone.
 /// Refreshes waiting one after another are answered as one, their shown files joined. Carries
-/// go first when nothing runs, and between files while something does.
+/// are answered between files while something runs, and when nothing waits to.
 fn serve(
     queue: &Receiver<Request>,
     mut send: SendReport,
@@ -426,8 +427,13 @@ fn serve(
                 || waiting.load(Ordering::SeqCst) > 0
                 || root.revoked()
         };
+        // Each carry is checked as a request is, and a newer request stops the run of them: the
+        // rest wait, to be answered between its files, or failed if the root was revoked.
         let mut carries = || {
             pull();
+            if held.borrow().carries.is_empty() || stop() || !root.still_there() {
+                return None;
+            }
             held.borrow_mut().carries.pop_front()
         };
         let mut gone = false;
@@ -449,20 +455,20 @@ fn serve(
     }
 }
 
-/// The next request to answer: a carry waiting first, then a request taken from the queue
-/// before, else the next from the queue, waiting for it. Refreshes that wait one after another
-/// become one, their shown files joined; carries among them wait aside. `None` once the
-/// reviewer is gone.
+/// The next request to answer: a request taken from the queue before, which stopped the one
+/// that ran, then a carry waiting, else the next from the queue, waiting for it. Refreshes that
+/// wait one after another become one, their shown files joined; carries among them wait aside,
+/// to be answered between its files. `None` once the reviewer is gone.
 fn next_request(
     queue: &Receiver<Request>,
     held: &RefCell<Waiting>,
     waiting: &AtomicUsize,
 ) -> Option<Request> {
-    let carry = held.borrow_mut().carries.pop_front();
-    let request = match carry {
-        Some(carry) => return Some(Request::Carry(carry)),
-        None => match held.borrow_mut().next.take() {
-            Some(request) => request,
+    let next = held.borrow_mut().next.take();
+    let request = match next {
+        Some(request) => request,
+        None => match held.borrow_mut().carries.pop_front() {
+            Some(carry) => return Some(Request::Carry(carry)),
             None => match queue.recv().ok()? {
                 Request::Carry(carry) => return Some(Request::Carry(carry)),
                 request => {

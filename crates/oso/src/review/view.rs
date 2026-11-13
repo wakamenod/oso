@@ -273,6 +273,7 @@ impl State {
         for (path, file) in files {
             if !file.cards.comments.is_empty() {
                 let gone = Gone {
+                    withheld: file.withheld(),
                     cards: file.cards,
                     rendered: None,
                 };
@@ -363,8 +364,11 @@ impl State {
         } else if cards.comments.is_empty() {
             self.dirty |= self.gone.remove(&path).is_some();
         } else {
+            // A file gone stays withheld once it was.
+            let withheld = self.gone.get(&path).is_some_and(|gone| gone.withheld);
             let gone = Gone {
                 cards,
+                withheld,
                 rendered: None,
             };
             self.gone.insert(path, gone);
@@ -412,9 +416,9 @@ impl State {
         }
         for (path, gone) in &mut self.gone {
             let room = self.max_text.saturating_sub(size);
-            let cards = &gone.cards;
+            let (cards, withheld) = (&gone.cards, gone.withheld);
             let rendered = section_in(&mut gone.rendered, room, || {
-                section::gone(path, cards, room, folded)
+                section::gone(path, cards, room, folded, withheld)
             });
             size += rendered.bytes.len();
             sections.push(rendered);

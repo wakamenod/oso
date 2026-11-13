@@ -187,6 +187,11 @@ fn open_review(scratch: &Scratch) -> App {
     let file = project(scratch);
     let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
     app.wait_until_ready();
+    app.wait_for("the project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("  proj-review  restricted  "))
+    });
     app.send_keys(&format!("M-x {} RET y", typing("trust-project")));
     app.wait_for("the trust", |state| {
         state["echo"]
@@ -269,5 +274,5 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     let state = app.state();
     assert_eq!(state["buffer"]["name"], "a.rs");
     let text = rows(&mut app, 20).join("\n");
-    assert!(text.ends_with("You #0\nfirst\nsecond"), "{text:?}");
+    assert!(text.ends_with("You  #0\nfirst\nsecond"), "{text:?}");
 }

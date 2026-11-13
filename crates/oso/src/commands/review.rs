@@ -200,7 +200,7 @@ pub const COMMANDS: &[Command] = &[
     },
     person_command!(
         "review-kill",
-        "Close the current review: its buffer and its workers.\n\nIt asks first while the review holds comments of yours that were not sent, which are lost with it. `C-x k` in a review buffer runs it.",
+        "Close the current review: its buffer and its workers.\n\nIt asks first while the review holds comments of yours that were not sent, an open draft among them, which are lost with it. `C-x k` in a review buffer runs it.",
         review_kill
     ),
 ];

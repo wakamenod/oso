@@ -1,6 +1,7 @@
 //! The view's comments: a file waiting for its carry keeps its section, carries for readings
 //! no longer current are dropped, a carry goes in the next text, a snapshot or folding lays out
-//! only the files it touches, a file that leaves with comments stays last, and the text's limit.
+//! only the files it touches, a file that leaves with comments stays last, counted alone if it
+//! was withheld, and the text's limit.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these drive the view's state.
 
@@ -11,6 +12,7 @@ use oso_core::review::{Anchor, Author, Review, Side};
 use super::cards::tests::{read, shape_of, snapshot};
 use super::section::tests::{entry, hunk, text_reading};
 use super::*;
+use crate::review::Content;
 use crate::review::list::Status;
 
 /// What the view is told of the model's comments on `path`.
@@ -211,6 +213,33 @@ fn past_the_texts_limit_cards_show_their_labels_alone() {
     let text = state.text.to_string();
     assert!(
         text.ends_with("not shown: the review's text is past its limit\n    \u{258d}You  #0\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_withheld_file_that_leaves_shows_only_its_count() {
+    let (mut state, mut review, reading) = commented();
+    let withheld = Arc::new(Reading {
+        entry: reading.entry.clone(),
+        content: Content::Withheld,
+    });
+    state.take(Tell::File {
+        reading: withheld,
+        carry: Carrying::Nothing,
+    });
+    let entries: Arc<[Entry]> = vec![entry(b"b", Status::Modified)].into();
+    state.take(Tell::Listed {
+        entries,
+        more: 0,
+        cut: false,
+    });
+    review.remove_file(b"a");
+    state.take(cards_of(&review, b"a"));
+    state.build();
+    let text = state.text.to_string();
+    assert!(
+        text.ends_with("reading\u{2026}\nno longer changed  a  \u{b7} 1 comment\n"),
         "{text}"
     );
 }

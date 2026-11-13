@@ -4,7 +4,8 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here lays out a card or
 //! matches lines: the view thread lays out, the review's own thread carries. Work here per
-//! change costs that file's comments, and reading marks cost the rows in view.
+//! change costs that file's comments, and reading marks cost the rows in view, looked for only
+//! after the person's own input moved the view or the text changed.
 //!
 //! - The model's current reading of a file is the one the review buffer shows: a carry's result
 //!   is applied only as the text that holds it goes in.
@@ -178,6 +179,12 @@ impl App {
         }
     }
 
+    /// The person's own input came: a key, typed text or the wheel, so that what the selected
+    /// review window shows after it counts as read.
+    pub(in crate::app) fn note_person_acted(&mut self) {
+        self.reviews.person_acted = true;
+    }
+
     /// After commands and events: tells each view whether agent cards fold, when that changed,
     /// and marks read the agent comments the selected review window shows whole.
     pub(super) fn sync_review_comments(&mut self) {
@@ -194,17 +201,28 @@ impl App {
     }
 
     /// Marks read each unread agent comment whose label and every text row it shows are in the
-    /// selected window, a review's, and builds its file's section again so that its label
-    /// loses `· new` (Q7). Costs the rows in view.
+    /// selected window, a review's, after the person's own input, and builds its file's section
+    /// again so that its label loses `· new` (Q7). Costs the rows in view, and nothing when the
+    /// view and its text are as when last looked at.
     fn mark_shown_read(&mut self) {
-        if self.editor.prompt().is_some() {
+        // What the agent channel brings into view is not read: only the person's input counts.
+        if !std::mem::take(&mut self.reviews.person_acted) || self.editor.prompt().is_some() {
             return;
         }
-        let (window, _) = self.editor.tiled();
+        let (window, shown) = self.editor.tiled();
+        let looked = (
+            window.id(),
+            window.scroll().start,
+            window.size(),
+            shown.revision(),
+        );
         let (window, buffer) = (window.id(), window.buffer());
         let Some(id) = self.editor.review_of(buffer) else {
             return;
         };
+        if self.reviews.looked.replace(looked) == Some(looked) {
+            return;
+        }
         let mut screen = std::mem::take(&mut self.reviews.screen);
         self.editor.screen_of(window, &mut screen);
         let lines = screen.rows().iter().map(|row| row.line);
@@ -265,15 +283,15 @@ fn read_in_view(
         if !unread {
             continue;
         }
-        // Its text rows run on from its label; the last must be in view.
+        // Its text rows run on from its label, looked at as far as the row past the view: the
+        // last must be in view, so that row must not be one of them.
+        let is_text =
+            |at: usize| (rows.at(at)).is_some_and(|row| row.kind == RowKind::Card { comment });
         let mut end = line + 1;
-        while rows
-            .at(end)
-            .is_some_and(|row| row.kind == RowKind::Card { comment })
-        {
+        while end <= last && is_text(end) {
             end += 1;
         }
-        if end - 1 <= last {
+        if !is_text(end) {
             read.push(comment);
             if paths.last().is_none_or(|path| **path != *row.path) {
                 paths.push(row.path.into());

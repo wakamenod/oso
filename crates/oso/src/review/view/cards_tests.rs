@@ -483,7 +483,7 @@ fn a_file_no_longer_changed_shows_every_card_outdated() {
         "on new three",
     );
     review.remove_file(PATH);
-    let rendered = section::gone(PATH, &snapshot(&review, PATH), usize::MAX, false);
+    let rendered = section::gone(PATH, &snapshot(&review, PATH), usize::MAX, false, false);
     insta::assert_snapshot!("review_cards_gone", grid(&rendered));
 }
 

@@ -371,6 +371,8 @@ fn a_draft_whose_target_is_gone_goes_to_the_kill_ring() {
     let (mut editor, review, comments) = at(lines::B_LINE);
     assert_eq!(run(&mut editor, "review-comment", Args::NONE).0, Ok(()));
     type_in(&mut editor, "lost?");
+    // A region in it changes nothing: it closes at once.
+    assert_eq!(run(&mut editor, "set-mark-command", Args::NONE).0, Ok(()));
     assert_eq!(run(&mut editor, "review-keep-draft", Args::NONE).0, Ok(()));
     assert!(editor.prompt().is_none(), "closed");
     assert_eq!(editor.kill_ring().get(0).unwrap().joined(), "lost?");
@@ -436,4 +438,31 @@ fn an_open_draft_counts_as_an_unsent_comment_when_closing() {
         Ok(())
     );
     assert_eq!(unsent(&editor, review), 2, "your reply and the edit");
+}
+
+#[test]
+fn a_secret_draft_stays_open_and_c_g_puts_it_in_the_kill_ring_as_a_secret() {
+    let (mut editor, review, _) = at(lines::OLD);
+    let before = editor.review(review).unwrap().comments().count();
+    // What the clipboard marks concealed, as a password manager does, is a secret entry.
+    let fingerprint = oso_core::kill::Fingerprint { hash: 7, len: 6 };
+    editor.take_from_clipboard("hunter".into(), true, fingerprint);
+    assert_eq!(run(&mut editor, "review-comment", Args::NONE).0, Ok(()));
+    type_in(&mut editor, "see: ");
+    editor.yank(0, false).unwrap();
+    assert!(editor.current().1.is_secret(), "the yank made it secret");
+    assert_eq!(run(&mut editor, "review-keep-draft", Args::NONE).0, Ok(()));
+    assert!(editor.draft().is_some(), "still open");
+    assert_eq!(
+        editor.prompt().and_then(|prompt| prompt.message()),
+        Some("Secret text is not kept as a comment: C-g puts it in the kill ring")
+    );
+    assert_eq!(editor.review(review).unwrap().comments().count(), before);
+    assert!(editor.take_review_requests().is_empty());
+    editor.forget_kills();
+    editor.quit();
+    assert!(editor.prompt().is_none());
+    let newest = editor.kill_ring().get(0).unwrap();
+    assert_eq!(newest.joined(), "see: hunter");
+    assert!(newest.is_secret());
 }
