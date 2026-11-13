@@ -71,7 +71,7 @@ When no rule matches, the session counts as idle.
 | `title` | the terminal's title |
 | `progress` | OSC 9;4 progress, as `state` or `state;value` (`0` is cleared); empty if none was set |
 | `bottom(N)` | the last N non-empty rows, N from 1 to 40 |
-| `prompt_box` | the rows between the last two rules (rows of `─` only): the prompt box, or a dialog's body |
+| `prompt_box` | the rows between the last two rules (rows of `─`, which may end with a session's name, `──── api-fix ─`): the prompt box, or a dialog's body |
 | `after_last_rule` | the rows after the last rule: the footer, or a dialog with its footer; empty with no rule |
 | `above_prompt_box` | the last row above the prompt box |
 
