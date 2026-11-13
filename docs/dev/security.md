@@ -504,10 +504,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   bracketed paste, cleaned as any paste is, and never sends Enter.
   - A session that is not running, not judged since it started, asking for input or held by a
     full-screen view is refused, as a paste into a dialog could choose an option. The check
-    reads the last verdict, which can be some 100 to 200 ms old when the paste lands; a dialog
+    reads the last verdict, which can be some 100 to 200 ms old when the paste lands, and waits
+    for a look judged in time while looks run out of time; a dialog
     that opens in that window receives the paste, which still carries no Enter.
   - A buffer that may hold secrets sends its path and lines only, never its text, and the echo
-    area says so. A send is at most 256 KiB.
+    area says so. A note goes as typed or yanked. A send is at most 256 KiB.
+  - Following a message selects the sender's terminal, so it is `Person` too. Names that other
+    programs give in Claude Code's registry are offered for a mention only without spaces,
+    control or invisible characters.
   - A message's sender is read from a line of the screen, which any program in the terminal
     can print. It only sets the row's note and the session `session-follow-message` shows, and
     authorises nothing.

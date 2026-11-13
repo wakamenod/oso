@@ -194,7 +194,7 @@ fn a_session_not_running_starting_or_at_a_password_is_refused() {
     }
     assert_eq!(
         refusal("api", standing(None)).as_deref(),
-        Some("api is starting; send again in a moment")
+        Some("api's screen is not judged yet; send again in a moment")
     );
     let password = Standing {
         echo_off: true,

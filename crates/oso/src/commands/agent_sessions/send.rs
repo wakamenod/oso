@@ -8,7 +8,8 @@
 //! state, puts the text together, and refuses a session that needs input.
 //!
 //! Sending and mentioning are the person's typing into a terminal, `Person`: the agent channel
-//! never writes to one (ADR 0120, Q15). Following a message only shows a session, `Look`.
+//! never writes to one (ADR 0120, Q15). Following a message selects the sender's terminal,
+//! which then takes the person's keys, so it is `Person` too.
 
 use oso_core::buffer::Buffer;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
@@ -69,7 +70,8 @@ pub const COMMANDS: &[Command] = &[
         name: "session-follow-message",
         doc: "Show the session that sent the newest message to the session whose terminal is this buffer.\n\nA message is the line Claude Code shows as `Message from @NAME`; its sender is read from the screen, so it is a pointer to a session, not proof of who wrote it.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        // It selects the sender's terminal, in front of the person's keys (ADR 0121, Q2).
+        reach: Reach::Person,
         run: session_follow_message,
         state: None,
     },

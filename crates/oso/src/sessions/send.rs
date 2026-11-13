@@ -135,7 +135,11 @@ pub fn refusal(name: &str, standing: Standing) -> Option<String> {
         ));
     }
     let asks = match standing.state {
-        None => return Some(format!("{name} is starting; send again in a moment")),
+        None => {
+            return Some(format!(
+                "{name}'s screen is not judged yet; send again in a moment"
+            ));
+        }
         Some(State::NeedsInput(reason)) => reason,
         Some(_) if standing.held => {
             return Some(format!("{name} shows a full-screen view; close it first"));

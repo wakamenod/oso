@@ -1203,7 +1203,9 @@ through the coordinator:
   has no diagnostics yet. They will be one more kind of `SendPart`, composed in
   `sessions::send` beside the others.
 - **A message's sender (Q6)** sets "message from NAME" on the receiving session's row until the
-  session is seen, and `session-follow-message` (`Look`, `C-x a f`) shows the sender. The
+  session is seen, and `session-follow-message` (`Person`, `C-x a f`) shows the sender. It
+  selects the sender's terminal, which then takes the person's keys, so the agent channel
+  cannot run it, though the plan had it `Look`. The
   underlined `@NAME` link waits for ADR 0120's links (its step 6).
 - **Message lines are a rule kind of their own,** a `[[message]]` table in the rules file
   ([agent-rules.md](../agent-rules.md)): a name, a region (`bottom(40)` if left out), a pattern
@@ -1227,7 +1229,7 @@ through the coordinator:
   - `session-send` completes over the running hosted sessions by their buffers' names, the
     session this space showed last first. `session-mention` completes over the live sessions,
     hosted and other programs', by name, each annotated with its space and whether it runs in
-    oso; in a session's terminal it pastes `@NAME ` through the same path, and in another
+    oso, leaving out a name with spaces, control or invisible characters; in a session's terminal it pastes `@NAME ` through the same path, and in another
     buffer, `*Brief*` included, it inserts `@NAME` at each cursor.
   - The row's note is "message from NAME" before the recap, until the person has seen the
     session for 2 s; a message that arrives while they look at it is seen at once.
@@ -1243,7 +1245,7 @@ through the coordinator:
     rule row may end with a name.
 - **Residuals, accepted:**
   - The refusal is checked against the last verdict, which can be about 100 to 200 ms old when
-    the paste lands. A dialog that opens in that window receives the paste, and its keys may
+    the paste lands. While looks run out of time, a send waits for one judged in time. A dialog that opens in that window receives the paste, and its keys may
     read the pasted characters. The paste carries no Enter of its own.
   - Any program in a session's terminal can print a line that looks like a message. A sender
     found only sets the row's note and the session `session-follow-message` shows; it

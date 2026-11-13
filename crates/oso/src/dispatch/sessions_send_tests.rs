@@ -240,12 +240,14 @@ fn c_x_a_f_asks_for_the_sender_of_this_sessions_newest_message() {
 }
 
 #[test]
-fn the_agent_channel_cannot_send_or_mention() {
+fn the_agent_channel_cannot_send_mention_or_follow_a_message() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
     for (name, given) in [
         ("session-send", Given::Nothing),
         ("session-send", Given::Text(API)),
         ("session-mention", Given::Text("api")),
+        // It would select the sender's terminal, in front of the person's keys.
+        ("session-follow-message", Given::Nothing),
     ] {
         let refused = match d.run_for_agent(&mut editor, name, given, Reach::Change) {
             Err(_) => true,

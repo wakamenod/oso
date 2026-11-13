@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use oso_core::complete::Candidate;
+use oso_core::display_map::cell::is_invisible;
 use oso_core::editor::{SendPart, SendTo};
 
 use crate::app::App;
@@ -29,9 +30,10 @@ use crate::sessions::worker::SessionKey;
 pub(in crate::app) struct Sending {
     /// Each session's newest sender, and whether the person has not seen the session since.
     from: HashMap<SessionKey, (String, bool)>,
-    /// The sessions the worker has judged in time since they started, each with whether a
-    /// hold rule matched last: a send waits for the first, and a view that holds refuses it.
-    judged: HashMap<SessionKey, bool>,
+    /// The sessions the worker has looked at since they started, each with whether a hold
+    /// rule matched the newest look, `None` while that look ran out of time: a send waits for
+    /// a look judged in time, and a view that holds refuses it.
+    judged: HashMap<SessionKey, Option<bool>>,
 }
 
 impl App {
@@ -109,7 +111,7 @@ impl App {
                 "{name}'s terminal takes no bracketed paste now; nothing is pasted"
             ));
         }
-        let judged = self.watch.sending.judged.get(&key).copied();
+        let judged = self.watch.sending.judged.get(&key).copied().flatten();
         let standing = Standing {
             running: session.runs(),
             state: judged.map(|_| self.state_of(session, Instant::now()).0),
@@ -126,8 +128,9 @@ impl App {
         Ok(())
     }
 
-    /// The worker judged session `key`'s screen in time, a hold rule matching it or not.
-    pub(in crate::app) fn session_judged(&mut self, key: SessionKey, held: bool) {
+    /// The worker judged session `key`'s newest look in time, a hold rule matching it or not,
+    /// or, `None`, ran out of time on it.
+    pub(in crate::app) fn session_judged(&mut self, key: SessionKey, held: Option<bool>) {
         self.watch.sending.judged.insert(key, held);
     }
 
@@ -245,6 +248,14 @@ fn mention_candidates(entries: &[Entry]) -> Arc<[Candidate]> {
     entries
         .iter()
         .filter(|entry| !entry.archived && !matches!(entry.state, State::Stopped | State::Failed))
+        // Another program's registry entry names it: a name that could hide or reorder text
+        // is left out, as `@NAME` goes into buffers and terminals.
+        .filter(|entry| {
+            !entry
+                .name
+                .chars()
+                .any(|c| c.is_control() || is_invisible(c) || c.is_whitespace())
+        })
         .map(|entry| {
             let place = match entry.key {
                 Key::Hosted(_) => "in oso",

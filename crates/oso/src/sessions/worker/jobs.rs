@@ -42,7 +42,8 @@ struct Session {
     recap: String,
     /// The message lines of the last look judged in time.
     messages: Seen,
-    /// Whether the last look judged in time matched a hold rule; `None` before the first.
+    /// Whether the last look matched a hold rule; `None` before the first look judged in
+    /// time, and while the newest ran out of time.
     held: Option<bool>,
 }
 
@@ -53,6 +54,28 @@ impl Session {
         EVALUATE_EVERY
             .saturating_mul(1 << self.late.min(16))
             .min(MAX_BACKOFF)
+    }
+}
+
+impl Session {
+    /// After a look judged in time as `target`: the newest sender of a message line its
+    /// screen shows that the last look did not, as the app keeps one a session; and whether
+    /// a hold rule matches, if that changed.
+    fn after_look(
+        &mut self,
+        rules: &RuleSet,
+        target: Target,
+        deadline: &Deadline,
+    ) -> (Option<String>, Option<Option<bool>>) {
+        let sent_by = self.evidence.as_ref().and_then(|evidence| {
+            senders(rules.messages(), evidence, &mut self.messages, deadline)
+                .ok()
+                .and_then(|mut found| found.pop())
+        });
+        let held = matches!(target, Target::Hold);
+        let changed = (self.held != Some(held)).then_some(Some(held));
+        self.held = Some(held);
+        (sent_by, changed)
     }
 }
 
@@ -233,6 +256,10 @@ impl Core {
                 session.judged = Some(Instant::now().max(now));
                 if let Err(Fallback::TooSlow { slowest }) = &verdict.by {
                     session.late = session.late.saturating_add(1);
+                    // Its state holds the last; a send waits for a look judged in time.
+                    if session.held.take().is_some() {
+                        judged = Some(None);
+                    }
                     // Not judged after all: the same screen is judged again once the longer
                     // wait is over, so that a dialog that stays is not hidden until it changes.
                     session.fresh = true;
@@ -254,15 +281,7 @@ impl Core {
                         session.recap.clone_from(&found);
                         recapped = Some(found);
                     }
-                    // Only the newest sender: the app keeps one a session.
-                    sent_by = senders(rules.messages(), evidence, &mut session.messages, &deadline)
-                        .ok()
-                        .and_then(|mut found| found.pop());
-                    let held = matches!(verdict.target, Target::Hold);
-                    if session.held != Some(held) {
-                        session.held = Some(held);
-                        judged = Some(held);
-                    }
+                    (sent_by, judged) = session.after_look(rules, verdict.target, &deadline);
                 }
                 session.last = Some(verdict.target);
                 verdict.target
