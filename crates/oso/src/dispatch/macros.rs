@@ -143,10 +143,7 @@ impl Dispatcher {
         }
         // A recording that ended became the last macro, with the terminals it typed into.
         if self.macros.ids.contains(&id) && !failed && !editor.macro_recording() {
-            let typed = std::mem::take(&mut self.macros.terminals);
-            if !typed.is_empty() {
-                self.macros.unheard = typed;
-            }
+            self.macros.unheard = std::mem::take(&mut self.macros.terminals);
         }
         if self.macros.ids.contains(&id) {
             self.macros.command_ran = true;

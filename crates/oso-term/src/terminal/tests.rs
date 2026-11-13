@@ -44,6 +44,7 @@ pub(super) struct Seen {
     pub screen: Vec<String>,
     pub events: Vec<Event>,
     echo_off: bool,
+    pub cursor: crate::snapshot::Cursor,
     size: (u16, u16),
     pub scrolled: usize,
     /// Snapshots taken.
@@ -68,6 +69,7 @@ impl Seen {
             screen: Vec::new(),
             events: Vec::new(),
             echo_off: false,
+            cursor: crate::snapshot::Cursor::default(),
             size: (0, 0),
             scrolled: 0,
             snapshots: 0,
@@ -117,6 +119,7 @@ impl Seen {
                 }
             }
             self.echo_off = snapshot.echo_off;
+            self.cursor = snapshot.cursor;
             self.size = (snapshot.size.columns, snapshot.size.rows);
             self.events.append(&mut snapshot.events);
             self.terminal.recycle(snapshot);
@@ -241,6 +244,23 @@ fn echo_back_on_with_no_output_is_seen() {
     seen.terminal.send(b"secret\r".to_vec()).expect("queued");
     seen.until(|s| !s.echo_off);
     assert!(!seen.shows("secret"), "{:?}", seen.screen);
+    // A snapshot sent for the flags alone still says where the cursor is: below `ready`.
+    assert_eq!((seen.cursor.row, seen.cursor.column), (1, 0));
+}
+
+#[test]
+fn a_prompt_that_came_and_went_while_a_snapshot_waited_is_said_over_after() {
+    let mut seen = Seen::start(sh(
+        "printf 'ready\\n'; read a; stty -echo; read x; stty echo; read y",
+    ));
+    seen.until(|s| s.shows("ready"));
+    // The UI takes nothing while the prompt opens and ends, and its looks are done.
+    seen.terminal.send(b"a\r".to_vec()).expect("queued");
+    std::thread::sleep(Duration::from_millis(100));
+    seen.terminal.send(b"x\r".to_vec()).expect("queued");
+    std::thread::sleep(Duration::from_millis(600));
+    seen.until(|s| s.echo_off);
+    seen.until(|s| !s.echo_off);
 }
 
 #[test]

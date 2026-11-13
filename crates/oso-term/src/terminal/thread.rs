@@ -501,14 +501,22 @@ impl<'a> Running<'a> {
         if shared.in_flight.load(Ordering::Acquire) || held {
             return;
         }
-        if std::mem::take(&mut self.touched) {
+        let built = std::mem::take(&mut self.touched);
+        if built {
             self.changed |= self.engine.snapshot(&mut self.next, &mut self.spare);
         }
         if !std::mem::take(&mut self.changed) {
             return;
         }
+        // A snapshot always carries the cursor, the modes and the scroll: one that goes for the
+        // flags alone builds them now, which costs little with nothing changed.
+        if !built {
+            self.engine.snapshot(&mut self.next, &mut self.spare);
+        }
         self.next.echo_off = self.echo.echo_off();
         self.echo.published();
+        // A prompt said once that has ended since is said to be over in the next snapshot.
+        self.changed |= self.echo.changed();
         let size = self.next.size;
         let fresh = self.recycled.take().unwrap_or_else(|| Snapshot::new(size));
         let snapshot = std::mem::replace(&mut self.next, fresh);

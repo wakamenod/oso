@@ -1258,9 +1258,12 @@ option on each of its nine questions. Step 4b is three pull requests; this is th
     - A program that turns echo off long after its last output, with nothing typed since, is
       seen at the next key, before that key is written. That key reaches the system before
       secure input is asked for.
-    - A prompt that reads a password raw does not count, by the author's definition. So nothing
-      run behind another terminal counts either (`ssh` to a host, `tmux`, `screen`,
-      `docker exec -it`): the local PTY reads raw there.
+    - A prompt that reads a password raw does not count, by the author's definition. That
+      takes in a local prompt that prints a mark per key, as it must read each key as it comes,
+      and prompt libraries that mask what is typed. Nothing run behind another terminal counts
+      either (`ssh` to a host, `tmux`, `screen`, `docker exec -it`): the local PTY reads raw
+      there. At those prompts the keys are recorded into a macro, typed without secure input,
+      and the modeline does not say `secret`.
 - **The secret:** a new `Verdict::EchoOff`, set and taken back by the host through
   `Editor::set_echo_off`. Every rule for a buffer that may hold secrets then applies with no
   code of its own:
@@ -1287,8 +1290,9 @@ option on each of its nine questions. Step 4b is three pull requests; this is th
   - Replaying is `Person`, so the channel never types into a terminal through a macro.
 - **The channel's rules (Q16):**
   - `state` lists a terminal's buffer with `kind`, `running` and `agent_reads`, and nothing of its
-    title or rows. It leaves out the `secret` other buffers have, so that no agent learns when a
-    password prompt opens there or how long it stays. A shown one still makes the channel wait.
+    title or rows. It leaves out the `secret` and `wrapped` other buffers have, so that no agent
+    learns when a password prompt opens in a terminal not shown, or how long it stays. A shown
+    one makes the channel wait, which the agent sees.
   - `terminal-allow-agent-read` and `terminal-deny-agent-read`, both `Person`, give and take back
     the leave to read the selected terminal. It is kept on its buffer until the buffer is killed
     or a session starts over in it, and the modeline says `agent reads`.

@@ -144,8 +144,8 @@ pub(crate) fn begin_a_large_undo(editor: &mut Editor) {
 ///
 /// A terminal's says that it is one, whether a program runs in it and whether the person
 /// let agents read it, and nothing of its title or rows (ADR 0120, Q16). It leaves out
-/// `secret`, which follows a password prompt there, so that no agent learns when one opens
-/// or how long it stays (Q17).
+/// `secret` and `wrapped`, which follow a password prompt there, so that no agent learns when
+/// one opens in a terminal not shown or how long it stays (Q17).
 fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     let shown = !(buffer.is_secret() && shows_secret);
     let mut state = json!({
@@ -160,6 +160,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     if buffer.is_terminal() {
         if let Some(fields) = state.as_object_mut() {
             fields.remove("secret");
+            fields.remove("wrapped");
         }
         state["kind"] = json!("terminal");
         state["running"] = json!(buffer.is_running());
@@ -611,6 +612,28 @@ mod tests {
         editor.set_agent_reads(id, true);
         let state = super::state(&editor, None, 0);
         assert!(state.to_string().contains("\"agent_reads\":true"));
+    }
+
+    #[test]
+    fn a_hidden_terminals_password_prompt_is_not_told_while_another_secret_is_shown() {
+        let mut editor = Editor::default();
+        let shown = editor.add_terminal_buffer("*terminal*");
+        let hidden = editor.add_terminal_buffer("*terminal*");
+        editor.show(shown);
+        editor.set_echo_off(shown, true);
+        assert!(editor.shows_secret());
+        let listed = |editor: &Editor| {
+            state(editor, None, 0)["buffers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|buffer| buffer["id"] == hidden.get())
+                .cloned()
+                .unwrap()
+        };
+        let before = listed(&editor);
+        editor.set_echo_off(hidden, true);
+        assert_eq!(listed(&editor), before);
     }
 
     #[test]
