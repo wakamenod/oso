@@ -31,6 +31,11 @@ pub(in crate::app) struct Hosting {
 }
 
 impl Hosting {
+    /// The hosted sessions.
+    pub(in crate::app) fn table(&self) -> &Table {
+        &self.table
+    }
+
     /// Sessions remembered in `directory`, oso's state directory.
     pub(in crate::app) fn new(directory: Option<PathBuf>) -> Self {
         Self {

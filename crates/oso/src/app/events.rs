@@ -127,6 +127,7 @@ impl App {
         // A list built here after a listing ends a wait with no report.
         self.run_held_completion(event_loop);
         self.take_hidden_snapshots();
+        self.sessions_due();
         self.ask_for_a_frame_if_status_changed();
         self.draw_flash_if_due();
         self.show_jump_labels_if_due();
@@ -216,6 +217,7 @@ impl App {
             self.quiet_walk_deadline(),
             self.slice_deadline(),
             self.hidden_terminals_deadline(),
+            self.sessions_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),
