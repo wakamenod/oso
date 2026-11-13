@@ -1,7 +1,8 @@
 //! The view's comments: a file waiting for its carry keeps its section, carries for readings
 //! no longer current are dropped, a carry goes in the next text, a snapshot or folding lays out
-//! only the files it touches, a file that leaves with comments stays last, counted alone if it
-//! was withheld, and the text's limit.
+//! only the files it touches, a file that leaves a whole listing with comments stays last,
+//! counted alone if it was withheld, one a cut listing left out stays as it was, and the text's
+//! limit.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these drive the view's state.
 
@@ -198,6 +199,35 @@ fn a_file_that_leaves_with_comments_stays_last_until_it_has_none() {
     state.take(cards_of(&review, b"a"));
     state.build();
     assert!(!state.text.to_string().contains("no longer changed"));
+}
+
+#[test]
+fn a_cut_listing_keeps_a_commented_file_it_left_out_shown_after_the_listed_ones() {
+    for (more, cut) in [(3, false), (0, true)] {
+        let (mut state, review, _) = commented();
+        let entries: Arc<[Entry]> = vec![entry(b"b", Status::Modified)].into();
+        state.take(Tell::Listed {
+            entries: Arc::clone(&entries),
+            more,
+            cut,
+        });
+        state.take(cards_of(&review, b"a"));
+        state.build();
+        let text = state.text.to_string();
+        assert!(!text.contains("no longer changed"), "{text}");
+        let b = text.find("modified  b\n").expect("b listed");
+        let a = text
+            .find("+one\n    \u{258d}You  #0\n")
+            .expect("a as it was");
+        assert!(b < a, "{text}");
+        assert_eq!(
+            state.order,
+            [b"b".as_slice().into(), b"a".as_slice().into()]
+        );
+        // The same cut listing again changes nothing.
+        state.take(Tell::Listed { entries, more, cut });
+        assert!(!state.dirty);
+    }
 }
 
 #[test]

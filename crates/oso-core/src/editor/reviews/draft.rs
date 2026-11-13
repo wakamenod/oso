@@ -10,11 +10,13 @@
 //!   while it is open, so the line it is on cannot move under it.
 //! - What it is for is forgotten when its prompt closes, however it closes.
 //! - A removed thread's text is bounded, and one an agent wrote in stays in oso's kill ring.
+//! - A draft's text let go with `C-g` is an entry of its own in oso's kill ring, never on the
+//!   OS clipboard.
 
 use super::{Editor, ReviewId};
 use crate::buffer::{BufferId, Replacement};
 use crate::display_map::cell::is_invisible;
-use crate::kill::{Direction, Piece};
+use crate::kill::Piece;
 use crate::minibuffer::{self, CUT, Kind, PromptError, PromptId, PromptLayout};
 use crate::review::{Anchor, Author, CommentError, CommentId, Side};
 use crate::rope::Rope;
@@ -167,7 +169,9 @@ impl Editor {
     }
 
     /// Copies the innermost draft's text, unless empty, into the kill ring before `C-g` closes
-    /// it, as a secret entry when the draft holds secret text.
+    /// it: as an entry of its own, never appended to a kill before it, that goes to no
+    /// clipboard, secret when a kill from the draft would be. A text whose verdict may not be
+    /// killed goes nowhere, as a kill's does (ADR 0072). O(log n): the text is a rope slice.
     pub(in crate::editor) fn kill_draft_text(&mut self) {
         if self.draft().is_none() {
             return;
@@ -175,10 +179,16 @@ impl Editor {
         let Some(buffer) = self.prompt().map(|prompt| prompt.buffer) else {
             return;
         };
-        let len = self.buffer(buffer).map_or(0, |shown| shown.text().len());
-        if len > 0 {
-            let _ = self.kill_in(buffer, std::iter::once(0..len), Direction::Forward, true);
+        let Some(shown) = self.buffer(buffer) else {
+            return;
+        };
+        let text = shown.text();
+        if text.is_empty() || !shown.verdict().may_be_killed() {
+            return;
         }
+        let piece = Piece::from(text.slice(0..text.len()));
+        let secret = self.kill_is_secret(buffer);
+        self.push_kill(vec![piece], false, secret);
     }
 
     /// Removes the person's own comment `comment` from the review `review`, with every reply
@@ -229,7 +239,7 @@ impl Editor {
             .review_mut(review)
             .ok_or(CommentError::NoSuchComment)?
             .remove_comment(Author::Person, comment)?;
-        self.push_kill(vec![Piece::from(Rope::from(text.as_str()))], !agents);
+        self.push_kill(vec![Piece::from(Rope::from(text.as_str()))], !agents, false);
         Ok(removed)
     }
 }

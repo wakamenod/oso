@@ -366,22 +366,25 @@ fn a_draft_too_long_or_empty_stays_open_and_says_so() {
 }
 
 #[test]
-fn a_draft_whose_target_is_gone_goes_to_the_kill_ring() {
+fn a_draft_whose_target_is_gone_stays_open_and_c_g_keeps_it_off_the_clipboard() {
+    const GONE: &str = "Comment target gone: C-g keeps the text in the kill ring";
     // `b` has no reading, as a file read again and gone has none.
     let (mut editor, review, comments) = at(lines::B_LINE);
     assert_eq!(run(&mut editor, "review-comment", Args::NONE).0, Ok(()));
     type_in(&mut editor, "lost?");
-    // A region in it changes nothing: it closes at once.
-    assert_eq!(run(&mut editor, "set-mark-command", Args::NONE).0, Ok(()));
+    let before = editor.kill_ring().len();
     assert_eq!(run(&mut editor, "review-keep-draft", Args::NONE).0, Ok(()));
-    assert!(editor.prompt().is_none(), "closed");
-    assert_eq!(editor.kill_ring().get(0).unwrap().joined(), "lost?");
+    assert!(editor.draft().is_some(), "still open");
     assert_eq!(
-        crate::commands::kept_messages(&editor)
-            .last()
-            .map(String::as_str),
-        Some("Comment target gone: text in the kill ring")
+        editor.prompt().and_then(|prompt| prompt.message()),
+        Some(GONE)
     );
+    assert_eq!(editor.kill_ring().len(), before, "nothing copied yet");
+    assert!(editor.take_clipboard_write().is_none());
+    assert_eq!(run(&mut editor, "keyboard-quit", Args::NONE).0, Ok(()));
+    assert!(editor.prompt().is_none());
+    assert_eq!(editor.kill_ring().get(0).unwrap().joined(), "lost?");
+    assert!(editor.take_clipboard_write().is_none(), "ring only");
     // A reply to a comment removed meanwhile.
     put_at(&mut editor, &[lines::AGENTS]);
     assert_eq!(run(&mut editor, "review-comment", Args::NONE).0, Ok(()));
@@ -391,8 +394,14 @@ fn a_draft_whose_target_is_gone_goes_to_the_kill_ring() {
         .remove_comment(Author::Agent, comments.agents)
         .unwrap();
     assert_eq!(run(&mut editor, "review-keep-draft", Args::NONE).0, Ok(()));
-    assert!(editor.prompt().is_none());
+    assert!(editor.draft().is_some());
+    assert_eq!(
+        editor.prompt().and_then(|prompt| prompt.message()),
+        Some(GONE)
+    );
+    editor.quit();
     assert_eq!(editor.kill_ring().get(0).unwrap().joined(), "and this");
+    assert!(editor.take_clipboard_write().is_none());
     assert!(editor.take_review_requests().is_empty());
     assert_eq!(
         run(&mut editor, "review-keep-draft", Args::NONE).0,

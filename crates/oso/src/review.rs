@@ -39,6 +39,8 @@ mod git;
 mod id;
 mod index;
 mod list;
+#[cfg(test)]
+mod queue_tests;
 mod read;
 mod scope;
 mod side;
@@ -358,16 +360,22 @@ impl Reviewer {
     /// Asks the thread for `request`; `false` if it has ended. A carry is not counted as
     /// waiting, so it stops nothing.
     pub(crate) fn ask(&self, request: Request) -> bool {
-        let counted = !matches!(request, Request::Carry(_));
-        if counted {
-            self.waiting.fetch_add(1, Ordering::SeqCst);
-        }
-        let sent = self.requests.send(request).is_ok();
-        if !sent && counted {
-            self.waiting.fetch_sub(1, Ordering::SeqCst);
-        }
-        sent
+        send_request(&self.requests, &self.waiting, request)
     }
+}
+
+/// Sends `request` on `requests`, counted in `waiting` unless it is a carry; `false` if the
+/// thread has ended.
+fn send_request(requests: &Sender<Request>, waiting: &AtomicUsize, request: Request) -> bool {
+    let counted = !matches!(request, Request::Carry(_));
+    if counted {
+        waiting.fetch_add(1, Ordering::SeqCst);
+    }
+    let sent = requests.send(request).is_ok();
+    if !sent && counted {
+        waiting.fetch_sub(1, Ordering::SeqCst);
+    }
+    sent
 }
 
 impl Drop for Reviewer {
@@ -389,20 +397,6 @@ fn serve(
 ) {
     let mut reader = work::Reader::new(root.path(), state);
     let held = RefCell::new(Waiting::default());
-    // Takes what the queue holds now: carries aside, until another request comes.
-    let pull = || {
-        let mut held = held.borrow_mut();
-        while held.next.is_none() {
-            match queue.try_recv() {
-                Ok(Request::Carry(carry)) => held.carries.push_back(carry),
-                Ok(other) => {
-                    waiting.fetch_sub(1, Ordering::SeqCst);
-                    held.next = Some(other);
-                }
-                Err(_) => break,
-            }
-        }
-    };
     loop {
         let Some(request) = next_request(queue, &held, waiting) else {
             return;
@@ -430,7 +424,7 @@ fn serve(
         // Each carry is checked as a request is, and a newer request stops the run of them: the
         // rest wait, to be answered between its files, or failed if the root was revoked.
         let mut carries = || {
-            pull();
+            pull(queue, &held, waiting);
             if held.borrow().carries.is_empty() || stop() || !root.still_there() {
                 return None;
             }
@@ -451,6 +445,22 @@ fn serve(
         }
         if gone {
             return;
+        }
+    }
+}
+
+/// Takes what the queue holds now: carries aside, after those waiting, until another request
+/// comes, which waits as the next.
+fn pull(queue: &Receiver<Request>, held: &RefCell<Waiting>, waiting: &AtomicUsize) {
+    let mut held = held.borrow_mut();
+    while held.next.is_none() {
+        match queue.try_recv() {
+            Ok(Request::Carry(carry)) => held.carries.push_back(carry),
+            Ok(other) => {
+                waiting.fetch_sub(1, Ordering::SeqCst);
+                held.next = Some(other);
+            }
+            Err(_) => break,
         }
     }
 }

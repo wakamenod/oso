@@ -9,14 +9,14 @@
 //! - Every command that writes a comment is `Person` (ADR 0122, Q11), so no command of the agent
 //!   channel touches the person's comments; only `{` and `}`, which move, are `Look`.
 //! - The comment commands act on the primary cursor, and refuse inside a prompt.
-//! - What a draft holds is never lost: a draft that cannot be kept goes to the kill ring as
-//!   `C-g` sends it. No comment's text reaches a message or the log.
+//! - What a draft holds is never lost: a draft that cannot be kept stays open, and `C-g` copies
+//!   it to oso's kill ring, never to the clipboard. No comment's text reaches a message or the
+//!   log.
 //! - A draft whose buffer turned secret, as a yank of a secret entry turns it, is not kept: its
 //!   text stays out of the review, whose comments the agent reads.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{DraftFor, ReviewId, ReviewRequest};
-use oso_core::kill::Direction;
 use oso_core::minibuffer::PromptError;
 use oso_core::review::{Anchor, Author, CommentError, CommentId, MAX_COMMENT_BYTES, RowKind, Seek};
 
@@ -65,7 +65,7 @@ pub const COMMANDS: &[Command] = &[
     },
     person_command!(
         "review-keep-draft",
-        "Keep the comment's draft: add it, the reply or the new text to the review, as yours.\n\nA draft whose line, hunk or comment is gone, or that the review cannot take, goes to the kill ring. A secret draft stays open: C-g puts it in the kill ring.",
+        "Keep the comment's draft: add it, the reply or the new text to the review, as yours.\n\nA draft whose line, hunk or comment is gone, that the review cannot take, or that is secret stays open: C-g puts it in the kill ring.",
         review_keep_draft
     ),
 ];
@@ -286,6 +286,22 @@ fn refused(error: CommentError) -> &'static str {
     }
 }
 
+/// What a draft the review refused says, as it stays open.
+fn not_kept(error: CommentError) -> &'static str {
+    match error {
+        CommentError::NoSuchFile | CommentError::NotInDiff | CommentError::NoSuchComment => {
+            "Comment target gone: C-g keeps the text in the kill ring"
+        }
+        CommentError::NotYours | CommentError::RepliesNotYours => {
+            "Not yours: C-g keeps the text in the kill ring"
+        }
+        CommentError::TooLong => TOO_LONG,
+        CommentError::TooMany => {
+            "The review holds as many comments as it can: C-g keeps the text in the kill ring"
+        }
+    }
+}
+
 fn review_keep_draft(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let Some((review, draft)) = ctx
         .editor
@@ -313,8 +329,7 @@ fn review_keep_draft(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ctx.request_redraw();
         return Ok(());
     }
-    // The review takes it while the draft still holds it, so that what it refuses goes to the
-    // kill ring as the draft closes.
+    // The review takes it while the draft still holds it, so that what it refuses stays there.
     let kept =
         match ctx.editor.review_mut(review) {
             None => Err(CommentError::NoSuchFile),
@@ -348,25 +363,10 @@ fn review_keep_draft(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             Ok(())
         }
         Err(error) => {
-            // The draft is the selected window: its text is copied to the kill ring, then it
-            // closes as kept, whatever else `C-g` would deal with first.
-            let len = ctx.editor.current().1.text().len();
-            let copied = ctx
-                .editor
-                .kill(std::iter::once(0..len), Direction::Forward, true)
-                .is_ok();
-            ctx.editor
-                .submit_prompt()
-                .map_err(|error| CommandError::new(error.to_string()))?;
-            // The answer is the comment's, which no command waits for.
-            let _ = ctx.editor.take_prompt_outcome();
+            // The draft stays open with its text: `C-g` copies it to the kill ring alone, as an
+            // entry that goes to no clipboard.
+            ctx.editor.prompt_says(not_kept(error));
             ctx.request_redraw();
-            let why = refused(error);
-            if copied && len > 0 {
-                ctx.editor.message(format!("{why}: text in the kill ring"));
-            } else {
-                ctx.editor.message(why);
-            }
             Ok(())
         }
     }

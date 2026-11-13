@@ -11,6 +11,7 @@ use super::{DraftFor, MAX_KILLED_THREAD};
 use crate::buffer::Replacement;
 use crate::editor::{Editor, Quit};
 use crate::frame::FrameSize;
+use crate::kill::Direction;
 use crate::minibuffer::{Kind, PromptError};
 use crate::project::ProjectId;
 use crate::review::{Anchor, Author, Base, CommentError, Hunk, Shape, Side};
@@ -169,6 +170,56 @@ fn a_draft_with_text_goes_to_the_kill_ring_on_quit_and_an_empty_one_does_not() {
 }
 
 #[test]
+fn a_drafts_c_g_after_a_kill_in_it_is_an_entry_of_its_own_that_goes_to_no_clipboard() {
+    let (mut editor, id) = editor_with_file();
+    let draft = DraftFor::Comment {
+        path: FILE.into(),
+        anchor: line(1),
+    };
+    editor.open_draft(id, draft, "first line\nsecond").unwrap();
+    // `C-k`'s kill in the draft, as a command, which the host puts on the clipboard.
+    editor
+        .kill(std::iter::once(0..6), Direction::Forward, false)
+        .unwrap();
+    assert_eq!(editor.take_clipboard_write().unwrap().text(), "first ");
+    editor.note_command_ended(false);
+    assert_eq!(editor.quit(), Quit::Prompt);
+    let ring: Vec<String> = editor.kill_ring().iter().map(|e| e.joined()).collect();
+    assert_eq!(ring, ["line\nsecond", "first "]);
+    assert!(!editor.kill_ring().get(0).unwrap().is_secret());
+    assert!(editor.take_clipboard_write().is_none(), "the draft's text");
+    // A kill after it does not append to it.
+    editor.note_command_ended(false);
+    let draft = DraftFor::Comment {
+        path: FILE.into(),
+        anchor: line(2),
+    };
+    editor.open_draft(id, draft, "x").unwrap();
+    editor
+        .kill(std::iter::once(0..1), Direction::Forward, true)
+        .unwrap();
+    let ring: Vec<String> = editor.kill_ring().iter().map(|e| e.joined()).collect();
+    assert_eq!(ring, ["x", "line\nsecond", "first "]);
+}
+
+#[test]
+fn a_secret_drafts_c_g_makes_a_secret_entry() {
+    let (mut editor, id) = editor_with_file();
+    let draft = DraftFor::Comment {
+        path: FILE.into(),
+        anchor: line(1),
+    };
+    editor.open_draft(id, draft, "hidden").unwrap();
+    let buffer = editor.current().0.buffer();
+    assert!(editor.buffer_mut(buffer).unwrap().treat_as_secret());
+    editor.quit();
+    let newest = editor.kill_ring().get(0).unwrap();
+    assert_eq!(newest.joined(), "hidden");
+    assert!(newest.is_secret());
+    assert!(editor.take_clipboard_write().is_none());
+}
+
+#[test]
 fn the_answer_grows_with_the_text_to_ten_rows_and_its_window_with_it() {
     let (mut editor, id) = editor_with_file();
     let draft = DraftFor::Comment {
@@ -255,7 +306,7 @@ fn a_thread_an_agent_wrote_in_stays_off_the_clipboard_and_the_persons_goes_there
     assert!(editor.take_clipboard_write().is_none(), "an agent's words");
     let newest = editor.kill_ring().get(0).unwrap();
     assert_eq!(newest.joined(), "You  #1\nwhy?\nAgent  #2\nbecause");
-    // A kill after it makes an entry of its own, which alone goes to the clipboard.
+    // A draft's `C-g` after it makes an entry of its own, which goes to no clipboard either.
     editor.note_command_ended(false);
     editor.quit();
     editor
@@ -270,7 +321,11 @@ fn a_thread_an_agent_wrote_in_stays_off_the_clipboard_and_the_persons_goes_there
         .unwrap();
     editor.quit();
     assert_eq!(editor.kill_ring().get(0).unwrap().joined(), "draft");
-    assert_eq!(editor.take_clipboard_write().unwrap().text(), "draft");
+    assert_eq!(
+        editor.kill_ring().get(1).unwrap().joined(),
+        "You  #1\nwhy?\nAgent  #2\nbecause"
+    );
+    assert!(editor.take_clipboard_write().is_none(), "a draft's text");
 }
 
 #[test]

@@ -200,10 +200,11 @@ impl App {
         self.mark_shown_read();
     }
 
-    /// Marks read each unread agent comment whose label and every text row it shows are in the
+    /// Marks read each unread agent comment whose label and every row of its text are in the
     /// selected window, a review's, after the person's own input, and builds its file's section
-    /// again so that its label loses `· new` (Q7). Costs the rows in view, and nothing when the
-    /// view and its text are as when last looked at.
+    /// again so that its label loses `· new` (Q7). None is marked while agent cards fold, or
+    /// while the text shown was built with them folded. Costs the rows in view, and nothing when
+    /// the view and its text are as when last looked at.
     fn mark_shown_read(&mut self) {
         // What the agent channel brings into view is not read: only the person's input counts.
         if !std::mem::take(&mut self.reviews.person_acted) || self.editor.prompt().is_some() {
@@ -234,7 +235,9 @@ impl App {
         else {
             return;
         };
-        let (read, mut paths) = read_in_view(rows, model, first, last);
+        let folded = self.editor.agents_folded(id)
+            || (self.reviews.index(id)).is_some_and(|index| self.reviews.open[index].shown_folded);
+        let (read, mut paths) = read_in_view(rows, model, first, last, folded);
         if read.is_empty() {
             return;
         }
@@ -261,15 +264,21 @@ fn unlisted(model: &Review, entries: &[Entry]) -> Vec<Box<[u8]>> {
 }
 
 /// The unread agent comments whose label and every text row run within the lines `first` to
-/// `last` of `rows`, and the paths of their files, each once in a row.
+/// `last` of `rows`, and the paths of their files, each once in a row. None while agent cards
+/// show `folded`, nor one whose text has no row: its label alone shows, past the text's room or
+/// in a resolved thread.
 fn read_in_view(
     rows: &Rows,
     model: &Review,
     first: usize,
     last: usize,
+    folded: bool,
 ) -> (Vec<CommentId>, Vec<Box<[u8]>>) {
     let mut read = Vec::new();
     let mut paths: Vec<Box<[u8]>> = Vec::new();
+    if folded {
+        return (read, paths);
+    }
     for line in first..=last {
         let Some(row) = rows.at(line) else {
             break;
@@ -277,16 +286,19 @@ fn read_in_view(
         let RowKind::Label { comment } = row.kind else {
             continue;
         };
-        let unread = model
-            .comment(comment)
-            .is_some_and(|c| c.author() == Author::Agent && !c.is_read());
-        if !unread {
+        let Some(shown) = model.comment(comment) else {
+            continue;
+        };
+        if shown.author() != Author::Agent || shown.is_read() {
+            continue;
+        }
+        let is_text =
+            |at: usize| (rows.at(at)).is_some_and(|row| row.kind == RowKind::Card { comment });
+        if !shown.text().is_empty() && !is_text(line + 1) {
             continue;
         }
         // Its text rows run on from its label, looked at as far as the row past the view: the
         // last must be in view, so that row must not be one of them.
-        let is_text =
-            |at: usize| (rows.at(at)).is_some_and(|row| row.kind == RowKind::Card { comment });
         let mut end = line + 1;
         while end <= last && is_text(end) {
             end += 1;

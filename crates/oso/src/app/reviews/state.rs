@@ -38,6 +38,9 @@ pub(super) struct Running {
     pub(super) carrying: VecDeque<Arc<Reading>>,
     /// Whether the view was last told that agent cards fold.
     pub(super) folded: bool,
+    /// Whether agent cards fold in the text the review buffer holds, which may still be one
+    /// built before the view was told otherwise.
+    pub(super) shown_folded: bool,
 }
 
 /// What opening a review that is open already does.

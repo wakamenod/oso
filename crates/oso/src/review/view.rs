@@ -113,6 +113,8 @@ pub(crate) struct Text {
     pub(crate) highlights: Highlights,
     pub(crate) carried: Vec<(Arc<Reading>, Carried)>,
     pub(crate) reading: Option<(usize, usize)>,
+    /// Whether its agent cards show folded to their first line.
+    pub(crate) folded: bool,
 }
 
 /// Hands a text to the event loop; `false` once it is gone.
@@ -244,20 +246,13 @@ impl State {
         }
     }
 
-    /// Takes a new listing. A file that left it with comments stays, after the others.
+    /// Takes a new listing. A file that left a whole listing with comments stays, after the
+    /// others, as no longer changed. A cut listing tells nothing of the files it left out, as
+    /// the model's files keep them: one with comments stays shown as it was, after the listed
+    /// ones.
     fn listed(&mut self, entries: &[Entry], more: usize, cut: bool) {
-        let same = self.more == more
-            && self.cut == cut
-            && self.order.len() == entries.len()
-            && self
-                .order
-                .iter()
-                .zip(entries.iter())
-                .all(|(a, b)| *a == b.path);
-        self.dirty |= !same;
-        self.more = more;
-        self.cut = cut;
-        self.reading = true;
+        let whole = more == 0 && !cut;
+        let before = std::mem::take(&mut self.order);
         let mut files = std::mem::take(&mut self.files);
         self.order = entries.iter().map(|entry| entry.path.clone()).collect();
         for entry in entries {
@@ -270,17 +265,32 @@ impl State {
             };
             self.files.insert(entry.path.clone(), file);
         }
-        for (path, file) in files {
-            if !file.cards.comments.is_empty() {
+        // In the order they were shown.
+        for path in &before {
+            let Some(file) = files.remove(path) else {
+                continue;
+            };
+            if file.cards.comments.is_empty() {
+                continue;
+            }
+            if whole {
                 let gone = Gone {
                     withheld: file.withheld(),
                     cards: file.cards,
                     rendered: None,
                 };
-                self.gone.insert(path, gone);
+                self.gone.insert(path.clone(), gone);
                 self.dirty = true;
+            } else {
+                self.order.push(path.clone());
+                self.files.insert(path.clone(), file);
             }
         }
+        let same = self.more == more && self.cut == cut && before == self.order;
+        self.dirty |= !same;
+        self.more = more;
+        self.cut = cut;
+        self.reading = true;
     }
 
     /// Takes a file's new reading: shown now, or once its carry comes.
@@ -389,6 +399,7 @@ impl State {
                 highlights: highlights.clone(),
                 carried: std::mem::take(&mut self.carried),
                 reading,
+                folded: self.folded,
             };
         }
         let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
@@ -457,6 +468,7 @@ impl State {
             highlights,
             carried: std::mem::take(&mut self.carried),
             reading,
+            folded,
         }
     }
 

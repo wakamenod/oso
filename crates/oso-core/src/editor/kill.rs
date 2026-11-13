@@ -138,6 +138,7 @@ impl Editor {
             .map(|range| Piece::from(text.slice(range.clone())))
             .collect();
         let kept = buffer.verdict().may_be_killed();
+        let secret = self.kill_is_secret(id);
         if pieces.iter().all(Piece::is_empty) {
             return if copy_only {
                 Ok(())
@@ -147,9 +148,6 @@ impl Editor {
                     .map_or(Ok(()), |reason| Err(EditError::ReadOnly(reason)))
             };
         }
-        // What the agent channel kills from a buffer it may not read is secret, so that it
-        // cannot yank the text where it may read it (ADR 0121). The person's kills are theirs.
-        let secret = buffer.is_secret() || (buffer.withheld_from_agents() && self.runs_for_agent());
         let read_only = buffer.read_only();
         if kept {
             self.add_kill(pieces, direction, secret);
@@ -168,11 +166,21 @@ impl Editor {
         self.apply_edits(id, &edits)
     }
 
-    /// Puts `pieces` in the ring as an entry of its own, as a removed review comment does
-    /// (ADR 0122). It goes to the clipboard as a kill's does if `to_clipboard`; otherwise it
-    /// stays in the ring, and no kill after it appends to it, so that nothing takes it there.
-    pub(super) fn push_kill(&mut self, pieces: Vec<Piece>, to_clipboard: bool) {
-        let entry = self.kills.ring.push(pieces, false);
+    /// Whether a kill from the buffer `id` makes a secret entry: one from a buffer that may
+    /// hold secrets, or the agent channel's from a buffer withheld from it, so that it cannot
+    /// yank the text where it may read it (ADR 0121). The person's kills are theirs.
+    pub(super) fn kill_is_secret(&self, id: BufferId) -> bool {
+        self.buffer(id).is_some_and(|buffer| {
+            buffer.is_secret() || (buffer.withheld_from_agents() && self.runs_for_agent())
+        })
+    }
+
+    /// Puts `pieces` in the ring as an entry of its own, never appended to the newest one, as
+    /// a removed review comment and a draft's `C-g` do (ADR 0122), secret if `secret`. It goes
+    /// to the clipboard as a kill's does if `to_clipboard`; otherwise it stays in the ring, and
+    /// no kill after it appends to it, so that nothing takes it there.
+    pub(super) fn push_kill(&mut self, pieces: Vec<Piece>, to_clipboard: bool, secret: bool) {
+        let entry = self.kills.ring.push(pieces, secret);
         let kills = &mut self.kills;
         kills.killed = to_clipboard;
         kills.to_write = to_clipboard.then_some(entry);

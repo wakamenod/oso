@@ -625,7 +625,12 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md), "The answer is one row and
   scrolls sideways" and `RET` giving the answer: a review comment's draft is a prompt whose answer
   takes up to 10 rows, as many as its text wraps into, and `RET` breaks a line in it; `C-c C-c`
-  keeps it (step 3).
+  keeps it (step 3). And the `C-g` chain: `C-g` in a draft copies its text to the kill ring
+  before it closes the draft (step 3).
+- [ADR 0074](0074-the-kill-ring-and-the-clipboard.md), what goes to the OS clipboard: a removed
+  thread that holds an agent's text stays in oso's kill ring and goes to no clipboard (the
+  author's Q-G (a)), and a draft's `C-g` copy goes to no clipboard either, as an entry of its own
+  that no kill appends to (step 3).
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "What the channel can do" and the `oso mcp` tool
   list: the review methods and tools above join them, with the reach given for each.
 - [ADR 0103](0103-soft-wrap-in-a-window.md), "A prompt's window never wraps": a review comment's
@@ -986,16 +991,20 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
   buffer in a float under the line".** It replaces too the Decision's "a draft is a buffer of its
   own ... if its line goes, it stays open and says it will be kept as outdated": review texts
   wait while the draft is open, so its line cannot go under it, and a target gone by the time it
-  is kept, as a comment removed, sends its text to the kill ring. Its label says what it is for:
+  is kept, as a comment removed, leaves the draft open, saying that `C-g` keeps its text in the
+  kill ring. Its label says what it is for:
   `Comment on <path> L42 (new)`, `Comment on <path> hunk 3`, `Reply to #7` or `Edit #7`, the
   path on one line, what the display map boxes shown as `?`, and cut to 80 characters. Its text wraps, and its answer grows with it up to 10 rows, then scrolls
   (Q-D (a)); it is the only prompt whose window wraps. `RET` breaks a line, `C-c C-c` keeps it
-  (`review-keep-draft`) and `C-g` drops it, copying a draft that holds text to the kill ring.
+  (`review-keep-draft`) and `C-g` drops it, copying a draft that holds text to the kill ring as
+  an entry of its own, never appended to a kill before it, that goes to no OS clipboard, secret
+  when a kill from the draft would be.
   A draft opens only when no prompt is open, and it keeps no history. Review texts wait while it
   is open, as under any prompt, so the line it is on cannot move under it. Keeping it refuses
   text over 64 KiB, and a draft turned secret, as a yank of a secret entry turns it, leaving it
-  open (`C-g` then makes a secret entry of it); a target gone meanwhile, as a comment removed,
-  leaves the text in the kill ring. Its rows are counted as its window's wrap breaks them, at
+  open (`C-g` then makes a secret entry of it); a target gone meanwhile, as a comment removed, or
+  a comment the review refuses leaves it open too, saying why and that `C-g` keeps the text in
+  the kill ring, so a draft's text never reaches the clipboard. Its rows are counted as its window's wrap breaks them, at
   most 10 read.
 - **Keys:** `c` comments on a line, on a hunk's header, or replies on a card (Q15); `e` edits the
   person's own comment; `k` removes the person's own comment with its whole thread at once, with
@@ -1023,15 +1032,20 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
   runs, so a file's comments never stop a refresh. Before each, the root is checked as before a
   request, and a newer request stops a run of them, the rest answered between its files, or
   failed if the root was revoked, which carries them on the view thread instead. A carry that
-  panics is answered as failed, and its time is not taken from the request's. The result is applied as the text that shows
+  panics is answered as failed, and its time is not taken from the request's. Its 1 s limit is
+  its own run, counted from when it starts, not its wait in the queue. The result is applied as the text that shows
   it goes in, so the model's reading of a file is always the one on screen.
 - **A file that leaves the listing** with comments is taken out of the model, its comments
   outdated, and stays under the listed files as `no longer changed  <path>` with its cards
-  (Q-E (a)), or with its count alone if its last reading was withheld.
+  (Q-E (a)), or with its count alone if its last reading was withheld. A listing cut short, at
+  10,000 files or by git's output, tells nothing of the files it left out: one with comments
+  stays in the model and on screen as it was, after the listed files.
 - **Read:** an agent comment is marked read once its label and every row of its text shown were
   in the selected window after the person's own input, a key, typed text or the wheel (Q7 (a));
   its label then loses `· new`. What the agent channel brings into view is not read, and the
-  rows are looked at only when the view or its text changed since.
+  rows are looked at only when the view or its text changed since. None is read while agent
+  cards fold, or while the text shown was built folded, nor one whose label shows alone, past
+  the text's room or in a resolved thread.
 - **Closing** counts an open draft as a comment of the person's not sent.
 - A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
   it on `RET` comes with part three.

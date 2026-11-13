@@ -80,18 +80,37 @@ fn an_agent_comment_is_read_only_once_its_label_and_whole_text_are_in_view() {
     let rows = rows_with(agent, 3);
     // Lines 3 (label) to 6 (last text row).
     assert_eq!(
-        read_in_view(&rows, &review, 0, 5).0,
+        read_in_view(&rows, &review, 0, 5, false).0,
         Vec::<CommentId>::new()
     );
     assert_eq!(
-        read_in_view(&rows, &review, 4, 7).0,
+        read_in_view(&rows, &review, 4, 7, false).0,
         Vec::<CommentId>::new()
     );
-    let (read, paths) = read_in_view(&rows, &review, 2, 6);
+    let (read, paths) = read_in_view(&rows, &review, 2, 6, false);
     assert_eq!(read, [agent]);
     assert_eq!(paths, [Box::<[u8]>::from(FILE)]);
     review.mark_read(&read);
-    assert!(read_in_view(&rows, &review, 0, 7).0.is_empty(), "read once");
+    assert!(
+        read_in_view(&rows, &review, 0, 7, false).0.is_empty(),
+        "read once"
+    );
+}
+
+#[test]
+fn an_agent_comment_folded_or_shown_as_its_label_alone_is_not_read() {
+    let mut review = review_of(&[FILE]);
+    let agent = review
+        .add_comment(Author::Agent, FILE, line(1), "one\ntwo".into())
+        .unwrap();
+    // Folded to its first line and a mark for more.
+    let rows = rows_with(agent, 2);
+    assert!(read_in_view(&rows, &review, 0, 10, true).0.is_empty());
+    // Its label alone, as past the text's room or in a resolved thread.
+    let rows = rows_with(agent, 0);
+    assert!(read_in_view(&rows, &review, 0, 10, false).0.is_empty());
+    let rows = rows_with(agent, 2);
+    assert_eq!(read_in_view(&rows, &review, 0, 10, false).0, [agent]);
 }
 
 #[test]
@@ -101,7 +120,7 @@ fn the_persons_comments_are_never_marked() {
         .add_comment(Author::Person, FILE, line(1), "mine".into())
         .unwrap();
     let rows = rows_with(mine, 1);
-    assert!(read_in_view(&rows, &review, 0, 10).0.is_empty());
+    assert!(read_in_view(&rows, &review, 0, 10, false).0.is_empty());
 }
 
 #[test]

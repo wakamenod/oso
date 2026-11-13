@@ -1,6 +1,6 @@
 //! A review comment's draft and the review buffer's comment keys through the [`Dispatcher`]
 //! (ADR 0122): `RET` breaks a line, `C-c C-c` keeps the draft, `C-g` puts it in the kill
-//! ring, a draft too long stays open, and one whose target is gone goes to the kill ring.
+//! ring alone and off the clipboard, and a draft too long or whose target is gone stays open.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every OS with no
 //! window.
@@ -80,6 +80,7 @@ fn c_g_puts_the_draft_in_the_kill_ring() {
     send(&mut d, &mut editor, "c d r a f t C-g");
     assert!(editor.prompt().is_none());
     assert_eq!(newest_kill(&editor), "draft");
+    assert!(editor.take_clipboard_write().is_none(), "ring only");
     assert_eq!(echo(&editor), "Draft in the kill ring: C-y");
     assert_eq!(editor.review(review).unwrap().comments().count(), before);
 }
@@ -106,12 +107,31 @@ fn a_draft_too_long_stays_open() {
 }
 
 #[test]
-fn a_draft_whose_target_is_gone_goes_to_the_kill_ring() {
+fn a_draft_whose_target_is_gone_stays_open_until_c_g_keeps_it() {
     let (mut d, mut editor, _, _) = at(lines::B_LINE);
     send(&mut d, &mut editor, "c g o n e C-c C-c");
+    assert!(editor.draft().is_some());
+    assert_eq!(
+        editor.prompt().and_then(|prompt| prompt.message()),
+        Some("Comment target gone: C-g keeps the text in the kill ring")
+    );
+    send(&mut d, &mut editor, "C-g");
     assert!(editor.prompt().is_none());
     assert_eq!(newest_kill(&editor), "gone");
-    assert_eq!(echo(&editor), "Comment target gone: text in the kill ring");
+    assert!(editor.take_clipboard_write().is_none());
+}
+
+#[test]
+fn c_k_in_a_draft_then_c_g_keeps_the_draft_as_an_entry_of_its_own_off_the_clipboard() {
+    let (mut d, mut editor, _, _) = at(lines::HUNK);
+    send(&mut d, &mut editor, "c a b RET c d C-a C-k");
+    assert_eq!(editor.take_clipboard_write().unwrap().text(), "cd");
+    send(&mut d, &mut editor, "C-g");
+    assert!(editor.prompt().is_none());
+    let ring: Vec<String> = editor.kill_ring().iter().map(|e| e.joined()).collect();
+    assert_eq!(ring, ["ab\n", "cd"]);
+    assert!(editor.take_clipboard_write().is_none(), "the draft's text");
+    assert_eq!(echo(&editor), "Draft in the kill ring: C-y");
 }
 
 #[test]

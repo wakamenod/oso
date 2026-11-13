@@ -392,9 +392,11 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   the file's first hunk, and a file no longer changed keeps its comments at the end, under
   `no longer changed  <path>`.
 - A comment is typed in a draft in the top float, which grows with its text to 10 rows and
-  wraps: `RET` breaks a line, `C-c C-c` keeps it, `C-g` drops it into the kill ring. A draft
-  that holds secret text is not kept.
-- An agent's comment counts as read once you have had it whole on screen after a key of yours.
+  wraps: `RET` breaks a line, `C-c C-c` keeps it, `C-g` drops it into oso's kill ring, off the
+  clipboard. A draft that holds secret text, or whose line or comment is gone, is not kept: it
+  stays open, and `C-g` keeps its text.
+- An agent's comment counts as read once you have had it whole on screen, unfolded, after a key
+  of yours.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this

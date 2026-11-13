@@ -241,6 +241,7 @@ impl App {
             revoked: false,
             carrying: VecDeque::new(),
             folded: false,
+            shown_folded: false,
         });
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
@@ -507,7 +508,9 @@ impl App {
             highlights,
             carried,
             reading,
+            folded,
         } = text;
+        self.reviews.open[index].shown_folded = folded;
         // Kept, at O(1), so that the text it replaces is freed off the UI thread, with the rows
         // and highlights it replaces.
         let before = self
