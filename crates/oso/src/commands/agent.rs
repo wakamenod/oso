@@ -1,5 +1,6 @@
-//! Turning the agent channel on and off, and letting a connection in (ADR 0085). Each is
-//! `Person`: only someone at the keyboard decides who may drive the editor.
+//! Turning the agent channel on and off, letting a connection in, and allowing what an agent's
+//! session tool asks (ADR 0085, ADR 0121). Each is `Person`: only someone at the keyboard
+//! decides who may drive the editor, and what an agent may start.
 //!
 //! Must not depend on: the channel's socket or threads, or `bindings`; a command asks the
 //! host through the editor, and the host starts or stops the channel.
@@ -26,13 +27,35 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "agent-channel-allow",
-        doc: "Let in the agent whose connection waits, as `y` to its question does.\n\nRun on its own, it says that the question answers this.",
+        doc: "Let in the agent whose connection waits, or allow what an agent's session tool asks, as `y` to its question does.\n\nRun on its own, it says that the question answers this.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: allow,
         state: None,
     },
+    Command {
+        name: "agent-question-details",
+        doc: "Show what the agent's open question would run, as `?` in it does: the session that asks, and the whole brief it would start a session with.\n\nThe question stays open; answer it with `y` or `n`. `*Agent request*` is read-only, and no agent reads it.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: question_details,
+        state: None,
+    },
 ];
+
+fn question_details(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if !ctx
+        .editor
+        .prompt()
+        .is_some_and(oso_core::minibuffer::Prompt::from_agent)
+    {
+        return Err(CommandError::new("No question of an agent's is open"));
+    }
+    ctx.editor
+        .request_session(oso_core::editor::SessionRequest::QuestionDetails);
+    ctx.request_redraw();
+    Ok(())
+}
 
 fn start(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ctx.editor.request_agent_channel(true);

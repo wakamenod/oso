@@ -21,6 +21,8 @@ pub const QUESTION: &[(&str, &str)] = &[
     ("y", "answer-yes"),
     ("n", "answer-no"),
     ("C-g", "keyboard-quit"),
+    // What a question the agent caused would run (ADR 0121, step 6).
+    ("?", "agent-question-details"),
 ];
 
 /// Keys only a dev build has, for the end-to-end flows.

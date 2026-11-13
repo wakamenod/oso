@@ -11,6 +11,7 @@ use oso_core::project::ProjectId;
 use super::super::super::App;
 use super::{QUESTION_NAMES, Removing};
 use crate::sessions::worktree::checks::{self, Check};
+use crate::sessions::worktree::jobs::Asked;
 use crate::sessions::worktree::list;
 use crate::sessions::worktree::porcelain::printable;
 
@@ -132,13 +133,23 @@ impl App {
         };
         let token = self.worktree_token();
         let snapshot = self.worktree_snapshot();
-        self.worktree_jobs()
-            .remove(token, trust, removing.path.clone(), snapshot, asked);
+        self.worktree_jobs().remove(
+            token,
+            trust,
+            removing.path.clone(),
+            snapshot,
+            Asked::Named(asked),
+        );
         self.editor.message(format!("Removing worktree {shown}…"));
         self.hosting.worktrees.removing = Some(Removing { token, ..removing });
     }
 
-    pub(super) fn worktree_removed(&mut self, token: u64, path: &Path, result: Result<(), String>) {
+    pub(super) fn worktree_removed(
+        &mut self,
+        token: u64,
+        path: &Path,
+        result: Result<Vec<PathBuf>, String>,
+    ) {
         if self
             .hosting
             .worktrees
@@ -151,7 +162,7 @@ impl App {
         self.hosting.worktrees.removing = None;
         let shown = printable(&path.display().to_string(), 200);
         match result {
-            Ok(()) => {
+            Ok(_) => {
                 self.editor
                     .message(format!("Removed worktree {shown}; its branch is kept"));
                 let listing = self.hosting.worktrees.list.as_ref().map(|l| l.buffer);

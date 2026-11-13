@@ -1010,8 +1010,8 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   trust, is made on them, never on the UI thread.
 - **`*Brief*` is withheld from agents** (the author's choice), as `*Session explain*` is. An
   agent cannot read or rewrite the person's brief before `C-c C-c` sends it.
-- **The steering hook's reason** names `session-worktree (C-x a w)` until step 6 gives agents
-  `start_worktree_session`. `[sessions] steer_worktrees` puts it into the session's
+- **The steering hook's reason** named `session-worktree (C-x a w)` until step 6 gave agents
+  `start_worktree_session`, which it names now. `[sessions] steer_worktrees` puts it into the session's
   `--settings`, which is built from parts, so ADR 0126's `statusLine` can join it. `oso hook
   deny-worktree` reads at most 64 KiB of standard input and always exits 0. It allows what it
   cannot read: it steers, and is no boundary.
@@ -1025,6 +1025,83 @@ questions through the coordinator, (a) for each, and the coordinator approved th
 - **Left to step 3 and ADR 0120's terminal:** the space a worktree session opens and its
   removal closes, the list's space column, live states in check 4 and the list, stopping a
   worktree's idle sessions before it is removed, and the end-to-end flows.
+
+## Step 6, as built
+
+Step 6 is built in three pull requests (the author's choice, 2026-11-13): 6a the tools that make
+"develop oso in oso" work, 6b `session_stop`, `session_archive`, `merge_branch` and the metadata
+tools, 6c `session_transcript` and `session_search`. This is 6a, built on steps 1 and 4 before
+step 3 and ADR 0120's terminal. The author answered its questions through the coordinator, (a)
+for each, and the coordinator approved these points:
+
+- **The tools of 6a:** `session_list`, `session_state` and `worktree_list` (`Look`, no
+  question), `worktree_remove` (`Change`, no question once every check holds, Q14),
+  `start_worktree_session` and `session_start` (`Change`, asks each time). Each is a channel
+  method of the same name. `sessions::tools` holds the table of reach, the loop guard, the
+  refusals and the questions' wording; a test spells the table out, and another checks that
+  `oso mcp` describes each tool as the table says.
+- **Who may call them (the author's choice).** A connection proven to be a hosted session's
+  bridge calls as that session. Any other connection gets the reading tools only, within the
+  selected window's project; starting, removing and the rest need a session oso started.
+- **What the lists show (the author's choice).** `session_list` and `session_state` show every
+  hosted session, of every repository, as `*Sessions*` does; acting stays within the caller's
+  repository. Each session has its id, name, `messaging_name` (the name Claude Code's own
+  `SendMessage` knows it by), directory, project, state, age, pin and archive marks, parent, and
+  whether it is the caller. Never a transcript path, and no recap until a terminal can allow agent
+  reads (ADR 0120 step 7). Until step 3 gives hosted sessions the taxonomy, the state is the
+  process's: `starting`, `running`, `stopped` or `failed`.
+- **A tool that asks holds its reply (the author's choice).** The call returns once the person
+  has answered and what the answer started has started: the new session's id and name, or why
+  not. The server holds such a reply with no time limit, as it holds the connection's own
+  question, and answers anything else the client sends meanwhile with "wait". When the client goes
+  (Esc in Claude Code cancels the call, and the bridge closes its connection), the question
+  closes and nothing the person had not allowed runs. What a `y` started goes on as the person's
+  act. A worktree listing or a removal holds its reply for at most 65 s, as its git calls are
+  bounded.
+- **Before the person is asked,** a job looks at what would happen (`worktree::prepare`):
+  whether the branch is new, where it would start and where its worktree would go; or whether a
+  session's directory is the repository's root or one of its linked worktrees. So the question
+  names what will happen, and a call that cannot happen (a branch checked out elsewhere, a name
+  git refuses, a base that is no commit) is refused before anyone is asked.
+- **A new branch starts at the commit the caller's directory is on** (the author's choice), so
+  workers branch from the coordinator's work; `base` names another start.
+- **The question** is an `Agent:` question under ADR 0085's rules, asked once the person is free,
+  one at a time with the connection's own question: "Agent: let session "api" start a session in
+  a new worktree "…/.claude/worktrees/x" on new branch "x" from "main", with a brief of 42 lines
+  (? to read it)? (y allow, n refuse)". Names, branches and paths are quoted, with their quotes,
+  backslashes, control and bidirectional characters escaped, and cut. `?` runs the new `Person`
+  command `agent-question-details`, which shows `*Agent request*`: who asks, the question, and
+  the whole brief. It is internal and withheld from agents, and closes with the question. `y`
+  runs `agent-channel-allow`, as for a connection.
+- **The loop guard** counts each call of `worktree_remove`, `start_worktree_session` and
+  `session_start` by session, not by connection, so a session that connects again keeps its
+  count. Only the person's input into that session's terminal resets it (the author's choice);
+  a `y` to its question does not. The call that resets it is in place for ADR 0120 step 4a's
+  terminal input to make. A refused call is not counted.
+- **A refusal** (`n` or `C-g`) refuses the same tool on the same target (the branch, or the
+  directory) from the same session for 60 s, without asking, and says it is the person's
+  decision. At most 256 refusals are kept.
+- **`worktree_list` runs git and `gh` without a question,** as step 4 recorded. This is a second
+  exception to ADR 0085's "anything that spawns a process is `Person`", beside an agent's
+  `worktree_remove`: a trusted project only, with every git run ADR 0122's runner. Each caller
+  runs one listing at a time and at most 6 a minute; an agent's listing and the person's
+  `*Worktrees*` do not stop each other. Its reply waits for the last row and `gh`'s answers, for
+  at most 60 s, then gives the rows it has.
+- **An agent's `worktree_remove`** runs step 4's checks and the removal in one job, and refuses a
+  worktree its own session runs in. Its reply names what git ignored there, which went with it,
+  and the echo area says which session removed which worktree.
+- **The steering hook's reason** now names `start_worktree_session`.
+- **The server's instructions** say to start parallel work with `start_worktree_session`, never
+  with `EnterWorktree`, `git worktree add` or `claude` in a shell; that a refusal is a decision,
+  not an obstacle, to report rather than to route around; and that the tools wait for the person
+  after 20 calls.
+- **The channel's protocol is version 2,** and `oso mcp` needs it.
+- **`oso-core` gained `SessionRequest::QuestionDetails`.**
+- **A guard test** (`tests/architecture/agent_tools.rs`) keeps the tools' own files from using
+  the terminal, the process module, or a name of Claude Code's token files.
+- **Left to step 3 and ADR 0120's terminal:** the taxonomy of states in the lists, stopping a
+  worktree's idle sessions before an agent removes it, the loop guard's reset from the
+  terminal's input, and the end-to-end flows, which need a session to run.
 
 ## Consequences
 

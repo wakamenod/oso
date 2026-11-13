@@ -42,7 +42,7 @@ const MCP_VERSIONS: [&str; 2] = ["2025-06-18", "2024-11-05"];
 const PROBE_EVERY: Duration = Duration::from_secs(5);
 
 /// What the bridge tells the agent about itself when it starts.
-const INSTRUCTIONS: &str = "Drives the person's oso editor through its agent channel. The person turns the channel on with M-x agent-channel-start and lets each connection in; until then, tool calls fail and say so. A refusal that says the person is busy means: wait, and try again. A change that waits for the person can be taken back with cancel. Commands that need a person at the keyboard are never run.";
+const INSTRUCTIONS: &str = "Drives the person's oso editor through its agent channel. The person turns the channel on with M-x agent-channel-start and lets each connection in; until then, tool calls fail and say so. A refusal that says the person is busy means: wait, and try again. A change that waits for the person can be taken back with cancel. Commands that need a person at the keyboard are never run. Inside a session oso hosts, the session tools start agent sessions and worktrees and remove finished ones: start parallel work with start_worktree_session, never with EnterWorktree, git worktree add or claude in a shell. A tool the person refused, or that oso refused, is a decision, not an obstacle: do not reach the same effect another way, such as git worktree add or remove --force, claude in a shell, or git push; tell the person instead. After 20 such calls the tools wait until the person types in your session.";
 
 /// A connection to the channel.
 trait Link {
@@ -532,8 +532,15 @@ fn serve<W: Write>(
     }
 }
 
+mod session_tools;
 mod stdin;
 mod tools;
+
+/// The tools `tools/list` gives, for the sessions module's test of their hints (ADR 0121).
+#[cfg(test)]
+pub(crate) fn listed_tools() -> Value {
+    tools::tools()
+}
 
 use stdin::{Input, Interrupt, QUEUED, is_id, spawn_reader};
 use tools::{channel_request, initialize, tool_result, tools};

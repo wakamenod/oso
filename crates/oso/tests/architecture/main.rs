@@ -12,6 +12,7 @@
 //! it catches a violation; this file holds the checks run against the
 //! workspace.
 
+mod agent_tools;
 mod headers;
 mod lexer;
 mod listening;
@@ -134,6 +135,17 @@ fn only_the_allowed_files_may_silence_the_ban_on_spawning() {
         .collect();
     let problems = spawning::problems(&files);
     assert_none(&problems);
+}
+
+#[test]
+fn session_tools_never_type_spawn_or_read_tokens() {
+    let workspace = Workspace::current();
+    let files: Vec<(String, String)> = workspace
+        .rust_files()
+        .into_iter()
+        .map(|path| (workspace.relative_path(&path), read(&path)))
+        .collect();
+    assert_none(&agent_tools::problems(&files));
 }
 
 #[test]

@@ -652,6 +652,12 @@ The UI thread never blocks on I/O or parsing:
   - The dispatcher waits for the branches before `session-worktree`'s prompt opens, as it
     waits for the clipboard (`dispatch/branches.rs`); `app/sessions/worktrees.rs` asks for them
     (`sync_branch_wait`), and the listing goes ahead of other jobs.
+- The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 6): the
+  rules are `sessions::tools` (reach, the loop guard, refusals, the questions' wording), and
+  `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
+  worktree jobs. A call that asks is looked at first by a job (`worktree::prepare`), then its
+  question waits for the person as the connection's own does; a job's reports for a tool's call
+  are taken by token before the person's own worktree commands see them.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -832,12 +838,14 @@ Full details are in [`security.md`](security.md).
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
     `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
-    `commands`, `run`, `cancel`, `open` and `text`, over the JSON Lines framing in
-    `channel::wire`, which the dev socket shares, and no dev method.
+    `commands`, `run`, `cancel`, `open` and `text`, and the session tools' methods
+    (`channel/protocol/sessions.rs`, ADR 0121), over the JSON Lines framing in
+    `channel::wire`, which the dev socket shares, and no dev method. A session tool that asks
+    the person holds its reply until they answer (`channel/server/held.rs`).
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `commands`, `look`,
     `change`, `open` and `cancel`, which takes back a question the agent's change opened
-    (ADR 0093). It connects on the first tool call, asks the channel's `version`
+    (ADR 0093), and the session tools (`channel/mcp/session_tools.rs`, ADR 0121). It connects on the first tool call, asks the channel's `version`
     first, and connects again after oso restarts. It looks through every instance's socket
     only while it knows none to use, at most once each 5 s, since each look counts toward each
     instance's connections a minute. stdin is read on a thread of its own

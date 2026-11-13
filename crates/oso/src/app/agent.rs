@@ -49,8 +49,9 @@ pub const MAX_TEXT_A_MINUTE: usize = 4 << 20;
 /// How long after the person's last key the channel runs nothing.
 pub const PERSON_TYPING: Duration = Duration::from_secs(1);
 
-/// The verbs of the connection's question, after `y` and `n`.
+/// The verbs of the connection's question, after `y` and `n`, and of a session tool's.
 const CONNECTION_VERBS: [&str; 2] = ["allow", "refuse"];
+pub(in crate::app) const AGENT_VERBS: [&str; 2] = CONNECTION_VERBS;
 
 /// The agent channel's part of the app.
 #[derive(Debug, Default)]
@@ -240,6 +241,9 @@ impl App {
                         }
                     }
                     Op::Open { path, line } => self.agent_open(connection, path, line, reply),
+                    // Each replies when it can: at once, after a job, or after the person's
+                    // answer and what it started (ADR 0121, step 6).
+                    Op::Session(call) => self.session_tool(connection, call, reply),
                     // This replies once the save its command started has ended, if it started
                     // one, or the undo it began (ADR 0119).
                     Op::Run { name, arg, reach } => {
@@ -308,6 +312,7 @@ impl App {
     /// A connection closed, or the channel stopped under it.
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
+        self.session_tools_gone(Some(connection));
         self.session_bridge_gone(Some(connection));
         saving::forget_saves_of(&mut self.agent.saving, connection);
         self.forget_undo_of(Some(connection));
@@ -364,7 +369,9 @@ impl App {
                 }
             }
             // Answered where they come in, as they reply later.
-            Op::Text(_) | Op::Open { .. } | Op::Run { .. } => Err("not here".into()),
+            Op::Text(_) | Op::Open { .. } | Op::Run { .. } | Op::Session(_) => {
+                Err("not here".into())
+            }
         }
     }
 
@@ -491,6 +498,7 @@ impl App {
             None => {}
         }
         self.ask_about_a_connection();
+        self.sync_session_tools();
         self.close_orphaned_questions();
         self.progress_agent_opens();
         self.reply_to_long_saves();

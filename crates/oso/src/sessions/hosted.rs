@@ -219,13 +219,6 @@ impl Table {
     }
 
     /// The session the bridge connection `connection` holds.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's terminal and step 6's tools use it (ADR 0120 step 4)"
-        )
-    )]
     pub fn by_connection(&self, connection: Connection) -> Option<&Hosted> {
         self.sessions
             .iter()

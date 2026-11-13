@@ -1368,6 +1368,7 @@ pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::QuestionDetails
 pub oso_core::editor::SessionRequest::Resume(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::SendBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Start

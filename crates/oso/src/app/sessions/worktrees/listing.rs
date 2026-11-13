@@ -133,7 +133,7 @@ impl App {
     }
 
     /// The hosted sessions in `path`, each as `name (state)`.
-    pub(super) fn sessions_in(&self, path: &Path) -> Vec<String> {
+    pub(in crate::app) fn sessions_in(&self, path: &Path) -> Vec<String> {
         self.hosting
             .table
             .all()

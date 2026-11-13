@@ -35,6 +35,10 @@ pub(in crate::app) struct Hosting {
     shared: Option<Begin>,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
     pub(in crate::app) worktrees: super::worktrees::Worktrees,
+    /// The trust each session started under, for its agent's worktree tools (step 6).
+    pub(in crate::app) trusts: HashMap<SessionKey, TrustedRoot>,
+    /// The agents' session tools (ADR 0121 step 6).
+    pub(in crate::app) tools: super::tools::Tools,
 }
 
 /// What a new session starts with.
@@ -64,6 +68,8 @@ impl Hosting {
             parents: HashMap::new(),
             shared: None,
             worktrees: super::worktrees::Worktrees::default(),
+            trusts: HashMap::new(),
+            tools: super::tools::Tools::default(),
         }
     }
 }
@@ -125,13 +131,14 @@ impl App {
         });
     }
 
-    /// Starts a new session as `begin` says.
-    pub(in crate::app) fn begin_session(&mut self, begin: Begin) {
+    /// Starts a new session as `begin` says, and returns the key it starts under, unless it
+    /// was refused at once or waits for the person's answer.
+    pub(in crate::app) fn begin_session(&mut self, begin: Begin) -> Option<SessionKey> {
         let current = self.editor.current().1.project();
         let (directory, project) = match begin.directory.clone() {
             Some(directory) if !directory.is_absolute() => {
                 self.editor.message("Name the session's directory whole");
-                return;
+                return None;
             }
             Some(directory) => {
                 let project = current.filter(|id| {
@@ -148,7 +155,7 @@ impl App {
         };
         if begin.check_shared && self.hosting.table.runs_in(&directory) {
             self.ask_shared(begin);
-            return;
+            return None;
         }
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
@@ -169,6 +176,9 @@ impl App {
                     .map(|project| project.root().to_path_buf()),
             ),
         };
+        if let Some(trusted) = &trusted {
+            self.hosting.trusts.insert(key, trusted.clone());
+        }
         self.order_session(Order {
             token: key,
             kind: Kind::New,
@@ -183,6 +193,7 @@ impl App {
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
         });
+        Some(key)
     }
 
     /// Asks before `begin` starts a session where another live one runs (ADR 0121).
@@ -199,10 +210,12 @@ impl App {
     /// The person's `y` to starting where another session runs.
     pub(in crate::app) fn start_shared(&mut self) {
         match self.hosting.shared.take() {
-            Some(begin) => self.begin_session(Begin {
-                check_shared: false,
-                ..begin
-            }),
+            Some(begin) => {
+                self.begin_session(Begin {
+                    check_shared: false,
+                    ..begin
+                });
+            }
             None => self.editor.message("No session waits to start"),
         }
     }
@@ -289,6 +302,7 @@ impl App {
             Report::Refused { token, why } => {
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
+                self.session_tool_started(token, Err(why.clone()));
                 self.editor.message(why);
             }
             Report::Live {
@@ -319,6 +333,7 @@ impl App {
                 }
             }
             Report::Shared { token } => {
+                self.session_tool_started(token, Err("another session runs there".into()));
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
                 if let Some(begin) = self.hosting.shared.take() {
@@ -373,7 +388,10 @@ impl App {
             }
             session.changed = now_ms();
         }
-        if let Err(why) = self.start_session_terminal(key, &ready) {
+        let started = self.start_session_terminal(key, &ready);
+        // An agent that asked for it hears how it went, while the session is still listed.
+        self.session_tool_started(key, started.clone());
+        if let Err(why) = started {
             if new {
                 self.hosting.table.forget(key);
             } else {

@@ -20,6 +20,7 @@
 //! - `bridge`: whether a connection is a hosted session's bridge.
 //! - `start`: getting a session ready on a thread of its own.
 //! - `worktree`: worktree sessions, their briefs, the list and safe removal.
+//! - `tools`: the agents' session tools: reach, questions, the loop guard and refusals.
 
 pub mod bridge;
 pub mod command;
@@ -34,6 +35,7 @@ pub mod rules;
 pub mod screen;
 pub mod start;
 pub mod state;
+pub mod tools;
 pub mod worker;
 pub mod worktree;
 

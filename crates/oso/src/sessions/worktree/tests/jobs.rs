@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use super::super::jobs::{Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
+use super::super::jobs::{Asked, Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
 use super::{Scratch, order};
 use crate::review::TrustedRoot;
 
@@ -126,17 +126,35 @@ fn a_removal_runs_every_check_again() {
     }
     // A file made after the question.
     fs::write(made.path.join("new.txt"), "n").unwrap();
-    jobs.remove(2, trust(), made.path.clone(), Snapshot::default(), 0);
+    jobs.remove(
+        2,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(0),
+    );
     let why = removed(2).unwrap_err();
     assert!(why.contains("untracked"), "{why}");
     fs::remove_file(made.path.join("new.txt")).unwrap();
     // A file git ignores, which the question did not name.
     fs::write(made.path.join(".env"), "x").unwrap();
-    jobs.remove(3, trust(), made.path.clone(), Snapshot::default(), 0);
+    jobs.remove(
+        3,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(0),
+    );
     let why = removed(3).unwrap_err();
     assert!(why.contains("ignores more"), "{why}");
     assert!(made.path.is_dir(), "nothing was removed");
-    jobs.remove(4, trust(), made.path.clone(), Snapshot::default(), 1);
-    assert_eq!(removed(4), Ok(()));
+    jobs.remove(
+        4,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(1),
+    );
+    assert_eq!(removed(4), Ok(vec![std::path::PathBuf::from(".env")]));
     assert!(!made.path.exists());
 }

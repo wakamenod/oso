@@ -184,6 +184,8 @@ rules, as the end-to-end flows stand in for the person.
   ([ADR 0121](0121-agent-sessions-and-spaces.md), "Step 1, as built").
 - Request and response lines of at most 1 MiB, and 10 s for the UI to reply, as on the dev
   socket. An agreed connection has no idle limit; a waiting one closes if its client goes.
+  A session tool that asks the person holds its reply until they answer, as the connection's
+  question does ([ADR 0121](0121-agent-sessions-and-spaces.md), "Step 6, as built").
 - Background threads read and parse, and requests reach the UI thread as dev requests do. The
   UI thread never touches the socket.
 

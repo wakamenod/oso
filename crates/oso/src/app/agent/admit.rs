@@ -125,6 +125,7 @@ impl App {
             }
         }
         self.agent.connected.clear();
+        self.session_tools_gone(None);
         self.session_bridge_gone(None);
         self.forget_undo_of(None);
         self.orphan_questions(None);
@@ -132,6 +133,34 @@ impl App {
         self.agent.opened.clear();
         self.agent_log("the agent channel is off");
         self.editor.message("Agent channel off");
+    }
+
+    /// Whether a connection waits for the person's answer, or to be asked.
+    pub(in crate::app) fn agent_asks(&self) -> bool {
+        self.agent.asking.is_some()
+    }
+
+    /// Whether a question the agent causes may open now: no connection waits to be asked
+    /// about, and the person is free as the connection's question needs them to be.
+    pub(in crate::app) fn agent_question_may_open(&self) -> bool {
+        !self.agent_asks()
+            && !question_waits(
+                &self.editor,
+                self.dispatcher.keys_in_progress()
+                    || self.dispatcher.menu_open()
+                    || self.composing(),
+            )
+    }
+
+    /// A question the agent caused just opened: it takes no answer until a quiet moment.
+    pub(in crate::app) fn note_agent_question_opened(&mut self) {
+        self.agent.quiet_since = Some(Instant::now());
+    }
+
+    /// The question `id` the agent caused lost its connection: it closes once innermost, and
+    /// no `y` answers it any more.
+    pub(in crate::app) fn orphan_agent_question(&mut self, id: oso_core::minibuffer::PromptId) {
+        self.agent.orphaned.push(id);
     }
 
     /// Asks about the waiting connection once no prompt is open, no keys are in progress, no

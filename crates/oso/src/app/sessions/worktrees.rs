@@ -113,7 +113,7 @@ impl App {
     }
 
     /// The jobs, made with the first one.
-    fn worktree_jobs(&mut self) -> Jobs {
+    pub(in crate::app) fn worktree_jobs(&mut self) -> Jobs {
         let waker = Mutex::new(self.waker.clone());
         let state = self.hosting.directory.clone();
         self.hosting
@@ -130,13 +130,13 @@ impl App {
             .clone()
     }
 
-    fn worktree_token(&mut self) -> u64 {
+    pub(in crate::app) fn worktree_token(&mut self) -> u64 {
         self.hosting.worktrees.next += 1;
         self.hosting.worktrees.next
     }
 
     /// The selected buffer's project, if it is trusted to run git.
-    fn project_here(&self) -> Result<ProjectId, String> {
+    pub(in crate::app) fn project_here(&self) -> Result<ProjectId, String> {
         let project = self.editor.current().1.project();
         project
             .filter(|&id| self.editor.project_trusted(id))
@@ -146,7 +146,7 @@ impl App {
     }
 
     /// The trust a job for `project` runs under, as it is now.
-    fn trust_for(&self, project: ProjectId) -> Result<Trust, String> {
+    pub(in crate::app) fn trust_for(&self, project: ProjectId) -> Result<Trust, String> {
         let root = TrustedRoot::of(&self.editor, project).ok_or_else(|| {
             "Worktree sessions need a trusted project: trust-project first".to_owned()
         })?;
@@ -181,6 +181,11 @@ impl App {
 
     /// A worktree job reported.
     pub(in crate::app) fn worktree_reported(&mut self, event_loop: &Loop<'_>, report: Report) {
+        // A job an agent's session tool asked for (ADR 0121, step 6).
+        let Some(report) = self.session_tool_report(report) else {
+            self.request_redraw();
+            return;
+        };
         match report {
             Report::Branches { token, branches } => {
                 // Only the listing the newest wait asked for opens a prompt.
@@ -212,6 +217,8 @@ impl App {
                 path,
                 result,
             } => self.worktree_removed(token, &path, result),
+            // The person's listing ends as its rows come; only an agent's waits for the end.
+            Report::ListEnded { .. } | Report::Prepared { .. } => {}
         }
         self.request_redraw();
     }
@@ -376,7 +383,7 @@ impl App {
 
     /// What the UI thread holds about the worktree at `path` alone: buffers with unsaved
     /// changes under it, an unsent brief for it, its busy hosted sessions.
-    fn held_at(&self, path: &Path) -> Held {
+    pub(in crate::app) fn held_at(&self, path: &Path) -> Held {
         let unsaved = self
             .editor
             .buffers()
@@ -405,7 +412,7 @@ impl App {
 
     /// What the UI thread holds that a worktree job cannot read: buffers with unsaved
     /// changes, unsent briefs and the hosted sessions.
-    fn worktree_snapshot(&self) -> Snapshot {
+    pub(in crate::app) fn worktree_snapshot(&self) -> Snapshot {
         let unsaved = self
             .editor
             .buffers()

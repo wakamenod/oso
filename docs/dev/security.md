@@ -446,6 +446,19 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
   The hook is `oso hook deny-worktree`: it reads at most 64 KiB of standard input, starts
   nothing, and allows what it cannot read. It steers Claude, and is no boundary.
+- The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 6) act
+  only for a session oso started, proven by its bridge, and only within its repository; any
+  other connection may only read, within the selected window's project. Starting a session asks
+  the person each time, from the window only, after a quiet moment, and the process starts on
+  the person's `y`, as the person's act; the question quotes and escapes every name in it, and
+  `?` shows the whole brief. No tool types into a terminal, answers a session's dialog, passes a
+  permission flag or reads Claude Code's token files; a guard test keeps the tools' files from
+  the terminal and the process module.
+  - An agent's `worktree_remove` asks nothing once every check holds (the author's choice), and
+    `worktree_list` runs git and `gh` without a question; both need a trusted project.
+  - Each session may make 20 calls that change or ask until the person types in its terminal,
+    and the person's `n` refuses the same call from it for 60 s. Both are kept by session, so a
+    new connection resets neither.
 - Worktree sessions run git and `gh` only for a trusted project whose main repository is
   trusted too, on `oso-sessions-git`, through `oso-platform::process`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).

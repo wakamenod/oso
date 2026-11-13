@@ -116,7 +116,19 @@ fn initializes_without_connecting_and_lists_its_tools() {
     assert_eq!(
         names,
         [
-            "state", "text", "commands", "look", "change", "open", "cancel"
+            "state",
+            "text",
+            "commands",
+            "session_list",
+            "session_state",
+            "worktree_list",
+            "look",
+            "change",
+            "open",
+            "cancel",
+            "worktree_remove",
+            "start_worktree_session",
+            "session_start",
         ]
     );
     let hint = |name: &str, hint: &str| {

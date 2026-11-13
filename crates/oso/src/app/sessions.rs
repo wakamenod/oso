@@ -11,6 +11,7 @@ use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, SessionRequest};
 
 mod hosting;
+mod tools;
 mod worktrees;
 pub(super) use hosting::Hosting;
 
@@ -53,6 +54,10 @@ impl App {
                 }
                 SessionRequest::Fork(buffer) => {
                     self.fork_session(buffer);
+                    continue;
+                }
+                SessionRequest::QuestionDetails => {
+                    self.show_question_details();
                     continue;
                 }
                 SessionRequest::Worktree { .. }

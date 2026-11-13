@@ -82,10 +82,10 @@ pub struct Created {
 }
 
 /// The local branch `branch`'s state, once its name is checked.
-struct Branch {
-    name: String,
+pub(super) struct Branch {
+    pub(super) name: String,
     /// Its tip, if it exists.
-    tip: Option<String>,
+    pub(super) tip: Option<String>,
 }
 
 /// What the job says of not being where it was made.
@@ -212,7 +212,7 @@ fn same_directory(a: &fs::Metadata, b: &fs::Metadata) -> bool {
 }
 
 /// The branch name, as git normalises it, refused if git would not take it as a branch.
-fn checked_branch(repo: &Repo, name: &str) -> Result<Branch, String> {
+pub(super) fn checked_branch(repo: &Repo, name: &str) -> Result<Branch, String> {
     let refused = || format!("Not a branch name: {}", porcelain::printable(name, 80));
     check_revision(name).map_err(|_| refused())?;
     let out = run(
@@ -231,7 +231,7 @@ fn checked_branch(repo: &Repo, name: &str) -> Result<Branch, String> {
 }
 
 /// Refuses a branch checked out in any worktree of the repository, naming where.
-fn refuse_checked_out(repo: &Repo, branch: &str) -> Result<(), String> {
+pub(super) fn refuse_checked_out(repo: &Repo, branch: &str) -> Result<(), String> {
     let listed = repo.worktrees()?;
     match listed.iter().find(|w| w.branch.as_deref() == Some(branch)) {
         Some(w) => Err(format!(
@@ -244,7 +244,7 @@ fn refuse_checked_out(repo: &Repo, branch: &str) -> Result<(), String> {
 }
 
 /// A new branch's base, by the name to show and its commit: the one typed, else `HEAD`.
-fn base_of(repo: &Repo, typed: Option<&str>) -> Result<(String, String), String> {
+pub(super) fn base_of(repo: &Repo, typed: Option<&str>) -> Result<(String, String), String> {
     let revision = typed.unwrap_or("HEAD");
     let id = repo
         .commit(revision)?
