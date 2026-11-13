@@ -31,6 +31,10 @@ pub use spec::{ArgSpec, BufferPurpose};
 /// The function behind a command.
 pub type CommandFn = fn(&mut Ctx<'_>, Args) -> Result<(), CommandError>;
 
+/// How a command that toggles reads whether its state is on, for the `[x]` a menu head naming it
+/// shows (ADR 0117). It reads only the editor, so it does no I/O.
+pub type StateFn = fn(&Editor) -> bool;
+
 /// A command: what `M-x`, keymaps and the control socket's `run-command`
 /// invoke.
 #[derive(Clone, Copy)]
@@ -46,6 +50,9 @@ pub struct Command {
     pub reach: Reach,
     /// The function that runs it.
     pub run: CommandFn,
+    /// How to read whether it is on, for a command that toggles; `None` for any other
+    /// (ADR 0117).
+    pub state: Option<StateFn>,
 }
 
 impl Command {
@@ -255,6 +262,9 @@ pub struct Invocation<'a> {
     pub shifted: bool,
     /// What the OS clipboard held, for a command that waited for it.
     pub clipboard: Option<&'a FromClipboard>,
+    /// The names of the switches that are on in the open menu whose head ran it (ADR 0117).
+    /// Empty for a command invoked in any other way.
+    pub switches: &'a [&'a str],
 }
 
 impl fmt::Debug for Invocation<'_> {
@@ -263,6 +273,7 @@ impl fmt::Debug for Invocation<'_> {
             .field("repeats", &self.repeats)
             .field("confirmed", &self.confirmed)
             .field("shifted", &self.shifted)
+            .field("switches", &self.switches)
             .finish_non_exhaustive()
     }
 }
@@ -347,6 +358,13 @@ impl<'a> Ctx<'a> {
     /// it was not read: another spec, a numeric prefix, or a caller with no clipboard.
     pub fn clipboard(&self) -> Option<&'a FromClipboard> {
         self.invocation.clipboard
+    }
+
+    /// Whether the switch `name` is on in the open menu whose head ran the command, as
+    /// transient's suffixes read its arguments (ADR 0117). Off for a command invoked in any
+    /// other way, the agent channel's `run` among them.
+    pub fn switch(&self, name: &str) -> bool {
+        self.invocation.switches.contains(&name)
     }
 
     /// Leaves `prefix` for the next command, in place of the one this command got.
@@ -451,6 +469,7 @@ mod tests {
             args: ArgSpec::Count,
             reach: Reach::Look,
             run,
+            state: None,
         }
     }
 
@@ -528,6 +547,23 @@ mod tests {
             ..Invocation::default()
         };
         assert_eq!(Ctx::invoked(&mut editor, invocation).input(), "語");
+    }
+
+    #[test]
+    fn a_context_reads_the_switches_its_menu_had_on() {
+        let mut editor = Editor::default();
+        let on = ["files", "other-style"];
+        let invocation = Invocation {
+            switches: &on,
+            ..Invocation::default()
+        };
+        let ctx = Ctx::invoked(&mut editor, invocation);
+        assert!(ctx.switch("files"));
+        assert!(ctx.switch("other-style"));
+        assert!(!ctx.switch("file"));
+        // Any other way of invoking a command has every switch off.
+        let mut editor = Editor::default();
+        assert!(!Ctx::new(&mut editor).switch("files"));
     }
 
     #[test]

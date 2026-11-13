@@ -75,6 +75,14 @@ pub enum ArgSpec {
     /// whole path with [`Ctx::answer`](super::Ctx::answer) and the line with
     /// [`Editor::take_search_hit`](crate::editor::Editor::take_search_hit).
     ProjectSearch { history: &'static str },
+    /// A menu's name, read in a prompt that says `prompt` and completes over every menu, kept in
+    /// the history named `history` (ADR 0117). The dispatcher opens the menu named in place of
+    /// running the command, as it runs the command `Command` names, since the open menus are
+    /// its own.
+    Menu {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A mark of the selected window's, read in a prompt that says `prompt` and completes over
     /// the primary cursor's mark and its ring, with the buffer around the selected one beside
     /// it, and no history (ADR 0088). The command reads the row with

@@ -16,6 +16,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: global_whitespace_mode,
+        state: None,
     },
     Command {
         name: "global-hl-line-mode",
@@ -23,6 +24,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: global_hl_line_mode,
+        state: None,
     },
     Command {
         name: "beacon-mode",
@@ -30,6 +32,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: beacon_mode,
+        state: None,
     },
     Command {
         name: "global-display-line-numbers-mode",
@@ -37,6 +40,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: global_display_line_numbers_mode,
+        state: None,
     },
 ];
 

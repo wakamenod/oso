@@ -13,6 +13,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: dev_panic,
+        state: None,
     },
     Command {
         name: "dev-read-passphrase",
@@ -22,6 +23,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: dev_read_passphrase,
+        state: None,
     },
 ];
 

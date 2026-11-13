@@ -15,6 +15,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: keyboard_quit,
+        state: None,
     },
     Command {
         name: "save-buffers-kill-terminal",
@@ -22,6 +23,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffers_kill_terminal,
+        state: None,
     },
 ];
 

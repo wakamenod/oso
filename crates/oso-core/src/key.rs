@@ -370,6 +370,17 @@ impl FromStr for KeyPress {
     }
 }
 
+/// `C-g`, which always cancels: `keymap` and `menu` judge it alike.
+pub(crate) const CANCEL: KeyPress = KeyPress {
+    modifiers: Modifiers::CONTROL,
+    key: Key::Char('g'),
+};
+
+/// Whether `key` is `C-g`, with Shift or not (`C-G`).
+pub(crate) fn cancels(key: KeyPress) -> bool {
+    key == CANCEL || key.unshifted() == Some(CANCEL)
+}
+
 /// Keys pressed one after another, such as `C-x C-f`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct KeySequence(pub Vec<KeyPress>);
