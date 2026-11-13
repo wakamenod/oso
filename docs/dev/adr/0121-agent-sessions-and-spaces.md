@@ -971,8 +971,10 @@ approved these points:
   shows does.
   - The agent channel never selects it, nor a window whose buffer has keys of its own: after
     an agent's command, the dispatcher selects again the window it had, and says why, as it
-    does for a terminal (ADR 0120). An agent's `delete-window` is refused while another tree's
-    window shows such a buffer.
+    does for a terminal (ADR 0120); if that window has no room left, a window or buffer with
+    the ordinary keys is put in front. An agent's `delete-window` is refused in the side
+    window, and while another tree's window shows such a buffer. An external session's row
+    says `external` first, and its name loses what draws nothing.
   - It shows by itself while oso has a session that is not archived. `C-x a s` shows and
     selects it when hidden, selects it when shown, and hides it when selected. Once the
     person hides it, by `C-x a s` or `C-x 0`, it stays hidden for that oso instance.

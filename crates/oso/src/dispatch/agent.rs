@@ -148,8 +148,15 @@ impl Dispatcher {
         editor.forget_kills();
         // Nothing the agent runs puts a terminal, or a list with keys of its own, in front of
         // the person's typing (ADR 0120, ADR 0121).
-        if name == "delete-window" && another_takes_keys(editor) {
-            return refused(KEYS_REFUSED.into());
+        if name == "delete-window" {
+            // In the side window it hides `*Sessions*`, which the person then would not see
+            // come back by itself (ADR 0121).
+            if editor.side_window() == Some(editor.tiled().0.id()) {
+                return refused(SIDE_REFUSED.into());
+            }
+            if another_takes_keys(editor) {
+                return refused(KEYS_REFUSED.into());
+            }
         }
         let before = (editor.tiled().0.id(), editor.tiled().0.buffer());
         // The prompts it opens are the agent's, and say so (ADR 0085). What it queues to save
@@ -173,6 +180,15 @@ impl Dispatcher {
 /// `*Sessions*`: the person's next keys would go to its program, or act on the list's rows.
 const KEYS_REFUSED: &str = "switching to a terminal or a list with keys of its own is the person's";
 
+/// Why the agent may not delete the side window.
+const SIDE_REFUSED: &str = "hiding the list of sessions is the person's";
+
+/// Whether the person's next keys go to the side window, or to a buffer with keys of its own.
+fn keys_elsewhere(editor: &Editor) -> bool {
+    let now = editor.tiled().0;
+    editor.side_window() == Some(now.id()) || has_own_keys(editor.shown(now).mode())
+}
+
 /// Whether a tree's window other than the selected one shows a buffer with keys of its own,
 /// which deleting the selected one may select. The side window is left out, as a deletion
 /// never selects it (ADR 0121).
@@ -191,20 +207,47 @@ fn another_takes_keys(editor: &Editor) -> bool {
 /// Whether the agent's command just put keys of the person's elsewhere: selecting the side
 /// window, or another window that shows a buffer with keys of its own, or showing one in the
 /// selected window. If so, the window selected `before` is selected again, and the buffer it
-/// showed shown again.
-fn took_the_keys(editor: &mut Editor, (window, buffer): (WindowId, BufferId)) -> bool {
+/// showed shown again; if that cannot be, as when the frame no longer has room for the side
+/// window, a window or buffer whose keys are the ordinary ones is put in front instead.
+fn took_the_keys(editor: &mut Editor, before: (WindowId, BufferId)) -> bool {
     let now = editor.tiled().0;
-    let side = editor.side_window() == Some(now.id());
-    let own_keys = side || has_own_keys(editor.shown(now).mode());
-    if !own_keys || (now.id(), now.buffer()) == (window, buffer) {
+    if !keys_elsewhere(editor) || (now.id(), now.buffer()) == before {
         return false;
     }
+    let (window, buffer) = before;
     if now.id() == window {
         editor.show(buffer);
     } else {
         editor.select_window(window);
     }
+    let now = editor.tiled().0;
+    if (now.id(), now.buffer()) != before && keys_elsewhere(editor) {
+        put_ordinary_keys_in_front(editor);
+    }
     true
+}
+
+/// Selects a tree's window whose buffer has the ordinary keys, or, with none, shows such a
+/// buffer, the most recent first, in the tree's window: `*Messages*` is one at least.
+fn put_ordinary_keys_in_front(editor: &mut Editor) {
+    let side = editor.side_window();
+    let ordinary = editor.frame().windows().iter().find_map(|(id, regions)| {
+        let window = editor.window_by_id(*id)?;
+        let shown = editor.shown(window);
+        (Some(*id) != side && regions.text.columns > 0 && unshowable(shown).is_none())
+            .then_some(*id)
+    });
+    if let Some(id) = ordinary {
+        editor.select_window(id);
+        return;
+    }
+    let buffer = editor
+        .buffers_by_recency()
+        .into_iter()
+        .find(|id| editor.buffer(*id).is_some_and(|b| unshowable(b).is_none()));
+    if let Some(buffer) = buffer {
+        editor.show(buffer);
+    }
 }
 
 /// The buffer named `name`, if the agent may show it: one `C-x b` lists, as the channel
@@ -482,6 +525,50 @@ mod tests {
         assert_eq!(look(&mut dispatcher, &mut editor, "delete-window"), Ok(()));
         assert_eq!(editor.tiled().0.id(), first);
         assert_eq!(editor.side_window(), Some(side));
+    }
+
+    #[test]
+    fn the_agent_never_hides_the_side_window() {
+        let (mut dispatcher, mut editor, side) = with_side_list();
+        editor.select_window(side);
+        let ran = look(&mut dispatcher, &mut editor, "delete-window");
+        assert_eq!(ran, Err(super::SIDE_REFUSED.into()));
+        assert_eq!(editor.side_window(), Some(side));
+    }
+
+    #[test]
+    fn a_frame_with_no_room_left_for_the_side_window_never_leaves_a_terminal_in_front() {
+        use oso_core::buffer::Mode;
+        use oso_core::frame::FrameSize;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        // Room for the list and a tree's window without line numbers, not with them.
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 44,
+        });
+        let terminal = editor.add_terminal_buffer("*terminal*");
+        editor.show(terminal);
+        let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+        editor.buffer_mut(list).unwrap().withhold_from_agents();
+        let side = editor.show_side_window(list, 32);
+        editor.select_window(side);
+        assert_eq!(editor.tiled().0.id(), side);
+        // Line numbers widen the gutter the tree counts at its next resize, and the frame
+        // then has no room for the list.
+        let numbers = look(
+            &mut dispatcher,
+            &mut editor,
+            "global-display-line-numbers-mode",
+        );
+        assert_eq!(numbers, Ok(()));
+        let _ = look(&mut dispatcher, &mut editor, "enlarge-window-horizontally");
+        let _ = look(&mut dispatcher, &mut editor, "balance-windows");
+        let now = editor.tiled().0;
+        assert_ne!(now.id(), side);
+        assert!(
+            !editor.shown(now).is_terminal(),
+            "the person's keys reach no program"
+        );
     }
 
     #[test]

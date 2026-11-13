@@ -138,13 +138,37 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
 
 /// The name `*Sessions*` lists for `entry`. It is the registry's text, so it is cleaned as a
 /// recap is, that it cannot reorder or break the line it is drawn on.
+/// Characters that draw nothing, or a blank, are dropped too: a name of them alone would show
+/// as no name, and among others they would make a copy of another session's name.
 fn shown_name(entry: &registry::Entry) -> String {
     entry
         .name
         .as_deref()
-        .map(recap::clean)
+        .map(|name| {
+            let drawn: String = name.chars().filter(|&c| !draws_nothing(c)).collect();
+            recap::clean(&drawn)
+        })
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| format!("claude {}", entry.pid))
+}
+
+/// Whether `c` draws nothing, or a blank that is not white space.
+fn draws_nothing(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{115F}'
+            | '\u{1160}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200D}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2800}'
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+    )
 }
 
 #[cfg(test)]
@@ -195,5 +219,8 @@ mod tests {
         assert_eq!(shown, "fixtxt.exe now x");
         assert_eq!(super::shown_name(&named(Some("\u{2066}\t"))), "claude 42");
         assert_eq!(super::shown_name(&named(None)), "claude 42");
+        let blank = named(Some("\u{200B}\u{2800}\u{3164}\u{FEFF}"));
+        assert_eq!(super::shown_name(&blank), "claude 42");
+        assert_eq!(super::shown_name(&named(Some("fi\u{200B}x"))), "fix");
     }
 }

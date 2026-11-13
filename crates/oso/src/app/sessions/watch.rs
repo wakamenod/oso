@@ -331,7 +331,10 @@ impl App {
                 .as_deref()
                 .and_then(|dir| self.watch.spaces.of_path(dir))
                 .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(|| "external".to_owned(), |space| space.name.clone());
+                .map_or_else(
+                    || crate::sessions::list::EXTERNAL.to_owned(),
+                    |space| space.name.clone(),
+                );
             let state = if external.working {
                 State::Working
             } else {
