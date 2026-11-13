@@ -472,7 +472,8 @@ These are for oso's own code. What an agent may read through the channel is belo
 - **Reach:** `Person` for `terminal`, `project-terminal`, `terminal-float-toggle` (which may start a
   shell), `terminal-float-toggle-cd`, every key and paste sent to a terminal, the mode switches,
   opening a link, allowing reading, and closing or killing a terminal (which asks while a process
-  runs); `Look` for switching to a terminal, `project-list-terminals`,
+  runs); switching to a terminal is `Look` for the person and refused to the channel (the
+  author's choice, 2026-11-13, at step 4a), and `Look` for `project-list-terminals`,
   `terminal-float-cycle-position`, and moving in it, with the search and copy mode as above.
 - **Terminal text never reaches the disk:** no auto-save, no emergency copy, no session file. The kill
   ring holds what the person copies.
@@ -1110,7 +1111,8 @@ Step 4 is split in two pull requests (see Steps); this is the first.
   terminal: semi-char mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y`, and every key
   while a prompt, isearch, a menu, a jump or a key sequence of oso's is open; char mode keeps
   only `C-c C-k`. After `C-c`, only the terminal's own keymap is read (`C-c C-c`, `C-c C-k`), so
-  any other `C-c` key, the global and the user's among them, goes to the program with it.
+  any other `C-c` key, the global and the user's among them, goes to the program with it: in a
+  terminal, `C-c` is the terminal's (the author's choice, 2026-11-13).
   Text the input method commits, and a key that types several characters, go as a key does.
   - What goes to a program waits in the dispatcher bound to the terminal it was typed in, and
     the host sends it after the event, so a batch of keys that selects another window sends
@@ -1146,7 +1148,12 @@ Step 4 is split in two pull requests (see Steps); this is the first.
   switches to the last terminal still running (Q2).
 - **The agent channel's minimum:** a terminal's buffer is read-only and withheld from agents,
   its text is never read, every terminal command is `Person`, and keys reach a program only
-  from the person's input or the dev socket. The dev socket, in dev builds only, reads each
+  from the person's input or the dev socket. What the channel runs never selects a terminal,
+  as Reach now says (the author's choice, 2026-11-13): a buffer walk it runs skips terminals,
+  `switch-to-buffer` refuses one, and a window command that would select a window showing one
+  is refused and the window selected before is selected again (`delete-window` is refused
+  while another window shows a terminal). So the person's next keys never go to a program the
+  person did not choose. The dev socket, in dev builds only, reads each
   terminal's rows and sends keys to it, as it does for any buffer, for end-to-end flows.
 - **Cost, measured in the app** (release build with the dev feature, a 99 × 35 terminal):
   shaping and painting a frame took p99 0.24 ms while a program printed a line at a time,

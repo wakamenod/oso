@@ -204,8 +204,13 @@ impl Editor {
         let shown = std::iter::once(window.buffer());
         let shown_before = shown.chain(window.places().map(|(id, _)| id));
         let rest = self.buffers().map(|(id, _)| id);
+        // A walk the agent channel runs never reaches a terminal, where the person's next keys
+        // would go to its program (ADR 0120).
+        let agent = self.runs_for_agent();
         for id in shown_before.chain(rest) {
-            let kept = self.buffer(id).is_some_and(|buffer| !buffer.is_internal());
+            let kept = self
+                .buffer(id)
+                .is_some_and(|buffer| !(buffer.is_internal() || (agent && buffer.is_terminal())));
             if kept && !ring.contains(&id) {
                 ring.push(id);
             }

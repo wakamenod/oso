@@ -647,7 +647,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - `C-x k` on a terminal whose program still runs asks first, as `C-x C-c` does for every such
   terminal. Under `oso dev`, a running terminal holds the restart, until terminals are handed
   over: run long-lived programs in an oso that is not rebuilt.
-- The agent channel reads no terminal's text and types nothing into one.
+- The agent channel reads no terminal's text, types nothing into one, and never selects one:
+  switching to a terminal is the person's.
 
 ## Input method (IME)
 
