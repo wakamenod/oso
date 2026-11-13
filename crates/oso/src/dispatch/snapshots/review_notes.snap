@@ -1,0 +1,39 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: "
+---
+keys: none
+│Review · uncommitted · oso                                  │
+:^                                                           :
+│git failed: fatal: bad thing                                │
+│2 more files are not listed                                 │
+│modified  bin.png                                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│binary: 10 B → 12 B                                         │
+│modified  big.log                                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│too large to show: 8.6 MiB → 8.7 MiB                        │
+│modified  late.rs                                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│not read in time: g reads it again                          │
+│added  .env                                                 │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│may hold secrets: not shown                                 │
+│conflicted  both.rs                                         │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│conflicted: not shown                                       │
+│modified  vendor/lib                                        │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│submodule: none → none                                      │
+│deleted  gone.rs                                            │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│cannot be read: it is not there                             │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+│                                                            │
+=%% *review: uncommitted oso*  1:0  Review  UTF-8 LF         =
+"                                                            "

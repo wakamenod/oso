@@ -83,7 +83,9 @@ whitespace with `t` and the cursor flash with `f`, from `Editor::current_line_ce
 `Editor::trailing_cells` and `Editor::flash_cells`
 ([ADR 0097](adr/0097-visual-aids.md)). The flash shows at full strength when a step's last
 key flashes, as `Editor::flashes` says after each key. The visual aids start off in every scenario, so a
-snapshot shows only those it turns on.
+snapshot shows only those it turns on. A review buffer's bands, from `Editor::review_cells`, are
+`a` and `r` for added and removed lines, `A` and `R` for their refined words, `h` for file and
+hunk headers and `c` for comment cards ([ADR 0122](adr/0122-agent-review.md)).
 
 A jump's matches are `~` on the same line, and its labels, from `Editor::jump_cells`, are `J`
 under each one's first key and `j` under the keys after it, over every other mark. A line

@@ -43,6 +43,9 @@ pub(crate) enum Tell {
         reading: Arc<Reading>,
         carry: Option<Carry>,
     },
+    /// Comments to carry again to `reading`, as applying the last carry asked: dropped unless
+    /// it is still the file's current reading, whose own carry is then on its way.
+    Carry { reading: Arc<Reading>, carry: Carry },
     /// Every file of the listing that changed has been read.
     Read,
     /// What the review's title says under it, each a line: a failure, a lost trust.
@@ -50,12 +53,14 @@ pub(crate) enum Tell {
 }
 
 /// A text for the review buffer, with what each of its lines is, its highlights, the comments
-/// carried for it, and how far the reading is.
+/// carried for it, each with the reading it was carried to, and how far the reading is.
 pub(crate) struct Text {
-    pub(crate) text: Reloaded,
+    /// The new text, or `None` when it is the text before, with no invalid byte in either:
+    /// then only what each line is and its highlights may have changed.
+    pub(crate) text: Option<Reloaded>,
     pub(crate) rows: Rows,
     pub(crate) highlights: Highlights,
-    pub(crate) carried: Vec<Carried>,
+    pub(crate) carried: Vec<(Arc<Reading>, Carried)>,
     pub(crate) reading: Option<(usize, usize)>,
 }
 
@@ -112,8 +117,10 @@ struct State {
     files: HashMap<Box<[u8]>, File>,
     more: usize,
     reading: bool,
-    carried: Vec<Carried>,
+    carried: Vec<(Arc<Reading>, Carried)>,
     text: Rope,
+    /// Whether the text before held no invalid byte.
+    valid: bool,
 }
 
 impl State {
@@ -127,6 +134,7 @@ impl State {
             reading: false,
             carried: Vec::new(),
             text: Rope::new(),
+            valid: true,
         }
     }
 
@@ -151,8 +159,7 @@ impl State {
             }
             Tell::File { reading, carry } => {
                 if let Some(carry) = carry {
-                    // A file with no comment to place: nothing is matched, only hunks hashed.
-                    self.carried.push(carry.run(|_, _| None, |_, _| Vec::new()));
+                    self.carry(&reading, carry);
                 }
                 let path = reading.entry.path.clone();
                 let file = self.files.entry(path.clone()).or_insert_with(|| File {
@@ -167,9 +174,26 @@ impl State {
                     self.order.push(path);
                 }
             }
+            Tell::Carry { reading, carry } => {
+                let current = self
+                    .files
+                    .get(&reading.entry.path)
+                    .and_then(|file| file.reading.as_ref())
+                    .is_some_and(|now| Arc::ptr_eq(now, &reading));
+                if current {
+                    self.carry(&reading, carry);
+                }
+            }
             Tell::Read => self.reading = false,
             Tell::Said(said) => self.said = said,
         }
+    }
+
+    /// Carries a file's comments to `reading`. A file with no comment to place: nothing is
+    /// matched, only hunks hashed.
+    fn carry(&mut self, reading: &Arc<Reading>, carry: Carry) {
+        let carried = carry.run(|_, _| None, |_, _| Vec::new());
+        self.carried.push((Arc::clone(reading), carried));
     }
 
     /// The whole text, laid out from each file's section, those changed laid out again.
@@ -217,9 +241,13 @@ impl State {
                 .map(|rendered| Arc::clone(&rendered.section))
                 .collect(),
         );
+        let valid = sections.iter().all(|rendered| rendered.valid);
         let new_text = snapshot.text().clone();
         let text = snapshot.compared_with(&self.text);
+        // The same text needs no swap, which would only free it again on the UI thread.
+        let text = (text.is_changed() || !valid || !self.valid).then_some(text);
         self.text = new_text;
+        self.valid = valid;
         Text {
             text,
             rows,
@@ -255,6 +283,17 @@ fn serve(told: &Receiver<Tell>, mut send: SendText, title: String, live: &Atomic
             }
         }
     }
+}
+
+/// The text a view titled `title` builds after taking each of `told` in turn, for tests
+/// outside this module.
+#[cfg(test)]
+pub(crate) fn built(title: &str, told: Vec<Tell>) -> Text {
+    let mut state = State::new(title.to_owned());
+    for tell in told {
+        state.take(tell);
+    }
+    state.build()
 }
 
 #[cfg(test)]

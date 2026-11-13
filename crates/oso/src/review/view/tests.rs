@@ -35,7 +35,12 @@ fn listed_files_show_until_read_then_their_sections() {
     let second = state.build();
     assert_eq!(second.reading, None);
     assert_eq!(second.carried.len(), 1);
-    assert!(second.text.is_changed());
+    assert!(
+        second
+            .text
+            .as_ref()
+            .is_some_and(oso_core::load::Reloaded::is_changed)
+    );
     let rows = &second.rows;
     let kinds: Vec<RowKind> = (0..rows.lines())
         .map(|line| rows.at(line).unwrap().kind)
@@ -57,7 +62,39 @@ fn listed_files_show_until_read_then_their_sections() {
     );
     // Nothing changed: the same text, compared as the same.
     let third = state.build();
-    assert!(!third.text.is_changed());
+    assert!(
+        third.text.is_none(),
+        "the same valid text is not sent again"
+    );
+}
+
+#[test]
+fn a_carry_again_runs_only_for_the_files_current_reading() {
+    let mut state = State::new("t".into());
+    let review = Review::new();
+    let first = Arc::new(text_reading(b"a", vec![hunk(1, 1, &[b"x\n"], &[])]));
+    let second = Arc::new(text_reading(b"a", vec![hunk(1, 1, &[], &[b"y\n"])]));
+    let shape = |reading: &Reading| match &reading.content {
+        crate::review::Content::Text { shape, .. } => Arc::clone(shape),
+        _ => unreachable!(),
+    };
+    state.take(Tell::File {
+        reading: Arc::clone(&second),
+        carry: None,
+    });
+    // A carry asked again for a reading a newer one replaced is dropped.
+    state.take(Tell::Carry {
+        reading: Arc::clone(&first),
+        carry: review.carry(b"a", shape(&first)),
+    });
+    assert!(state.build().carried.is_empty());
+    state.take(Tell::Carry {
+        reading: Arc::clone(&second),
+        carry: review.carry(b"a", shape(&second)),
+    });
+    let carried = state.build().carried;
+    assert_eq!(carried.len(), 1);
+    assert!(Arc::ptr_eq(&carried[0].0, &second));
 }
 
 #[test]

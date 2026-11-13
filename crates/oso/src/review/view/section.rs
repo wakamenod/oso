@@ -30,6 +30,8 @@ pub(crate) struct Rendered {
     pub(crate) bytes: Vec<u8>,
     pub(crate) section: Arc<Section>,
     pub(crate) runs: Vec<(usize, Option<Highlight>)>,
+    /// Whether its bytes are all UTF-8, so that its text holds no invalid byte.
+    pub(crate) valid: bool,
 }
 
 /// Builds a section line by line, keeping its rows and runs with its text.
@@ -56,10 +58,12 @@ impl Writer {
         if let Some((kind, lines)) = self.pending.take() {
             self.section.push(kind, lines);
         }
+        let valid = std::str::from_utf8(&self.bytes).is_ok();
         Rendered {
             bytes: self.bytes,
             section: Arc::new(self.section),
             runs: self.runs,
+            valid,
         }
     }
 

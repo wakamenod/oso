@@ -19,13 +19,6 @@ mod keys;
 mod lister;
 mod loader;
 mod project;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the review's view opens reviews from ADR 0122's step 3"
-    )
-)]
 mod review;
 mod saver;
 mod sessions;
