@@ -23,6 +23,7 @@ use crate::{bindings, commands};
 
 mod agent;
 mod args;
+mod branches;
 mod buffers;
 pub use crate::terminal::route::ToProgram as TerminalSend;
 pub use agent::{Unshowable, unshowable};
@@ -92,6 +93,8 @@ pub struct Dispatcher {
     publisher: Option<Publisher>,
     /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
     waiting: Option<clipboard::Waiting>,
+    /// A command waiting for the host to list the project's branches (ADR 0121).
+    branch_wait: Option<branches::BranchWait>,
     /// Keyboard macros: what a recording takes, and a replay's state here (ADR 0113).
     macros: macros::MacroInput,
     /// Input held while query-replace's `!` runs (ADR 0113), or an undo or a redo of a large
@@ -155,6 +158,7 @@ impl Dispatcher {
             last: None,
             publisher: None,
             waiting: None,
+            branch_wait: None,
             macros,
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
@@ -359,6 +363,7 @@ impl Dispatcher {
             .text_command();
         match text_command {
             Some(id) if !text.is_empty() => {
+                self.drop_branch_wait(editor);
                 let args = Args::with_prefix(self.prefix.take());
                 let invocation = Invocation {
                     input: text,
@@ -371,9 +376,10 @@ impl Dispatcher {
         }
     }
 
-    /// An undefined or cancelled key sequence drops the prefix argument and ends a
-    /// run of one command.
+    /// An undefined or cancelled key sequence drops the prefix argument, ends a run of one
+    /// command and drops a wait for the branches (ADR 0121).
     fn forget_keys(&mut self, editor: &mut Editor) {
+        self.drop_branch_wait(editor);
         self.prefix = None;
         self.last = None;
         editor.set_indent_rigidly_layer(false);
@@ -566,6 +572,7 @@ impl Dispatcher {
                 return Effects::default();
             }
         };
+        self.drop_branch_wait(editor);
         // The text comes from the key, so keys from the window and from the socket
         // type the same. `KeyEvent.text` would type `q` for an unbound `C-q` (ADR 0051).
         let mut utf8 = [0; 4];
@@ -606,6 +613,8 @@ impl Dispatcher {
     }
 }
 
+#[cfg(test)]
+mod branch_tests;
 #[cfg(test)]
 mod buffer_tests;
 #[cfg(test)]
@@ -676,6 +685,8 @@ mod text_on_prefix_tests;
 mod undo_tests;
 #[cfg(test)]
 mod user_tests;
+#[cfg(test)]
+mod worktree_tests;
 #[cfg(test)]
 mod wrap_tests;
 #[cfg(test)]

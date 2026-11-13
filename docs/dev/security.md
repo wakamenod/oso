@@ -444,6 +444,30 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   `[sessions] steer_worktrees = true`, a session oso starts gets one `PreToolUse` hook for that
   session only, passed with `--settings`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
+  The hook is `oso hook deny-worktree`: it reads at most 64 KiB of standard input, starts
+  nothing, and allows what it cannot read. It steers Claude, and is no boundary.
+- Worktree sessions run git and `gh` only for a trusted project whose main repository is
+  trusted too, on `oso-sessions-git`, through `oso-platform::process`
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).
+  - Each job checks the project's trust when it runs, and a worktree being made between its
+    steps: a project no longer trusted, or whose root is no longer the directory that was
+    trusted, runs no git.
+  - Every git run has no hook and no file system monitor of the repository's, as a review's
+    has, `git worktree add` included. It fetches nothing and is killed after 10 s.
+  - A linked worktree is run in only once its claim and the main repository's record of it
+    hold, with `GIT_DIR` and `GIT_WORK_TREE` given.
+  - `gh` runs in an empty private directory and names the repository with `--repo`, so it runs
+    no git in the repository. It is asked only about `github.com` or the host `GH_HOST` names,
+    and gets only that host's tokens.
+  - `.claude/worktrees` and every copy `.worktreeinclude` makes are created without following a
+    link, and the copies are capped, so a repository cannot write outside itself. The
+    worktree's place is checked again after git made it, before anything is copied. A source
+    file with more than one name is not copied.
+  - A removal never passes `--force` and never deletes a branch. The person's `y` runs every
+    check again in the job that removes it, and git itself refuses a worktree that changed
+    after that. The checks guard against losing work by mistake; they are no boundary against
+    an agent that can write the repository's `.git`.
+  - `*Brief*` is withheld from the agent channel, as `*Session explain*` is.
 - `claude` hosts a Claude Code session in a terminal
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). Its command line is built from parts oso
   controls, never from text an agent gave, and passes no permission option, so a session starts

@@ -255,8 +255,8 @@ pub struct Invocation<'a> {
     /// What a prompt read for the command, as its [`ArgSpec`] asked (ADR 0072).
     pub answer: Option<&'a str>,
     /// What a second prompt read, for [`ArgSpec::Replace`] (ADR 0113),
-    /// [`ArgSpec::DirectoryAndTextOnPrefix`] and [`ArgSpec::ListedAndNoteUnlessRegion`]
-    /// (ADR 0121).
+    /// [`ArgSpec::DirectoryAndTextOnPrefix`], [`ArgSpec::ListedAndNoteUnlessRegion`] and,
+    /// after a prefix argument, the base of [`ArgSpec::BranchAndBaseOnPrefix`] (ADR 0121).
     pub second: Option<&'a str>,
     /// It runs because the person answered `y` to a question it asked.
     pub confirmed: bool,
@@ -349,6 +349,13 @@ impl<'a> Ctx<'a> {
     /// no note was read. `None` when no prompt read them.
     pub fn listed_and_note(&self) -> Option<(&'a str, Option<&'a str>)> {
         Some((self.answer()?, self.invocation.second))
+    }
+
+    /// The branch and, after a prefix argument, the base an `ArgSpec::BranchAndBaseOnPrefix`
+    /// read (ADR 0121); `None` when nothing was read. An empty base stands for none.
+    pub fn branch_and_base(&self) -> Option<(&'a str, Option<&'a str>)> {
+        let base = self.invocation.second.filter(|base| !base.is_empty());
+        Some((self.answer()?, base))
     }
 
     /// The whole number a prompt read for a command whose [`ArgSpec`] is `Number`, parsed as

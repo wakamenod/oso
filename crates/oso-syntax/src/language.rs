@@ -29,9 +29,11 @@ impl Language {
             Mode::Fundamental
             | Mode::CopyList
             | Mode::CopyView
+            | Mode::Brief
+            | Mode::Worktrees
             | Mode::Review
-            | Mode::Sessions
-            | Mode::Terminal => None,
+            | Mode::Terminal
+            | Mode::Sessions => None,
         }
     }
 

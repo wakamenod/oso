@@ -184,3 +184,109 @@ fn reads_a_links_words_and_refuses_what_is_not_one_name() {
     }
     assert!(Directory::open(&scratch.0.join("link")).is_err());
 }
+
+/// The permission bits the umask leaves of `0o666`, read from a file made the usual way, as
+/// reading the umask itself would change it.
+fn umask_leaves(scratch: &Scratch) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    let probe = scratch.0.join("probe");
+    fs::File::create(&probe).unwrap();
+    let mode = fs::metadata(&probe).unwrap().permissions().mode() & 0o777;
+    fs::remove_file(probe).unwrap();
+    mode
+}
+
+#[test]
+fn makes_a_directory_below_or_opens_the_one_there() {
+    let scratch = Scratch::new("9");
+    let directory = Directory::open(&scratch.0).unwrap();
+    let made = directory.create_directory(name("sub")).unwrap().unwrap();
+    assert!(fs::metadata(scratch.0.join("sub")).unwrap().is_dir());
+    assert_eq!(
+        made.metadata().unwrap().ino(),
+        fs::metadata(scratch.0.join("sub")).unwrap().ino()
+    );
+    // Made again, it is the same one, and what it holds stays.
+    made.create_file(name("inner"), 0o600).unwrap();
+    let again = directory.create_directory(name("sub")).unwrap().unwrap();
+    let inner: Vec<_> = again.entries().unwrap().map(|e| e.unwrap().name).collect();
+    assert_eq!(inner, [OsStr::new("inner")]);
+}
+
+#[test]
+fn makes_no_directory_and_no_file_through_a_link_or_over_a_file() {
+    let scratch = Scratch::new("10");
+    let outside = Scratch::new("11");
+    symlink(&outside.0, scratch.0.join("to-dir")).unwrap();
+    symlink(outside.0.join("missing"), scratch.0.join("dangling")).unwrap();
+    fs::write(scratch.0.join("file"), b"kept").unwrap();
+    fifo(&scratch.0.join("pipe"));
+    let directory = Directory::open(&scratch.0).unwrap();
+    for there in ["to-dir", "dangling", "file", "pipe"] {
+        assert!(
+            directory.create_directory(name(there)).unwrap().is_none(),
+            "{there}"
+        );
+        assert_eq!(
+            directory
+                .create_file(name(there), 0o600)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::AlreadyExists,
+            "{there}"
+        );
+    }
+    assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 0);
+    assert_eq!(fs::read(scratch.0.join("file")).unwrap(), b"kept");
+}
+
+#[test]
+fn makes_a_new_file_with_its_permission_bits_only() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("12");
+    let leaves = umask_leaves(&scratch);
+    let directory = Directory::open(&scratch.0).unwrap();
+    let mut file = directory.create_file(name("new"), 0o640).unwrap();
+    file.write_all(b"written").unwrap();
+    drop(file);
+    assert_eq!(fs::read(scratch.0.join("new")).unwrap(), b"written");
+    let mode = |path: &str| {
+        fs::metadata(scratch.0.join(path))
+            .unwrap()
+            .permissions()
+            .mode()
+    };
+    assert_eq!(mode("new") & 0o777, 0o640 & leaves);
+    // The set-user-ID, set-group-ID and sticky bits are never set.
+    directory.create_file(name("setuid"), 0o7640).unwrap();
+    assert_eq!(mode("setuid") & 0o7777, 0o640 & leaves);
+    assert_eq!(
+        directory
+            .create_file(name("new"), 0o640)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::AlreadyExists
+    );
+    assert_eq!(fs::read(scratch.0.join("new")).unwrap(), b"written");
+}
+
+#[test]
+fn makes_nothing_by_what_is_not_one_name() {
+    let scratch = Scratch::new("13");
+    fs::create_dir(scratch.0.join("a")).unwrap();
+    let directory = Directory::open(&scratch.0).unwrap();
+    for bad in ["", ".", "..", "a/b", "/tmp"] {
+        assert_eq!(
+            directory.create_directory(name(bad)).unwrap_err().kind(),
+            ErrorKind::InvalidInput,
+            "{bad:?}"
+        );
+        assert_eq!(
+            directory.create_file(name(bad), 0o600).unwrap_err().kind(),
+            ErrorKind::InvalidInput,
+            "{bad:?}"
+        );
+    }
+    assert_eq!(fs::read_dir(scratch.0.join("a")).unwrap().count(), 0);
+}

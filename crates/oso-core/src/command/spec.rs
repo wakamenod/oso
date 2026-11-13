@@ -28,14 +28,6 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
-    /// Text as [`ArgSpec::Text`] reads it, but only with a prefix argument, such as `C-u`; with
-    /// none, the command runs at once with no answer. The agent channel gives the text with the
-    /// command, or nothing. The command reads it with [`Ctx::answer`](super::Ctx::answer), and
-    /// the prefix with its arguments.
-    TextOnPrefix {
-        prompt: &'static str,
-        history: &'static str,
-    },
     /// Nothing with no prefix argument: the command runs at once with no answer. With one,
     /// such as `C-u`, a directory is read first, as [`ArgSpec::File`] reads a path, in a prompt
     /// that says `directory` and kept in the history `directory_history`, then text as
@@ -46,6 +38,26 @@ pub enum ArgSpec {
     DirectoryAndTextOnPrefix {
         directory: &'static str,
         directory_history: &'static str,
+        prompt: &'static str,
+        history: &'static str,
+    },
+    /// A branch of the current project, read in a prompt that says `prompt` and completes over
+    /// the project's local branches, which the host lists off the UI thread before the prompt
+    /// opens; a name that is none of them is taken as typed, a new branch. With a prefix
+    /// argument, a base is read after it, in a prompt that says `base_prompt`, completing over
+    /// the same branches and taking any revision. Both are kept in the history `history`. Only
+    /// keys give them: the agent channel runs such a command with neither. The command reads
+    /// them with [`Ctx::branch_and_base`](super::Ctx::branch_and_base).
+    BranchAndBaseOnPrefix {
+        prompt: &'static str,
+        base_prompt: &'static str,
+        history: &'static str,
+    },
+    /// Text as [`ArgSpec::Text`] reads it, but only with a prefix argument, such as `C-u`; with
+    /// none, the command runs at once with no answer. The agent channel gives the text with the
+    /// command, or nothing. The command reads it with [`Ctx::answer`](super::Ctx::answer), and
+    /// the prefix with its arguments.
+    TextOnPrefix {
         prompt: &'static str,
         history: &'static str,
     },

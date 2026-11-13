@@ -299,6 +299,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::ProjectSearch { .. }
                     | ArgSpec::KillEntry { .. }
                     | ArgSpec::Replace { .. }
+                    | ArgSpec::BranchAndBaseOnPrefix { .. }
                     | ArgSpec::Key => "person",
                 },
                 "reach": if command.reach == Reach::Change { "change" } else { "look" },

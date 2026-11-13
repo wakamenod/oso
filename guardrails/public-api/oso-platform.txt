@@ -189,6 +189,8 @@ pub fn oso_platform::file_meta::AccessList::fmt(&self, &mut core::fmt::Formatter
 impl core::marker::StructuralPartialEq for oso_platform::file_meta::AccessList
 pub struct oso_platform::file_meta::Directory
 impl oso_platform::file_meta::Directory
+pub fn oso_platform::file_meta::Directory::create_directory(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<core::option::Option<Self>>
+pub fn oso_platform::file_meta::Directory::create_file(&self, &std::ffi::os_str::OsStr, u32) -> std::io::error::Result<std::fs::File>
 pub fn oso_platform::file_meta::Directory::entries(&self) -> std::io::error::Result<oso_platform::file_meta::Entries>
 pub fn oso_platform::file_meta::Directory::kind_of(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<oso_platform::file_meta::EntryKind>
 pub fn oso_platform::file_meta::Directory::metadata(&self) -> std::io::error::Result<std::fs::Metadata>

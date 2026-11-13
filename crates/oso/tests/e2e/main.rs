@@ -40,6 +40,7 @@ mod sessions;
 mod terminal;
 mod undo;
 mod windows;
+mod worktrees;
 mod wrap;
 mod yank_pop;
 

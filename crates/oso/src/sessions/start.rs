@@ -32,6 +32,7 @@ use super::command::{self, Line, SESSION_VARIABLE, Start};
 use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
 use super::registry;
+use super::worktree::steer;
 use crate::review::{self, Reviewer, TrustedRoot};
 use crate::terminal::hosted;
 use crate::terminal::shell::{self, Settings};
@@ -71,6 +72,13 @@ pub struct Order {
     pub claude: Option<PathBuf>,
     /// The terminal it runs in.
     pub terminal: TerminalOrder,
+    /// The first prompt: a worktree session's brief with its header (ADR 0121 step 4).
+    pub brief: Option<String>,
+    /// `[sessions] steer_worktrees`: the session gets the hook that steers Claude away from
+    /// its own worktree tools.
+    pub steer_worktrees: bool,
+    /// Whether to ask first when another live session runs in the directory.
+    pub check_shared: bool,
 }
 
 /// The terminal a session runs in, as the app gives it.
@@ -122,6 +130,8 @@ pub enum Report {
     Baseline { token: u64, tree: String },
     /// Two live processes have the id of the session started with `token`.
     Twice { token: u64 },
+    /// Another live session runs in the directory: nothing started, and the person is asked.
+    Shared { token: u64 },
 }
 
 /// Starts the thread for `order`; it calls `send` with each report. Refused at once if no
@@ -146,22 +156,13 @@ pub fn spawn(order: Order, send: impl Fn(Report) + Send + Sync + 'static) {
 fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
     let token = order.token;
     let refuse = |why: String| send(Report::Refused { token, why });
-    if !order.directory.is_dir() {
-        return refuse("The session's directory is not there any more".into());
+    if let Some(report) = held_back(&order) {
+        return send(report);
     }
     let resumed = match &order.kind {
         Kind::Resume(id) => Some(id.clone()),
         Kind::New | Kind::Fork(_) => None,
     };
-    if let Some(id) = &resumed
-        && let Some((pid, directory)) = live(id)
-    {
-        return send(Report::Live {
-            token,
-            pid,
-            directory,
-        });
-    }
     let id = match &order.kind {
         Kind::Resume(id) => id.clone(),
         Kind::New | Kind::Fork(_) => match identity::random_bytes() {
@@ -227,6 +228,28 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
     }
 }
 
+/// What stops `order` before anything is made: a missing directory, a new session's directory
+/// where another live one runs when it is to ask first, or a resume whose conversation is live.
+fn held_back(order: &Order) -> Option<Report> {
+    let token = order.token;
+    if !order.directory.is_dir() {
+        return Some(Report::Refused {
+            token,
+            why: "The session's directory is not there any more".into(),
+        });
+    }
+    match &order.kind {
+        Kind::Resume(id) => live(id).map(|(pid, directory)| Report::Live {
+            token,
+            pid,
+            directory,
+        }),
+        Kind::New | Kind::Fork(_) => {
+            (order.check_shared && runs_in(&order.directory)).then_some(Report::Shared { token })
+        }
+    }
+}
+
 /// The names a session's terminal passes on: a terminal's, `[sessions] env`'s, and
 /// `CLAUDE_CONFIG_DIR`, so that the session's registry is the one oso reads.
 fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
@@ -266,13 +289,21 @@ fn launch_of(order: &Order, id: &SessionId, shell: &Executable) -> Result<Launch
         Kind::Resume(_) => Start::Resume { id },
         Kind::Fork(from) => Start::Fork { from, id },
     };
+    let settings = steer::settings(
+        &oso,
+        &steer::Parts {
+            steer_worktrees: order.steer_worktrees,
+        },
+    )
+    .map_err(|e| format!("The session did not start: {e}"))?;
     let line = Line {
         start,
         name: &order.name,
         oso: &oso,
         oso_pid: std::process::id(),
         system_prompt: None,
-        brief: None,
+        brief: order.brief.as_deref(),
+        settings: settings.as_deref(),
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
     launch::launch(shell, claude.as_ref(), args, order.project.as_deref())
@@ -292,6 +323,20 @@ fn live(id: &SessionId) -> Option<(Option<u32>, Option<PathBuf>)> {
         Some(entry) => Some((Some(entry.pid), entry.cwd.clone())),
         None => listing.cut.then_some((None, None)),
     }
+}
+
+/// Whether the registry has a live session whose directory is `directory`.
+fn runs_in(directory: &Path) -> bool {
+    let Some(dir) = registry::directory() else {
+        return false;
+    };
+    registry::read(&dir).iter().any(|entry| {
+        entry
+            .cwd
+            .as_deref()
+            .is_some_and(|cwd| oso_core::project::same_place(cwd, directory))
+            && registry::liveness(entry, process::start_time) != registry::Live::No
+    })
 }
 
 /// How many live processes the registry has for `id`.
