@@ -20,6 +20,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_forward,
+        state: None,
     },
     Command {
         name: "isearch-backward",
@@ -27,6 +28,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_backward,
+        state: None,
     },
     Command {
         name: "isearch-forward-regexp",
@@ -34,6 +36,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_forward_regexp,
+        state: None,
     },
     Command {
         name: "isearch-backward-regexp",
@@ -41,6 +44,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_backward_regexp,
+        state: None,
     },
     Command {
         name: "isearch-repeat-forward",
@@ -48,6 +52,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_repeat_forward,
+        state: None,
     },
     Command {
         name: "isearch-repeat-backward",
@@ -55,6 +60,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_repeat_backward,
+        state: None,
     },
     Command {
         name: "isearch-printing-char",
@@ -62,6 +68,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_printing_char,
+        state: None,
     },
     Command {
         name: "isearch-newline",
@@ -69,6 +76,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_newline,
+        state: None,
     },
     Command {
         name: "isearch-delete-char",
@@ -76,6 +84,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_delete_char,
+        state: None,
     },
     Command {
         name: "isearch-exit",
@@ -83,6 +92,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_exit,
+        state: None,
     },
     Command {
         name: "isearch-yank-word-or-char",
@@ -90,6 +100,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_yank_word_or_char,
+        state: None,
     },
     Command {
         name: "isearch-yank-kill",
@@ -97,6 +108,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_yank_kill,
+        state: None,
     },
     Command {
         name: "isearch-yank-pop",
@@ -104,6 +116,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_yank_pop,
+        state: None,
     },
     Command {
         name: "isearch-ring-retreat",
@@ -111,6 +124,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_ring_retreat,
+        state: None,
     },
     Command {
         name: "isearch-ring-advance",
@@ -118,6 +132,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_ring_advance,
+        state: None,
     },
     Command {
         name: "isearch-toggle-case-fold",
@@ -125,6 +140,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_toggle_case_fold,
+        state: None,
     },
     Command {
         name: "isearch-toggle-regexp",
@@ -132,6 +148,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_toggle_regexp,
+        state: None,
     },
     Command {
         name: "isearch-toggle-migemo",
@@ -139,6 +156,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_toggle_migemo,
+        state: None,
     },
     Command {
         name: "isearch-mark-next",
@@ -146,6 +164,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_mark_next,
+        state: None,
     },
     Command {
         name: "isearch-mark-previous",
@@ -153,6 +172,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_mark_previous,
+        state: None,
     },
     Command {
         name: "isearch-mark-all",
@@ -160,6 +180,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_mark_all,
+        state: None,
     },
 ];
 

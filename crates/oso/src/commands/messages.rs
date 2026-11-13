@@ -14,6 +14,7 @@ pub const COMMANDS: &[Command] = &[Command {
     args: ArgSpec::None,
     reach: Reach::Look,
     run: view_echo_area_messages,
+    state: None,
 }];
 
 fn view_echo_area_messages(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

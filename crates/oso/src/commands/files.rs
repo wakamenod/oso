@@ -23,6 +23,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: find_file,
+        state: None,
     },
     Command {
         name: "open-large-file",
@@ -30,6 +31,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: open_large_file,
+        state: None,
     },
     Command {
         name: "write-file",
@@ -40,6 +42,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: write_file,
+        state: None,
     },
     Command {
         name: "write-file-over",
@@ -47,6 +50,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: write_file_over,
+        state: None,
     },
 ];
 

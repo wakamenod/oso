@@ -283,6 +283,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::CountAndClipboard
                     | ArgSpec::Command { .. }
                     | ArgSpec::Theme { .. }
+                    | ArgSpec::Menu { .. }
                     | ArgSpec::Buffer { .. }
                     | ArgSpec::Mark { .. }
                     | ArgSpec::File { .. }
@@ -541,6 +542,7 @@ mod tests {
             args,
             reach,
             run,
+            state: None,
         };
         let all = [
             command("forward-word", ArgSpec::Count, Reach::Look),

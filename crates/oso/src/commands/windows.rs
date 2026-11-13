@@ -18,6 +18,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_below,
+        state: None,
     },
     Command {
         name: "split-window-right",
@@ -25,6 +26,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_right,
+        state: None,
     },
     Command {
         name: "split-window-below-and-select",
@@ -32,6 +34,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_below_and_select,
+        state: None,
     },
     Command {
         name: "split-window-right-and-select",
@@ -39,6 +42,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: split_window_right_and_select,
+        state: None,
     },
     Command {
         name: "delete-window",
@@ -46,6 +50,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: delete_window,
+        state: None,
     },
     Command {
         name: "delete-other-windows",
@@ -53,6 +58,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: delete_other_windows,
+        state: None,
     },
     Command {
         name: "other-window",
@@ -60,6 +66,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: other_window,
+        state: None,
     },
     Command {
         name: "balance-windows",
@@ -67,6 +74,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: balance_windows,
+        state: None,
     },
     Command {
         name: "enlarge-window",
@@ -74,6 +82,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: enlarge_window,
+        state: None,
     },
     Command {
         name: "shrink-window",
@@ -81,6 +90,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: shrink_window,
+        state: None,
     },
     Command {
         name: "enlarge-window-horizontally",
@@ -88,6 +98,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: enlarge_window_horizontally,
+        state: None,
     },
     Command {
         name: "shrink-window-horizontally",
@@ -95,6 +106,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: shrink_window_horizontally,
+        state: None,
     },
     Command {
         name: "windmove-left",
@@ -102,6 +114,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: windmove_left,
+        state: None,
     },
     Command {
         name: "windmove-right",
@@ -109,6 +122,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: windmove_right,
+        state: None,
     },
     Command {
         name: "windmove-up",
@@ -116,6 +130,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: windmove_up,
+        state: None,
     },
     Command {
         name: "windmove-down",
@@ -123,6 +138,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: windmove_down,
+        state: None,
     },
 ];
 

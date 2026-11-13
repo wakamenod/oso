@@ -13,6 +13,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: start,
+        state: None,
     },
     Command {
         name: "kmacro-end-macro",
@@ -20,6 +21,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: end,
+        state: None,
     },
     Command {
         name: "kmacro-end-and-call-macro",
@@ -27,6 +29,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: end_and_call,
+        state: None,
     },
 ];
 

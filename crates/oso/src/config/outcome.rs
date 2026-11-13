@@ -122,6 +122,7 @@ mod tests {
         Report::Read {
             loaded: Box::new(Loaded {
                 keys,
+                menus: None,
                 settings: Settings::default(),
                 problems: (1..=problems).map(problem).collect(),
                 more,

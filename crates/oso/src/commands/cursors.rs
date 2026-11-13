@@ -21,6 +21,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: mark_next_like_this,
+        state: None,
     },
     Command {
         name: "mark-previous-like-this",
@@ -28,6 +29,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: mark_previous_like_this,
+        state: None,
     },
     Command {
         name: "skip-to-next-like-this",
@@ -35,6 +37,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: skip_to_next_like_this,
+        state: None,
     },
     Command {
         name: "skip-to-previous-like-this",
@@ -42,6 +45,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: skip_to_previous_like_this,
+        state: None,
     },
     Command {
         name: "mark-all-like-this",
@@ -49,6 +53,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: mark_all_like_this,
+        state: None,
     },
     Command {
         name: "edit-lines",
@@ -56,6 +61,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: edit_lines,
+        state: None,
     },
 ];
 

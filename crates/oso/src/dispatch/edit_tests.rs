@@ -794,6 +794,7 @@ mod scenarios {
                 args: ArgSpec::None,
                 reach: oso_core::command::Reach::Look,
                 run: edit_and_panic,
+                state: None,
             })
             .unwrap();
         let mut global = bindings::global_keymap(&registry);
