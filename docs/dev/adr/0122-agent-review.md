@@ -746,6 +746,211 @@ What was built:
   snapshots older than a reading, the kept-readings limit, numbers near the last one, a comment
   on a removed line, and a new file once committed.
 
+### Step 2: git and diffing
+
+`crates/oso/src/review.rs` and its modules `git`, `batch`, `id`, `list`, `scope`, `index`,
+`side`, `diff`, `read` and `work`, on the `[oso]` line of `guardrails/layers.txt` with
+`project` and `walk`. `oso-platform::process` gained `Source { Closed, Piped }` and
+`Spawn::stdin`, refused with a terminal, and `oso_core::project::Project` gained `identity`;
+the author approved both as listed. `similar` was already a dependency of the tip crate
+(ADR 0064), so no dependency changed. The author answered the plan's questions and those of
+its reviews (a):
+
+1. **Untracked files are listed through a copy of the index:** the index is copied, keeping
+   its modification time, into a private `reviews/tmp/` under the state directory, then
+   `git add -A -N --` marks the untracked files as to be added in the copy, which writes no
+   file's contents into the repository, and `git diff --raw -z -M --no-abbrev OLD --` runs
+   with that copy. The new side is then read from disk, as "Diffing" says, not from a
+   snapshot tree. Copies are removed after each run, and those an earlier run left behind are
+   swept when a review's thread starts, once they are an hour old. The index is copied only
+   if it is a regular file, up to 128 MiB.
+2. **Which scopes list untracked files:** uncommitted, session and branch. Unstaged stays the
+   index against the tracked files, as git means it.
+3. **No `--numstat`.** This changes "What git reports" and "Binary" above: the list is
+   `--raw` alone, a file's line counts come from its hunks, and a side is binary only by a
+   NUL in its first 8,000 bytes, whatever the repository's attributes say.
+4. **`cat-file --batch`,** as written above. A blob past 8 MiB is not read: that process is
+   killed and the next read starts another. A thread of its own reads the answers.
+5. **Myers' diff** as `similar` gives it, with git's work limit, within 1 s per file. It
+   recurses, needing up to half a MiB of stack at 200,000 lines, so the review's thread has a
+   16 MiB stack. `RawMyers` was measured too: it gives up at the deadline on inputs Myers
+   diffs in milliseconds.
+6. **Bounds:** besides "Cost and limits", a request spends at most 5 s reading and diffing
+   files, shown files first; files past it say so and are read by the next refresh. A review
+   holds at most 64 MiB of sides and hunk lines; files past it show their sizes. Carrying a
+   file's comments spends at most 1 s, and says when it was cut short.
+7. **The environment** also passes `XDG_CONFIG_HOME` by name, so git finds the person's own
+   configuration and ignore file when they moved it, and sets `GIT_NO_LAZY_FETCH=1`,
+   `GIT_NO_REPLACE_OBJECTS=1`, and `GIT_CEILING_DIRECTORIES` to the root's parent. The
+   baseline's run adds `LC_ALL=C`. This adds to "Running git and gh". A root whose parent's
+   path holds the list separator (`:`, or `;` on Windows) cannot be a ceiling, so it is refused
+   before git runs. On Windows, a path handed to git loses its verbatim `\\?\` prefix, which
+   git cannot take.
+8. **Trust by construction:** a review's thread starts only from a `TrustedRoot`, which only
+   `Editor::project_trusted` gives, with the root's device and inode as the project was
+   found. Before each request they are looked at again, and a root that is no longer that
+   directory runs nothing. git never looks above the root, and a work tree whose top is not
+   the root is refused. A `TrustedRoot`'s clones share a revocation: once revoked, the thread
+   refuses every later request and stops the running one between files. Step 3 revokes the
+   root of a review whose project is no longer trusted (`untrust-project`).
+9. **The baseline** runs `git add -A --ignore-errors --`, so a file git cannot read is left
+   out, and the log says at least how many, not which. It writes the untracked files'
+   contents into the repository as unreferenced objects, as any `git add` does; leaving out
+   files whose names may hold secrets is a follow-up.
+10. **A merge commit** is read against its first parent. A commit whose parent a shallow
+    clone lacks is refused.
+11. **Carrying runs on the review's thread:** `Request::Carry` runs step 1's `Carry::run` with
+    `similar` as the matcher and old blobs read through `cat-file`.
+12. **No command yet:** `review-mark-baseline` and the menu come with step 3.
+13. **No hook and no file system monitor run.** Every run adds `-c core.fsmonitor=false` and
+    `-c core.hooksPath=` an empty private directory, `reviews/tmp/hooks/` (refused if it is not
+    empty); git hands both to a git it starts in an embedded repository. Without that private
+    directory no git runs. Clean filters still run, as `git add` and a diff of the work tree
+    need them (Git LFS is one), so a trusted project's filter programs run in a review. This
+    adds to "Running git and gh".
+14. **No run enters an embedded repository,** which is a project of its own: diff runs add
+    `--ignore-submodules=dirty`, which `.gitmodules` cannot override, and both adds leave out
+    each submodule the index copy names (`git ls-files -s -z`, read for mode `160000`), as
+    `:(exclude,top,literal)PATH` pathspecs on standard input. An embedded repository the index
+    does not name yet is added as a submodule with nothing run inside it. So a submodule shows
+    its commit, never its work tree's changes.
+15. **A work tree file with more than one name is withheld,** judged on the file opened, as
+    the agent channel refuses one (ADR 0085): another of its names may hold secrets.
+16. **A conflicted file is listed once,** as conflicted, and neither side is read: git lists
+    it again for a stage it compares, and that record is dropped.
+
+What was built:
+
+- **One thread per review,** `oso-review`, takes `Open`, `Refresh`, `Baseline` and `Carry`
+  requests in order and hands reports to the event loop: the listing with its generation,
+  each changed file's reading, then `Read`. Refreshes waiting one after another are answered
+  as one; a newer request, or the reviewer's end, stops the running one between files, and
+  the next reads the rest. A failure names its request. A request that panics reports a
+  failure and starts afresh with the same scope.
+- **Each run** is `git --no-pager -c core.quotePath=false` in the work tree's top; its output
+  is read on threads of its own up to a limit per run, standard error up to 4 KiB, and a run
+  past 10 s is killed and left, so a process git started that holds the output cannot hold
+  the review. Revisions are checked, then resolved with
+  `rev-parse --verify --quiet --end-of-options`; only ids go further. Each refresh resolves
+  the scope again, as `HEAD` or a branch may have moved.
+- **A reading** is a file's entry (paths, status, modes, ids) and its content: both sides and
+  a `Shape`, or binary, too large, out of time, withheld (a name, or a name before a rename,
+  that may hold secrets, or a work tree file with more than one name: never read),
+  conflicted, a submodule, or unreadable. Its signature is the old
+  blob and modes, and the new blob or, for a work tree file, its `FileStamp`, or a link's
+  target. A refresh reads only files whose signature changed, the caller's shown files first,
+  and lets go of files no longer listed. A file that could not be read, did not fit or ran out
+  of time is read again next time.
+- **Work tree files** are opened from the top a directory at a time, following no link, as
+  the preview opens them; a link's side is its target's text. The top is the trusted root, so
+  it is not judged again for the home directory as the preview's root is.
+- **Tests** run git in temporary repositories through the process module: every scope, a root
+  commit, an unborn branch, the baseline and a lost one, refreshing after `HEAD` moved, the
+  shown files first, a stopped request, what a review holds, secrets (also by a rename's old
+  name), binaries, attributes that would hide a change, large files and links, refused
+  revisions, a root inside another repository, a root put in the trusted one's place, a
+  revoked root, a root git cannot stop above, a merge commit, a shallow clone's oldest commit,
+  a conflicted file, a file with a second name, planted hooks, monitors and an embedded
+  repository's clean filter that must not run, carrying a comment across a moved old side,
+  the thread's end, and that the person's index is left as it was. `cat-file`'s standard error
+  goes nowhere, so a warning cannot end it.
+
+### Step 8: documents no buffer owns
+
+The author approved the plan's API and its nine answers, each the recommended one (2026-11-13,
+through the coordinator).
+
+- **The API** is three methods of `oso_syntax::Scheduler<Key>` and one enum (and `Doomed`,
+  below). The key stays generic, and the tip crate keeps buffers and documents apart with a key
+  of its own (step 9):
+  - `open(key, language, verdict, text, shown) -> Result<(), Refused>` opens a text that never
+    changes, to parse and highlight whole, `shown` first. It is O(1), and nothing is parsed or
+    freed in it. A key that has a slot is replaced, as a job in a new language replaces one. A
+    refused open also closes a document open under the key, so a refresh refused as secret
+    leaves nothing of the old text running.
+  - `show(key, shown)` says what windows show of an open document. `close(key)` drops a
+    document at once, as `drop_buffer` drops a buffer: what waited never runs, and a slice
+    running on it gives back nothing. Both leave a buffer's key alone, and a job sent for a
+    document's key replaces it with a buffer.
+  - `Refused` is `MayHoldSecrets`, `TooLarge` (past ADR 0111's 2 MiB) or `Full`. `Full` is the
+    one to try again once another document has closed.
+  - Reports are `Report<Key>`, with epoch 0 and revision 0, since the text never changes. So a
+    report of an earlier text under the same key looks the same as one of the new text, and the
+    caller opens each text under a key it never used before (step 9).
+- **Secrets:** `open` takes the source's `Verdict` and refuses anything but `Ordinary`, the
+  same test `Buffer::is_secret` makes. So a text not judged yet, or whose path could not be
+  resolved, is refused too, as a buffer not judged yet is. No tree, timing or highlight exists
+  for such a text. The caller judges the source: every path a review side names (the old and the
+  new path of a rename), or `Buffer::verdict` for a buffer's snapshot. Once a source turns
+  secret, the caller closes the document. A slice already running on it ends, as a dropped
+  buffer's does, and gives back nothing. Judging a path from outside `oso-core` needs a public
+  form of `secret::judge`, left to step 3 or 9 (`open-questions.md`).
+- **One lane for documents:** a document, shown or not, runs only in the lane that background
+  buffers use, which one thread at a time has. So a shown buffer always has a thread, even
+  while a slice on crafted text runs long. In that lane, shown documents go first, then
+  background buffers, then documents not shown. Among documents, one that holds a tree goes
+  before one that has none, and a paused document keeps its place in the queue rather than
+  going to the back, so that a started tree finishes and is freed.
+- **Bounds:** at most 1024 documents are open. Each slot holds a rope handle and the shown
+  ranges, and every checkout scans the slots under the lock the UI thread takes: with 1023
+  documents and 16 buffers open, a checkout and its give-back cost about 5 µs together, and an
+  open and a close about 0.8 µs (release, the author's Mac). At most 4 documents hold a tree at
+  once, and a document that would start a fifth waits for one to finish or close.
+- **A shown document waiting for room** (the author's choice after the review, Q10 (a)): while
+  a shown document cannot start because 4 hold a tree, hidden documents that hold one go before
+  background buffers, so that one finishes and makes room. Under the plain order, the shown
+  side would wait behind every background buffer, for as long as they had work. Not taken:
+  letting up to 2 shown documents pass the cap, and keeping the plain order as a known limit.
+- **A checkout whose slot went** (closed, replaced or dropped while a thread has it) still holds
+  the lane, and its tree still counts, until it is given back, a slice that panicked too.
+  Otherwise the next document could take the second thread while that slice runs, and a fifth
+  tree could start.
+- **A checkout keeps the lane it was taken in** (the coordinator's review): a background buffer
+  that a window shows during its slice still holds the lane until it is given back, as a shown
+  buffer whose window went already did (ADR 0111, step 4a). Before, it let a document take the
+  second thread meanwhile.
+- **What is freed goes to a thread** (the author's choice after the coordinator's review,
+  Q11 (a)): `Scheduler::take_doomed` returns `Doomed` (new, public: an opaque value with
+  `is_empty`, which frees what it holds when dropped), not `Vec<Document>`. It holds the
+  documents, and the text that waited in a slot that went: closed, replaced, refused or failed
+  before it started. The schedule may have held such a text alone, and freeing 2 MiB of it
+  takes about 55 µs (release, the author's Mac), so it is not freed under the lock. The pool's
+  `open` keeps an O(1) copy of the text, so a refused text is freed after the lock too. Not
+  taken: a second method for the texts beside `take_doomed`, and freeing them under the lock
+  as a known limit.
+- **A finished document gives its tree to the list to free** when it is done, and a thread
+  frees it with nothing locked. Its slot stays until `close`, holding no document, text or
+  shown ranges. The caller keeps the highlights from the last report.
+- **The tip crate's pool is generic over its key** (`Pool<Key>`, `Orders<Key>`), with
+  `open`, `show` and `close`, which lock only for the schedule's bookkeeping. The app keeps
+  `Pool<BufferId>`, so nothing opens a document until step 9. Until then, the three methods
+  are expected to be dead code outside tests. The code is in `oso-syntax`'s private module
+  `worker/unowned.rs`.
+- **What step 9 takes on:**
+  - a key never used before for each text;
+  - closing a document whose source turns secret;
+  - not opening again a text whose document failed or was lost;
+  - calling `show` only when what windows show changed, since each call wakes the threads;
+  - opening many sides in one turn under one lock, or spread over turns;
+  - measuring the 500 ms "whole" budget with documents on one lane.
+- **Tests:**
+  - Refusals: every verdict that is withheld, the size limit and the open cap.
+  - A refused open closes what was open under the key.
+  - The count of open documents through every way a slot goes.
+  - A checkout whose document closed keeps the lane and its tree until it is given back, or
+    until its panic is reported.
+  - A background buffer shown during its slice keeps the lane.
+  - The text of a document that never started goes to `Doomed` when it is closed, replaced,
+    refused or replaced by a job.
+  - Highlights equal a fresh document's.
+  - A finished document frees its tree and keeps an empty slot.
+  - Closing before, during and after a slice.
+  - The lane, its order (a document that holds a tree before one that waited longer) and the
+    tree cap, and a shown document waiting for room letting a started one finish first.
+  - Nothing is made or freed where documents open, show or close.
+  - In the tip crate, two real threads: a crafted document that fails as too slow, beside a
+    shown buffer that is highlighted first, and a second document that waits for it.
+
 ### Step 10: a pair of windows that scroll together
 
 A pair is two tiled windows whose buffer lines line up by a row map their owner gives, closed and

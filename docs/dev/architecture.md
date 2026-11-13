@@ -589,7 +589,11 @@ The UI thread never blocks on I/O or parsing:
   if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
   parsed again, with their own grammars, wherever the worker highlights. Buffers that may
   hold secrets and files over 2 MiB are not parsed
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). The same schedule takes documents no
+  buffer owns, texts that never change such as a review's sides, opened with the verdict of
+  where they came from (a text that may hold secrets is refused). They run only where buffers
+  no window shows do, at most 4 hold a tree at once, and a finished one gives its tree to a
+  thread to free ([ADR 0122](adr/0122-agent-review.md), step 8).
 - A hosted agent session's state is read from its screen on `oso-sessions`
   (`crates/oso/src/sessions/`, glue in `app/sessions.rs`), never on the UI thread
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `sessions::screen::Evidence` is the last 40
@@ -607,6 +611,17 @@ The UI thread never blocks on I/O or parsing:
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
+- An agent review's git and diffing run on a thread per review, `oso-review`
+  (`crates/oso/src/review.rs`), started only from a trusted project's root. It lists the
+  scope's files with `git diff --raw -z` (untracked files through a copy of the
+  index, in a private `reviews/tmp/` under the state directory), reads old sides through one
+  long-lived `git cat-file --batch` fed on a piped standard input, reads work tree files from
+  the top a directory at a time following no link, and diffs each file with `similar` into
+  `oso_core::review`'s hunks. A file whose signature did not change is not read again, and
+  shown files go first. Each listing, the readings after it and the `Read` that ends them
+  share a generation; refreshes asked for meanwhile are answered as one. Before each request
+  the root's device and inode are looked at again, and git never looks above the root
+  ([ADR 0122](adr/0122-agent-review.md)).
 
 ### Configuration
 

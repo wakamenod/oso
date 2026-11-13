@@ -97,7 +97,7 @@ fn a_read_only_directory_can_still_be_read() {
 /// Runs `chmod` with `args`, as this crate has no bindings of its own.
 #[cfg(target_os = "macos")]
 fn chmod(args: &[&std::ffi::OsStr]) {
-    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+    use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
     let chmod = Executable::absolute("/bin/chmod").unwrap();
     let args: Vec<std::ffi::OsString> = args.iter().map(|arg| (*arg).to_owned()).collect();
@@ -107,6 +107,7 @@ fn chmod(args: &[&std::ffi::OsStr]) {
         cwd: None,
         project: None,
         inherit: &[],
+        stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,

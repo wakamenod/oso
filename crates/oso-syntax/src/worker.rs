@@ -9,7 +9,8 @@
 //!   milliseconds, and the schedule's methods run under the lock, some on the UI thread. Jobs
 //!   wait in their slot until a thread checks the document out, and [`Checkout::run`], with
 //!   nothing locked, follows them. A document no longer wanted goes on a list a thread frees
-//!   after it unlocks ([`Scheduler::take_doomed`]).
+//!   after it unlocks ([`Scheduler::take_doomed`]), with the texts that waited in a slot that
+//!   went.
 //! - Buffers a window shows go first. At most one checkout at a time is of a buffer no window
 //!   shows now, so one slice that runs long on a background buffer never holds the shown ones.
 //! - A dropped buffer's slot goes at once: a job that waited in it never runs, and a slice that
@@ -17,6 +18,9 @@
 //! - Each job carries the UI's epoch for its buffer, which a new start moves on, and each report
 //!   the epoch of the document it is of and a stamp in the order slices ended, so that the UI
 //!   drops a report from before a new start, or one that comes after a later one.
+//! - A document no buffer owns (ADR 0122), such as a review's side, has a slot of its own whose
+//!   text never changes ([`unowned`]). It runs only where background buffers do, one thread
+//!   at a time, so a shown buffer always has a thread.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -25,6 +29,10 @@ use std::time::{Duration, Instant};
 
 use oso_core::rope::Rope;
 use oso_core::syntax::{Highlights, Splice, compose};
+
+pub use doomed::Doomed;
+pub use unowned::Refused;
+use unowned::{Kind, Stale};
 
 use crate::document::{Document, Failure, Highlighted, MAX_WAITING};
 use crate::language::Language;
@@ -39,7 +47,8 @@ const REPORT_EVERY: Duration = Duration::from_millis(50);
 /// What the UI sends after a buffer changed, or what its windows show did.
 #[derive(Clone, Debug)]
 pub struct Job<Key> {
-    /// Which buffer: the tip crate's id for it.
+    /// Which buffer: the tip crate's id for it. A job for a document's key replaces the
+    /// document with a buffer.
     pub buffer: Key,
     pub language: Language,
     /// The UI's count of new starts for this buffer: a job with `edits: None` moves it on.
@@ -57,12 +66,14 @@ pub struct Job<Key> {
 /// What a slice came to, for the UI.
 #[derive(Clone, Debug)]
 pub struct Report<Key> {
+    /// Which buffer or document no buffer owns: the key it was sent or opened with.
     pub buffer: Key,
-    /// The epoch of the job the document started from.
+    /// The epoch of the job the document started from; 0 for a document no buffer owns.
     pub epoch: u64,
     /// Larger for a slice that ended later.
     pub stamp: u64,
-    /// The revision whose text the highlights are for.
+    /// The revision whose text the highlights are for; 0 for a document no buffer owns, whose
+    /// text never changes.
     pub revision: u64,
     pub outcome: Outcome,
 }
@@ -163,6 +174,42 @@ struct Slot {
     queued: Option<u64>,
     /// The document's changes when it last reported, and when.
     reported: Option<(u64, Instant)>,
+    /// A buffer's, or a document's no buffer owns.
+    kind: Kind,
+    /// Whether it was in the lane when a thread last checked it out: a background buffer that
+    /// a window shows during its slice still holds the lane.
+    taken_in_lane: bool,
+}
+
+impl Slot {
+    /// A slot with nothing made yet, which starts from `start` at its first checkout.
+    fn fresh(
+        generation: u64,
+        language: Language,
+        start: Waiting,
+        shown: Vec<Range<usize>>,
+    ) -> Self {
+        let (revision, epoch) = match &start {
+            Waiting::Reset {
+                revision, epoch, ..
+            } => (*revision, *epoch),
+            Waiting::Nothing | Waiting::Edits { .. } => (0, 0),
+        };
+        Self {
+            generation,
+            language,
+            document: None,
+            checked_out: false,
+            revision,
+            epoch,
+            waiting: start,
+            shown,
+            queued: None,
+            reported: None,
+            kind: Kind::Buffer,
+            taken_in_lane: false,
+        }
+    }
 }
 
 /// Every buffer's slot, and the documents to free.
@@ -172,7 +219,12 @@ pub struct Scheduler<Key> {
     /// Counts places in the queue, and the stamps of reports.
     order: u64,
     /// Documents no longer wanted, for a thread to free with nothing locked.
-    doomed: Vec<Document>,
+    doomed: Doomed,
+    /// Checkouts whose slot went while a thread had it: until given back, they still hold
+    /// their lane and their tree.
+    stale: Vec<Stale>,
+    /// How many slots are documents no buffer owns, so that an open counts in O(1).
+    unowned: usize,
 }
 
 impl<Key> Default for Scheduler<Key> {
@@ -181,7 +233,9 @@ impl<Key> Default for Scheduler<Key> {
             slots: HashMap::new(),
             generations: 0,
             order: 0,
-            doomed: Vec::new(),
+            doomed: Doomed::new(),
+            stale: Vec::new(),
+            unowned: 0,
         }
     }
 }
@@ -206,29 +260,20 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             shown,
         } = job;
         let slot = match self.slots.get_mut(&buffer) {
-            Some(slot) if slot.language == language => slot,
-            // A new buffer, or one in another language now.
+            Some(slot) if slot.language == language && !slot.is_unowned() => slot,
+            // A new buffer, one in another language now, or a document's key.
             _ => {
                 self.generations += 1;
-                let slot = Slot {
-                    generation: self.generations,
-                    language,
-                    document: None,
-                    checked_out: false,
+                let start = Waiting::Reset {
+                    text,
                     revision,
                     epoch,
-                    waiting: Waiting::Reset {
-                        text,
-                        revision,
-                        epoch,
-                    },
-                    shown,
-                    queued: Some(order),
-                    reported: None,
                 };
-                if let Some(old) = self.slots.insert(buffer, slot) {
-                    self.doomed.extend(old.document);
-                }
+                let slot = Slot {
+                    queued: Some(order),
+                    ..Slot::fresh(self.generations, language, start, shown)
+                };
+                self.replace(buffer, slot);
                 return;
             }
         };
@@ -258,38 +303,70 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
     /// Forgets `buffer` at once: what waited for it never runs, and a slice running on it
     /// gives back nothing. Its document goes on the list to free.
     pub fn drop_buffer(&mut self, buffer: Key) {
-        if let Some(slot) = self.slots.remove(&buffer) {
-            self.doomed.extend(slot.document);
+        if let Some(slot) = self.remove(&buffer) {
+            self.retire(slot);
         }
     }
 
-    /// The documents to free, for a thread to drop once it has unlocked.
-    pub fn take_doomed(&mut self) -> Vec<Document> {
-        std::mem::take(&mut self.doomed)
+    /// Puts `slot` under `key`, retiring the one there.
+    fn replace(&mut self, key: Key, slot: Slot) {
+        self.unowned += usize::from(slot.is_unowned());
+        if let Some(old) = self.slots.insert(key, slot) {
+            self.unowned -= usize::from(old.is_unowned());
+            self.retire(old);
+        }
     }
 
-    /// The next document a thread works on: of those with work, the first a window shows, or
-    /// else the first of the others, unless a thread already has one no window shows now.
+    /// Takes `key`'s slot out: every slot leaves through here, so that the count holds.
+    fn remove(&mut self, key: &Key) -> Option<Slot> {
+        let slot = self.slots.remove(key)?;
+        self.unowned -= usize::from(slot.is_unowned());
+        Some(slot)
+    }
+
+    /// A slot no longer wanted: its document and the text that waited in it go on the list to
+    /// free, and if a thread has it, what that checkout holds counts until it is given back.
+    fn retire(&mut self, slot: Slot) {
+        if slot.checked_out {
+            self.stale.push(Stale::of(&slot));
+        }
+        self.bury(slot);
+    }
+
+    /// Puts what `slot` holds on the list to free. Not freed here: the UI thread may be the
+    /// caller.
+    fn bury(&mut self, slot: Slot) {
+        self.doomed.extend(slot.document);
+        self.doomed.bury(slot.waiting);
+    }
+
+    /// The documents and texts to free, for a thread to drop once it has unlocked.
+    pub fn take_doomed(&mut self) -> Doomed {
+        std::mem::replace(&mut self.doomed, Doomed::new())
+    }
+
+    /// The next document a thread works on: of those with work, the first buffer a window
+    /// shows, or else the first of the others in the lane's order, unless a thread already has
+    /// one of those. A document no buffer owns that would make a tree waits while four hold one.
     pub fn take_next(&mut self) -> Option<Checkout<Key>> {
-        let busy_in_background = self
-            .slots
-            .values()
-            .any(|slot| slot.checked_out && slot.shown.is_empty());
+        let lane_busy = self.lane_busy();
         let ready = |slot: &&Slot| !slot.checked_out && slot.queued.is_some();
         let shown = self
             .slots
             .iter()
-            .filter(|(_, slot)| ready(slot) && !slot.shown.is_empty())
+            .filter(|(_, slot)| ready(slot) && !slot.in_lane())
             .min_by_key(|(_, slot)| slot.queued);
         let buffer = match shown {
             Some((buffer, _)) => *buffer,
-            None if busy_in_background => return None,
+            None if lane_busy => return None,
             None => {
+                let room = self.room_for_a_tree();
+                let blocked = !room && self.slots.values().any(Slot::is_blocked);
                 *self
                     .slots
                     .iter()
-                    .filter(|(_, slot)| ready(slot))
-                    .min_by_key(|(_, slot)| slot.queued)?
+                    .filter(|(_, slot)| ready(slot) && (room || !slot.would_start()))
+                    .min_by_key(|(_, slot)| slot.rank(blocked))?
                     .0
             }
         };
@@ -306,6 +383,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             }
         }
         slot.checked_out = true;
+        slot.taken_in_lane = slot.in_lane();
         slot.queued = None;
         Some(Checkout {
             buffer,
@@ -330,6 +408,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             .get_mut(&checkout.buffer)
             .filter(|slot| slot.generation == checkout.generation)
         else {
+            self.settle(checkout.generation);
             self.doomed.extend(checkout.document);
             return None;
         };
@@ -344,7 +423,9 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             outcome,
         };
         if let Highlighted::Failed(failure) = outcome {
-            self.slots.remove(&checkout.buffer);
+            if let Some(slot) = self.remove(&checkout.buffer) {
+                self.bury(slot);
+            }
             self.doomed.push(document);
             return Some(report(Outcome::Failed(failure)));
         }
@@ -352,6 +433,19 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             slot.reported = Some((document.changes(), Instant::now()));
             report(Outcome::Highlights(document.highlights().clone()))
         });
+        if let Kind::Unowned { place, finished } = &mut slot.kind {
+            if outcome == Highlighted::Done {
+                // Its text never changes: the tree is of no more use, and a thread frees it.
+                *finished = true;
+                slot.shown = Vec::new();
+                self.doomed.push(document);
+            } else {
+                // It keeps its place, so that a started document finishes first.
+                slot.queued.get_or_insert(*place);
+                slot.document = Some(document);
+            }
+            return sent;
+        }
         slot.document = Some(document);
         if outcome == Highlighted::Paused {
             // To the back of the queue, so that buffers take turns.
@@ -364,6 +458,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
     /// goes.
     pub fn lost(&mut self, checkout: Checkout<Key>) -> Option<Report<Key>> {
         let stamp = self.next_order();
+        self.settle(checkout.generation);
         self.doomed.extend(checkout.document);
         let slot = self
             .slots
@@ -376,7 +471,9 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             revision: slot.revision,
             outcome: Outcome::Lost,
         };
-        self.slots.remove(&checkout.buffer);
+        if let Some(slot) = self.remove(&checkout.buffer) {
+            self.bury(slot);
+        }
         Some(report)
     }
 
@@ -441,6 +538,9 @@ fn due(slot: &Slot, document: &Document, outcome: Highlighted) -> bool {
         Highlighted::Failed(_) => false,
     }
 }
+
+mod doomed;
+mod unowned;
 
 #[cfg(test)]
 mod tests;

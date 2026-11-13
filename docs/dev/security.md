@@ -148,6 +148,7 @@ network features.
 | Language servers | no | yes |
 | Formatters, format on save | no | yes |
 | Git write operations (commit, push, rebase; hooks run) | no | yes |
+| Agent review (the `git` CLI; no hooks or monitor, clean filters run) | no | yes |
 | Org babel execution (explicit action only) | no | yes |
 
 - Inside repositories, oso reads only EditorConfig. It never reads settings
@@ -177,10 +178,19 @@ network features.
   drivers, textconv, external diff. Verifying that `gix` can be forced to skip
   all of these is an open item.
 - Write operations call the `git` CLI through the process module, and only in
-  trusted projects. So do an agent review's reads (diffs, file lists, blobs),
-  with revisions resolved to object ids, option-like ones refused,
+  trusted projects. So does an agent review (diffs, file lists, blobs, and the baseline's
+  tree), with revisions resolved to object ids, option-like ones refused,
   `--no-ext-diff --no-textconv`, and `GIT_OPTIONAL_LOCKS=0`
-  ([ADR 0122](adr/0122-agent-review.md)). Restricted projects get no review.
+  ([ADR 0122](adr/0122-agent-review.md)). Restricted projects get no review: its thread starts
+  only from a root the editor trusts, and stops when that trust is taken back. Every review
+  run sets `core.fsmonitor=false` and `core.hooksPath` to an empty private directory, so no
+  hook or file system monitor the repository names runs. Clean filters do run, as `git add`
+  and a diff of the work tree need them (Git LFS is one): a trusted project's filter programs
+  run in its review. No run enters a repository embedded in the work tree, a project of its
+  own: diffs ignore a submodule's work tree, and the adds leave every submodule out.
+  Untracked files are listed through a copy of the index, so the person's index is never
+  written, and a file whose name may hold secrets, or a work tree file with more than one
+  name, is listed and never read.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 
@@ -470,8 +480,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Image and PDF support (M4 and later) will use pure-Rust decoders, or isolate
   parsing in a separate process. The terminal's Kitty images use a pure-Rust PNG decoder on a
   worker ([ADR 0120](adr/0120-the-terminal.md)).
-- The terminal engine parses untrusted output in `oso-term`, which has a fuzz target. Which engine
-  is decided by ADR 0120's step 1; libghostty-vt would be memory-unsafe parsing in oso's process.
+- The terminal engine, libghostty-vt, parses untrusted output in `oso-term`'s FFI: memory-unsafe
+  Zig and C++ in oso's process, the second exception after the grammars. It is pinned to a signed
+  release, built offline, and fuzzed through `oso-term`'s target at each bump; a crash in it ends
+  oso with no emergency save, as one in a grammar does. Its Kitty images are decoded by Wuffs inside
+  it, not by a pure-Rust decoder, unless ADR 0120's step 12 builds it without them
+  ([ADR 0120](adr/0120-the-terminal.md), step 1 as built).
 - Tree-sitter's grammars are the exception: generated and hand-written C that runs in the oso
   process on untrusted files ([ADR 0012](adr/0012-tree-sitter.md)). They are few, pinned to exact
   versions, with each `build.rs` and scanner read before a bump, and never run on a buffer that
@@ -502,7 +516,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Processes spawn only through `oso_platform::process`: executables come from
   an absolute path or from `PATH` without relative or missing entries, the
   current directory or the project, children get an allowlisted environment and a closed
-  stdin, and every spawn is logged. It ships in every build since the terminal
+  stdin unless the caller pipes it (a review's `git cat-file --batch`), and every spawn is logged. It ships in every build since the terminal
   needs it ([ADR 0120](adr/0120-the-terminal.md)); a child in a terminal gets the
   terminal's slave as its streams and controlling terminal, in a session of its own, and
   neither end of a terminal reaches any other child. `oso dev` builds offline,
