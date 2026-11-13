@@ -70,6 +70,12 @@ impl Feed {
         true
     }
 
+    /// Forgets the sessions that `kept` does not keep: a session or terminal that went must
+    /// not leave a change waiting, which would make [`Feed::due`] stay in the past.
+    pub(in crate::app) fn keep(&mut self, kept: impl Fn(SessionKey) -> bool) {
+        self.fed.retain(|key, _| kept(*key));
+    }
+
     /// When a change that waits may go: the soonest. `None` while none waits.
     pub(in crate::app) fn due(&self) -> Option<Instant> {
         self.fed
@@ -159,6 +165,16 @@ mod tests {
         assert!(feed.look(1, screen(1, "a"), t0));
         assert!(feed.look(2, screen(1, "a"), t0));
         assert!(!feed.look(1, screen(2, "a"), t0));
+    }
+
+    #[test]
+    fn a_session_that_went_leaves_nothing_due() {
+        let (mut feed, now) = (Feed::default(), Instant::now());
+        assert!(feed.look(1, screen(1, ""), now));
+        assert!(!feed.look(1, screen(2, ""), now));
+        assert!(feed.due().is_some());
+        feed.keep(|key| key != 1);
+        assert_eq!(feed.due(), None);
     }
 
     #[test]

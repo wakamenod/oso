@@ -247,6 +247,21 @@ mod tests {
         };
         assert!(refused(project_search, Given::Text("fn main")).contains("searches"));
         assert!(refused(project_search, Given::Nothing).contains("searches"));
+    }
+
+    #[test]
+    fn refuses_what_only_the_keyboard_or_the_host_gives() {
+        let refused = |spec, given| map("cmd", spec, given, None).unwrap_err();
+        // A list the host keeps holds what an agent must not read, such as sessions' recaps.
+        for list in ["sessions", "spaces"] {
+            let listed = ArgSpec::Listed {
+                list,
+                prompt: "Session: ",
+                history: "session",
+            };
+            assert!(map("cmd", listed, Given::Text("x"), None).is_err());
+            assert!(map("cmd", listed, Given::Nothing, None).is_err());
+        }
         let branch = ArgSpec::BranchAndBaseOnPrefix {
             prompt: "Worktree branch:",
             base_prompt: "Base:",

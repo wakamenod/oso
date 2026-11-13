@@ -67,6 +67,8 @@ pub struct Core {
     streak: Option<(String, u32)>,
     /// The local rules no longer used, until the rules load again.
     dropped: HashSet<String>,
+    /// The look at Claude Code's registry.
+    poll: super::externals::Poll,
 }
 
 impl Core {
@@ -78,6 +80,7 @@ impl Core {
             budget: BUDGET,
             streak: None,
             dropped: HashSet::new(),
+            poll: super::externals::Poll::default(),
         }
     }
 
@@ -93,7 +96,8 @@ impl Core {
     /// When the worker must wake with no job: the soonest a session's new screen may be judged,
     /// or its tracker waits for. `None` while nothing waits.
     pub fn due(&self) -> Option<Instant> {
-        self.sessions
+        let sessions = self
+            .sessions
             .values()
             .filter_map(|session| {
                 let screen = session.fresh.then(|| {
@@ -106,7 +110,8 @@ impl Core {
                     (a, b) => a.or(b),
                 }
             })
-            .min()
+            .min();
+        [sessions, self.poll.due()].into_iter().flatten().min()
     }
 
     /// Does `job` at `now`.
@@ -154,6 +159,11 @@ impl Core {
                 return Vec::new();
             }
             Job::ExplainFile(path) => return vec![self.explain_file(&path)],
+            Job::Explain(key) => return vec![self.explain(key)],
+            Job::Externals(on) => {
+                self.poll.set(on.then(registry_directory).flatten(), now);
+                return Vec::new();
+            }
             Job::Recall(directory) => {
                 return vec![Out::Recalled(super::super::record::read(&directory))];
             }
@@ -180,7 +190,12 @@ impl Core {
 
     /// Judges each session whose new screen is due, or whose tracker waits, at `now`.
     pub fn tick(&mut self, now: Instant) -> Vec<Out> {
-        let mut found = Vec::new();
+        let mut found: Vec<Out> = self
+            .poll
+            .tick(now)
+            .map(Out::Externals)
+            .into_iter()
+            .collect();
         let Self {
             rules,
             sessions,
@@ -188,6 +203,7 @@ impl Core {
             budget,
             streak,
             dropped,
+            ..
         } = self;
         for (&key, session) in sessions {
             let screen_due =
@@ -258,6 +274,22 @@ impl Core {
     }
 
     /// Reads the saved screen at `path` and explains it with the rules in force.
+    /// The explanation of session `key`'s last look, judged again with the rules in force.
+    fn explain(&self, key: SessionKey) -> Out {
+        match self.sessions.get(&key).and_then(|s| s.evidence.as_ref()) {
+            Some(evidence) => {
+                let verdict = evaluate(&self.rules, evidence);
+                Out::Explained(explain::text(
+                    "the session's screen",
+                    &self.rules,
+                    evidence,
+                    &verdict,
+                ))
+            }
+            None => Out::Unexplained("Nothing of that session's screen was looked at yet".into()),
+        }
+    }
+
     fn explain_file(&self, path: &Path) -> Out {
         match read_screen(path) {
             Ok(text) => {
@@ -268,6 +300,15 @@ impl Core {
             }
             Err(why) => Out::Unexplained(format!("Cannot explain that screen file: {why}")),
         }
+    }
+}
+
+/// Claude Code's registry, or none in tests, which must not read the person's.
+fn registry_directory() -> Option<std::path::PathBuf> {
+    if cfg!(test) {
+        None
+    } else {
+        crate::sessions::registry::directory()
     }
 }
 

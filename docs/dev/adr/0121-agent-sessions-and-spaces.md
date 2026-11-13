@@ -960,6 +960,94 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
 
   The tracker already takes seen and the call's answer.
 
+## Step 3, as built
+
+Step 3 was built on 2026-11-13, on top of ADR 0120's terminal view (step 4a) and this ADR's
+step 1. The author chose the recommended answer to each of its questions; the coordinator
+approved these points:
+
+- **The side window is outside the window tree** (`editor/sessions/side.rs`): one window at
+  the frame's left, 32 columns wide, with a divider. `tiling()`, a space's tree, a restart's
+  layout and `C-x +` never see it. `C-x o` skips it; a click and `windmove-left` reach it.
+  While it is selected, the tree's commands (`C-x 2`, `C-x 3`, `C-x 1`, a resize, and showing
+  a buffer) act on the tree's window selected last, and select it, so that no session's own
+  command shows anything in it. `C-x 0` in it hides it, and `C-x 1` keeps it.
+  - It shows by itself while oso has a session that is not archived. `C-x a s` shows and
+    selects it when hidden, selects it when shown, and hides it when selected. Once the
+    person hides it, by `C-x a s` or `C-x 0`, it stays hidden for that oso instance.
+- **Spaces swap an opaque `WindowTree`** (`editor/sessions/trees.rs`): each window keeps its
+  cursors, scroll, kept places and ADR 0122 pair. `swap_window_tree` refuses while a prompt
+  is open and gives the tree back. `space-zoom` swaps in a tree of one window like the
+  selected one, and back. Showing a session of another space switches to that space first.
+  A space is a project root; worktrees' spaces get their repository with step 4.
+- **What the editor keeps for sessions is one field, `Sessions`**, in
+  `editor/sessions.rs`: the requests, the side window, the modeline's marks
+  (`SessionMarks`, drawn as `⚠ N` and `● N` on the selected window's modeline only) and the
+  lists the host gives. `editor.rs` is at its size limit, so nothing of this is there.
+- **`ArgSpec::Listed` completes over a list the host gave** with `Editor::set_listed`, read
+  back with `Editor::listed_candidates(&self, list: &str) -> Arc<[Candidate]>`, a public item
+  beyond the plan's list. `session-switch` lists sessions by buffer name, annotated with
+  their state, space and recap, so `&needs` finds those that need input; `space-switch` lists
+  spaces. The agent channel cannot answer a `Listed` prompt: its candidates hold recaps.
+- **Recaps come from the rules**: an optional `recap` pattern on each rule, and
+  `recap_region` for where it looks (see [agent-rules.md](../agent-rules.md)). The worker
+  finds the recap after each verdict, within its own 5 ms deadline, and sends `Out::Recap`
+  only when it changed. A recap that cannot be found leaves the title.
+- **`*Sessions*` is an internal buffer, withheld from agents** (step 2's flag), in
+  `Mode::Sessions`. While it is shown, the channel's commands answer in the echo area only.
+  It is rendered only while shown, to the window's width, with point kept on its row. Ages
+  move on only with a frame drawn anyway, and with `g`: there is no timer of their own.
+- **Notices:** a state that `[sessions.notify]` names, of a session not in front of the
+  person, becomes due 1 s later if it still holds. The first notice goes at once; those due
+  within the next 2 s are merged into one line ("3 sessions need input"). A notice is said in
+  the echo area and asks for attention: on macOS `oso-platform::notify` (a Dock bounce,
+  repeated for needs input and failed), on Linux and Windows winit's urgency, critical for
+  those two. The marks blink 3 times after a session that is not shown needs input or fails.
+  The text names sessions and states only.
+- **A session counts as seen** after 2 s in the selected window of a focused oso window with
+  no prompt open. A turn's end in a trusted project, with a baseline, takes the tree as it is
+  now on a review's thread (ADR 0122, at most 2 at once) and tells the worker whether it
+  differs from the baseline: that is `git diff --quiet` done with the review's own git. A
+  review of the session scope tells the worker its project's sessions were reviewed.
+- **The screen feed goes through the UI thread** (Q6), not from each terminal's thread as
+  step 2 proposed: after a session's snapshot is merged into ADR 0120's kept grid, its last
+  rows, title and OSC 9;4 progress go to the worker at most every 100 ms, and only when
+  something changed, never while the person has scrolled back. The worker keeps them in a
+  slot of one screen per session, so a busy worker never queues more than one each.
+- **Other programs' sessions:** once oso has a session, the worker looks at Claude Code's
+  registry once a second: a listing and a `stat` of each `<pid>.json`, read again with step
+  1's reader only when one changed, and each process's start time. Live entries that are not
+  oso's own are listed as working or idle, never shown.
+- **`k` in the list hangs up a session's terminal**, asking first while it works or needs
+  input. The question is the app's, as only the app knows the state; its yes runs
+  `session-stop` again, which finds it answered.
+- **What differs from the decision above.** `sessions` shows, selects and hides in three
+  steps rather than toggling. The side window and spaces' trees are two new modules under
+  `editor/sessions/`, not a window flag. `session-switch` searches names, spaces and recaps
+  (in their annotation), not directories. The list where `ArgSpec::Listed` reads its
+  candidates is kept in the same `Sessions` field, as sessions are its only lists so far.
+- **Reaches, the author's choice (2026-11-13):** what puts a session's terminal or
+  `*Sessions*` in front of the person's keys is `Person`, as the host selects the window after
+  the command: `sessions`, `session-next-waiting`, `session-next-done`, `space-switch`,
+  `space-zoom` and the list's `sessions-show`. So are `sessions-pin` and `sessions-archive`,
+  which change which sessions ask for the person. `session-switch` (whose list the channel
+  cannot answer), `session-explain` and the list's moving, folding, regrouping, refreshing
+  and explaining stay `Look`.
+- **The views are made once a batch:** a change from the worker marks them stale, and they
+  are made once before the event loop waits; what the person asked is made at once. The list's
+  text is set only when it changed, and a frame is asked for only when the list, the marks or
+  a modeline note changed. Spaces are placed again only when the table changed.
+- **The list's untrusted lines never begin with a mark:** a space or recap that does loses
+  its leading blanks and marks, so that it never reads as a row, and `n`/`p` never stop on it.
+- **A restart leaves the side window out** of the handed-over windows, as the layout is the
+  tree's; it comes back by itself while sessions exist. A project no longer trusted revokes
+  the root of a running look for a session's changes, as it does a review's.
+- **The registry poll runs while a session of oso's runs,** and stops when none does. It looks
+  at most at 1,024 names, and reads a file again only when it changed.
+- **Not done in step 3:** the branch in each row (it needs git on a trusted project, and
+  comes with step 4's worktrees); finding a session's trusted project needs one of its
+  buffers open.
+
 ## Step 4, as built
 
 Step 4 was built on 2026-11-13, on step 1's code and before step 3. The author answered its
@@ -1172,7 +1260,6 @@ for each, and the coordinator approved these points:
 - **Left to step 3 and ADR 0120's terminal:** the taxonomy of states in the lists, stopping a
   worktree's idle sessions before an agent removes it, the loop guard's reset from the
   terminal's input, and the end-to-end flows, which need a session to run.
-
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

@@ -1,5 +1,5 @@
 //! Hosted sessions in the app (ADR 0121): starting, resuming and forking them at the person's
-//! command, the start thread's reports, the remembered set, and the bridge connections that
+//! command, the start thread's reports and the remembered set; `bridge`: the connections that
 //! hold a session. The work that touches files and processes is on the start thread and the
 //! sessions worker; this only decides and carries out.
 //!
@@ -12,16 +12,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use oso_core::buffer::BufferId;
 use oso_core::minibuffer::PromptId;
 use oso_core::project::ProjectId;
-use oso_platform::control::Peer;
 
 use super::super::{App, UserEvent};
-use crate::channel::Connection;
 use crate::review::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
 use crate::sessions::identity::SessionId;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
+mod bridge;
 mod terminal;
 
 /// What the app keeps of its hosted sessions.
@@ -82,6 +81,11 @@ impl Hosting {
     /// The hosted sessions.
     pub(in crate::app) fn table(&self) -> &Table {
         &self.table
+    }
+
+    /// oso's own state directory, where reviews make their index copies.
+    pub(in crate::app) fn state_directory(&self) -> Option<PathBuf> {
+        self.directory.clone()
     }
 
     /// Sessions remembered in `directory`, oso's state directory.
@@ -167,8 +171,10 @@ impl App {
 
     /// Notes that the sessions changed: [`App::save_sessions`] hands them to the worker once
     /// for every change an event made.
-    fn remember_sessions(&mut self) {
+    /// The views of sessions are made again too (ADR 0121, step 3).
+    pub(in crate::app) fn remember_sessions(&mut self) {
         self.hosting.unsaved = true;
+        self.sessions_touched();
     }
 
     /// After an event: hands the sessions to the worker to remember, keeping another
@@ -547,54 +553,6 @@ impl App {
             }
         }
         self.remember_sessions();
-    }
-
-    /// Whether the connection of `peer` that claims the session `claim` is that hosted
-    /// session's bridge (ADR 0121), answered with `answer`, which says whether the answer
-    /// reached the server: then it holds the session, and its name is given.
-    pub(in crate::app) fn session_bridge(
-        &mut self,
-        connection: Connection,
-        peer: &Peer,
-        claim: &str,
-        answer: impl FnOnce(bool) -> bool,
-    ) -> Option<String> {
-        let Some(id) = SessionId::parse(claim) else {
-            answer(false);
-            return None;
-        };
-        // Each running `claude`'s id as its terminal has it now: set once the child started,
-        // cleared before it is reaped.
-        let children: Vec<(SessionKey, Option<u32>)> = self
-            .hosting
-            .table
-            .iter()
-            .filter(|session| matches!(session.run, Run::Running { .. }))
-            .map(|session| {
-                let child = session
-                    .buffer
-                    .and_then(|buffer| self.terminals.map.get(buffer))
-                    .and_then(|hosted| hosted.terminal.as_ref())
-                    .and_then(oso_term::Terminal::pid);
-                (session.key, child)
-            })
-            .collect();
-        for (key, child) in children {
-            if let Some(session) = self.hosting.table.get_mut(key) {
-                session.run = Run::Running { child };
-            }
-        }
-        self.hosting
-            .table
-            .answer_claim(connection, peer, Some(&id), answer)
-    }
-
-    /// The bridge connection `connection` went, or every one did, when it is `None`.
-    pub(in crate::app) fn session_bridge_gone(&mut self, connection: Option<Connection>) {
-        match connection {
-            Some(connection) => self.hosting.table.bridge_gone(connection),
-            None => self.hosting.table.bridges_gone(),
-        }
     }
 }
 
