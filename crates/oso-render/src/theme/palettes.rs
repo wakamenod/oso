@@ -83,6 +83,21 @@ pub(super) enum Name {
     BgMenuKey,
     BgMenuStay,
     BgMenuSwitch,
+    /// A review's rows (ADR 0122): an added and a removed line's text and band, the stronger
+    /// bands of their refined words, the headers' text and band, and the comments' labels, the
+    /// person's and an agent's in hues apart, and their band.
+    FgAdded,
+    BgAdded,
+    BgRefineAdded,
+    FgRemoved,
+    BgRemoved,
+    BgRefineRemoved,
+    FgHunkHeader,
+    FgFileHeader,
+    BgHeader,
+    FgCommentPerson,
+    FgCommentAgent,
+    BgCard,
 }
 
 /// Near-black, with a high-contrast foreground: the default.
@@ -145,6 +160,19 @@ pub(super) fn dark(name: Name) -> Color {
         BgMenuKey => rgb(0xa9b4d8),
         BgMenuStay => rgb(0xff8f87),
         BgMenuSwitch => rgb(0xf2c46a),
+        // Dim green and red bands, a little lighter than the background, under pale text.
+        FgAdded => rgb(0xa8e6b8),
+        BgAdded => rgb(0x13291c),
+        BgRefineAdded => rgb(0x24553a),
+        FgRemoved => rgb(0xf5b0b8),
+        BgRemoved => rgb(0x2f141a),
+        BgRefineRemoved => rgb(0x66283a),
+        FgHunkHeader => rgb(0x9ccfff),
+        FgFileHeader => rgb(0xffffff),
+        BgHeader => rgb(0x1b2236),
+        FgCommentPerson => rgb(0xa9d4ff),
+        FgCommentAgent => rgb(0xf2c2ff),
+        BgCard => rgb(0x1d1b2a),
     }
 }
 
@@ -206,6 +234,18 @@ pub(super) fn light(name: Name) -> Color {
         BgMenuKey => rgb(0x46507a),
         BgMenuStay => rgb(0xb02a22),
         BgMenuSwitch => rgb(0x7a4a00),
+        FgAdded => rgb(0x0b5a26),
+        BgAdded => rgb(0xe3f5e6),
+        BgRefineAdded => rgb(0xb9e6c2),
+        FgRemoved => rgb(0x8a1424),
+        BgRemoved => rgb(0xfbe4e6),
+        BgRefineRemoved => rgb(0xf5c0c6),
+        FgHunkHeader => rgb(0x1d4a8f),
+        FgFileHeader => rgb(0x0b0c10),
+        BgHeader => rgb(0xe6ebf7),
+        FgCommentPerson => rgb(0x123f8a),
+        FgCommentAgent => rgb(0x6a1b84),
+        BgCard => rgb(0xf0eef8),
     }
 }
 
@@ -268,5 +308,18 @@ pub(super) fn dusk(name: Name) -> Color {
         BgMenuKey => rgb(0xb4bee2),
         BgMenuStay => rgb(0xff9d95),
         BgMenuSwitch => rgb(0xffcf7e),
+        // Bands darker than the grey, so that its pale text keeps 7:1 on them.
+        FgAdded => rgb(0xbff5cc),
+        BgAdded => rgb(0x24392c),
+        BgRefineAdded => rgb(0x2d5540),
+        FgRemoved => rgb(0xffc4cb),
+        BgRemoved => rgb(0x452630),
+        BgRefineRemoved => rgb(0x6a2f3d),
+        FgHunkHeader => rgb(0xb4dcff),
+        FgFileHeader => rgb(0xffffff),
+        BgHeader => rgb(0x2e3247),
+        FgCommentPerson => rgb(0xbfe0ff),
+        FgCommentAgent => rgb(0xffbcf0),
+        BgCard => rgb(0x35303f),
     }
 }

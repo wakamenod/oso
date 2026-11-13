@@ -103,7 +103,7 @@ impl Offer {
     fn row_at(&self, editor: &Editor, line: usize) -> Option<usize> {
         match editor.current().1.mode() {
             // A line of anything else means nothing here, as a command can run anywhere.
-            Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => None,
+            Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml | Mode::Review => None,
             Mode::CopyList => {
                 let index = line.checked_sub(HEADER_ROWS)?;
                 (index < self.rows.len()).then_some(index)

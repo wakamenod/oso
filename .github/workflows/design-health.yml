@@ -43,6 +43,9 @@ jobs:
           save-if: false
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       # The token is in this step's environment alone, not the build's. The
       # job's permissions are the real limit, so they stay read-only.
       - name: Fetch the mutation results

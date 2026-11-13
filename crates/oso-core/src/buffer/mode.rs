@@ -25,6 +25,8 @@ pub enum Mode {
     Markdown,
     /// TOML.
     Toml,
+    /// A review's buffer (ADR 0122).
+    Review,
 }
 
 impl Mode {
@@ -61,6 +63,7 @@ impl Mode {
             Self::Rust => "Rust",
             Self::Markdown => "Markdown",
             Self::Toml => "TOML",
+            Self::Review => "Review",
         }
     }
 
@@ -81,7 +84,7 @@ impl Mode {
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
             Self::Fundamental => Some(indent::fundamental),
-            Self::CopyList | Self::CopyView => None,
+            Self::CopyList | Self::CopyView | Self::Review => None,
         }
     }
 }

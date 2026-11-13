@@ -35,11 +35,12 @@ crates/
 ├── oso-core/       buffers, selections, display model, command registry,
 │                   keymaps; no GPU, #![forbid(unsafe_code)]
 ├── oso-render/     wgpu pipeline, glyph atlas
-├── oso-syntax/     tree-sitter, its grammars and oso's queries; the only C
-│                   parsers, and only the tip crate uses it
-├── oso-term/       the terminal: engine, escape-sequence policy, key encoder,
-│                   a thread per terminal, snapshots and search; only the tip
-│                   crate uses it (ADR 0120, from its step 3)
+├── oso-syntax/     tree-sitter, its C grammars and oso's queries; only the
+│                   tip crate uses it
+├── oso-term/       the terminal: libghostty-vt behind an engine trait, the
+│                   escape-sequence policy, a thread per terminal and its
+│                   snapshots; the key encoder and search from steps 4 and 5;
+│                   only the tip crate uses it (ADR 0120)
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
                     clipboard, filesystem and paths, process spawning, PTY
@@ -67,7 +68,10 @@ those two depends on another workspace crate. Only `oso-render` uses wgpu, only
 `oso-platform` uses OS bindings, and only `oso-syntax` uses tree-sitter
 ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). From
 [ADR 0120](adr/0120-the-terminal.md)'s step 3, `oso-term` depends on `oso-core` and
-`oso-platform`, and only the tip crate uses it. These rules, and the allowed layers of
+`oso-platform`, and only the tip crate uses it. It alone links libghostty-vt, which Zig 0.17
+builds from the release `crates/oso-term/ghostty-vt.lock` pins: run `just ghostty-vt` once to
+fetch and check its tarballs, with Zig 0.17 and minisign installed. All of its `unsafe` is in
+`engine/ghostty`'s `ffi` and `raw`. These rules, and the allowed layers of
 modules inside each crate, are listed in
 [`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
 `crates/oso/tests/architecture`
@@ -621,7 +625,7 @@ The UI thread never blocks on I/O or parsing:
   the 3 s grace period, from instants it is given, so its tests need no clock. The thread judges
   a session's screen only after it changed, at most 10 times a second, and wakes on its own only
   while a debounce or grace period waits. It sends the UI thread only changes
-  (`UserEvent::Sessions`). The terminal's host API (ADR 0120) feeds it from step 3; step 2 built
+  (`UserEvent::Sessions`). The terminal's host API (ADR 0120) feeds it from that ADR's step 4; step 2 built
   it against recorded screens, and `session-explain-file` explains a saved one in
   `*Session explain*`, a buffer the agent channel cannot read.
 - Project search (in-process and ripgrep-style,
@@ -638,6 +642,16 @@ The UI thread never blocks on I/O or parsing:
   share a generation; refreshes asked for meanwhile are answered as one. Before each request
   the root's device and inode are looked at again, and git never looks above the root
   ([ADR 0122](adr/0122-agent-review.md)).
+- Each review also has a view thread, `oso-review-view` (`crates/oso/src/review/view.rs`),
+  which lays out each file's section and builds the review buffer's whole text through
+  `load::Builder`, compared with the text before, and builds the next only once the UI put
+  the last in, so one text is in flight; with nothing changed it lays out nothing. The UI
+  thread (`app/reviews.rs`) puts each text in at O(1), in order, while no prompt holds it, and
+  frees what it replaces, the text, rows and highlights (`ReviewLeftover`), off the UI
+  thread. The review menu's counts come from at most two `oso-review-count` threads
+  (`review/count.rs`), an epoch per opening of the menu. A review buffer's added and removed
+  lines, headers and cards are bands the window fills behind its text for the rows in view
+  (`Editor::review_cells`).
 
 ### Configuration
 

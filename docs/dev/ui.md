@@ -329,11 +329,13 @@ planned.
   - `jumps`: `t` the timed character jump, `l` and `h` a line, `e` a line's end, `n` a line by
     number.
   - `search`: `f` a project's file, `r` the project's lines.
-  The review menu on `C-x v r` comes with ADR 0122. `windows`, `jumps` and `search` have no
-  key: `M-x open-menu` opens them, or a key in `config.toml`.
+  - `review` on `C-x v r` (ADR 0122): a review of each scope and the session's baseline, with
+    each scope's count of files; see [Reviews](#reviews).
+  `windows`, `jumps` and `search` have no key: `M-x open-menu` opens them, or a key in
+  `config.toml`.
 - `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
   or removes it with `false`. A removed menu's default key is then undefined. There are at most
-  256 menus, the four built-in ones among them even when removed. For example
+  256 menus, the five built-in ones among them even when removed. For example
   (`config/menus_tests.rs` loads this sample, and changes with it):
 
   ```toml
@@ -365,6 +367,25 @@ planned.
   ```
 - Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
   the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
+
+## Reviews
+
+An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
+`*review: <scope> <project>*`, opened from the `review` menu on `C-x v r`: `D` since the session's
+baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
+names it), `c` a commit, `r` a range `FROM..TO`, and `B` takes a baseline, keeping the menu open.
+Each head's note counts the files it would show, as they come; the line under the title names the
+project and how long ago the baseline was taken. Only a trusted project runs git.
+
+- The buffer is one stream: a title, then each file's header (status, path, `+n −m`), its notes
+  and its hunks, `-` and `+` lines on bands of their own. Files read later show `reading…`, and
+  the modeline says `reading n/m` until every file is read.
+- `n`/`p` go to the next or previous hunk, `N`/`P` to the next or previous file, each with a
+  count; `g` reads the files again, those in view first; `q` goes back; `?` lists the keys.
+- `C-x k` closes the review, asking first while comments of yours that were not sent would be
+  lost; a review not shown is shown before the question.
+- In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
+  project is not trusted to run: M-x trust-project".
 
 ## Echo area
 

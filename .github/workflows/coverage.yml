@@ -34,6 +34,9 @@ jobs:
       # just from the cache or its release through the API, checked (.github/actions).
       - continue-on-error: true
         uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       - uses: taiki-e/install-action@v2.87.29
         continue-on-error: true
         with:

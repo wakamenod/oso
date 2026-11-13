@@ -12,10 +12,10 @@ use oso_core::key::KeySequence;
 use oso_core::menu::{Definition, Head, HeadAction, Note, Notes, Open, Stay};
 use oso_core::menu::{Describe, Menus};
 
-/// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`. Only the
-/// toggles have one (ADR 0117, Q25); the rest are reached with `M-x open-menu` or a key in
-/// `config.toml`.
-pub const MENU_KEYS: &[(&str, &str)] = &[("C-c t", "toggles")];
+/// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`: the
+/// toggles (ADR 0117, Q25) and the review menu (ADR 0122); the rest are reached with
+/// `M-x open-menu` or a key in `config.toml`.
+pub const MENU_KEYS: &[(&str, &str)] = &[("C-c t", "toggles"), ("C-x v r", "review")];
 
 /// One head of a built-in menu: its keys, command, label, whether it stays, and a fixed count.
 struct BuiltInHead {
@@ -193,8 +193,39 @@ const SEARCH: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
+/// Reviews (ADR 0122): a review of each scope, and the session's baseline, with the counts and
+/// the reasons its describe function says.
+const REVIEW: BuiltInMenu = BuiltInMenu {
+    name: "review",
+    title: "Review",
+    groups: &[
+        (
+            "Review",
+            &[
+                exit("D", "review-session", "session changes"),
+                exit("w", "review-uncommitted", "uncommitted"),
+                exit("u", "review-unstaged", "unstaged"),
+                exit("s", "review-staged", "staged"),
+                exit("b", "review-branch", "branch against base"),
+            ],
+        ),
+        (
+            "Revisions",
+            &[
+                exit("c", "review-commit", "a commit\u{2026}"),
+                exit("r", "review-range", "a range\u{2026}"),
+            ],
+        ),
+        (
+            "Session",
+            &[stay("B", "review-mark-baseline", "take a baseline")],
+        ),
+    ],
+    describe: Some(crate::commands::review::review_menu),
+};
+
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 4] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH];
+const BUILT_IN: [&BuiltInMenu; 5] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is
 /// left out, as in tests that bring their own commands; with the default commands every head is

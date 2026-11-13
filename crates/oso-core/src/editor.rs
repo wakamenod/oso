@@ -61,6 +61,7 @@ mod projects;
 mod prompts;
 mod reload;
 mod replace;
+mod reviews;
 mod save;
 mod screen;
 mod sessions;
@@ -102,6 +103,7 @@ pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
+pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use sessions::SessionRequest;
 pub use status::Status;
@@ -289,6 +291,7 @@ pub struct Editor {
     replacing: replace::Replacing,
     /// Keyboard macros: the recording, the last one and a replay (ADR 0113).
     macros: macros::Macros,
+    reviews: reviews::Reviews,
 }
 
 impl Default for Editor {
@@ -374,6 +377,7 @@ impl Editor {
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
             macros: macros::Macros::default(),
+            reviews: reviews::Reviews::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));
@@ -1095,6 +1099,8 @@ mod model_tests;
 mod prompt_tests;
 #[cfg(test)]
 mod reload_tests;
+#[cfg(test)]
+mod reviews_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

@@ -15,7 +15,7 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash` and `jumps` do the work, `control`
+  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps` and `reviews` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
@@ -32,7 +32,11 @@ often, so it must rebuild within 2 s.
   patterns use `regex`, compiled with size limits; the screen is untrusted text. `app/sessions.rs`
   carries out what the worker finds.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
-  a trusted project's root, and git only through `oso_platform::process`.
+  a trusted project's root, and git only through `oso_platform::process`. `review/view.rs`
+  lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
+  `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
+  keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
+  `bindings/review.rs`.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it uses `ignore`, which
   review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same
   walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`.

@@ -16,7 +16,8 @@
 
 [workspace]
 oso
-oso-render oso-syntax
+# `oso-term` holds the terminal model (ADR 0120).
+oso-render oso-syntax oso-term
 oso-core oso-platform
 
 [oso-core]
@@ -72,3 +73,11 @@ worker
 document
 queries paint pending
 edit language
+
+[oso-term]
+# A terminal's thread drives the engine and judges its effects (ADR 0120).
+terminal
+policy
+engine
+snapshot
+event limits

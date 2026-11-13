@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use oso_core::display_map::Preedit;
-use oso_core::editor::{Editor, Gutter, JumpCells};
+use oso_core::editor::{Editor, Gutter, JumpCells, ReviewCells};
 use oso_core::frame::{self, CellRect, WindowRegions};
 use oso_core::motion;
 use oso_core::window::{Screen, WindowId};
@@ -59,17 +59,9 @@ pub(super) fn draw_text_area(
     // The cursor box as the renderer draws it.
     let (place, cells) = motion::cursor_box(&display, point, preedit);
     let cursor = frame::cursor_rect(area, screen, place, cells);
-    let mut region = Vec::new();
-    editor.region_cells(id, screen, &mut region);
     let mut others = Vec::new();
     editor.other_cursor_cells(id, screen, &mut others);
-    let mut found = oso_core::editor::MatchCells::default();
-    editor.isearch_cells(id, screen, &mut found);
-    let (current, matches) = (found.current, found.others);
-    let mut jump = JumpCells::default();
-    editor.jump_cells(id, screen, &mut jump);
-    let (mut trailing, band) = (Vec::new(), editor.current_line_cells(id, screen));
-    editor.trailing_cells(id, screen, &mut trailing);
+    let (fills, jump) = fills_of(editor, (id, screen), flash);
     let whitespace = editor.visual_aids().whitespace;
     for (index, gutter) in gutter.iter().enumerate() {
         let row = screen_row(screen, index, area.columns);
@@ -99,17 +91,6 @@ pub(super) fn draw_text_area(
             let marks: String = marks.into_iter().collect();
             lines.push(format!(":{pad}{marks}:"));
         }
-        // In the renderer's order, so a region shows over a match, and both over the band.
-        let (band, flash) = (band.as_slice(), flash.as_slice());
-        let fills = [
-            (band, 'l'),
-            (&trailing[..], 't'),
-            (&current, '#'),
-            (&matches, '~'),
-            (&jump.matches, '~'),
-            (&region, '*'),
-            (flash, 'f'),
-        ];
         draw_fills(&fills, &jump, (area, index), pad.as_str(), lines);
         let on_row = screen
             .rows()
@@ -124,19 +105,61 @@ pub(super) fn draw_text_area(
     }
 }
 
+/// The cells the window `id` fills behind its text, each list with its mark, in the renderer's
+/// order, so that a region shows over a match, and both over the band, and a jump's cells.
+fn fills_of(
+    editor: &Editor,
+    (id, screen): (WindowId, &Screen),
+    flash: Option<CellRect>,
+) -> (Vec<(Vec<CellRect>, char)>, JumpCells) {
+    let mut region = Vec::new();
+    editor.region_cells(id, screen, &mut region);
+    let mut found = oso_core::editor::MatchCells::default();
+    editor.isearch_cells(id, screen, &mut found);
+    let mut jump = JumpCells::default();
+    editor.jump_cells(id, screen, &mut jump);
+    let mut trailing = Vec::new();
+    editor.trailing_cells(id, screen, &mut trailing);
+    let mut review = ReviewCells::default();
+    editor.review_cells(id, screen, &mut review);
+    let band = editor.current_line_cells(id, screen);
+    let fills = vec![
+        (band.into_iter().collect(), 'l'),
+        (review.added, 'a'),
+        (review.removed, 'r'),
+        (review.refine_added, 'A'),
+        (review.refine_removed, 'R'),
+        (review.headers, 'h'),
+        (review.cards, 'c'),
+        (trailing, 't'),
+        (found.current, '#'),
+        (found.others, '~'),
+        (jump.matches.clone(), '~'),
+        (region, '*'),
+        (flash.into_iter().collect(), 'f'),
+    ];
+    (fills, jump)
+}
+
 /// The line between `+` that marks the cells of `fills` on the area's row `index`, each over
 /// the ones before it, then a jump's labels over them all, as the renderer draws them, and the
 /// line between `@` with the labels' keys.
 fn draw_fills(
-    fills: &[(&[CellRect], char)],
+    fills: &[(Vec<CellRect>, char)],
     jump: &JumpCells,
     (area, index): (CellRect, usize),
     pad: &str,
     lines: &mut Vec<String>,
 ) {
     let mut marks = vec![' '; area.columns];
-    for &(cells, mark) in fills {
-        for cells in cells.iter().filter(|cells| cells.row == area.row + index) {
+    for (cells, mark) in fills {
+        let mark = *mark;
+        // A list may join rows that follow each other into one rectangle, as a review's do.
+        let row = area.row + index;
+        for cells in cells
+            .iter()
+            .filter(|cells| (cells.row..cells.row + cells.rows).contains(&row))
+        {
             let start = cells.column - area.column;
             marks[start..start + cells.columns].fill(mark);
         }
