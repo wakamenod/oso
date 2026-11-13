@@ -693,14 +693,21 @@ coordinator; the notes below are those choices as built.
   bound (`the_largest_migemo_patterns_compile_on_a_key`), and a dictionary at every limit still
   gives a needle on a key (`the_largest_migemo_patterns_with_words_give_a_needle_on_a_key`).
 - **Q7's 2 ms,** measured by the ignored tests in `editor/migemo_dictionary_costs.rs` over the
-  author's dictionary on their Mac, in a release build: every prefix of 174 common words and
-  every string of one to three letters that gives kana, 5,619 strings built three times each,
-  uncached. Building and compiling a needle takes 0.075 ms p50, 1.4 ms p99 and at most 2.4 ms;
-  the largest pattern, of 2,973 words, is 17 KB. Looking up the words takes at most 0.1 ms and
-  writing the pattern 0.4 ms; the rest is the compile. An isearch key over 20 MB of short
-  Japanese lines, its highlights with it, takes 1.1 ms p50; one with no match near searches
-  for step 1's 3 ms, counted from the needle's build, before the worker goes on. So the build
-  stays on the key.
+  author's dictionary on their Mac, in a release build on an idle machine: every prefix of 174
+  common words and every string of one to three letters that gives kana, 5,619 strings built
+  three times each, uncached. Building and compiling a needle takes 0.071 ms p50, 1.35 ms p99
+  and at most 2.3 ms; 19 of 16,857 builds pass 2 ms, each of a pattern of about 2,700 words.
+  The largest pattern, of 2,973 words, is 17 KB, and none drops its words. Looking up the
+  words takes at most 0.1 ms and writing the pattern 0.3 ms; the rest is the compile. So the
+  build stays on the key.
+- **A key's cost.** An isearch key over 20 MB of short Japanese lines, its highlights with it,
+  takes 0.99 ms p50 and 3.1 ms p99: a string with no match near searches for step 1's 3 ms,
+  counted from the needle's build, before the worker goes on, and the slowest keys took up to
+  6.2 ms, as a large pattern's first look in a line can pass the time before it is looked at
+  again. A jump's key, over text made of the words its string finds so nearly every place
+  matches, takes at most 3.5 ms in four windows of 120 by 400, so a jump keeps step 5's
+  budgets of bytes and candidates and no time of its own. `DEL` takes its needle from the
+  cache. The 32 needles of the most words take about 14 MB more than one.
 
 #### As built (step 5, 2026-11-12)
 

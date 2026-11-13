@@ -14,6 +14,8 @@ use std::time::Instant;
 
 use super::Editor;
 use crate::buffer::Buffer;
+use crate::frame::Way;
+use crate::jump::Kind;
 use crate::migemo::{Dictionary, Romaji};
 use crate::search::Needle;
 use crate::window::ViewSize;
@@ -411,4 +413,123 @@ fn migemo_dictionary_crafted_costs() {
             pattern.len()
         );
     }
+}
+
+/// 20,000 lines of 400 characters made of the words `string`'s pattern takes from
+/// `dictionary`, so nearly every place is a match: the densest text a jump meets. Built at
+/// run time; nothing of the dictionary is kept or printed.
+fn dense(dictionary: &Dictionary, string: &str) -> String {
+    let romaji = Romaji::new(string).expect("romaji");
+    let words = dictionary.pattern_words(&romaji);
+    let mut line = String::new();
+    for word in words.iter().cycle().take(4000) {
+        if line.chars().count() + word.chars().count() > 400 {
+            break;
+        }
+        line.push_str(word);
+    }
+    line.push('\n');
+    line.repeat(20_000)
+}
+
+/// An editor over `text` in a view of 120 by 400, in one window or four.
+fn jump_editor(text: &str, windows: usize, dictionary: &Arc<Dictionary>) -> Editor {
+    let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", text));
+    editor.set_view_size(ViewSize::new(120, 400));
+    if windows == 4 {
+        let top = editor.window().id();
+        let bottom = editor.split_window(Way::Down, false).unwrap();
+        editor.split_window(Way::Across, false).unwrap();
+        editor.select_window(bottom);
+        editor.split_window(Way::Across, false).unwrap();
+        editor.select_window(top);
+    }
+    editor.set_migemo_dictionary(Some(Arc::clone(dictionary)));
+    editor
+}
+
+/// What a jump's key costs with the dictionary's words, over text made of them, in one window
+/// and in four, its needle cached as a key's would be after the first; and what isearch's
+/// `DEL` costs, whose needle the cache keeps.
+#[test]
+#[ignore = "a measure, in a release build, of the dictionary OSO_MIGEMO_DICTIONARY names"]
+fn migemo_dictionary_jump_costs() {
+    let (dictionary, _) = dictionary();
+    let dictionary = Arc::new(dictionary);
+    for string in ["ka", "kan", "kanji", "ni", "nihon", "shi"] {
+        let text = dense(&dictionary, string);
+        for windows in [1, 4] {
+            let mut times = Vec::new();
+            let mut found = 0;
+            for _ in 0..20 {
+                let mut editor = jump_editor(&text, windows, &dictionary);
+                assert!(editor.jump_begin(Kind::Char, false));
+                editor.jump_add(string);
+                editor.jump_end();
+                assert!(editor.jump_begin(Kind::Char, false));
+                let started = Instant::now();
+                editor.jump_add(string);
+                times.push(ms(started));
+                found = editor.jump().map_or(0, |jump| jump.count());
+            }
+            let (p50, p99, max) = spread(&mut times);
+            println!(
+                "jump {string:6} windows={windows} found={found} p50={p50:.3} p99={p99:.3} \
+                 max={max:.3} ms"
+            );
+        }
+        let mut deletes = Vec::new();
+        for _ in 0..10 {
+            let mut editor = jump_editor(&text, 1, &dictionary);
+            editor.isearch_begin(false, false);
+            for c in string.chars() {
+                editor.isearch_add(c.encode_utf8(&mut [0; 4]));
+            }
+            while editor.take_isearch_job().is_some() {}
+            let started = Instant::now();
+            editor.isearch_delete();
+            deletes.push(ms(started));
+        }
+        let (p50, p99, max) = spread(&mut deletes);
+        println!("DEL  {string:6} p50={p50:.3} p99={p99:.3} max={max:.3} ms");
+    }
+}
+
+/// Fills the cache with the `count` needles whose patterns take the most words, and holds
+/// them, for a run under `/usr/bin/time -l` that compares the peak memory of 32 with that of 1.
+fn fill_cache(count: usize) {
+    let (dictionary, _) = dictionary();
+    let mut strings: Vec<(usize, String)> = strings()
+        .into_iter()
+        .map(|string| {
+            let romaji = Romaji::new(&string).expect("romaji");
+            (dictionary.pattern_words(&romaji).len(), string)
+        })
+        .collect();
+    strings.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.0));
+    let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", ""));
+    editor.set_migemo_dictionary(Some(Arc::new(dictionary)));
+    for (_, string) in strings.iter().take(count) {
+        let cache = super::migemo::Cache::Keep;
+        assert!(
+            editor
+                .migemo
+                .string_needle(string, false, true, cache)
+                .is_some()
+        );
+    }
+    assert_eq!(editor.migemo.cached(), count);
+    std::hint::black_box(&editor);
+}
+
+#[test]
+#[ignore = "a measure of memory, alone under /usr/bin/time -l"]
+fn migemo_dictionary_cache_memory_1() {
+    fill_cache(1);
+}
+
+#[test]
+#[ignore = "a measure of memory, alone under /usr/bin/time -l"]
+fn migemo_dictionary_cache_memory_32() {
+    fill_cache(32);
 }
