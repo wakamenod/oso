@@ -410,7 +410,13 @@ item notes when it must be settled.
   textconv and external diff drivers.
 - Passphrase/credential prompts via `GIT_ASKPASS`: keep the input out of
   history, the kill ring and macros.
-- Exact list of git-porcelain commands to implement.
+- A conflict-resolution view (smerge-style) for the source-control buffer, and replying to or
+  resolving pull request review threads ([ADR 0127](adr/0127-source-control-and-github.md)).
+- Check on the current Claude Code CLI before ADR 0128 step 1: that a `SendMessage` wakes an idle
+  session, how long an MCP tool call may block, and how its agent teams place teammates
+  ([ADR 0128](adr/0128-orchestration-and-automations.md)).
+- Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
+  own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
 
 ## Later
 
