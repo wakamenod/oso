@@ -1,6 +1,6 @@
 # 0127. Source control and GitHub
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-13
 
 ## Context
@@ -327,7 +327,8 @@ type in another window; typing stays within its budget.
 
 ## Steps
 
-One pull request each.
+One pull request each. Nothing here goes into ADR 0121's steps or holds them up; only step 7
+waits on one of them.
 
 1. **The status buffer:** the `vcs` module, the porcelain parser, sections, folding, inline hunks,
    refresh, restricted projects, `C-x g`.
@@ -417,14 +418,43 @@ For the author, the recommended option first.
 None. `gh` and `git` are the person's programs; JSON is read with `serde_json`, already a
 dependency of the tip crate.
 
+## The author's choices
+
+The author answered every question on 2026-11-13, through the coordinator: (a) for each.
+
+- One status buffer of folding sections with ADR 0117's menus (Q1), on magit's keys: `C-x g`; `s`
+  `u` `k` `c` `b` `P` `F` `f` `z` `l` `N` `$` `g` `TAB` inside; `C-x v l` the graph, `C-x v i`
+  issues (Q2).
+- Discarding asks, and keeps each discarded file as an unreachable blob for git's two weeks, with
+  `git-restore-discarded` (Q3).
+- Commit, amend, extend, reword, fixup and squash, with `--no-verify`, `--signoff` and
+  `--allow-empty` (Q4).
+- Drafts come from the worktree's own session through a paste and the new `draft_set` tool, which
+  never commits; no `claude -p` (Q5). The request is pasted, not submitted (Q6). After "Fix with
+  AI" the message stays and the person commits again (Q7).
+- Branches and history: the safe set only, push with `--force-with-lease`, pull `--ff-only`,
+  continue and abort; no reset, no interactive rebase (Q8).
+- The graph is oso's own lane layout, 2,000 commits a page (Q9), with show, checkout, branch, tag,
+  cherry-pick, revert and copy id only (Q10).
+- A pull request is written in a buffer prefilled from the commits and the template; push after a
+  question, then `gh pr create` (Q11).
+- GitHub: read, create and merge, issues too; no posting of comments or reviews (Q12).
+- Comments sent to an agent: by default only the PR's author's, the person's, and owners',
+  members' and collaborators'; others listed and taken in with `t`; always a preview; a line saying
+  they are data (Q13).
+
 ## Changes to accepted ADRs
 
-To be filled when the author has answered; expected:
+Each passage stays in its ADR as written; what holds now follows it.
 
 - [ADR 0011](0011-git-integration.md), "The command subset is chosen from the author's actual usage
-  while building M4": the subset is this ADR's.
-- [ADR 0122](0122-agent-review.md), "Posting to GitHub is not in this ADR": creating and merging pull
-  requests is this one's, through `gh`, as the person's commands.
+  while building M4": the subset is this ADR's: the status buffer, staging and discarding by file,
+  hunk and line, the commit kinds of Q4, the branch, remote and stash commands of Q8, the graph
+  and its actions of Q10, and pull requests and issues through `gh`. Write operations still run
+  the `git` CLI, only in trusted projects. Conflict resolution waits (open questions).
+- [ADR 0122](0122-agent-review.md), "Posting to GitHub is not in this ADR": creating and merging
+  pull requests is this ADR's, through `gh pr create` and `gh pr merge`, as the person's commands
+  after a question. Posting comments or reviews stays out of both.
 
 ## Consequences
 
