@@ -136,6 +136,7 @@ fn standing(state: Option<State>) -> Standing {
         running: true,
         state,
         echo_off: false,
+        held: false,
     }
 }
 
@@ -202,5 +203,25 @@ fn a_session_not_running_starting_or_at_a_password_is_refused() {
     assert_eq!(
         refusal("api", password).as_deref(),
         Some("api waits for a password; nothing is pasted there")
+    );
+}
+
+#[test]
+fn a_full_screen_view_is_refused_but_a_dialog_behind_it_says_what_it_asks() {
+    let view = Standing {
+        held: true,
+        ..standing(Some(State::Working))
+    };
+    assert_eq!(
+        refusal("api", view).as_deref(),
+        Some("api shows a full-screen view; close it first")
+    );
+    let behind = Standing {
+        held: true,
+        ..standing(Some(State::NeedsInput(Reason::Permission)))
+    };
+    assert_eq!(
+        refusal("api", behind).as_deref(),
+        Some("api is asking for permission; answer it first")
     );
 }

@@ -123,12 +123,16 @@ pub struct Standing {
     pub state: Option<State>,
     /// Its terminal does not echo: a password prompt (ADR 0120, Q17).
     pub echo_off: bool,
+    /// The last look matched a `hold` rule: a full-screen view, such as a picker or the
+    /// settings, holds the state.
+    pub held: bool,
 }
 
 /// Why nothing may be pasted into the session `name` as it stands, or `None` if a paste may
 /// go. A paste into an open dialog could choose one of its options, so a session that needs
-/// input is refused, and so is one whose screen no look has judged yet. No state allows
-/// more than a paste the person reads before pressing Enter.
+/// input is refused, and so are one whose screen no look has judged yet and one a full-screen
+/// view holds, where a paste could go to a picker or a setting. No state allows more than a
+/// paste the person reads before pressing Enter.
 pub fn refusal(name: &str, standing: Standing) -> Option<String> {
     if !standing.running || matches!(standing.state, Some(State::Stopped | State::Failed)) {
         return Some(format!("{name} is not running: session-resume first"));
@@ -141,6 +145,9 @@ pub fn refusal(name: &str, standing: Standing) -> Option<String> {
     let asks = match standing.state {
         None => return Some(format!("{name} is starting; send again in a moment")),
         Some(State::NeedsInput(reason)) => reason,
+        Some(_) if standing.held => {
+            return Some(format!("{name} shows a full-screen view; close it first"));
+        }
         Some(_) => return None,
     };
     let what = match asks {

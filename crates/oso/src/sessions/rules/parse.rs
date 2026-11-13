@@ -10,6 +10,9 @@
 mod message;
 mod recap;
 
+#[cfg(test)]
+pub use message::MAX_MESSAGES;
+
 use std::fmt;
 
 use regex::{Regex, RegexBuilder};

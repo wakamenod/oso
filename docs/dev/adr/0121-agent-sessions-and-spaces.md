@@ -920,6 +920,63 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
 
   The tracker already takes seen and the call's answer.
 
+## Step 5, as built
+
+Step 5 was built on 2026-11-13 in two parts. Part A, the pure parts, came first, on step 3's
+branch: the types, the composing, the refusals, the message rule and the commands, whose
+requests the app ignored. Part B, after step 4, wires the app: the one delivery path, the
+completion lists, the row's note and the end-to-end flows. The author approved these points
+through the coordinator:
+
+- **`oso-core` gained `SessionRequest::Send { to, parts }` and
+  `SessionRequest::FollowMessage(BufferId)`, `SendTo::{Named, Buffer}`,
+  `SendPart::{Note, Excerpt}`, `SendExcerpt { path, buffer, first, last, text }`,
+  `ArgSpec::ListedAndNoteUnlessRegion` and `Ctx::listed_and_note`.** The excerpt is
+  `SendExcerpt`, as `editor::Excerpt` already existed. Commands only describe what to send:
+  the host knows each session's directory and state, puts the text together
+  (`sessions::send::compose`) and pastes it.
+- **The note (Q1)** is one line read in the minibuffer, after the session, when no region
+  shows. Longer text can follow in the TUI's input box.
+- **After a send (Q2)** the target session is shown and selected in its space; the person
+  reads the paste and presses Enter there.
+- **`C-u C-x a m` sends the place only (Q3, Q4),** as plain `path:10-20` (`path:10` for one
+  line). With no region it sends the line at point, then the note if one is typed. A buffer
+  that may hold secrets always sends its place only.
+- **At most 256 KiB (Q8).** A region over that is refused from its bounds, before any text is
+  copied, and the echo area suggests `C-u C-x a m`. The host checks the whole composed text
+  against the same limit.
+- **The refusals:** a session that is not running, one at an echo-off prompt (from ADR 0120's
+  step 4b, once it exists), one no look has judged since it started, one that needs input,
+  worded by its reason, and one a full-screen view holds (a `hold` rule matched last), where a
+  paste could reach a picker or a setting.
+- **`@diagnostics` and `session-fix-error` are deferred (Q5)** to the language-server step: oso
+  has no diagnostics yet. They will be one more kind of `SendPart`, composed in
+  `sessions::send` beside the others.
+- **A message's sender (Q6)** sets "message from NAME" on the receiving session's row until the
+  session is seen, and `session-follow-message` (`Look`, `C-x a f`) shows the sender. The
+  underlined `@NAME` link waits for ADR 0120's links (its step 6).
+- **Message lines are a rule kind of their own,** a `[[message]]` table in the rules file
+  ([agent-rules.md](../agent-rules.md)): a name, a region (`bottom(40)` if left out), a pattern
+  with a capture `from`, and `disable`. At most 16; they count among the file's patterns. A
+  message table never decides a state, and a wrong one is skipped and said. The worker finds
+  senders after each verdict, with 5 ms of its own, and only in lines the previous look did not
+  show; the fuzz target makes `[[message]]` tables too.
+- **What one real run showed (Q7),** with Claude Code 2.1.323, two hosted sessions and one
+  `SendMessage`:
+  - the receiving TUI shows `› Message from @NAME: … (ctrl+o to expand)` above its prompt box;
+    a scrubbed recording is `sessions/screens/message.txt`;
+  - a message starts a turn in the receiving session: it worked on it by itself and, in auto
+    mode, replied;
+  - with `--name`, the TUI writes the name into the prompt box's top rule, `──── name ─`, so a
+    rule row may end with a name.
+- **Residuals, accepted:**
+  - The refusal is checked against the last verdict, which can be about 100 to 200 ms old when
+    the paste lands. A dialog that opens in that window receives the paste, and its keys may
+    read the pasted characters. The paste carries no Enter of its own.
+  - Any program in a session's terminal can print a line that looks like a message. A sender
+    found only sets the row's note and the session `session-follow-message` shows; it
+    authorises nothing and is never taken as who wrote.
+
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

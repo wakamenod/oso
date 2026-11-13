@@ -20,9 +20,9 @@ use super::recap::Recap;
 use super::screen::Region;
 use super::state::Target;
 
-#[cfg(test)]
-pub use parse::MAX_PROBLEMS;
 pub use parse::parse;
+#[cfg(test)]
+pub use parse::{MAX_MESSAGES, MAX_PROBLEMS};
 
 /// The rules compiled into oso.
 pub const BUNDLED: &str = include_str!("claude.toml");
