@@ -1173,7 +1173,7 @@ questions through the coordinator, (a) for each, and the coordinator approved th
 
 Step 5 was built on 2026-11-13 in two parts. Part A, the pure parts, came first, on step 3's
 branch: the types, the composing, the refusals, the message rule and the commands, whose
-requests the app ignored. Part B, after step 4, wires the app: the one delivery path, the
+requests the app ignored. Part B, on steps 3 and 4, wires the app: the one delivery path, the
 completion lists, the row's note and the end-to-end flows. The author approved these points
 through the coordinator:
 
@@ -1210,6 +1210,26 @@ through the coordinator:
   message table never decides a state, and a wrong one is skipped and said. The worker finds
   senders after each verdict, with 5 ms of its own, and only in lines the previous look did not
   show; the fuzz target makes `[[message]]` tables too.
+- **Part B, as wired:**
+  - `App::send_to_session(key, text)`, in `app/sessions/watch/sending.rs`, is the one
+    delivery path: it checks the refusal, pastes with the terminal's own paste, and shows and
+    selects the session in its space. ADR 0122's review comments and ADR 0127's drafts call
+    it later.
+  - The worker tells the app when a session's screen is first judged in time since it
+    started, and when a hold rule starts or stops matching it (`Out::Judged`). The tracker
+    gives no change for a fresh session that is idle, and never reports a hold, so without it
+    the app could not tell a session not judged yet, nor a full-screen view.
+  - The password refusal waits for ADR 0120's step 4b. The PTY's own echo flag cannot serve:
+    Claude Code's TUI keeps echo off in raw mode, so it would refuse every session.
+  - `session-send` completes over the running hosted sessions by their buffers' names, the
+    session this space showed last first. `session-mention` completes over the live sessions,
+    hosted and other programs', by name, each annotated with its space and whether it runs in
+    oso; in a session's terminal it pastes `@NAME ` through the same path, and in another
+    buffer, `*Brief*` included, it inserts `@NAME` at each cursor.
+  - The row's note is "message from NAME" before the recap, until the person has seen the
+    session for 2 s; a message that arrives while they look at it is seen at once.
+    `session-follow-message` shows the sender if oso hosts it, and says so if it runs outside
+    oso.
 - **What one real run showed (Q7),** with Claude Code 2.1.323, two hosted sessions and one
   `SendMessage`:
   - the receiving TUI shows `› Message from @NAME: … (ctrl+o to expand)` above its prompt box;
