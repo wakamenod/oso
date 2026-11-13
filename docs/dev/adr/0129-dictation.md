@@ -5,6 +5,9 @@
 
 ## Context
 
+**Deferred.** On 2026-11-13 the author chose to decide dictation later. This ADR stays Proposed
+and its questions stay open; nothing here is built until they are answered.
+
 On 2026-11-13 the author asked for voice dictation into an agent's prompt or a terminal, recognised
 on the device, as Orca offers. They speak Japanese and English.
 

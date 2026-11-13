@@ -420,6 +420,9 @@ item notes when it must be settled.
   survives `SIGINT` ([ADR 0130](adr/0130-agent-chat.md)).
 - Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
   own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
+- Dictation: the author deferred it on 2026-11-13. [ADR 0129](adr/0129-dictation.md) stays
+  Proposed with its questions open (where recognition runs, the text, the key, the language, the
+  macOS microphone permission).
 
 ## Later
 
