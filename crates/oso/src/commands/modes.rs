@@ -11,6 +11,7 @@
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
+use oso_core::editor::Editor;
 
 /// The commands for modes and highlighting. They change how a buffer is shown, never its text.
 pub const COMMANDS: &[Command] = &[
@@ -52,7 +53,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: global_font_lock_mode,
-        state: None,
+        state: Some(font_lock_on),
     },
 ];
 
@@ -97,6 +98,11 @@ fn global_font_lock_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErr
         ctx.request_redraw();
     }
     Ok(())
+}
+
+/// Whether buffers are highlighted, for a menu's `[x]` (ADR 0117).
+fn font_lock_on(editor: &Editor) -> bool {
+    editor.font_lock()
 }
 
 #[cfg(test)]

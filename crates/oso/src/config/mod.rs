@@ -191,6 +191,7 @@ fn apply(root: &DeTable<'_>, builtin: Builtin<'_>, found: &mut Found) -> (Keymap
             ),
         }
     }
+    menus::unbind_removed_menus(&mut user, &menus, defaults);
     (user, menus, settings)
 }
 

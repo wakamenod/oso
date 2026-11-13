@@ -32,7 +32,7 @@ impl Fixture {
     pub(super) fn new() -> Self {
         let registry = commands::registry();
         let defaults = bindings::global_keymap(&registry);
-        let menus = bindings::menus(&registry);
+        let menus = bindings::built_in_menus(&registry);
         Self {
             registry,
             defaults,

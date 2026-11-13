@@ -80,3 +80,14 @@ fn font_lock_off_drops_every_buffers_highlights() {
     let _ = run(&mut editor, "global-font-lock-mode", Args::numeric(-1));
     assert!(editor.buffer(id).unwrap().highlights().is_none());
 }
+
+#[test]
+fn font_locks_state_reads_whether_buffers_are_highlighted() {
+    let registry = crate::commands::registry();
+    let id = registry.lookup("global-font-lock-mode").unwrap();
+    let state = registry.get(id).unwrap().state.unwrap();
+    let mut editor = editor("abc");
+    assert!(state(&editor));
+    let _ = run(&mut editor, "global-font-lock-mode", Args::NONE);
+    assert!(!state(&editor));
+}
