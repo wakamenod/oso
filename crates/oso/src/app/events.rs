@@ -63,6 +63,7 @@ impl App {
             UserEvent::Listed => self.listed(),
             UserEvent::Projects => self.projects_found(),
             UserEvent::EditorConfig => self.editorconfigs_read(),
+            UserEvent::Migemo(read) => self.migemo_dictionary_read(*read),
             UserEvent::Walked(walked) => self.walked(event_loop, walked),
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
@@ -88,6 +89,7 @@ impl App {
         self.write_trust();
         self.find_projects();
         self.read_editorconfigs();
+        self.read_migemo_dictionary_if_wanted();
         self.check_disk();
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.

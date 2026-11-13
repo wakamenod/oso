@@ -98,7 +98,7 @@ fn migemo_key_costs() {
             bytes = crate::migemo::pattern(&string).map_or(0, |pattern| pattern.len());
             patterns.push(ms(started));
             let started = Instant::now();
-            std::hint::black_box(Needle::migemo(&string, false));
+            std::hint::black_box(Needle::migemo(&string, false, None));
             needles.push(ms(started));
         }
         let (pattern_p50, pattern_max) = p50_max(&mut patterns);
@@ -236,7 +236,7 @@ fn migemo_jump_costs() {
         let mut times = Vec::new();
         for _ in 0..30 {
             let started = Instant::now();
-            std::hint::black_box(Needle::migemo(&string, false));
+            std::hint::black_box(Needle::migemo(&string, false, None));
             times.push(ms(started));
         }
         let (p50, max) = p50_max(&mut times);

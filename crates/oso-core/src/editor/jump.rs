@@ -346,6 +346,15 @@ impl Editor {
         }
     }
 
+    /// Finds a jump's matches again while its string is read, as migemo's dictionary came or
+    /// went (ADR 0116). At the labels, what shows stays.
+    pub(super) fn jump_look_again(&mut self) {
+        let reading = |jump: &Jump| jump.kind == Kind::Char && jump.stage == Stage::Reading;
+        if self.jump.as_ref().is_some_and(reading) {
+            self.find_candidates();
+        }
+    }
+
     /// Finds a jump's candidates in view again, nearest first, keeping the first
     /// [`MAX_LABELLED`], and notes what each window shows.
     fn find_candidates(&mut self) {

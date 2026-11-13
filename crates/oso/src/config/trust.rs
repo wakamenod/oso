@@ -27,7 +27,8 @@ use oso_core::project::{TrustChange, TrustList};
 use oso_platform::file_meta::create_private;
 use oso_platform::privacy::{self, Writers};
 
-use super::watch::{Seen, Unread, look, read};
+use super::checked::{Unread, read};
+use super::watch::{Seen, look};
 
 /// The file's name in oso's configuration directory.
 pub const TRUST_FILE_NAME: &str = "trusted-projects";

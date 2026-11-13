@@ -48,6 +48,10 @@ const SIZE_LIMIT: usize = 2 * 1024 * 1024;
 /// size compiles within about a millisecond, and a larger one compiles on the worker.
 pub(crate) const KEY_SIZE_LIMIT: usize = 256 * 1024;
 
+/// The most memory migemo's pattern with a dictionary's words takes (ADR 0116, Q7): past it,
+/// the pattern drops the words and keeps the kana, within [`KEY_SIZE_LIMIT`].
+pub(crate) const WORDS_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
 /// What reading a line costs besides its bytes, as a line's seek and copy take time of
 /// their own.
 const PER_LINE: usize = 64;
@@ -409,6 +413,18 @@ impl fmt::Debug for LineRoom {
 }
 
 impl Regexp {
+    /// The bytes of its pattern, for the measures of migemo's needles.
+    #[cfg(test)]
+    pub(crate) fn pattern_len(&self) -> usize {
+        self.source.0.len()
+    }
+
+    /// Its first match in `text`, for tests of what a pattern matches.
+    #[cfg(test)]
+    pub(crate) fn find_in(&self, text: &str) -> Option<String> {
+        self.regex.find(text).map(|found| found.as_str().to_owned())
+    }
+
     /// The replacement for the match at `range`: `to` with its `$1`, `${name}`, `$0` and `$$`
     /// expanded from the match's groups, as `Regex::replace` expands them. It reads the
     /// match and the character before it, not the whole line.

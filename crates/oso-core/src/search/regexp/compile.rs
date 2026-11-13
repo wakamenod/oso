@@ -201,15 +201,19 @@ pub(crate) fn compile_isearch(
 /// The deepest a migemo pattern's groups nest (ADR 0116).
 const MIGEMO_NEST: u32 = 32;
 
-/// Compiles migemo's `pattern` (ADR 0116) on a key, case-insensitive if `insensitive`. Its
-/// characters are escaped kana and letters with no class to weigh, and its length follows
-/// the string's, so only the key's size limit bounds it. `None` over that limit, and the
-/// caller searches for the string as it is.
-pub(crate) fn compile_migemo(pattern: &str, insensitive: bool) -> Option<Regexp> {
+/// Compiles migemo's `pattern` (ADR 0116) on a key, case-insensitive if `insensitive`,
+/// within `size_limit`. Its characters are escaped kana, letters and a dictionary's words with
+/// no class to weigh, so only the size and nest limits bound it. `None` over either, and the
+/// caller searches for less.
+pub(crate) fn compile_migemo(
+    pattern: &str,
+    insensitive: bool,
+    size_limit: usize,
+) -> Option<Regexp> {
     let mut built = builder(pattern, insensitive);
     let started = std::time::Instant::now();
     let regex = built
-        .size_limit(super::KEY_SIZE_LIMIT)
+        .size_limit(size_limit)
         .nest_limit(MIGEMO_NEST)
         .build()
         .ok()?;

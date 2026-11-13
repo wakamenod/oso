@@ -1851,6 +1851,8 @@ pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::Se
 pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::set_migemo(&mut self, bool)
+pub fn oso_core::editor::Editor::set_migemo_dictionary(&mut self, core::option::Option<alloc::sync::Arc<oso_core::migemo::Dictionary>>)
+pub fn oso_core::editor::Editor::take_migemo_dictionary_wanted(&mut self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
 impl oso_core::editor::Editor
@@ -3378,6 +3380,22 @@ pub const oso_core::menu::MAX_NAME_BYTES: usize
 pub const oso_core::menu::MAX_ROWS: u8
 pub fn oso_core::menu::layout(&oso_core::menu::Definition, &oso_core::menu::Notes, &[core::option::Option<bool>], oso_core::frame::CellRect) -> oso_core::menu::Layout
 pub type oso_core::menu::Describe = fn(&oso_core::editor::Editor, &oso_core::menu::Open) -> oso_core::menu::Notes
+pub mod oso_core::migemo
+pub struct oso_core::migemo::Dictionary
+impl oso_core::migemo::Dictionary
+pub fn oso_core::migemo::Dictionary::new(alloc::string::String) -> Self
+pub fn oso_core::migemo::Dictionary::readings(&self) -> usize
+pub fn oso_core::migemo::Dictionary::skipped(&self) -> usize
+pub fn oso_core::migemo::Dictionary::words(&self) -> usize
+impl core::fmt::Debug for oso_core::migemo::Dictionary
+pub fn oso_core::migemo::Dictionary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_core::migemo::MAX_BYTES: usize
+pub const oso_core::migemo::MAX_ENTRIES: usize
+pub const oso_core::migemo::MAX_PREFIX_ENTRIES: usize
+pub const oso_core::migemo::MAX_READING: usize
+pub const oso_core::migemo::MAX_WORD: usize
+pub const oso_core::migemo::MAX_WORDS: usize
+pub const oso_core::migemo::MAX_WORDS_A_READING: usize
 pub mod oso_core::minibuffer
 pub enum oso_core::minibuffer::Kind
 pub oso_core::minibuffer::Kind::Complete
