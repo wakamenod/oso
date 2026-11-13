@@ -1,5 +1,5 @@
 //! The engine's grid: text, wide characters and clusters, styles, which rows a snapshot
-//! sends, sizes, scrollback and modes.
+//! sends, sizes, scrollback and modes, and the count of rows copied without their styling.
 //!
 //! Must not depend on: the policy or the thread.
 
@@ -150,6 +150,25 @@ fn row_reads_out_of_their_order_read_nothing() {
     vt.write(b"c");
     assert!(!vt.next_row());
     assert!(!vt.row(&mut raw) && raw.is_empty());
+}
+
+/// Ordinary output never needs oso's patch to copy a row without its styling.
+#[test]
+fn ordinary_output_keeps_every_row_whole() {
+    let mut e = engine(80, 24);
+    for line in 0..500 {
+        let row = format!(
+            "\x1b[1;38;5;{}m{line}\x1b[0m \x1b]8;;https://example.org/{}\x1b\\link\x1b]8;;\x1b\\ e\u{301}👍\r\n",
+            line % 256,
+            line % 7
+        );
+        e.feed(row.as_bytes());
+    }
+    e.feed(b"\x1b[5;20r\x1b[10;1H\x1b[3L\x1b[2M\x1b[r");
+    e.resize(size(40, 10));
+    e.resize(size(120, 30));
+    assert_eq!(e.vt.plain_copies(), Some(0));
+    assert!(!e.warned_plain_copies);
 }
 
 #[test]

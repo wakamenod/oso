@@ -86,6 +86,7 @@ fn options_and_data_match_the_manifest() {
                 "CLIPBOARD_WRITE_MAX_BYTES",
                 ffi::DATA_CLIPBOARD_WRITE_MAX_BYTES,
             ),
+            ("OSO_PLAIN_COPIES", ffi::DATA_OSO_PLAIN_COPIES),
         ],
     );
     check_enum(

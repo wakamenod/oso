@@ -69,8 +69,9 @@ those two depends on another workspace crate. Only `oso-render` uses wgpu, only
 ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). From
 [ADR 0120](adr/0120-the-terminal.md)'s step 3, `oso-term` depends on `oso-core` and
 `oso-platform`, and only the tip crate uses it. It alone links libghostty-vt, which Zig 0.17
-builds from the release `crates/oso-term/ghostty-vt.lock` pins: run `just ghostty-vt` once to
-fetch and check its tarballs, with Zig 0.17 and minisign installed. All of its `unsafe` is in
+builds from the release `crates/oso-term/ghostty-vt.lock` pins, with oso's patch in
+`crates/oso-term/patches/` applied and checked: run `just ghostty-vt` once to
+fetch and check its tarballs, with Zig 0.17, minisign and `patch` installed. All of its `unsafe` is in
 `engine/ghostty`'s `ffi` and `raw`. These rules, and the allowed layers of
 modules inside each crate, are listed in
 [`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
