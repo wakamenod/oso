@@ -29,6 +29,7 @@ fn order(branch: &str) -> Order {
         base: None,
         brief: "Do the thing.".to_owned(),
         from: None,
+        start_at: None,
     }
 }
 
@@ -223,6 +224,7 @@ fn bad_names_and_bases_are_refused_before_anything_is_made() {
         base: Some("no-such-commit".to_owned()),
         brief: "x".to_owned(),
         from: None,
+        start_at: None,
     };
     let refused = create::create(&s.repo(), &order, &|_| {}, &|| Ok(())).unwrap_err();
     assert!(refused.starts_with("Not a commit"), "{refused}");

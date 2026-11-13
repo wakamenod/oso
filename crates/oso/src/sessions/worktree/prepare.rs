@@ -7,11 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use super::create::{base_of, checked_branch, refuse_checked_out};
-use super::git::{Repo, run};
+use super::create::{Resolved, head_of, resolve};
+use super::git::Repo;
 use super::porcelain::printable;
-use super::slug;
-use crate::review::git::MAX_SHORT;
 
 /// What to look at.
 #[derive(Clone, Debug)]
@@ -72,49 +70,10 @@ fn worktree(
     base: Option<&str>,
     caller: &Path,
 ) -> Result<Prepared, String> {
-    let branch = checked_branch(repo, branch)?;
-    refuse_checked_out(repo, &branch.name)?;
-    let shown = printable(&branch.name, 120);
-    let start = match (&branch.tip, base) {
-        (Some(_), Some(_)) => {
-            return Err(format!(
-                "Branch {shown} exists; a base is only for a new branch"
-            ));
-        }
-        (Some(_), None) => None,
-        (None, Some(base)) => Some(base_of(repo, Some(base))?),
-        (None, None) => Some(caller_head(repo, caller)?),
-    };
-    let slug = slug::slug(&branch.name).ok_or("That branch makes no directory name")?;
-    let place = slug::place(repo.main(), &slug, |p| p.symlink_metadata().is_ok())
-        .ok_or("Ten worktrees of that name exist already")?;
+    let Resolved { branch, base, path } = resolve(repo, branch, base, &|| head_of(repo, caller))?;
     Ok(Prepared::Worktree {
-        place,
+        place: path,
         branch: branch.name,
-        start: start.map(|(name, id)| (id, name)),
+        start: base.map(|(name, id)| (id, name)),
     })
-}
-
-/// The commit the caller's directory is on, and how the question shows it: its branch, else
-/// the commit's first 12 digits.
-fn caller_head(repo: &Repo, caller: &Path) -> Result<(String, String), String> {
-    let git = if caller == repo.main() {
-        Some(repo.git().clone())
-    } else {
-        repo.in_worktree(caller)
-    };
-    let git = git.ok_or("Your session's directory is not this repository's")?;
-    let text = |args: &[&str]| {
-        run(&git, args, MAX_SHORT)
-            .ok()
-            .and_then(|out| String::from_utf8(out).ok())
-            .map(|out| out.trim().to_owned())
-            .filter(|out| !out.is_empty())
-    };
-    let id = text(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
-        .filter(|id| id.bytes().all(|b| b.is_ascii_hexdigit()))
-        .ok_or("Your session's directory has no commit to start a branch from")?;
-    let name = text(&["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .unwrap_or_else(|| id.chars().take(12).collect());
-    Ok((printable(&name, 120), id))
 }

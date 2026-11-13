@@ -34,9 +34,12 @@ pub const MAX_BRIEF: usize = 64 * 1024;
 /// The longest branch, base or session name taken, in bytes.
 pub const MAX_NAME: usize = 255;
 
-/// How long the server waits for the UI's reply to a worktree listing or a removal: their
-/// jobs run git, and `gh` for a listing, each call bounded (ADR 0121).
-pub const JOB_REPLY_WITHIN: Duration = Duration::from_secs(65);
+/// How long the app lets a worktree listing or a removal run before it replies with what it
+/// has: their jobs run git, and `gh` for a listing, each call bounded, and may wait for a
+/// thread (ADR 0121).
+pub const JOB_ANSWER_WITHIN: Duration = Duration::from_secs(60);
+/// How long the server waits for that reply: the app's limit and a margin.
+pub const JOB_REPLY_WITHIN: Duration = Duration::from_secs(JOB_ANSWER_WITHIN.as_secs() + 5);
 
 /// A session method's call.
 #[derive(Clone, PartialEq, Eq)]

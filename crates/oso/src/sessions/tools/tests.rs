@@ -185,3 +185,23 @@ fn the_bridge_lists_each_tool_with_its_hints() {
     }
     assert_eq!(methods.len(), TOOLS.len());
 }
+
+/// Invisible and look-alike characters show as escapes, and a long path keeps its end.
+#[test]
+fn a_question_shows_what_no_eye_would_see_and_the_end_of_a_long_path() {
+    for hidden in [
+        "main\u{200b}",
+        "m\u{430}in",
+        "a\u{feff}",
+        "a\u{a0}b",
+        "\u{201d}x",
+    ] {
+        let shown = quoted(hidden);
+        assert!(shown.is_ascii(), "{shown}");
+        assert!(shown.contains("\\u{"), "{shown}");
+    }
+    let long = format!("/{}/.claude/worktrees/the-one", "deep/".repeat(40));
+    let shown = quoted(&long);
+    assert!(shown.ends_with("the-one\""), "{shown}");
+    assert!(shown.chars().count() <= 82, "{shown}");
+}

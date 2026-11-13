@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use oso_platform::privacy::PrivateDir;
 
@@ -243,29 +243,42 @@ impl Jobs {
     /// Lists the linked worktrees of the repository, a row each as it is looked at, then what
     /// `gh` says of the rows that need it. A newer listing stops this one.
     pub fn list(&self, token: u64, trust: Trust, snapshot: Snapshot) {
-        self.list_as(token, trust, snapshot, true);
-    }
-
-    /// Lists as [`Self::list`] does, for an agent's `worktree_list`: no newer listing stops
-    /// it, and it stops none, so that an agent's and the person's do not cancel each other.
-    pub fn list_for_agent(&self, token: u64, trust: Trust, snapshot: Snapshot) {
-        self.list_as(token, trust, snapshot, false);
-    }
-
-    fn list_as(&self, token: u64, trust: Trust, snapshot: Snapshot, stoppable: bool) {
-        let number = if stoppable {
-            self.listing.fetch_add(1, Ordering::SeqCst) + 1
-        } else {
-            0
-        };
+        let number = self.listing.fetch_add(1, Ordering::SeqCst) + 1;
         let newest = Arc::clone(&self.listing);
+        self.list_while(token, trust, snapshot, move || {
+            newest.load(Ordering::SeqCst) == number
+        });
+    }
+
+    /// Lists as [`Self::list`] does, for an agent's `worktree_list`, until `stop` is set: no
+    /// listing of the person's stops it, and it stops none of theirs.
+    pub fn list_for_agent(
+        &self,
+        token: u64,
+        trust: Trust,
+        snapshot: Snapshot,
+        stop: Arc<AtomicBool>,
+    ) {
+        self.list_while(token, trust, snapshot, move || !stop.load(Ordering::SeqCst));
+    }
+
+    /// A listing that goes on while `live` says so, and says when it ended.
+    fn list_while(
+        &self,
+        token: u64,
+        trust: Trust,
+        snapshot: Snapshot,
+        live: impl Fn() -> bool + Send + 'static,
+    ) {
         let gh_host = self.gh_host.clone();
         self.on_repo(
             trust,
             false,
             move |_, repo, send| {
-                let live = || !stoppable || newest.load(Ordering::SeqCst) == number;
-                list(repo, &snapshot, gh_host.as_deref(), &live, token, send);
+                // One stopped while it waited for a thread runs nothing.
+                if live() {
+                    list(repo, &snapshot, gh_host.as_deref(), &live, token, send);
+                }
                 send(Report::ListEnded { token });
             },
             move |why| Report::Listed {

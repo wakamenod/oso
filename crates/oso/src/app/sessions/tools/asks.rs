@@ -9,6 +9,8 @@
 
 use std::time::Instant;
 
+use std::path::PathBuf;
+
 use oso_core::buffer::{Buffer, Mode};
 use oso_core::minibuffer::PromptId;
 
@@ -71,6 +73,7 @@ enum Then {
     Worktree {
         brief: String,
         name: Option<String>,
+        base: Option<String>,
     },
     Start {
         brief: Option<String>,
@@ -103,7 +106,11 @@ impl App {
                 name,
             } => (
                 branch.clone(),
-                Then::Worktree { brief, name },
+                Then::Worktree {
+                    brief,
+                    name,
+                    base: base.clone(),
+                },
                 Some(Prepare::Worktree {
                     branch,
                     base,
@@ -119,7 +126,9 @@ impl App {
                 // Another directory than the caller's own is looked at by git first.
                 let prepare =
                     (directory != caller.directory).then(|| Prepare::Directory(directory.clone()));
-                (shown(&directory), Then::Start { brief, name }, prepare)
+                // Kept by the path's parts, so that `/r/` and `/r` are one target.
+                let key: PathBuf = directory.components().collect();
+                (shown(&key), Then::Start { brief, name }, prepare)
             }
             _ => return pending.answer(Err("not a tool that starts a session".into())),
         };
@@ -150,13 +159,13 @@ impl App {
         self.worktree_jobs().prepare(token, trust.clone(), prepare);
         self.hosting.tools.jobs.insert(
             token,
-            Job::Prepared(Preparing {
+            Job::Prepared(Box::new(Preparing {
                 pending,
                 caller: caller.clone(),
                 target,
                 trust,
                 then,
-            }),
+            })),
         );
     }
 
@@ -183,7 +192,7 @@ impl App {
                     branch,
                     start,
                 },
-                Then::Worktree { brief, name },
+                Then::Worktree { brief, name, base },
             ) => {
                 let from = start.as_ref().map(|(_, shown)| shown.as_str());
                 let label = rules::worktree_question(
@@ -194,9 +203,12 @@ impl App {
                     rules::lines(&brief),
                 );
                 let details = details(&caller.name, &label, &brief);
+                // The job that makes it resolves the start again, as the question named it: the
+                // base given, else the caller's `HEAD`.
                 let order = Order {
                     branch,
-                    base: start.map(|(id, _)| id),
+                    base,
+                    start_at: Some(caller.directory.clone()),
                     brief,
                     from: Some(Handover {
                         name: caller.runs.then(|| caller.name.clone()),
@@ -234,8 +246,15 @@ impl App {
         target: String,
         begin: Begin,
     ) {
+        let mut begin = begin;
         let directory = begin.directory.clone().unwrap_or_default();
-        let shared = self.hosting.table.runs_in(&directory);
+        // Another session than the caller's own runs there.
+        let shared = self
+            .hosting
+            .table
+            .all()
+            .iter()
+            .any(|s| s.key != caller.key && s.runs() && s.directory == directory);
         let brief = begin.brief.as_deref();
         let label = rules::start_question(
             &caller.name,
@@ -244,6 +263,14 @@ impl App {
             shared,
         );
         let details = details(&caller.name, &label, brief.unwrap_or("(no brief)"));
+        // The new session's first prompt starts with oso's line, never with the agent's text,
+        // so that no brief is read as a command of Claude Code's own (`/`, `!`, `#`).
+        begin.brief = begin.brief.map(|brief| {
+            format!(
+                "Session {} started this session through oso, with this brief:\n\n{brief}",
+                rules::quoted(&caller.name)
+            )
+        });
         self.queue_question(
             pending,
             caller,
@@ -335,6 +362,11 @@ impl App {
         }
     }
 
+    /// The open question of a session tool, if one is asked.
+    pub(in crate::app) fn session_tool_question(&self) -> Option<PromptId> {
+        self.hosting.tools.question.as_ref().and_then(|q| q.asked)
+    }
+
     /// The question's connection went: it closes, and nothing it asked for runs.
     pub(super) fn close_tool_question(&mut self) {
         let Some(question) = self.hosting.tools.question.take() else {
@@ -358,6 +390,11 @@ impl App {
             } => {
                 let token = self.worktree_token();
                 let branch = printable(&order.branch, 80);
+                // The record of trusted projects as it is at the person's `y`.
+                let trust = Trust {
+                    trusted: self.trusted_list(),
+                    ..trust
+                };
                 self.worktree_jobs().create(token, trust, order);
                 self.editor
                     .message(format!("Making the worktree for {branch}…"));
@@ -381,6 +418,10 @@ impl App {
 
     /// A worktree job made, or did not make, the worktree the person allowed.
     pub(super) fn tool_creating(&mut self, token: u64, creating: Creating, report: Report) {
+        if matches!(report, Report::Created { .. }) {
+            // The echo area says how it went.
+            self.request_redraw();
+        }
         match report {
             Report::Step { .. } => {
                 self.hosting

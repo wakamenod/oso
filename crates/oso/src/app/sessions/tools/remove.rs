@@ -6,11 +6,14 @@
 //! Must not depend on: key presses or how a frame is drawn.
 
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use serde_json::json;
 
 use super::super::super::App;
+use super::reads::JOB_WITHIN;
 use super::{Caller, Job, Pending, shown};
+use crate::channel::{Connection, Reply};
 use crate::sessions::tools::Tool;
 use crate::sessions::worktree::checks;
 use crate::sessions::worktree::jobs::{Asked, Report};
@@ -18,6 +21,16 @@ use crate::sessions::worktree::porcelain::printable;
 
 /// The most names of what git ignored a reply gives.
 const NAMES: usize = 20;
+
+/// A removal an agent asked for.
+#[derive(Debug)]
+pub(in crate::app) struct Removing {
+    pub(super) connection: Connection,
+    /// The call that waits, until it is answered that the removal goes on.
+    pub(super) pending: Option<Pending>,
+    pub(super) started: Instant,
+    path: PathBuf,
+}
 
 impl App {
     /// `worktree_remove` of the worktree at `path`, from `caller`.
@@ -46,22 +59,43 @@ impl App {
         let snapshot = self.worktree_snapshot();
         self.worktree_jobs()
             .remove(token, trust, path.clone(), snapshot, Asked::Unasked);
-        self.hosting
-            .tools
-            .jobs
-            .insert(token, Job::Removing { pending, path });
+        self.wake_after(JOB_WITHIN);
+        self.hosting.tools.jobs.insert(
+            token,
+            Job::Removing(Removing {
+                connection: pending.connection,
+                pending: Some(pending),
+                started: Instant::now(),
+                path,
+            }),
+        );
     }
 
-    /// The removal of `path` ended.
-    pub(super) fn tool_removed(&mut self, pending: Pending, path: &Path, report: Report) {
-        let Report::Removed { result, .. } = report else {
-            return pending.answer(Err("the removal ended unexpectedly".into()));
+    /// The removal `removing` ended. Its call is answered, unless it was answered already that
+    /// the removal goes on; the echo area says how it went either way.
+    pub(super) fn tool_removed(&mut self, removing: Removing, report: Report) {
+        let Removing {
+            connection,
+            pending,
+            path,
+            ..
+        } = removing;
+        let path: &Path = &path;
+        let answer = |reply: Reply| {
+            if let Some(pending) = pending {
+                pending.answer(reply);
+            }
         };
+        let Report::Removed { result, .. } = report else {
+            return answer(Err("the removal ended unexpectedly".into()));
+        };
+        // The echo area says how it went.
+        self.request_redraw();
         let place = printable(&shown(path), 200);
         let who = self
             .hosting
             .table
-            .by_connection(pending.connection)
+            .by_connection(connection)
             .map_or_else(|| "an agent".to_owned(), |s| printable(&s.name, 40));
         match result {
             Ok(ignored) => {
@@ -74,7 +108,7 @@ impl App {
                     .take(NAMES)
                     .map(|name| name.display().to_string())
                     .collect();
-                pending.answer(Ok(json!({
+                answer(Ok(json!({
                     "removed": shown(path),
                     "branch_kept": true,
                     "deleted_ignored": names,
@@ -83,7 +117,8 @@ impl App {
             }
             Err(why) => {
                 self.agent_log("worktree_remove: kept");
-                pending.answer(Err(format!("kept: {why}")));
+                self.editor.message(format!("Worktree {place} kept: {why}"));
+                answer(Err(format!("kept: {why}")));
             }
         }
     }

@@ -182,8 +182,8 @@ impl App {
     /// A worktree job reported.
     pub(in crate::app) fn worktree_reported(&mut self, event_loop: &Loop<'_>, report: Report) {
         // A job an agent's session tool asked for (ADR 0121, step 6).
+        // Its handlers ask for a frame only when they show something.
         let Some(report) = self.session_tool_report(report) else {
-            self.request_redraw();
             return;
         };
         match report {
@@ -313,6 +313,7 @@ impl App {
             base: brief.base.clone(),
             brief: text,
             from: brief.from.clone(),
+            start_at: None,
         };
         self.worktree_jobs().create(token, trust, order);
         self.editor.message(format!(

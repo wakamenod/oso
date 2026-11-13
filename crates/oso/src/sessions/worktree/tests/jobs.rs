@@ -7,7 +7,8 @@
 
 use std::fs;
 use std::path::Path;
-use std::sync::mpsc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use super::super::jobs::{Asked, Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
@@ -157,4 +158,21 @@ fn a_removal_runs_every_check_again() {
     );
     assert_eq!(removed(4), Ok(vec![std::path::PathBuf::from(".env")]));
     assert!(!made.path.exists());
+}
+
+/// An agent's listing ends with a report saying so, and one stopped before it ran lists
+/// nothing (ADR 0121, step 6).
+#[test]
+fn an_agents_listing_says_when_it_ends_and_stops_when_told() {
+    let s = Scratch::new("agent-listing");
+    s.create("one").unwrap();
+    let (jobs, got) = jobs(&s);
+    let go = Arc::new(AtomicBool::new(false));
+    jobs.list_for_agent(1, trust(&s.root, &[&s.root]), Snapshot::default(), go);
+    assert!(matches!(next(&got), Report::Listed { result: Ok(1), .. }));
+    assert!(matches!(next(&got), Report::Row { token: 1, .. }));
+    assert!(matches!(next(&got), Report::ListEnded { token: 1 }));
+    let stopped = Arc::new(AtomicBool::new(true));
+    jobs.list_for_agent(2, trust(&s.root, &[&s.root]), Snapshot::default(), stopped);
+    assert!(matches!(next(&got), Report::ListEnded { token: 2 }));
 }

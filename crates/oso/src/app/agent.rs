@@ -497,8 +497,10 @@ impl App {
             Some(false) => self.stop_agent_channel(),
             None => {}
         }
-        self.ask_about_a_connection();
+        // A session tool's answer is taken first: asking about a connection forgets the last
+        // `y`, which may be the person's to the tool's question.
         self.sync_session_tools();
+        self.ask_about_a_connection();
         self.close_orphaned_questions();
         self.progress_agent_opens();
         self.reply_to_long_saves();
@@ -516,7 +518,7 @@ impl App {
 
     /// Logs `row`, which can come many times a second, at most once every few seconds, with
     /// how many came since.
-    fn agent_log_often(&mut self, row: &'static str) {
+    pub(in crate::app) fn agent_log_often(&mut self, row: &'static str) {
         let now = Instant::now();
         let (at, count) = self.agent.often.entry(row).or_insert((None, 0));
         *count += 1;

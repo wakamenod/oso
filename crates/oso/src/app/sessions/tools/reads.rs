@@ -3,8 +3,9 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -12,17 +13,18 @@ use serde_json::{Value, json};
 use super::super::super::App;
 use super::{Caller, Job, Lister, Pending, session_json, shown};
 use crate::channel::Reply;
+use crate::channel::protocol::sessions::JOB_ANSWER_WITHIN;
 use crate::sessions::identity::SessionId;
-use crate::sessions::worktree::checks::{self, Looked};
+use crate::sessions::worktree::checks::{self, Held, Looked};
 use crate::sessions::worktree::jobs::{Report, Trust};
-use crate::sessions::worktree::merged::Merged;
 
 /// The most sessions one reply of `session_list` gives.
 const PAGE: usize = 256;
 /// The most worktree listings one caller runs a minute, and at once.
 const LISTINGS_A_MINUTE: usize = 6;
-/// How long a listing gathers before its reply goes with the rows so far.
-pub(in crate::app) const LIST_WITHIN: Duration = Duration::from_secs(60);
+/// How long a listing gathers before its reply goes with the rows so far, or a removal runs
+/// before its reply says it goes on: within the server's wait for the reply.
+pub(in crate::app) const JOB_WITHIN: Duration = JOB_ANSWER_WITHIN;
 
 /// A worktree listing an agent waits for.
 #[derive(Debug)]
@@ -31,9 +33,15 @@ pub(in crate::app) struct Listing {
     started: Instant,
     /// How many rows the job found, once it says.
     expected: Option<usize>,
-    rows: Vec<Looked>,
-    /// What `gh` said, by the row's path.
-    merged: HashMap<PathBuf, Merged>,
+    /// Each row with what the UI held of it when it came, so that the reply costs little.
+    rows: Vec<ListedRow>,
+}
+
+#[derive(Debug)]
+struct ListedRow {
+    looked: Looked,
+    held: Held,
+    sessions: Vec<String>,
 }
 
 fn now_ms() -> u64 {
@@ -63,7 +71,7 @@ impl App {
         };
         let now = now_ms();
         let you = caller.map(|caller| &caller.id);
-        let sessions: Vec<Value> = self
+        let mut seen = self
             .hosting
             .table
             .all()
@@ -73,11 +81,13 @@ impl App {
                     .as_deref()
                     .is_none_or(|root| s.directory.starts_with(root))
             })
-            .skip(offset)
+            .skip(offset);
+        let sessions: Vec<Value> = seen
+            .by_ref()
             .take(PAGE)
             .map(|session| session_json(session, you, now))
             .collect();
-        let more = self.hosting.table.all().len() > offset.saturating_add(PAGE);
+        let more = seen.next().is_some();
         Ok(json!({
             "you": you.map(SessionId::as_str),
             "sessions": sessions,
@@ -134,22 +144,29 @@ impl App {
             Ok(trust) => trust,
             Err(why) => return pending.answer(Err(why)),
         };
+        // One agent listing runs at a time, whoever asks, so that agents never fill the
+        // threads the person's worktree commands use.
+        if self.hosting.tools.listing.is_some() {
+            return pending.answer(Err(
+                "another agent's worktree listing is running; try again in a moment".into(),
+            ));
+        }
         let now = Instant::now();
-        let busy = self.hosting.tools.jobs.values().any(|job| {
-            matches!(job, Job::Listing(listing) if listing.pending.connection == pending.connection)
-        });
         let recent = self.hosting.tools.listings.entry(lister).or_default();
         recent.retain(|&at| now.saturating_duration_since(at) < Duration::from_secs(60));
-        if busy || recent.len() >= LISTINGS_A_MINUTE {
+        if recent.len() >= LISTINGS_A_MINUTE {
             return pending.answer(Err(format!(
-                "at most one listing at a time and {LISTINGS_A_MINUTE} a minute; try again later"
+                "at most {LISTINGS_A_MINUTE} worktree listings a minute; try again later"
             )));
         }
         recent.push(now);
         let token = self.worktree_token();
         let snapshot = self.worktree_snapshot();
-        self.worktree_jobs().list_for_agent(token, trust, snapshot);
-        self.wake_after(LIST_WITHIN);
+        let stop = Arc::new(AtomicBool::new(false));
+        self.worktree_jobs()
+            .list_for_agent(token, trust, snapshot, Arc::clone(&stop));
+        self.hosting.tools.listing = Some((token, stop));
+        self.wake_after(JOB_WITHIN);
         self.hosting.tools.jobs.insert(
             token,
             Job::Listing(Listing {
@@ -157,7 +174,6 @@ impl App {
                 started: now,
                 expected: None,
                 rows: Vec::new(),
-                merged: HashMap::new(),
             }),
         );
     }
@@ -169,9 +185,24 @@ impl App {
             Report::Listed {
                 result: Err(why), ..
             } => return listing.pending.answer(Err(why)),
-            Report::Row { looked, .. } => listing.rows.push(*looked),
+            Report::Row { looked, .. } => {
+                let path = &looked.listed.path;
+                let (held, sessions) = (self.held_at(path), self.sessions_in(path));
+                listing.rows.push(ListedRow {
+                    looked: *looked,
+                    held,
+                    sessions,
+                });
+            }
             Report::Merged { path, merged, .. } => {
-                listing.merged.insert(path, merged);
+                if let Some(row) = listing
+                    .rows
+                    .iter_mut()
+                    .find(|r| r.looked.listed.path == path)
+                {
+                    row.looked.merged = Some(merged);
+                    row.looked.gh_pending = None;
+                }
             }
             Report::ListEnded { .. } => {
                 let reply = self.listing_reply(&listing, false);
@@ -182,22 +213,41 @@ impl App {
         self.hosting.tools.jobs.insert(token, Job::Listing(listing));
     }
 
-    /// Replies to listings past [`LIST_WITHIN`] with the rows they have.
-    pub(super) fn end_slow_listings(&mut self) {
+    /// Replies to listings past [`JOB_WITHIN`] with the rows they have, and to removals past it
+    /// that they go on. A removal still ends as its job says, and the echo area tells the
+    /// person.
+    pub(super) fn end_slow_jobs(&mut self) {
         let slow: Vec<u64> = self
             .hosting
             .tools
             .jobs
             .iter()
-            .filter(|(_, job)| {
-                matches!(job, Job::Listing(listing) if listing.started.elapsed() >= LIST_WITHIN)
+            .filter(|(_, job)| match job {
+                Job::Listing(listing) => listing.started.elapsed() >= JOB_WITHIN,
+                Job::Removing(removing) => {
+                    removing.pending.is_some() && removing.started.elapsed() >= JOB_WITHIN
+                }
+                Job::Prepared(_) | Job::Creating(_) => false,
             })
             .map(|(&token, _)| token)
             .collect();
         for token in slow {
-            if let Some(Job::Listing(listing)) = self.hosting.tools.jobs.remove(&token) {
-                let reply = self.listing_reply(&listing, true);
-                listing.pending.answer(Ok(reply));
+            match self.hosting.tools.jobs.get_mut(&token) {
+                Some(Job::Removing(removing)) => {
+                    if let Some(pending) = removing.pending.take() {
+                        pending.answer(Err(
+                            "the removal still runs: worktree_list shows whether it went; do not remove the worktree another way".into(),
+                        ));
+                    }
+                }
+                Some(Job::Listing(_)) => {
+                    if let Some(Job::Listing(listing)) = self.hosting.tools.jobs.remove(&token) {
+                        self.stop_agent_listing(token);
+                        let reply = self.listing_reply(&listing, true);
+                        listing.pending.answer(Ok(reply));
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -207,14 +257,7 @@ impl App {
         let rows: Vec<Value> = listing
             .rows
             .iter()
-            .map(|looked| {
-                let mut looked = looked.clone();
-                if let Some(merged) = listing.merged.get(&looked.listed.path) {
-                    looked.merged = Some(merged.clone());
-                    looked.gh_pending = None;
-                }
-                self.worktree_row_json(&looked, cut)
-            })
+            .map(|row| worktree_row_json(row, cut))
             .collect();
         json!({
             "worktrees": rows,
@@ -222,28 +265,37 @@ impl App {
         })
     }
 
-    fn worktree_row_json(&self, looked: &Looked, cut: bool) -> Value {
-        let path: &Path = &looked.listed.path;
-        let held = self.held_at(path);
-        let (merged, how) = match (&looked.merged, &looked.gh_pending) {
-            (Some(merged), _) => (Some(merged.is_merged()), merged.how()),
-            (None, Some(_)) if cut => (None, "unknown: gh was still asked".to_owned()),
-            (None, _) => (None, "unknown".to_owned()),
-        };
-        let removable = checks::removable(looked, &held);
-        json!({
-            "path": shown(path),
-            "branch": looked.listed.branch,
-            "detached": looked.listed.detached,
-            "uncommitted": looked.status.map(|status| status.changed),
-            "untracked": looked.status.map(|status| status.untracked),
-            "merged": merged,
-            "merged_how": how,
-            "sessions": self.sessions_in(path),
-            "other_sessions": looked.external,
-            "unsaved_buffers": held.unsaved,
-            "removable": removable.is_ok(),
-            "kept_because": removable.err().map(|check| check.why()),
-        })
+    /// Stops the agent listing `token`, if it runs, between its rows.
+    pub(super) fn stop_agent_listing(&mut self, token: u64) {
+        if let Some((running, stop)) = &self.hosting.tools.listing
+            && *running == token
+        {
+            stop.store(true, Ordering::SeqCst);
+        }
     }
+}
+
+fn worktree_row_json(row: &ListedRow, cut: bool) -> Value {
+    let looked = &row.looked;
+    let path: &Path = &looked.listed.path;
+    let (merged, how) = match (&looked.merged, &looked.gh_pending) {
+        (Some(merged), _) => (Some(merged.is_merged()), merged.how()),
+        (None, Some(_)) if cut => (None, "unknown: gh was still asked".to_owned()),
+        (None, _) => (None, "unknown".to_owned()),
+    };
+    let removable = checks::removable(looked, &row.held);
+    json!({
+        "path": shown(path),
+        "branch": looked.listed.branch,
+        "detached": looked.listed.detached,
+        "uncommitted": looked.status.map(|status| status.changed),
+        "untracked": looked.status.map(|status| status.untracked),
+        "merged": merged,
+        "merged_how": how,
+        "sessions": row.sessions,
+        "other_sessions": looked.external,
+        "unsaved_buffers": row.held.unsaved,
+        "removable": removable.is_ok(),
+        "kept_because": removable.err().map(|check| check.why()),
+    })
 }

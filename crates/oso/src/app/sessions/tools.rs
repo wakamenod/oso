@@ -15,6 +15,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
@@ -52,6 +54,8 @@ pub(in crate::app) struct Tools {
     listings: HashMap<Lister, Vec<Instant>>,
     /// `*Agent request*`, while it is shown for a question.
     details: Option<BufferId>,
+    /// The one agent listing that runs, by its job's token, and what stops it.
+    listing: Option<(u64, Arc<AtomicBool>)>,
 }
 
 /// A call whose reply waits.
@@ -72,14 +76,11 @@ impl Pending {
 #[derive(Debug)]
 enum Job {
     /// Looking before the person is asked.
-    Prepared(asks::Preparing),
+    Prepared(Box<asks::Preparing>),
     /// Making a worktree after the person's `y`; its session starts next.
     Creating(asks::Creating),
     Listing(Listing),
-    Removing {
-        pending: Pending,
-        path: PathBuf,
-    },
+    Removing(remove::Removing),
 }
 
 impl Job {
@@ -88,7 +89,7 @@ impl Job {
             Self::Prepared(preparing) => preparing.pending.connection,
             Self::Creating(creating) => creating.pending.connection,
             Self::Listing(listing) => listing.pending.connection,
-            Self::Removing { pending, .. } => pending.connection,
+            Self::Removing(removing) => removing.connection,
         }
     }
 }
@@ -149,10 +150,15 @@ impl App {
                 tool.name
             )));
         }
-        let who = caller
-            .as_ref()
-            .map_or_else(|| "an agent".to_owned(), |c| printable(&c.name, 40));
-        self.agent_log(&format!("{}: from {who}", tool.name));
+        if tool.read_only {
+            // Reads may come many times a second, as `state` does.
+            self.agent_log_often(tool.name);
+        } else {
+            let who = caller
+                .as_ref()
+                .map_or_else(|| "an agent".to_owned(), |c| printable(&c.name, 40));
+            self.agent_log(&format!("{}: from {who}", tool.name));
+        }
         match (call, caller) {
             (Call::List { offset }, caller) => {
                 let listed = self.session_list(caller.as_ref(), offset);
@@ -236,14 +242,30 @@ impl App {
             | Report::Removed { token, .. } => *token,
             Report::Branches { .. } | Report::Checked { .. } => return Some(report),
         };
+        // The agent listing that runs ends with its last report, whether or not a call still
+        // waits for it: one cut or given up on is still the agents' to swallow.
+        let listing = self
+            .hosting
+            .tools
+            .listing
+            .as_ref()
+            .is_some_and(|(running, _)| *running == token);
+        if listing
+            && matches!(
+                report,
+                Report::ListEnded { .. } | Report::Listed { result: Err(_), .. }
+            )
+        {
+            self.hosting.tools.listing = None;
+        }
         let Some(job) = self.hosting.tools.jobs.remove(&token) else {
-            return Some(report);
+            return (!listing).then_some(report);
         };
         match job {
-            Job::Prepared(preparing) => self.tool_prepared(preparing, report),
+            Job::Prepared(preparing) => self.tool_prepared(*preparing, report),
             Job::Creating(creating) => self.tool_creating(token, creating, report),
             Job::Listing(listing) => self.tool_listing(token, listing, report),
-            Job::Removing { pending, path } => self.tool_removed(pending, &path, report),
+            Job::Removing(removing) => self.tool_removed(removing, report),
         }
         None
     }
@@ -283,10 +305,32 @@ impl App {
     /// runs. What the person's `y` started goes on, as the person's.
     pub(in crate::app) fn session_tools_gone(&mut self, connection: Option<Connection>) {
         let ours = |of: Connection| connection.is_none_or(|gone| gone == of);
+        let dropped: Vec<u64> = self
+            .hosting
+            .tools
+            .jobs
+            .iter()
+            .filter(|(_, job)| {
+                !matches!(job, Job::Creating(_) | Job::Removing(_)) && ours(job.connection())
+            })
+            .map(|(&token, _)| token)
+            .collect();
+        for token in dropped {
+            self.hosting.tools.jobs.remove(&token);
+            self.stop_agent_listing(token);
+        }
+        // A removal goes on unanswered, and the echo area still says how it went.
+        for job in self.hosting.tools.jobs.values_mut() {
+            if let Job::Removing(removing) = job
+                && ours(removing.connection)
+            {
+                removing.pending = None;
+            }
+        }
         let tools = &mut self.hosting.tools;
         tools
-            .jobs
-            .retain(|_, job| matches!(job, Job::Creating(_)) || !ours(job.connection()));
+            .listings
+            .retain(|lister, _| !matches!(lister, Lister::Outside(of) if ours(*of)));
         let closes = tools
             .question
             .as_ref()
@@ -297,10 +341,10 @@ impl App {
     }
 
     /// After each event: asks a tool's question once the person is free, takes the answer, and
-    /// ends listings that ran too long.
+    /// replies to jobs that ran too long.
     pub(in crate::app) fn sync_session_tools(&mut self) {
         self.ask_about_a_tool();
-        self.end_slow_listings();
+        self.end_slow_jobs();
     }
 }
 

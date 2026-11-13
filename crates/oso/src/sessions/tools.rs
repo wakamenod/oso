@@ -18,7 +18,6 @@ use std::time::{Duration, Instant};
 use oso_core::command::Reach;
 
 use super::identity::SessionId;
-use super::worktree::porcelain::printable;
 
 /// Whether a tool asks the person before it acts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,12 +195,32 @@ impl Guard {
 /// The longest a quoted field of a question is shown, in characters.
 const FIELD: usize = 80;
 
-/// `text` quoted for a question: its quotes and backslashes escaped, as are its control and
-/// bidirectional characters, and cut to [`FIELD`] characters, so that no name can change how
-/// the question reads.
+/// `text` quoted for a question: its quotes and backslashes escaped, and every character
+/// that is not printable ASCII written as a `\u{…}` escape, so that no invisible, look-alike,
+/// control or bidirectional character can change how the question reads. Past [`FIELD`]
+/// characters its middle goes, so that a path keeps the end that names it.
 pub fn quoted(text: &str) -> String {
-    let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{}\"", printable(&escaped, FIELD))
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' | '\\' => {
+                escaped.push('\\');
+                escaped.push(c);
+            }
+            ' '..='~' => escaped.push(c),
+            other => escaped.push_str(&format!("\\u{{{:x}}}", u32::from(other))),
+        }
+    }
+    let count = escaped.chars().count();
+    if count > FIELD {
+        let head: String = escaped.chars().take(FIELD / 4).collect();
+        let tail: String = escaped
+            .chars()
+            .skip(count - (FIELD - FIELD / 4 - 1))
+            .collect();
+        escaped = format!("{head}…{tail}");
+    }
+    format!("\"{escaped}\"")
 }
 
 /// A brief's size in lines, for a question.

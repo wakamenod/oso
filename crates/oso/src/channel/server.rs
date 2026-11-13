@@ -475,39 +475,17 @@ where
     if !send(asks) {
         return Err(Asked::Refused("the editor is shutting down".into()));
     }
-    let gone = || {
-        send(Request {
-            connection,
-            event: Event::Gone,
-            reply: None,
-        });
-        Err(Asked::Gone)
-    };
-    let mut extra = 0;
-    loop {
-        match replied.recv_timeout(POLL) {
-            Ok(Ok(_)) => return Ok(()),
-            Ok(Err(why)) => return Err(Asked::Refused(why)),
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(Asked::Refused("the editor dropped the request".into()));
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-        }
-        if shared.stop.load(Ordering::Acquire) {
-            return gone();
-        }
-        match lines.try_recv() {
-            Ok(Line::Text(_)) if extra >= MAX_WAITING_LINES => return gone(),
-            Ok(Line::Text(text)) => {
-                extra += 1;
-                let id = protocol::parse(&text).map_or_else(|bad| bad.id, |request| request.id);
-                let waiting = failure(&id, "wait: the person has not answered yet");
-                if writeln!(writer, "{waiting}").is_err() {
-                    return gone();
-                }
-            }
-            Ok(Line::TooLong | Line::End) | Err(mpsc::TryRecvError::Disconnected) => return gone(),
-            Err(mpsc::TryRecvError::Empty) => {}
+    match held::watching(&replied, None, held::PERSON, (lines, writer, shared)) {
+        Waited::Replied(Ok(Ok(_))) => Ok(()),
+        Waited::Replied(Ok(Err(why))) => Err(Asked::Refused(why)),
+        Waited::Replied(Err(why)) => Err(Asked::Refused(why.into())),
+        Waited::Gone => {
+            send(Request {
+                connection,
+                event: Event::Gone,
+                reply: None,
+            });
+            Err(Asked::Gone)
         }
     }
 }
