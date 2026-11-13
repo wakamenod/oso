@@ -131,7 +131,7 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
   the directory it runs in (a repository or a worktree), the transcript's path once found, the
   space it belongs to, and the session that started it, if any.
 - **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
-  directory, else the home directory, as a new terminal does. With a prefix argument it asks for a name and a directory. The session's terminal is a
+  directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
 - **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for

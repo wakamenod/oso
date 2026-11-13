@@ -125,8 +125,8 @@ impl App {
         }
     }
 
-    /// `claude`: a new session in `directory`, else where a new terminal starts (the selected
-    /// buffer's project root, else its file's directory, else the home directory), named
+    /// `claude`: a new session in `directory`, else the selected buffer's project root, else
+    /// its file's directory, as a new terminal, else the directory oso started in, named
     /// `name`, else after its directory. It turns the agent channel on if it is off (Q20).
     pub(in crate::app) fn start_session(
         &mut self,
@@ -140,7 +140,7 @@ impl App {
             }
             Some(directory) => directory,
             None => self
-                .terminal_directory()
+                .buffer_directory()
                 .unwrap_or_else(|| self.editor.start_directory().to_path_buf()),
         };
         // The selected buffer's project, if the session runs at its root.

@@ -767,8 +767,8 @@ a switch made with its command stands until that setting changes in the file
 ## Agent sessions
 
 - `C-x a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
-  the selected buffer's project root, else its file's directory, else the home directory, as a
-  new terminal does. NAME is the directory's
+  the selected buffer's project root, else its file's directory, as a new terminal does, else the
+  directory oso started in. NAME is the directory's
   name, then `-2`, `-3` for more sessions there. `C-u C-x a c` asks for the directory, then the
   name. The agent channel turns on if it was off, and the echo area says so: the session's own
   oso tools connect without asking, and any other agent still asks

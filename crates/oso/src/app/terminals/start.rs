@@ -112,9 +112,16 @@ impl App {
         }
     }
 
-    /// Where a new terminal starts: the selected buffer's project root, else its file's
-    /// directory, else the home directory (ADR 0120, Q18). A new session starts there too.
-    pub(in crate::app) fn terminal_directory(&self) -> Option<PathBuf> {
+    /// Where a new terminal starts: [`App::buffer_directory`], else the home directory
+    /// (ADR 0120, Q18).
+    fn terminal_directory(&self) -> Option<PathBuf> {
+        self.buffer_directory()
+            .or_else(|| self.editor.home().map(std::path::Path::to_path_buf))
+    }
+
+    /// The selected buffer's project root, else its file's directory: where a new terminal
+    /// starts, and a new session (ADR 0121).
+    pub(in crate::app) fn buffer_directory(&self) -> Option<PathBuf> {
         if let Some(root) = self.terminal_project() {
             return Some(root);
         }
@@ -123,7 +130,6 @@ impl App {
             .path()
             .and_then(|path| path.parent())
             .map(std::path::Path::to_path_buf)
-            .or_else(|| self.editor.home().map(std::path::Path::to_path_buf))
     }
 
     fn terminal_project(&self) -> Option<PathBuf> {
