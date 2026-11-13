@@ -133,7 +133,8 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 - **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
   directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
-- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
+- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 random bytes of the system's
+  (`oso_platform::random`, `/dev/urandom` on Unix), and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for
   it. The name is passed with `--name`: the project's name, then `-2`, `-3` for more in it. The
   registry entry for the child's process id gives the inbox socket's path and the CLI's own status;
@@ -709,7 +710,7 @@ For the author, the recommended option first. Each is answered on its own.
 
 - `objc2-user-notifications` for banners on macOS, only once oso ships as an app bundle (Q9 a).
 - Nothing else: `toml`, `regex` and `ignore` are already dependencies of the tip crate, and the
-  UUID comes from `/dev/urandom`.
+  UUID comes from `oso_platform::random`, which reads `/dev/urandom`.
 
 ## The author's choices
 
@@ -805,6 +806,17 @@ points:
   result on macOS, and `sysconf(_SC_CLK_TCK)` on Linux. `Ok(None)` is no such process; an error
   is a process the system does not say the start of, such as another user's, or any process on
   a system it does not support, and the registry reader counts it as live.
+- **`oso-platform` gained, in the first follow-up, `privacy::home() -> Option<PathBuf>` and a
+  module `random` with `fill(bytes: &mut [u8]) -> io::Result<()>`, with no `unsafe`** (the
+  author's approval, 2026-11-13), so that the tip crate reads neither the environment's home nor
+  `/dev/urandom` itself. `home` is `$HOME` on Unix and `%USERPROFILE%` on Windows, only an
+  absolute path, from the environment and not the disk; the registry's `~/.claude` and the app's
+  `~` both take it, so a relative or empty `HOME` is no home for either. `random::fill` reads
+  `/dev/urandom` on Unix and is `ErrorKind::Unsupported` elsewhere for now, where a session
+  refuses to start with that error. `random` is on the lowest line of `[oso-platform]` in
+  `guardrails/layers.txt`. One exception is intentional: `oso-term`'s build script still reads
+  `HOME` for its vendor cache, as a build script cannot use `oso-platform` without a
+  build-dependency, which is not worth it there.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,

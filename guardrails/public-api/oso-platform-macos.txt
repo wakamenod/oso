@@ -267,6 +267,7 @@ pub fn oso_platform::privacy::WhoCanChange::fmt(&self, &mut core::fmt::Formatter
 pub fn oso_platform::privacy::config_home() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::privacy::disable_core_dumps() -> std::io::error::Result<()>
 pub fn oso_platform::privacy::has_one_name(&std::fs::Metadata) -> bool
+pub fn oso_platform::privacy::home() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::privacy::is_this_users(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::others_can_write(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::state_home() -> core::option::Option<std::path::PathBuf>
@@ -390,6 +391,8 @@ impl<'a> core::marker::Copy for oso_platform::process::Spawn<'a>
 pub fn oso_platform::process::account_shell() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::process::spawn(&oso_platform::process::Spawn<'_>) -> std::io::error::Result<std::process::Child>
 pub fn oso_platform::process::start_time(u32) -> std::io::error::Result<core::option::Option<std::time::SystemTime>>
+pub mod oso_platform::random
+pub fn oso_platform::random::fill(&mut [u8]) -> std::io::error::Result<()>
 pub mod oso_platform::text
 pub enum oso_platform::text::GlyphFormat
 pub oso_platform::text::GlyphFormat::Color

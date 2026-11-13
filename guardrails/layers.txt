@@ -40,7 +40,8 @@ migemo sum_tree
 [oso-platform]
 clipboard control process text window
 privacy
-file_meta
+# `random` reads the system's random bytes, for session ids (ADR 0121, step 1 as built).
+file_meta random
 
 [oso-render]
 capture
