@@ -108,9 +108,10 @@ const MACOS: [(&str, Threshold); 34] = [
     ("dev_build_ms", gate(4.25, 3500.0)),
 ];
 /// A Mac with a real GPU, as `just perf-remote` runs on (ADR 0123): the same rule over 6
-/// runs of the same code there, but never under 1.5 times and 1 ms. `RET` with indentation
-/// was not measured there yet and takes typing's; the build is timed without a GPU, so its
-/// line is the runner's and stays unused.
+/// runs of the same code there, but never under 1.5 times and 1 ms. With three drawables
+/// (ADR 0124), `C-x C-f`, `C-x o` and `RET` with indentation were measured again and are at
+/// that minimum; a line set from an earlier set of runs keeps the wider gate. The build is
+/// timed without a GPU, so its line is the runner's and stays unused.
 const REFERENCE_MAC: [(&str, Threshold); 34] = [
     ("key_p50_ms", gate(1.5, 1.0)),
     ("key_p99_ms", gate(1.5, 1.0)),
@@ -119,7 +120,7 @@ const REFERENCE_MAC: [(&str, Threshold); 34] = [
     ("ime_preedit_p99_ms", gate(1.5, 1.0)),
     ("prompt_type_p99_ms", gate(1.5, 1.0)),
     ("mx_type_p99_ms", gate(1.5, 1.0)),
-    ("file_prompt_type_p99_ms", gate(2.25, 5.25)),
+    ("file_prompt_type_p99_ms", gate(1.5, 1.0)),
     ("win4_key_p99_ms", gate(1.5, 1.0)),
     ("win4_type_p99_ms", gate(1.5, 1.0)),
     ("win16_key_p99_ms", gate(1.5, 1.0)),

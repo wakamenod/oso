@@ -82,9 +82,11 @@ The author chose this on 2026-11-13, through the coordinator.
 - ADR 0123's note on `file_prompt_type_p99_ms` as a known near-budget metric no longer
   holds. The reference Mac's threshold for it was derived from the old spread, and now allows
   more than three times the new baseline. Setting it again from 6 runs of `main` is the
-  author's (`compare.rs` is a guard file).
+  author's (`compare.rs` is a guard file). It was set again to 1.5 times and 1 ms, with
+  `C-x o` measured again: see ADR 0123's As built.
 - ADR 0112's note that a frame asked for within one refresh of the last waits for the next
-  holds no longer for two frames in a row. `C-x o` was not measured again here.
+  holds no longer for two frames in a row. `C-x o` was not measured again here; it was
+  afterwards, in ADR 0123's As built.
 - CI's runners have no hardware GPU, so only the reference Mac shows the change.
 
 ## Alternatives considered

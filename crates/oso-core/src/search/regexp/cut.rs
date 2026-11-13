@@ -88,8 +88,9 @@ pub(super) fn find(
         let Some(found) = found.map(|found| found.range()) else {
             return Ok(None);
         };
-        // A match that ends before the cut, or at the line's end, is one.
-        if found.end < cut || cut == text.len() {
+        // A match that ends before the cut, or at the line's end, is one, as is any of a
+        // regexp with no assertion to see past the cut.
+        if found.end < cut || cut == text.len() || regexp.plain() {
             return Ok(Some(found));
         }
         if !may_build && !regexp.cut_ready() {

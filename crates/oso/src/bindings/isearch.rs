@@ -32,6 +32,8 @@ pub const ISEARCH: &[(&str, &str)] = &[
     ("M-n", "isearch-ring-advance"),
     ("M-c", "isearch-toggle-case-fold"),
     ("M-r", "isearch-toggle-regexp"),
+    // Migemo for this search (ADR 0116).
+    ("M-m", "isearch-toggle-migemo"),
     // Cursors from the search (ADR 0091); `C-c` is its only prefix.
     ("C->", "isearch-mark-next"),
     ("C-<", "isearch-mark-previous"),

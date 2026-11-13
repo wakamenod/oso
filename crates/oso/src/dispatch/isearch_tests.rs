@@ -21,7 +21,8 @@ fn c_s_types_into_the_search_and_ret_ends_it() {
     let (mut d, mut editor) = at("one two two\n", &[0]);
     assert!(send(&mut d, &mut editor, "C-s t w").redraw);
     assert_eq!(cursors(&editor), [6]);
-    assert!(echo(&editor).starts_with("I-search: tw"));
+    // A romaji string, which migemo searches for (ADR 0116).
+    assert!(echo(&editor).starts_with("[migemo] I-search: tw"));
     send(&mut d, &mut editor, "C-s");
     assert_eq!(cursors(&editor), [10]);
     send(&mut d, &mut editor, "RET");
@@ -74,7 +75,7 @@ fn c_g_on_a_failing_search_says_no_quit_and_keeps_the_line() {
     assert!(echo(&editor).starts_with("Failing I-search: abx"));
     send(&mut d, &mut editor, "C-g");
     assert!(
-        echo(&editor).starts_with("I-search: ab"),
+        echo(&editor).starts_with("[migemo] I-search: ab"),
         "{}",
         echo(&editor)
     );

@@ -288,7 +288,16 @@ are rounded.
 ## Menus
 
 Hydra/transient-style menus float at the **center** of the frame, as they do
-with hydra-posframe today.
+with hydra-posframe today ([ADR 0117](adr/0117-menus.md)):
+
+- A head closes the menu unless it says `stay`; switches (`[x]`/`[ ]`) stay and are read by the
+  head that runs. A key the menu does not bind is refused with `q to quit`. `C-g` closes one
+  level of submenus; `q` closes the menu unless a head binds it.
+- Built-in menus are defaults: `toggles` on `C-c t`, `review` on `C-x v r`, and `windows`,
+  `jumps` and `search` through `M-x open-menu`. `[menus.<name>]` in `config.toml` adds a menu,
+  replaces one of the same name whole, or removes it with `false`.
+- After a prefix key waits 1.0 s, a panel along the bottom of the frame lists the keys that may
+  follow, as which-key does; `C-h` shows it at once and pages it.
 
 ## Echo area
 
@@ -433,9 +442,9 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 
 ## isearch
 
-- `C-s` and `C-r` search for the literal string as it is typed, with smart case: case matters
-  once the string has an uppercase letter, and `M-c` turns that around for the search
-  ([ADR 0082](adr/0082-isearch.md)).
+- `C-s` and `C-r` search for the literal string as it is typed, or migemo's pattern for romaji
+  (below), with smart case: case matters once the string has an uppercase letter, and `M-c`
+  turns that around for the search ([ADR 0082](adr/0082-isearch.md)).
 - All matches in view are highlighted in a muted amber, and the current match in a strong one.
 - The search string is shown in the echo area, with the count anzu-style: `I-search: foo [3/17]`,
   `[?/…]` while a worker counts, and `[searching…]` while it looks for a far match.
@@ -449,6 +458,14 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   turns a search from literal to a regexp or back. A regexp still being typed says
   `[incomplete input]` and a wrong one `[Invalid regexp: …]`, and the cursor stays at the last
   match. Regexps have their own history ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+- A string of lowercase letters, `'` and `-` is romaji, and migemo searches for it with its kana
+  too: `ka` also finds `か`, `カ`, `ｶ` and `ｋａ`, and an unfinished end every kana it can start,
+  so `kan` finds `かな` and `かん`. The line then starts `[migemo]`. Any other character, an
+  uppercase letter among them, searches literally, and so does a string with a letter that starts
+  no spelling (`struct`). A regexp's search never uses it. `M-m` turns it off or on for the rest
+  of a search, and `[search] migemo = false` starts every search with it off
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)). Kanji wait for the dictionary of the ADR's
+  step 3.
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case
@@ -457,7 +474,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 ## Jumps
 
 - `M-j` (`avy-goto-char-timer`) reads a string on the echo row, `Jump: ka`, and highlights its
-  matches in view as isearch's other matches. `DEL` takes a character away. Half a second after
+  matches in view as isearch's other matches. A romaji string matches by migemo, as isearch's
+  does, unless `[search] migemo = false`. `DEL` takes a character away. Half a second after
   the last key, or at `RET`, each match shows a label; with no string yet, it waits
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit that no label

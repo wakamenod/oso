@@ -1,7 +1,8 @@
 //! isearch on the editor (ADR 0082, ADR 0116): starting a search in the selected window,
 //! literal or a regexp's, its keys, and how it ends. What it holds is in [`state`], where
 //! each key searches from in [`find`], its worker in [`worker`], the cells of its matches in
-//! [`cells`], and `C-y` and `M-y` in [`yank`].
+//! [`cells`], and `C-y` and `M-y` in [`yank`]. Migemo's setting and needles are in
+//! [`migemo`](super::migemo).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -17,6 +18,7 @@
 //! - Nothing here logs the string, and `Debug` prints none of it (ADR 0044).
 
 use std::ops::Range;
+use std::time::Instant;
 
 use super::Editor;
 use crate::kill::KillEntry;
@@ -87,7 +89,7 @@ impl Editor {
             window.buffer(),
             begin,
             buffer.revision(),
-            (backward, regexp),
+            (backward, regexp, self.migemo_starts_on()),
             around_secret,
         );
         self.isearch = Some(search);
@@ -114,8 +116,8 @@ impl Editor {
             state.push_step(cursor);
             state.backward = backward;
             state.add(&last);
-            state.rebuild_query();
-            self.isearch_typed();
+            let started = self.isearch_rebuild();
+            self.isearch_typed(started);
             return;
         }
         // A regexp that does not compile has nothing to repeat.
@@ -133,7 +135,7 @@ impl Editor {
             state.wrapped = true;
         }
         match find {
-            Some(find) => self.isearch_find(find, Asked::Repeat { wrapped: wrap }),
+            Some(find) => self.isearch_find(find, Asked::Repeat { wrapped: wrap }, Instant::now()),
             // An empty match at the start: none before it, as at a failure.
             None => state.failing = true,
         }
@@ -141,9 +143,14 @@ impl Editor {
 
     /// Adds `text` to the string, as typing does, and searches again from the match.
     pub fn isearch_add(&mut self, text: &str) {
+        self.isearch_add_since(text, None);
+    }
+
+    /// [`Editor::isearch_add`], with the key's time to search counted from `started` if given,
+    /// when a key that did more first began, as `M-y` does.
+    fn isearch_add_since(&mut self, text: &str, started: Option<Instant>) {
         self.isearch_follow_text();
         let cursor = self.primary_cursor();
-        let secret = self.shows_secret();
         let Some(state) = &mut self.isearch else {
             return;
         };
@@ -154,18 +161,20 @@ impl Editor {
             return;
         }
         debug_assert!(state.string.len() > len);
-        state.around_secret |= secret;
-        state.rebuild_query();
-        self.isearch_typed();
+        let rebuilt = self.isearch_rebuild();
+        self.isearch_typed(started.unwrap_or(rebuilt));
     }
 
     /// Adds `text` taken from the buffer or a kill, as `C-w` and `C-y` do: as it is to a
     /// literal string, and with its special characters escaped to a regexp, as Emacs's
-    /// `isearch-yank-string` quotes it.
-    fn isearch_add_taken(&mut self, text: &str) {
+    /// `isearch-yank-string` quotes it. `started` is as [`Editor::isearch_add_since`] takes it.
+    fn isearch_add_taken(&mut self, text: &str, started: Option<Instant>) {
         match &self.isearch {
-            Some(state) if state.regexp => self.isearch_add(&search::quote(text, state.room())),
-            _ => self.isearch_add(text),
+            Some(state) if state.regexp => {
+                let quoted = search::quote(text, state.room());
+                self.isearch_add_since(&quoted, started);
+            }
+            _ => self.isearch_add_since(text, started),
         }
     }
 
@@ -190,7 +199,7 @@ impl Editor {
         };
         let end = end.min(from.saturating_add(most));
         let piece: String = buffer.text().slice(from..end).chunks().collect();
-        self.isearch_add_taken(&piece);
+        self.isearch_add_taken(&piece, None);
     }
 
     /// `M-p` (`older`) and `M-n`: the string becomes an older or newer one of the history,
@@ -220,8 +229,8 @@ impl Editor {
         state.history = Some(index);
         state.string.clear();
         state.add(&entry);
-        state.rebuild_query();
-        self.isearch_typed();
+        let started = self.isearch_rebuild();
+        self.isearch_typed(started);
     }
 
     /// `M-c`: turns smart case around for the rest of this search.
@@ -233,8 +242,8 @@ impl Editor {
         };
         state.push_step(cursor);
         state.flipped = !state.flipped;
-        state.rebuild_query();
-        self.isearch_typed();
+        let started = self.isearch_rebuild();
+        self.isearch_typed(started);
     }
 
     /// `M-r`: turns the string from literal to a regexp or back, for the rest of this search,
@@ -248,8 +257,23 @@ impl Editor {
         state.push_step(cursor);
         state.regexp = !state.regexp;
         state.history = None;
-        state.rebuild_query();
-        self.isearch_typed();
+        let started = self.isearch_rebuild();
+        self.isearch_typed(started);
+    }
+
+    /// `M-m`: turns migemo off or on for the rest of this search, and searches again from
+    /// the match (ADR 0116). In a regexp's search it shows once `M-r` makes the string
+    /// literal.
+    pub fn isearch_toggle_migemo(&mut self) {
+        self.isearch_follow_text();
+        let cursor = self.primary_cursor();
+        let Some(state) = &mut self.isearch else {
+            return;
+        };
+        state.push_step(cursor);
+        state.use_migemo = !state.use_migemo;
+        let started = self.isearch_rebuild();
+        self.isearch_typed(started);
     }
 
     /// `DEL`: goes back one step, the string and the place together. Returns false with no
@@ -429,17 +453,23 @@ impl Editor {
         state.backward = step.backward;
         state.flipped = step.flipped;
         state.regexp = step.regexp;
+        state.use_migemo = step.use_migemo;
         state.current = step.current;
         state.failing = step.failing;
         state.too_long = step.too_long;
         state.wrapped = step.wrapped;
         state.searching = None;
         state.tally = step.tally;
-        state.rebuild_query();
+        self.isearch_rebuild();
+        let Some(state) = &self.isearch else {
+            return;
+        };
         // A regexp the worker compiles needs its job, whatever count the step kept.
         let recount = match state.pattern {
             state::Pattern::Compiling => true,
-            state::Pattern::Ready(_) => !matches!(state.tally, Some(Tally::Known { .. })),
+            state::Pattern::Ready(_) | state::Pattern::Migemo(_) => {
+                !matches!(state.tally, Some(Tally::Known { .. }))
+            }
             state::Pattern::Empty | state::Pattern::Bad(_) => false,
         };
         let buffer = self.current().1;
@@ -448,6 +478,18 @@ impl Editor {
         if recount {
             self.isearch_count(None);
         }
+    }
+
+    /// Makes what the string looks for anew, as [`Isearch::rebuild_query`] does, with the
+    /// search marked around a secret first if one shows now, so its needle is not cached.
+    /// Returns when it began, which the key's time to search counts from.
+    pub(super) fn isearch_rebuild(&mut self) -> Instant {
+        let secret = self.shows_secret();
+        let Some(state) = &mut self.isearch else {
+            return Instant::now();
+        };
+        state.around_secret |= secret;
+        state.rebuild_query(&mut self.migemo)
     }
 
     /// The selected window's primary cursor.

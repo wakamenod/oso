@@ -1,6 +1,6 @@
 //! isearch's commands (ADR 0082, ADR 0116): starting a search, literal or a regexp's, the
-//! keys of its keymap, and its exit. Where it goes, its count and its steps back are the
-//! editor's.
+//! keys of its keymap, migemo's among them, and its exit. Where it goes, its count and its
+//! steps back are the editor's.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -16,7 +16,7 @@ use oso_core::editor::Toward;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "isearch-forward",
-        doc: "Search forward as you type.\n\nEach character typed adds to the search string, and the cursor goes to the end of the next match. Case does not matter unless the string has an uppercase letter. `C-s` goes to the next match, round to the start after a failure, `C-r` back, `DEL` back a step, `RET` ends the search there, and `C-g` takes a failing part away, then goes back where the search began. Any other key ends the search and runs. Only the primary cursor moves.",
+        doc: "Search forward as you type.\n\nEach character typed adds to the search string, and the cursor goes to the end of the next match. Case does not matter unless the string has an uppercase letter. A string of romaji also matches its hiragana and katakana (migemo) unless `[search] migemo = false`, and `M-m` turns that for this search. `C-s` goes to the next match, round to the start after a failure, `C-r` back, `DEL` back a step, `RET` ends the search there, and `C-g` takes a failing part away, then goes back where the search began. Any other key ends the search and runs. Only the primary cursor moves.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_forward,
@@ -132,6 +132,13 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_toggle_regexp,
+    },
+    Command {
+        name: "isearch-toggle-migemo",
+        doc: "Turn migemo off or on for the rest of this search.\n\nWith migemo, a string of lowercase letters, `'` and `-` also finds the kana it spells, in hiragana, katakana and half-width katakana, and its full-width letters: `ka` finds `か` and `カ`. A regexp's search never uses it. `[search] migemo` in the configuration file says how each search starts.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_toggle_migemo,
     },
     Command {
         name: "isearch-mark-next",
@@ -263,6 +270,10 @@ fn isearch_toggle_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError>
     searching(ctx, |ctx| ctx.editor.isearch_toggle_regexp())
 }
 
+fn isearch_toggle_migemo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    searching(ctx, |ctx| ctx.editor.isearch_toggle_migemo())
+}
+
 fn isearch_mark_next(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     mark(ctx, Some(Toward::Next))
 }
@@ -336,6 +347,7 @@ mod tests {
             "isearch-exit",
             "isearch-delete-char",
             "isearch-toggle-regexp",
+            "isearch-toggle-migemo",
         ] {
             assert!(
                 run(&mut editor, name, "")
