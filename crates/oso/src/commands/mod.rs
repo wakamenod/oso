@@ -8,7 +8,7 @@
 //! host-owned state and does not know its keys.
 
 mod agent;
-mod agent_sessions;
+pub(crate) mod agent_sessions;
 mod aids;
 mod buffers;
 mod complete;

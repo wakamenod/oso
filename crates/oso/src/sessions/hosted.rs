@@ -188,6 +188,11 @@ impl Table {
         }
     }
 
+    /// Every session, in the order they came.
+    pub fn iter(&self) -> impl Iterator<Item = &Hosted> {
+        self.sessions.iter()
+    }
+
     pub fn get(&self, key: SessionKey) -> Option<&Hosted> {
         self.sessions.iter().find(|session| session.key == key)
     }

@@ -11,14 +11,6 @@
 //!
 //! Nothing waits while nothing is due: [`Attention::due`] is `None` then, and no timer runs.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the app drives it once sessions are fed (ADR 0121 step 3)"
-    )
-)]
-
 use std::time::{Duration, Instant};
 
 use oso_platform::notify::Kind;
@@ -118,6 +110,7 @@ struct Blink {
 }
 
 impl Attention {
+    #[cfg(test)]
     pub fn new(toggles: Toggles) -> Self {
         Self {
             toggles,

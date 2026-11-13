@@ -12,6 +12,7 @@
 //! screens wait in a slot of their own, one a session, so a busy worker never queues more
 //! than one screen of each.
 
+pub mod externals;
 mod jobs;
 
 use std::collections::HashMap;
@@ -69,22 +70,10 @@ pub enum Job {
     )]
     Exited(SessionKey, Exit),
     /// The person has seen a session.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the 2 s seen timer sends it (ADR 0121 step 3)")
-    )]
     Seen(SessionKey),
     /// What `git diff` found after a session's turn ended.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the `git diff` call sends it (ADR 0121 step 3)")
-    )]
     Changes(SessionKey, bool),
     /// A review of a session was opened.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "opening a review sends it (ADR 0121 step 3)")
-    )]
     ReviewOpened(SessionKey),
     /// A session is gone from oso.
     #[cfg_attr(
@@ -94,6 +83,10 @@ pub enum Job {
     Forget(SessionKey),
     /// Explain the saved screen in this file.
     ExplainFile(PathBuf),
+    /// Explain the last look at a hosted session's screen (`session-explain`).
+    Explain(SessionKey),
+    /// Look at Claude Code's registry once a second for other programs' sessions, or stop.
+    Externals(bool),
     /// Read the sessions an earlier oso remembered in this state directory (ADR 0121).
     Recall(PathBuf),
     /// Remember these sessions in this state directory, keeping those of another instance:
@@ -110,6 +103,8 @@ pub enum Job {
 pub enum Out {
     /// A session's state changed.
     Changed(SessionKey, Change),
+    /// The live sessions of Claude Code's registry changed: all of them, the app's own too.
+    Externals(Vec<externals::External>),
     /// A session's recap changed (ADR 0121, step 3): cleaned and cut, the screen's text.
     Recap(SessionKey, String),
     /// The explanation of a saved screen, for `*Session explain*`.

@@ -106,6 +106,11 @@ pub fn read(dir: &Path) -> Vec<Entry> {
         .collect()
 }
 
+/// Whether a file called `name` is one [`read`] opens: `<digits>.json`.
+pub fn is_entry_name(name: &std::ffi::OsStr) -> bool {
+    pid_of(name).is_some()
+}
+
 /// The process id a file called `name` is for, if it is `<digits>.json`.
 fn pid_of(name: &std::ffi::OsStr) -> Option<u32> {
     let digits = name.to_str()?.strip_suffix(".json")?;

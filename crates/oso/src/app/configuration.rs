@@ -225,6 +225,9 @@ impl App {
         let jump = &configuration.in_force.jump;
         self.editor.set_jump_keys(jump.keys.clone());
         self.jump_timer.set_timeout(jump.timeout);
+        // `[sessions.notify]` applies from the next change of a session's state.
+        self.watch
+            .set_toggles(configuration.in_force.sessions.notify);
         if let Some(on) = changes.electric_indent {
             self.editor.set_electric_indent(on);
         }

@@ -178,6 +178,9 @@ impl App {
             return self.editor.message(RESTRICTED);
         };
         self.editor.set_last_scope(project, kind);
+        if kind == ScopeKind::Session {
+            self.session_review_opened(root.path());
+        }
         let window = self.editor.tiled().0.id();
         let open =
             self.reviews.open.iter().position(|running| {

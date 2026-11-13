@@ -22,7 +22,7 @@ use crate::sessions::worker::{Job, SessionKey};
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
 pub(in crate::app) struct Hosting {
-    table: Table,
+    pub(in crate::app) table: Table,
     /// oso's own state directory, where the record is kept.
     directory: Option<PathBuf>,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
@@ -34,6 +34,11 @@ impl Hosting {
     /// The hosted sessions.
     pub(in crate::app) fn table(&self) -> &Table {
         &self.table
+    }
+
+    /// oso's own state directory, where reviews make their index copies.
+    pub(in crate::app) fn state_directory(&self) -> Option<PathBuf> {
+        self.directory.clone()
     }
 
     /// Sessions remembered in `directory`, oso's state directory.
@@ -77,7 +82,7 @@ impl App {
     }
 
     /// Hands the sessions to the worker to remember, keeping another instance's.
-    fn remember_sessions(&self) {
+    pub(in crate::app) fn remember_sessions(&self) {
         if let (Some(worker), Some(directory)) = (&self.sessions, &self.hosting.directory) {
             worker.send(Job::Remember {
                 directory: directory.clone(),

@@ -316,6 +316,8 @@ impl App {
         if self.take_terminal_snapshots() {
             self.request_redraw();
         }
+        // Sessions' ages move on with a frame drawn anyway (ADR 0121, Q4).
+        self.age_sessions();
         // A load, a reload or a key may have given the line count another digit (ADR 0097).
         self.editor.fit_gutter();
         let Some(view) = self.view.as_mut() else {

@@ -9,14 +9,6 @@
 //! Names, spaces, branches and recaps are untrusted text: each is cut to the room it has, and
 //! counted in cells as oso draws it, so that no line runs past the width.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the app renders it once sessions are fed (ADR 0121 step 3)"
-    )
-)]
-
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::time::Instant;

@@ -56,18 +56,14 @@ impl App {
                     self.fork_session(buffer);
                     continue;
                 }
-                // The list, spaces and live explain are carried out once sessions are fed
-                // (ADR 0121 step 3).
-                SessionRequest::ShowList
-                | SessionRequest::Switch(_)
-                | SessionRequest::NextWaiting
-                | SessionRequest::NextDone
-                | SessionRequest::Space(_)
-                | SessionRequest::Zoom
-                | SessionRequest::Explain(_)
-                | SessionRequest::Row { .. }
-                | SessionRequest::Regroup
-                | SessionRequest::Refresh => continue,
+                // The list, spaces and live explain (ADR 0121 step 3).
+                request => match self.session_request(request) {
+                    Some(other) => {
+                        log::debug!("a session request not carried out: {other:?}");
+                        continue;
+                    }
+                    None => continue,
+                },
             };
             match &self.sessions {
                 Some(worker) => worker.send(job),
@@ -76,6 +72,9 @@ impl App {
                     .message("Sessions are not available: see the log"),
             }
         }
+        self.drop_unasked_stop();
+        self.sync_seen();
+        self.refresh_sessions();
     }
 
     /// The configuration's thread read the agent rules file: what it says goes to
@@ -107,12 +106,17 @@ impl App {
                  until the rules reload. See agent-rules/claude.toml",
                 crate::sessions::worker::DROP_AFTER
             )),
-            Out::Recalled(remembered) => self.sessions_recalled(remembered),
+            Out::Recalled(remembered) => {
+                self.sessions_recalled(remembered);
+                self.sessions_touched();
+            }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
+                self.session_changed(key, change);
             }
             // Its text is the screen's: never logged.
-            Out::Recap(..) => {}
+            Out::Recap(key, recap) => self.session_recapped(key, recap),
+            Out::Externals(live) => self.externals_found(live),
         }
     }
 
