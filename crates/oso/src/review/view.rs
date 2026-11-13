@@ -16,7 +16,8 @@
 //!   with the text before so the UI swaps in only the span that changed. When no section, line
 //!   under the title or listing changed, nothing is laid out: the text is `None`, with the last
 //!   rows and highlights, which cost O(1) to share.
-//! - The text is at most [`MAX_TEXT`]; files past it show their header and a note.
+//! - The text is cut near [`MAX_TEXT`]: the limit is looked at before each section, so the one
+//!   that passes it is whole, and the files after it show their header and a note.
 //! - Comments are carried here when a file has none to place, which costs hashing alone; a file
 //!   with comments is carried on the review's own thread, which reads old sides.
 //! - Nothing here logs a file's text.
@@ -43,8 +44,13 @@ pub(crate) const MAX_TEXT: usize = 64 * 1024 * 1024;
 
 /// What the view thread is told.
 pub(crate) enum Tell {
-    /// The files the review lists now, in order, and how many more it left out.
-    Listed { entries: Arc<[Entry]>, more: usize },
+    /// The files the review lists now, in order, how many more it left out, and whether git's
+    /// listing was cut short, so that more files may be left out unnamed.
+    Listed {
+        entries: Arc<[Entry]>,
+        more: usize,
+        cut: bool,
+    },
     /// A file's new reading, and its comments to carry to it, if it is text.
     File {
         reading: Arc<Reading>,
@@ -135,6 +141,8 @@ struct State {
     order: Vec<Box<[u8]>>,
     files: HashMap<Box<[u8]>, File>,
     more: usize,
+    /// Whether the listing was cut short.
+    cut: bool,
     reading: bool,
     carried: Vec<(Arc<Reading>, Carried)>,
     text: Rope,
@@ -155,6 +163,7 @@ impl State {
             order: Vec::new(),
             files: HashMap::new(),
             more: 0,
+            cut: false,
             reading: false,
             carried: Vec::new(),
             text: Rope::new(),
@@ -166,8 +175,9 @@ impl State {
 
     fn take(&mut self, told: Tell) {
         match told {
-            Tell::Listed { entries, more } => {
+            Tell::Listed { entries, more, cut } => {
                 let same = self.more == more
+                    && self.cut == cut
                     && self.order.len() == entries.len()
                     && self
                         .order
@@ -176,6 +186,7 @@ impl State {
                         .all(|(a, b)| *a == b.path);
                 self.dirty |= !same;
                 self.more = more;
+                self.cut = cut;
                 self.reading = true;
                 let mut files = std::mem::take(&mut self.files);
                 self.order = entries.iter().map(|entry| entry.path.clone()).collect();
@@ -257,6 +268,9 @@ impl State {
         let mut said = self.said.clone();
         if self.more > 0 {
             said.push(format!("{} more files are not listed", self.more));
+        }
+        if self.cut {
+            said.push("more files may not be listed: git's listing was cut short".to_owned());
         }
         sections.push(Arc::new(section::title(&self.title, &said)));
         let mut size = sections[0].bytes.len();

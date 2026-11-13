@@ -506,3 +506,47 @@ fn a_root_with_no_repository_says_so() {
     assert!(matches!(answers.other[..], [Report::Failed { .. }]));
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn the_branch_base_is_not_the_branchs_own_upstream() {
+    let repo = Repo::new("branch-base");
+    repo.write("a.txt", b"a\n");
+    repo.commit("root");
+    repo.git(&["checkout", "-q", "-b", "feature"]);
+    // The branch tracks itself on a remote, as a pushed branch does.
+    for name in ["feature", "trunk"] {
+        repo.git(&["update-ref", &format!("refs/remotes/origin/{name}"), "HEAD"]);
+    }
+    repo.git(&["config", "remote.origin.url", "/nowhere"]);
+    repo.git(&[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    repo.git(&["config", "branch.feature.remote", "origin"]);
+    repo.git(&["config", "branch.feature.merge", "refs/heads/feature"]);
+    let mut reader = repo.reader();
+    // No origin/HEAD: main, which the repository was made on.
+    assert_eq!(reader.branch_base().unwrap().as_deref(), Some("main"));
+    repo.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/trunk",
+    ]);
+    assert_eq!(
+        reader.branch_base().unwrap().as_deref(),
+        Some("origin/trunk")
+    );
+    // An upstream of another name is the base.
+    repo.git(&["config", "branch.feature.merge", "refs/heads/trunk"]);
+    assert_eq!(
+        reader.branch_base().unwrap().as_deref(),
+        Some("origin/trunk")
+    );
+    repo.git(&["update-ref", "refs/remotes/origin/release", "HEAD"]);
+    repo.git(&["config", "branch.feature.merge", "refs/heads/release"]);
+    assert_eq!(
+        reader.branch_base().unwrap().as_deref(),
+        Some("origin/release")
+    );
+}

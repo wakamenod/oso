@@ -2208,8 +2208,6 @@ pub fn oso_core::editor::ReviewId::hash<__H: core::hash::Hasher>(&self, &mut __H
 impl core::marker::Copy for oso_core::editor::ReviewId
 impl core::marker::StructuralPartialEq for oso_core::editor::ReviewId
 pub struct oso_core::editor::ReviewLeftover
-impl core::default::Default for oso_core::editor::ReviewLeftover
-pub fn oso_core::editor::ReviewLeftover::default() -> oso_core::editor::ReviewLeftover
 impl core::fmt::Debug for oso_core::editor::ReviewLeftover
 pub fn oso_core::editor::ReviewLeftover::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::SaveJob
@@ -4171,7 +4169,6 @@ impl<'a> core::marker::StructuralPartialEq for oso_core::review::Row<'a>
 pub struct oso_core::review::Rows
 impl oso_core::review::Rows
 pub fn oso_core::review::Rows::at(&self, usize) -> core::option::Option<oso_core::review::Row<'_>>
-pub fn oso_core::review::Rows::find(&self, &[u8], oso_core::review::RowKind) -> core::option::Option<usize>
 pub fn oso_core::review::Rows::lines(&self) -> usize
 pub fn oso_core::review::Rows::new(alloc::vec::Vec<alloc::sync::Arc<oso_core::review::Section>>) -> oso_core::review::Rows
 pub fn oso_core::review::Rows::refined(&self, usize) -> &[core::ops::range::Range<u32>]

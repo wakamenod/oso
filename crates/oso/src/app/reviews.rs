@@ -18,12 +18,12 @@ use oso_core::project::ProjectId;
 
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
-use crate::review::count::{Counted, Counter};
+use crate::review::count::Counted;
 use crate::review::view::{Tell, Text, View};
 use crate::review::{Content, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
+pub(in crate::app) use state::Reviews;
+use state::{Baseliner, Reopen, Running};
 
-/// What the review's note says once its project is no longer trusted.
-const UNTRUSTED: &str = "the project is no longer trusted: M-x trust-project, then g";
 /// The most characters of a failure the echo area shows.
 const MAX_MESSAGE: usize = 200;
 
@@ -35,8 +35,12 @@ pub(crate) enum ReviewEvent {
         serial: u64,
         report: Report,
     },
-    /// A thread taking a baseline of `project` reported.
-    Baseline { project: ProjectId, report: Report },
+    /// The `serial`th thread taking a baseline of `project` reported.
+    Baseline {
+        project: ProjectId,
+        serial: u64,
+        report: Report,
+    },
     /// A review's view thread built a text.
     Text { review: ReviewId, text: Box<Text> },
     /// The menu's counting threads counted.
@@ -62,41 +66,6 @@ impl fmt::Debug for ReviewEvent {
             Self::Counted(counted) => f.debug_tuple("Counted").field(counted).finish(),
         }
     }
-}
-
-/// An open review's threads, and the text its view built that waits to go in: one at most, as
-/// the view builds the next only once this one went in.
-struct Running {
-    id: ReviewId,
-    project: ProjectId,
-    scope: Scope,
-    root: TrustedRoot,
-    /// Which start of the review's thread this is: reports of an earlier one are dropped.
-    serial: u64,
-    reviewer: Option<Reviewer>,
-    view: View,
-    texts: VecDeque<Box<Text>>,
-    /// Whether the root was revoked as its project stopped being trusted.
-    revoked: bool,
-}
-
-/// The app's reviews.
-#[derive(Default)]
-pub(in crate::app) struct Reviews {
-    open: Vec<Running>,
-    /// Each project's session baseline, as its thread took it.
-    baselines: Vec<(ProjectId, Id)>,
-    /// The threads taking a baseline, one per project at most, with the root each runs in.
-    baseliners: Vec<(ProjectId, TrustedRoot, Reviewer)>,
-    /// The menu's counting threads, once the menu opened.
-    counter: Option<Counter>,
-    /// The project the menu's counts were last started for, and the root they run in.
-    counted: Option<(ProjectId, TrustedRoot)>,
-    /// Whether the review menu was open when last looked at.
-    menu_open: bool,
-    next_serial: u64,
-    /// Room for the paths of the files a review's windows show.
-    shown: Vec<Box<[u8]>>,
 }
 
 /// oso's own directory in the per-user state directory, where reviews keep their index
@@ -168,10 +137,12 @@ impl App {
     /// holds them.
     pub(super) fn sync_reviews(&mut self) {
         self.revoke_untrusted_reviews();
+        // Before the requests, so that a head that closed the menu, as `b` does, stops the
+        // menu's counts before a request starts its own.
+        self.sync_review_menu();
         for request in self.editor.take_review_requests() {
             self.review_request(request);
         }
-        self.sync_review_menu();
         self.put_in_review_texts();
     }
 
@@ -194,6 +165,10 @@ impl App {
 
     /// Opens a review of `scope` in `project`, or shows the one open and reads it again.
     fn open_review(&mut self, project: ProjectId, kind: ScopeKind, revision: Option<String>) {
+        if kind == ScopeKind::Branch && revision.is_none() {
+            // The base is not known yet: it is found first, and the review opens with it.
+            return self.find_branch_base(project);
+        }
         let baseline = self.reviews.baseline(project);
         let scope = match scope_of(kind, revision, baseline) {
             Ok(scope) => scope,
@@ -213,12 +188,14 @@ impl App {
             if let Some(buffer) = self.editor.review_buffer(id) {
                 self.editor.show_in(window, buffer);
             }
-            if self.reviews.open[index].scope == scope {
-                self.refresh_review(id);
-            } else {
-                // A new baseline: the session review compares with it from now on.
-                self.reviews.open[index].scope = scope.clone();
-                self.ask_review(index, Request::Open(scope));
+            let running = &mut self.reviews.open[index];
+            let reopen = running.reopen(&scope);
+            // A new baseline: the session review compares with it from now on.
+            running.scope = scope.clone();
+            match reopen {
+                // A revoked review starts over with the scope, as `g` would.
+                Reopen::Refresh | Reopen::Restart => self.refresh_review(id),
+                Reopen::Open => self.ask_review(index, Request::Open(scope)),
             }
             self.request_redraw();
             return;
@@ -268,8 +245,7 @@ impl App {
 
     /// Starts the review's own thread over its root, dropping the one before.
     fn start_reviewer(&mut self, index: usize) {
-        self.reviews.next_serial += 1;
-        let serial = self.reviews.next_serial;
+        let serial = self.reviews.serial();
         let running = &mut self.reviews.open[index];
         running.serial = serial;
         running.reviewer = None;
@@ -333,8 +309,7 @@ impl App {
 
     /// Stops a closed review's threads, and frees the texts it left waiting.
     fn close_review(&mut self, id: ReviewId) {
-        if let Some(index) = self.reviews.index(id) {
-            let running = self.reviews.open.remove(index);
+        if let Some(running) = self.reviews.close(id) {
             self.freer.free(running.texts);
         }
     }
@@ -345,14 +320,23 @@ impl App {
             return self.editor.message(RESTRICTED);
         };
         let waker = self.waker.clone();
+        let serial = self.reviews.serial();
         let started = Reviewer::start(root.clone(), state(), move |report| {
-            waker.send(UserEvent::Review(ReviewEvent::Baseline { project, report }))
+            waker.send(UserEvent::Review(ReviewEvent::Baseline {
+                project,
+                serial,
+                report,
+            }))
         });
         match started {
             Ok(reviewer) => {
                 reviewer.ask(Request::Baseline);
-                self.reviews.baseliners.retain(|(id, ..)| *id != project);
-                self.reviews.baseliners.push((project, root, reviewer));
+                self.reviews.add_baseliner(Baseliner {
+                    project,
+                    serial,
+                    root,
+                    _reviewer: reviewer,
+                });
             }
             Err(e) => self.editor.message(format!("Cannot take a baseline: {e}")),
         }
@@ -366,7 +350,11 @@ impl App {
                 serial,
                 report,
             } => self.review_report(review, serial, report),
-            ReviewEvent::Baseline { project, report } => self.baseline_report(project, report),
+            ReviewEvent::Baseline {
+                project,
+                serial,
+                report,
+            } => self.baseline_report(project, serial, report),
             ReviewEvent::Text { review, text } => match self.reviews.index(review) {
                 Some(index) => {
                     self.reviews.open[index].texts.push_back(text);
@@ -379,14 +367,13 @@ impl App {
     }
 
     fn review_report(&mut self, review: ReviewId, serial: u64, report: Report) {
-        let Some(index) = self.reviews.index(review) else {
+        let Some(index) = self.reviews.current(review, serial) else {
             return self.freer.free(report);
         };
-        if self.reviews.open[index].serial != serial {
-            return self.freer.free(report);
-        }
         let tell = match report {
-            Report::Listed { entries, more, .. } => Tell::Listed { entries, more },
+            Report::Listed {
+                entries, more, cut, ..
+            } => Tell::Listed { entries, more, cut },
             Report::File { reading, .. } => {
                 let carry = self.carry_for(review, &reading);
                 Tell::File { reading, carry }
@@ -411,10 +398,10 @@ impl App {
         self.reviews.open[index].view.tell(tell);
     }
 
-    fn baseline_report(&mut self, project: ProjectId, report: Report) {
-        self.reviews.baseliners.retain(|(id, ..)| *id != project);
-        // A baseline taken as the trust was taken back is not used.
-        if !self.editor.project_trusted(project) {
+    fn baseline_report(&mut self, project: ProjectId, serial: u64, report: Report) {
+        // A report of a thread replaced or dropped since, or taken as the trust was taken
+        // back, is not used.
+        if !self.reviews.take_baseliner(project, serial) || !self.editor.project_trusted(project) {
             return self.freer.free(report);
         }
         match report {
@@ -422,6 +409,7 @@ impl App {
                 self.reviews.baselines.retain(|(id, _)| *id != project);
                 self.reviews.baselines.push((project, tree));
                 self.editor.set_baseline_taken(project, Some(now()));
+                self.count_session(project);
                 self.editor.message(if left_out == 0 {
                     "Baseline taken: D reviews what changed since".to_owned()
                 } else {
@@ -528,51 +516,16 @@ impl App {
         });
     }
 
-    /// Revokes the root of every review, baseline and count whose project is no longer
-    /// trusted: a review's once, saying so; a baseline's thread is dropped, and the counts are
-    /// stopped.
+    /// Revokes the roots of the reviews, baselines and counts of projects no longer trusted.
     fn revoke_untrusted_reviews(&mut self) {
         let editor = &self.editor;
-        for running in &mut self.reviews.open {
-            if running.revoked || editor.project_trusted(running.project) {
-                continue;
-            }
-            running.root.revoke();
-            running.revoked = true;
-            running.view.tell(Tell::Said(vec![UNTRUSTED.to_owned()]));
-        }
-        self.reviews.baseliners.retain(|(project, root, _)| {
-            let trusted = editor.project_trusted(*project);
-            if !trusted {
-                root.revoke();
-            }
-            trusted
-        });
-        if let Some((project, root)) = &self.reviews.counted
-            && !editor.project_trusted(*project)
-        {
-            root.revoke();
-            if let Some(counter) = &self.reviews.counter {
-                counter.stop();
-            }
-            self.reviews.counted = None;
-        }
-    }
-}
-
-impl Reviews {
-    fn index(&self, id: ReviewId) -> Option<usize> {
-        self.open.iter().position(|running| running.id == id)
-    }
-
-    fn baseline(&self, project: ProjectId) -> Option<Id> {
-        self.baselines
-            .iter()
-            .find_map(|(id, tree)| (*id == project).then(|| tree.clone()))
+        self.reviews
+            .revoke_untrusted(|project| editor.project_trusted(project));
     }
 }
 
 mod menu;
+mod state;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;

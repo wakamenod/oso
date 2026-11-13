@@ -231,5 +231,12 @@ fn the_menu_keeps_only_its_latest_openings_counts() {
     let menu = editor.scope_menu(project).unwrap();
     assert_eq!(menu.base(), Some("origin/main"));
     assert_eq!(menu.last(), Some(ScopeKind::Branch));
+    // A new opening forgets the base, as the branch may have changed since.
+    let third = editor.start_scope_counts(project, &[ScopeKind::Branch]);
+    let menu = editor.scope_menu(project).unwrap();
+    assert_eq!(menu.base(), None);
+    assert_eq!(menu.last(), Some(ScopeKind::Branch));
+    assert_eq!(menu.generation(), third);
+    let menu = editor.scope_menu(project).unwrap();
     assert_eq!(menu.baseline_taken(), Some(60));
 }

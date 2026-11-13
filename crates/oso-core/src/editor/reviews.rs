@@ -76,7 +76,8 @@ impl ScopeKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReviewRequest {
     /// Open a review of `scope` in `project`; `revision` is a commit's, a range's `FROM..TO`
-    /// or the branch's base, as the person gave it.
+    /// or the branch's base, as the person gave it or the menu found it. A branch with none
+    /// has its base found first.
     Open {
         project: ProjectId,
         scope: ScopeKind,
@@ -136,7 +137,6 @@ impl Reviews {
 /// What putting in a review's text or paint left over: the rows, highlights and text it
 /// replaced or did not take. They may be large, so the host frees them off the UI thread.
 #[must_use = "free it off the UI thread"]
-#[derive(Default)]
 pub struct ReviewLeftover {
     rows: Option<Rows>,
     highlights: Option<Highlights>,
@@ -144,6 +144,15 @@ pub struct ReviewLeftover {
 }
 
 impl ReviewLeftover {
+    /// Nothing left over yet.
+    fn none() -> ReviewLeftover {
+        ReviewLeftover {
+            rows: None,
+            highlights: None,
+            text: None,
+        }
+    }
+
     fn of(rows: Rows, highlights: Highlights, text: Option<Reloaded>) -> ReviewLeftover {
         ReviewLeftover {
             rows: Some(rows),
@@ -285,7 +294,7 @@ impl Editor {
             {
                 let mut left = ReviewLeftover {
                     text: Some(Box::new(Reloaded { snapshot, change })),
-                    ..ReviewLeftover::default()
+                    ..ReviewLeftover::none()
                 };
                 left.highlights = self.put_review_highlights(buffer_id, highlights);
                 left.rows = self.put_review_rows(id, rows);
@@ -307,7 +316,7 @@ impl Editor {
             scroll.start = display.display_point_to_offset(point, Bias::Left);
         }
         // Nothing past this point can panic part way.
-        let mut left = ReviewLeftover::default();
+        let mut left = ReviewLeftover::none();
         if let Some(buffer) = self.buffer_mut(buffer_id) {
             // Taken first, as the reload would drop them here.
             let old_highlights = buffer.take_generated_highlights();

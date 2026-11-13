@@ -88,7 +88,8 @@ pub(crate) enum ScopeError {
     NoScratch,
     /// The copy could not be made.
     Copy(std::io::Error),
-    /// The request was stopped between two runs of git, as its root was revoked.
+    /// The request was stopped between two runs of git, as its root was revoked or a newer
+    /// request came.
     Stopped,
 }
 
@@ -131,8 +132,21 @@ fn parent_or_empty(git: &Git, id: &Id) -> Result<Id, ScopeError> {
     Ok(git.empty_tree()?)
 }
 
-/// Resolves `scope` to the ids it compares.
-pub(crate) fn resolve(git: &Git, scope: &Scope) -> Result<Sides, ScopeError> {
+/// `Err(Stopped)` once `stop` says so, between two runs of git.
+fn go_on(stop: &dyn Fn() -> bool) -> Result<(), ScopeError> {
+    if stop() {
+        return Err(ScopeError::Stopped);
+    }
+    Ok(())
+}
+
+/// Resolves `scope` to the ids it compares, running git no more once `stop` says so.
+pub(crate) fn resolve(
+    git: &Git,
+    scope: &Scope,
+    stop: &dyn Fn() -> bool,
+) -> Result<Sides, ScopeError> {
+    go_on(stop)?;
     let work_tree = New::WorkTree { untracked: true };
     Ok(match scope {
         Scope::Session { baseline } => Sides {
@@ -156,7 +170,9 @@ pub(crate) fn resolve(git: &Git, scope: &Scope) -> Result<Sides, ScopeError> {
         },
         Scope::Branch { base } => {
             let base = commit(git, base)?;
+            go_on(stop)?;
             let head = commit(git, "HEAD")?;
+            go_on(stop)?;
             let args = [OsStr::new("merge-base"), base.as_os_str(), head.as_os_str()];
             let out = git.run(&args, &[], MAX_SHORT)?;
             let fork =
@@ -168,6 +184,7 @@ pub(crate) fn resolve(git: &Git, scope: &Scope) -> Result<Sides, ScopeError> {
         }
         Scope::Commit { revision } => {
             let id = commit(git, revision)?;
+            go_on(stop)?;
             Sides {
                 old: Some(parent_or_empty(git, &id)?),
                 new: New::Tree(id),
@@ -175,7 +192,9 @@ pub(crate) fn resolve(git: &Git, scope: &Scope) -> Result<Sides, ScopeError> {
         }
         Scope::Range { from, to } => {
             let from = commit(git, from)?;
+            go_on(stop)?;
             let to = commit(git, to)?;
+            go_on(stop)?;
             Sides {
                 old: Some(parent_or_empty(git, &from)?),
                 new: New::Tree(to),
@@ -185,12 +204,13 @@ pub(crate) fn resolve(git: &Git, scope: &Scope) -> Result<Sides, ScopeError> {
 }
 
 /// The files `sides` differ in. `index` is the repository's index, copied into `scratch` when
-/// untracked files are listed.
+/// untracked files are listed. It runs git no more once `stop` says so.
 pub(crate) fn list(
     git: &Git,
     sides: &Sides,
     index: &Path,
     scratch: Option<&mut Scratch>,
+    stop: &dyn Fn() -> bool,
 ) -> Result<Listing, ScopeError> {
     let mut args: Vec<&OsStr> = [
         "diff",
@@ -219,6 +239,7 @@ pub(crate) fn list(
             let copy = scratch.copy(index).map_err(ScopeError::Copy)?;
             let path = for_git(copy.path());
             let set = [("GIT_INDEX_FILE", path.as_os_str())];
+            go_on(stop)?;
             let added = add(git, &["add", "-A", "-N"], &set)?;
             if added.cut {
                 return Err(GitError::TooLong.into());
@@ -238,6 +259,7 @@ pub(crate) fn list(
         .iter()
         .map(|(_, path)| ("GIT_INDEX_FILE", path.as_os_str()))
         .collect();
+    go_on(stop)?;
     let output = git.output(&args, &set, MAX_LIST_BYTES)?;
     if !output.cut && !output.status.success() {
         return Err(GitError::Failed {
@@ -266,9 +288,7 @@ pub(crate) fn baseline(
         // The count below reads git's own words.
         ("LC_ALL", OsStr::new("C")),
     ];
-    if stop() {
-        return Err(ScopeError::Stopped);
-    }
+    go_on(stop)?;
     let added = add(git, &["add", "-A", "--ignore-errors"], &set)?;
     let left_out = added
         .stderr
@@ -285,9 +305,7 @@ pub(crate) fn baseline(
         }
         .into());
     }
-    if stop() {
-        return Err(ScopeError::Stopped);
-    }
+    go_on(stop)?;
     let out = git.run(&[OsStr::new("write-tree")], &set, MAX_SHORT)?;
     let tree = Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not a tree id"))?;
     Ok((tree, left_out))

@@ -183,9 +183,15 @@ fn opening_asks_the_host_only_in_a_trusted_project() {
         run(&mut editor, "review-session", Args::NONE).0,
         Err("No baseline: B takes one".into())
     );
+    // With no base known, the host is asked to find it first.
+    assert_eq!(run(&mut editor, "review-branch", Args::NONE).0, Ok(()));
     assert_eq!(
-        run(&mut editor, "review-branch", Args::NONE).0,
-        Err("The branch's base is not known yet: C-u b names it".into())
+        editor.take_review_requests(),
+        [ReviewRequest::Open {
+            project: project_trusted,
+            scope: ScopeKind::Branch,
+            revision: None
+        }]
     );
     assert_eq!(
         run(&mut editor, "review-mark-baseline", Args::NONE).0,

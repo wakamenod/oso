@@ -81,12 +81,14 @@ impl Editor {
         Some(menu)
     }
 
-    /// Starts a new opening of the review menu for `project`: every count is forgotten, and
-    /// those of `scopes` are running. Returns the opening's generation, which the counts that
-    /// come back name; counts of an earlier one are dropped.
+    /// Starts a new opening of the review menu for `project`: every count and the branch's
+    /// base are forgotten, as the branch may have changed, and the counts of `scopes` are
+    /// running. Returns the opening's generation, which the counts that come back name; counts
+    /// of an earlier one are dropped.
     pub fn start_scope_counts(&mut self, project: ProjectId, scopes: &[ScopeKind]) -> u64 {
         let menu = self.reviews.menu_mut(project);
         menu.generation += 1;
+        menu.base = None;
         menu.counts = [None; ScopeKind::COUNT];
         for scope in scopes {
             menu.counts[scope.index()] = Some(Count::Running);

@@ -97,7 +97,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     Command {
         name: "review-branch",
-        doc: "Review the current buffer's project's branch against its base, untracked files included.\n\nThe base is the branch's upstream, else the branch `origin/HEAD` names, else `main` or `master`, as the review menu found it when it opened. With `C-u`, it asks for the base. The old side is where the branch left the base (`git merge-base`).",
+        doc: "Review the current buffer's project's branch against its base, untracked files included.\n\nThe base is the branch's upstream, unless that is the same branch on a remote, else the branch `origin/HEAD` names, else `main` or `master`: as the review menu found it when it opened, or found first. With `C-u`, it asks for the base. The old side is where the branch left the base (`git merge-base`).",
         args: ArgSpec::TextOnPrefix {
             prompt: "Branch base: ",
             history: "review-base",
@@ -254,18 +254,15 @@ fn review_staged(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn review_branch(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let typed = ctx.answer().map(str::trim).filter(|base| !base.is_empty());
     let base = match typed {
-        Some(base) => base.to_owned(),
+        Some(base) => Some(base.to_owned()),
+        // The base the menu found, or none, which the host finds first.
         None => {
             let project = project(ctx)?;
             let found = ctx.editor.scope_menu(project).and_then(|menu| menu.base());
-            found
-                .ok_or_else(|| {
-                    CommandError::new("The branch's base is not known yet: C-u b names it")
-                })?
-                .to_owned()
+            found.map(str::to_owned)
         }
     };
-    open(ctx, ScopeKind::Branch, Some(base))
+    open(ctx, ScopeKind::Branch, base)
 }
 
 fn review_commit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -310,6 +307,7 @@ fn current_review(ctx: &Ctx<'_>) -> Result<ReviewId, CommandError> {
 /// far as each goes, failing with `edge` if one stopped short.
 fn seek(ctx: &mut Ctx<'_>, to: Seek, count: isize, edge: &str) -> Result<(), CommandError> {
     let review = current_review(ctx)?;
+    // A clone of the rows is O(1): they are shared.
     let Some(rows) = ctx.editor.review_rows(review).cloned() else {
         return Err(CommandError::new("Not in a review"));
     };

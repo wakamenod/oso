@@ -79,7 +79,11 @@ fn a_review_shows_headers_hunks_and_lines_with_their_bands_and_moves_between_the
     ]
     .into();
     let told = vec![
-        Tell::Listed { entries, more: 0 },
+        Tell::Listed {
+            entries,
+            more: 0,
+            cut: false,
+        },
         reading(
             b"src/a.rs",
             Status::Modified,
@@ -104,6 +108,7 @@ fn every_note_a_file_can_have_is_one_line_under_its_header() {
         Tell::Listed {
             entries: Vec::new().into(),
             more: 2,
+            cut: true,
         },
         Tell::Said(vec!["git failed:\nfatal: bad\rthing".into()]),
         reading(

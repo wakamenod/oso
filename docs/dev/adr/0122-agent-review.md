@@ -872,8 +872,9 @@ replaced (below). What the first PR built:
   chose (Q6 (a)), in place of splicing the sections that changed; step 4 keeps places by
   anchor.** The UI thread puts it in at O(1), carrying every cursor and window top through the
   span that changed, with no undo, as a file read again is put in. Texts go in in order, and
-  wait while a prompt is open, as a reload does. The text is at most 64 MiB: files past it
-  show their header and a note.
+  wait while a prompt is open, as a reload does. The text is cut near 64 MiB: the limit is
+  looked at before each file's section, so the section that passes it is laid out whole, and
+  the files after it show their header and a note.
 - **One text in flight:** the view builds the next text only once the UI put the last one in,
   gathering what it is told meanwhile, so a review waiting under a prompt holds one text, and
   each text is compared with the one the UI holds. When no file was read again and the listing
@@ -885,15 +886,18 @@ replaced (below). What the first PR built:
   milliseconds to drop. So `Editor::set_review_text(&mut self, ReviewId, Reloaded, Rows,
   Highlights) -> ReviewLeftover` and `Editor::set_review_paint(&mut self, ReviewId, Rows,
   Highlights) -> Result<ReviewLeftover, ReviewLeftover>` return what they replaced, or what
-  they did not take, as the author approved; `ReviewLeftover` is opaque and only freed.
+  they did not take, as the author approved; `ReviewLeftover` is opaque, cannot be built
+  outside `oso-core`, and is only freed.
 - **Every carry runs on the view thread in this part,** as no comment exists yet, and carrying
   a file with no comment to place is hashing alone. The second PR sends a file with comments
   to the review's own thread, which reads old sides. When applying a carry asks for another,
   it runs again only for the file's current reading; a newer reading has its own on the way.
 - **One review per project and scope,** the session scope whatever its baseline, and a branch,
   commit or range by the revision given. Opening one that is open shows it in the selected
-  window and reads it again. A baseline is taken on a thread of its own and kept for the
-  session; keeping it across restarts is step 6's.
+  window and reads it again; one revoked since starts over from a new root. A baseline is
+  taken on a thread of its own, the latest `B`'s alone counting, and kept for the session;
+  keeping it across restarts is step 6's. A baseline that comes while the menu is open starts
+  `D`'s count.
 - **The menu** is the fifth built-in menu, `review`, on `C-x v r` (ADR 0117), with a describe
   function, which knows each head by its keys; a test keeps its table in step with the menu's.
   In a review buffer it is the review's project's. Its heads:
@@ -901,14 +905,20 @@ replaced (below). What the first PR built:
   range, and `B` to take a baseline, which keeps the menu open. **The heads `p` (a pull
   request) and `S` (the session comments go to) are left out, not hidden, until step 12 and
   ADR 0121's registry,** as the author agreed. `C-u b` names the branch's base; without it the
-  base found is used: the branch's upstream, else `origin/HEAD`'s branch, else `main` or
-  `master`. `RET` takes the last scope reviewed, else uncommitted.
+  base found is used: the branch's upstream, **unless it is the same branch on a remote
+  (`origin/<branch>`), as the author chose,** else `origin/HEAD`'s branch, else `main` or
+  `master`. The base is found again at each opening of the menu, as the branch may have
+  changed, and `review-branch` with none known yet finds it first, on the counting threads,
+  and then opens. `RET` takes the last scope reviewed, else uncommitted.
 - **The menu's counts** come from at most two `oso-review-count` threads, listing as a review
   lists and reading no side, only for a trusted project, the session scope only with a
-  baseline. Each opening is an epoch: a new one, or the menu closing, drops the counts waiting
-  and stops those running between git runs. Each note keeps one width whatever its count
-  says, so the float never moves. A project with only `.jj` or `.hg` shows `?` counts, and a
-  review of it fails with git's message.
+  baseline. Each opening is an epoch: a new one, or the menu closing, or the project no longer
+  trusted, drops the counts waiting and stops those running between their runs of git. Each
+  count's note keeps one width whatever it says, so a count coming in does not move the
+  float; the branch's note grows by ` · <base>` once the base is found, which lays it out
+  again once. A project with only `.jj` or `.hg` shows `?` counts, and a review of it fails
+  with git's message.
+- **A listing git cut short** says under the title that more files may not be listed.
 - **The line under the menu's title** names the project and its root, the baseline's age as
   **"N min ago",** with no local time of day, as the author chose: oso has no helper for the
   local time, and ends "comments go to the kill ring until sending exists" (Q8). A project's

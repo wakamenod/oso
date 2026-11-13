@@ -18,7 +18,11 @@ fn listed_files_show_until_read_then_their_sections() {
     let mut state = State::new("Review \u{b7} uncommitted \u{b7} oso".into());
     let entries: Arc<[Entry]> =
         vec![entry(b"a", Status::Modified), entry(b"b", Status::Added)].into();
-    state.take(Tell::Listed { entries, more: 3 });
+    state.take(Tell::Listed {
+        entries,
+        more: 3,
+        cut: false,
+    });
     let first = state.build();
     assert_eq!(first.reading, Some((0, 2)));
     let review = Review::new();
@@ -105,7 +109,11 @@ fn a_file_no_longer_listed_goes() {
         carry: None,
     });
     let entries: Arc<[Entry]> = vec![entry(b"b", Status::Modified)].into();
-    state.take(Tell::Listed { entries, more: 0 });
+    state.take(Tell::Listed {
+        entries,
+        more: 0,
+        cut: false,
+    });
     state.build();
     let text = state.text.to_string();
     assert!(!text.contains("  a"), "{text}");
@@ -131,6 +139,7 @@ fn nothing_is_laid_out_again_when_nothing_in_the_text_changed() {
     state.take(Tell::Listed {
         entries: Arc::clone(&entries),
         more: 0,
+        cut: false,
     });
     state.take(Tell::File {
         reading: Arc::new(text_reading(b"a", vec![hunk(1, 1, &[b"x\n"], &[])])),
@@ -139,7 +148,11 @@ fn nothing_is_laid_out_again_when_nothing_in_the_text_changed() {
     let first = state.build();
     assert!(first.text.is_some());
     // g with nothing changed: the same listing, then the end of the reading.
-    state.take(Tell::Listed { entries, more: 0 });
+    state.take(Tell::Listed {
+        entries,
+        more: 0,
+        cut: false,
+    });
     assert!(!state.dirty, "the same listing changes no text");
     let listed = state.build();
     assert!(listed.text.is_none());
@@ -160,7 +173,11 @@ fn nothing_is_laid_out_again_when_nothing_in_the_text_changed() {
 fn a_file_read_before_it_is_listed_goes_last_once() {
     let mut state = State::new("t".into());
     let entries: Arc<[Entry]> = vec![entry(b"a", Status::Modified)].into();
-    state.take(Tell::Listed { entries, more: 0 });
+    state.take(Tell::Listed {
+        entries,
+        more: 0,
+        cut: false,
+    });
     for _ in 0..2 {
         state.take(Tell::File {
             reading: Arc::new(text_reading(b"b", vec![hunk(1, 1, &[b"x\n"], &[])])),
@@ -191,4 +208,30 @@ fn the_next_text_waits_until_the_ui_took_the_last() {
     view.taken();
     // Taken with nothing told since: no text.
     assert!(texts.recv_timeout(Duration::from_millis(200)).is_err());
+}
+
+#[test]
+fn a_listing_cut_short_says_more_files_may_not_be_listed() {
+    let mut state = State::new("t".into());
+    let entries: Arc<[Entry]> = vec![entry(b"a", Status::Modified)].into();
+    state.take(Tell::Listed {
+        entries: Arc::clone(&entries),
+        more: 0,
+        cut: true,
+    });
+    state.build();
+    assert!(
+        state
+            .text
+            .to_string()
+            .contains("more files may not be listed")
+    );
+    state.take(Tell::Listed {
+        entries,
+        more: 0,
+        cut: false,
+    });
+    assert!(state.dirty);
+    state.build();
+    assert!(!state.text.to_string().contains("may not be listed"));
 }

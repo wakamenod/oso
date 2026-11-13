@@ -150,12 +150,13 @@ impl Seek {
     }
 }
 
-/// Every line of a review buffer, as sections in order.
+/// Every line of a review buffer, as sections in order. Shared: a clone is O(1), so a command
+/// can hold the rows while it moves the cursors.
 #[derive(Clone, Debug, Default)]
 pub struct Rows {
-    sections: Vec<Arc<Section>>,
+    sections: Arc<[Arc<Section>]>,
     /// The line each section starts at.
-    starts: Vec<usize>,
+    starts: Arc<[usize]>,
     lines: usize,
 }
 
@@ -169,8 +170,8 @@ impl Rows {
             lines += section.lines;
         }
         Rows {
-            sections,
-            starts,
+            sections: sections.into(),
+            starts: starts.into(),
             lines,
         }
     }
@@ -210,70 +211,45 @@ impl Rows {
     }
 
     /// The first line after `line` (`forward`) or before it that starts a row `to` goes to.
-    /// O(files and runs passed).
+    /// O(log of files and runs, and the runs passed): the runs of `line`'s own section are
+    /// found by halving, so a step costs what it passes, not what lies before it.
     pub fn seek(&self, line: usize, to: Seek, forward: bool) -> Option<usize> {
         if forward {
-            let first = match self.section(line) {
-                Some((index, _)) => index,
-                None => return None,
-            };
+            let (first, local) = self.section(line)?;
             (first..self.sections.len()).find_map(|index| {
+                let runs = &self.sections[index].runs;
+                // Only the current section has runs at or before `line`.
+                let from = if index == first {
+                    runs.partition_point(|run| run.start <= local)
+                } else {
+                    0
+                };
                 let start = self.starts[index];
-                self.sections[index]
-                    .runs
+                runs[from..]
                     .iter()
-                    .map(|run| (run, start + run.start))
-                    .find(|&(run, at)| at > line && to.takes(run.kind))
-                    .map(|(_, at)| at)
+                    .find(|run| to.takes(run.kind))
+                    .map(|run| start + run.start)
             })
         } else {
-            let last = match self.section(line) {
-                Some((index, _)) => index,
-                None => self.sections.len().checked_sub(1)?,
+            let (last, local) = match self.section(line) {
+                Some(found) => found,
+                None => (self.sections.len().checked_sub(1)?, usize::MAX),
             };
             (0..=last).rev().find_map(|index| {
+                let runs = &self.sections[index].runs;
+                let to_end = if index == last {
+                    runs.partition_point(|run| run.start < local)
+                } else {
+                    runs.len()
+                };
                 let start = self.starts[index];
-                self.sections[index]
-                    .runs
+                runs[..to_end]
                     .iter()
                     .rev()
-                    .map(|run| (run, start + run.start))
-                    .find(|&(run, at)| at < line && to.takes(run.kind))
-                    .map(|(_, at)| at)
+                    .find(|run| to.takes(run.kind))
+                    .map(|run| start + run.start)
             })
         }
-    }
-
-    /// The line of the file at `path` that is `kind`: the first of its run, or for lines of a
-    /// side, the one showing the line `kind`'s `first` names. O(files and that file's runs).
-    pub fn find(&self, path: &[u8], kind: RowKind) -> Option<usize> {
-        let index = self
-            .sections
-            .iter()
-            .position(|section| *section.path == *path)?;
-        let start = self.starts[index];
-        self.sections[index].runs.iter().find_map(|run| {
-            let offset = match (run.kind, kind) {
-                (
-                    RowKind::Lines {
-                        hunk,
-                        side,
-                        first: from,
-                    },
-                    RowKind::Lines {
-                        hunk: wanted,
-                        side: wanted_side,
-                        first: number,
-                    },
-                ) if hunk == wanted && side == wanted_side => {
-                    let offset = usize::try_from(number.checked_sub(from)?).ok()?;
-                    (offset < run.lines).then_some(offset)?
-                }
-                (have, wanted) if have == wanted => 0,
-                _ => return None,
-            };
-            Some(start + run.start + offset)
-        })
     }
 }
 
@@ -372,15 +348,28 @@ mod tests {
     }
 
     #[test]
-    fn finding_names_a_files_row() {
-        let rows = sample();
-        assert_eq!(rows.find(b"c.rs", RowKind::File), Some(14));
-        assert_eq!(rows.find(b"a.rs", RowKind::Hunk { hunk: 1 }), Some(10));
-        assert_eq!(rows.find(b"a.rs", lines(0, Side::New, 6)), Some(6));
-        assert_eq!(rows.find(b"a.rs", lines(0, Side::New, 7)), None);
-        assert_eq!(rows.find(b"a.rs", lines(0, Side::Old, 3)), None);
-        assert_eq!(rows.find(b"b.bin", RowKind::Note), Some(13));
-        assert_eq!(rows.find(b"nothing", RowKind::File), None);
+    fn a_step_costs_the_runs_it_passes_not_those_before_it() {
+        // One file of many one-line hunks, as an agent might write: each step halves to its
+        // place, so many steps from far in stay quick.
+        let hunks = 100_000;
+        let mut big = Section::new(b"big.rs".as_slice().into());
+        big.push(RowKind::File, 1);
+        for hunk in 0..hunks {
+            big.push(RowKind::Hunk { hunk }, 1);
+            big.push(lines(hunk, Side::New, 1), 1);
+        }
+        let rows = Rows::new(vec![Arc::new(big)]);
+        let mut line = 0;
+        for _ in 0..hunks {
+            line = rows.seek(line, Seek::Hunk, true).unwrap();
+        }
+        assert_eq!(line, 2 * hunks - 1);
+        assert_eq!(rows.seek(line, Seek::Hunk, true), None);
+        for _ in 1..hunks {
+            line = rows.seek(line, Seek::Hunk, false).unwrap();
+        }
+        assert_eq!(line, 1);
+        assert_eq!(rows.seek(line, Seek::File, false), Some(0));
     }
 
     #[test]
@@ -422,7 +411,7 @@ mod tests {
 
     proptest! {
         /// Whatever the sections, a line's row is the one its section's runs give, a seek lands
-        /// on the nearest row of its kind, and find gives back a row's line.
+        /// on the nearest row of its kind.
         #[test]
         fn rows_agree_with_their_sections(
             given in prop::collection::vec(prop::collection::vec((kind(), 0..4usize), 0..6), 0..5),
@@ -455,22 +444,6 @@ mod tests {
                 prop_assert_eq!(row.path, path.as_bytes());
                 prop_assert_eq!(row.kind, kind);
                 prop_assert_eq!(row.offset, offset);
-                let wanted = match kind {
-                    RowKind::Lines { hunk, side, first } => RowKind::Lines {
-                        hunk,
-                        side,
-                        first: first + u32::try_from(offset).unwrap(),
-                    },
-                    other => other,
-                };
-                let found = rows.find(row.path, wanted).unwrap();
-                let back = rows.at(found).unwrap();
-                prop_assert_eq!(back.path, row.path);
-                prop_assert_eq!(back.line(), row.line());
-                if !matches!(kind, RowKind::Lines { .. }) {
-                    prop_assert_eq!(back.offset, 0);
-                    prop_assert_eq!(back.kind, kind);
-                }
             }
             prop_assert!(rows.at(flat.len()).is_none());
             for to in [Seek::Hunk, Seek::File, Seek::Comment] {

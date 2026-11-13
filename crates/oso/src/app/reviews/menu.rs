@@ -1,15 +1,19 @@
 //! The review menu's counts in the app (ADR 0117 "Live content", ADR 0122): started on the
 //! counting threads as the menu opens for a trusted project, stopped as it closes, and each
-//! count put in the editor for the menu's notes.
+//! count put in the editor for the menu's notes; the session's count once a baseline comes
+//! while the menu is open; and the branch's base, found on the same threads when a review of
+//! the branch is asked for before it was known.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git.
 
 use std::sync::{Mutex, PoisonError};
 
-use oso_core::editor::ScopeKind;
+use oso_core::editor::{Count, ScopeKind};
+
+use oso_core::project::ProjectId;
 
 use super::super::{App, UserEvent, Waker};
-use super::{ReviewEvent, state};
+use super::{RESTRICTED, ReviewEvent, state};
 use crate::commands::review::review_project;
 use crate::review::count::{Counted, Counter, Counting, Job};
 use crate::review::{Scope, TrustedRoot};
@@ -86,12 +90,76 @@ impl App {
             .editor
             .set_scope_count(project, generation, scope, count);
         if let Some(base) = base {
+            if self.reviews.base_wanted == Some(project) {
+                self.reviews.base_wanted = None;
+                match &base {
+                    Some(found) => {
+                        self.open_review(project, ScopeKind::Branch, Some(found.clone()));
+                    }
+                    None => self.editor.message("No base was found: C-u b names it"),
+                }
+            }
             self.editor.set_branch_base(project, generation, base);
             shown = true;
         }
         if shown {
             self.request_redraw();
         }
+    }
+
+    /// Finds the branch's base on the counting threads, for a review of the branch asked for
+    /// before it was known; the review opens once it is found.
+    pub(super) fn find_branch_base(&mut self, project: ProjectId) {
+        let Some(root) = TrustedRoot::of(&self.editor, project) else {
+            return self.editor.message(RESTRICTED);
+        };
+        self.reviews.counted = Some((project, root.clone()));
+        self.reviews.base_wanted = Some(project);
+        let generation = self
+            .editor
+            .start_scope_counts(project, &[ScopeKind::Branch]);
+        let job = Job {
+            generation,
+            project,
+            root,
+            counting: Counting::Branch,
+        };
+        let waker = &self.waker;
+        self.reviews
+            .counter
+            .get_or_insert_with(|| counter(waker))
+            .start(vec![job]);
+        self.editor.message("Finding the branch's base\u{2026}");
+    }
+
+    /// Counts the session scope of `project`, whose baseline just came, while the menu is open
+    /// for it.
+    pub(super) fn count_session(&mut self, project: ProjectId) {
+        let Some(baseline) = self.reviews.baseline(project) else {
+            return;
+        };
+        let (Some((counted, root)), Some(menu)) =
+            (&self.reviews.counted, self.editor.scope_menu(project))
+        else {
+            return;
+        };
+        if !self.reviews.menu_open || *counted != project {
+            return;
+        }
+        let generation = menu.generation();
+        let job = Job {
+            generation,
+            project,
+            root: root.clone(),
+            counting: Counting::Scope(ScopeKind::Session, Scope::Session { baseline }),
+        };
+        self.editor
+            .set_scope_count(project, generation, ScopeKind::Session, Count::Running);
+        let waker = &self.waker;
+        self.reviews
+            .counter
+            .get_or_insert_with(|| counter(waker))
+            .add(vec![job]);
     }
 }
 

@@ -20,6 +20,7 @@ use std::thread;
 use oso_core::editor::{Count, ScopeKind};
 use oso_core::project::ProjectId;
 
+use super::scope::ScopeError;
 use super::work::Reader;
 use super::{Scope, TrustedRoot};
 
@@ -100,6 +101,21 @@ impl Counter {
         queue.clear();
         queue.extend(jobs.into_iter().map(|job| (epoch, job)));
         drop(queue);
+        self.shared.ready.notify_all();
+    }
+
+    /// Adds `jobs` to the epoch running, as a count the menu needs once a baseline came, or
+    /// starts one if none ran yet.
+    pub(crate) fn add(&mut self, jobs: Vec<Job>) {
+        if !self.started {
+            return self.start(jobs);
+        }
+        let epoch = self.shared.epoch.load(Ordering::SeqCst);
+        self.shared
+            .queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend(jobs.into_iter().map(|job| (epoch, job)));
         self.shared.ready.notify_all();
     }
 
@@ -210,12 +226,16 @@ fn count(
             Err(_) => return Some(failed(ScopeKind::Branch)),
         },
     };
-    if !current() {
+    // Between each of its runs of git, the count stops once its opening is over or the
+    // project is no longer trusted.
+    let stop = || !current() || job.root.revoked();
+    if stop() {
         return None;
     }
-    let count = match reader.count(&scope) {
+    let count = match reader.count(&scope, &stop) {
         Ok((_, more)) if more > 0 => Count::More,
         Ok((files, _)) => Count::Files(files),
+        Err(ScopeError::Stopped) => return None,
         Err(_) => Count::Failed,
     };
     Some(Counted {

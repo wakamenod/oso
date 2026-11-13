@@ -105,7 +105,8 @@ impl TrustedRoot {
         self.revoked.store(true, Ordering::SeqCst);
     }
 
-    fn revoked(&self) -> bool {
+    /// Whether the trust was taken back.
+    pub(crate) fn revoked(&self) -> bool {
         self.revoked.load(Ordering::SeqCst)
     }
 

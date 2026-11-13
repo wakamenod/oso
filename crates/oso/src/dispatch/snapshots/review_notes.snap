@@ -7,6 +7,7 @@ keys: none
 :^                                                           :
 │git failed: fatal: bad thing                                │
 │2 more files are not listed                                 │
+│more files may not be listed: git's listing was cut short   │
 │modified  bin.png                                           │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │binary: 10 B → 12 B                                         │
@@ -28,7 +29,6 @@ keys: none
 │deleted  gone.rs                                            │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │cannot be read: it is not there                             │
-│                                                            │
 │                                                            │
 │                                                            │
 │                                                            │
