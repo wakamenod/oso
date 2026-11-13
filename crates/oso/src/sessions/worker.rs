@@ -46,10 +46,6 @@ pub enum Job {
     /// The rules in force from now, for every session (ADR 0121, Q4).
     Rules(Arc<RuleSet>),
     /// A session started or was resumed.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "hosted sessions start it (ADR 0121 step 3)")
-    )]
     Start(SessionKey),
     /// A session's screen, title or progress changed.
     #[cfg_attr(
@@ -61,13 +57,6 @@ pub enum Job {
     )]
     Screen(SessionKey, Evidence),
     /// A session's process ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the terminal's thread reports it (ADR 0121 step 3)"
-        )
-    )]
     Exited(SessionKey, Exit),
     /// The person has seen a session.
     #[cfg_attr(

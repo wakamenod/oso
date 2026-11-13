@@ -5,6 +5,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,12 +20,16 @@ use crate::sessions::identity::SessionId;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
+mod terminal;
+
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
 pub(in crate::app) struct Hosting {
     table: Table,
     /// oso's own state directory, where the record is kept.
     directory: Option<PathBuf>,
+    /// The buffer each session being started has, by its key, until the start thread reports.
+    starting: HashMap<SessionKey, BufferId>,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
@@ -36,6 +41,7 @@ impl Hosting {
         Self {
             table: Table::default(),
             directory,
+            starting: HashMap::new(),
             explain: None,
         }
     }
@@ -112,6 +118,7 @@ impl App {
         let base = name.unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         self.turn_agent_channel_on_for_a_session();
+        let terminal = self.session_terminal(key, &name, None);
         let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
         let root = project
             .and_then(|id| self.editor.project(id))
@@ -125,7 +132,7 @@ impl App {
             trusted,
             state: self.hosting.directory.clone(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            shell: None,
+            terminal,
         });
     }
 
@@ -140,24 +147,30 @@ impl App {
                 .message(format!("Session {} runs", session.name));
             return;
         }
-        let order = Order {
-            token: session.key,
-            kind: Kind::Resume(session.id.clone()),
-            name: session.name.clone(),
-            directory: session.directory.clone(),
-            project: session.root.clone(),
-            // A resume takes no baseline: the session keeps the one it had.
-            trusted: None,
-            state: self.hosting.directory.clone(),
-            claude: self.configuration.session_claude().map(Path::to_path_buf),
-            shell: None,
-        };
-        let key = session.key;
+        let (key, kind, name, directory, root) = (
+            session.key,
+            Kind::Resume(session.id.clone()),
+            session.name.clone(),
+            session.directory.clone(),
+            session.root.clone(),
+        );
         self.turn_agent_channel_on_for_a_session();
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
         }
-        self.order_session(order);
+        let terminal = self.session_terminal(key, &name, Some(buffer));
+        self.order_session(Order {
+            token: key,
+            kind,
+            name,
+            directory,
+            project: root,
+            // A resume takes no baseline: the session keeps the one it had.
+            trusted: None,
+            state: self.hosting.directory.clone(),
+            claude: self.configuration.session_claude().map(Path::to_path_buf),
+            terminal,
+        });
     }
 
     /// `session-fork`: the conversation of the session whose terminal is `buffer`, copied
@@ -175,6 +188,7 @@ impl App {
         );
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         self.turn_agent_channel_on_for_a_session();
+        let terminal = self.session_terminal(key, &name, None);
         self.order_session(Order {
             token: key,
             kind: Kind::Fork(from),
@@ -184,7 +198,7 @@ impl App {
             trusted: None,
             state: self.hosting.directory.clone(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            shell: None,
+            terminal,
         });
     }
 
@@ -247,6 +261,7 @@ impl App {
 
     /// A start that did not happen: a held name goes, and a resumed session is stopped again.
     fn session_not_started(&mut self, token: SessionKey) {
+        self.session_terminal_not_started(token);
         if self.hosting.table.release(token).is_some() {
             return;
         }
@@ -281,28 +296,15 @@ impl App {
             }
             session.changed = now_ms();
         }
-        if let Err(why) = self.start_session_terminal(key, &ready) {
+        if !self.session_terminal_started(key, ready) {
+            // Its buffer went while it started: the terminal is dropped, which hangs it up.
             if new {
                 self.hosting.table.forget(key);
-            } else {
-                self.session_not_started(key);
+            } else if let Some(session) = self.hosting.table.get_mut(key) {
+                session.run = Run::Stopped;
             }
-            self.editor.message(why);
         }
         self.remember_sessions();
-    }
-
-    /// Starts the terminal of session `key` as `ready` says.
-    fn start_session_terminal(&mut self, _key: SessionKey, _ready: &Ready) -> Result<(), String> {
-        Err("Sessions run in a terminal, which this build of oso does not have yet".into())
-    }
-
-    /// Brings session `key` back as a terminal buffer with no process, which says
-    /// `stopped: session-resume to continue`.
-    fn bring_back_stopped(&mut self, key: SessionKey) {
-        if let Some(session) = self.hosting.table.get(key) {
-            log::debug!("session {} remembered, stopped", session.name);
-        }
     }
 
     /// Whether the connection of `peer` that claims the session `claim` is that hosted
@@ -314,6 +316,27 @@ impl App {
         claim: &str,
     ) -> Option<String> {
         let id = SessionId::parse(claim)?;
+        // Each running `claude`'s id as its terminal has it now: set once the child started,
+        // cleared before it is reaped.
+        let children: Vec<(SessionKey, Option<u32>)> = self
+            .hosting
+            .table
+            .iter()
+            .filter(|session| matches!(session.run, Run::Running { .. }))
+            .map(|session| {
+                let child = session
+                    .buffer
+                    .and_then(|buffer| self.terminals.map.get(buffer))
+                    .and_then(|hosted| hosted.terminal.as_ref())
+                    .and_then(oso_term::Terminal::pid);
+                (session.key, child)
+            })
+            .collect();
+        for (key, child) in children {
+            if let Some(session) = self.hosting.table.get_mut(key) {
+                session.run = Run::Running { child };
+            }
+        }
         self.hosting
             .table
             .admit(connection, peer, Some(&id))

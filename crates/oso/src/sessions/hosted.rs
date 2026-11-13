@@ -23,10 +23,6 @@ pub enum Run {
     /// Being started on its thread.
     Starting,
     /// Running as this process, while it is not reaped.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the session's terminal sets it (ADR 0120 step 4)")
-    )]
     Running { child: Option<u32> },
     /// Not running: remembered from an earlier oso, or ended with status 0 or by oso.
     Stopped,
@@ -197,6 +193,11 @@ impl Table {
     }
 
     /// The session whose terminal is `buffer`.
+    /// Every hosted session.
+    pub fn iter(&self) -> impl Iterator<Item = &Hosted> {
+        self.sessions.iter()
+    }
+
     pub fn by_buffer(&self, buffer: BufferId) -> Option<&Hosted> {
         self.sessions
             .iter()
@@ -208,7 +209,7 @@ impl Table {
         not(test),
         expect(
             dead_code,
-            reason = "the session's terminal and step 6's tools use it (ADR 0120 step 4)"
+            reason = "a review names its agent's session by it (ADR 0122 step 7), and so do step 6's tools"
         )
     )]
     pub fn by_connection(&self, connection: Connection) -> Option<&Hosted> {
@@ -273,13 +274,6 @@ impl Table {
     }
 
     /// The session `key`'s `claude` ended with `status`, or a signal: stopped or failed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's terminal and step 6's tools use it (ADR 0120 step 4)"
-        )
-    )]
     pub fn ended(&mut self, key: SessionKey, status: Option<i32>, changed: u64) -> Option<Exit> {
         let session = self.get_mut(key)?;
         let exit = exit_of(status, session.ended_by_oso);

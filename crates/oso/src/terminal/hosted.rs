@@ -147,6 +147,16 @@ impl Terminals {
         hosted
     }
 
+    /// Starts `buffer`'s terminal over, with an empty screen and no program yet, keeping the
+    /// window whose size it takes: a stopped session resumed in its buffer (ADR 0121).
+    pub(crate) fn restart(&mut self, buffer: BufferId) -> &mut Hosted {
+        let owner = self.map.get(&buffer).and_then(|hosted| hosted.owner);
+        self.map.insert(buffer, Hosted::new());
+        let hosted = self.add(buffer);
+        hosted.owner = owner;
+        hosted
+    }
+
     pub(crate) fn get(&self, buffer: BufferId) -> Option<&Hosted> {
         self.map.get(&buffer)
     }
@@ -320,6 +330,25 @@ mod tests {
             editor.add_terminal_buffer("*terminal*"),
             editor.add_terminal_buffer("*terminal*"),
         )
+    }
+
+    #[test]
+    fn a_restart_empties_the_terminal_and_keeps_its_window() {
+        let (a, _) = ids();
+        let editor = Editor::default();
+        let window = editor.window().id();
+        let mut terminals = Terminals::default();
+        terminals.add(a);
+        terminals.selected(a, window);
+        let hosted = terminals.get_mut(a).unwrap();
+        hosted.ended = Some("exited 0".to_owned());
+        hosted.title = "old".to_owned();
+        let hosted = terminals.restart(a);
+        assert!(hosted.running());
+        assert!(hosted.title.is_empty());
+        assert!(hosted.terminal.is_none());
+        assert_eq!(hosted.owner, Some(window));
+        assert_eq!(terminals.last_running(), Some(a));
     }
 
     #[test]

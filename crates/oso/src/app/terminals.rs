@@ -73,6 +73,8 @@ impl App {
             return;
         }
         self.drop_unasked_pastes();
+        // A session whose buffer went is archived before its terminal is hung up (ADR 0121).
+        self.archive_killed_sessions();
         let editor = &self.editor;
         for gone in self.terminals.map.retain(|id| editor.buffer(id).is_some()) {
             // Dropping its handle hangs it up; its thread finishes on its own.
@@ -89,7 +91,7 @@ impl App {
         }
     }
 
-    fn terminal_send(&mut self, buffer: BufferId, send: TerminalSend) {
+    pub(super) fn terminal_send(&mut self, buffer: BufferId, send: TerminalSend) {
         // Typed while the shell is found: it goes once the terminal starts.
         if let Some(hosted) = self.terminals.map.get_mut(buffer)
             && hosted.terminal.is_none()
@@ -207,7 +209,7 @@ impl App {
                     Event::Ended(end) => {
                         hosted.ended = Some(hosted::ended(&end));
                         hosted.note_stale = true;
-                        ended.push(id);
+                        ended.push((id, end));
                     }
                     Event::PasteRefused { lines } => said.push(format!(
                         "{lines} lines not pasted: the program turned bracketed paste off"
@@ -228,8 +230,10 @@ impl App {
                 terminal.recycle(snapshot);
             }
         }
-        for id in ended {
+        for (id, end) in ended {
             self.editor.set_running(id, false);
+            // A hosted session's end, which its modeline says differently (ADR 0121).
+            self.session_terminal_ended(id, &end);
         }
         for text in said {
             self.editor.message(text);
@@ -362,7 +366,7 @@ impl App {
     }
 
     /// The size, in cells and pixels, of `window`'s text.
-    fn window_size(&self, window: oso_core::window::WindowId) -> Option<Size> {
+    pub(super) fn window_size(&self, window: oso_core::window::WindowId) -> Option<Size> {
         let regions = self.editor.frame().regions(window)?;
         let text = regions.text;
         let metrics = self.view.as_ref()?.render_state.cell_metrics();
