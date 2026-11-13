@@ -960,9 +960,14 @@ questions through the coordinator, (a) for each, and the coordinator approved th
 - **A branch with no commit of its own is not merged** (the author's choice), so a fresh,
   clean worktree is refused by check 5. ADR 0126's `C-u` removal is for that case.
 - **"Busy" in check 4:** a hosted session in the worktree counts as busy unless its state is
-  idle or done *and* the registry's `status` is `idle`. A rule for the TUI's background-task
-  footer comes when a screen showing it is saved for `session-explain-file`. Until step 3 gives
-  hosted sessions their states, every running hosted session counts as busy.
+  idle or done *and* the registry's `status` is `idle` (the author's choice). A failed or
+  stopped session is never busy. A rule for the TUI's background-task footer comes when a
+  screen showing it is saved for `session-explain-file`.
+  - The UI thread sends each running hosted session's process id and whether its state is idle
+    or done with the job. The job reads the registry once, as it reads it for external
+    sessions, and combines the two halves. A process with no live registry entry is busy.
+  - The UI thread looks at its own half again after the job's checks and before the removal;
+    the job's half is shown in `*Worktrees*` as the job found it.
 - **The squash test.** "A merged pull request whose merge commit contains the tip" is read as
   "whose head commit is the tip, or a commit here that the tip leads to". With nothing fetched,
   a squash's merge commit never contains the tip.
@@ -1022,9 +1027,24 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   The dispatcher waits for the project's branches, which the pool lists, before the branch
   prompt opens, as it waits for the clipboard. Only the listing the newest wait asked for opens
   a prompt, and a command the person runs meanwhile, `C-g` included, drops the wait.
-- **Left to step 3 and ADR 0120's terminal:** the space a worktree session opens and its
-  removal closes, the list's space column, live states in check 4 and the list, stopping a
-  worktree's idle sessions before it is removed, and the end-to-end flows.
+- **Wired to step 3 and ADR 0120's terminal** (2026-11-13, after step 3's part A and 4a):
+  - A worktree session's space opens, nested under its repository's, when its worktree is made
+    and its session starts. The app holds the spaces (`sessions::spaces`).
+  - `*Worktrees*` names a worktree's space, as `space: NAME`, when it has one.
+  - Check 4 takes the live states as above, and the list shows each session's state.
+  - **The removal clears the worktree in the job that removes it.** Once every check holds
+    again after the person's `y`, the job asks the app to clear the worktree and waits at most
+    10 s for its word. The app looks at what it holds once more, stops the idle sessions there
+    and closes the space, then says go. A refusal, or no word, keeps the worktree. `git
+    worktree remove` itself still refuses a worktree with changes by then.
+- **Left to step 3's part B:**
+  - Keeping each hosted session's live state on the UI thread (`Out::Changed`). Until then a
+    running session's state is not known: it counts as busy, and the list says `running`.
+  - Stopping a hosted session (`session-stop`), which the removal's clearing calls for each
+    idle session in the worktree, as ended by oso. Its buffer stays, read-only.
+  - Closing a space, which the removal's clearing calls: entering the repository's space first
+    if the worktree's is the one in the frame.
+  - The end-to-end flows, which need the terminal that `claude` runs in.
 
 ## Consequences
 

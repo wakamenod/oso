@@ -10,15 +10,20 @@
 //!   whose root is no longer the directory that was trusted, runs no git.
 //! - A listing looks at every row without `gh` first, then asks `gh` only for the rows that
 //!   need it. A newer listing stops an older one between rows.
-//! - A removal runs every check again, in the same job as `git worktree remove`.
+//! - A removal runs every check again, in the same job as `git worktree remove`. Once they hold,
+//!   it asks the app to clear the worktree (stop its idle sessions, close its space) and waits
+//!   for the app's word before git removes it.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, SyncSender};
+use std::time::Duration;
 
 use oso_platform::privacy::PrivateDir;
 
-use super::checks::{self, Check, Depth, Held, Looked};
+use super::checks::{self, Check, Depth, Held, HostedSession, Looked};
 use super::create::{self, Created, Order, Step};
 use super::facts::RepoFacts;
 use super::git::{Gh, Repo, said};
@@ -32,6 +37,9 @@ use crate::review::git::MAX_SHORT;
 pub const MAIN_UNTRUSTED: &str =
     "Worktree sessions need the main repository trusted: trust-project it first";
 
+/// How long a removal whose checks hold waits for the app's word to go on.
+const CLEAR_WAIT: Duration = Duration::from_secs(10);
+
 /// What the UI thread holds when a job is asked for, for every worktree it may meet: buffers
 /// with unsaved changes, unsent briefs and hosted sessions, by path.
 #[derive(Clone, Debug, Default)]
@@ -40,25 +48,43 @@ pub struct Snapshot {
     pub unsaved: Vec<PathBuf>,
     /// The worktree paths unsent briefs are for.
     pub briefs: Vec<PathBuf>,
-    /// Hosted sessions that are busy, by their directory and name.
-    pub busy: Vec<(PathBuf, String)>,
+    /// The hosted sessions that run, neither failed nor stopped, with their screen's half of
+    /// check 4.
+    pub sessions: Vec<HostedSession>,
     /// The process ids of the `claude`s oso hosts.
     pub hosted: Vec<u32>,
 }
 
 impl Snapshot {
-    /// What it holds about the worktree at `path`.
-    pub fn held(&self, path: &Path) -> Held {
+    /// What it holds about the worktree at `path`, with `idle` the process ids the registry
+    /// calls idle: a hosted session is busy unless both halves say it is not.
+    pub fn held(&self, path: &Path, idle: &HashSet<u32>) -> Held {
         Held {
             unsaved: self.unsaved.iter().filter(|f| f.starts_with(path)).count(),
             unsent: self.briefs.iter().any(|b| b.starts_with(path)),
             busy: self
-                .busy
+                .sessions
                 .iter()
-                .filter(|(dir, _)| dir.starts_with(path))
-                .map(|(_, name)| name.clone())
+                .filter(|session| session.directory.starts_with(path))
+                .filter(|session| {
+                    let registry_idle = session.pid.is_some_and(|pid| idle.contains(&pid));
+                    checks::busy(session, registry_idle)
+                })
+                .map(|session| session.name.clone())
                 .collect(),
         }
+    }
+}
+
+/// The app's word that a removal whose checks hold may go on, once it has cleared the
+/// worktree. Dropping it calls the removal off.
+#[derive(Debug)]
+pub struct Go(SyncSender<()>);
+
+impl Go {
+    /// The removal goes on.
+    pub fn proceed(self) {
+        let _ = self.0.send(());
     }
 }
 
@@ -98,6 +124,8 @@ pub enum Report {
         path: PathBuf,
         merged: Merged,
     },
+    /// A removal's checks held again: the app clears the worktree, then says [`Go`].
+    Clear { token: u64, path: PathBuf, go: Go },
     /// A removal's checks: what git ignores there, which the removal deletes, or the first
     /// check that refuses.
     Checked {
@@ -262,9 +290,9 @@ impl Jobs {
         );
     }
 
-    /// Runs every check of a removal of the worktree at `path` again, then removes it, never
-    /// with `--force`, unless a check fails or git ignores more there than the `asked` names
-    /// the question was asked about.
+    /// Runs every check of a removal of the worktree at `path` again, then, once the app has
+    /// cleared it and said [`Go`], removes it, never with `--force`, unless a check fails or git
+    /// ignores more there than the `asked` names the question was asked about.
     pub fn remove(
         &self,
         token: u64,
@@ -285,7 +313,7 @@ impl Jobs {
                         "git ignores more there than the question named: run worktree-remove again"
                             .to_owned(),
                     ),
-                    Ok(_) => checks::remove(repo, &path),
+                    Ok(_) => cleared(token, &path, send).and_then(|()| checks::remove(repo, &path)),
                 };
                 send(Report::Removed {
                     token,
@@ -374,7 +402,7 @@ fn list(
         if !live() {
             return;
         }
-        let held = snapshot.held(&listed.path);
+        let held = snapshot.held(&listed.path, &facts.hosted_idle);
         let looked = checks::look(repo, gh.as_ref(), &facts, listed, &held, Depth::Local);
         if let (Some(tip), Some(branch)) = (&looked.gh_pending, &looked.listed.branch) {
             asks.push((looked.listed.path.clone(), branch.clone(), tip.clone()));
@@ -418,9 +446,9 @@ fn check(
             "it is not a linked worktree of this repository".to_owned(),
         ));
     };
-    let held = snapshot.held(&listed.path);
     let gh = Gh::find(repo.main());
     let facts = RepoFacts::gather(repo, gh_host, &snapshot.hosted);
+    let held = snapshot.held(&listed.path, &facts.hosted_idle);
     let looked = checks::look(
         repo,
         gh.as_ref(),
@@ -430,4 +458,56 @@ fn check(
         Depth::UntilRefused,
     );
     checks::removable(&looked, &held).map(|()| looked.ignored)
+}
+
+/// Asks the app to clear the worktree at `path` and waits for its word, at most
+/// [`CLEAR_WAIT`].
+fn cleared(token: u64, path: &Path, send: &dyn Fn(Report)) -> Result<(), String> {
+    let (go, word) = mpsc::sync_channel(1);
+    send(Report::Clear {
+        token,
+        path: path.to_owned(),
+        go: Go(go),
+    });
+    word.recv_timeout(CLEAR_WAIT)
+        .map_err(|_| "the removal was called off".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    use super::Snapshot;
+    use crate::sessions::worktree::checks::HostedSession;
+
+    fn session(name: &str, pid: u32, settled: bool) -> HostedSession {
+        HostedSession {
+            directory: PathBuf::from(format!("/r/.claude/worktrees/w/{name}")),
+            name: name.to_owned(),
+            pid: Some(pid),
+            settled,
+        }
+    }
+
+    #[test]
+    fn a_hosted_session_is_busy_unless_its_screen_and_the_registry_say_idle() {
+        let snapshot = Snapshot {
+            sessions: vec![
+                session("working", 1, false),
+                session("idle-but-registry-busy", 2, true),
+                session("idle", 3, true),
+                session("not-in-the-registry", 4, true),
+            ],
+            ..Snapshot::default()
+        };
+        let idle: HashSet<u32> = [1, 3].into();
+        let held = snapshot.held(&PathBuf::from("/r/.claude/worktrees/w"), &idle);
+        assert_eq!(
+            held.busy,
+            ["working", "idle-but-registry-busy", "not-in-the-registry"]
+        );
+        let elsewhere = snapshot.held(&PathBuf::from("/r/.claude/worktrees/v"), &idle);
+        assert!(elsewhere.busy.is_empty());
+    }
 }

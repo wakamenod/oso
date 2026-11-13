@@ -1,7 +1,7 @@
 //! The text of `*Worktrees*` (ADR 0121, `worktree-list`): for each linked worktree of a
 //! repository, its path, branch, uncommitted and untracked counts, whether its branch is
 //! merged and how that was found, the sessions in it with their states, the oso buffers in it
-//! with unsaved changes, and whether `worktree-remove` would take it or why not.
+//! with unsaved changes, its space, and whether `worktree-remove` would take it or why not.
 //!
 //! Must not depend on: `app`, `dispatch`, `commands` or threads; this is a plain function over
 //! what the jobs found and what the UI thread holds.
@@ -24,6 +24,8 @@ pub struct Row {
     pub held: Held,
     /// The hosted sessions in it, each as `name (state)`, of any project.
     pub sessions: Vec<String>,
+    /// The name of its space, when it has one.
+    pub space: Option<String>,
 }
 
 /// The list's text, and the line each row starts on, with its worktree's path.
@@ -121,6 +123,9 @@ pub fn row_lines(main: &Path, row: &Row) -> RowText {
     if row.held.unsaved > 0 {
         lines.push(format!("  unsaved buffers: {}", row.held.unsaved));
     }
+    if let Some(space) = &row.space {
+        lines.push(format!("  space: {}", printable(space, MAX_FIELD)));
+    }
     lines.push(format!("  {}", printable(&verdict, MAX_FIELD * 2)));
     RowText {
         path: listed.path.clone(),
@@ -164,10 +169,12 @@ mod tests {
                 merged: Some(merged),
                 ignored: Vec::new(),
                 external: Vec::new(),
+                busy: Vec::new(),
                 gh_pending: None,
             },
             held: Held::default(),
             sessions: Vec::new(),
+            space: None,
         }
     }
 
@@ -205,6 +212,20 @@ mod tests {
             Some(Path::new("/r/.claude/worktrees/b"))
         );
         assert_eq!(row_at(&shown, 0), None);
+    }
+
+    #[test]
+    fn a_row_names_its_space_and_the_busy_sessions_the_job_saw() {
+        let clean = Status::default();
+        let mut with = row("a", clean, Merged::Ancestor("origin/main".into()));
+        with.space = Some("r/a".into());
+        with.looked.busy = vec!["a".into()];
+        let shown = render(Path::new("/r"), &[with], 0);
+        assert!(shown.text.contains("\n  space: r/a\n"), "{}", shown.text);
+        assert!(shown.text.contains("kept: session a in it is busy"));
+        let without = row("b", clean, Merged::Ancestor("origin/main".into()));
+        let shown = render(Path::new("/r"), &[without], 0);
+        assert!(!shown.text.contains("space:"));
     }
 
     #[test]

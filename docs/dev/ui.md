@@ -793,7 +793,7 @@ a switch made with its command stands until that setting changes in the file
 - Starting a session where another one runs asks first: a worktree keeps their changes apart.
 - `M-x worktree-list` shows `*Worktrees*`: each linked worktree with its branch, uncommitted
   and untracked files, whether its branch is merged and how that was found, its sessions and
-  unsaved buffers, and whether it can be removed. `gh` is asked last, only for a branch that was
+  their states, unsaved buffers, its space, and whether it can be removed. `gh` is asked last, only for a branch that was
   pushed and that its remote's main branches do not hold. `g` lists again, and `D` removes the
   one at point.
 - `M-x worktree-remove` removes the worktree of the selected buffer, or of the row at point,
@@ -801,7 +801,8 @@ a switch made with its command stands until that setting changes in the file
   - it is a linked worktree of this repository;
   - it has nothing uncommitted or untracked;
   - no buffer in it is unsaved and no brief for it is unsent;
-  - no session in it is busy;
+  - no session in it is busy: one oso hosts is busy unless its state is idle or done and Claude
+    Code's registry calls it idle;
   - its branch is merged, into a remote's main branch or through a merged pull request that
     `gh` knows of.
 

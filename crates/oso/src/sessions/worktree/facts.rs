@@ -1,7 +1,7 @@
 //! What a worktree job reads of a repository once, for every worktree it looks at (ADR 0121):
 //! the remotes, the remote branches that count as main lines, the local branches whose work
-//! went to a remote, the GitHub repository `gh` is asked about, and the live sessions oso did
-//! not start.
+//! went to a remote, the GitHub repository `gh` is asked about, the live sessions oso did not
+//! start, and which of the sessions oso hosts Claude Code's registry calls idle.
 //!
 //! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; this runs on a worktree
 //! job's thread.
@@ -37,6 +37,9 @@ pub struct RepoFacts {
     /// Live sessions in the registry that oso does not host, by their directory and a name to
     /// show.
     pub external: Vec<(PathBuf, String)>,
+    /// The process ids of the `claude`s oso hosts whose live registry entry's `status` is
+    /// `idle`: the registry's half of check 4.
+    pub hosted_idle: HashSet<u32>,
 }
 
 impl RepoFacts {
@@ -59,12 +62,18 @@ impl RepoFacts {
             let url = repo.remote_url(remote)?;
             Some((remote.clone(), GhRepo::from_url(&url, gh_host)?))
         });
+        let (external, hosted_idle) = registry::directory().map_or_else(Default::default, |dir| {
+            sessions_in_registry(registry::read(&dir), hosted, |entry| {
+                registry::liveness(entry, process::start_time) != registry::Live::No
+            })
+        });
         RepoFacts {
             remotes,
             mains,
             pushed,
             github,
-            external: external(hosted),
+            external,
+            hosted_idle,
         }
     }
 
@@ -126,21 +135,69 @@ fn with_upstream(repo: &Repo) -> Vec<String> {
         .collect()
 }
 
-/// The live sessions in the registry, but those oso hosts, by directory and name, read once.
-fn external(hosted: &[u32]) -> Vec<(PathBuf, String)> {
-    let Some(dir) = registry::directory() else {
-        return Vec::new();
-    };
-    registry::read(&dir)
-        .into_iter()
-        .filter(|entry| !hosted.contains(&entry.pid))
-        .filter(|entry| registry::liveness(entry, process::start_time) != registry::Live::No)
-        .filter_map(|entry| {
-            let name = entry.name.as_deref().map_or_else(
-                || format!("process {}", entry.pid),
-                |name| porcelain::printable(name, 48),
-            );
-            Some((entry.cwd?, name))
-        })
-        .collect()
+/// From the registry's `entries`, read once, those `live` says still run: the sessions oso does
+/// not host, by directory and name, and the process ids of those it hosts (`hosted`) whose
+/// `status` is `idle`.
+fn sessions_in_registry(
+    entries: Vec<registry::Entry>,
+    hosted: &[u32],
+    live: impl Fn(&registry::Entry) -> bool,
+) -> (Vec<(PathBuf, String)>, HashSet<u32>) {
+    let mut external = Vec::new();
+    let mut idle = HashSet::new();
+    for entry in entries.into_iter().filter(|entry| live(entry)) {
+        if hosted.contains(&entry.pid) {
+            if entry.status.as_deref() == Some("idle") {
+                idle.insert(entry.pid);
+            }
+            continue;
+        }
+        let name = entry.name.as_deref().map_or_else(
+            || format!("process {}", entry.pid),
+            |name| porcelain::printable(name, 48),
+        );
+        if let Some(cwd) = entry.cwd {
+            external.push((cwd, name));
+        }
+    }
+    (external, idle)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::sessions_in_registry;
+    use crate::sessions::registry::Entry;
+
+    fn entry(pid: u32, status: &str) -> Entry {
+        Entry {
+            pid,
+            session_id: None,
+            cwd: Some(PathBuf::from(format!("/w/{pid}"))),
+            proc_start: None,
+            started_at: None,
+            name: None,
+            kind: None,
+            status: Some(status.to_owned()),
+        }
+    }
+
+    #[test]
+    fn hosted_processes_give_their_status_and_others_are_external() {
+        let entries = vec![entry(1, "idle"), entry(2, "busy"), entry(3, "idle")];
+        let (external, idle) = sessions_in_registry(entries, &[1, 2], |_| true);
+        assert_eq!(idle.into_iter().collect::<Vec<_>>(), [1]);
+        assert_eq!(external, [(PathBuf::from("/w/3"), "process 3".to_owned())]);
+    }
+
+    #[test]
+    fn an_entry_that_no_longer_runs_says_nothing() {
+        let (external, idle) =
+            sessions_in_registry(vec![entry(1, "idle"), entry(3, "idle")], &[1], |e| {
+                e.pid != 1
+            });
+        assert!(idle.is_empty());
+        assert_eq!(external.len(), 1);
+    }
 }

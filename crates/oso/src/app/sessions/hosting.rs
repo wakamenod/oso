@@ -35,6 +35,9 @@ pub(in crate::app) struct Hosting {
     shared: Option<Begin>,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
     pub(in crate::app) worktrees: super::worktrees::Worktrees,
+    /// The spaces (ADR 0121, Q8): step 4 opens a worktree session's, nested under its
+    /// repository's.
+    pub(in crate::app) spaces: crate::sessions::spaces::Spaces,
 }
 
 /// What a new session starts with.
@@ -64,6 +67,7 @@ impl Hosting {
             parents: HashMap::new(),
             shared: None,
             worktrees: super::worktrees::Worktrees::default(),
+            spaces: crate::sessions::spaces::Spaces::default(),
         }
     }
 }

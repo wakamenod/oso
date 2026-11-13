@@ -11,8 +11,7 @@ use oso_core::project::ProjectId;
 use oso_core::selection::SelectionSet;
 
 use super::super::super::App;
-use super::{LIST, Listing};
-use crate::sessions::hosted::Run;
+use super::{LIST, Listing, hosted_state};
 use crate::sessions::worktree::checks::Looked;
 use crate::sessions::worktree::list::{self, Row, Shown};
 use crate::sessions::worktree::merged::Merged;
@@ -98,6 +97,7 @@ impl App {
         }
         let held = self.held_at(&looked.listed.path);
         let sessions = self.sessions_in(&looked.listed.path);
+        let space = self.space_of(&looked.listed.path);
         let Some(list) = self.hosting.worktrees.list.as_mut() else {
             return;
         };
@@ -105,6 +105,7 @@ impl App {
             looked,
             held,
             sessions,
+            space,
         };
         list.lines.push(list::row_lines(&list.main, &row));
         list.rows.push(row);
@@ -132,7 +133,8 @@ impl App {
         self.show_worktree_rows();
     }
 
-    /// The hosted sessions in `path`, each as `name (state)`.
+    /// The hosted sessions in `path`, each as `name (state)`: `running` while a running
+    /// session's live state is not known.
     pub(super) fn sessions_in(&self, path: &Path) -> Vec<String> {
         self.hosting
             .table
@@ -140,11 +142,8 @@ impl App {
             .iter()
             .filter(|session| session.directory.starts_with(path))
             .map(|session| {
-                let state = match session.run {
-                    Run::Starting | Run::Running { .. } => "running",
-                    Run::Stopped => "stopped",
-                    Run::Failed => "failed",
-                };
+                let state =
+                    hosted_state(session).map_or_else(|| "running".to_owned(), |s| s.to_string());
                 format!("{} ({state})", session.name)
             })
             .collect()
