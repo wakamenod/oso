@@ -781,6 +781,12 @@ a switch made with its command stands until that setting changes in the file
   selected by then. `session-fork` copies the conversation into a
   new session and buffer.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
+- `C-x a a` (`session-adopt`) brings a session started outside oso into oso. It completes over
+  the sessions oso does not host: those Claude Code says run (`runs as process N: stop it there
+  first`), then those that stopped in the last 30 days, newest first, each with its age and
+  directory. A picked one is resumed in a new buffer, `*claude: NAME*`, in the directory it ran
+  in, under the name it had. A live one is refused until it is stopped where it runs, and `y`
+  forks it instead. If it was working when it stopped, the echo area says to ask it to go on.
 - `config.toml`:
 
   ```toml

@@ -655,6 +655,9 @@ The UI thread never blocks on I/O or parsing:
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
   judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
   asks (`Event::Claims`).
+  `session-adopt`'s list of conversations oso does not host is made on a short
+  `oso-session-adopt-list` thread (`sessions/adopt.rs`, `sessions/transcripts.rs`, glue in
+  `app/sessions/hosting/adopt.rs`), and its pick resumes through the same start thread.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

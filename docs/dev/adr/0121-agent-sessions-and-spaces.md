@@ -1042,6 +1042,81 @@ approved these points:
   comes with step 4's worktrees); finding a session's trusted project needs one of its
   buffers open.
 
+## Adopting a session started outside oso, as built
+
+Built on 2026-11-14, after step 3, as a follow-up the author asked for: a person who ran Claude
+Code sessions elsewhere moves them into oso. A live process cannot move between programs, but a
+conversation lives in Claude Code by its id. So oso resumes the same id as a hosted session,
+which gives it a buffer, the record, states, a row in `*Sessions*` and a space. Importing another
+program's layout is not part of it: oso makes its own spaces. The author chose the recommended
+answer to each question (live: refuse and offer a fork; every project's conversations; names
+with Claude Code's own title as a fallback; a baseline of the session's own), and the
+coordinator approved these points:
+
+- **`session-adopt` (`Person`, `C-x a a`)** completes over the conversations oso does not host,
+  `ArgSpec::Listed` over the list `adoptable`, in the order given rather than by history or
+  length:
+  - first, those Claude Code's registry says run, each annotated `runs as process N: stop it there
+    first`;
+  - then those whose transcript changed in the last 30 days, newest first, at most 100, each with
+    its age and directory.
+
+  Completion searches the annotations, so a word of a project or a directory narrows the list.
+  Ids oso hosts, and ids its record holds, are never offered.
+- **Of a transcript** (`$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`,
+  `<slug>/<uuid>.jsonl`, top level only), oso reads the id from the file's name, the time from
+  its change time, a name, and the directory, never what was said (`sessions/transcripts.rs`):
+  - A name is taken only from a line whose bytes start as a title line does
+    (`{"type":"custom-title"`, `{"type":"agent-name"` or `{"type":"ai-title"`), in the first
+    64 KiB and the last 128 KiB. The person's name ranks first, then the agent's, then the title
+    Claude Code made. A message's text can never start a line. This holds while the CLI writes
+    `type` first, as 2.1.32x does. If it stops, names are lost, not misread.
+  - The directory is the top-level `cwd` of the first line in the first 64 KiB that has one. A
+    scanner finds it and skips every other value by its brackets and quotes without decoding it.
+    A conversation with no absolute `cwd` is not listed.
+  - At most 1,024 project directories and 4,096 names. Files are opened without following a link,
+    and only the reading user's. What was read is kept by path, length and change time, so only a
+    changed file is read again.
+- **A name** is the one the registry gave while the conversation ran, as this oso saw it (at most
+  256 kept in memory), then the transcript's, then the directory's name. One that two share, or
+  none, gets the id's first 8 digits. Text from either file is escaped onto one row and cut short
+  before it is shown. The session's own name is cleaned as a typed one is, and is the
+  directory's when nothing of it is left.
+- **The list is made on its own short thread,** `oso-session-adopt-list`, never the sessions
+  worker, whose screen looks must not wait. At most one runs at a time. It is made:
+  - at start, once the record is read;
+  - when an oso window comes to the front, at most every 5 s;
+  - when step 3's poll sees another program's session end;
+  - after each adoption.
+
+  A stale list risks nothing, since the start thread looks at the registry again.
+- **The resume is step 1's.** A new buffer `*claude: NAME*`, a held name, then the start thread
+  with `Kind::Resume`. A live process with the id refuses, naming it and its directory: "stop it
+  there and adopt it again, or fork it instead?". The fork offer now holds the conversation it
+  forks, not a table key, since an adoption's held name goes when it is refused. A registry that
+  cannot tell refuses as for any resume. Two live processes 5 s later give the same warning.
+  - It runs in the transcript's or the registry's directory. The session is placed by the open
+    project that holds that directory, else the directory itself. `claude` is never looked for
+    inside either.
+  - The agent channel turns on, as for `claude`.
+- **The baseline is the session's own.** At a trusted project's root, the start thread takes one
+  as for `claude`, for ready for review, but the project's review does not take it, so what the
+  session changed before oso hosted it stays in the review. Its root is revoked with the
+  project's trust, as every baseline's is.
+- **A turn cut short:** oso cannot tell from a transcript without reading what was said. If this
+  oso last saw the registry say the conversation was busy, the echo area says its last turn may
+  have been cut short and to ask it to go on. Otherwise it says where the session came from.
+- **`oso-core` gained `SessionRequest::Adopt(String)`,** the candidate's text. Nothing else is
+  public. The dispatcher opens the list's prompt with `CompletionStyle::given_order`.
+- **Not verified on the CLI** (no real run was allowed):
+  - that `--resume` takes up a conversation another host first ran headless (`-p`);
+  - that `--name` on a resume renames it;
+  - that a resume finds its transcript only from the directory it ran in, which is why oso
+    resumes there.
+
+  The end-to-end flow checks the command line, the directory and the record with step 1's fake
+  `claude`.
+
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come
@@ -1054,7 +1129,8 @@ approved these points:
   remove a finished worktree without one, but only when every check holds, never with `--force`,
   and never deleting its branch; its ignored files go with it. They cannot type, answer prompts,
   push or delete branches.
-- External sessions are visible but read-only to oso.
+- External sessions are visible but read-only to oso while they run. Once one stops,
+  `session-adopt` can resume it as oso's own.
 - Follow-up: banners when oso is an app bundle; preset layouts; Desktop's coordinator routing;
   Windows (registry paths, named pipes, ConPTY). `open-questions.md`'s M4 items on hooks and on
   which worktree tools join `oso mcp` are answered here, and the roadmap's M4 line follows.

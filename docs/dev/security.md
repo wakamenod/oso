@@ -455,6 +455,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - A resume reads Claude Code's registry first, and refuses while a live process has that id,
     offering a fork. The registry is read on a thread, `<digits>.json` names only, bounded,
     without following links and only the reading user's; oso never reads the `*.key` files.
+  - `session-adopt` (`Person`) lists Claude Code's transcripts, `<uuid>.jsonl` names only, on a
+    thread, bounded, without following links and only the reading user's. Of each it reads only
+    the id, the change time, a name from lines that start as title lines, and the top-level
+    `cwd`, found by a scanner that never decodes another value. It never reads what was said.
+    Names and directories are escaped before they are shown. The resume is a resume, refused
+    while the registry says the conversation runs.
   - A session's `oso mcp` names its session, and is let in without the question only if its
     parent is the `claude` oso started and has not reaped, it runs oso's own program, and no
     other connection holds that session. Such a bridge is outside the channel's cap of 2, one a
