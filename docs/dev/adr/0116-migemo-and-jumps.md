@@ -812,7 +812,9 @@ after review, named the error `JumpActionError`, so that it reads as a jump's be
   cursor`). With one armed, a digit at `M-g f`'s labels is no line number.
 - **The whole line (Q3),** as the author's avy actions take it: from its start through its line
   break. A last line with no break is copied as its text alone, and killed with the break before
-  it, as `kill-whole-line`, so no empty line is left.
+  it, so no empty line is left, where Emacs's `kill-whole-line` leaves one. Such a line has no
+  break of its own, so `Y` and `T` yank it into the line at the cursor: `T` on `last` in
+  `a\nb\nlast`, from the buffer's start, gives `\nlasta\nb`. The author accepted this.
 - **`SPC` (Q7):** `C-SPC`, then the jump: every cursor's mark is set where that cursor is, the
   regions show, and the primary goes to the target, so a region shown before gives way to one
   from the cursor.

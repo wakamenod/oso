@@ -497,3 +497,65 @@ fn t_from_a_buffer_that_may_hold_secrets_is_concealed_and_marks_where_it_goes() 
     );
     assert!(editor.current().1.is_secret(), "the buffer it went into");
 }
+
+/// Shows a region from `mark` to `cursor` in the selected window.
+fn region(editor: &mut Editor, mark: usize, cursor: usize) {
+    let part = Selection {
+        cursor,
+        mark: Some(mark),
+        goal: None,
+    };
+    let selections = &mut editor.current_mut().0.selections;
+    *selections = SelectionSet::from_parts(vec![part], 0).unwrap();
+    selections.set_mark_active(MarkActive::Active);
+}
+
+#[test]
+fn t_replaces_a_region_shown_from_its_own_buffer_and_from_another() {
+    // From the buffer the region is in: the kill hides it, and the yank replaces it anyway.
+    let mut editor = editor("a\nb\nc\nxyz\n");
+    region(&mut editor, 6, 9);
+    assert_eq!(act(&mut editor, 'T', 0), Ok(Chose::Jumped));
+    assert_eq!(text(&editor), "b\nc\na\n\n");
+    // From another buffer.
+    let (mut editor, other, id) = two(Buffer::from_text("b", "x\ny\n"));
+    region(&mut editor, 0, 4);
+    assert!(editor.jump_begin(Kind::LineStart, false));
+    editor.jump_choose('T').unwrap();
+    assert_eq!(choose(&mut editor, 0, Some(other)), Ok(Chose::Jumped));
+    assert_eq!(
+        (text(&editor), text_of(&editor, id)),
+        ("x\n\n".into(), "y\n".into())
+    );
+}
+
+#[test]
+fn k_and_t_in_avy_isearch_end_the_search_then_act() {
+    for key in ['K', 'T'] {
+        let mut editor = editor("foo\nbar foo\n");
+        editor.isearch_begin(false, false);
+        editor.isearch_add("foo");
+        let left = cursors(&editor)[0];
+        assert!(editor.jump_begin(Kind::Isearch, false));
+        assert_eq!(editor.jump_choose(key), Ok(Chose::Armed));
+        assert_eq!(choose(&mut editor, 8, None), Ok(Chose::Jumped), "{key}");
+        assert!(editor.isearch().is_none(), "{key}");
+        let mut expected = String::from("foo\n");
+        if key == 'T' {
+            expected.insert_str(left, "bar foo\n");
+        }
+        assert_eq!(text(&editor), expected, "{key}");
+        assert_eq!(newest(&editor).as_deref(), Some("bar foo\n"), "{key}");
+    }
+}
+
+#[test]
+fn c_inside_a_region_shown_merges_into_it_and_the_primary_stays() {
+    let mut editor = editor("one\ntwo\n");
+    region(&mut editor, 0, 7);
+    assert_eq!(act(&mut editor, 'c', 4), Ok(Chose::Jumped));
+    let set = &editor.window().selections;
+    assert_eq!(set.len(), 1, "merged into the region");
+    assert!(set.mark_active().is_active());
+    assert_eq!((set.primary().mark, set.primary().cursor), (Some(0), 7));
+}

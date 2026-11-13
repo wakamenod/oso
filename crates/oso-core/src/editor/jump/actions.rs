@@ -111,6 +111,9 @@ impl Editor {
             }
         }
         let newest = self.kill_ring().get(0).map(KillEntry::id);
+        // A kill in the selected window's own buffer hides its regions, as any edit does; the
+        // yank after it replaces them all the same, as it does a line from another buffer.
+        let shown = self.windows[self.selected].selections.mark_active();
         // Its own entry, as avy's action follows no kill.
         self.forget_kills();
         self.kill_in(
@@ -122,6 +125,8 @@ impl Editor {
         .map_err(JumpActionError::Edit)?;
         // An empty line's end gives nothing to yank, and an older entry must not go in.
         if action.yanks() && self.kill_ring().get(0).map(KillEntry::id) != newest {
+            let selections = &mut self.windows[self.selected].selections;
+            selections.set_mark_active(shown);
             self.yank(0, true).map_err(JumpActionError::Yank)?;
         }
         Ok(())
@@ -130,8 +135,8 @@ impl Editor {
 
 /// The whole line of `text` at `offset`, from its start through its line break, as the
 /// author's avy actions take it. A last line with no break has only its text, unless `kills`,
-/// when it takes the break before it too, as Emacs's `kill-whole-line` does, so that no empty
-/// line is left.
+/// when it takes the break before it too, so that no empty line is left (where Emacs's
+/// `kill-whole-line` leaves one).
 fn whole_line(text: &Rope, offset: usize, kills: bool) -> Range<usize> {
     let row = text.offset_to_point(offset).row;
     let start = text.line_start(row);
