@@ -13,14 +13,17 @@ use oso_core::menu::{Definition, ForeignKeys, Head, HeadAction, Menus, Stay};
 
 use super::Dispatcher;
 use super::menu_tests::{command, dispatcher, echo, opening, with_menus};
-use super::motion_tests::{at, cursors, send};
+use super::motion_tests::{at, cursors, drain, send};
 use crate::{bindings, commands};
 
 #[test]
 fn a_menus_key_ends_a_search_or_the_rigid_layer_and_opens_but_a_jump_ends_alone() {
     // isearch keeps the match it reached, as any key it does not bind leaves it.
     let (mut d, mut editor) = with_menus("abcabc", 0, ForeignKeys::Warn);
-    send(&mut d, &mut editor, "C-s b C-c m");
+    // `b` is romaji, whose search may go on on the worker past the key's few milliseconds.
+    send(&mut d, &mut editor, "C-s b");
+    drain(&mut editor);
+    send(&mut d, &mut editor, "C-c m");
     assert_eq!(d.menu_name(), Some("test"));
     assert!(editor.isearch().is_none());
     assert_eq!(cursors(&editor), [2]);

@@ -1088,6 +1088,12 @@ mod migemo_dictionary_costs;
 #[cfg(test)]
 mod migemo_dictionary_tests;
 #[cfg(test)]
+mod migemo_lookup_costs;
+#[cfg(test)]
+mod migemo_prompt_costs;
+#[cfg(test)]
+mod migemo_prompt_tests;
+#[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod prompt_tests;

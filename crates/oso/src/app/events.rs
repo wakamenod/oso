@@ -96,6 +96,9 @@ impl App {
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.
         self.start_searches();
+        // A prompt closed outside a command, as an agent's question, may have uncovered a
+        // project's search that looks again with a new dictionary (ADR 0116).
+        self.start_project_search();
         // `!` replaces a slice a turn, an undo of a large step goes on (ADR 0119), and a
         // keyboard macro replays a little (ADR 0113).
         self.run_slices(event_loop);

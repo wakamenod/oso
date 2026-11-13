@@ -22,6 +22,9 @@ pub const MAX_TITLE_BYTES: usize = 1024;
 /// The fewest `─` a row needs to be a rule, the line the TUI draws above and below its prompt.
 const MIN_RULE_CHARS: usize = 3;
 
+/// The longest session name a rule's label holds.
+const MAX_LABEL_CHARS: usize = 128;
+
 /// The terminal's OSC 9;4 progress: its state (0 cleared, 1 a value, 2 error, 3 under way, 4
 /// paused) and the value, if any, from 0 to 100.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,11 +173,33 @@ impl Evidence {
     }
 }
 
-/// Whether `row` is a rule: `─` alone, at least [`MIN_RULE_CHARS`] of them. A dialog's dashed
-/// `╌` lines and a box's corners are not.
+/// Whether `row` is a rule: at least [`MIN_RULE_CHARS`] of `─`, then nothing, or a label and
+/// one to three `─`: the TUI writes a session's `--name` at the right end of the prompt box's
+/// top rule, `──── api-fix ─`. A dialog's dashed `╌` lines and a box's corners are not.
 fn is_rule(row: &str) -> bool {
     let row = row.trim();
-    row.chars().all(|c| c == '─') && row.chars().nth(MIN_RULE_CHARS - 1).is_some()
+    let lead = row.chars().take_while(|&c| c == '─').count();
+    if lead < MIN_RULE_CHARS {
+        return false;
+    }
+    let rest = &row[lead * '─'.len_utf8()..];
+    rest.is_empty() || is_label(rest)
+}
+
+/// Whether `rest`, what follows a rule's run of `─`, is ` NAME ─`: a name of at most
+/// [`MAX_LABEL_CHARS`] characters with no `─` in it, and one to three `─` after it.
+fn is_label(rest: &str) -> bool {
+    let Some(rest) = rest.strip_prefix(' ') else {
+        return false;
+    };
+    let tail = rest.chars().rev().take_while(|&c| c == '─').count();
+    let label = rest[..rest.len() - tail * '─'.len_utf8()].strip_suffix(' ');
+    (1..=3).contains(&tail)
+        && label.is_some_and(|label| {
+            !label.trim().is_empty()
+                && !label.contains('─')
+                && label.chars().nth(MAX_LABEL_CHARS).is_none()
+        })
 }
 
 /// `text` cut at `max` bytes on a character's boundary, with control characters as spaces and
@@ -245,7 +270,34 @@ impl fmt::Display for Region {
 
 #[cfg(test)]
 mod tests {
-    use super::{Evidence, MAX_ROW_BYTES, MAX_ROWS, Progress, Region};
+    use super::{Evidence, MAX_ROW_BYTES, MAX_ROWS, Progress, Region, is_rule};
+
+    #[test]
+    fn a_rule_may_end_with_the_sessions_name() {
+        for row in [
+            "───",
+            "  ──────  ",
+            "────── api-fix ─",
+            "──── my session ───",
+        ] {
+            assert!(is_rule(row), "{row:?}");
+        }
+        let long = format!("──── {} ─", "n".repeat(129));
+        for row in [
+            "──",
+            "──── ─",
+            "────api ─",
+            "──── api",
+            "──── api ────",
+            "──── a─b ─",
+            "╌╌╌╌╌╌",
+            "╭────╮",
+            "──── ok ─ more",
+            &long,
+        ] {
+            assert!(!is_rule(row), "{row:?}");
+        }
+    }
 
     const IDLE: &str = "\
  Claude Code
