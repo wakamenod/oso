@@ -240,6 +240,27 @@ fn a_project_is_searched_as_it_is_walked_and_a_files_rows_come_in_order() {
     assert!(!cut);
 }
 
+#[test]
+fn a_romaji_component_finds_its_kana_on_the_search_threads() {
+    let scratch = Scratch::new("migemo");
+    scratch.file("a.md", "# かんじ\nkanji\nother\n");
+    scratch.file("b.md", "カンジの話\n");
+    let mut harness = Harness::new();
+    harness.search(&scratch.0, "kanji", 1, None);
+    let (rows, _) = harness.rows(1);
+    assert_eq!(
+        rows,
+        [
+            "a.md:1:2: # かんじ",
+            "a.md:2:0: kanji",
+            "b.md:1:0: カンジの話"
+        ]
+    );
+    // `=` keeps it literal.
+    harness.search(&scratch.0, "=kanji", 2, None);
+    assert_eq!(harness.rows(2).0, ["a.md:2:0: kanji"]);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_link_is_not_searched_and_a_secret_files_rows_carry_no_text() {

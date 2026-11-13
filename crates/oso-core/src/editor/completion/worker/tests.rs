@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::complete::{Name, NameKind};
 use crate::editor::edit_tests::edit;
 use crate::editor::{Editor, Looked};
+use crate::migemo::Dictionary;
 
 /// A listing of `count` files, `file-0000.txt` and on.
 fn files(count: usize) -> Option<Arc<[Name]>> {
@@ -309,6 +310,28 @@ fn a_list_replaced_or_closed_is_freed_by_a_job_of_its_own() {
         .take_completion_job()
         .expect("the list goes on the worker");
     assert!(job.frees_only());
+}
+
+#[test]
+fn a_job_dropped_before_the_host_took_it_is_freed_on_the_worker() {
+    let mut editor = prompt(6000);
+    work(&mut editor);
+    let old = Arc::new(Dictionary::new("か\t蚊\n".to_owned()));
+    let kept = Arc::downgrade(&old);
+    editor.set_migemo_dictionary(Some(old));
+    typing(&mut editor, "%ka");
+    // Once another is given, the job for `%ka` holds the last copy, and the next key drops it.
+    editor.set_migemo_dictionary(Some(Arc::new(Dictionary::new("き\t木\n".to_owned()))));
+    typing(&mut editor, "a");
+    assert!(
+        kept.upgrade().is_some(),
+        "the dropped job is not freed here"
+    );
+    let jobs: Vec<_> = std::iter::from_fn(|| editor.take_completion_job()).collect();
+    // The new match first, so it waits for no drop.
+    assert!(!jobs[0].frees_only() && jobs[1].frees_only());
+    jobs.into_iter().for_each(|job| drop(job.run()));
+    assert!(kept.upgrade().is_none());
 }
 
 #[test]

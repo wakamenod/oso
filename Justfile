@@ -39,6 +39,53 @@ build:
 release:
     cargo build --locked --workspace --release
 
+# The copy is renamed into place, so a running oso keeps the binary it started with
+# (docs/user/daily-use.md). Shell profiles are left alone.
+# Build the release binary as `just release` does and install it in `dir`, by default ~/.local/bin
+install dir="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        Darwin|Linux) ;;
+        *) echo "error: just install supports macOS and Linux only, for now"; exit 1;;
+    esac
+    dir="{{dir}}"
+    dir="${dir:-$HOME/.local/bin}"
+    # The tarballs and the Zig that oso-term's build script needs (ADR 0120); it says the same,
+    # but only after a long build.
+    lock=crates/oso-term/ghostty-vt.lock
+    field() { awk -v k="$1" '$1 == k { print $2 }' "$lock"; }
+    version=$(field version)
+    tarballs="${OSO_GHOSTTY_VT_DIR:-${OSO_VENDOR_DIR:-$HOME/.cache/oso/vendor}/libghostty-vt-$version}"
+    for name in $(awk '$1 == "source" || $1 == "deps" { print $2 }' "$lock"); do
+        [ -f "$tarballs/$name" ] || {
+            echo "error: $tarballs/$name is missing: run \`just ghostty-vt\` first"; exit 1;
+        }
+    done
+    zig="${ZIG:-zig}"
+    command -v "$zig" >/dev/null || {
+        echo "error: needs Zig $(field zig) on PATH, or set ZIG (ADR 0120)"; exit 1;
+    }
+    bin=$(cargo build --locked --workspace --release --message-format=json-render-diagnostics \
+        | sed -n 's|.*"executable":"\([^"]*/oso\)".*|\1|p' | tail -n 1)
+    [ -f "$bin" ] || { echo "error: cargo reported no oso binary"; exit 1; }
+    mkdir -p "$dir"
+    dir=$(cd "$dir" && pwd)
+    [ ! -d "$dir/oso" ] || { echo "error: $dir/oso is a directory"; exit 1; }
+    tmp=$(mktemp "$dir/.oso.install.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    cp "$bin" "$tmp"
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$dir/oso"
+    trap - EXIT
+    commit=$(git describe --always --dirty 2>/dev/null || echo unknown)
+    crate=$(cargo pkgid --locked -p oso | sed 's/.*[#@]//')
+    echo "installed oso $crate ($commit) at $dir/oso"
+    case ":$PATH:" in
+        *":$dir:"*) ;;
+        *) echo "note: $dir is not on PATH; add it there, or run $dir/oso";;
+    esac
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Run
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

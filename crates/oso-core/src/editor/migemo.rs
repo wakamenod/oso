@@ -1,4 +1,5 @@
-//! Migemo on the editor (ADR 0116), for isearch and jumps: the `[search] migemo` setting,
+//! Migemo on the editor (ADR 0116), for isearch and jumps, and the dictionary for a project's
+//! search and completion: the `[search] migemo` setting,
 //! the dictionary the host read, what a string looks for, migemo's needle or the literal
 //! string, and the needles of the last romaji strings, so `DEL`, a repeat and `C-s C-s`
 //! compile no pattern again.
@@ -20,7 +21,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::Editor;
-use crate::migemo::{self, Dictionary};
+use crate::migemo::{self, Dictionary, Table};
 use crate::search::{self, Needle, Query};
 
 /// How many strings' needles the cache keeps.
@@ -34,6 +35,9 @@ pub(super) struct Migemo {
     cache: VecDeque<Entry>,
     /// The dictionary the host gave, if any.
     dictionary: Option<Arc<Dictionary>>,
+    /// How many times the host gave or took a dictionary: what tells the tables apart for
+    /// the queries that keep no table.
+    generation: u64,
     /// Whether migemo's needle was asked for with no dictionary since the host last looked,
     /// not around a buffer that may hold secrets.
     wanted: bool,
@@ -88,6 +92,7 @@ impl Default for Migemo {
             starts_on: true,
             cache: VecDeque::new(),
             dictionary: None,
+            generation: 0,
             wanted: false,
         }
     }
@@ -161,6 +166,22 @@ impl Migemo {
         Some(needle)
     }
 
+    /// The dictionary the host gave, if any, with its generation, for project search and
+    /// completion, which compile their own patterns.
+    pub(super) fn table(&self) -> Option<Table> {
+        let dictionary = Arc::clone(self.dictionary.as_ref()?);
+        Some(Table {
+            generation: self.generation,
+            dictionary,
+        })
+    }
+
+    /// Says a search compiled migemo's pattern with no dictionary, so the host reads the one
+    /// the person named, unless `cache` says it was around a buffer that may hold secrets.
+    pub(super) fn wanted_without(&mut self, cache: Cache) {
+        self.wanted |= self.dictionary.is_none() && cache == Cache::Keep;
+    }
+
     /// How many strings' needles it keeps.
     #[cfg(test)]
     pub(super) fn cached(&self) -> usize {
@@ -176,13 +197,17 @@ impl Editor {
     }
 
     /// Gives migemo the dictionary the person named, or takes it away with `None`
-    /// (ADR 0116). The needles kept are dropped, and a search on screen, or a jump still
-    /// reading its string, looks again with it.
+    /// (ADR 0116). The needles kept are dropped, and a search on screen, a jump still
+    /// reading its string, a project's search and a completion with a migemo component look
+    /// again with it.
     pub fn set_migemo_dictionary(&mut self, dictionary: Option<Arc<Dictionary>>) {
         self.migemo.dictionary = dictionary;
+        self.migemo.generation += 1;
         self.migemo.cache.clear();
         self.isearch_look_again();
         self.jump_look_again();
+        self.project_search_look_again();
+        self.completion_look_again();
     }
 
     /// Whether a search asked for migemo's needle with no dictionary since the last call, so
