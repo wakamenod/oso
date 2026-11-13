@@ -27,6 +27,8 @@ pub use dictionary::{
     Dictionary, MAX_BYTES, MAX_ENTRIES, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS,
     MAX_WORDS_A_READING,
 };
+#[cfg(test)]
+pub(crate) use dictionary::{MAX_PATTERN_WORD_BYTES, word_cost};
 use trie::{Key, Trie};
 
 /// The most characters of a string that has a pattern. Its pattern then compiles in under a

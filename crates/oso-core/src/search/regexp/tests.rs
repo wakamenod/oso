@@ -387,6 +387,21 @@ fn the_largest_migemo_patterns_with_words_give_a_needle_on_a_key() {
 }
 
 #[test]
+fn words_past_their_size_limit_are_dropped_for_the_kana() {
+    let dictionary = migemo::Dictionary::new("かんじ\t漢字\n".to_owned());
+    let needle =
+        |limit: usize| match Needle::migemo_within("kanji", false, Some(&dictionary), limit) {
+            Some(Needle::Regexp(regexp)) => regexp,
+            _ => panic!("kanji gives a needle"),
+        };
+    let within = needle(super::WORDS_SIZE_LIMIT);
+    assert!(within.regex.is_match("漢字"));
+    let past = needle(1);
+    assert!(!past.regex.is_match("漢字"));
+    assert!(past.regex.is_match("かんじ"));
+}
+
+#[test]
 fn regexp_syntax_in_a_word_is_matched_as_it_is() {
     let dictionary = migemo::Dictionary::new("か\t.*\nか\ta|b\nか\t(?i)X\nか\t[^x]\n".to_owned());
     let Some(Needle::Regexp(regexp)) = Needle::migemo("ka", true, Some(&dictionary)) else {
@@ -404,10 +419,11 @@ fn regexp_syntax_in_a_word_is_matched_as_it_is() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    /// Whatever a dictionary holds, romaji that gives kana has a needle, which finds its kana.
+    /// Whatever a dictionary holds, letters with a case among it, romaji that gives kana has a
+    /// needle.
     #[test]
     fn any_dictionary_gives_romaji_a_needle(
-        text in "[ぁ-ゖa-z\t /;\\n()\\\\.*|?+{}\\[\\]^$漢]{0,2000}",
+        text in "[ぁ-ゖa-zA-Z\t /;\\n()\\\\.*|?+{}\\[\\]^$漢\u{212a}ſǅßΣσςЖж]{0,2000}",
         string in "[a-z]{1,6}",
     ) {
         let dictionary = migemo::Dictionary::new(text);

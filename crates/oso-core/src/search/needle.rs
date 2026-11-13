@@ -47,11 +47,20 @@ impl Needle {
         case_sensitive: bool,
         dictionary: Option<&Dictionary>,
     ) -> Option<Self> {
+        Self::migemo_within(string, case_sensitive, dictionary, regexp::WORDS_SIZE_LIMIT)
+    }
+
+    /// [`Self::migemo`], its words compiled within `limit`.
+    pub(super) fn migemo_within(
+        string: &str,
+        case_sensitive: bool,
+        dictionary: Option<&Dictionary>,
+        limit: usize,
+    ) -> Option<Self> {
         let romaji = Romaji::new(string)?;
         let words = dictionary.map(|dictionary| dictionary.pattern_words(&romaji));
         if let Some(words) = words.filter(|words| !words.is_empty()) {
             let pattern = romaji.pattern(string, &words);
-            let limit = regexp::WORDS_SIZE_LIMIT;
             if let Some(regexp) = regexp::compile_migemo(&pattern, !case_sensitive, limit) {
                 return Some(Self::Regexp(regexp));
             }

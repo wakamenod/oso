@@ -6,8 +6,8 @@
 use proptest::prelude::*;
 
 use super::{
-    Dictionary, MAX_BYTES, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS, MAX_PREFIX_ENTRIES,
-    MAX_READING, MAX_WORD, MAX_WORDS_A_READING,
+    Dictionary, Entry, MAX_BYTES, MAX_ENTRIES, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS,
+    MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS, MAX_WORDS_A_READING, Span, word_cost,
 };
 use crate::migemo::Romaji;
 
@@ -174,7 +174,7 @@ fn many(prefix: &str, count: usize, words: usize) -> String {
     for n in 0..count {
         let (a, b, c) = (n % 86, n / 86 % 86, n / 86 / 86);
         let reading: String = [kana[c], kana[b], kana[a]].iter().collect();
-        let words: Vec<String> = (0..words).map(|word| format!("w{n}.{word}")).collect();
+        let words: Vec<String> = (0..words).map(|word| format!("_{n}.{word}")).collect();
         text.push_str(&format!("{prefix}{reading}\t{}\n", words.join("\t")));
     }
     text
@@ -208,7 +208,7 @@ fn a_pattern_takes_at_most_its_limit_of_words_the_exact_and_shorter_first() {
     assert_eq!(words.len(), MAX_PATTERN_WORDS);
     assert_eq!(words[0], "愛");
     assert_eq!(words[1..11], shorter);
-    assert!(words[11..].iter().all(|word| word.starts_with('w')));
+    assert!(words[11..].iter().all(|word| word.starts_with('_')));
 }
 
 #[test]
@@ -225,9 +225,32 @@ fn a_pattern_takes_at_most_its_limit_of_words_bytes() {
     let dictionary = Dictionary::new(text);
     let romaji = Romaji::new("ai").unwrap();
     let words = dictionary.pattern_words(&romaji);
-    let bytes: usize = words.iter().map(|word| word.len()).sum();
-    assert!(bytes <= MAX_PATTERN_WORD_BYTES, "{bytes}");
-    assert!(bytes > MAX_PATTERN_WORD_BYTES - 64, "{bytes}");
+    let cost: usize = words.iter().map(|word| word_cost(word)).sum();
+    assert!(cost <= MAX_PATTERN_WORD_BYTES, "{cost}");
+    assert!(cost > MAX_PATTERN_WORD_BYTES - 4 * MAX_WORD, "{cost}");
+}
+
+#[test]
+fn a_letter_with_a_case_counts_four_times_its_bytes() {
+    assert_eq!(word_cost("漢字"), 6);
+    assert_eq!(word_cost("(株)1"), 6);
+    assert_eq!(word_cost("ab"), 8);
+    // Greek, Cyrillic, the Kelvin sign, long s, a titlecase letter and sharp s.
+    for letter in ["σ", "Ж", "\u{212a}", "ſ", "ǅ", "ß"] {
+        assert_eq!(word_cost(letter), 4 * letter.len(), "{letter}");
+    }
+    // Letters with a case take a quarter of the bytes of those without.
+    let dictionary = |word: &str| {
+        let mut text = String::new();
+        for n in 0..2048 {
+            text.push_str(&format!("か{}\t{word}{n:04}\n", hiragana(n)));
+        }
+        Dictionary::new(text)
+    };
+    let romaji = Romaji::new("ka").unwrap();
+    let kanji = dictionary(&"漢".repeat(20)).pattern_words(&romaji).len();
+    let latin = dictionary(&"x".repeat(60)).pattern_words(&romaji).len();
+    assert!(latin * 3 < kanji, "{latin} {kanji}");
 }
 
 /// Three hiragana for `n`, a reading of its own.
@@ -266,6 +289,67 @@ fn many_splits_of_either_kana_give_none_past_the_limit() {
 }
 
 #[test]
+fn an_skk_okuri_block_and_blank_words_are_left_out() {
+    let text = "あいs /愛/[す/愛/]/[し/哀/]/\nか / /蚊/\nき\t \t木\n";
+    let dictionary = Dictionary::new(text.to_owned());
+    assert_eq!(
+        table(&dictionary),
+        [
+            entry("あい", &["愛"]),
+            entry("か", &["蚊"]),
+            entry("き", &["木"])
+        ]
+    );
+    assert_eq!(dictionary.skipped(), 8);
+}
+
+#[test]
+fn a_table_keeps_each_word_once_after_readings_are_made_one() {
+    let dictionary = Dictionary::new("あ\ta\nい\ti\nあ\tb\nあ\tc\n".to_owned());
+    assert_eq!(
+        table(&dictionary),
+        [entry("あ", &["a", "b", "c"]), entry("い", &["i"])]
+    );
+    assert_eq!(dictionary.words.len(), 4);
+}
+
+#[test]
+fn an_entry_takes_16_bytes_and_a_word_8() {
+    assert_eq!(size_of::<Entry>(), 16);
+    assert_eq!(size_of::<Span>(), 8);
+}
+
+#[test]
+fn reads_at_most_its_limit_of_entries() {
+    let text = "あ\tw\n".repeat(MAX_ENTRIES + 1);
+    let dictionary = Dictionary::new(text);
+    assert_eq!(
+        (dictionary.readings(), dictionary.words()),
+        (1, MAX_WORDS_A_READING)
+    );
+    // The line past the limit, and the words past one reading's.
+    let past = 1 + MAX_ENTRIES - MAX_WORDS_A_READING;
+    assert_eq!(dictionary.skipped(), past);
+}
+
+#[test]
+fn reads_at_most_its_limit_of_words() {
+    let lines = MAX_WORDS / MAX_WORDS_A_READING;
+    let words = vec!["w"; MAX_WORDS_A_READING].join("\t");
+    let mut text = String::with_capacity((lines + 1) * (words.len() + 11));
+    for n in 0..=lines {
+        text.push_str(&format!("{}\t{words}\n", hiragana(n)));
+    }
+    let dictionary = Dictionary::new(text);
+    assert_eq!(
+        (dictionary.readings(), dictionary.words()),
+        (lines, MAX_WORDS)
+    );
+    // Every word of the last line, and the line.
+    assert_eq!(dictionary.skipped(), MAX_WORDS_A_READING + 1);
+}
+
+#[test]
 fn debug_prints_only_counts() {
     let dictionary = Dictionary::new("ひみつ\t秘密\n".to_owned());
     let printed = format!("{dictionary:?}");
@@ -288,5 +372,27 @@ proptest! {
         }
         let readings: Vec<String> = table(&dictionary).into_iter().map(|(r, _)| r).collect();
         prop_assert!(readings.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    /// Whatever a dictionary holds, letters with a case among it, a pattern's words keep
+    /// within their limits.
+    #[test]
+    fn any_patterns_words_keep_within_their_limits(
+        words in prop::collection::vec("[a-zA-Z漢\u{212a}ſǅßσЖ]{1,16}", 1..64),
+        readings in 1usize..600,
+        string in "[a-z]{1,4}",
+    ) {
+        let mut text = String::new();
+        for n in 0..readings {
+            text.push_str(&format!("{}\t{}\n", hiragana(n), words.join("\t")));
+        }
+        let dictionary = Dictionary::new(text);
+        let Some(romaji) = Romaji::new(&string) else {
+            return Ok(());
+        };
+        let given = dictionary.pattern_words(&romaji);
+        let cost: usize = given.iter().map(|word| word_cost(word)).sum();
+        prop_assert!(given.len() <= MAX_PATTERN_WORDS);
+        prop_assert!(cost <= MAX_PATTERN_WORD_BYTES, "{cost}");
     }
 }

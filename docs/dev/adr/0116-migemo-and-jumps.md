@@ -640,12 +640,14 @@ coordinator; the notes below are those choices as built.
   `MAX_PREFIX_ENTRIES`; the romaji, the forms and the pattern stay private to the crate until
   step 4. The editor gains `Editor::set_migemo_dictionary` and
   `Editor::take_migemo_dictionary_wanted`. Nothing in `guardrails/layers.txt` changes.
-- **The setting.** `[search] migemo-dictionary` takes a path, absolute or starting with `~/`, of
-  at most 4096 bytes, and not one starting with `\\` or `//`, a share on another computer or a
-  Windows device; anything else is a problem the file reports, and the setting is left out.
-  Parsing looks at nothing on disk. `~/` is the home directory when the file is read, if that
-  is absolute: else `*Messages*` says the file was not read, so an empty `HOME` never names a
-  file in the directory oso started in.
+- **The setting.** `[search] migemo-dictionary` takes a path, absolute or `~/` and a relative
+  one, of at most 4096 bytes, and not one starting with `\\` or `//`, a share on another
+  computer or a Windows device; `~/` and a path from a root (`~//srv`, `~/\\srv`, `~/C:`)
+  would replace the home directory, so it is refused too. Anything else is a problem the file
+  reports, and the setting is left out. Parsing looks at nothing on disk. `~/` is the home
+  directory when the file is read, if that is absolute: else `*Messages*` says the file was not
+  read, so an empty `HOME` never names a file in the directory oso started in. The path the
+  home directory makes is judged again, and one on another computer is not read either.
 - **Reading it.** The editor says when a search, isearch's or a jump's, built or took migemo's
   needle with no dictionary, but not around a buffer that may hold secrets, where the table's
   coming would say what was typed; before the event loop waits, the app then sends the file to the
@@ -666,30 +668,36 @@ coordinator; the notes below are those choices as built.
   restart does not carry the table: the next search reads it again.
 - **The formats (Q3, Q4).** Each line by its shape: a tab makes it `migemo-dict`'s, and
   ` /` with a final `/` SKK's. A byte-order mark, `\r\n` and `;` comments are taken; an SKK
-  word's `;annotation` is cut, a Lisp word (`(` and a lowercase letter, to a `)`) is left out,
-  `(株)` stays, and okurigana (`かk`) drops its letter in SKK's lines only. A reading is 1 to
+  word's `;annotation` is cut, a Lisp word (`(` and a lowercase letter, to a `)`) and an
+  okuri-ari block (`[す/愛/]`) are left out, `(株)` stays, and okurigana (`かk`) drops its
+  letter in SKK's lines only; a word of only white space is left out in either format. A reading is 1 to
   64 characters of hiragana, `ー` and `ゔ`, and a word 1 to 64 bytes with no control character;
   a reading keeps at most 256 words over every line that gives it, and a dictionary at most
   2^20 readings and 2^22 words. What is left out is counted (`Dictionary::skipped`).
 - **The table** is the file's text itself, the entries' and words' ranges into it, 16 bytes a
   reading and 8 a word, sorted by reading, each reading once: at most 64 MiB of text, 16 MiB
-  of entries and 32 MiB of words. The author's `migemo-dict` (C/Migemo's, 5 MB) gives 137,025
-  readings and 190,761 words, with 26,244 lines and words left out, nearly all readings in
-  ASCII, built in 14 ms.
+  of entries and 32 MiB of words. While it is built, the words of a reading several lines give
+  are copied together, up to 32 MiB more, and then kept once. The author's `migemo-dict`
+  (C/Migemo's, 5 MB) gives 137,025 readings and 190,759 words, with 26,246 lines and words
+  left out, nearly all readings in ASCII, built in 14 ms.
 - **The words a string's kana give (Q2, Q3).** The table is narrowed by binary search a kana
   at a time; either of two kana (`ず` or `づ`) splits a range, and more than 2048 live ranges
   give no words. An unfinished end's spellings are looked for as the last step, one that
   another starts (`きゃ` after `き`) once. While at most 2048 readings start with the kana and
   an end, their words go in; past that, those of the readings that are the kana and an end
   exactly, none for a string that is only an unfinished end (`k`). At most 4096 words and
-  32 KiB of them a pattern, about twice the largest the author's dictionary gives (the author's
-  choice of 2026-11-13, so a pattern compiles within a key whatever a file holds): the exact
-  readings' first, then the shorter readings', then the table's order.
+  32 KiB of them a pattern, a letter with a case counting four times its bytes, as a search
+  that ignores case compiles it as a class of every letter it folds to: about twice what the
+  largest pattern the author's dictionary gives costs (the author's choice of 2026-11-13, so
+  a pattern of any file's words compiles in about the time of that largest one). The exact
+  readings' come first, then the shorter readings', then the table's order.
 - **Compiling.** The words go into the kana's trie in order, so each is added after its node's
   last child, every character through `regex::escape`, which changes only ASCII, so the rest
-  goes as it is with nothing allocated. The pattern compiles with
-  a size limit of 4 MiB and the nest limit of 32; past either, the pattern drops its words and
-  compiles the kana alone within step 2's 256 KiB, so the kana's largest patterns keep their
+  goes as it is with nothing allocated. The pattern compiles with a size limit of 4 MiB and
+  the nest limit of 32; past either, the pattern drops its words and compiles the kana alone
+  within step 2's 256 KiB (`words_past_their_size_limit_are_dropped_for_the_kana`). One word
+  that nests too deep drops all of them, which no common dictionary does. So the kana's
+  largest patterns keep their
   bound (`the_largest_migemo_patterns_compile_on_a_key`), and a dictionary at every limit still
   gives a needle on a key (`the_largest_migemo_patterns_with_words_give_a_needle_on_a_key`).
 - **Q7's 2 ms,** measured by the ignored tests in `editor/migemo_dictionary_costs.rs` over the
@@ -697,7 +705,8 @@ coordinator; the notes below are those choices as built.
   common words and every string of one to three letters that gives kana, 5,619 strings built
   three times each, uncached. Building and compiling a needle takes 0.071 ms p50, 1.35 ms p99
   and at most 2.3 ms; 19 of 16,857 builds pass 2 ms, each of a pattern of about 2,700 words.
-  The largest pattern, of 2,973 words, is 17 KB, and none drops its words. Looking up the
+  The largest pattern, of 2,972 words, is 17 KB, and none drops its words, nor loses any to
+  the 32 KiB, which the heaviest pattern fills to 80%. Looking up the
   words takes at most 0.1 ms and writing the pattern 0.3 ms; the rest is the compile. So the
   build stays on the key.
 - **A key's cost.** An isearch key over 20 MB of short Japanese lines, its highlights with it,

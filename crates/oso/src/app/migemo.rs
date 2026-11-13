@@ -21,7 +21,7 @@
 //!   old table on the freeing thread.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -58,6 +58,8 @@ enum Named {
     File(PathBuf),
     /// A path from `~/`, with no absolute home directory known.
     NoHome,
+    /// A path from `~/` that the home directory makes one on another computer or a device.
+    Elsewhere,
 }
 
 /// What the app is to do after the reader took something in.
@@ -88,7 +90,8 @@ pub(super) struct MigemoReader {
 }
 
 /// What `written`, as `[search] migemo-dictionary` holds it, names, with `~/` taken as `home`
-/// if that is absolute. The setting itself is an absolute path or one from `~/`.
+/// if that is absolute. The setting itself is an absolute path, or `~/` and a relative one,
+/// and not one on another computer; the path `home` makes is judged again.
 fn named(written: &str, home: Option<&Path>) -> Named {
     let file = match written.strip_prefix("~/") {
         Some(rest) => match home.filter(|home| home.is_absolute()) {
@@ -97,11 +100,24 @@ fn named(written: &str, home: Option<&Path>) -> Named {
         },
         None => PathBuf::from(written),
     };
-    if file.is_absolute() {
+    if elsewhere(&file) {
+        Named::Elsewhere
+    } else if file.is_absolute() {
         Named::File(file)
     } else {
         Named::NoHome
     }
+}
+
+/// Whether `file` is on another computer or a Windows device: it starts with `//` or `\\`,
+/// or with a prefix other than a drive's.
+fn elsewhere(file: &Path) -> bool {
+    let text = file.as_os_str().to_string_lossy();
+    let prefix = match file.components().next() {
+        Some(Component::Prefix(prefix)) => !matches!(prefix.kind(), Prefix::Disk(_)),
+        _ => false,
+    };
+    text.starts_with("//") || text.starts_with("\\\\") || prefix
 }
 
 /// Reads `file` and builds its table, on the thread.
@@ -137,6 +153,14 @@ impl MigemoReader {
                 self.stage = Stage::Failed;
                 effects.notes.push(
                     "Migemo dictionary not read: no absolute home directory is known for ~/"
+                        .to_owned(),
+                );
+                self.drop_held(&mut effects);
+            }
+            Some(Named::Elsewhere) => {
+                self.stage = Stage::Failed;
+                effects.notes.push(
+                    "Migemo dictionary not read: the home directory puts it on another computer"
                         .to_owned(),
                 );
                 self.drop_held(&mut effects);

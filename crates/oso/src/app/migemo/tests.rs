@@ -160,6 +160,25 @@ fn a_path_from_home_needs_an_absolute_home() {
         "/usr/share/dict"
     };
     assert_eq!(named(absolute, Some(home)), file(absolute));
+    // A home directory on another computer puts the file there too.
+    // `\\server` is no absolute home on Unix, so no home at all there.
+    let shares: &[&str] = if cfg!(windows) {
+        &["//server/home", r"\\server\home"]
+    } else {
+        &["//server/home"]
+    };
+    for share in shares {
+        assert_eq!(
+            named("~/dict", Some(Path::new(share))),
+            Named::Elsewhere,
+            "{share}"
+        );
+    }
+    let effects = MigemoReader::default().configure(Some(Named::Elsewhere));
+    assert_eq!(
+        effects.notes,
+        ["Migemo dictionary not read: the home directory puts it on another computer"]
+    );
     let mut reader = MigemoReader::default();
     let effects = reader.configure(Some(Named::NoHome));
     assert_eq!(

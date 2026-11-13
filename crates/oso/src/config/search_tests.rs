@@ -18,6 +18,7 @@ fn a_migemo_dictionary_is_a_path_absolute_or_from_home() {
     // Absolute on every system, so only its length is wrong.
     let long = format!("{absolute}/{}", "d".repeat(MAX_DICTIONARY_PATH));
     let elsewhere = r"takes a path on this computer, not one starting with \\ or //";
+    let rooted = "takes ~/ and a relative path, not ~/ and one from a root";
     for (path, said) in [
         ("~/dict", None),
         (absolute, None),
@@ -32,6 +33,11 @@ fn a_migemo_dictionary_is_a_path_absolute_or_from_home() {
         (long.as_str(), Some("takes a path of at most 4096 bytes")),
         ("~/a\\u0000b", Some("takes a path with no NUL character")),
         ("//server/share/dict", Some(elsewhere)),
+        (r"\\\\server\\share\\dict", Some(elsewhere)),
+        // Joined to the home directory, a rooted path would replace it.
+        ("~///server/share/dict", Some(rooted)),
+        ("~//usr/share/dict", Some(rooted)),
+        (r"~/\\\\server\\share\\dict", Some(rooted)),
     ] {
         let loaded = f.parse(&format!("[search]\nmigemo-dictionary = \"{path}\"\n"));
         let settings = &loaded.settings.search;
@@ -46,6 +52,11 @@ fn a_migemo_dictionary_is_a_path_absolute_or_from_home() {
                 assert_eq!(settings.migemo_dictionary, None);
             }
         }
+    }
+    if cfg!(windows) {
+        let loaded = f.parse("[search]\nmigemo-dictionary = \"~/C:/dict\"\n");
+        let expected = format!("2:21: [search] migemo-dictionary {rooted}");
+        assert_eq!(messages(&loaded), [expected]);
     }
     let loaded = f.parse("[search]\nmigemo-dictionary = 1\n");
     assert_eq!(

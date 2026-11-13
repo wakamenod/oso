@@ -16,7 +16,7 @@ use super::Editor;
 use crate::buffer::Buffer;
 use crate::frame::Way;
 use crate::jump::Kind;
-use crate::migemo::{Dictionary, Romaji};
+use crate::migemo::{Dictionary, MAX_PATTERN_WORD_BYTES, Romaji, word_cost};
 use crate::search::Needle;
 use crate::window::ViewSize;
 
@@ -258,12 +258,14 @@ fn migemo_dictionary_needle_costs() {
     let (mut lookups, mut patterns, mut needles) = (Vec::new(), Vec::new(), Vec::new());
     let mut slowest: Vec<(f64, usize, usize, bool)> = Vec::new();
     let mut fell_back = 0;
+    let mut most_cost = 0;
     for string in &strings {
         let romaji = Romaji::new(string).expect("romaji");
         for _ in 0..3 {
             let started = Instant::now();
             let words = dictionary.pattern_words(&romaji);
             lookups.push(ms(started));
+            most_cost = most_cost.max(words.iter().map(|word| word_cost(word)).sum::<usize>());
             let started = Instant::now();
             let pattern = romaji.pattern(string, &words);
             patterns.push(ms(started));
@@ -294,7 +296,8 @@ fn migemo_dictionary_needle_costs() {
         );
     }
     println!(
-        "{} strings; {fell_back} needles dropped their words",
+        "{} strings; {fell_back} needles dropped their words; the most words cost {most_cost} \
+         of {MAX_PATTERN_WORD_BYTES}",
         strings.len()
     );
     slowest.sort_by(|a, b| b.0.total_cmp(&a.0));
@@ -372,12 +375,30 @@ fn migemo_dictionary_key_costs() {
 }
 
 /// What a needle costs over a synthetic dictionary at the limits of a pattern's words:
-/// readings that `ka` starts, each with two words of the most bytes, no prefix shared.
+/// readings that `ka` starts, each with two words of the most bytes, no prefix shared, of
+/// kanji or of letters with a case.
 #[test]
 #[ignore = "a measure, in a release build"]
 fn migemo_dictionary_crafted_costs() {
     let kana: Vec<char> = ('ぁ'..='ゖ').collect();
-    for (entries, words, chars) in [(2048, 2, 21), (2048, 1, 21), (1024, 2, 21), (2048, 2, 4)] {
+    let latin: Vec<char> = ('a'..='z').chain('A'..='Z').collect();
+    let greek: Vec<char> = ('α'..='ω').chain('Α'..='Ρ').collect();
+    let folds: Vec<char> = "\u{212a}ſǅßkKsS".chars().collect();
+    let kanji = |n: u32| char::from_u32(0x4E00 + n.wrapping_mul(7919) % 20_000).unwrap();
+    let from = |letters: &[char], n: u32| {
+        let mixed = (n ^ n >> 16).wrapping_mul(0x045d_9f3b);
+        letters[(mixed ^ mixed >> 16) as usize % letters.len()]
+    };
+    let shapes: [(&str, usize, usize, usize); 7] = [
+        ("kanji", 2048, 2, 21),
+        ("kanji", 2048, 1, 21),
+        ("kanji", 1024, 2, 21),
+        ("kanji", 2048, 2, 4),
+        ("latin", 2048, 2, 64),
+        ("greek", 2048, 2, 32),
+        ("folds", 2048, 2, 28),
+    ];
+    for (letters, entries, words, chars) in shapes {
         let mut text = String::new();
         let mut n: u32 = 0;
         for entry in 0..entries {
@@ -386,10 +407,20 @@ fn migemo_dictionary_crafted_costs() {
             text.push(kana[entry % 86]);
             for _ in 0..words {
                 text.push('\t');
+                let mut word = String::new();
                 for _ in 0..chars {
                     n += 1;
-                    text.push(char::from_u32(0x4E00 + n.wrapping_mul(7919) % 20_000).unwrap());
+                    let c = match letters {
+                        "latin" => from(&latin, n),
+                        "greek" => from(&greek, n),
+                        "folds" => from(&folds, n),
+                        _ => kanji(n),
+                    };
+                    if word.len() + c.len_utf8() <= crate::migemo::MAX_WORD {
+                        word.push(c);
+                    }
                 }
+                text.push_str(&word);
             }
             text.push('\n');
         }
@@ -407,7 +438,7 @@ fn migemo_dictionary_crafted_costs() {
         }
         let (p50, p99, max) = spread(&mut times);
         println!(
-            "crafted {entries}x{words}x{chars}: {} words, pattern {} B, words kept: {kept}, \
+            "crafted {letters} {entries}x{words}x{chars}: {} words, pattern {} B, words kept: {kept}, \
              needle p50={p50:.3} p99={p99:.3} max={max:.3} ms",
             words_given.len(),
             pattern.len()

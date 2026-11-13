@@ -6,6 +6,7 @@
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
 //! (ADR 0108's "Settings and run-time choices").
 
+use std::path::Component;
 use std::time::Duration;
 
 use oso_core::jump::Keys;
@@ -214,8 +215,8 @@ pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Search 
     search
 }
 
-/// `[search] migemo-dictionary`: a path, absolute or starting with `~/`, of at most
-/// [`MAX_DICTIONARY_PATH`] bytes. Nothing is looked at on disk here.
+/// `[search] migemo-dictionary`: a path, absolute or `~/` and a relative one, not on another
+/// computer, of at most [`MAX_DICTIONARY_PATH`] bytes. Nothing is looked at on disk here.
 fn dictionary_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<String> {
     let at = value.span().start;
     let DeValue::String(path) = value.get_ref() else {
@@ -231,10 +232,18 @@ fn dictionary_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<St
     let absolute = path.starts_with("~/") || std::path::Path::new(path.as_ref()).is_absolute();
     // A share on another computer, or a Windows device, is no file of the person's here.
     let elsewhere = path.starts_with("\\\\") || path.starts_with("//");
-    let why = if !absolute {
-        "takes an absolute path, or one starting with ~/".to_owned()
-    } else if elsewhere {
+    // Joined to the home directory, a rooted path would replace it.
+    let rooted = path.strip_prefix("~/").is_some_and(|rest| {
+        let rest = std::path::Path::new(rest);
+        let prefix = matches!(rest.components().next(), Some(Component::Prefix(_)));
+        rest.as_os_str().to_string_lossy().starts_with(['/', '\\']) || rest.has_root() || prefix
+    });
+    let why = if elsewhere {
         "takes a path on this computer, not one starting with \\\\ or //".to_owned()
+    } else if !absolute {
+        "takes an absolute path, or one starting with ~/".to_owned()
+    } else if rooted {
+        "takes ~/ and a relative path, not ~/ and one from a root".to_owned()
     } else if path.len() > MAX_DICTIONARY_PATH {
         format!("takes a path of at most {MAX_DICTIONARY_PATH} bytes")
     } else if path.contains('\0') {

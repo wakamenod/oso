@@ -7,16 +7,17 @@
 //!
 //! - Each line is read on its own, by its shape: a reading, a tab and words between tabs
 //!   (`migemo-dict`), or a reading, ` /` and words each ended by `/` (SKK). A `;` line is a
-//!   comment, an SKK word's `;annotation` is cut off, an SKK Lisp word (`(concat …)`) is
-//!   left out, and an SKK reading with okurigana (`かk`) drops its last letter.
+//!   comment, an SKK word's `;annotation` is cut off, an SKK Lisp word (`(concat …)`) and
+//!   an okuri-ari block (`[す/愛/]`) are left out, and an SKK reading with okurigana (`かk`)
+//!   drops its last letter. A word of only white space is left out in either format.
 //! - A line in neither shape, a reading that is not 1 to [`MAX_READING`] characters of
 //!   hiragana, `ー` and `ゔ`, a word over [`MAX_WORD`] bytes or with a control character,
 //!   and what passes [`MAX_WORDS_A_READING`], [`MAX_ENTRIES`] or [`MAX_WORDS`] are left out
 //!   and counted, so a crafted file gives a bounded table.
 //! - The table is the text itself and two lists of ranges into it: entries sorted by
 //!   reading, one a reading, and their words, so the entries a prefix starts are found by
-//!   binary search. It takes the text's size, 16 bytes an entry and 8 bytes a word, and 8
-//!   more a word of a reading that several lines give, whose words are put together.
+//!   binary search. It takes the text's size, 16 bytes an entry and 8 bytes a word; while it
+//!   is built, a word of a reading that several lines give takes 8 bytes more.
 
 use std::cmp::Reverse;
 use std::fmt;
@@ -50,9 +51,32 @@ pub const MAX_PREFIX_ENTRIES: usize = 2048;
 /// The most words of a pattern: the exact readings' first, then the shorter readings'.
 pub(crate) const MAX_PATTERN_WORDS: usize = 4096;
 
-/// The most bytes of a pattern's words, about twice those of the largest pattern a common
-/// dictionary gives, so a pattern compiles within a key's time whatever the file holds.
+/// The most bytes of a pattern's words, by [`word_cost`], about twice those of the largest
+/// pattern a common dictionary gives, so a pattern compiles within a key's time whatever the
+/// file holds.
 pub(crate) const MAX_PATTERN_WORD_BYTES: usize = 32 * 1024;
+
+/// How many times its bytes a character with a case counts against
+/// [`MAX_PATTERN_WORD_BYTES`]: a search that ignores case compiles it as a class of every
+/// character it folds to, which costs that many times a character with none.
+const CASE_WEIGHT: usize = 4;
+
+/// What `word` counts against [`MAX_PATTERN_WORD_BYTES`]: its bytes, each character with a
+/// case [`CASE_WEIGHT`] times over.
+pub(crate) fn word_cost(word: &str) -> usize {
+    word.chars()
+        .map(|c| c.len_utf8() * if has_case(c) { CASE_WEIGHT } else { 1 })
+        .sum()
+}
+
+/// Whether `c` has another case a search that ignores case also matches: a letter that is
+/// lowercase or uppercase, or that a case mapping changes, as a titlecase one.
+fn has_case(c: char) -> bool {
+    if c.is_ascii() {
+        return c.is_ascii_alphabetic();
+    }
+    c.is_lowercase() || c.is_uppercase() || !c.to_lowercase().eq([c]) || !c.to_uppercase().eq([c])
+}
 
 /// A range of bytes of the text, or of indices into the words.
 #[derive(Clone, Copy)]
@@ -149,7 +173,7 @@ impl Dictionary {
     }
 
     /// The words to put in `romaji`'s pattern, at most [`MAX_PATTERN_WORDS`] and
-    /// [`MAX_PATTERN_WORD_BYTES`]: those of
+    /// [`MAX_PATTERN_WORD_BYTES`] by [`word_cost`]: those of
     /// every reading its kana and an unfinished end start, while at most
     /// [`MAX_PREFIX_ENTRIES`] do, else of the readings that are its kana and an end exactly,
     /// none if it is only an unfinished end. The exact readings' come first, then the
@@ -186,7 +210,7 @@ impl Dictionary {
             .take(MAX_PATTERN_WORDS)
             .map(|span| &self.text[span.range()])
             .take_while(|word| {
-                bytes += word.len();
+                bytes += word_cost(word);
                 bytes <= MAX_PATTERN_WORD_BYTES
             })
             .collect()
@@ -308,9 +332,16 @@ impl Read {
             Format::Skk => '/',
         };
         let mut word_at = at + words_at;
+        // In an SKK okuri-ari line, `[す/愛/]` repeats words for one okurigana.
+        let mut in_block = false;
         for word in body.split(separator) {
             let start = word_at;
             word_at += word.len() + 1;
+            if format == Format::Skk && (in_block || word.starts_with('[')) {
+                in_block = word != "]";
+                self.skipped += 1;
+                continue;
+            }
             let word = match format {
                 Format::Skk => word.split(';').next().unwrap_or_default(),
                 Format::MigemoDict => word,
@@ -320,7 +351,7 @@ impl Read {
             }
             let full =
                 self.words.len() - first == MAX_WORDS_A_READING || self.words.len() == MAX_WORDS;
-            if full || !is_word(word, format) {
+            if full || word.trim().is_empty() || !is_word(word, format) {
                 self.skipped += 1;
                 continue;
             }
@@ -375,6 +406,18 @@ impl Read {
         }
         entries.truncate(kept);
         entries.shrink_to_fit();
+        // The words of a reading several lines gave are in twice: keep each once, so the
+        // table holds at most [`MAX_WORDS`] of them.
+        let needed: usize = entries.iter().map(|entry| entry.words.range().len()).sum();
+        if words.len() > needed {
+            let mut compact = Vec::with_capacity(needed);
+            for entry in &mut entries {
+                let start = compact.len();
+                compact.extend_from_slice(&words[entry.words.range()]);
+                entry.words = Span::of(start..compact.len());
+            }
+            words = compact;
+        }
         words.shrink_to_fit();
         // Reading a file may have left room past its text.
         text.shrink_to_fit();
