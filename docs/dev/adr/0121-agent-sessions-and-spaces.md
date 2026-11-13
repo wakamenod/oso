@@ -782,13 +782,19 @@ points:
   `--mcp-config` takes several values and would take a brief as one. A fork passes oso's new id
   with `--session-id`, which the CLI accepts only together with `--fork-session`. A test keeps the
   line to these flags only.
-- **The login-shell wrapper** is `SHELL -l -c 'exec "$0" "$@"' CLAUDE ARGS…` for a shell whose
-  file name is `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with
-  `$(…)`, backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments.
+- **The login-shell wrapper** is `SHELL -l -c SCRIPT CLAUDE ARGS…` for a shell whose file name is
+  `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with `$(…)`,
+  backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments. The
+  script runs `[sessions] claude` as given. Else it looks for `claude` on the `PATH` the login
+  shell set, as oso's own look does when the shell is not one of these: only in absolute
+  entries, and in none inside the session's directory, compared with links resolved.
   The shell is ADR 0120's: `[terminal] shell`, then `$SHELL`, then the account's, then `/bin/sh`.
 - **The registry reader** (`sessions::registry`) reads only names of the form `<digits>.json` in
   `$CLAUDE_CONFIG_DIR/sessions`, else `~/.claude/sessions`: at most 256 files of 64 KiB, opened
-  without following a link, and only the reading user's. oso never reads the `*.key` files. A
+  without following a link, and only the reading user's. oso never reads the `*.key` files.
+  Whether a session runs cannot be told, and a resume is refused with the fork offered, when the
+  directory has more entry files than are read, when oso's `CLAUDE_CONFIG_DIR` is not an
+  absolute path, or when there is no home. A
   process is live if `process::start_time` of its pid is within 2 s of the entry's `procStart`
   (the start as C `ctime` text in UTC), or, when that does not parse, within 10 s of `startedAt`
   (ms since the epoch). A process whose start cannot be told counts as live, so a resume is
@@ -806,24 +812,35 @@ points:
   directory, project root, parent, pin and archive marks, last change and the baseline's tree:
   at most 256 sessions and 256 KiB, private, refused if a link or another user's, written to a
   part file and renamed. A write reads the file again first and keeps the ids this instance never
-  knew, so two instances do not drop each other's sessions. It is read and written on the
+  knew, so two instances do not drop each other's sessions. It keeps the sessions that changed
+  last, and stops before a line that would take the file past 256 KiB, so every file written
+  can be read back. The table oso holds keeps 256 too: past that, the sessions that do not run
+  go, archived ones first, then unpinned ones, the oldest change first; a buffer whose session
+  went says `forgotten` in its modeline. It is read and written on the
   `oso-sessions` worker (`Job::Recall`, `Job::Remember`).
 - **The start thread** (`oso-session-start`, one per start) makes the id, checks the directory and
   `[sessions] claude`, reads the registry before a resume and 5 s after it, finds the shell, and
   in a trusted project takes ADR 0122's baseline, waiting at most 2 s; past that, `claude` starts
-  and the baseline follows. It then starts the session's `oso_term::Terminal` itself, so the UI
+  and the baseline follows. Only `claude` takes a baseline, and only when the session runs at
+  the root of the selected buffer's trusted project: a resume, a fork, and `C-u claude` in
+  another directory take none. It then starts the session's `oso_term::Terminal` itself, so the UI
   thread never waits on the spawn. The shell is found by the same function as a terminal's
   (`terminal::hosted::find_shell`), and the app puts the terminal in its buffer with the same code
   (`app/terminals/start.rs`).
 - **The environment** is ADR 0120's terminal environment, `[sessions] env`'s names,
   `OSO_SESSION`, and always `CLAUDE_CONFIG_DIR` when oso has it: the session's registry entry is
-  then in the directory oso reads.
+  then in the directory oso reads. A login profile that sets `CLAUDE_CONFIG_DIR` itself, which oso
+  started from the Dock does not see, moves the session's registry where oso does not look, and a
+  resume then finds no live process for it. Set the same value where oso is started too.
 - **The start baseline is the project's review baseline:** when it comes, in time or late, the
   review takes it as if `B` had been pressed (ADR 0122), and the review menu shows when it was
   taken. The review's index copies for it are in the same state directory as the review's own.
+  Its root is revoked with the project's trust, as a review's is.
 - **A refused resume's fork question forks that session,** whichever buffer is selected when `y`
   is answered. A start that is refused turns the agent channel off again if that start turned it
-  on and no session runs, starts or holds a connection.
+  on and no session runs, starts or holds a connection, unless the person or the configuration
+  asked for the channel since. A bridge's claim whose answer comes after the channel's server
+  stopped waiting holds no session.
 - **`C-u claude` reads a directory, then a name,** each with its own history. `oso-core` gained
   `ArgSpec::DirectoryAndTextOnPrefix { directory, directory_history, prompt, history }` and
   `Ctx::directory_and_text(&self) -> Option<(&str, &str)>`, and the new

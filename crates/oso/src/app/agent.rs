@@ -352,21 +352,14 @@ impl App {
         session: &str,
         reply: std::sync::mpsc::Sender<Reply>,
     ) {
-        let bridges = self.session_bridge(connection, peer, session);
-        let answered = reply
-            .send(Ok(serde_json::Value::Bool(bridges.is_some())))
-            .is_ok();
-        match &bridges {
-            // The server stopped waiting for this answer and treats the connection as any
-            // agent's, which asks the person: it holds no session.
-            Some(_) if !answered => self.session_bridge_gone(Some(connection)),
-            Some(name) => {
-                self.agent.connected.push(connection);
-                let pid = peer.process.as_ref().map_or(0, PeerProcess::pid);
-                self.agent_log(&format!("pid {pid}: let in as session {name}'s bridge"));
-                self.request_redraw();
-            }
-            None => {}
+        // An answer that comes after the server stopped waiting is undone: the server treats
+        // the connection as any agent's, which asks the person, and it holds no session.
+        let answer = |bridges: bool| reply.send(Ok(serde_json::Value::Bool(bridges))).is_ok();
+        if let Some(name) = self.session_bridge(connection, peer, session, answer) {
+            self.agent.connected.push(connection);
+            let pid = peer.process.as_ref().map_or(0, PeerProcess::pid);
+            self.agent_log(&format!("pid {pid}: let in as session {name}'s bridge"));
+            self.request_redraw();
         }
     }
 

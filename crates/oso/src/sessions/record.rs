@@ -98,7 +98,8 @@ fn read_checked(state_dir: &Path) -> io::Result<Vec<Remembered>> {
     Ok(parse(&bytes))
 }
 
-/// The sessions in the file's bytes, the last of an id kept, at most [`MAX_SESSIONS`].
+/// The sessions in the file's bytes, the last of an id kept, at most [`MAX_SESSIONS`]: those
+/// that changed last.
 fn parse(bytes: &[u8]) -> Vec<Remembered> {
     let mut sessions: Vec<Remembered> = Vec::new();
     let mut bad = 0;
@@ -116,8 +117,14 @@ fn parse(bytes: &[u8]) -> Vec<Remembered> {
     if bad > 0 {
         log::warn!("left out {bad} lines of the remembered sessions that hold no session");
     }
+    newest_first(&mut sessions);
     sessions.truncate(MAX_SESSIONS);
     sessions
+}
+
+/// Sorts `sessions` by when they last changed, the latest first; ties keep their order.
+fn newest_first(sessions: &mut [Remembered]) {
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.changed));
 }
 
 /// One line's session, if it is whole and valid.
@@ -199,8 +206,9 @@ fn line(session: &Remembered) -> Option<String> {
 }
 
 /// Writes `sessions` in `state_dir`, which is made private if it is missing, with the sessions
-/// already there whose ids are not in `known`: another instance's. Ours come first, and at most
-/// [`MAX_SESSIONS`] in all. A file there that may not be read is not replaced.
+/// already there whose ids are not in `known`: another instance's. Those that changed last are
+/// kept, at most [`MAX_SESSIONS`] and [`MAX_BYTES`] in all, so that the file can always be
+/// read back. A file there that may not be read is not replaced.
 pub fn write(
     state_dir: &Path,
     sessions: &[Remembered],
@@ -209,12 +217,17 @@ pub fn write(
     let theirs = read_checked(state_dir)?;
     let directory = PrivateDir::open(state_dir)?;
     let mut text = String::new();
-    let ours = sessions.iter();
     let kept = theirs
-        .iter()
+        .into_iter()
         .filter(|session| !known.contains(&session.id))
         .filter(|session| sessions.iter().all(|ours| ours.id != session.id));
-    for line in ours.chain(kept).filter_map(line).take(MAX_SESSIONS) {
+    let mut all: Vec<Remembered> = sessions.iter().cloned().chain(kept).collect();
+    newest_first(&mut all);
+    let most = usize::try_from(MAX_BYTES).unwrap_or(usize::MAX);
+    for line in all.iter().filter_map(line).take(MAX_SESSIONS) {
+        if text.len() + line.len() + 1 > most {
+            break;
+        }
         text.push_str(&line);
         text.push('\n');
     }
@@ -320,6 +333,7 @@ mod tests {
                 bytes[..8].copy_from_slice(&i.to_le_bytes());
                 Remembered {
                     id: SessionId::from_random(bytes),
+                    changed: i,
                     ..session(0)
                 }
             })
@@ -328,7 +342,23 @@ mod tests {
         write(&scratch.oso(), &many, &HashSet::new()).unwrap();
         let read_back = read(&scratch.oso());
         assert_eq!(read_back.len(), MAX_SESSIONS);
-        assert_eq!(read_back[..], many[..MAX_SESSIONS]);
+        // Those that changed last are kept, the latest first.
+        let newest: Vec<Remembered> = many.iter().rev().take(MAX_SESSIONS).cloned().collect();
+        assert_eq!(read_back, newest);
+        // Long lines are kept only as far as the file can be read back.
+        let long: Vec<Remembered> = many
+            .iter()
+            .map(|session| Remembered {
+                directory: PathBuf::from(format!("/{}", "d".repeat(4000))),
+                ..session.clone()
+            })
+            .collect();
+        write(&scratch.oso(), &long, &HashSet::new()).unwrap();
+        let size = std::fs::metadata(scratch.oso().join(FILE)).unwrap().len();
+        assert!(size <= super::MAX_BYTES, "{size}");
+        let read_back = read(&scratch.oso());
+        assert!(!read_back.is_empty() && read_back.len() < MAX_SESSIONS);
+        assert_eq!(read_back[0].changed, 299);
         // A file past the byte limit is not read at all.
         let text = std::fs::read_to_string(scratch.oso().join(FILE)).unwrap();
         let times = usize::try_from(super::MAX_BYTES).unwrap() / text.len() + 1;

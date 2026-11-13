@@ -119,10 +119,11 @@ pub enum Report {
     Ready(Ready),
     /// It does not start; why, for the echo area.
     Refused { token: u64, why: String },
-    /// A resume found the conversation live in this process, in this directory.
+    /// A resume found the conversation live in this process, in this directory; or, with no
+    /// process, could not tell from the registry whether it runs, which counts as live.
     Live {
         token: u64,
-        pid: u32,
+        pid: Option<u32>,
         directory: Option<PathBuf>,
     },
     /// The baseline came after the session started.
@@ -309,11 +310,19 @@ fn launch_of(order: &Order, id: &SessionId, shell: &Executable) -> Result<Launch
         .map_err(|e| format!("The session did not start: {e}"))
 }
 
-/// A live process of the session `id`, by the registry: its pid and directory.
-fn live(id: &SessionId) -> Option<(u32, Option<PathBuf>)> {
-    let entries = registry::read(&registry::directory()?);
-    let live = registry::live_with(&entries, id, process::start_time);
-    live.first().map(|entry| (entry.pid, entry.cwd.clone()))
+/// A live process of the session `id`, by the registry: its pid and directory. With no pid,
+/// the registry could not tell: its directory is not known, or it holds more entries than are
+/// read. A resume is then refused too, as the safe side.
+fn live(id: &SessionId) -> Option<(Option<u32>, Option<PathBuf>)> {
+    let Some(directory) = registry::directory() else {
+        return Some((None, None));
+    };
+    let listing = registry::list(&directory);
+    let live = registry::live_with(&listing.entries, id, process::start_time);
+    match live.first() {
+        Some(entry) => Some((Some(entry.pid), entry.cwd.clone())),
+        None => listing.cut.then_some((None, None)),
+    }
 }
 
 /// Whether the registry has a live session whose directory is `directory`.

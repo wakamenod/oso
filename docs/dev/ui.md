@@ -827,6 +827,9 @@ a switch made with its command stands until that setting changes in the file
   Code's own settings give it. With `steer_worktrees`, a session oso starts gets a hook that
   denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-x a w`; nothing
   is written into Claude Code's settings files.
+- A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
+  where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
+  runs elsewhere.
 - Which states ask for attention, in `config.toml`:
 
   ```toml

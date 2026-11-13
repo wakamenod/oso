@@ -32,9 +32,10 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) directory: Option<PathBuf>,
     /// The buffer each session being started has, by its key, until the start thread reports.
     starting: HashMap<SessionKey, BufferId>,
-    /// The trusted project each new session takes a baseline of, by its key, until the
-    /// baseline comes or the start is refused: the review takes it as the project's.
-    baselines: HashMap<SessionKey, ProjectId>,
+    /// The trusted project each new session takes a baseline of, and the root its baseline
+    /// thread runs git in, by its key, until the baseline comes or the start is refused: the
+    /// review takes it as the project's, and the root is revoked with the project's trust.
+    baselines: HashMap<SessionKey, (ProjectId, TrustedRoot)>,
     /// The sessions changed since the worker was last given them to remember.
     unsaved: bool,
     /// The "fork it instead?" question of a refused resume, and the session it is about: its
@@ -113,6 +114,20 @@ fn base_name(directory: &Path) -> String {
     )
 }
 
+/// Revokes and forgets each of `baselines` whose project `trusted` no longer says is trusted.
+fn revoke_untrusted(
+    baselines: &mut HashMap<SessionKey, (ProjectId, TrustedRoot)>,
+    trusted: impl Fn(ProjectId) -> bool,
+) {
+    baselines.retain(|_, (project, root)| {
+        let kept = trusted(*project);
+        if !kept {
+            root.revoke();
+        }
+        kept
+    });
+}
+
 /// The most bytes of a registry's directory a question shows.
 const MAX_SHOWN_DIRECTORY: usize = 200;
 
@@ -135,8 +150,11 @@ impl App {
         remembered: Vec<crate::sessions::record::Remembered>,
     ) {
         let back = self.hosting.table.recall(remembered);
+        self.prune_sessions();
         for key in back {
-            self.bring_back_stopped(key);
+            if self.hosting.table.get(key).is_some() {
+                self.bring_back_stopped(key);
+            }
         }
     }
 
@@ -214,8 +232,8 @@ impl App {
             Some(trusted) => (Some(trusted), Some(directory.clone())),
             None => {
                 let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
-                if let (Some(id), Some(_)) = (project, &trusted) {
-                    self.hosting.baselines.insert(key, id);
+                if let (Some(id), Some(root)) = (project, &trusted) {
+                    self.hosting.baselines.insert(key, (id, root.clone()));
                 }
                 let root = project
                     .and_then(|id| self.editor.project(id))
@@ -393,9 +411,14 @@ impl App {
                 let place = directory
                     .map(|directory| format!(" in {}", shown_directory(&directory)))
                     .unwrap_or_default();
-                let question = format!(
-                    "Session {name} runs already as process {pid}{place}; fork it instead?"
-                );
+                let question = match pid {
+                    Some(pid) => format!(
+                        "Session {name} runs already as process {pid}{place}; fork it instead?"
+                    ),
+                    None => format!(
+                        "Session {name} may run already: oso cannot tell from Claude Code's registry; fork it instead?"
+                    ),
+                };
                 match self.editor.ask(question, "session-fork") {
                     Ok(asked) => self.hosting.fork_offered = Some((asked, token)),
                     Err(e) => self.editor.message(e.to_string()),
@@ -429,9 +452,18 @@ impl App {
 
     /// Session `key`'s start baseline goes to its project's review, once.
     fn session_baseline_to_review(&mut self, key: SessionKey, tree: &str) {
-        if let Some(project) = self.hosting.baselines.remove(&key) {
+        if let Some((project, _)) = self.hosting.baselines.remove(&key) {
             self.session_baseline_taken(project, tree);
         }
+    }
+
+    /// Revokes the root of each start baseline whose project is no longer trusted, which
+    /// stops its git run between requests, and forgets it.
+    pub(in crate::app) fn revoke_untrusted_session_baselines(&mut self) {
+        let editor = &self.editor;
+        revoke_untrusted(&mut self.hosting.baselines, |project| {
+            editor.project_trusted(project)
+        });
     }
 
     /// A start that did not happen: a held name goes, and a resumed session is stopped again.
@@ -467,6 +499,7 @@ impl App {
             if added.is_none() {
                 return;
             }
+            self.prune_sessions();
         }
         if let Some(tree) = &ready.baseline {
             self.session_baseline_to_review(key, tree);
@@ -489,14 +522,19 @@ impl App {
     }
 
     /// Whether the connection of `peer` that claims the session `claim` is that hosted
-    /// session's bridge (ADR 0121): then it holds the session, and its name is given.
+    /// session's bridge (ADR 0121), answered with `answer`, which says whether the answer
+    /// reached the server: then it holds the session, and its name is given.
     pub(in crate::app) fn session_bridge(
         &mut self,
         connection: Connection,
         peer: &Peer,
         claim: &str,
+        answer: impl FnOnce(bool) -> bool,
     ) -> Option<String> {
-        let id = SessionId::parse(claim)?;
+        let Some(id) = SessionId::parse(claim) else {
+            answer(false);
+            return None;
+        };
         // Each running `claude`'s id as its terminal has it now: set once the child started,
         // cleared before it is reaped.
         let children: Vec<(SessionKey, Option<u32>)> = self
@@ -520,8 +558,7 @@ impl App {
         }
         self.hosting
             .table
-            .admit(connection, peer, Some(&id))
-            .map(|session| session.name.clone())
+            .answer_claim(connection, peer, Some(&id), answer)
     }
 
     /// The bridge connection `connection` went, or every one did, when it is `None`.
@@ -537,7 +574,23 @@ impl App {
 mod tests {
     use std::path::Path;
 
-    use super::{MAX_SHOWN_DIRECTORY, shown_directory};
+    use std::collections::HashMap;
+
+    use super::{MAX_SHOWN_DIRECTORY, revoke_untrusted, shown_directory};
+    use crate::review::TrustedRoot;
+
+    #[test]
+    fn a_start_baseline_of_a_project_no_longer_trusted_is_revoked_and_forgotten() {
+        let (_editor, project) = crate::commands::review::tests::in_project(true);
+        let root = TrustedRoot::for_tests(std::env::temp_dir());
+        let mut baselines = HashMap::from([(1, (project, root.clone()))]);
+        revoke_untrusted(&mut baselines, |_| true);
+        assert!(!root.revoked());
+        assert_eq!(baselines.len(), 1);
+        revoke_untrusted(&mut baselines, |_| false);
+        assert!(root.revoked(), "its git run stops between requests");
+        assert!(baselines.is_empty());
+    }
 
     #[test]
     fn a_registry_directory_is_shown_escaped_on_one_row_and_cut_short() {

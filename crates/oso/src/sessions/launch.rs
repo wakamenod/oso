@@ -5,8 +5,11 @@
 //! files, so it runs on the session's start thread.
 //!
 //! - For `sh`, `bash`, `zsh`, `dash` and `ksh`, by the shell's file name, the program is
-//!   `SHELL -l -c 'exec "$0" "$@"' CLAUDE ARGS…`. The arguments are positional parameters,
-//!   never text inside the script, so nothing in a name or a brief is parsed by the shell.
+//!   `SHELL -l -c SCRIPT CLAUDE ARGS…`. The arguments are positional parameters, never text
+//!   inside the script, so nothing in a name or a brief is parsed by the shell.
+//! - [`SCRIPT`] runs `[sessions] claude` as given. Else it looks for `claude` on the `PATH` the
+//!   login shell set, as oso's own look does: only in absolute entries, and in none inside the
+//!   session's directory.
 //! - For any other shell (`fish`, `nu`), `claude` runs directly, with the environment the
 //!   terminal gives: `[sessions] claude`, else `claude` on oso's own `PATH`, else the person is
 //!   told to set `[sessions] claude`.
@@ -20,8 +23,21 @@ use oso_platform::process::Executable;
 const POSIX_SHELLS: [&str; 5] = ["sh", "bash", "zsh", "dash", "ksh"];
 
 /// The script a POSIX login shell runs: its first operand as the program, the rest as its
-/// arguments, each as given.
-pub const SCRIPT: &str = r#"exec "$0" "$@""#;
+/// arguments, each as given. An operand that is not an absolute path is looked for on `PATH`,
+/// in its absolute entries outside the directory the session runs in, each compared by the
+/// directory it is with links resolved; if none has it, the script says so and ends with 127.
+pub const SCRIPT: &str = r#"case $0 in /*) exec "$0" "$@";; esac
+here=$(pwd -P)
+p=$PATH:
+while [ -n "$p" ]; do
+  d=${p%%:*}; p=${p#*:}
+  case $d in /*) ;; *) continue ;; esac
+  r=$(cd "$d" 2>/dev/null && pwd -P) || continue
+  case $r in "$here"|"$here"/*) continue ;; esac
+  if [ -f "$r/$0" ] && [ -x "$r/$0" ]; then exec "$r/$0" "$@"; fi
+done
+printf 'oso: no %s on an absolute PATH entry outside this directory; set [sessions] claude\n' "$0" >&2
+exit 127"#;
 
 /// The program's name when the login shell finds it on its own `PATH`.
 const CLAUDE: &str = "claude";
@@ -147,6 +163,12 @@ mod tests {
     }
 
     fn run(launch: &super::Launch, scratch: &Scratch) -> Vec<OsString> {
+        assert!(status(launch, scratch), "{launch:?}");
+        read_out(scratch)
+    }
+
+    /// Whether the launch ran and ended with 0.
+    fn status(launch: &super::Launch, scratch: &Scratch) -> bool {
         let out = scratch.0.join("out");
         let home = scratch.0.join("home");
         std::fs::create_dir_all(&home).unwrap();
@@ -169,8 +191,12 @@ mod tests {
             terminal: None,
         })
         .unwrap();
-        assert!(child.wait().unwrap().success());
-        std::fs::read(&out)
+        child.wait().unwrap().success()
+    }
+
+    /// What the fake wrote of its arguments.
+    fn read_out(scratch: &Scratch) -> Vec<OsString> {
+        std::fs::read(scratch.0.join("out"))
             .unwrap()
             .split(|&b| b == 0)
             // Each argument ends with a NUL, so the last piece is empty.
@@ -216,6 +242,49 @@ mod tests {
                 shell.path().display()
             );
             assert!(!scratch.0.join("pwned").exists());
+            ran += 1;
+        }
+        assert!(ran > 0, "no POSIX shell found");
+    }
+
+    /// A login profile, for each shell, that sets `PATH` to `path`.
+    fn profile(home: &Path, path: &str) {
+        std::fs::create_dir_all(home).unwrap();
+        for file in [".profile", ".bash_profile", ".zprofile"] {
+            std::fs::write(home.join(file), format!("PATH='{path}'\nexport PATH\n")).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_bare_claude_is_found_only_on_absolute_path_entries_outside_the_session() {
+        let mut ran = 0;
+        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/bin/ksh"] {
+            let Ok(shell) = Executable::absolute(shell) else {
+                continue;
+            };
+            let name = shell.path().file_name().unwrap().to_str().unwrap();
+            let session = Scratch::new(&format!("bare-{name}"));
+            let elsewhere = Scratch::new(&format!("bare-elsewhere-{name}"));
+            // The session's own `claude`, which must never run.
+            let bin = session.0.join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::write(
+                bin.join("claude"),
+                "#!/bin/sh\n/usr/bin/touch \"$OUT.pwned\"\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+            let _ = fake_claude(&elsewhere.0);
+            let launch = launch(&shell, None, hostile(), None).unwrap();
+            let home = session.0.join("home");
+            let path = format!("bin:{}:{}", bin.display(), elsewhere.0.display());
+            profile(&home, &path);
+            assert_eq!(run(&launch, &session), hostile(), "{name}");
+            // With no other, nothing runs.
+            profile(&home, &format!("bin:{}", bin.display()));
+            assert!(!status(&launch, &session), "{name}");
+            assert!(!session.0.join("out.pwned").exists(), "{name}");
             ran += 1;
         }
         assert!(ran > 0, "no POSIX shell found");
