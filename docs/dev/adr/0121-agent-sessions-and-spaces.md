@@ -816,8 +816,10 @@ points:
 - **Keys:** `C-x a c` (`claude`) and `C-x a r` (`session-resume`); the rest of `C-x a` comes
   with step 3. `claude`, `session-resume` and `session-fork` are `Person`.
 - **`C-x k` on a session's buffer archives the session:** it is not brought back at the next
-  start, and step 3's list shows and restores it. Exits oso caused (`C-x k`, `C-x C-c`, a hang-up)
-  make a session stopped, not failed.
+  start, and step 3's list shows and restores it. Its `claude` is hung up, and the session counts
+  as stopped, not failed. Any other end is stopped for status 0 and failed otherwise; the buffer
+  keeps the last screen and its modeline says `stopped: session-resume to continue`, or `failed
+  (exited 3): …`.
 - **ADR 0122's seams in step 1:** the baseline at start, and "which review is this agent's" as
   the connection's session. Delivering comments as a paste and "a turn ended" wait for step 3,
   which feeds screens to the states: until oso reads a session's screen it cannot refuse a paste

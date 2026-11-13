@@ -192,12 +192,33 @@ impl Table {
         self.sessions.iter_mut().find(|session| session.key == key)
     }
 
-    /// The session whose terminal is `buffer`.
+    /// Keeps at most [`MAX_SESSIONS`](super::record::MAX_SESSIONS) sessions, dropping the
+    /// archived ones that changed longest ago, so that the table and each record written stay
+    /// bounded in a long-running oso. Their ids stay known, so the record drops them too.
+    pub fn prune(&mut self) {
+        while self.sessions.len() > super::record::MAX_SESSIONS {
+            let oldest = self
+                .sessions
+                .iter()
+                .enumerate()
+                .filter(|(_, session)| session.archived)
+                .min_by_key(|(_, session)| session.changed)
+                .map(|(at, _)| at);
+            match oldest {
+                Some(at) => {
+                    self.sessions.remove(at);
+                }
+                None => break,
+            }
+        }
+    }
+
     /// Every hosted session.
     pub fn iter(&self) -> impl Iterator<Item = &Hosted> {
         self.sessions.iter()
     }
 
+    /// The session whose terminal is `buffer`.
     pub fn by_buffer(&self, buffer: BufferId) -> Option<&Hosted> {
         self.sessions
             .iter()

@@ -73,11 +73,13 @@ impl App {
             return;
         }
         self.drop_unasked_pastes();
-        // A session whose buffer went is archived before its terminal is hung up (ADR 0121).
-        self.archive_killed_sessions();
         let editor = &self.editor;
-        for gone in self.terminals.map.retain(|id| editor.buffer(id).is_some()) {
-            // Dropping its handle hangs it up; its thread finishes on its own.
+        let gone = self.terminals.map.retain(|id| editor.buffer(id).is_some());
+        if !gone.is_empty() {
+            // A session whose buffer went is archived before its terminal is hung up (ADR 0121).
+            let buffers: Vec<BufferId> = gone.iter().map(|(id, _)| *id).collect();
+            self.archive_killed_sessions(&buffers);
+            // Dropping each handle hangs it up; its thread finishes on its own.
             drop(gone);
         }
         let editor = &self.editor;
@@ -169,6 +171,8 @@ impl App {
             if self.take_terminal_snapshots() {
                 self.terminals.hidden_due = Some(Instant::now() + HIDDEN_PACE);
             }
+            // A session that ended out of sight is remembered before the loop waits.
+            self.save_sessions();
         }
     }
 

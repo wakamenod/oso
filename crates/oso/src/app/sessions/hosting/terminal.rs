@@ -193,25 +193,25 @@ impl App {
         }
     }
 
-    /// After each event: a session whose buffer went (`C-x k`) is archived: its `claude` was
-    /// hung up by oso, and it does not come back at the next start (ADR 0121, Q3).
-    pub(in crate::app) fn archive_killed_sessions(&mut self) {
-        let editor = &self.editor;
-        let gone: Vec<SessionKey> = self
+    /// The terminals of `buffers` went with their buffers (`C-x k`): their sessions are
+    /// archived, as oso hangs their `claude` up, and do not come back at the next start
+    /// (ADR 0121, Q3).
+    pub(in crate::app) fn archive_killed_sessions(&mut self, buffers: &[BufferId]) {
+        let gone: Vec<(SessionKey, bool)> = self
             .hosting
             .table
             .iter()
             .filter(|session| {
                 session
                     .buffer
-                    .is_some_and(|buffer| editor.buffer(buffer).is_none())
+                    .is_some_and(|buffer| buffers.contains(&buffer))
             })
-            .map(|session| session.key)
+            .map(|session| (session.key, session.runs()))
             .collect();
         if gone.is_empty() {
             return;
         }
-        for key in gone {
+        for (key, ran) in gone {
             if let Some(session) = self.hosting.table.get_mut(key) {
                 session.buffer = None;
                 session.ended_by_oso = true;
@@ -220,10 +220,11 @@ impl App {
                 session.run = Run::Stopped;
                 session.changed = now_ms();
             }
-            if let Some(worker) = &self.sessions {
+            if ran && let Some(worker) = &self.sessions {
                 worker.send(Job::Exited(key, Exit::Stopped));
             }
         }
+        self.hosting.table.prune();
         self.remember_sessions();
     }
 }

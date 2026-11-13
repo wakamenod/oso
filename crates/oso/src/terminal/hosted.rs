@@ -197,9 +197,14 @@ impl Terminals {
 
     /// Drops the terminals whose buffers are gone, which hangs each up. `alive` says which
     /// buffers still are.
-    pub(crate) fn retain(&mut self, mut alive: impl FnMut(BufferId) -> bool) -> Vec<Hosted> {
+    pub(crate) fn retain(
+        &mut self,
+        mut alive: impl FnMut(BufferId) -> bool,
+    ) -> Vec<(BufferId, Hosted)> {
         let gone: Vec<BufferId> = self.map.keys().copied().filter(|id| !alive(*id)).collect();
-        gone.iter().filter_map(|id| self.map.remove(id)).collect()
+        gone.into_iter()
+            .filter_map(|id| Some((id, self.map.remove(&id)?)))
+            .collect()
     }
 }
 

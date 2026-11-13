@@ -30,6 +30,8 @@ pub(in crate::app) struct Hosting {
     directory: Option<PathBuf>,
     /// The buffer each session being started has, by its key, until the start thread reports.
     starting: HashMap<SessionKey, BufferId>,
+    /// The sessions changed since the worker was last given them to remember.
+    unsaved: bool,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
@@ -42,6 +44,7 @@ impl Hosting {
             table: Table::default(),
             directory,
             starting: HashMap::new(),
+            unsaved: false,
             explain: None,
         }
     }
@@ -77,8 +80,18 @@ impl App {
         }
     }
 
-    /// Hands the sessions to the worker to remember, keeping another instance's.
-    fn remember_sessions(&self) {
+    /// Notes that the sessions changed: [`App::save_sessions`] hands them to the worker once
+    /// for every change an event made.
+    fn remember_sessions(&mut self) {
+        self.hosting.unsaved = true;
+    }
+
+    /// After an event: hands the sessions to the worker to remember, keeping another
+    /// instance's, if they changed.
+    pub(in crate::app) fn save_sessions(&mut self) {
+        if !std::mem::take(&mut self.hosting.unsaved) {
+            return;
+        }
         if let (Some(worker), Some(directory)) = (&self.sessions, &self.hosting.directory) {
             worker.send(Job::Remember {
                 directory: directory.clone(),
