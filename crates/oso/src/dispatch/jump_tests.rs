@@ -1,6 +1,7 @@
 //! Scenario tests of jumps through the [`Dispatcher`] (ADR 0037, ADR 0116): their keys, their
 //! keymap in place of the others, a key it does not bind ending the jump without running, a
-//! digit at `avy-goto-line`'s labels, `avy-isearch`, and `run-command`.
+//! digit at `avy-goto-line`'s labels, `avy-isearch`, `run-command`, and the actions on a
+//! target: their echo, their undo step, their refusal and a keyboard macro's replay of one.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every
 //! OS with no window.
@@ -162,4 +163,72 @@ fn a_digit_after_a_labels_first_key_does_not_read_a_line_number() {
     assert!(editor.prompt().is_none(), "no goto-line");
     assert!(editor.jump().is_none());
     assert_eq!(echo(&editor), "No such candidate");
+}
+
+#[test]
+fn m_g_f_k_kills_a_line_and_one_undo_puts_it_back() {
+    let (mut d, mut editor) = at("one\ntwo\nthree\n", &[0]);
+    send(&mut d, &mut editor, "M-g f K");
+    assert_eq!(echo(&editor), "Jump to a line  [kill line]");
+    send(&mut d, &mut editor, "s");
+    assert!(editor.jump().is_none());
+    assert_eq!(text(&editor), "one\nthree\n");
+    assert_eq!(cursors(&editor), [0], "it stays");
+    send(&mut d, &mut editor, "C-z");
+    assert_eq!(text(&editor), "one\ntwo\nthree\n", "one step");
+}
+
+#[test]
+fn action_keys_type_the_string_while_it_is_read_and_act_at_the_labels() {
+    let (mut d, mut editor) = at("a Kb\nKb\n", &[0]);
+    send(&mut d, &mut editor, "M-j K b RET W");
+    assert_eq!(echo(&editor), "Jump: Kb  [copy line]");
+    send(&mut d, &mut editor, "s");
+    assert_eq!(text(&editor), "a Kb\nKb\n");
+    assert_eq!(cursors(&editor), [0]);
+    let write = editor.take_clipboard_write().expect("for the clipboard");
+    assert_eq!(write.text(), "Kb\n");
+    // `SPC` while the string is read is a character of it, too.
+    send(&mut d, &mut editor, "M-j a SPC");
+    assert_eq!(echo(&editor), "Jump: a ");
+    send(&mut d, &mut editor, "C-g");
+}
+
+#[test]
+fn spc_at_the_labels_sets_the_region_to_the_target() {
+    let (mut d, mut editor) = at("one\ntwo\n", &[1]);
+    send(&mut d, &mut editor, "M-g f SPC s");
+    let set = &editor.window().selections;
+    assert!(set.mark_active().is_active());
+    assert_eq!((set.primary().mark, set.primary().cursor), (Some(1), 4));
+}
+
+#[test]
+fn an_action_that_cannot_act_says_why_and_changes_nothing() {
+    let (mut d, mut editor) = at("one\ntwo\n", &[0]);
+    let id = editor.add_internal_buffer("*Report*", oso_core::buffer::Mode::Fundamental);
+    editor.set_internal_text(id, "one\ntwo\n");
+    editor.show(id);
+    send(&mut d, &mut editor, "M-g f T s");
+    assert!(editor.jump().is_none());
+    assert!(
+        echo(&editor).contains("Buffer is read-only"),
+        "{}",
+        echo(&editor)
+    );
+    assert_eq!(text(&editor), "one\ntwo\n");
+    assert!(editor.kill_ring().is_empty());
+}
+
+#[test]
+fn a_keyboard_macro_replays_an_action() {
+    let (mut d, mut editor) = at("a\nb\nc\nd\n", &[0]);
+    send(&mut d, &mut editor, "C-x ( M-g f K a C-x )");
+    assert_eq!(text(&editor), "b\nc\nd\n");
+    send(&mut d, &mut editor, "C-x e");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while editor.macro_replaying() {
+        d.replay(&mut editor, until);
+    }
+    assert_eq!(text(&editor), "c\nd\n");
 }

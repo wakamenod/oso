@@ -429,10 +429,42 @@ impl Editor {
         Ok(())
     }
 
+    /// Adds a cursor with no mark at `offset` of the window at `index`, as a jump's `c` does
+    /// (ADR 0116): the primary stays, the regions show as they did, and a run of the keys that
+    /// add cursors starts again.
+    ///
+    /// # Errors
+    ///
+    /// [`CursorError::TooMany`] with [`MAX_CURSORS`] there already, and nothing changes.
+    pub(super) fn add_cursor_in(&mut self, index: usize, offset: usize) -> Result<(), CursorError> {
+        let set = &self.windows[index].selections;
+        if set.len() >= MAX_CURSORS {
+            return Err(CursorError::TooMany);
+        }
+        let mut parts = set.as_slice().to_vec();
+        parts.push(Selection::at(offset));
+        let (primary, active) = (set.primary_index(), set.mark_active());
+        self.drop_cursor_search();
+        self.marking = None;
+        self.replace_cursors_in(index, parts, primary, active);
+        Ok(())
+    }
+
     /// Makes `parts` the selected window's cursors, with `primary` primary and its ring
     /// kept, and the regions as `active` says.
     fn replace_cursors(&mut self, parts: Vec<Selection>, primary: usize, active: MarkActive) {
-        let selections = &mut self.windows[self.selected].selections;
+        self.replace_cursors_in(self.selected, parts, primary, active);
+    }
+
+    /// [`Editor::replace_cursors`] in the window at `index`.
+    fn replace_cursors_in(
+        &mut self,
+        index: usize,
+        parts: Vec<Selection>,
+        primary: usize,
+        active: MarkActive,
+    ) {
+        let selections = &mut self.windows[index].selections;
         let Some(set) = SelectionSet::from_parts(parts, primary) else {
             return;
         };
