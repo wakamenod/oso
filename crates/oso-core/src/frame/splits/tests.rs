@@ -192,53 +192,6 @@ fn a_split_the_other_way_makes_a_run_in_the_window_place() {
 }
 
 #[test]
-fn a_removed_window_gives_its_cells_to_the_one_before_it_or_after_the_first() {
-    let (mut splits, frame) = two(Way::Down);
-    splits.split(B, Way::Down, C, &frame).unwrap();
-    let frame = lay(&splits, 41, 81);
-    let (a, b) = (outer(&frame, A), outer(&frame, B));
-    assert!(splits.remove(C, &frame));
-    let after = lay(&splits, 41, 81);
-    assert_eq!(outer(&after, A), a);
-    assert_eq!(outer(&after, B).rows, b.rows + outer(&frame, C).rows);
-    assert!(splits.remove(A, &after));
-    assert_eq!(splits, Splits::new(B));
-    assert!(
-        !splits.remove(B, &lay(&splits, 41, 81)),
-        "the only window stays"
-    );
-}
-
-#[test]
-fn a_run_left_with_one_child_goes_and_one_of_the_same_way_merges() {
-    // A | (B over (C | D)): removing B leaves C | D, which joins A's run.
-    let (mut splits, frame) = two(Way::Across);
-    splits.split(B, Way::Down, C, &frame).unwrap();
-    let frame = lay(&splits, 41, 81);
-    splits.split(C, Way::Across, D, &frame).unwrap();
-    let frame = lay(&splits, 41, 81);
-    let a = outer(&frame, A);
-    assert!(splits.remove(B, &frame));
-    let mut merged = Splits::new(A);
-    let one = lay(&merged, 41, 81);
-    merged.split(A, Way::Across, C, &one).unwrap();
-    let one = lay(&merged, 41, 81);
-    merged.split(C, Way::Across, D, &one).unwrap();
-    assert_eq!(splits.iter().collect::<Vec<_>>(), [A, C, D]);
-    let frame = lay(&splits, 41, 81);
-    assert_eq!(outer(&frame, A), a, "A keeps its cells");
-    assert_eq!(outer(&frame, C).rows, 40);
-    // A run of three, as if split so: balancing gives thirds.
-    splits.balance();
-    let frame = lay(&splits, 41, 81);
-    let columns: Vec<usize> = [A, C, D]
-        .iter()
-        .map(|w| outer(&frame, *w).columns)
-        .collect();
-    assert_eq!(columns, [27, 27, 27]);
-}
-
-#[test]
 fn a_resize_grows_into_the_windows_after_then_before_and_shrinks_into_the_next() {
     let (mut splits, frame) = two(Way::Down);
     splits.split(B, Way::Down, C, &frame).unwrap();
@@ -425,8 +378,9 @@ proptest! {
     /// overlap; the layout shows each window of the tree once in its order, keeps the kept
     /// one shown, gives each shown window a column and a row of text, and a row and a
     /// modeline while all fit. `hit` and `neighbour` agree with the cells, a frame resized
-    /// and back lays out the same, and a removal shrinks none of the windows left. A pair's
-    /// windows are shown together or not at all, and share its cells (ADR 0122).
+    /// and back lays out the same, and a removal shrinks none of the windows left but by a
+    /// divider it no longer draws. A pair's windows are shown together or not at all, and
+    /// share its cells (ADR 0122).
     #[test]
     fn prop_the_layout_tiles_the_frame(ops in prop::collection::vec(op(), 0..40), gutter in 0usize..6) {
         let mut splits = Splits::new(A);
@@ -451,12 +405,19 @@ proptest! {
                     let after = layout(size(rows, columns), &splits, windows[0], |_| gutter);
                     let all_shown = frame.windows().iter().all(|(_, r)| shown(r.outer()));
                     if removed && all_shown && pick(w) != windows[0] {
+                        // The columns beside its divider: a window held at its smallest keeps
+                        // a column for its divider, which it no longer draws once the removal
+                        // leaves it at the right edge, where its weight lays it out again.
+                        let beside = |r: &WindowRegions| {
+                            r.outer().columns - r.divider.map_or(0, |d| d.columns)
+                        };
                         for (id, regions) in after.windows() {
-                            let (old, new) = (outer(&frame, *id), regions.outer());
+                            let Some(before) = frame.regions(*id) else { continue };
+                            let (old, new) = (before.outer(), regions.outer());
                             // A run that takes the cells grows its windows in proportion,
                             // so they may move, but none gets smaller.
                             prop_assert!(
-                                new.rows >= old.rows && new.columns >= old.columns,
+                                new.rows >= old.rows && beside(regions) >= beside(before),
                                 "{:?} shrank from {:?} to {:?}", id, old, new
                             );
                         }
@@ -573,3 +534,5 @@ proptest! {
 fn shown(cells: CellRect) -> bool {
     cells.rows > 0 && cells.columns > 0
 }
+
+mod removal;
