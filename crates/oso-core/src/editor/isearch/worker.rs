@@ -12,6 +12,7 @@
 
 use std::ops::Range;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use super::Tally;
 use super::state::{Asked, Bad, Pattern};
@@ -59,10 +60,13 @@ impl Editor {
             Report::Compiled { generation, regexp } if generation == live => {
                 self.isearch_compiled(regexp)
             }
-            // The search's, which fails there, or the count's, which then shows nothing.
+            // The search's, which fails there, or the count's, which then shows nothing; either
+            // takes a migemo search on literally.
             Report::LineTooLong { generation, at } if generation == live => {
-                if state.searching.is_some() {
-                    self.isearch_line_too_long(at);
+                let migemo = matches!(state.pattern, Pattern::Migemo(_));
+                if state.searching.is_some() || migemo {
+                    let again = state.searching;
+                    self.isearch_line_too_long(at, again);
                 } else {
                     state.tally = None;
                 }
@@ -184,9 +188,9 @@ impl Editor {
                         start_at_most: start_at_most.min(len),
                     },
                 };
-                self.isearch_find(find, asked);
+                self.isearch_find(find, asked, Instant::now());
             }
-            _ => self.isearch_typed(),
+            _ => self.isearch_typed(Instant::now()),
         }
         true
     }

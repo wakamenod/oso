@@ -33,7 +33,7 @@ mod cut;
 
 pub(crate) use back::find_backward;
 use compile::builder;
-pub(crate) use compile::{CompileError, On, compile, compile_isearch, smart_case};
+pub(crate) use compile::{CompileError, On, compile, compile_isearch, compile_migemo, smart_case};
 
 /// The longest line a regexp is matched in: past it, a search stops at the line.
 pub(crate) const MAX_LINE: usize = 64 * 1024 * 1024;
@@ -65,7 +65,10 @@ const VIEW_REACH: usize = 256;
 
 /// The most time a frame's highlights look for a regexp's matches: what is left of a frame
 /// beside a key's search.
-const FRAME_TIME: std::time::Duration = std::time::Duration::from_millis(2);
+pub(crate) const FRAME_TIME: std::time::Duration = std::time::Duration::from_millis(2);
+
+/// How many matches a frame's or a key's look finds between looks at the time.
+const TIME_EVERY: usize = 256;
 
 /// A line too long to match a regexp in, which starts at this offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +91,9 @@ pub(crate) struct Regexp {
     /// A key compiled it quickly, so a key may build the regexps for a cut, which take about
     /// twice as long.
     quick: bool,
+    /// It has no assertion, as migemo's pattern has none, so a match that ends at a cut is one
+    /// as it is, and it needs no regexps for a cut.
+    plain: bool,
     /// The longest line it is matched in.
     longest: usize,
 }
@@ -391,6 +397,17 @@ impl<'a> Scan<'a> {
     }
 }
 
+/// Room for a line's text that a caller keeps from call to call, so a frame or a key allocates
+/// nothing once it has grown. `Debug` prints none of the text (ADR 0044).
+#[derive(Default)]
+pub(crate) struct LineRoom(String);
+
+impl fmt::Debug for LineRoom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LineRoom")
+    }
+}
+
 impl Regexp {
     /// The replacement for the match at `range`: `to` with its `$1`, `${name}`, `$0` and `$$`
     /// expanded from the match's groups, as `Regex::replace` expands them. It reads the
@@ -416,20 +433,23 @@ impl Regexp {
     /// The matches within `spans`, the parts of lines a frame shows, at most `most`, for the
     /// highlights: each line is read and looked in from a little before its span to a little
     /// after, from one character before that, so `^` and `\b` see what is there, reading at
-    /// most `limit` bytes in all and for at most [`FRAME_TIME`], so a frame costs as much as its
-    /// view. A match the window cuts at its end is left out, as it may be longer or none.
+    /// most `limit` bytes in all and until `until` if one is given, so a frame or a key costs
+    /// as much as its view. A match the window cuts at its end is left out, as it may be longer or none.
+    /// `room` is where each line's text is read.
     pub(crate) fn matches_in(
         &self,
         text: &Rope,
         spans: &[Range<usize>],
         (most, limit): (usize, usize),
+        (until, room): (Option<Instant>, &mut LineRoom),
         out: &mut Vec<Range<usize>>,
     ) {
-        let until = Instant::now() + FRAME_TIME;
-        let (mut left, mut line) = (limit, String::new());
+        let passed = || until.is_some_and(|until| Instant::now() >= until);
+        let (mut left, line) = (limit, &mut room.0);
+        let mut looks = 0_usize;
         for shown in spans {
             let (_, start, end) = span(text, shown.start);
-            if shown.start > end || Instant::now() >= until {
+            if shown.start > end || passed() {
                 continue;
             }
             let clip = |at: usize| text.clip_offset(at, crate::sum_tree::Bias::Left);
@@ -446,14 +466,19 @@ impl Regexp {
             let mut at = look - read_from;
             let mut last_end = None;
             while at <= cut {
-                let Some(found) = self.regex.find_at(&line, at) else {
+                // A line full of matches looks at the time now and then, too.
+                looks += 1;
+                if looks.is_multiple_of(TIME_EVERY) && passed() {
+                    return;
+                }
+                let Some(found) = self.regex.find_at(line, at) else {
                     break;
                 };
                 let matched = read_from + found.start()..read_from + found.end();
                 let cut_off = found.end() == cut && !at_end;
                 let skipped = found.is_empty() && last_end == Some(found.start());
                 at = if found.is_empty() {
-                    char_after(&line, found.start())
+                    char_after(line, found.start())
                 } else {
                     found.end()
                 };

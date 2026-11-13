@@ -198,6 +198,28 @@ pub(crate) fn compile_isearch(
     }
 }
 
+/// The deepest a migemo pattern's groups nest (ADR 0116).
+const MIGEMO_NEST: u32 = 32;
+
+/// Compiles migemo's `pattern` (ADR 0116) on a key, case-insensitive if `insensitive`. Its
+/// characters are escaped kana and letters with no class to weigh, and its length follows
+/// the string's, so only the key's size limit bounds it. `None` over that limit, and the
+/// caller searches for the string as it is.
+pub(crate) fn compile_migemo(pattern: &str, insensitive: bool) -> Option<Regexp> {
+    let mut built = builder(pattern, insensitive);
+    let started = std::time::Instant::now();
+    let regex = built
+        .size_limit(super::KEY_SIZE_LIMIT)
+        .nest_limit(MIGEMO_NEST)
+        .build()
+        .ok()?;
+    let mut regexp = Regexp::new(regex, pattern, insensitive);
+    regexp.quick = started.elapsed() <= QUICK;
+    // Every character is escaped, so there is no `$`, `\b` or `^` to see past a cut.
+    regexp.plain = true;
+    Some(regexp)
+}
+
 /// What a pattern over [`MAX_PATTERN_CHARS`] says.
 fn too_long() -> String {
     format!("Invalid regexp: longer than {MAX_PATTERN_CHARS} characters")
@@ -239,14 +261,24 @@ impl Regexp {
             at_cut: std::sync::OnceLock::new(),
             source: Arc::new((pattern.to_owned(), insensitive)),
             quick: false,
+            plain: false,
             longest: MAX_LINE,
         }
     }
 
     /// Builds the regexps for a match at a cut, if they are not built yet, where there is
-    /// time: on the worker, or once as the keys that add cursors begin.
+    /// time: on the worker, or once as the keys that add cursors begin. One with no
+    /// assertion needs none.
     pub(crate) fn build_cut(&self) {
-        self.at_cut();
+        if !self.plain {
+            self.at_cut();
+        }
+    }
+
+    /// Whether a match that ends at a cut is one as it is: it has no assertion, as migemo's
+    /// pattern has none.
+    pub(crate) fn plain(&self) -> bool {
+        self.plain
     }
 
     /// Whether the regexps for a cut are built, or found not to compile.

@@ -1,5 +1,6 @@
-//! What an isearch holds (ADR 0082, ADR 0116): the string, literal or a regexp, where it has
-//! got to, the count, the steps `DEL` goes back through, and the echo line it says.
+//! What an isearch holds (ADR 0082, ADR 0116): the string, literal, a regexp or romaji that
+//! migemo searches for, where it has got to, the count, the steps `DEL` goes back through,
+//! and the echo line it says.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
@@ -9,11 +10,14 @@
 use std::collections::VecDeque;
 use std::fmt::{self, Write};
 use std::ops::Range;
+use std::time::Instant;
 
 use crate::buffer::BufferId;
-use crate::search::{self, CompileError, Find, MAX_QUERY_CHARS, Needle, On, Prepared, Query};
+use crate::search::{self, CompileError, Find, MAX_QUERY_CHARS, Needle, On, Prepared};
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
+
+use crate::editor::migemo::{Cache, Migemo, Sought};
 
 /// The most steps `DEL` can go back. The oldest go first.
 const MAX_STEPS: usize = 4096;
@@ -42,7 +46,10 @@ pub(super) enum Asked {
 pub(super) enum Pattern {
     /// Nothing: the string is empty.
     Empty,
+    /// A literal query, or a compiled regexp, the key's or the worker's.
     Ready(Needle),
+    /// Migemo's needle for a romaji string (ADR 0116), which a worker takes as it is.
+    Migemo(Needle),
     /// A regexp too large or heavy for a key to compile, which the worker compiles.
     Compiling,
     /// A regexp that does not compile, and why, which the line says after the string.
@@ -67,6 +74,7 @@ pub(super) struct Step {
     pub(super) backward: bool,
     pub(super) flipped: bool,
     pub(super) regexp: bool,
+    pub(super) use_migemo: bool,
     pub(super) current: Option<Range<usize>>,
     pub(super) failing: bool,
     /// The regexp did not compile, so `C-g` goes back past it as past a failing step.
@@ -86,6 +94,8 @@ pub struct Isearch {
     pub(super) flipped: bool,
     /// The string is a regexp, as `C-M-s` and `M-r` make it (ADR 0116).
     pub(super) regexp: bool,
+    /// Migemo searches for a romaji string, unless `M-m` turned it off (ADR 0116).
+    pub(super) use_migemo: bool,
     pub(super) pattern: Pattern,
     /// A line too long to match a regexp in stopped the search, at this row from 1, which the
     /// line says.
@@ -118,6 +128,7 @@ impl fmt::Debug for Isearch {
         // The string stays out of it (ADR 0044).
         f.debug_struct("Isearch")
             .field("regexp", &self.regexp)
+            .field("use_migemo", &self.use_migemo)
             .field("backward", &self.backward)
             .field("failing", &self.failing)
             .field("wrapped", &self.wrapped)
@@ -126,12 +137,13 @@ impl fmt::Debug for Isearch {
 }
 
 impl Isearch {
-    /// A search of `buffer` from the place `begin` keeps, forward or `backward`.
+    /// A search of `buffer` from the place `begin` keeps, forward or `backward`, of a
+    /// `regexp` or not, with migemo on or off as `use_migemo` says.
     pub(super) fn new(
         buffer: BufferId,
         begin: (SelectionSet, Scroll),
         revision: u64,
-        (backward, regexp): (bool, bool),
+        (backward, regexp, use_migemo): (bool, bool, bool),
         around_secret: bool,
     ) -> Self {
         Self {
@@ -139,6 +151,7 @@ impl Isearch {
             backward,
             flipped: false,
             regexp,
+            use_migemo,
             pattern: Pattern::Empty,
             too_long: None,
             current: None,
@@ -169,6 +182,12 @@ impl Isearch {
     /// Whether the string is a regexp (ADR 0116).
     pub fn regexp(&self) -> bool {
         self.regexp
+    }
+
+    /// Whether it searches for migemo's pattern: the string is romaji that gives kana, in a
+    /// search that is not a regexp's, with migemo on (ADR 0116).
+    pub fn migemo(&self) -> bool {
+        matches!(self.pattern, Pattern::Migemo(_))
     }
 
     /// Whether the string has no match where it searched.
@@ -222,8 +241,12 @@ impl Isearch {
         self.around_secret = true;
     }
 
-    /// The echo line: `I-search: foo [3/17]`, with Emacs's words before it.
+    /// The echo line: `I-search: foo [3/17]`, with Emacs's words before it, and
+    /// `[migemo]` before them while migemo searches (ADR 0116).
     pub(super) fn write_line(&self, out: &mut String) {
+        if self.migemo() {
+            out.push_str("[migemo] ");
+        }
         let start = out.len();
         let mut word = |word: &str| {
             if out.len() > start {
@@ -306,6 +329,7 @@ impl Isearch {
             backward: self.backward,
             flipped: self.flipped,
             regexp: self.regexp,
+            use_migemo: self.use_migemo,
             current: self.current.clone(),
             failing: self.failing,
             invalid: matches!(self.pattern, Pattern::Bad(_)),
@@ -316,15 +340,22 @@ impl Isearch {
         });
     }
 
-    /// Makes what the string looks for anew: a literal query, or a regexp a key compiles,
-    /// one larger or heavier left for the worker to compile, or why it cannot.
-    pub(super) fn rebuild_query(&mut self) {
+    /// Makes what the string looks for anew: migemo's pattern for romaji, from `migemo`'s
+    /// cache, a literal query, or a regexp a key compiles, one larger or heavier left for
+    /// the worker to compile, or why it cannot. Returns when it began, which the key's time
+    /// to search counts from.
+    pub(super) fn rebuild_query(&mut self, migemo: &mut Migemo) -> Instant {
+        let started = Instant::now();
         self.pattern = if self.string.is_empty() {
             Pattern::Empty
         } else if !self.regexp {
-            Query::new(&self.string, self.case_sensitive()).map_or(Pattern::Empty, |query| {
-                Pattern::Ready(Needle::Literal(query))
-            })
+            let cache = Cache::unless(self.around_secret);
+            let case_sensitive = self.case_sensitive();
+            match migemo.string_needle(&self.string, case_sensitive, self.use_migemo, cache) {
+                Some(Sought::Migemo(needle)) => Pattern::Migemo(needle),
+                Some(Sought::Literal(needle)) => Pattern::Ready(needle),
+                None => Pattern::Empty,
+            }
         } else {
             let insensitive = !self.case_sensitive();
             match search::compile_isearch(&self.string, insensitive, On::Key) {
@@ -334,12 +365,13 @@ impl Isearch {
                 Err(CompileError::Invalid(why)) => Pattern::Bad(Bad::Invalid(why)),
             }
         };
+        started
     }
 
     /// The needle it searches with, once there is one.
     pub(super) fn needle(&self) -> Option<&Needle> {
         match &self.pattern {
-            Pattern::Ready(needle) => Some(needle),
+            Pattern::Ready(needle) | Pattern::Migemo(needle) => Some(needle),
             _ => None,
         }
     }
@@ -347,13 +379,18 @@ impl Isearch {
     /// Whether the string has something to search for: a needle, or a regexp the worker
     /// compiles.
     pub(super) fn has_needle(&self) -> bool {
-        matches!(self.pattern, Pattern::Ready(_) | Pattern::Compiling)
+        matches!(
+            self.pattern,
+            Pattern::Ready(_) | Pattern::Migemo(_) | Pattern::Compiling
+        )
     }
 
     /// What a worker's job looks for: the needle, or the pattern it is to compile.
     pub(super) fn prepared(&self) -> Option<Prepared> {
         match &self.pattern {
-            Pattern::Ready(needle) => Some(Prepared::Ready(needle.clone())),
+            Pattern::Ready(needle) | Pattern::Migemo(needle) => {
+                Some(Prepared::Ready(needle.clone()))
+            }
             Pattern::Compiling => Some(Prepared::Compile {
                 pattern: self.string.clone(),
                 insensitive: !self.case_sensitive(),

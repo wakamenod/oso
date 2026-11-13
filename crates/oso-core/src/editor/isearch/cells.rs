@@ -5,10 +5,11 @@
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 //!
 //! Only the rows in view are searched, each widened by what a literal string can reach, and a
-//! regexp's read a little around them, within [`FRAME_BUDGET`], so a frame costs as much as the
-//! view and the string, not the buffer.
+//! regexp's read a little around them, within [`FRAME_BUDGET`] and [`search::FRAME_TIME`], so
+//! a frame costs as much as the view and the string, not the buffer.
 
 use std::ops::Range;
+use std::time::Instant;
 
 use crate::buffer::BufferId;
 use crate::display_map::DisplayPoint;
@@ -35,6 +36,8 @@ pub struct MatchCells {
     pub others: Vec<CellRect>,
     pub(in crate::editor) spans: Vec<Range<usize>>,
     pub(in crate::editor) found: Vec<Range<usize>>,
+    /// A line's text, for a regexp's matches.
+    pub(in crate::editor) line: search::LineRoom,
     /// What a project search's preview cells were worked out for, so that a frame that shows
     /// the same works out nothing (ADR 0114).
     pub(in crate::editor) preview_key: Option<crate::editor::project_search::PreviewCellsKey>,
@@ -86,6 +89,7 @@ impl Editor {
             others,
             spans,
             found,
+            line,
             ..
         } = cells;
         current_cells.clear();
@@ -128,7 +132,8 @@ impl Editor {
             }
         }
         let limits = (MAX_MATCHES_SHOWN, FRAME_BUDGET);
-        query.matches_in((text, invalid), spans, limits, found);
+        let until = Instant::now() + search::FRAME_TIME;
+        query.matches_in((text, invalid), spans, limits, (Some(until), line), found);
         // The current one alone, and the rest without what overlaps it.
         if let Some(range) = current {
             found.retain(|other| other.end <= range.start || other.start >= range.end);

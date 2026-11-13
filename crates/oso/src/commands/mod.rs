@@ -298,6 +298,7 @@ mod tests {
         "isearch-ring-advance",
         "isearch-ring-retreat",
         "isearch-toggle-case-fold",
+        "isearch-toggle-migemo",
         "isearch-toggle-regexp",
         "isearch-yank-pop",
         "isearch-yank-kill",

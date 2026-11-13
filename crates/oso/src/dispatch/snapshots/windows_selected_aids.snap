@@ -110,7 +110,7 @@ WindowId(1) at row 0, column 24: 9 x 23
 │  7 ┆                   │
 │    ┆                   │
 --- test  2:1  Fundament-
-"I-search: line [1/6]                           "
+"[migemo] I-search: line [1/6]                  "
 
 keys: RET C-SPC C-n
 WindowId(0) at row 0, column 0: 9 x 24, selected
