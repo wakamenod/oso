@@ -48,13 +48,14 @@ fn columns_for(lines: usize) -> usize {
 }
 
 impl Editor {
-    /// The gutter's columns for `window` as it is: none with line numbers off, and otherwise
-    /// as its own buffer's line count needs (ADR 0112). They never narrow while it shows one
-    /// buffer, so that a line count crossing a digit boundary back and forth, as a newline
-    /// typed and deleted at 1000 lines, does not change the text area's width at each key,
-    /// which would wrap its rows again (ADR 0104, ADR 0105).
+    /// The gutter's columns for `window` as it is: none with line numbers off or in a terminal,
+    /// and otherwise as its own buffer's line count needs (ADR 0112). They never narrow while
+    /// it shows one buffer, so that a line count crossing a digit boundary back and forth, as a
+    /// newline typed and deleted at 1000 lines, does not change the text area's width at each
+    /// key, which would wrap its rows again (ADR 0104, ADR 0105).
     pub(super) fn gutter_columns(&self, window: &Window) -> usize {
-        if !self.aids.line_numbers {
+        // A terminal's grid has no lines of the buffer's to number (ADR 0120).
+        if !self.aids.line_numbers || self.shown(window).is_terminal() {
             return 0;
         }
         let own = columns_for(self.shown(window).text().line_count());
@@ -280,6 +281,17 @@ mod tests {
     #[test]
     fn line_numbers_off_take_no_columns() {
         let editor = Editor::with_buffer(Buffer::from_text("t", "a"));
+        assert_eq!(editor.tiled_regions().gutter.columns, 0);
+        assert!(rows(&editor).is_empty());
+    }
+
+    #[test]
+    fn a_terminal_has_no_gutter() {
+        let mut editor = numbered("a\nb", 10);
+        assert!(editor.tiled_regions().gutter.columns > 0);
+        let terminal = editor.add_terminal_buffer("*terminal*");
+        editor.show(terminal);
+        editor.fit_gutter();
         assert_eq!(editor.tiled_regions().gutter.columns, 0);
         assert!(rows(&editor).is_empty());
     }

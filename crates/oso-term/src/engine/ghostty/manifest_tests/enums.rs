@@ -47,6 +47,7 @@ fn options_and_data_match_the_manifest() {
             ("DESKTOP_NOTIFICATION", ffi::OPT_DESKTOP_NOTIFICATION),
             ("PROGRESS_REPORT", ffi::OPT_PROGRESS_REPORT),
             ("TITLE_REPORT", ffi::OPT_TITLE_REPORT),
+            ("MODE_DEFAULT", ffi::OPT_MODE_DEFAULT),
             ("UNKNOWN_SEQUENCE", ffi::OPT_UNKNOWN_SEQUENCE),
             ("UNKNOWN_MAX_BYTES", ffi::OPT_UNKNOWN_MAX_BYTES),
             ("CLIPBOARD_READ", ffi::OPT_CLIPBOARD_READ),
@@ -54,6 +55,7 @@ fn options_and_data_match_the_manifest() {
                 "CLIPBOARD_WRITE_MAX_BYTES",
                 ffi::OPT_CLIPBOARD_WRITE_MAX_BYTES,
             ),
+            ("RENDER_HOLD", ffi::OPT_RENDER_HOLD),
             ("SEMANTIC_PROMPT", ffi::OPT_SEMANTIC_PROMPT),
             ("XT_CHECKSUM_REPORT", ffi::OPT_XT_CHECKSUM_REPORT),
             ("RESIZE_WINDOW", ffi::OPT_RESIZE_WINDOW),
@@ -65,6 +67,7 @@ fn options_and_data_match_the_manifest() {
         &[
             ("ACTIVE_SCREEN", ffi::DATA_ACTIVE_SCREEN),
             ("KITTY_KEYBOARD_FLAGS", ffi::DATA_KITTY_KEYBOARD_FLAGS),
+            ("SCROLLBAR", ffi::DATA_SCROLLBAR),
             ("TITLE", ffi::DATA_TITLE),
             ("PWD", ffi::DATA_PWD),
             ("SCROLLBACK_ROWS", ffi::DATA_SCROLLBACK_ROWS),
@@ -243,6 +246,83 @@ fn enums_match_the_manifest() {
             ("FULL", ffi::RENDER_DIRTY_FULL),
         ],
     );
+}
+
+#[test]
+fn scroll_and_key_enums_match_the_manifest() {
+    let t = types();
+    check_enum(
+        &t,
+        "GhosttyTerminalScrollViewportTag",
+        &[
+            ("BOTTOM", ffi::SCROLL_VIEWPORT_BOTTOM),
+            ("DELTA", ffi::SCROLL_VIEWPORT_DELTA),
+        ],
+    );
+    check_enum(&t, "GhosttyKeyAction", &[("PRESS", ffi::KEY_ACTION_PRESS)]);
+    check_enum(
+        &t,
+        "GhosttyKeyEncoderOption",
+        &[(
+            "MACOS_OPTION_AS_ALT",
+            ffi::KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
+        )],
+    );
+    check_enum(
+        &t,
+        "GhosttyOptionAsAlt",
+        &[("TRUE", ffi::OPTION_AS_ALT_TRUE)],
+    );
+    check_enum(
+        &t,
+        "GhosttyKey",
+        &[
+            ("UNIDENTIFIED", ffi::KEY_UNIDENTIFIED),
+            ("BACKQUOTE", ffi::KEY_BACKQUOTE),
+            ("BACKSLASH", ffi::KEY_BACKSLASH),
+            ("BRACKET_LEFT", ffi::KEY_BRACKET_LEFT),
+            ("BRACKET_RIGHT", ffi::KEY_BRACKET_RIGHT),
+            ("COMMA", ffi::KEY_COMMA),
+            ("EQUAL", ffi::KEY_EQUAL),
+            ("MINUS", ffi::KEY_MINUS),
+            ("PERIOD", ffi::KEY_PERIOD),
+            ("QUOTE", ffi::KEY_QUOTE),
+            ("SEMICOLON", ffi::KEY_SEMICOLON),
+            ("SLASH", ffi::KEY_SLASH),
+            ("BACKSPACE", ffi::KEY_BACKSPACE),
+            ("ENTER", ffi::KEY_ENTER),
+            ("SPACE", ffi::KEY_SPACE),
+            ("TAB", ffi::KEY_TAB),
+            ("DELETE", ffi::KEY_DELETE),
+            ("END", ffi::KEY_END),
+            ("HOME", ffi::KEY_HOME),
+            ("INSERT", ffi::KEY_INSERT),
+            ("PAGE_DOWN", ffi::KEY_PAGE_DOWN),
+            ("PAGE_UP", ffi::KEY_PAGE_UP),
+            ("ARROW_DOWN", ffi::KEY_ARROW_DOWN),
+            ("ARROW_LEFT", ffi::KEY_ARROW_LEFT),
+            ("ARROW_RIGHT", ffi::KEY_ARROW_RIGHT),
+            ("ARROW_UP", ffi::KEY_ARROW_UP),
+            ("ESCAPE", ffi::KEY_ESCAPE),
+        ],
+    );
+    // The runs `keys` counts along.
+    let runs = [
+        (b'A'..=b'Z', "", ffi::KEY_A),
+        (b'0'..=b'9', "DIGIT_", ffi::KEY_DIGIT_0),
+    ];
+    for (range, prefix, first) in runs {
+        for (i, c) in range.enumerate() {
+            let name = format!("{prefix}{}", char::from(c));
+            check_enum(&t, "GhosttyKey", &[(&name, first + i as i32)]);
+        }
+    }
+    for n in 1..=ffi::KEY_F_LAST {
+        let name = format!("F{n}");
+        check_enum(&t, "GhosttyKey", &[(&name, ffi::KEY_F1 + i32::from(n) - 1)]);
+    }
+    let past = format!("F{}", ffi::KEY_F_LAST + 1);
+    assert!(t["GhosttyKey"]["values"][&past].is_null(), "{past} exists");
 }
 
 #[test]

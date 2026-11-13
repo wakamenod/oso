@@ -1,10 +1,13 @@
 //! A terminal's thread end to end, with `/bin/sh` in a real PTY: output reaches snapshots,
 //! input reaches the program, a resize reaches it, the end carries the exit status, at most
-//! one snapshot is in flight, and the input queue is bounded.
+//! one snapshot is in flight, and the input queue is bounded. Keys, pastes, focus, scrolls
+//! and synchronized updates are in `input`.
 //!
 //! Must not depend on: the UI.
 
 #![cfg(unix)]
+
+mod input;
 
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -14,13 +17,13 @@ use std::time::{Duration, Instant};
 
 use oso_platform::process::Executable;
 
-use super::{QueueFull, Request, Start, Terminal};
+use super::{Input, QueueFull, Request, Start, Terminal};
 use crate::engine::ghostty::tests::{palette, size};
 use crate::event::{End, Event};
 use crate::limits;
 use crate::snapshot::Attrs;
 
-fn sh(script: &str) -> Start {
+pub(super) fn sh(script: &str) -> Start {
     Start {
         executable: Executable::absolute("/bin/sh").expect("/bin/sh"),
         args: vec![OsString::from("-c"), OsString::from(script)],
@@ -35,25 +38,30 @@ fn sh(script: &str) -> Start {
 }
 
 /// A started terminal, the screen as its snapshots built it, and what they reported.
-struct Seen {
-    terminal: Terminal,
+pub(super) struct Seen {
+    pub terminal: Terminal,
     woken: mpsc::Receiver<()>,
-    screen: Vec<String>,
-    events: Vec<Event>,
+    pub screen: Vec<String>,
+    pub events: Vec<Event>,
     echo_off: bool,
     size: (u16, u16),
+    pub scrolled: usize,
+    /// Snapshots taken.
+    pub snapshots: usize,
 }
 
 impl Seen {
-    fn start(start: Start) -> Seen {
+    pub fn start(start: Start) -> Seen {
+        Seen::start_holding(start, limits::RENDER_HOLD_MAX)
+    }
+
+    /// A terminal whose synchronized updates hold snapshots for at most `hold_limit`.
+    pub fn start_holding(start: Start, hold_limit: Duration) -> Seen {
         let (tx, woken) = mpsc::channel();
-        let terminal = Terminal::start(
-            start,
-            Box::new(move || {
-                let _ = tx.send(());
-            }),
-        )
-        .expect("start");
+        let wake = Box::new(move || {
+            let _ = tx.send(());
+        });
+        let terminal = Terminal::start_holding(start, wake, hold_limit).expect("start");
         Seen {
             terminal,
             woken,
@@ -61,11 +69,13 @@ impl Seen {
             events: Vec::new(),
             echo_off: false,
             size: (0, 0),
+            scrolled: 0,
+            snapshots: 0,
         }
     }
 
     /// Takes snapshots until `done` holds, for at most 10 s.
-    fn until(&mut self, done: impl Fn(&Seen) -> bool) {
+    pub fn until(&mut self, done: impl Fn(&Seen) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(10);
         while !done(self) {
             assert!(
@@ -75,38 +85,45 @@ impl Seen {
                 self.events
             );
             let _ = self.woken.recv_timeout(Duration::from_millis(50));
-            while let Some(mut snapshot) = self.terminal.take_snapshot() {
-                self.screen
-                    .resize(usize::from(snapshot.size.rows), String::new());
-                for row in &snapshot.rows {
-                    let mut line = String::new();
-                    for (column, cell) in row.cells.iter().enumerate() {
-                        if cell.attrs.contains(Attrs::WIDE_SPACER) {
-                            continue;
-                        }
-                        let cluster = row
-                            .graphemes
-                            .iter()
-                            .find(|g| usize::from(g.0) == column)
-                            .and_then(|(_, at)| row.text.get(at.start as usize..at.end as usize));
-                        match cluster {
-                            Some(text) => line.push_str(text),
-                            None => line.push(cell.ch),
-                        }
-                    }
-                    if let Some(at) = self.screen.get_mut(usize::from(row.index)) {
-                        *at = line.trim_end().to_owned();
-                    }
-                }
-                self.echo_off = snapshot.echo_off;
-                self.size = (snapshot.size.columns, snapshot.size.rows);
-                self.events.append(&mut snapshot.events);
-                self.terminal.recycle(snapshot);
-            }
+            self.take();
         }
     }
 
-    fn shows(&self, text: &str) -> bool {
+    /// Takes the snapshot that is ready, if one is.
+    pub fn take(&mut self) {
+        while let Some(mut snapshot) = self.terminal.take_snapshot() {
+            self.snapshots += 1;
+            self.scrolled = snapshot.scrolled;
+            self.screen
+                .resize(usize::from(snapshot.size.rows), String::new());
+            for row in &snapshot.rows {
+                let mut line = String::new();
+                for (column, cell) in row.cells.iter().enumerate() {
+                    if cell.attrs.contains(Attrs::WIDE_SPACER) {
+                        continue;
+                    }
+                    let cluster = row
+                        .graphemes
+                        .iter()
+                        .find(|g| usize::from(g.0) == column)
+                        .and_then(|(_, at)| row.text.get(at.start as usize..at.end as usize));
+                    match cluster {
+                        Some(text) => line.push_str(text),
+                        None => line.push(cell.ch),
+                    }
+                }
+                if let Some(at) = self.screen.get_mut(usize::from(row.index)) {
+                    *at = line.trim_end().to_owned();
+                }
+            }
+            self.echo_off = snapshot.echo_off;
+            self.size = (snapshot.size.columns, snapshot.size.rows);
+            self.events.append(&mut snapshot.events);
+            self.terminal.recycle(snapshot);
+        }
+    }
+
+    pub fn shows(&self, text: &str) -> bool {
         self.screen.iter().any(|line| line.contains(text))
     }
 
@@ -148,7 +165,8 @@ fn empty_input_is_skipped_and_what_follows_still_arrives() {
     let mut seen = Seen::start(sh("read line; printf 'got %s\\n' \"$line\""));
     seen.terminal.send(Vec::new()).expect("nothing to queue");
     // An empty chunk that reaches the thread anyway is passed over, not waited on.
-    seen.terminal.request(Request::Input(Vec::new()));
+    seen.terminal
+        .request(Request::Input(Input::Bytes(Vec::new())));
     seen.terminal.send(b"abc\r".to_vec()).expect("queued");
     seen.until(|s| s.shows("got abc"));
 }
@@ -258,7 +276,15 @@ fn a_snapshot_keeps_the_latest_state_and_at_most_256_other_events() {
         .collect();
     let mut replies = Vec::new();
     let mut next = Snapshot::new(size(10, 3));
-    assert!(super::thread::judge(&mut effects, &mut replies, &mut next));
+    let mut hold = super::thread::Hold::default();
+    let now = Instant::now();
+    assert!(super::thread::judge(
+        &mut effects,
+        &mut replies,
+        &mut next,
+        &mut hold,
+        now
+    ));
     let titles: Vec<&str> = next
         .events
         .iter()

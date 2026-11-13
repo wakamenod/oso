@@ -27,12 +27,14 @@ use oso_core::window::ViewTop;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
+use crate::cells::Decode;
 use crate::pane::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
 use crate::rows::{Rows, ShapedRow};
 use crate::shape::{MAX_ROUNDED, Rect, Rounded};
 use crate::text::{GlyphInstance, Layout};
 use crate::theme::Theme;
 
+mod grid_pane;
 mod highlight;
 mod labels;
 mod panel;
@@ -85,6 +87,8 @@ struct Draws {
     keys: Keys,
     /// What the labels of the layer being built draw, held back to go over all of it.
     over: Over,
+    /// sRGB bytes in linear light, for a terminal's cells of true colour (ADR 0120).
+    decode: Decode,
 }
 
 impl Draws {
@@ -111,6 +115,17 @@ impl Draws {
     fn fill(&mut self, rect: Option<PixelRect>, face: Face) {
         if let Some(rect) = rect.filter(|_| self.room_for_rect()) {
             self.rects.push(self.filled(rect, face));
+        }
+    }
+
+    /// Fills `rect` in `color`, linear, if it shows and there is room.
+    fn fill_color(&mut self, rect: Option<PixelRect>, color: [f32; 4]) {
+        if let Some(rect) = rect.filter(|_| self.room_for_rect()) {
+            self.rects.push(Rect {
+                position: [rect.x, rect.y],
+                size: [rect.width, rect.height],
+                color,
+            });
         }
     }
 
@@ -210,6 +225,7 @@ impl Scene {
                 plain: Plain::default(),
                 keys: Keys::default(),
                 over: Over::default(),
+                decode: Decode::default(),
             },
             layers: Vec::new(),
         }
@@ -373,22 +389,15 @@ fn draw_pane<G: GlyphSource>(
     let cursor = match &pane.content {
         PaneContent::Text(view) => cursor_cells(view, pane.region),
         PaneContent::Masked(masked) => masked_cursor(masked, pane.region),
-        PaneContent::Lines(_) | PaneContent::Divider => None,
+        PaneContent::Lines(_) | PaneContent::Divider | PaneContent::Grid(_) => None,
     };
     let hollow = matches!(&pane.content, PaneContent::Text(view) if view.cursor_style == CursorStyle::Hollow);
-    // So are a preedit's two underlines, and a hollow box's four sides.
-    let held = cursor.map_or(0, |_| if hollow { 4 } else { 1 }) + preedit_lines(pane);
+    let held = held_rects(pane, cursor, hollow);
     draws.held += held;
     if let Some(face) = pane.background {
         draws.fill(unscrolled.frame_cells(pane.region), face);
     }
-    if let Some(panel) = &pane.panel {
-        let room = MAX_ROUNDED.saturating_sub(draws.rounded.len());
-        let cell = [metrics.width, metrics.height];
-        draws
-            .rounded
-            .extend(panel::boxes(panel, pane.region, cell, &draws.theme).take(room));
-    }
+    draw_panel(draws, pane, metrics);
     match &pane.content {
         PaneContent::Text(view) => {
             // Behind the boxes and the glyphs, so the text keeps its face, back to front.
@@ -428,6 +437,10 @@ fn draw_pane<G: GlyphSource>(
             draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
         PaneContent::Divider => draw_divider(draws, &unscrolled, pane.region),
+        PaneContent::Grid(view) => {
+            let layout = (&unscrolled, held, metrics);
+            grid_pane::draw_grid(draws, view, pane, layout, (rows, system, glyphs));
+        }
         PaneContent::Masked(masked) => {
             let mut layout = unscrolled.with_bands(pane.bands);
             if let Some(cells) = cursor {
@@ -453,6 +466,27 @@ fn draw_pane<G: GlyphSource>(
             }
         }
     }
+}
+
+/// Adds the rounded boxes of `pane`'s panel, if it has one, as many as there is room for.
+fn draw_panel(draws: &mut Draws, pane: &Pane<'_>, metrics: CellMetrics) {
+    if let Some(panel) = &pane.panel {
+        let room = MAX_ROUNDED.saturating_sub(draws.rounded.len());
+        let cell = [metrics.width, metrics.height];
+        draws
+            .rounded
+            .extend(panel::boxes(panel, pane.region, cell, &draws.theme).take(room));
+    }
+}
+
+/// The rectangles `pane` holds back for what it fills last: a cursor box, or a hollow one's four
+/// sides, a preedit's two underlines, and a grid's own (ADR 0120).
+fn held_rects(pane: &Pane<'_>, cursor: Option<CellRect>, hollow: bool) -> usize {
+    let grid = match &pane.content {
+        PaneContent::Grid(view) => grid_pane::held(view, pane.region),
+        _ => 0,
+    };
+    cursor.map_or(0, |_| if hollow { 4 } else { 1 }) + preedit_lines(pane) + grid
 }
 
 /// The line between side by side windows: one pixel, on a whole pixel, down the middle of

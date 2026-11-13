@@ -5,7 +5,9 @@
 //! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O.
 
 use super::{Editor, UndoScope};
-use crate::buffer::{BufferId, EditError};
+use crate::buffer::{Buffer, BufferId, EditError};
+use crate::selection::SelectionSet;
+use crate::undo::Opening;
 
 impl Editor {
     /// Opens the undo group of a command. The dispatcher calls it before it
@@ -105,5 +107,42 @@ impl Editor {
     /// [`EditError::NoRedo`] and [`EditError::ReadOnly`]. Nothing changes.
     pub fn redo(&mut self) -> Result<(), EditError> {
         self.cross_at_once(-1)
+    }
+}
+
+impl Editor {
+    /// `id` has been edited: the open undo group touches it, or with none, nothing joins.
+    pub(super) fn note_edited(&mut self, id: BufferId) {
+        match &mut self.undo_scope {
+            Some(scope) if !scope.touched.contains(&id) => scope.touched.push(id),
+            Some(_) => {}
+            None => self.join_ready = false,
+        }
+    }
+
+    /// How an edit of `id` relates to its newest undo group.
+    pub(super) fn opening(&self, id: BufferId, buffer: &Buffer) -> Opening {
+        let Some(scope) = &self.undo_scope else {
+            return Opening::New(self.selected_selections(id).cloned());
+        };
+        if scope.touched.contains(&id) {
+            return Opening::Continue;
+        }
+        let before = if scope.before.0 == id {
+            Some(&scope.before.1)
+        } else {
+            self.selected_selections(id)
+        };
+        if scope.join && self.join_ready && buffer.can_join_undo(before) {
+            Opening::Join
+        } else {
+            Opening::New(before.cloned())
+        }
+    }
+
+    /// The selected window's cursors, if it shows `id`.
+    pub(super) fn selected_selections(&self, id: BufferId) -> Option<&SelectionSet> {
+        let window = &self.windows[self.selected];
+        (window.buffer() == id).then_some(&window.selections)
     }
 }

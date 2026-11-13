@@ -18,6 +18,9 @@
 use std::ffi::{c_char, c_int, c_void};
 use std::marker::{PhantomData, PhantomPinned};
 
+mod key;
+pub use key::*;
+
 /// An opaque library object, only ever behind a pointer.
 #[repr(C)]
 pub struct Opaque {
@@ -359,6 +362,37 @@ pub type DesktopNotificationFn = extern "C" fn(Terminal, *mut c_void, *const Des
 pub type ProgressReportFn = extern "C" fn(Terminal, *mut c_void, *const ProgressReport);
 pub type SemanticPromptFn = extern "C" fn(Terminal, *mut c_void, *const SemanticPrompt);
 pub type UnknownSequenceFn = extern "C" fn(Terminal, *mut c_void, *const UnknownSequence);
+pub type RenderHoldFn = extern "C" fn(Terminal, *mut c_void, bool);
+
+/// `GhosttyTerminalScrollbar`: the scrollable area, the view's offset in it and its length,
+/// in rows.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Scrollbar {
+    pub total: u64,
+    pub offset: u64,
+    pub len: u64,
+}
+
+// `GhosttyTerminalScrollViewportTag`.
+pub const SCROLL_VIEWPORT_BOTTOM: c_int = 1;
+pub const SCROLL_VIEWPORT_DELTA: c_int = 2;
+
+/// `GhosttyTerminalScrollViewportValue`; oso sets only `delta`, rows with up negative.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union ScrollViewportValue {
+    pub delta: isize,
+    pub padding: [u64; 2],
+}
+
+/// `GhosttyTerminalScrollViewport`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ScrollViewport {
+    pub tag: c_int,
+    pub value: ScrollViewportValue,
+}
 
 // `GhosttyTerminalOption`. 1.0 starts at `OPT_INVALID` = 0.
 pub const OPT_USERDATA: c_int = 1;
@@ -385,10 +419,12 @@ pub const OPT_SCROLLBACK_MAX_LINES: c_int = 29;
 pub const OPT_DESKTOP_NOTIFICATION: c_int = 30;
 pub const OPT_PROGRESS_REPORT: c_int = 31;
 pub const OPT_TITLE_REPORT: c_int = 33;
+pub const OPT_MODE_DEFAULT: c_int = 34;
 pub const OPT_UNKNOWN_SEQUENCE: c_int = 36;
 pub const OPT_UNKNOWN_MAX_BYTES: c_int = 37;
 pub const OPT_CLIPBOARD_READ: c_int = 39;
 pub const OPT_CLIPBOARD_WRITE_MAX_BYTES: c_int = 40;
+pub const OPT_RENDER_HOLD: c_int = 42;
 pub const OPT_SEMANTIC_PROMPT: c_int = 43;
 pub const OPT_XT_CHECKSUM_REPORT: c_int = 45;
 pub const OPT_RESIZE_WINDOW: c_int = 48;
@@ -396,6 +432,7 @@ pub const OPT_RESIZE_WINDOW: c_int = 48;
 // `GhosttyTerminalData`.
 pub const DATA_ACTIVE_SCREEN: c_int = 6;
 pub const DATA_KITTY_KEYBOARD_FLAGS: c_int = 8;
+pub const DATA_SCROLLBAR: c_int = 9;
 pub const DATA_TITLE: c_int = 12;
 pub const DATA_PWD: c_int = 13;
 pub const DATA_SCROLLBACK_ROWS: c_int = 15;
@@ -488,6 +525,40 @@ unsafe extern "C" {
     pub fn ghostty_terminal_set(terminal: Terminal, opt: c_int, value: *const c_void) -> GResult;
     pub fn ghostty_terminal_vt_write(terminal: Terminal, data: *const u8, len: usize);
     pub fn ghostty_terminal_get(terminal: Terminal, data: c_int, out: *mut c_void) -> GResult;
+    pub fn ghostty_terminal_scroll_viewport(
+        terminal: Terminal,
+        behavior: ScrollViewport,
+    ) -> GResult;
+
+    pub fn ghostty_key_encoder_new(
+        allocator: *const Allocator,
+        encoder: *mut KeyEncoder,
+    ) -> GResult;
+    pub fn ghostty_key_encoder_free(encoder: KeyEncoder);
+    pub fn ghostty_key_encoder_set(
+        encoder: KeyEncoder,
+        option: c_int,
+        value: *const c_void,
+    ) -> GResult;
+    pub fn ghostty_key_encoder_set_from_terminal(
+        encoder: KeyEncoder,
+        terminal: Terminal,
+    ) -> GResult;
+    pub fn ghostty_key_encoder_encode(
+        encoder: KeyEncoder,
+        event: KeyEvent,
+        buf: *mut u8,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> GResult;
+    pub fn ghostty_key_event_new(allocator: *const Allocator, event: *mut KeyEvent) -> GResult;
+    pub fn ghostty_key_event_free(event: KeyEvent);
+    pub fn ghostty_key_event_set_action(event: KeyEvent, action: c_int) -> GResult;
+    pub fn ghostty_key_event_set_key(event: KeyEvent, key: Key) -> GResult;
+    pub fn ghostty_key_event_set_mods(event: KeyEvent, mods: Mods) -> GResult;
+    pub fn ghostty_key_event_set_consumed_mods(event: KeyEvent, consumed: Mods) -> GResult;
+    pub fn ghostty_key_event_set_utf8(event: KeyEvent, utf8: KeyText) -> GResult;
+    pub fn ghostty_key_event_set_unshifted_codepoint(event: KeyEvent, codepoint: u32) -> GResult;
 
     pub fn ghostty_render_state_new(
         allocator: *const Allocator,
