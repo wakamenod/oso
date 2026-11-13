@@ -405,7 +405,8 @@ impl App {
             .values()
             .chain(worktrees.creating.values())
             .any(|brief| brief.place.starts_with(path));
-        let busy = running_sessions(self.hosting.table.all())
+        let busy = self
+            .running_sessions()
             .into_iter()
             .filter(|session| !session.settled && session.directory.starts_with(path))
             .map(|session| session.name)
@@ -437,9 +438,45 @@ impl App {
         Snapshot {
             unsaved,
             briefs,
-            sessions: running_sessions(sessions),
+            sessions: self.running_sessions(),
             hosted: hosted_pids(sessions),
         }
+    }
+
+    /// A hosted session's state as the UI thread knows it, or `None` while its live state is
+    /// not known: a session that runs then counts as busy.
+    pub(in crate::app) fn hosted_state(&self, session: &Hosted) -> Option<State> {
+        match session.run {
+            Run::Stopped => Some(State::Stopped),
+            Run::Failed => Some(State::Failed),
+            Run::Starting | Run::Running { .. } => self.live_state(session).map(|(state, _)| state),
+        }
+    }
+
+    /// The hosted sessions that run, neither failed nor stopped, each with whether its
+    /// screen's state is idle or done: check 4's half that the UI thread knows.
+    fn running_sessions(&self) -> Vec<HostedSession> {
+        self.hosting
+            .table
+            .all()
+            .iter()
+            .filter(|session| session.runs())
+            .filter_map(|session| {
+                let state = self.hosted_state(session);
+                if matches!(state, Some(State::Failed | State::Stopped)) {
+                    return None;
+                }
+                Some(HostedSession {
+                    directory: session.directory.clone(),
+                    name: session.name.clone(),
+                    pid: match session.run {
+                        Run::Running { child } => child,
+                        _ => None,
+                    },
+                    settled: matches!(state, Some(State::Idle | State::Done)),
+                })
+            })
+            .collect()
     }
 
     /// The name of the space of the worktree at `path`, if it has one.
@@ -448,42 +485,6 @@ impl App {
         let at = spaces.find(path)?;
         spaces.get(at).map(|space| space.name.clone())
     }
-}
-
-/// A hosted session's state as the UI thread knows it, or `None` while its live state is not
-/// known: a session that runs then counts as busy.
-fn hosted_state(session: &Hosted) -> Option<State> {
-    match session.run {
-        Run::Stopped => Some(State::Stopped),
-        Run::Failed => Some(State::Failed),
-        // ADR 0121 step 3 part B: the state the sessions worker last gave this session
-        // (`Out::Changed`), which the app does not keep yet.
-        Run::Starting | Run::Running { .. } => None,
-    }
-}
-
-/// The hosted sessions that run, neither failed nor stopped, each with whether its screen's
-/// state is idle or done: check 4's half that the UI thread knows.
-fn running_sessions(sessions: &[Hosted]) -> Vec<HostedSession> {
-    sessions
-        .iter()
-        .filter(|session| session.runs())
-        .filter_map(|session| {
-            let state = hosted_state(session);
-            if matches!(state, Some(State::Failed | State::Stopped)) {
-                return None;
-            }
-            Some(HostedSession {
-                directory: session.directory.clone(),
-                name: session.name.clone(),
-                pid: match session.run {
-                    Run::Running { child } => child,
-                    _ => None,
-                },
-                settled: matches!(state, Some(State::Idle | State::Done)),
-            })
-        })
-        .collect()
 }
 
 /// The process ids of the `claude`s oso hosts.

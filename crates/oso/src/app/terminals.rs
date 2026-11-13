@@ -67,6 +67,8 @@ impl App {
             }
         }
         for (buffer, send) in sends {
+            // The person's input into a session's terminal resets its agent's loop guard.
+            self.person_typed_in_session(buffer);
             self.terminal_send(buffer, send);
         }
         if self.terminals.map.is_empty() {

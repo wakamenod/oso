@@ -21,7 +21,7 @@ use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 use oso_core::buffer::BufferId;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::super::App;
 use crate::channel::protocol::sessions::Call;
@@ -260,7 +260,6 @@ impl App {
 
     /// The person's input reached the terminal of the session `buffer` holds: its agent may
     /// make as many calls again (ADR 0121, the author's choice: only this resets the guard).
-    #[expect(dead_code, reason = "ADR 0120 step 4a's terminal input calls it")]
     pub(in crate::app) fn person_typed_in_session(&mut self, buffer: BufferId) {
         if let Some(session) = self.hosting.table.by_buffer(buffer) {
             let id = session.id.clone();
@@ -402,26 +401,4 @@ impl App {
 /// A path as a tool's reply gives it.
 fn shown(path: &Path) -> String {
     path.display().to_string()
-}
-
-/// A reply for a session, as `session_list` and `session_state` give it.
-fn session_json(session: &Hosted, caller: Option<&SessionId>, now_ms: u64) -> Value {
-    // The taxonomy of states comes with ADR 0121 step 3; until then, the process's.
-    let state = session.run.label();
-    json!({
-        "id": session.id.as_str(),
-        "name": session.name,
-        // The `--name` oso gave its claude, which Claude Code's SendMessage and ListAgents know
-        // it by; the CLI may suffix a duplicate. Step 3's registry poll can give the real one.
-        "messaging_name": session.name,
-        "directory": shown(&session.directory),
-        "project": session.root.as_deref().map(shown),
-        "state": state,
-        "age_s": now_ms.saturating_sub(session.changed) / 1000,
-        "pinned": session.pinned,
-        "archived": session.archived,
-        "parent": session.parent.as_ref().map(SessionId::as_str),
-        "external": false,
-        "you": caller == Some(&session.id),
-    })
 }

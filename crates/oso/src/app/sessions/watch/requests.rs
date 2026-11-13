@@ -249,7 +249,7 @@ impl App {
     }
 
     /// Sends the hang-up to session `key`'s terminal: oso stopped it, so its end is no failure.
-    fn hang_up_session(&mut self, key: SessionKey) {
+    pub(in crate::app) fn hang_up_session(&mut self, key: SessionKey) {
         let Some(buffer) = self.hosting.table().get(key).and_then(|s| s.buffer) else {
             return self.editor.message("That session does not run");
         };

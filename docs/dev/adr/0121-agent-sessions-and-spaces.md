@@ -1169,8 +1169,10 @@ questions through the coordinator, (a) for each, and the coordinator approved th
 - **Left to step 3's part B:**
   - Keeping each hosted session's live state on the UI thread (`Out::Changed`). Until then a
     running session's state is not known: it counts as busy, and the list says `running`.
+    Built with step 6a: check 4 and the list read step 3's live states.
   - Stopping a hosted session (`session-stop`), which the removal's clearing calls for each
-    idle session in the worktree, as ended by oso. Its buffer stays, read-only.
+    idle session in the worktree, as ended by oso. Its buffer stays, read-only. Built with
+    step 6a: the clearing hangs each one up as `session-stop` does.
   - Closing a space, which the removal's clearing calls: entering the repository's space first
     if the worktree's is the one in the frame.
   - The end-to-end flows, which need the terminal that `claude` runs in.
@@ -1197,10 +1199,11 @@ for each, and the coordinator approved these points:
   repository. Each session has its id, name, `messaging_name` (the `--name` oso gave its
   `claude`, which Claude Code's own `SendMessage` knows it by; the CLI may add a suffix to a
   duplicate, and step 3's registry poll can give the real one), directory, project, state, age,
-  pin and archive marks, parent, and
+  pin and archive marks, parent, its space as `*Sessions*` names it, and
   whether it is the caller. Never a transcript path, and no recap until a terminal can allow agent
-  reads (ADR 0120 step 7). Until step 3 gives hosted sessions the taxonomy, the state is the
-  process's: `starting`, `running`, `stopped` or `failed`.
+  reads (ADR 0120 step 7). The state is step 3's, as `*Sessions*` and `*Worktrees*` show it, and
+  its age is the time in that state; while the screen's state is not known yet, it is the
+  process's, `starting` or `running`.
 - **A tool that asks holds its reply (the author's choice).** The call returns once the person
   has answered and what the answer started has started: the new session's id and name, or why
   not. The server holds such a reply with no time limit, as it holds the connection's own
@@ -1227,8 +1230,8 @@ for each, and the coordinator approved these points:
 - **The loop guard** counts each call of `worktree_remove`, `start_worktree_session` and
   `session_start` by session, not by connection, so a session that connects again keeps its
   count. Only the person's input into that session's terminal resets it (the author's choice);
-  a `y` to its question does not. The call that resets it is in place for ADR 0120 step 4a's
-  terminal input to make. A call is counted once the guard lets it through, whatever oso refuses
+  a `y` to its question does not: keys, text and pastes the person sends to the session's
+  terminal reset it. A call is counted once the guard lets it through, whatever oso refuses
   later (an untrusted project, the caller's own worktree, what the job found, another question
   waiting); only a call the guard itself or the person's earlier refusal stops is not counted.
 - **A refusal** (`n` or `C-g`) refuses the same tool on the same target (the branch, or the
@@ -1246,8 +1249,11 @@ for each, and the coordinator approved these points:
   `*Worktrees*` do not stop each other. Its reply waits for the last row and `gh`'s answers, for
   at most 60 s, then gives the rows it has.
 - **An agent's `worktree_remove`** runs step 4's checks and the removal in one job, and refuses a
-  worktree its own session runs in. Its reply names what git ignored there, which went with it,
-  and the echo area says which session removed which worktree.
+  worktree its own session runs in. Once the checks hold, the app clears the worktree as for the
+  person's removal: what the UI holds is looked at again, and its idle or done sessions are
+  hung up, so that they end stopped. Check 4 reads the sessions' live states for both. Its reply
+  names what git ignored there, which went with it, and the echo area says which session removed
+  which worktree.
 - **The steering hook's reason** now names `start_worktree_session`.
 - **The server's instructions** say to start parallel work with `start_worktree_session`, never
   with `EnterWorktree`, `git worktree add` or `claude` in a shell; that a refusal is a decision,
@@ -1257,9 +1263,9 @@ for each, and the coordinator approved these points:
 - **`oso-core` gained `SessionRequest::QuestionDetails`.**
 - **A guard test** (`tests/architecture/agent_tools.rs`) keeps the tools' own files from using
   the terminal, the process module, or a name of Claude Code's token files.
-- **Left to step 3 and ADR 0120's terminal:** the taxonomy of states in the lists, stopping a
-  worktree's idle sessions before an agent removes it, the loop guard's reset from the
-  terminal's input, and the end-to-end flows, which need a session to run.
+- **Built once step 3 and ADR 0120's terminal were in:** the taxonomy of states in the lists,
+  stopping a worktree's idle sessions before a removal, the loop guard's reset from the
+  terminal's input, and the end-to-end flows, with a stand-in `claude` that runs `oso mcp`.
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

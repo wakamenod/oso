@@ -454,13 +454,9 @@ impl App {
     /// Session `session`'s state and since when: as the worker told it, while that agrees
     /// with whether its process runs.
     fn state_of(&self, session: &Hosted, now: Instant) -> (State, Instant) {
-        let ended = !session.runs();
-        let known = self.watch.known.get(&session.key);
-        match known {
-            Some(known) if ended == matches!(known.state, State::Stopped | State::Failed) => {
-                (known.state, known.since)
-            }
-            _ => {
+        match self.live_state(session) {
+            Some(known) => known,
+            None => {
                 let since = since_ms(session.changed, now);
                 let state = match session.run {
                     Run::Failed => State::Failed,
@@ -470,6 +466,22 @@ impl App {
                 (state, since)
             }
         }
+    }
+
+    /// Session `session`'s state as the worker told it, and since when, while that agrees
+    /// with whether its process runs; `None` while it is not known.
+    pub(in crate::app) fn live_state(&self, session: &Hosted) -> Option<(State, Instant)> {
+        let ended = !session.runs();
+        self.watch
+            .known
+            .get(&session.key)
+            .filter(|known| ended == matches!(known.state, State::Stopped | State::Failed))
+            .map(|known| (known.state, known.since))
+    }
+
+    /// The name of the space session `key` is in, as `*Sessions*` shows it.
+    pub(in crate::app) fn session_space(&self, key: SessionKey) -> Option<&str> {
+        self.watch.placed.get(&key).map(String::as_str)
     }
 
     /// The candidates of `session-switch`: each hosted session with a buffer, by its buffer's

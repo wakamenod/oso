@@ -12,9 +12,10 @@ use serde_json::{Value, json};
 
 use super::super::super::App;
 use super::super::hosting::now_ms;
-use super::{Caller, Job, Lister, Pending, session_json, shown};
+use super::{Caller, Job, Lister, Pending, shown};
 use crate::channel::Reply;
 use crate::channel::protocol::sessions::JOB_ANSWER_WITHIN;
+use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::SessionId;
 use crate::sessions::worktree::checks::{self, Held, Looked};
 use crate::sessions::worktree::jobs::{Report, Trust};
@@ -62,7 +63,7 @@ impl App {
             Some(_) => None,
             None => Some(self.outside_root()?),
         };
-        let now = now_ms();
+        let now = (Instant::now(), now_ms());
         let you = caller.map(|caller| &caller.id);
         let mut seen = self
             .hosting
@@ -78,7 +79,7 @@ impl App {
         let sessions: Vec<Value> = seen
             .by_ref()
             .take(PAGE)
-            .map(|session| session_json(session, you, now))
+            .map(|session| self.session_json(session, you, now))
             .collect();
         let more = seen.next().is_some();
         Ok(json!({
@@ -114,10 +115,47 @@ impl App {
                 }
             }
         };
-        let mut state = session_json(found, caller.map(|c| &c.id), now_ms());
+        let now = (Instant::now(), now_ms());
+        let mut state = self.session_json(found, caller.map(|c| &c.id), now);
         // A review keyed to a session comes with ADR 0122's later steps.
         state["review"] = Value::Null;
         Ok(state)
+    }
+
+    /// A reply for a session, as `session_list` and `session_state` give it, with its state as
+    /// `*Sessions*` and `*Worktrees*` have it: the taxonomy's, or `starting` or `running` while
+    /// its live state is not known. `now` is the time as an instant and in ms since the epoch.
+    fn session_json(
+        &self,
+        session: &Hosted,
+        caller: Option<&SessionId>,
+        now: (Instant, u64),
+    ) -> Value {
+        let live = self.live_state(session);
+        let state = self
+            .hosted_state(session)
+            .map_or_else(|| session.run.label().to_owned(), |state| state.to_string());
+        let age_s = match live {
+            Some((_, since)) => now.0.saturating_duration_since(since).as_secs(),
+            None => now.1.saturating_sub(session.changed) / 1000,
+        };
+        json!({
+            "id": session.id.as_str(),
+            "name": session.name,
+            // The `--name` oso gave its claude, which Claude Code's SendMessage and ListAgents
+            // know it by; the CLI may suffix a duplicate.
+            "messaging_name": session.name,
+            "directory": shown(&session.directory),
+            "project": session.root.as_deref().map(shown),
+            "space": self.session_space(session.key),
+            "state": state,
+            "age_s": age_s,
+            "pinned": session.pinned,
+            "archived": session.archived,
+            "parent": session.parent.as_ref().map(SessionId::as_str),
+            "external": false,
+            "you": caller == Some(&session.id),
+        })
     }
 
     /// `worktree_list`: the linked worktrees of the caller's repository, or of the selected
