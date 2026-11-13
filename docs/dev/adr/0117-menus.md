@@ -781,8 +781,11 @@ asked through the coordinator). After review, the author added `Column::group` a
   function's line to 512 bytes once, as the layout measures them. The layout is worked out again
   only when the menu shown, the tiled area or the prefix argument's width change, or the notes'
   cells, hidden heads, line or default head; a note whose text changes in the same cells is drawn
-  in place. Each relayout measures every label, so the largest menus may take longer than 0.1 ms,
-  once per open or resize.
+  in place. A relayout measures every label and note: about 1–2 ms for a crafted menu of 128 heads
+  with notes, against about 80 µs for a frame that keeps its layout and at most 15 µs for a key.
+  A describe function whose notes change width on every key pays a relayout per key, and a live
+  resize pays one per step, so step 3's describe functions keep their notes' widths steady, for
+  example by padding counts.
 - **The stack keeps the set its first menu came from** (`Arc<Menus>`), so a submenu's id names
   the menu it named when that one opened, whatever a reload has put in since. A menu on the stack
   is not pushed again, and the stack is at most 8 deep; both refusals say so in the echo area.
@@ -803,12 +806,16 @@ asked through the coordinator). After review, the author added `Column::group` a
   "its keymap replaces the global one" above: `Definition::lookup` resolves its heads ahead of the
   usual keymaps, and the dispatcher applies `foreign-keys` to text, so no text command is needed.
 - **An unavailable head is dim with no chip**, and its key says why.
+- **A head's command reads its menu's switches** also when it first reads an argument in a prompt
+  or waits for the clipboard: the command that waits keeps them.
 - **The menu closes** when a prompt or a question opens, a search, a jump or a query-replace
   starts, the layer of `C-x TAB` opens, a command waits for an argument or the clipboard, or a
-  macro's replay begins. The window's close button closes it as its question opens. A menu's key
-  ends isearch, query-replace or the layer of `C-x TAB` and then opens the menu; during a jump it
-  ends the jump and does not run, as any key the jump's keymap does not bind (ADR 0116). A replay that opened the menu presses its heads, and one that ends with
-  a menu open leaves it open.
+  macro's replay begins. The window's close button closes it as its question opens. A replay that
+  opened the menu presses its heads, and one that ends with a menu open leaves it open, the
+  person's then: the next replay closes it as it begins, and the macro's repeat key is the menu's
+  while it is open. A menu's key ends isearch, query-replace or the layer of `C-x TAB` and then
+  opens the menu; during a jump it ends the jump and does not run, as any key the jump's keymap
+  does not bind (ADR 0116).
 - **The channel** waits with "the person is in a menu", and a question it causes waits for the
   menu to close. Both the channel's state and the dev socket's `get-state` gain `menu`, the name
   of the menu shown or null; the channel's state version stays 1, as the field is added.

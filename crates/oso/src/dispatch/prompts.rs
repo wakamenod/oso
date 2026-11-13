@@ -31,6 +31,8 @@ pub(super) struct Reading {
     passphrase: bool,
     /// What the answer is for.
     then: Then,
+    /// The switches the menu whose head ran the command had on, for it to read (ADR 0117).
+    pub(super) switches: Vec<String>,
 }
 
 /// What a prompt's answer is for.
@@ -66,6 +68,7 @@ impl Reading {
             prompt,
             passphrase: false,
             then: Then::Run,
+            switches: Vec::new(),
         }
     }
 }
@@ -210,6 +213,7 @@ impl Dispatcher {
                 } else {
                     Then::Run
                 },
+                switches: Vec::new(),
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
@@ -386,6 +390,7 @@ impl Dispatcher {
                 prompt,
                 passphrase: false,
                 then: Then::Replace(stage),
+                switches: Vec::new(),
             }),
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -461,8 +466,11 @@ impl Dispatcher {
                                 self.directory_answered(editor, &reading, *project, &text)
                             }
                             Then::Run => {
+                                let switches: Vec<&str> =
+                                    reading.switches.iter().map(String::as_str).collect();
                                 let invocation = Invocation {
                                     answer: Some(&text),
+                                    switches: &switches,
                                     ..Invocation::default()
                                 };
                                 self.execute(editor, reading.id, args, invocation, Step::MayJoin)

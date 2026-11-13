@@ -38,8 +38,8 @@ struct Stack {
     levels: Vec<Level>,
     /// The keys typed so far that begin a head's.
     pending: Vec<KeyPress>,
-    /// Whether a macro's replay opened it: a replay that begins while it is open closes it,
-    /// and one that opened it presses its heads (ADR 0117, Q19).
+    /// Whether a macro's replay that is still under way opened it: that replay presses its
+    /// heads, and one that begins once it ended closes it (ADR 0117, Q19).
     in_replay: bool,
 }
 
@@ -144,10 +144,14 @@ impl Dispatcher {
     /// waiting for an argument or the clipboard. A menu never sits over any of them
     /// (ADR 0117).
     pub(super) fn close_menus_if_taken(&mut self, editor: &Editor) -> bool {
-        let Some(stack) = self.menus.open.as_ref() else {
+        let Some(stack) = self.menus.open.as_mut() else {
             return false;
         };
-        // A replay that opened the menu presses its heads; one begun since takes the keys.
+        // A replay that opened the menu presses its heads; once it ends, the menu is the
+        // person's, and a replay begun since takes the keys.
+        if !editor.macro_replaying() {
+            stack.in_replay = false;
+        }
         let replay_began = editor.macro_replaying() && !stack.in_replay;
         let taken = editor.prompt().is_some()
             || editor.isearch().is_some()
@@ -318,14 +322,14 @@ impl Dispatcher {
             }
             HeadAction::Menu(id) => self.push_menu(editor, *id, count),
             HeadAction::Command(id) => {
-                let switches: Vec<String> = self
+                let owned: Vec<String> = self
                     .menus
                     .open
                     .as_ref()
                     .and_then(|stack| stack.levels.last())
                     .map(|level| level.open.switches_on().map(str::to_owned).collect())
                     .unwrap_or_default();
-                let switches: Vec<&str> = switches.iter().map(String::as_str).collect();
+                let switches: Vec<&str> = owned.iter().map(String::as_str).collect();
                 // A head's count replaces a prefix argument typed before it (ADR 0117, Q14, Q15).
                 let prefix = self.prefix.take();
                 let args = Args::with_prefix(count.or(prefix));
@@ -336,7 +340,12 @@ impl Dispatcher {
                     switches: &switches,
                     ..Invocation::default()
                 };
+                let readings = self.reading.len();
                 let (effects, _) = self.run_or_read(editor, *id, args, invocation);
+                // A command that reads an argument first reads the switches once it runs.
+                for reading in self.reading.iter_mut().skip(readings) {
+                    reading.switches.clone_from(&owned);
+                }
                 effects.union(self.after_prompts(editor)).union(redraw())
             }
         }

@@ -146,12 +146,14 @@ impl Dispatcher {
             self.macros.held.push_back(event());
             return Some(Effects::default());
         }
-        // A question or a passphrase prompt takes the key, as a replay never answers one.
+        // A question or a passphrase prompt takes the key, as a replay never answers one, and
+        // a menu a replay left open takes it as its head's (ADR 0117).
         if let (Some(key), Some(again), Some(call)) = (key, repeat, self.macros.call)
             && key == again
             && self.resolver.pending().is_empty()
             && self.prefix.is_none()
             && !asking(editor)
+            && !self.menu_open()
         {
             let (effects, _) = self.execute(
                 editor,

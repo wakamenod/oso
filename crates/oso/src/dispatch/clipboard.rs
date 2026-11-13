@@ -67,6 +67,8 @@ pub(super) struct Waiting {
     /// It came through the dev socket.
     from_socket: bool,
     place: Place,
+    /// The switches the menu whose head ran it had on, for it to read (ADR 0117).
+    switches: Vec<String>,
     /// The host has been asked to read.
     asked: bool,
     held: VecDeque<Held>,
@@ -90,6 +92,11 @@ impl Dispatcher {
             shifted: invocation.shifted,
             from_socket: self.from_socket,
             place: Place::of(editor),
+            switches: invocation
+                .switches
+                .iter()
+                .map(|&on| on.to_owned())
+                .collect(),
             asked: false,
             held: VecDeque::new(),
         });
@@ -134,10 +141,12 @@ impl Dispatcher {
             })
         } else {
             self.as_input(editor, |this, editor| {
+                let switches: Vec<&str> = waiting.switches.iter().map(String::as_str).collect();
                 let invocation = Invocation {
                     key_char: waiting.key_char,
                     shifted: waiting.shifted,
                     clipboard: Some(answer),
+                    switches: &switches,
                     ..Invocation::default()
                 };
                 this.execute(editor, waiting.id, waiting.args, invocation, Step::MayJoin)
