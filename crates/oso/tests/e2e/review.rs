@@ -23,7 +23,7 @@ fn git(root: &Path, args: &[&str]) {
         args: &args,
         cwd: Some(root),
         project: None,
-        inherit: &["PATH", "HOME"],
+        inherit: &["HOME"],
         stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Null,
@@ -124,12 +124,9 @@ fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
     app.send_keys("w");
     let state = app.wait_for("the review", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
-            && state["modeline"]
-                .as_str()
-                .is_some_and(|modeline| !modeline.contains("reading "))
     });
     assert!(state["menu"].is_null());
-    let shown = rows(&mut app, 20);
+    let shown = rows_until(&mut app, "+fn b() {}");
     let expected = [
         "Review \u{b7} uncommitted \u{b7} proj-review",
         "modified  a.rs  +1 \u{2212}1",
