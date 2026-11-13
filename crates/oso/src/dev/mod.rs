@@ -33,7 +33,7 @@ pub use server::UiRequest;
 pub use state::{
     ImeFacts, get_state, get_text, ime_state, screenshot_allowed, show_buffer, wheel_reply,
 };
-pub use timing::{FrameSpans, HandledKey, SecretWatch, Timings};
+pub use timing::{FrameSpans, HandledKey, ReviewText, SecretWatch, Timings};
 
 /// The option that sends emergency copies elsewhere, so that the end-to-end flows can
 /// read them, and never touch the real ones. Only a dev build knows it.

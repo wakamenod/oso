@@ -51,18 +51,35 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    match ctx.editor.confirm_exit(ctx.confirmed()) {
-        Ok(()) => ctx.request_exit(),
-        Err(refused) => {
-            ask(
-                ctx,
-                format!("{refused}; exit without saving?"),
-                "save-buffers-kill-terminal",
-                ["exit", "stay"],
-            )?;
+    // Comments of the person's not sent yet are lost with the editor until reviews are saved
+    // (ADR 0122, step 6): one question says both.
+    let unsent = super::review::unsent_everywhere(ctx.editor);
+    let comments = match unsent {
+        0 => None,
+        1 => Some("1 comment of yours will be lost".to_owned()),
+        n => Some(format!("{n} comments of yours will be lost")),
+    };
+    let question = match (ctx.editor.confirm_exit(ctx.confirmed()), comments) {
+        (Ok(()), None) => {
+            ctx.request_exit();
+            return Ok(());
         }
-    }
-    Ok(())
+        (Ok(()), Some(_)) if ctx.confirmed() => {
+            ctx.request_exit();
+            return Ok(());
+        }
+        (Ok(()), Some(comments)) => format!("{comments}; exit anyway?"),
+        (Err(refused), None) => format!("{refused}; exit without saving?"),
+        (Err(refused), Some(comments)) => {
+            format!("{comments}, and {refused}; exit without saving?")
+        }
+    };
+    ask(
+        ctx,
+        question,
+        "save-buffers-kill-terminal",
+        ["exit", "stay"],
+    )
 }
 
 /// Asks `question`, whose `y` runs `command`, and shows it, with `verbs` saying what `y`

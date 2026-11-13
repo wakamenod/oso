@@ -20,7 +20,6 @@ use super::batch::{Batch, Blob};
 use super::diff;
 use super::git::{Git, GitError, MAX_SHORT};
 use super::id::Id;
-#[cfg(not(unix))]
 use super::id::trim_line;
 use super::index::Scratch;
 use super::read::{self, Context, Kept};
@@ -86,11 +85,13 @@ impl Reader {
         let answered = match request {
             Request::Open(scope) => self.open(&scope, stop, out),
             Request::Refresh { first } => self.refresh(&first, stop, out),
-            Request::Baseline => self.baseline(out),
+            Request::Baseline => self.baseline(stop, out),
             Request::Carry(carry) => self.carry(carry, out),
         };
         if let Err(e) = answered {
             out(match e {
+                // Stopped as its root was revoked: the host knows why.
+                ScopeError::Stopped => return,
                 ScopeError::BaselineGone => Report::BaselineGone,
                 e => Report::Failed {
                     asked,
@@ -98,6 +99,66 @@ impl Reader {
                 },
             });
         }
+    }
+
+    /// How many files `scope` differs in, listed as a review lists them with no file read, and
+    /// how many more it left out. It runs git no more once `stop` says so.
+    pub(super) fn count(
+        &mut self,
+        scope: &Scope,
+        stop: &dyn Fn() -> bool,
+    ) -> Result<(usize, usize), ScopeError> {
+        let (git, index) = {
+            let repository = self.repository()?;
+            (repository.git.clone(), repository.index.clone())
+        };
+        let sides = scope::resolve(&git, scope, stop)?;
+        let listing = scope::list(&git, &sides, &index, self.scratch.as_mut(), stop)?;
+        Ok((
+            listing.entries.len(),
+            listing.more + usize::from(listing.cut),
+        ))
+    }
+
+    /// The base the branch scope compares with: the branch's upstream, unless it is the same
+    /// branch on a remote (`origin/<branch>`), which holds what is being reviewed; else the
+    /// branch `origin/HEAD` names; else `main` or `master` where there is one.
+    pub(super) fn branch_base(&mut self) -> Result<Option<String>, ScopeError> {
+        let git = self.repository()?.git.clone();
+        let named = |args: &[&str]| -> Option<String> {
+            let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+            let out = git.run(&args, &[], MAX_SHORT).ok()?;
+            let name = std::str::from_utf8(trim_line(&out)).ok()?.to_owned();
+            super::git::check_revision(&name).ok()?;
+            Some(name)
+        };
+        // No `--end-of-options`, which `rev-parse` would print back: the one argument is fixed.
+        let upstream = [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ];
+        let origin = [
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ];
+        let branch = ["symbolic-ref", "--quiet", "--short", "HEAD"];
+        let upstream = named(&upstream).filter(|upstream| {
+            let tracked = upstream.split_once('/').map(|(_, name)| name);
+            tracked.is_none() || tracked != named(&branch).as_deref()
+        });
+        if let Some(name) = upstream.or_else(|| named(&origin)) {
+            return Ok(Some(name));
+        }
+        for name in ["main", "master"] {
+            if git.resolve(name, "commit")?.is_some() {
+                return Ok(Some(name.to_owned()));
+            }
+        }
+        Ok(None)
     }
 
     #[cfg(test)]
@@ -142,8 +203,21 @@ impl Reader {
             (repository.git.clone(), repository.index.clone())
         };
         // Resolved again each time: `HEAD`, a branch or the index may have moved.
-        let sides = scope::resolve(&git, &scope)?;
-        let listing = scope::list(&git, &sides, &index, self.scratch.as_mut())?;
+        let listed = scope::resolve(&git, &scope, stop).and_then(|sides| {
+            let listing = scope::list(&git, &sides, &index, self.scratch.as_mut(), stop)?;
+            Ok((sides, listing))
+        });
+        let (sides, listing) = match listed {
+            // Stopped before the listing: the reading ends as one stopped among its files.
+            Err(ScopeError::Stopped) => {
+                out(Report::Read {
+                    generation: self.generation,
+                    stopped: true,
+                });
+                return Ok(());
+            }
+            listed => listed?,
+        };
         self.generation += 1;
         let generation = self.generation;
         self.kept.keep_only(&listing.entries);
@@ -197,12 +271,12 @@ impl Reader {
         Ok(())
     }
 
-    fn baseline(&mut self, out: &mut Out<'_>) -> Result<(), ScopeError> {
+    fn baseline(&mut self, stop: &dyn Fn() -> bool, out: &mut Out<'_>) -> Result<(), ScopeError> {
         self.repository()?;
         let (Some(repository), Some(scratch)) = (&self.repository, &mut self.scratch) else {
             return Err(ScopeError::NoScratch);
         };
-        let (tree, left_out) = scope::baseline(&repository.git, &repository.index, scratch)?;
+        let (tree, left_out) = scope::baseline(&repository.git, &repository.index, scratch, stop)?;
         if left_out > 0 {
             log::warn!("a review's baseline left out at least {left_out} files git could not read");
         }
@@ -301,5 +375,6 @@ fn message(error: &ScopeError) -> String {
                 .into()
         }
         ScopeError::Copy(e) => format!("cannot copy the index: {e}"),
+        ScopeError::Stopped => "stopped".into(),
     }
 }
