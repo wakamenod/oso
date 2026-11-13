@@ -1,6 +1,6 @@
 //! Which keys in a terminal are oso's and which go to its program (ADR 0120, Q12): semi-char
 //! mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y`; char mode keeps only `C-c C-k`,
-//! which leaves it. Anything of oso's that is open, a prompt or a key sequence, takes every key.
+//! which leaves it, and `C-c C-c`, which sends one `C-c` there too. Anything of oso's that is open, a prompt or a key sequence, takes every key.
 //!
 //! Must not depend on: `app`, `dispatch` or the terminal's thread; this is a pure decision.
 
@@ -14,6 +14,17 @@ pub(crate) enum Input {
     SemiChar,
     /// Every key goes to the program but `C-c C-k`.
     Char,
+}
+
+/// What waits to go to a terminal's program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToProgram {
+    Keys(Vec<KeyPress>),
+    /// Text an input method committed, or a key that types several characters.
+    Text(String),
+    Paste(String),
+    /// The person said yes to pasting lines without bracketed paste.
+    PasteLines,
 }
 
 /// What becomes of one key pressed in a terminal.
@@ -83,6 +94,9 @@ pub(crate) fn route(state: State, key: KeyPress) -> Route {
             };
             if key == c_k {
                 Route::LeaveCharMode
+            } else if key == C_C {
+                // `C-c C-c` sends one `C-c`, as in semi-char mode and Emacs's term.
+                Route::Send(vec![C_C])
             } else {
                 Route::Send(vec![C_C, key])
             }
@@ -178,7 +192,7 @@ mod tests {
             ..char_mode()
         };
         assert_eq!(route(held, key("C-k")), Route::LeaveCharMode);
-        assert_eq!(route(held, C_C), Route::Send(vec![C_C, C_C]));
+        assert_eq!(route(held, C_C), Route::Send(vec![C_C]));
         assert_eq!(route(held, key("a")), Route::Send(vec![C_C, key("a")]));
     }
 }

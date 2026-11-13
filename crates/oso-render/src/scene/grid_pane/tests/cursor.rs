@@ -98,6 +98,7 @@ fn a_preedit_covers_the_cells_from_the_cursors_and_is_underlined() {
         rows: &rows,
         cursor: cursor(1, GridCursorShape::Block, false),
         preedit: Some(&preedit),
+        preedit_at: (0, 1),
     });
     let (scene, atlas, shaped) = draw(&[grid_pane(rect(0, 0, 1, 10), content)]);
     // `b` and `c` are under it, and the cells after it are where they were.
@@ -142,6 +143,7 @@ fn a_preedits_caret_takes_the_cursor_box_and_its_segment_two_lines() {
             rows: &rows,
             cursor: cursor(1, GridCursorShape::Block, false),
             preedit: Some(preedit),
+            preedit_at: (0, 1),
         })
     };
     let (scene, _, _) = draw(&[grid_pane(rect(0, 0, 1, 10), content(&caret))]);
@@ -160,4 +162,25 @@ fn a_preedits_caret_takes_the_cursor_box_and_its_segment_two_lines() {
         lines,
         [([18.0, 27.0], [30.0, 1.0]), ([28.0, 26.0], [20.0, 2.0])]
     );
+}
+
+#[test]
+fn a_preedit_is_drawn_at_its_cell_while_the_program_hides_the_cursor() {
+    let cells = cells("abcdef");
+    let rows = [row(1, &cells)];
+    let preedit = Preedit::new("xy".to_owned(), None);
+    let with = |preedit| {
+        PaneContent::Grid(GridView {
+            id: 7,
+            rows: &rows,
+            cursor: None,
+            preedit,
+            preedit_at: (0, 1),
+        })
+    };
+    let (bare, _, _) = draw(&[grid_pane(rect(0, 0, 1, 10), with(None))]);
+    let (composed, _, shaped) = draw(&[grid_pane(rect(0, 0, 1, 10), with(Some(&preedit)))]);
+    // Its text is shaped, and its cover and underlines are drawn, with no cursor box.
+    assert!(shaped.iter().any(|text| text == "xy"), "{shaped:?}");
+    assert!(rects(&composed).len() > rects(&bare).len());
 }

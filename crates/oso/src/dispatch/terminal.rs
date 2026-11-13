@@ -14,20 +14,9 @@ use oso_core::editor::{Editor, TerminalRequest};
 use oso_core::key::KeyPress;
 use oso_core::keymap::is_cancel;
 
-use crate::terminal::route::{self, Input, Route, State};
+use crate::terminal::route::{self, Input, Route, State, ToProgram};
 
 use super::Dispatcher;
-
-/// What waits to go to a terminal's program.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Send {
-    Keys(Vec<KeyPress>),
-    /// Text an input method committed, or a key that types several characters.
-    Text(String),
-    Paste(String),
-    /// The person said yes to pasting lines without bracketed paste.
-    PasteLines,
-}
 
 impl Dispatcher {
     /// Sends `key` to the selected terminal's program if it is not oso's there. `None` when
@@ -54,7 +43,7 @@ impl Dispatcher {
             // The `C-c` a recording noted went to the program too.
             self.macro_forget_input();
             self.terminal_sends
-                .push((id, Send::Keys(vec![route::C_C, key])));
+                .push((id, ToProgram::Keys(vec![route::C_C, key])));
             return Some(Effects::default());
         }
         let busy = self.oso_busy(editor);
@@ -73,7 +62,7 @@ impl Dispatcher {
         match routed {
             Route::Oso => None,
             Route::Send(keys) => {
-                self.terminal_sends.push((id, Send::Keys(keys)));
+                self.terminal_sends.push((id, ToProgram::Keys(keys)));
                 Some(Effects::default())
             }
             Route::Hold => {
@@ -104,8 +93,10 @@ impl Dispatcher {
 
     /// Sends `text`, an input method's commit or a key's several characters, to the selected
     /// terminal's program, as a key would go: not while something of oso's is open, and after
-    /// a `C-c` char mode held. Returns whether it went there.
-    pub fn text_to_terminal(&mut self, editor: &mut Editor, text: &str) -> bool {
+    /// a `C-c` char mode held. Control characters but tab are dropped, as a paste drops them,
+    /// so typed text never carries a sequence of its own. Returns whether it went there; the
+    /// caller has held it while `!`, an undo or a macro's replay runs, as it holds keys.
+    pub(super) fn text_to_terminal(&mut self, editor: &mut Editor, text: &str) -> bool {
         self.take_key_requests(editor);
         let (window, buffer) = editor.current();
         if !buffer.is_terminal() || editor.prompt().is_some() || self.oso_busy(editor) {
@@ -114,11 +105,18 @@ impl Dispatcher {
         let id = window.buffer();
         let state = self.terminal_keys.entry(id).or_default();
         if state.held_c_c {
-            self.terminal_sends.push((id, Send::Keys(vec![route::C_C])));
+            self.terminal_sends
+                .push((id, ToProgram::Keys(vec![route::C_C])));
         }
         state.held_c_c = false;
         state.quoted = false;
-        self.terminal_sends.push((id, Send::Text(text.to_owned())));
+        let clean: String = text
+            .chars()
+            .filter(|c| *c == '\t' || !c.is_control())
+            .collect();
+        if !clean.is_empty() {
+            self.terminal_sends.push((id, ToProgram::Text(clean)));
+        }
         true
     }
 
@@ -137,13 +135,13 @@ impl Dispatcher {
                 TerminalRequest::QuoteNext => self.quote_next(selected),
                 TerminalRequest::ToggleCharMode => self.toggle_char_mode(selected),
                 TerminalRequest::Keys(keys) => {
-                    self.terminal_sends.push((selected, Send::Keys(keys)))
+                    self.terminal_sends.push((selected, ToProgram::Keys(keys)))
                 }
                 TerminalRequest::Paste { text } => {
-                    self.terminal_sends.push((selected, Send::Paste(text)));
+                    self.terminal_sends.push((selected, ToProgram::Paste(text)));
                 }
                 TerminalRequest::PasteLines => {
-                    self.terminal_sends.push((selected, Send::PasteLines));
+                    self.terminal_sends.push((selected, ToProgram::PasteLines));
                 }
                 TerminalRequest::Open { .. } => editor.request_terminal(request),
             }
@@ -152,7 +150,7 @@ impl Dispatcher {
 
     /// What waits to go to terminals' programs, each with its terminal, oldest first. What
     /// commands asked is bound to the selected terminal first.
-    pub fn take_terminal_sends(&mut self, editor: &mut Editor) -> Vec<(BufferId, Send)> {
+    pub fn take_terminal_sends(&mut self, editor: &mut Editor) -> Vec<(BufferId, ToProgram)> {
         self.take_key_requests(editor);
         std::mem::take(&mut self.terminal_sends)
     }

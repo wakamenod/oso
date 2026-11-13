@@ -1116,7 +1116,9 @@ Step 4 is split in two pull requests (see Steps); this is the first.
   - `oso-render`: `PaneContent::Grid` with `GridView`, `GridRow`, `GridCell`, `GridColor`,
     `GridStyle`, `GridCursor`, `GridCursorShape`, the faces `TerminalColor0` to
     `TerminalColor15`, and `Theme::terminal_palette`, whose `TerminalPalette` sits in
-    `oso_render::theme` beside `Theme`.
+    `oso_render::theme` beside `Theme`. `GridView::preedit_at` was added in review, as a fix
+    to an approved item: the cell a composition starts at, the program's cursor cell also
+    while it hides the cursor, as `claude` does.
   - `oso-platform`: `window::Event::Unfocused`, sent when the window loses the keyboard's
     focus (ADR 0121's step 3 uses it too).
   - Layer rows: `terminal` in `oso`, `cells` in `oso-render`, `input` in `oso-term`. The tip
@@ -1129,10 +1131,13 @@ Step 4 is split in two pull requests (see Steps); this is the first.
 - **Keys** are routed by the dispatcher before any keymap, as key-reading state it holds per
   terminal: semi-char mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y`, and every key
   while a prompt, isearch, a menu, a jump or a key sequence of oso's is open; char mode keeps
-  only `C-c C-k`. After `C-c`, only the terminal's own keymap is read (`C-c C-c`, `C-c C-k`), so
+  only `C-c C-k`, and its `C-c C-c` sends one `C-c`, as semi-char mode's and Emacs's term do
+  (the author's choice, 2026-11-13). After `C-c`, only the terminal's own keymap is read (`C-c C-c`, `C-c C-k`), so
   any other `C-c` key, the global and the user's among them, goes to the program with it: in a
   terminal, `C-c` is the terminal's (the author's choice, 2026-11-13).
-  Text the input method commits, and a key that types several characters, go as a key does.
+  Text the input method commits, and a key that types several characters, go as a key does,
+  held as keys are while `!`, an undo or a macro's replay runs, and with control characters
+  but tab dropped.
   - What goes to a program waits in the dispatcher bound to the terminal it was typed in, and
     the host sends it after the event, so a batch of keys that selects another window sends
     nothing to the wrong terminal.
@@ -1156,11 +1161,17 @@ Step 4 is split in two pull requests (see Steps); this is the first.
   rest of the 256 as xterm's table gives them, and true colour as set. A program's OSC 4, 10 and
   11 changes are answered to it but not drawn yet; that is a follow-up.
 - **The modeline** says `Terminal`, then `char` in char mode and `exited N` once the program
-  ended, then the program's title last, in quotes.
+  ended, then the program's title last, in quotes; the title's own curly quotes become
+  straight ones. A terminal no window shows is looked at four times a second, so its end and
+  title show without a frame of its own.
 - **The shell** is found on a thread of its own (`oso-terminal-start`), never the UI thread;
   shells passed over and `Started <shell> in <dir>` go to `*Messages*` (Q9), the path only.
   `[terminal] env` takes at most 64 names of at most 256 bytes and refuses the names the process
   module refuses and those a terminal sets itself.
+- **Starting:** what is typed or pasted while the shell is found waits, at most 256 sends,
+  and goes once the terminal starts; the theme in force then is the one it answers colour
+  queries from. A keyboard macro that starts a terminal and types on in the same replay still
+  types into the buffer it started from, as the terminal's buffer comes after the command.
 - **Lifecycle:** a terminal counts as running from its start until its program ends. While one
   runs, `C-x k` asks, `C-x C-c` asks once with any unsaved text (Q3), and an `oso dev` restart
   is held (Q8). An ended terminal keeps its screen and is killed without asking; `terminal`

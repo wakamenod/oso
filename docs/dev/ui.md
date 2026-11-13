@@ -652,7 +652,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   sends both, the global and the user's `C-c` bindings among them: in a terminal, `C-c` is the
   terminal's. `C-q` sends the next key as it is, oso's own among them. Text the input method
   commits goes as a key does.
-- **Char mode** sends every key but `C-c C-k`, which comes back to semi-char mode.
+- **Char mode** sends every key but `C-c C-k`, which comes back to semi-char mode; `C-c C-c`
+  sends one `C-c` there too, and `C-c` with any other key sends both.
 - Keys are encoded on the terminal's thread against the program's modes, in xterm's forms, or
   the kitty keyboard protocol's once the program pushes it, so `S-RET` reaches a program that
   reads it. `M-` is sent as Alt, with an `ESC` before the key.

@@ -24,10 +24,10 @@ use crate::{bindings, commands};
 mod agent;
 mod args;
 mod buffers;
+pub use crate::terminal::route::ToProgram as TerminalSend;
 pub use agent::{Unshowable, unshowable};
 pub use args::Given;
 pub(crate) use buffers::size;
-pub use terminal::Send as TerminalSend;
 mod clipboard;
 mod extended;
 mod held;
@@ -111,7 +111,7 @@ pub struct Dispatcher {
     terminal_keys:
         std::collections::HashMap<oso_core::buffer::BufferId, crate::terminal::route::State>,
     /// What waits to go to terminals' programs, each with its terminal (ADR 0120).
-    terminal_sends: Vec<(oso_core::buffer::BufferId, terminal::Send)>,
+    terminal_sends: Vec<(oso_core::buffer::BufferId, TerminalSend)>,
     /// The only commands `M-x` lists, for snapshots that a new command must not change.
     #[cfg(test)]
     m_x_only: Option<&'static [&'static str]>,

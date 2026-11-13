@@ -67,8 +67,11 @@ fn cursor_of(view: &GridView<'_>, region: CellRect) -> Option<Cursor> {
 
 /// Where the preedit of `view` goes in `region`: its row and its columns, cut to the region.
 fn preedit_cells(view: &GridView<'_>, region: CellRect) -> Option<(usize, Range<usize>)> {
-    let (cursor, preedit) = (view.cursor?, view.preedit?);
-    let (row, column) = (usize::from(cursor.row), usize::from(cursor.column));
+    let preedit = view.preedit?;
+    let (row, column) = (
+        usize::from(view.preedit_at.0),
+        usize::from(view.preedit_at.1),
+    );
     let end = column.saturating_add(preedit.cells()).min(region.columns);
     (row < region.rows && column < end).then_some((row, column..end))
 }

@@ -312,8 +312,10 @@ impl App {
     pub(super) fn draw_frame(&mut self) {
         let frame = Instant::now();
         self.poll_loads();
-        // At most one snapshot per terminal per frame (ADR 0120, Q4).
-        self.take_terminal_snapshots();
+        // At most one snapshot per terminal per frame (ADR 0120, Q4); one more may wait.
+        if self.take_terminal_snapshots() {
+            self.request_redraw();
+        }
         // A load, a reload or a key may have given the line count another digit (ADR 0097).
         self.editor.fit_gutter();
         let Some(view) = self.view.as_mut() else {

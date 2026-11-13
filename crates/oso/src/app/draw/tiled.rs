@@ -496,17 +496,18 @@ fn grid<'a>(
         .find(|(shown, _)| *shown == buffer)
         .and_then(|(_, range)| grids.rows.get(range.clone()))
         .unwrap_or_default();
-    let cursor = grids
-        .terminals
-        .get(buffer)
-        .and_then(|hosted| hosted.grid.cursor(selected));
+    let hosted = grids.terminals.get(buffer);
+    let cursor = hosted.and_then(|hosted| hosted.grid.cursor(selected));
     let preedit = editor
         .preedit()
         .filter(|_| selected && editor.prompt().is_none());
+    // At the program's cursor cell, also while it hides the cursor, as `claude`'s input does.
+    let preedit_at = hosted.map_or((0, 0), |hosted| hosted.grid.cursor_cell());
     PaneContent::Grid(GridView {
         id: buffer.get(),
         rows,
         cursor,
         preedit,
+        preedit_at,
     })
 }

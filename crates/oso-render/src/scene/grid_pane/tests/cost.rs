@@ -104,6 +104,7 @@ fn time(system: &mut dyn TextSystem, (changed, per_cell): (bool, bool)) -> Durat
             rows: &rows,
             cursor: None,
             preedit: None,
+            preedit_at: (0, 0),
         });
         scene.build(
             &[grid_pane(rect(0, 0, ROWS, COLUMNS), content)],

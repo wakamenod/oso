@@ -79,11 +79,16 @@ fn c_q_sends_the_next_key_as_it_is() {
 fn char_mode_sends_everything_but_c_c_c_k() {
     let (mut dispatcher, mut editor) = in_terminal();
     let id = editor.window().buffer();
-    send(&mut dispatcher, &mut editor, "C-c C-k C-x 2 M-x C-c C-c");
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "C-c C-k C-x 2 M-x C-c C-c C-c a",
+    );
     assert_eq!(dispatcher.terminal_input(id), Input::Char);
+    // `C-c C-c` sends one `C-c`, and `C-c` with another key sends both.
     assert_eq!(
         sent(&mut dispatcher, &mut editor),
-        keys("C-x 2 M-x C-c C-c")
+        keys("C-x 2 M-x C-c C-c a")
     );
     assert_eq!(editor.frame().windows().len(), 1);
     send(&mut dispatcher, &mut editor, "C-c C-k");
@@ -154,12 +159,27 @@ fn keys_go_to_the_terminal_they_were_typed_in_whatever_is_selected_after() {
 fn text_goes_like_a_key_and_waits_while_something_of_oso_s_is_open() {
     let (mut dispatcher, mut editor) = in_terminal();
     let id = editor.window().buffer();
-    assert!(dispatcher.text_to_terminal(&mut editor, "日本"));
+    dispatcher.commit_text(&mut editor, "日本");
     send(&mut dispatcher, &mut editor, "C-x");
-    assert!(!dispatcher.text_to_terminal(&mut editor, "語"));
-    send(&mut dispatcher, &mut editor, "C-g");
+    // With `C-x` pending, the text is oso's: an undefined sequence, as in any buffer.
+    dispatcher.commit_text(&mut editor, "語");
     assert_eq!(
         dispatcher.take_terminal_sends(&mut editor),
         [(id, TerminalSend::Text("日本".into()))]
+    );
+    assert!(
+        editor.current().1.text().is_empty(),
+        "nothing went into the buffer"
+    );
+}
+
+#[test]
+fn typed_text_carries_no_control_character() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.window().buffer();
+    dispatcher.insert_text(&mut editor, "a\u{1b}[201~b\tc\r\u{9b}d");
+    assert_eq!(
+        dispatcher.take_terminal_sends(&mut editor),
+        [(id, TerminalSend::Text("a[201~b\tcd".into()))]
     );
 }

@@ -96,6 +96,10 @@ impl Dispatcher {
         if self.hold_text(text, commit) {
             return Effects::default();
         }
+        // Text for a terminal's program goes as a key does, and no macro records it (ADR 0120).
+        if self.text_to_terminal(editor, text) {
+            return Effects::default();
+        }
         if editor.macro_recording() && !self.macros.replaying && editor.macro_takes_text(text.len())
         {
             self.macros.group.push(event());

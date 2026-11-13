@@ -5,7 +5,7 @@
 //!
 //! Must not depend on: how a frame is drawn, beyond the size of a cell.
 
-use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
 use oso_core::editor::TerminalRequest;
@@ -13,14 +13,18 @@ use oso_core::key::KeyPress;
 use oso_platform::process::pty::Size;
 use oso_term::{Event, QueueFull, Scroll};
 
-use super::{App, UserEvent};
+use super::App;
+use crate::dispatch::TerminalSend;
+use crate::terminal::hosted::{self, Terminals};
+use crate::terminal::{colors, paste};
 
 #[cfg(feature = "dev")]
 mod dev_state;
 mod ime;
-use crate::dispatch::TerminalSend;
-use crate::terminal::hosted::{self, Request, Started, Terminals};
-use crate::terminal::{colors, paste, shell};
+mod start;
+
+/// How often terminals no window shows are looked at, for their end and their title.
+const HIDDEN_PACE: Duration = Duration::from_millis(250);
 
 /// The name of a terminal's buffer; others are `*terminal*<2>` and on.
 const NAME: &str = "*terminal*";
@@ -32,6 +36,8 @@ pub(super) struct Host {
     pub(super) palettes: Vec<oso_render::theme::TerminalPalette>,
     /// Whether oso's window has the keyboard's focus, for the programs that ask (mode 1004).
     pub(super) focused: bool,
+    /// When terminals no window shows are looked at next, while one has sent something.
+    pub(super) hidden_due: Option<Instant>,
 }
 
 impl Host {
@@ -43,6 +49,7 @@ impl Host {
                 .map(oso_render::theme::Theme::terminal_palette)
                 .collect(),
             focused: true,
+            hidden_due: None,
         }
     }
 }
@@ -83,6 +90,17 @@ impl App {
     }
 
     fn terminal_send(&mut self, buffer: BufferId, send: TerminalSend) {
+        // Typed while the shell is found: it goes once the terminal starts.
+        if let Some(hosted) = self.terminals.map.get_mut(buffer)
+            && hosted.terminal.is_none()
+            && hosted.ended.is_none()
+        {
+            if !hosted.wait(send) {
+                self.editor
+                    .message("The terminal is starting; input dropped");
+            }
+            return;
+        }
         match send {
             TerminalSend::Keys(keys) => self.send_keys(buffer, &keys),
             TerminalSend::Text(text) => self.send_text(buffer, &text),
@@ -115,128 +133,9 @@ impl App {
         }
     }
 
-    /// `terminal`: the last terminal still running, or a new one (ADR 0120, Q2).
-    fn open_terminal(&mut self, new: bool) {
-        if !new && let Some(last) = self.terminals.map.last_running() {
-            self.editor.show(last);
-            self.request_redraw();
-            return;
-        }
-        let cwd = self.terminal_directory();
-        let project = self.terminal_project();
-        let id = self.editor.add_terminal_buffer(NAME);
-        self.editor.show(id);
-        let window = self.editor.window().id();
-        self.terminals.map.add(id);
-        self.terminals.map.selected(id, window);
-        // From now on, until it ends or fails: a restart or an exit started before the shell
-        // is found would end the child about to start.
-        self.editor.set_running(id, true);
-        let size = self.window_size(window).unwrap_or(Size {
-            rows: 24,
-            columns: 80,
-            width: 0,
-            height: 0,
-        });
-        if let Some(hosted) = self.terminals.map.get_mut(id) {
-            hosted.sized = Some(size);
-        }
-        let configured = self.configuration.terminal();
-        let defaults = shell::Settings::default();
-        let settings = shell::Settings {
-            shell: configured.shell.clone(),
-            login: configured.login.unwrap_or(defaults.login),
-            env: configured.env.clone().unwrap_or(defaults.env),
-            scrollback: configured.scrollback.unwrap_or(defaults.scrollback),
-        };
-        let request = Request {
-            buffer: id,
-            settings,
-            cwd,
-            project,
-            size,
-            palette: self.terminal_palette(),
-        };
-        let started = self.waker.clone();
-        let ready = self.waker.clone();
-        let outcome = hosted::start(
-            request,
-            Box::new(move |started_terminal| {
-                started.send(UserEvent::TerminalStarted(Box::new(started_terminal)));
-            }),
-            Box::new(move || {
-                ready.send(UserEvent::Terminal(id));
-            }),
-        );
-        if let Err(error) = outcome {
-            self.terminal_failed(id, &error.to_string());
-        }
-        self.request_redraw();
-    }
-
-    /// Where a new terminal starts: the selected buffer's project root, else its file's
-    /// directory, else the home directory (ADR 0120, Q18).
-    fn terminal_directory(&self) -> Option<PathBuf> {
-        if let Some(root) = self.terminal_project() {
-            return Some(root);
-        }
-        let buffer = self.editor.current().1;
-        buffer
-            .path()
-            .and_then(|path| path.parent())
-            .map(std::path::Path::to_path_buf)
-            .or_else(|| self.editor.home().map(std::path::Path::to_path_buf))
-    }
-
-    fn terminal_project(&self) -> Option<PathBuf> {
-        let project = self.editor.current().1.project()?;
-        Some(self.editor.project(project)?.root().to_path_buf())
-    }
-
-    /// The theme's colours as a terminal's engine takes them.
-    fn terminal_palette(&self) -> oso_term::Palette {
-        palette_of(&self.terminals.palettes, self.editor.theme())
-    }
-
-    /// The start thread found the shell and started the terminal, or could not.
-    pub(super) fn terminal_started(&mut self, started: Started) {
-        let Started { buffer, outcome } = started;
-        let Some(hosted) = self.terminals.map.get_mut(buffer) else {
-            // Its buffer went while it started: dropping it hangs it up.
-            return;
-        };
-        match outcome {
-            Ok(launched) => {
-                hosted.terminal = Some(launched.terminal);
-                self.editor.set_running(buffer, true);
-                for passed in &launched.passed_over {
-                    self.editor
-                        .note(format!("Terminal shell passed over: {passed}"));
-                }
-                let dir = (launched.cwd.as_ref())
-                    .map_or_else(String::new, |dir| format!(" in {}", dir.display()));
-                // The path only: the environment's values are never shown (ADR 0120).
-                self.editor
-                    .note(format!("Started {}{dir}", launched.shell.display()));
-            }
-            Err(error) => self.terminal_failed(buffer, &error.to_string()),
-        }
-        self.sync_terminals();
-        self.request_redraw();
-    }
-
-    fn terminal_failed(&mut self, buffer: BufferId, why: &str) {
-        if let Some(hosted) = self.terminals.map.get_mut(buffer) {
-            hosted.ended = Some("failed".to_owned());
-        }
-        self.editor.set_running(buffer, false);
-        self.editor
-            .message(format!("The terminal could not start: {why}"));
-    }
-
-    /// A terminal's thread has a snapshot ready: the next frame takes it.
-    /// A terminal no window shows asks for no frame of its own: its snapshot waits for the
-    /// next frame drawn anyway, while its thread goes on parsing.
+    /// A terminal's thread has a snapshot ready: the next frame takes it. A terminal no window
+    /// shows asks for no frame of its own: it is looked at a few times a second instead,
+    /// while its thread goes on parsing.
     pub(super) fn terminal_ready(&mut self, buffer: BufferId) {
         if let Some(hosted) = self.terminals.map.get_mut(buffer) {
             hosted.ready = true;
@@ -247,13 +146,39 @@ impl App {
             });
             if shown {
                 self.request_redraw();
+            } else {
+                // Its end, or its title, is taken within a moment though no frame comes.
+                self.terminals
+                    .hidden_due
+                    .get_or_insert_with(|| Instant::now() + HIDDEN_PACE);
             }
         }
     }
 
+    /// Before the event loop waits: once the moment for terminals no window shows has come,
+    /// takes what they sent, at most a few times a second (ADR 0120).
+    pub(super) fn take_hidden_snapshots(&mut self) {
+        if self
+            .terminals
+            .hidden_due
+            .is_some_and(|due| Instant::now() >= due)
+        {
+            self.terminals.hidden_due = None;
+            if self.take_terminal_snapshots() {
+                self.terminals.hidden_due = Some(Instant::now() + HIDDEN_PACE);
+            }
+        }
+    }
+
+    /// When the event loop wakes for terminals no window shows, if it does.
+    pub(super) fn hidden_terminals_deadline(&self) -> Option<Instant> {
+        self.terminals.hidden_due
+    }
+
     /// Before a frame: takes each ready terminal's snapshot, one per terminal, merges its rows
-    /// into what the UI keeps and gives its buffers back.
-    pub(super) fn take_terminal_snapshots(&mut self) {
+    /// into what the UI keeps and gives its buffers back. Returns whether it took any, as
+    /// another may wait already.
+    pub(super) fn take_terminal_snapshots(&mut self) -> bool {
         let mut ended = Vec::new();
         let mut said = Vec::new();
         let mut again = false;
@@ -311,9 +236,7 @@ impl App {
         }
         // The frame being drawn shows the notes.
         self.note_terminals();
-        if again {
-            self.request_redraw();
-        }
+        again
     }
 
     fn send_keys(&mut self, buffer: BufferId, keys: &[KeyPress]) {
@@ -487,10 +410,7 @@ impl App {
             .collect();
         for (id, size) in sizes {
             if let Some(hosted) = self.terminals.map.get_mut(id) {
-                hosted.sized = Some(size);
-                if let Some(terminal) = &hosted.terminal {
-                    terminal.resize(size);
-                }
+                hosted.resize(size);
             }
         }
     }
@@ -511,7 +431,6 @@ impl App {
         }
     }
 
-    /// Puts each terminal's mode, end and title in its modeline, when they changed.
     /// Puts each terminal's mode, end and title in its modeline, when one of them changed.
     /// Returns whether a note changed, which the frame being drawn already shows.
     fn note_terminals(&mut self) -> bool {

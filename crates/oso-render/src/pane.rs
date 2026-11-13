@@ -353,9 +353,12 @@ pub struct GridView<'a> {
     pub rows: &'a [GridRow<'a>],
     /// The cursor, or `None` while the program hides it.
     pub cursor: Option<GridCursor>,
-    /// What an input method is composing, drawn over the cells from the cursor's on, which it
-    /// covers and does not push (ADR 0069). It needs the cursor: with none it is not drawn.
+    /// What an input method is composing, drawn over the cells from `preedit_at` on, which it
+    /// covers and does not push (ADR 0069).
     pub preedit: Option<&'a Preedit>,
+    /// The row and column the preedit starts at: the program's cursor cell, also while the
+    /// program hides the cursor, as a TUI's input box does (ADR 0120).
+    pub preedit_at: (u16, u16),
 }
 
 /// One row of a [`GridView`]. No `Debug`: it holds what a program printed (ADR 0028).

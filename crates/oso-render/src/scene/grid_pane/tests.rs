@@ -52,6 +52,7 @@ pub(super) fn grid<'a>(rows: &'a [GridRow<'a>], cursor: Option<GridCursor>) -> P
         rows,
         cursor,
         preedit: None,
+        preedit_at: (0, 0),
     })
 }
 
@@ -262,6 +263,7 @@ fn a_row_is_reused_while_its_generation_holds_and_read_again_when_it_changes() {
             rows,
             cursor: None,
             preedit: None,
+            preedit_at: (0, 0),
         });
         let mut atlas = FakeAtlas::default();
         let panes = [grid_pane(rect(0, 0, 2, 10), content)];
@@ -517,6 +519,7 @@ proptest::proptest! {
                 hollow,
             }),
             preedit: composing.then_some(&preedit),
+            preedit_at: (cursor_row, cursor_column),
         });
         let panes = [grid_pane(rect(row, column, rows, columns), content)];
         let limits = Limits { rects: 1000, quads: 1000 };

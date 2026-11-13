@@ -124,7 +124,7 @@ fn oso_keeps_its_keys_and_the_rest_reach_the_program() {
     type_line(&mut app, "cat -v");
     app.send_keys("C-x RET");
     wait_for_row(&mut app, "^X");
-    // C-c C-c in char mode sends both, which ends cat.
+    // C-c C-c in char mode sends one C-c, which ends cat.
     app.send_keys("C-c C-c C-c C-k");
     app.wait_for("semi-char mode", |state| {
         terminal(state)["input"] == "semi-char"
@@ -170,17 +170,29 @@ fn the_input_method_commits_into_the_program_at_its_cursor() {
         state["ime"]["allowed"] == true && !state["ime"]["area"].is_null()
     });
     assert_eq!(state["ime"]["wanted"], true);
+    app.visual_aids_off();
     type_line(&mut app, "printf '\\033[?25l'");
-    app.send_keys("e c h o SPC");
+    app.send_keys("e c h o SPC x");
+    let state = app.wait_for("the typed text", |state| {
+        rows(state).iter().any(|row| row.ends_with("echo x"))
+    });
+    // The cursor is hidden, and the candidate window still has its cell.
+    let area = &state["ime"]["area"];
+    let top = area["y"].as_f64().expect("a cursor area");
+    let bottom = top + area["height"].as_f64().expect("its height");
+    let (top, bottom) = (top as u32, bottom.ceil() as u32);
+    let before = app.screenshot();
     app.try_call("ime", Some(json!({ "preedit": "にほ", "range": [6, 6] })))
         .unwrap();
-    let state = app.wait_for("the preedit", |state| state["ime"]["preedit"] == "にほ");
-    // The cursor is hidden, and the candidate window still has its cell.
-    assert!(!state["ime"]["area"].is_null());
+    app.wait_for("the preedit", |state| state["ime"]["preedit"] == "にほ");
+    let composing = app.screenshot();
+    // The preedit is drawn on the cursor's row, though the program hides the cursor.
+    let changed = composing.differs_in(&before, top..bottom);
+    assert!(changed > 0, "nothing drawn on the cursor's row");
     app.try_call("ime", Some(json!({ "commit": "日本" })))
         .unwrap();
     app.send_keys("RET");
-    wait_for_row(&mut app, "日本");
+    wait_for_row(&mut app, "x日本");
 }
 
 #[test]

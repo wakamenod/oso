@@ -324,6 +324,7 @@ pub struct oso_render::GridView<'a>
 pub oso_render::GridView::cursor: core::option::Option<oso_render::GridCursor>
 pub oso_render::GridView::id: u64
 pub oso_render::GridView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
+pub oso_render::GridView::preedit_at: (u16, u16)
 pub oso_render::GridView::rows: &'a [oso_render::GridRow<'a>]
 pub struct oso_render::Image
 pub oso_render::Image::height: u32

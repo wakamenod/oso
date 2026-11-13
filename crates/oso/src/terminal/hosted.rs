@@ -18,8 +18,11 @@ use oso_platform::process::{self, Executable};
 use oso_term::{End, Palette, Start, Terminal};
 
 use super::grid::Grid;
-use super::route::Input;
+use super::route::{Input, ToProgram};
 use super::shell::{self, Settings};
+
+/// The most sends kept while a terminal starts.
+const WAITING_MAX: usize = 256;
 
 /// One hosted terminal.
 pub(crate) struct Hosted {
@@ -49,6 +52,8 @@ pub(crate) struct Hosted {
     pub note_stale: bool,
     /// The input mode the note was made with.
     pub noted_input: Input,
+    /// What was typed or pasted while the shell is found, sent once it starts.
+    pub waiting: Vec<ToProgram>,
 }
 
 impl Hosted {
@@ -67,6 +72,29 @@ impl Hosted {
             note: String::new(),
             note_stale: false,
             noted_input: Input::SemiChar,
+            waiting: Vec::new(),
+        }
+    }
+
+    /// Keeps `send` until the terminal starts. Returns false, keeping nothing, past
+    /// [`WAITING_MAX`] sends.
+    pub(crate) fn wait(&mut self, send: ToProgram) -> bool {
+        if self.waiting.len() >= WAITING_MAX {
+            return false;
+        }
+        self.waiting.push(send);
+        true
+    }
+
+    /// Gives the PTY `size` once it runs, if it differs from the size it has. Before it
+    /// starts, nothing is sent and nothing noted, so that the size it started with is compared
+    /// again once it runs.
+    pub(crate) fn resize(&mut self, size: Size) {
+        if let Some(terminal) = &self.terminal
+            && self.sized != Some(size)
+        {
+            terminal.resize(size);
+            self.sized = Some(size);
         }
     }
 
@@ -93,7 +121,10 @@ impl Hosted {
             push(ended);
         }
         if !self.title.is_empty() {
-            push(&format!("\u{201c}{}\u{201d}", self.title));
+            // The title's own quotation marks become plain ones, so that it never closes the
+            // quotes oso put around it.
+            let title = self.title.replace(['\u{201c}', '\u{201d}'], "\"");
+            push(&format!("\u{201c}{title}\u{201d}"));
         }
         note
     }
@@ -279,7 +310,9 @@ mod tests {
     use oso_core::buffer::BufferId;
     use oso_core::editor::Editor;
 
-    use super::{Input, Terminals};
+    use oso_platform::process::pty::Size;
+
+    use super::{Input, Terminals, ToProgram};
 
     fn ids() -> (BufferId, BufferId) {
         let mut editor = Editor::default();
@@ -322,6 +355,43 @@ mod tests {
             hosted.note_text(Input::SemiChar),
             "\u{201c}exited 0\u{201d}"
         );
+        // Nor can it close oso's quotes to put a mark of its own after them.
+        hosted.title = "x\u{201d}  exited 0  \u{201c}y".into();
+        assert_eq!(
+            hosted.note_text(Input::SemiChar),
+            "\u{201c}x\"  exited 0  \"y\u{201d}"
+        );
+    }
+
+    #[test]
+    fn a_size_given_while_it_starts_is_given_again_once_it_runs() {
+        let (a, _) = ids();
+        let mut terminals = Terminals::default();
+        let hosted = terminals.add(a);
+        let started = Size {
+            rows: 24,
+            columns: 80,
+            width: 0,
+            height: 0,
+        };
+        hosted.sized = Some(started);
+        hosted.resize(Size {
+            rows: 10,
+            ..started
+        });
+        assert_eq!(hosted.sized, Some(started), "nothing sent, nothing noted");
+    }
+
+    #[test]
+    fn what_is_typed_while_it_starts_waits_up_to_a_bound() {
+        let (a, _) = ids();
+        let mut terminals = Terminals::default();
+        let hosted = terminals.add(a);
+        for _ in 0..super::WAITING_MAX {
+            assert!(hosted.wait(ToProgram::Text("a".into())));
+        }
+        assert!(!hosted.wait(ToProgram::Text("b".into())));
+        assert_eq!(hosted.waiting.len(), super::WAITING_MAX);
     }
 
     #[test]
