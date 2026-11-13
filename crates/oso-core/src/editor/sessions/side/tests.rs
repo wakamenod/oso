@@ -163,3 +163,76 @@ fn the_wheel_and_a_click_reach_it() {
     assert_eq!(editor.wheel_window(Some((3, 5))), side);
     assert_eq!(editor.tiled_window_index(side), editor.window_index(side));
 }
+
+#[test]
+fn deleting_a_tree_window_never_selects_it() {
+    let (mut editor, list) = editor(120);
+    let first = selected(&editor);
+    let second = editor.split_window(Way::Across, false).unwrap();
+    let side = editor.show_side_window(list, 32);
+    editor.windmove(Side::Left).unwrap();
+    assert_eq!(selected(&editor), side);
+    // The side window was selected more recently than `first`.
+    editor.select_window(second);
+    editor.delete_window().unwrap();
+    assert_eq!(selected(&editor), first);
+    assert_eq!(editor.side_window(), Some(side));
+}
+
+#[test]
+fn walking_buffers_and_show_in_it_act_on_the_tree_window_selected_last() {
+    let (mut editor, list) = editor(120);
+    let first = selected(&editor);
+    let shown = editor.window().buffer();
+    let side = editor.show_side_window(list, 32);
+    editor.select_window(side);
+    editor.walk_buffers(1).unwrap();
+    assert_eq!(selected(&editor), first);
+    assert_ne!(editor.window().buffer(), shown);
+    assert_eq!(editor.window_by_id(side).unwrap().buffer(), list);
+    // Into the side window, selected or not, it shows in the tree's window instead.
+    for select in [false, true] {
+        if select {
+            editor.select_window(side);
+        }
+        editor.show_in(side, shown);
+        assert_eq!(selected(&editor), first);
+        assert_eq!(editor.window().buffer(), shown);
+        assert_eq!(editor.window_by_id(side).unwrap().buffer(), list);
+        editor.walk_buffers(1).unwrap();
+    }
+}
+
+#[test]
+fn messages_from_it_go_and_come_back_in_the_tree_window() {
+    let (mut editor, list) = editor(120);
+    let first = selected(&editor);
+    let shown = editor.window().buffer();
+    let side = editor.show_side_window(list, 32);
+    editor.select_window(side);
+    editor.toggle_messages();
+    assert_eq!(selected(&editor), first);
+    assert_ne!(editor.window().buffer(), shown);
+    assert_eq!(editor.window_by_id(side).unwrap().buffer(), list);
+    editor.select_window(side);
+    editor.toggle_messages();
+    assert_eq!(selected(&editor), first);
+    assert_eq!(
+        editor.window().buffer(),
+        shown,
+        "the way back is the tree's"
+    );
+    assert_eq!(editor.window_by_id(side).unwrap().buffer(), list);
+}
+
+#[test]
+fn killing_what_it_shows_hides_it() {
+    let (mut editor, list) = editor(120);
+    let first = selected(&editor);
+    let side = editor.show_side_window(list, 32);
+    editor.select_window(side);
+    editor.kill_buffer(list);
+    assert_eq!(editor.side_window(), None);
+    assert!(editor.window_by_id(side).is_none());
+    assert_eq!(selected(&editor), first);
+}

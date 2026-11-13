@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::sessions::identity::SessionId;
+use crate::sessions::recap;
 use crate::sessions::registry::{self, Live};
 
 /// The most names of the registry's directory looked at, entries or not.
@@ -50,11 +51,14 @@ pub struct Poll {
 }
 
 impl Poll {
-    /// Starts looking at `dir`, or stops with `None`.
+    /// Starts looking at `dir`, or stops with `None`. What was read and told is forgotten, so
+    /// that a poll started again tells the app what it finds, as the app forgot it.
     pub fn set(&mut self, dir: Option<PathBuf>, now: Instant) {
         self.next = dir.as_ref().map(|_| now);
         self.dir = dir;
         self.stamps.clear();
+        self.entries.clear();
+        self.told = None;
     }
 
     pub fn due(&self) -> Option<Instant> {
@@ -122,10 +126,7 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
         .filter(|entry| registry::liveness(entry, started) == Live::Yes)
         .map(|entry| External {
             pid: entry.pid,
-            name: entry
-                .name
-                .clone()
-                .unwrap_or_else(|| format!("claude {}", entry.pid)),
+            name: shown_name(entry),
             directory: entry.cwd.clone(),
             working: entry.status.as_deref() == Some("busy"),
             session_id: entry.session_id.clone(),
@@ -133,6 +134,17 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
         .collect();
     live.sort_by_key(|external| external.pid);
     live
+}
+
+/// The name `*Sessions*` lists for `entry`. It is the registry's text, so it is cleaned as a
+/// recap is, that it cannot reorder or break the line it is drawn on.
+fn shown_name(entry: &registry::Entry) -> String {
+    entry
+        .name
+        .as_deref()
+        .map(recap::clean)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| format!("claude {}", entry.pid))
 }
 
 #[cfg(test)]
@@ -166,6 +178,22 @@ mod tests {
         assert_eq!(poll.tick(now + super::POLL_EVERY * 3), None);
         poll.set(None, now);
         assert_eq!(poll.due(), None);
+        // Started again, it tells what it finds, though that did not change.
+        poll.set(Some(dir.clone()), now);
+        assert_eq!(poll.tick(now), Some(Vec::new()));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_name_is_listed_clean_on_one_line() {
+        let named = |name: Option<&str>| crate::sessions::registry::Entry {
+            pid: 42,
+            name: name.map(str::to_owned),
+            ..Default::default()
+        };
+        let shown = super::shown_name(&named(Some("fix\u{202E}txt.exe\tnow\nx")));
+        assert_eq!(shown, "fixtxt.exe now x");
+        assert_eq!(super::shown_name(&named(Some("\u{2066}\t"))), "claude 42");
+        assert_eq!(super::shown_name(&named(None)), "claude 42");
     }
 }

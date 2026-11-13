@@ -681,7 +681,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   terminal. Under `oso dev`, a running terminal holds the restart, until terminals are handed
   over: run long-lived programs in an oso that is not rebuilt.
 - The agent channel reads no terminal's text, types nothing into one, and never selects one:
-  switching to a terminal is the person's.
+  switching to a terminal, or to a list with keys of its own such as `*Sessions*`, is the
+  person's.
 
 ## Input method (IME)
 
@@ -822,8 +823,9 @@ a switch made with its command stands until that setting changes in the file
   answer in the echo area only.
   - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
     if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
-    for again. `C-x o` skips it; a click or `windmove-left` reaches it. While it is selected,
-    `C-x 2`, `C-x 3`, `C-x 1` and showing a buffer act on the window selected before it.
+    for again. `C-x o` skips it, and so does `C-x 0` in another window; a click or
+    `windmove-left` reaches it. While it is selected, `C-x 2`, `C-x 3`, `C-x 1`, `M-,`, `M-/`,
+    `*Messages*` and showing a buffer act on the window selected before it, and select it.
   - The commands that show a session or the list, and pinning and archiving, need a person at
     the keyboard: the agent channel cannot run them.
   - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
@@ -837,7 +839,9 @@ a switch made with its command stands until that setting changes in the file
 - A space is a project with its sessions, and keeps its own windows. `C-x a j` (`space-switch`)
   switches to another; showing a session of another space switches to it first. A space
   entered for the first time shows its last file and its last session side by side.
-  `C-x a z` (`space-zoom`) shows the selected window alone, and back.
+  `C-x a z` (`space-zoom`) shows the selected window alone, and back. Under `oso dev`, a
+  restart keeps only the windows in front: the other spaces' windows go, and a zoomed
+  window stays alone.
 - The selected window's modeline counts `⚠ N` sessions that need input and `● N` done or
   ready for review. A session's own modeline says its state and age, `needs input
   (permission) 3m`, before its title. A session counts as seen after 2 s in the selected window

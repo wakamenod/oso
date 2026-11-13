@@ -106,7 +106,7 @@ impl Evidence {
         not(test),
         expect(
             dead_code,
-            reason = "the terminal's host API feeds it (ADR 0121 step 3)"
+            reason = "open: ADR 0120 step 4b's echo signal will feed it (ADR 0121 step 3 as built)"
         )
     )]
     pub fn echo_off(title: &str, progress: Option<Progress>) -> Self {

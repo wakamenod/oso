@@ -146,9 +146,10 @@ impl Dispatcher {
         // Its kill joins no kill of the person's, before or after it, so that what reaches the
         // OS clipboard from a person's kill never holds the agent's text (ADR 0085).
         editor.forget_kills();
-        // Nothing the agent runs puts a terminal in front of the person's typing (ADR 0120).
-        if name == "delete-window" && shows_another_terminal(editor) {
-            return refused(TERMINAL_REFUSED.into());
+        // Nothing the agent runs puts a terminal, or a list with keys of its own, in front of
+        // the person's typing (ADR 0120, ADR 0121).
+        if name == "delete-window" && another_takes_keys(editor) {
+            return refused(KEYS_REFUSED.into());
         }
         let before = (editor.tiled().0.id(), editor.tiled().0.buffer());
         // The prompts it opens are the agent's, and say so (ADR 0085). What it queues to save
@@ -161,34 +162,41 @@ impl Dispatcher {
             })
         });
         editor.forget_kills();
-        if took_a_terminal(editor, before) {
-            ran.1 = Err(TERMINAL_REFUSED.into());
+        if took_the_keys(editor, before) {
+            ran.1 = Err(KEYS_REFUSED.into());
         }
         Ok(ran)
     }
 }
 
-/// Why the agent may not select a terminal: the person's next keys would go to its program.
-const TERMINAL_REFUSED: &str = "switching to a terminal is the person's";
+/// Why the agent may not select a terminal or a list with keys of its own, such as
+/// `*Sessions*`: the person's next keys would go to its program, or act on the list's rows.
+const KEYS_REFUSED: &str = "switching to a terminal or a list with keys of its own is the person's";
 
-/// Whether a tiled window other than the selected one shows a terminal, which deleting the
-/// selected one may select.
-fn shows_another_terminal(editor: &Editor) -> bool {
+/// Whether a tree's window other than the selected one shows a buffer with keys of its own,
+/// which deleting the selected one may select. The side window is left out, as a deletion
+/// never selects it (ADR 0121).
+fn another_takes_keys(editor: &Editor) -> bool {
     let selected = editor.tiled().0.id();
+    let side = editor.side_window();
     editor.frame().windows().iter().any(|(id, _)| {
         *id != selected
+            && Some(*id) != side
             && editor
                 .window_by_id(*id)
-                .is_some_and(|window| editor.shown(window).is_terminal())
+                .is_some_and(|window| has_own_keys(editor.shown(window).mode()))
     })
 }
 
-/// Whether the agent's command just put a terminal in front, selecting another window that
-/// shows one or showing one in the selected window. If so, the window selected `before` is
-/// selected again, and the buffer it showed shown again.
-fn took_a_terminal(editor: &mut Editor, (window, buffer): (WindowId, BufferId)) -> bool {
+/// Whether the agent's command just put keys of the person's elsewhere: selecting the side
+/// window, or another window that shows a buffer with keys of its own, or showing one in the
+/// selected window. If so, the window selected `before` is selected again, and the buffer it
+/// showed shown again.
+fn took_the_keys(editor: &mut Editor, (window, buffer): (WindowId, BufferId)) -> bool {
     let now = editor.tiled().0;
-    if !editor.shown(now).is_terminal() || (now.id(), now.buffer()) == (window, buffer) {
+    let side = editor.side_window() == Some(now.id());
+    let own_keys = side || has_own_keys(editor.shown(now).mode());
+    if !own_keys || (now.id(), now.buffer()) == (window, buffer) {
         return false;
     }
     if now.id() == window {
@@ -415,15 +423,84 @@ mod tests {
         let selected = editor.tiled().0.id();
         assert_eq!(editor.window().buffer(), notes);
         let ran = look(&mut dispatcher, &mut editor, "other-window");
-        assert_eq!(ran, Err(super::TERMINAL_REFUSED.into()));
+        assert_eq!(ran, Err(super::KEYS_REFUSED.into()));
         assert_eq!(editor.tiled().0.id(), selected, "selected again");
         assert_eq!(editor.window().buffer(), notes);
         let deleted = look(&mut dispatcher, &mut editor, "delete-window");
-        assert_eq!(deleted, Err(super::TERMINAL_REFUSED.into()));
+        assert_eq!(deleted, Err(super::KEYS_REFUSED.into()));
         assert_eq!(editor.frame().windows().len(), 2, "nothing deleted");
         // The person's own C-x o still goes there.
         dispatcher.handle_keys(&mut editor, keys("C-x o"));
         assert_eq!(editor.window().buffer(), terminal);
+    }
+
+    /// An editor 120 columns wide with `*Sessions*` in the side window, as the host shows it,
+    /// and two tree windows side by side, the first selected. Returns the side window's name.
+    fn with_side_list() -> (Dispatcher, Editor, oso_core::window::WindowId) {
+        use oso_core::buffer::Mode;
+        use oso_core::frame::FrameSize;
+        let (dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 120,
+        });
+        editor
+            .split_window(oso_core::frame::Way::Across, false)
+            .unwrap();
+        let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+        editor.buffer_mut(list).unwrap().withhold_from_agents();
+        let side = editor.show_side_window(list, 32);
+        (dispatcher, editor, side)
+    }
+
+    #[test]
+    fn the_agent_never_selects_the_side_window() {
+        let (mut dispatcher, mut editor, side) = with_side_list();
+        let selected = editor.tiled().0.id();
+        let ran = look(&mut dispatcher, &mut editor, "windmove-left");
+        assert_eq!(ran, Err(super::KEYS_REFUSED.into()));
+        assert_eq!(editor.tiled().0.id(), selected, "selected again");
+        // The person's own windmove still goes there.
+        let _ = dispatcher.run_command(&mut editor, "windmove-left", None);
+        assert_eq!(editor.tiled().0.id(), side);
+    }
+
+    #[test]
+    fn the_agents_delete_window_never_lands_in_the_side_window() {
+        let (mut dispatcher, mut editor, side) = with_side_list();
+        let first = editor.tiled().0.id();
+        // The person selects the list, then the other tree window: the list was selected
+        // more recently than the first.
+        editor.select_window(side);
+        dispatcher.handle_keys(&mut editor, keys("C-x o"));
+        assert_eq!(editor.tiled().0.id(), first);
+        dispatcher.handle_keys(&mut editor, keys("C-x o"));
+        let second = editor.tiled().0.id();
+        assert_ne!(second, first);
+        editor.select_window(side);
+        editor.select_window(second);
+        assert_eq!(look(&mut dispatcher, &mut editor, "delete-window"), Ok(()));
+        assert_eq!(editor.tiled().0.id(), first);
+        assert_eq!(editor.side_window(), Some(side));
+    }
+
+    #[test]
+    fn the_agent_never_selects_a_window_whose_buffer_has_keys_of_its_own() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let notes = editor.window().buffer();
+        dispatcher.handle_keys(&mut editor, keys("C-x 2 C-x o"));
+        let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::CopyView);
+        editor.show(view);
+        dispatcher.handle_keys(&mut editor, keys("C-x o"));
+        let selected = editor.tiled().0.id();
+        let ran = look(&mut dispatcher, &mut editor, "other-window");
+        assert_eq!(ran, Err(super::KEYS_REFUSED.into()));
+        assert_eq!(editor.tiled().0.id(), selected, "selected again");
+        assert_eq!(editor.window().buffer(), notes);
+        let deleted = look(&mut dispatcher, &mut editor, "delete-window");
+        assert_eq!(deleted, Err(super::KEYS_REFUSED.into()));
+        assert_eq!(editor.frame().windows().len(), 2, "nothing deleted");
     }
 
     /// A loaded buffer visiting `path`, judged by the names it resolved to.

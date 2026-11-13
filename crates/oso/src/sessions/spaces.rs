@@ -114,19 +114,23 @@ impl Spaces {
         self.current
     }
 
-    /// Space `at` is the one whose tree is in the frame, as it is: oso's first space.
+    /// Space `at` is the one whose tree is in the frame, as it is: oso's first space. A zoom
+    /// made before there was a space is the space's.
     pub fn adopt(&mut self, at: usize) {
         if let Some(space) = self.spaces.get_mut(at) {
             space.entered = true;
+            if self.current.is_none() && space.zoom.is_none() {
+                space.zoom = self.zoom.take();
+            }
             self.current = Some(at);
         }
     }
 
     /// Shows space `at`'s tree, keeping the frame's in the space it leaves. A space entered for
     /// the first time shows its last file buffer and its last session side by side, or the one
-    /// of them it has; with neither, the frame's tree becomes its own, and the space left gets
-    /// one from its last buffers when it is entered again. With no space yet, the frame's tree
-    /// becomes `at`'s.
+    /// of them it has; with neither, the frame's tree becomes its own, with its zoom, and the
+    /// space left gets one from its last buffers when it is entered again. With no space yet,
+    /// the frame's tree becomes `at`'s.
     ///
     /// # Errors
     ///
@@ -169,7 +173,8 @@ impl Spaces {
             None => {
                 let from = &mut self.spaces[from];
                 from.entered = false;
-                from.zoom = None;
+                let zoom = from.zoom.take();
+                self.spaces[at].zoom = zoom;
             }
         }
         self.spaces[at].entered = true;

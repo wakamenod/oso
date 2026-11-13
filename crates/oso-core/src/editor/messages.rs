@@ -372,7 +372,8 @@ impl Editor {
     /// Shows the internal buffer `id`, to come back from later. If the window has already come
     /// through it, this goes back to it, so that going between two of them cannot grow the way.
     pub(super) fn go_to_internal(&mut self, id: BufferId) {
-        let index = self.tiled_index();
+        // From the side window, the tree's window selected last goes there (ADR 0121).
+        let index = self.leave_side_at();
         let window = &mut self.windows[index];
         let shown = window.buffer();
         let way_back = window.way_back_mut();
@@ -386,7 +387,7 @@ impl Editor {
     /// Goes back to where the window was before the internal buffer it is on, or to
     /// `*scratch*` if that buffer has gone.
     pub(super) fn leave_internal(&mut self) {
-        let index = self.tiled_index();
+        let index = self.leave_side_at();
         let back = self.windows[index].way_back_mut().pop();
         self.go_back(back);
     }
@@ -409,6 +410,7 @@ impl Editor {
         if !self.prompts.is_empty() {
             return;
         }
+        self.leave_side();
         if self.window().buffer() != self.messages_buffer {
             self.go_to_internal(self.messages_buffer);
             let (window, buffer) = self.current_mut();

@@ -175,3 +175,22 @@ fn zoom_from_the_side_window_acts_on_the_tree() {
     assert_eq!(editor.side_window(), Some(side), "the side window stays");
     assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::Out));
 }
+
+#[test]
+fn a_zoom_goes_with_the_frames_tree() {
+    let mut editor = editor();
+    let mut spaces = Spaces::default();
+    editor.split_window(Way::Down, false).unwrap();
+    let tree = ids(&editor);
+    // Before the first session: no space yet.
+    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::In));
+    let one = spaces.add(Path::new("/src/one"), None);
+    spaces.enter(&mut editor, one).unwrap();
+    assert_eq!(ids(&editor).len(), 1);
+    // To a space with nothing to show, which takes the zoomed tree, and its zoom.
+    let empty = spaces.add(Path::new("/src/empty"), None);
+    spaces.enter(&mut editor, empty).unwrap();
+    assert_eq!(ids(&editor).len(), 1);
+    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::Out));
+    assert_eq!(ids(&editor), tree);
+}

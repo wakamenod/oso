@@ -47,7 +47,7 @@ pub const PROC_START_SLACK: Duration = Duration::from_secs(2);
 pub const STARTED_AT_SLACK: Duration = Duration::from_secs(10);
 
 /// One registry entry: the fields oso reads, each `None` if missing or out of bounds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Entry {
     /// The process, as its file's name gives it too.
     pub pid: u32,
