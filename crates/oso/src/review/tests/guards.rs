@@ -1,6 +1,6 @@
 //! Reviews that must refuse or hold back: an untrusted or replaced root, a root inside another
 //! repository, secrets by a rename's old name, attributes that would hide a change, a stopped
-//! request, and what a review holds.
+//! request or baseline, and what a review holds.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these drive the review's reader and thread
 //! directly.
@@ -275,6 +275,22 @@ fn a_revoked_root_runs_nothing_more() {
     assert!(reviewer.ask(Request::Open(Scope::Uncommitted)));
     let answer = got.recv_timeout(Duration::from_secs(20)).unwrap();
     assert!(answer.contains("no longer trusted"), "{answer}");
+}
+
+#[test]
+fn a_baseline_stopped_between_its_runs_of_git_writes_no_tree_and_says_nothing() {
+    let repo = Repo::new("baseline-stopped");
+    repo.write("a.txt", b"a\n");
+    repo.commit("root");
+    repo.write("b.txt", b"b\n");
+    let mut reader = repo.reader();
+    let mut said = Vec::new();
+    // As a root revoked while git ran: stopped from the first look on.
+    reader.answer(Request::Baseline, &|| true, &mut |report| {
+        said.push(format!("{report:?}"));
+        true
+    });
+    assert!(said.is_empty(), "{said:?}");
 }
 
 #[cfg(unix)]

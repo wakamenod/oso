@@ -646,9 +646,13 @@ mod recovery_tests;
 #[cfg(test)]
 mod replace_tests;
 #[cfg(test)]
+mod review_tests;
+#[cfg(test)]
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod text_on_prefix_tests;
 #[cfg(test)]
 mod undo_tests;
 #[cfg(test)]

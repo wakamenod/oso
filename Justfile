@@ -8,7 +8,7 @@ nightly := "nightly-2026-05-25"
 cargo_public_api := "0.52.0"
 # Snapshots are taken for one target so that they read the same on every OS.
 api_target := "x86_64-unknown-linux-gnu"
-api_crates := "oso-core oso-platform oso-render oso-syntax"
+api_crates := "oso-core oso-platform oso-render oso-syntax oso-term"
 # oso's own macOS window layer exists only there, so oso-platform also has a snapshot
 # taken for macOS, on macOS (ADR 0070).
 api_macos_target := "aarch64-apple-darwin"
@@ -38,6 +38,53 @@ build:
 # Release build (with optimizations)
 release:
     cargo build --locked --workspace --release
+
+# The copy is renamed into place, so a running oso keeps the binary it started with
+# (docs/user/daily-use.md). Shell profiles are left alone.
+# Build the release binary as `just release` does and install it in `dir`, by default ~/.local/bin
+install dir="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        Darwin|Linux) ;;
+        *) echo "error: just install supports macOS and Linux only, for now"; exit 1;;
+    esac
+    dir="{{dir}}"
+    dir="${dir:-$HOME/.local/bin}"
+    # The tarballs and the Zig that oso-term's build script needs (ADR 0120); it says the same,
+    # but only after a long build.
+    lock=crates/oso-term/ghostty-vt.lock
+    field() { awk -v k="$1" '$1 == k { print $2 }' "$lock"; }
+    version=$(field version)
+    tarballs="${OSO_GHOSTTY_VT_DIR:-${OSO_VENDOR_DIR:-$HOME/.cache/oso/vendor}/libghostty-vt-$version}"
+    for name in $(awk '$1 == "source" || $1 == "deps" { print $2 }' "$lock"); do
+        [ -f "$tarballs/$name" ] || {
+            echo "error: $tarballs/$name is missing: run \`just ghostty-vt\` first"; exit 1;
+        }
+    done
+    zig="${ZIG:-zig}"
+    command -v "$zig" >/dev/null || {
+        echo "error: needs Zig $(field zig) on PATH, or set ZIG (ADR 0120)"; exit 1;
+    }
+    bin=$(cargo build --locked --workspace --release --message-format=json-render-diagnostics \
+        | sed -n 's|.*"executable":"\([^"]*/oso\)".*|\1|p' | tail -n 1)
+    [ -f "$bin" ] || { echo "error: cargo reported no oso binary"; exit 1; }
+    mkdir -p "$dir"
+    dir=$(cd "$dir" && pwd)
+    [ ! -d "$dir/oso" ] || { echo "error: $dir/oso is a directory"; exit 1; }
+    tmp=$(mktemp "$dir/.oso.install.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    cp "$bin" "$tmp"
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$dir/oso"
+    trap - EXIT
+    commit=$(git describe --always --dirty 2>/dev/null || echo unknown)
+    crate=$(cargo pkgid --locked -p oso | sed 's/.*[#@]//')
+    echo "installed oso $crate ($commit) at $dir/oso"
+    case ":$PATH:" in
+        *":$dir:"*) ;;
+        *) echo "note: $dir is not on PATH; add it there, or run $dir/oso";;
+    esac
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Run
@@ -400,6 +447,8 @@ public-api:
         stubs=$(just c-stubs)
         export CC_x86_64_unknown_linux_gnu="$stubs/cc" AR_x86_64_unknown_linux_gnu="$stubs/ar"
     fi
+    # rustdoc links nothing, so oso-term's build script skips building libghostty-vt (ADR 0120).
+    export OSO_TERM_ENGINE=skip
     for crate in {{api_crates}}; do
         cargo +{{nightly}} public-api --color never -p "$crate" --all-features -ss \
             --target {{api_target}} > "guardrails/public-api/$crate.txt"
@@ -549,6 +598,93 @@ health-report out="target/design-health.md":
         fi
     } >"$out"
     echo "design health report: $out"
+
+# The cache is outside the repository: $OSO_VENDOR_DIR, by default ~/.cache/oso/vendor. Needs
+# curl and minisign. build.rs never downloads; it checks the sha256 again before it unpacks.
+# Fetch libghostty-vt's release for oso-term and check its signature and sha256 (ADR 0120)
+ghostty-vt:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lock=crates/oso-term/ghostty-vt.lock
+    field() { awk -v k="$1" '$1 == k { print $2 }' "$lock"; }
+    sha256() {
+        if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi \
+            | cut -d' ' -f1
+    }
+    command -v minisign >/dev/null || { echo "error: needs minisign"; exit 1; }
+    version=$(field version)
+    url=$(field url)
+    key=$(field minisign)
+    dir="${OSO_VENDOR_DIR:-$HOME/.cache/oso/vendor}/libghostty-vt-$version"
+    mkdir -p "$dir"
+    awk '$1 == "source" || $1 == "deps" { print $2, $3 }' "$lock" | while read -r name sum; do
+        for file in "$name" "$name.minisig"; do
+            [ -f "$dir/$file" ] && continue
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --output "$dir/$file.part" "$url/$file"
+            mv "$dir/$file.part" "$dir/$file"
+        done
+        if ! minisign -V -q -P "$key" -m "$dir/$name" -x "$dir/$name.minisig"; then
+            rm -f "$dir/$name" "$dir/$name.minisig"
+            echo "error: $name does not match its signature; removed"; exit 1
+        fi
+        if [ "$(sha256 "$dir/$name")" != "$sum" ]; then
+            rm -f "$dir/$name" "$dir/$name.minisig"
+            echo "error: $name does not match the sha256 in $lock; removed"; exit 1
+        fi
+    done
+    echo "libghostty-vt $version: ok ($dir)"
+
+# Restarts after each stop. Runs on the Mac mini, never in CI. Each run writes
+# target/fuzz-term/<time>-<optimize>/report.txt: SLOW lines, STOP lines naming the input that
+# stopped the process, and a summary. More settings pass through the environment
+# (OSO_TERM_FUZZ_NO_RESIZE, OSO_TERM_FUZZ_SCROLLBACK; see crates/oso-term/src/terminal/fuzz.rs).
+# Fuzz oso-term's engine for `minutes`, libghostty-vt built ReleaseFast or ReleaseSafe (ADR 0120)
+fuzz-term minutes="60" optimize="ReleaseFast" seed="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{optimize}}" in ReleaseFast|ReleaseSafe) ;; *) echo "error: ReleaseFast or ReleaseSafe"; exit 1;; esac
+    [[ "{{minutes}}" =~ ^[0-9]+$ ]] || { echo "error: not a number of minutes: {{minutes}}"; exit 1; }
+    dir="$PWD/target/fuzz-term/$(date +%Y%m%d-%H%M%S)-{{optimize}}"
+    mkdir -p "$dir"
+    export OSO_GHOSTTY_VT_OPTIMIZE={{optimize}}
+    bin=$(cargo test --locked --release -p oso-term --lib --no-run --message-format=json \
+        | sed -n 's|.*"executable":"\([^"]*\)".*|\1|p' | tail -n 1)
+    [ -x "$bin" ] || { echo "error: no test binary"; exit 1; }
+    seed="{{seed}}"
+    seed="${seed:-$(( (RANDOM << 15) | RANDOM ))}"
+    first=0
+    end=$(( $(date +%s) + {{minutes}} * 60 ))
+    report="$dir/report.txt"
+    echo "fuzz-term: seed $seed, {{optimize}}, {{minutes}} min, in $dir"
+    while [ "$(date +%s)" -lt "$end" ]; do
+        OSO_TERM_FUZZ_SECONDS=$(( end - $(date +%s) )) OSO_TERM_FUZZ_SEED="$seed" \
+            OSO_TERM_FUZZ_FIRST="$first" OSO_TERM_FUZZ_STATE="$dir/state" \
+            OSO_TERM_FUZZ_REPORT="$report" \
+            "$bin" --ignored --exact terminal::fuzz::long --test-threads=1 >"$dir/last.log" 2>&1 &
+        pid=$!
+        # A watchdog: an input that holds the process for 60 s, or 4 GB of memory, is a stop.
+        last="" since=$(date +%s) why=""
+        while kill -0 "$pid" 2>/dev/null; do
+            sleep 2
+            now=$(cat "$dir/state" 2>/dev/null || true)
+            if [ "$now" != "$last" ]; then last="$now" since=$(date +%s); fi
+            rss=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ' || true)
+            if [ $(( $(date +%s) - since )) -gt 60 ]; then why="hang"; fi
+            if [ -n "$rss" ] && [ "$rss" -gt 4000000 ]; then why="memory ${rss} KB"; fi
+            if [ -n "$why" ]; then kill -9 "$pid" 2>/dev/null || true; break; fi
+        done
+        status=0
+        wait "$pid" || status=$?
+        if [ "$status" -eq 0 ] && [ -z "$why" ]; then break; fi
+        stopped=$(( 10#$(cat "$dir/state") ))
+        echo "STOP iteration $stopped seed $seed: ${why:-exit $status}" | tee -a "$report"
+        tail -n 20 "$dir/last.log" > "$dir/stop-$stopped.log"
+        first=$(( stopped + 1 ))
+    done
+    grep -c '^STOP' "$report" | sed 's/^/stops: /' || true
+    grep -c '^SLOW' "$report" | sed 's/^/slow: /' || true
+    echo "report: $report"
 
 # Check dependencies against deny.toml (advisories, licenses, sources, bans)
 deny:

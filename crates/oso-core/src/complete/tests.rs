@@ -339,7 +339,9 @@ fn debug_says_nothing_of_the_input() {
 }
 
 fn words() -> impl Strategy<Value = Vec<String>> {
-    prop::collection::vec("[a-cA-C\\-]{1,6}", 1..40)
+    // With letters whose lower case is another length or another letter's: `İ`, `i` and
+    // U+0307, the Kelvin sign, `ſ` and `Ｋ`.
+    prop::collection::vec("[a-cA-CikKſİ\u{307}\u{212a}Ｋ\\-]{1,6}", 1..40)
 }
 
 proptest! {
@@ -361,17 +363,22 @@ proptest! {
     #[test]
     fn narrowing_gives_what_a_full_pass_gives(
         texts in words(),
-        inputs in prop::collection::vec("[a-cA-C !,~^=&.*\\\\]{0,3}", 1..6),
+        inputs in prop::collection::vec("[a-cA-CikKſİ\u{307}\u{212a}Ｋ !,~^=&.*\\\\]{0,3}", 1..6),
     ) {
         let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
         let mut typed = list(&texts, &[]);
         let mut input = String::new();
-        for part in &inputs {
-            input.push_str(part);
+        // Each part typed on, and then one in place of the input, as a yank over it.
+        for (at, part) in inputs.iter().enumerate() {
+            if at + 1 < inputs.len() {
+                input.push_str(part);
+            } else {
+                input.clone_from(part);
+            }
             typed.set_input(&input);
             let mut fresh = list(&texts, &[]);
             fresh.set_input(&input);
-            prop_assert_eq!(shown(&typed), shown(&fresh));
+            prop_assert_eq!(shown(&typed), shown(&fresh), "{:?}", input);
         }
     }
 
@@ -517,6 +524,7 @@ fn a_merge_on_the_worker_gives_what_merging_here_gives() {
                 batches: vec![more.clone().into()],
                 history: history.iter().map(|text| (*text).to_owned()).collect(),
                 input: Some(input.to_owned()),
+                table: None,
             },
             1,
             Arc::new(AtomicU64::new(1)),
@@ -536,5 +544,24 @@ fn a_merge_on_the_worker_gives_what_merging_here_gives() {
         );
         whole.set_input(input);
         assert_eq!(shown(&there), shown(&whole), "for {input}");
+    }
+}
+
+#[test]
+fn a_case_that_starts_to_count_narrows_only_in_ascii() {
+    // `İ` lowers to `i` and U+0307, which `i` ignoring case does not match.
+    let texts = ["İ", "aİ", "i", "k", "K", "\u{212a}", "ſ", "s", "Ｋ", "ｋ"];
+    for (old, new) in [
+        ("i", "İ"),
+        ("ai", "aİ"),
+        ("i\u{307}", "İ"),
+        ("k", "\u{212a}"),
+    ] {
+        let mut typed = list(&texts, &[]);
+        typed.set_input(old);
+        typed.set_input(new);
+        let mut fresh = list(&texts, &[]);
+        fresh.set_input(new);
+        assert_eq!(shown(&typed), shown(&fresh), "{old:?} then {new:?}");
     }
 }

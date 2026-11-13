@@ -327,17 +327,18 @@ bidi and invisible characters dropped and is cut at 256 bytes.
 |---|---|
 | OSC 52 clipboard read | Denied (ADR 0015). |
 | OSC 52 clipboard write | Into the kill ring. Into the OS clipboard too when the person pressed a key in that terminal in the last 2 s; the echo area names the terminal and the length (Q8). |
+| OSC 5522 (kitty clipboard) writes, OSC 1337 `Copy` | As OSC 52 writes: into the kill ring, and into the OS clipboard under the same 2 s rule, on the host's side (Q8). Their replies are dropped. |
 | OSC 0, 1, 2 title | Shown in the modeline, and kept for the host API. |
 | Title report (`CSI 21 t`), OSC 50 font, `DECRQSS` | Denied (ADR 0015). |
 | Title stack (`CSI 22 t`, `CSI 23 t`) | Allowed. |
 | OSC 8 hyperlinks, and URLs and `path:line` found in the text | Underlined; the target shows in the echo area at point. `C-c RET` or a Command-click opens it (Q7). |
 | OSC 4, 10, 11, 12 color queries | Answered from the theme. |
 | OSC 4, 10, 11, 12 color changes | Applied to that terminal only, until it resets. |
-| Device attributes, device status, cursor position, mode reports, kitty keyboard query, text area size | Answered: they report the terminal's own state. |
+| Device attributes, device status, cursor position, mode reports, kitty keyboard query, text area size, in-band size reports (mode 2048) | Answered: they report the terminal's own state. |
 | Window moves, resizes and iconify (`CSI t` 1–9) | Denied. |
 | Bracketed paste, focus reports (1004), synchronized updates (2026), alternate screen, cursor shape, undercurl and underline color | Allowed. |
 | Mouse reports, kitty keyboard protocol | Allowed (see Input). |
-| OSC 7 working directory | Sets the terminal's directory for `C-x C-f`, `C-x p f` and `C-x p m`, if it names a local path. |
+| OSC 7 working directory, and the same from OSC 9;9 and OSC 1337 `CurrentDir` | Sets the terminal's directory for `C-x C-f`, `C-x p f` and `C-x p m`, if it names a local path. |
 | OSC 133 prompt marks | Kept by row: moving between prompts, where output starts for the compile seam, the floating terminal's `cd`, and the host API. |
 | OSC 9 and 777 notifications, OSC 9;4 progress | An echo-area message and a modeline mark on a terminal not shown; progress in the modeline; all kept for the host API (Q9). |
 | Bell | The modeline flashes, as [ADR 0097](0097-visual-aids.md)'s flash does, and a terminal not shown is marked. |
@@ -833,7 +834,8 @@ with the five conditions at the end of this step.
      (MSVC) builds on a Windows runner when Windows terminals come.
   4. The Kitty graphics buffer is capped at 16 MiB (the library's default is larger), and the
      scrollback byte limit is set to `SIZE_MAX`, so that `[terminal] scrollback`'s lines decide: in
-     1.0, a NULL byte limit restores a small default instead of removing it.
+     1.0, a NULL byte limit restores a small default instead of removing it. Since step 3 the
+     byte limit is 256 MiB per terminal (see step 3).
   5. A remaining cost the author accepted is recorded privately.
 
 What this changes in the steps after it, which were written for `alacritty_terminal`:
@@ -974,3 +976,112 @@ question, and after the reviews, the restored guards below.
   that no other child inherits either end, that a descriptor left open on `exec` reaches no
   terminal child, the names refused by value and by name, the group a hang-up never signals, and the
   wake-up.
+
+### Step 3: `oso-term`
+
+The author approved the plan on 2026-11-13, through the coordinator, with the first option on
+each of its sixteen questions.
+
+- **What step 3 builds, and what moves (Q1):** the crate, the engine behind `Engine`, the
+  terminal's thread, the snapshot, the policy and its table's tests, the limits and the fuzz
+  target. The thread takes input already encoded. The key encoder is the library's (`key.h`),
+  which reads the modes and the kitty keyboard flags itself; step 4 builds it with the view.
+  The host API's row reads come with their first user, step 4 too.
+- **The source (Q2, Q3):** the release's two tarballs are fetched, not committed. `just
+  ghostty-vt` downloads them into a cache outside the repository and checks each against the
+  minisign key and the sha256 in `crates/oso-term/ghostty-vt.lock`. `build.rs` never downloads:
+  it checks the sha256 again, unpacks both into `OUT_DIR`, fails unless the dependency tarball
+  holds exactly the packages the lock lists, refuses a Zig other than 0.17, and links only the
+  static archive. CI installs Zig 0.17.1 with a checksum pinned per OS
+  (`.github/actions/install-zig`) and the tarballs through the recipe, cached
+  (`.github/actions/fetch-ghostty-vt`). A clean build of the library takes about 90 s, once per
+  profile and target directory.
+- **Windows (Q5):** nothing of the library is built there, and `Terminal::start` returns
+  `Unsupported`, as `pty::open` does; `just clippy-windows` needs no stub. `just public-api`
+  sets `OSO_TERM_ENGINE=skip`, which `build.rs` refuses in a release build.
+- **The guards (Q6):** `build.rs` may silence the bans on `Command` and printing, and is the
+  fourth file the architecture test lets silence the spawn ban. A new check confines foreign
+  code: `extern` blocks only in `oso-platform` and `oso-term`'s `ffi`; `unsafe` in `oso-term`
+  only in `engine/ghostty`'s `ffi.rs`, `raw.rs` and `raw/callbacks.rs`; a `links` key only in
+  `oso-term`'s manifest. `layers.txt` has `oso-term` beside `oso-render` and `oso-syntax`, and
+  its modules as `terminal`, `policy`, `engine`, `snapshot`, then `event` and `limits`. The
+  author approved the rest at review: the `Justfile`'s recipes `ghostty-vt` and `fuzz-term`,
+  and `public-api`'s `oso-term` with `OSO_TERM_ENGINE=skip`; the composite actions
+  `.github/actions/install-zig` and `.github/actions/fetch-ghostty-vt`, used in seven
+  workflows (ci, coverage, design-health, e2e, e2e-weston-repeat, mutants, perf); and
+  `actions.lock`'s `actions/cache` entry for e2e-weston-repeat.
+- **The licences (Q7):** `crates/oso-term/third-party.md` lists libghostty-vt 1.0.1 and the six
+  packages it uses (simdutf 9.0.0, highway 1.2.0, Wuffs 0.4.0-alpha.10, uucode 0.2.0 and
+  translate_c 2.0.0 linked, aro for the build), copied from the release's own report, with
+  their licence texts in `licenses/`; a test checks the list against the lock.
+- **The public items (Q8):** `Terminal` (`start`, `take_snapshot`, `recycle`, `send`, `resize`,
+  `set_palette`, `hang_up`), `Start`, `QueueFull`; `Snapshot`, `Row`, `Cell`, `Color`, `Rgb`,
+  `Palette`, `Underline`, `Attrs`, `Cursor`, `CursorShape`, `Modes`, `Mouse`; `Event`,
+  `Progress`, `Prompt`, `End`; and three limits. `Rgb` and `Palette` sit in `snapshot`, below
+  the engine that uses them, and are re-exported at the crate root. `Engine` is crate-private.
+  The modules `event`, `snapshot` and `terminal` are private too: the items are reached through
+  the root's re-exports, and `limits` is the one public module. A `Row` holds the text of all
+  its cells of more than one code point in one `text` string, and `graphemes` gives each such
+  cell's column and byte range in it, so a snapshot allocates nothing per cluster and a
+  recycled row keeps its buffer (an approved change of the planned `Vec<(u16, String)>`).
+- **The `unsafe` (Q9):** 23 foreign functions, and 67 blocks of one operation each (six only
+  in tests), each with its `// SAFETY:` comment: one per foreign call in `raw`, and in each
+  callback one for its sink, one per pointer it reads and one per library string it copies
+  (reading a string is an `unsafe fn`, as how long its bytes live is the caller's to know).
+  The row reads check their order (`frame`, `next_row`, `row`, then a cell) and read nothing
+  out of it. Every callback catches panics.
+  Packed cells are decoded with bit positions a test checks against the library's manifest,
+  which also checks every struct, enumerator and callback signature.
+- **The fuzz target (Q10, Q16):** the step 1 spike's generator, in `terminal/fuzz.rs`, feeds the
+  engine and the policy as the thread does, sizes clamped as the thread clamps them. A seeded
+  run of 500 inputs is part of `just test`. `just fuzz-term <minutes> <ReleaseFast|ReleaseSafe>`
+  runs the long one on the Mac mini, restarting after a stop and naming the input that caused
+  it, with a watchdog for hangs and memory: an hour each, ReleaseFast, ReleaseSafe and 80 × 24
+  without resizes, for this step and at every bump. The test binaries are built on the Mac
+  that has Zig and the tarballs and copied to the Mac mini, as `perf-remote` does, so the
+  Mac mini needs nothing installed. Step 3's runs, on 2026-11-13: ReleaseFast 1,380,942
+  inputs, ReleaseSafe 1,096,148, and 80 × 24 without resizes 4,104,012, with 0 stops in all
+  6,581,102. 991 and 1,134 inputs were slow (over 500 ms), all after resizes to large
+  terminals, as in step 1, and none without resizes. After those runs the review added the
+  largest grid (1000 × 500), clusters longer than the library keeps and a link on each of many
+  cells to the long run's generator; the next bump's runs cover them. The 500 inputs in `just
+  test` keep to the basic grammar.
+- **The policy (Q11 to Q14):** besides the table, enquiry gets no answer and XTVERSION answers
+  `oso <version>`; the checksum report (DECRQCRA) is off; DECRQSS's replies are dropped, as the
+  library answers it through the same callback as the reports it may make: replies go back
+  only in the shapes the table's answered rows name, and the rest the library would answer is
+  dropped. OSC 5522 writes and OSC 1337 `Copy` reach the kill ring as OSC 52 writes do, under
+  the same 1 MiB limit, and the library's acknowledgements of them are dropped. Kitty graphics are
+  off until step 12 (an image store of 0 bytes, which turns the protocol off; its buffer at
+  16 MiB, the file, temporary-file and shared-memory mediums off). OSC 52 writes over 1 MiB are
+  dropped. The thread reads 64 KiB at a time and parses at most 1 MiB before it looks at
+  requests; replies are dropped past 64 KiB waiting; a snapshot carries at most 256 events,
+  bells joined; a grid is between 2 × 1 and 1000 × 500 cells. A terminal's scrollback holds at
+  most 256 MiB (condition 4's byte limit, `SIZE_MAX` until the review, the author's choice):
+  plain lines at usual widths all fit, and very wide or dense lines are dropped sooner than
+  `[terminal] scrollback` says. Empty input is skipped, and a cell's cluster is read whole (the
+  library keeps at most 65 code points of one).
+- **Cost:** a full snapshot of a 300 × 100 screen, every row dirty, on the author's MacBook
+  (p50 / p99 of 200, the `measure` test): plain text 0.10–0.12 / 0.13–0.17 ms; a new color on
+  every cell 0.31 / 0.36 ms; two styles alternating 0.19 / 0.21–0.23 ms; a cluster of two code
+  points in every cell 0.76–0.78 / 0.84–0.85 ms, down from 1.05 / 1.16–1.19 ms with one string
+  per cell. The last two cases are crafted and over the 0.3 ms budget; what is left of the
+  clusters' cost is the library's lookup of each cell's cluster, across the foreign call. Step 4
+  measures snapshots in context, with the view. Parsing: about 980 MB/s of plain text and
+  290 MB/s of SGR-heavy text.
+- **Backpressure:** while the UI leaves snapshots untaken, the thread keeps parsing into the
+  next one; whether that costs the UI anything is measured in step 4's flow of 8 terminals.
+- **The end (Q15):** after the PTY's end the thread looks for the child's exit every 50 ms for
+  2 s and reports its status; a child that outlives that is reaped on a thread of its own and
+  the end is reported as `Closed`.
+- **Found while building:**
+  - Device attributes are the library's own answer (a VT220's), so no callback is installed for
+    them; the tests check each report the table lists.
+  - libghostty-vt 1.0.1 keeps no title stack: `CSI 22 t` and `CSI 23 t` change nothing. The
+    table's "allowed" holds, with nothing to allow.
+  - Synchronized updates (mode 2026) are reported set, but nothing holds the drawing yet: the
+    library's render-hold callback is not installed. The author chose to build the hold in
+    step 4a, with a timeout ([`open-questions.md`](../open-questions.md)).
+  - Grapheme clustering (mode 2027) starts off in the library, so a flag takes two cells unless
+    the program turns it on; whether oso turns it on is step 4's
+    ([`open-questions.md`](../open-questions.md)).

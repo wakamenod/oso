@@ -1,0 +1,92 @@
+name: Install Zig
+description: >-
+  Zig 0.17.1 on Linux and macOS, for oso-term's build script, which builds libghostty-vt
+  (ADR 0120). The archive comes from the actions cache or from ziglang.org, and every archive,
+  cached or fetched, is checked against a checksum pinned here before it is unpacked. Windows
+  builds no terminal yet and needs no Zig.
+
+runs:
+  using: composite
+  steps:
+    - name: Choose Zig's archive
+      id: pick
+      shell: bash
+      run: |
+        # Checksums from ziglang.org's download index for 0.17.1.
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64)
+            asset=zig-x86_64-linux-0.17.1.tar.xz
+            sum=3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a ;;
+          Linux-ARM64)
+            asset=zig-aarch64-linux-0.17.1.tar.xz
+            sum=a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795 ;;
+          macOS-ARM64)
+            asset=zig-aarch64-macos-0.17.1.tar.xz
+            sum=75f1bc7a1e9852f17ec9a0c1895f767c4ec56d46bc8a834920eece1d0359dd8d ;;
+          *) echo "::error::no pinned Zig archive for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        {
+          echo "asset=$asset"
+          echo "sum=$sum"
+          echo "dir=$RUNNER_TEMP/zig-archive"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore Zig's archive
+      id: cache
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: ${{ steps.pick.outputs.dir }}
+        key: zig-0.17.1-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Download Zig's archive
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ASSET: ${{ steps.pick.outputs.asset }}
+        DIR: ${{ steps.pick.outputs.dir }}
+      run: |
+        mkdir -p "$DIR"
+        for attempt in 1 2 3; do
+          if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --output "$DIR/$ASSET" "https://ziglang.org/download/0.17.1/$ASSET"; then
+            exit 0
+          fi
+          echo "::warning::download $attempt of 3 failed"
+          sleep $((attempt * 20))
+        done
+        exit 1
+
+    # Only main writes the cache, as with the build cache (ADR 0021). The archive is checked
+    # below before anything uses it, and saved only once it has been.
+    - name: Check Zig's archive
+      shell: bash
+      env:
+        ASSET: ${{ steps.pick.outputs.asset }}
+        SUM: ${{ steps.pick.outputs.sum }}
+        DIR: ${{ steps.pick.outputs.dir }}
+      run: |
+        cd "$DIR"
+        if command -v sha256sum >/dev/null; then
+          echo "$SUM  $ASSET" | sha256sum -c -
+        else
+          echo "$SUM  $ASSET" | shasum -a 256 -c -
+        fi
+
+    - name: Save Zig's archive
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v6.1.0
+      with:
+        path: ${{ steps.pick.outputs.dir }}
+        key: zig-0.17.1-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Unpack Zig
+      shell: bash
+      env:
+        ASSET: ${{ steps.pick.outputs.asset }}
+        DIR: ${{ steps.pick.outputs.dir }}
+      run: |
+        bin="$RUNNER_TEMP/zig-bin"
+        mkdir -p "$bin"
+        tar -xJf "$DIR/$ASSET" -C "$bin" --strip-components=1
+        echo "$bin" >> "$GITHUB_PATH"
+        "$bin/zig" version

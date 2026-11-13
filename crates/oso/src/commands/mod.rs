@@ -33,6 +33,7 @@ mod prefix;
 mod projects;
 mod recovery;
 mod replace;
+pub(crate) mod review;
 mod save;
 mod scroll;
 mod session;
@@ -96,6 +97,7 @@ const TABLES: &[&[Command]] = &[
     projects::COMMANDS,
     recovery::COMMANDS,
     replace::COMMANDS,
+    review::COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
@@ -247,6 +249,18 @@ mod tests {
         "emergency-copy-view",
         "recover-session",
         "revert-buffer",
+        // A review runs git, on a worker, in a trusted project (ADR 0122), and killing one may
+        // lose the person's comments, which only they may agree to.
+        "review-branch",
+        "review-commit",
+        "review-kill",
+        "review-mark-baseline",
+        "review-range",
+        "review-refresh",
+        "review-session",
+        "review-staged",
+        "review-uncommitted",
+        "review-unstaged",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
         // Opening and writing files by a path the person typed (ADR 0087); the channel has

@@ -309,6 +309,8 @@ impl App {
         }
         if let Some(dictionary) = give {
             self.editor.set_migemo_dictionary(dictionary);
+            // A project's search with a migemo component starts again with it.
+            self.start_project_search();
             self.request_redraw();
         }
         for note in notes {

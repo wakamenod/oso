@@ -1,6 +1,6 @@
 # 0122. Agent review
 
-- Status: Accepted, amended by 0121
+- Status: Accepted, amended by 0121 and 0127
 - Date: 2026-11-12
 
 ## Context
@@ -854,6 +854,116 @@ What was built:
   repository's clean filter that must not run, carrying a comment across a moved old side,
   the thread's end, and that the person's index is left as it was. `cat-file`'s standard error
   goes nowhere, so a warning cannot end it.
+
+### Step 3: the unified view, part one
+
+Step 3 lands in three PRs, as the author chose: the review buffer, its threads, the menu, the
+motions, the faces and the `review` scenario first; comments and drafts second; jumping to the
+source and refinement third. The author approved the plan's public items and answered its
+questions (a) on 2026-11-13, and approved three changes while building:
+`command::ArgSpec::TextOnPrefix`, text read only with a prefix argument;
+`Editor::set_review_reading`; and, after the reviews, that putting a text in returns what it
+replaced (below). What the first PR built:
+
+- **A view thread per review,** `oso-review-view`, beside step 2's `oso-review`. It keeps each
+  file's latest reading and lays out each file's section, again only for a file read again,
+  then builds the whole text through `oso_core::load::Builder` and compares it with the text
+  before. **This changes "The views": each text is rebuilt whole and compared, as the author
+  chose (Q6 (a)), in place of splicing the sections that changed; step 4 keeps places by
+  anchor.** The UI thread puts it in at O(1), carrying every cursor and window top through the
+  span that changed, with no undo, as a file read again is put in. Texts go in in order, and
+  wait while a prompt is open, as a reload does. The text is cut near 64 MiB: the limit is
+  looked at before each file's section, so the section that passes it is laid out whole, and
+  the files after it show their header and a note.
+- **One text in flight:** the view builds the next text only once the UI put the last one in,
+  gathering what it is told meanwhile, so a review waiting under a prompt holds one text, and
+  each text is compared with the one the UI holds. When no file was read again and the listing
+  and the lines under the title are the same, as after a `g` that found nothing new, nothing
+  is laid out: the text is not swapped in, and the last rows and highlights, shared at O(1),
+  go with it.
+- **Freeing off the UI thread:** the text a new one replaces, and the rows and highlights it
+  replaces, are freed on the app's freeing thread, as a 64 MiB text's highlights take
+  milliseconds to drop. So `Editor::set_review_text(&mut self, ReviewId, Reloaded, Rows,
+  Highlights) -> ReviewLeftover` and `Editor::set_review_paint(&mut self, ReviewId, Rows,
+  Highlights) -> Result<ReviewLeftover, ReviewLeftover>` return what they replaced, or what
+  they did not take, as the author approved; `ReviewLeftover` is opaque, cannot be built
+  outside `oso-core`, and is only freed.
+- **Every carry runs on the view thread in this part,** as no comment exists yet, and carrying
+  a file with no comment to place is hashing alone. The second PR sends a file with comments
+  to the review's own thread, which reads old sides. When applying a carry asks for another,
+  it runs again only for the file's current reading; a newer reading has its own on the way.
+- **One review per project and scope,** the session scope whatever its baseline, and a branch,
+  commit or range by the revision given. Opening one that is open shows it in the selected
+  window and reads it again; one revoked since starts over from a new root. A baseline is
+  taken on a thread of its own, the latest `B`'s alone counting, and kept for the session;
+  keeping it across restarts is step 6's. A baseline that comes while the menu is open starts
+  `D`'s count.
+- **The menu** is the fifth built-in menu, `review`, on `C-x v r` (ADR 0117), with a describe
+  function, which knows each head by its keys; a test keeps its table in step with the menu's.
+  In a review buffer it is the review's project's. Its heads:
+  `D` session, `w` uncommitted, `u` unstaged, `s` staged, `b` branch, `c` commit, `r`
+  range, and `B` to take a baseline, which keeps the menu open. **The heads `p` (a pull
+  request) and `S` (the session comments go to) are left out, not hidden, until step 12 and
+  ADR 0121's registry,** as the author agreed. `C-u b` names the branch's base; without it the
+  base found is used: the branch's upstream, **unless it is the same branch on a remote
+  (`origin/<branch>`), as the author chose,** else `origin/HEAD`'s branch, else `main` or
+  `master`. The base is found again at each opening of the menu, as the branch may have
+  changed, and `review-branch` with none known yet finds it first, on the counting threads,
+  and then opens. `RET` takes the last scope reviewed, else uncommitted.
+- **The menu's counts** come from at most two `oso-review-count` threads, listing as a review
+  lists and reading no side, only for a trusted project, the session scope only with a
+  baseline. Each opening is an epoch: a new one, or the menu closing, or the project no longer
+  trusted, drops the counts waiting and stops those running between their runs of git. Each
+  count's note keeps one width whatever it says, so a count coming in does not move the
+  float; the branch's note grows by ` · <base>` once the base is found, which lays it out
+  again once. A project with only `.jj` or `.hg` shows `?` counts, and a review of it fails
+  with git's message.
+- **A listing git cut short** says under the title that more files may not be listed.
+- **The line under the menu's title** names the project and its root, the baseline's age as
+  **"N min ago",** with no local time of day, as the author chose: oso has no helper for the
+  local time, and ends "comments go to the kill ring until sending exists" (Q8). A project's
+  name and a branch's base are cut to 80 characters on one line.
+- **Commands,** each with its reach: `review-session`, `review-uncommitted`, `review-unstaged`,
+  `review-staged`, `review-branch`, `review-commit`, `review-range`, `review-mark-baseline` and
+  `review-refresh` are `Person`, as they run git, and `review-kill` as it destroys the
+  person's comments that were not sent; `review-next-hunk`, `review-previous-hunk`,
+  `review-next-file`, `review-previous-file` and `review-keys` are `Look`; `review-quit`, which
+  only buries the buffer, is `Change`, as the plan had it. The motions take a count and move every cursor, by the
+  buffer's rows, never by its text.
+- **Keys in a review buffer:** `n`/`p` hunk, `N`/`P` file, `g` refresh, `q` bury, and `?`
+  shows `*Review keys*`. The comment keys and `RET` come with the next two PRs.
+- **Closing:** `C-x k` in a review buffer, and leaving oso, ask first while comments of the
+  person's that were not sent would be lost. `C-x k` naming a review not shown shows it before
+  it asks, so that `y` closes the review asked about.
+- **The modeline** says how many agent comments are unread and, while a request reads,
+  `reading n/m`.
+- **A restricted project** gets no review: the commands and the menu's heads say "Reviewing
+  runs git, which this project is not trusted to run: M-x trust-project", as "Restricted
+  projects" has it.
+- **A project no longer trusted** has its review's root revoked before any request is carried
+  out: its thread runs no more git, and the review says `M-x trust-project, then g`. `g` once
+  it is trusted again starts the review over from a new root. A baseline being taken and the
+  menu's counts stop as well, between their runs of git, and a baseline that comes back is not
+  used.
+- **Display:** a path keeps to its row; a newline in it shows as `␤`, and a control character
+  or a bidirectional mark is boxed and named in the modeline, as in any buffer. The title and
+  each note are one line, a newline or carriage return in them a space.
+- **Faces:** nine join the themes with their contrast rules: `diff.added`, `diff.removed`,
+  `diff.refine-added`, `diff.refine-removed`, `diff.hunk-header`, `diff.file-header`,
+  `review.comment-person`, `review.comment-agent` and `review.outdated`; `review.sent` and
+  `review.decided` come with steps 12 and 5. Added and removed lines, headers and cards are
+  bands drawn behind the text of the rows in view, as the current line's band is, and syntax
+  fills; refined words are bands too, but not syntax fills, so text over them keeps the text
+  colour. How syntax faces read over the bands is checked in step 9.
+- **The `review` scenario** (`examples/perf/bench/review.rs`) reviews a repository of 57 files
+  with some 5,000 lines changed: `review_open_first_screen_ms`, `review_open_whole_ms`,
+  `review_key_p99_ms` (paced `n`, `p`, `N`, `P`) and `review_refresh_ms` (`g` after one file
+  changed). It is recorded with no threshold yet; dev builds report each complete frame that
+  shows a review's new text for it. A larger review, near the 64 MiB limit, is a follow-up.
+- **Tests:** the sections' text and rows, the view thread, the menu's notes, the motions and
+  the commands; text-grid snapshots of a review buffer (its bands marked, every note, paths
+  that would pass for another row); the glue's choices; and an end-to-end flow that trusts a
+  project, opens a review over the window's keys, moves, refreshes and quits.
 
 ### Step 8: documents no buffer owns
 

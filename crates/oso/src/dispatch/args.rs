@@ -101,6 +101,12 @@ pub fn map(
         (ArgSpec::Number { .. }, _) => Err(format!("{name} needs a number")),
         (ArgSpec::Text { .. }, Given::Text(text)) => answered(text.to_owned()),
         (ArgSpec::Text { .. }, _) => Err(format!("{name} needs text")),
+        // Given text stands for what `C-u` would ask; none runs it at once.
+        (ArgSpec::TextOnPrefix { .. }, Given::Text(text)) => answered(text.to_owned()),
+        (ArgSpec::TextOnPrefix { .. }, Given::Nothing) => plain(Args::NONE),
+        (ArgSpec::TextOnPrefix { .. }, Given::Count(_)) => {
+            Err(format!("{name} takes text or nothing, not a count"))
+        }
     }
 }
 
@@ -117,6 +123,19 @@ mod tests {
         prompt: "Insert: ",
         history: "insert",
     };
+
+    #[test]
+    fn text_on_a_prefix_takes_text_or_nothing_from_the_channel() {
+        const ON_PREFIX: ArgSpec = ArgSpec::TextOnPrefix {
+            prompt: "Base: ",
+            history: "base",
+        };
+        let given = map("b", ON_PREFIX, Given::Text("main"), None).unwrap();
+        assert_eq!(given.answer.as_deref(), Some("main"));
+        let none = map("b", ON_PREFIX, Given::Nothing, None).unwrap();
+        assert_eq!((none.args, none.answer), (Args::NONE, None));
+        assert!(map("b", ON_PREFIX, Given::Count(3), None).is_err());
+    }
 
     #[test]
     fn each_spec_takes_its_kind_of_argument() {

@@ -325,9 +325,14 @@ item notes when it must be settled.
   thread, about 40 ms on a 60 MB line; regexp isearch leaves such a line to the worker, and
   query-replace could too, as a chore
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
-- Migemo matches precomposed kana only: text whose voiced kana are decomposed, as `か` and
-  U+3099 in file names macOS gives, is not found by `ga`. Settle it with step 4, where file
-  names meet migemo ([ADR 0116](adr/0116-migemo-and-jumps.md)). Two cases to settle with it:
+- A project's search and completion each read an input into components with code of their own:
+  the splitter, the limits, keeping what a component compiled and migemo's components. Sharing
+  it needs a module below both, a change to `guardrails/layers.txt` and an ADR; until then a
+  change to either is made to both ([ADR 0116](adr/0116-migemo-and-jumps.md), step 4).
+- Migemo in isearch and a project's search matches precomposed kana only: text whose voiced
+  kana are decomposed, as `か` and U+3099, is not found by `ga`. Completion's `%` composes a
+  candidate's kana first, so file names are found
+  ([ADR 0116](adr/0116-migemo-and-jumps.md), step 4). Two cases are left:
   - a half-width voiced mark: in `ｶﾞ`, `ka` matches the `ｶ`, so a search for `か` lands inside
     `ガ`'s half-width form;
   - decomposed kana: in `か` followed by U+3099, `ka` matches the `か`, and `ga` finds nothing.
@@ -404,17 +409,36 @@ item notes when it must be settled.
   step 8).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
-- libghostty-vt's release tarballs in the repository or fetched and checked by a `just` recipe,
-  and its key encoder or oso's own: ADR 0120's step 3 decides. Its Kitty images through its Wuffs
-  decoder or a pure-Rust one in oso: step 12 ([ADR 0120](adr/0120-the-terminal.md), step 1 as
-  built).
+- libghostty-vt's Kitty images through its Wuffs decoder or a pure-Rust one in oso: step 12
+  ([ADR 0120](adr/0120-the-terminal.md), step 1 as built).
+- Shipping the licence notices of libghostty-vt and what it bundles beside oso's binary, with
+  the two texts its tarballs leave out (simdutf's, uucode's Unicode-3.0), when oso is packaged
+  ([`crates/oso-term/third-party.md`](../../crates/oso-term/third-party.md)).
+- Whether terminals start with grapheme clustering (mode 2027) on, as Ghostty does, so that a
+  flag or a ZWJ emoji takes one cell pair; libghostty-vt starts with it off. ADR 0120's step 4.
+- Synchronized updates (mode 2026): `oso-term` reports the mode set but holds nothing. Step 4a
+  installs the library's render-hold callback and keeps the last snapshot on screen while a
+  program holds it, up to a timeout ([ADR 0120](adr/0120-the-terminal.md), step 3 as built).
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,
   textconv and external diff drivers.
 - Passphrase/credential prompts via `GIT_ASKPASS`: keep the input out of
   history, the kill ring and macros.
-- Exact list of git-porcelain commands to implement.
+- A conflict-resolution view (smerge-style) for the source-control buffer, and replying to or
+  resolving pull request review threads ([ADR 0127](adr/0127-source-control-and-github.md)).
+- Check on the current Claude Code CLI before ADR 0128 step 1: that a `SendMessage` wakes an idle
+  session, how long an MCP tool call may block, and how its agent teams place teammates
+  ([ADR 0128](adr/0128-orchestration-and-automations.md)).
+- Before ADR 0130 step 1, measure the chat sidecar's start time and memory, and check that the
+  Python SDK's `cli_path` runs the person's own `claude` with oso's session id; before chat is
+  published, check that signing in with a subscription through an SDK client is allowed
+  ([ADR 0130](adr/0130-agent-chat.md)).
+- Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
+  own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
+- Dictation: the author deferred it on 2026-11-13. [ADR 0129](adr/0129-dictation.md) stays
+  Proposed with its questions open (where recognition runs, the text, the key, the language, the
+  macOS microphone permission).
 
 ## Later
 

@@ -22,7 +22,8 @@
 //! (ADR 0071), and with `#` and `~` the current isearch match and the others in view,
 //! from `Editor::isearch_cells` (ADR 0082), and with `l`, `t` and `f` the current line's
 //! band, trailing whitespace and the cursor flash after a step whose last key flashes
-//! (ADR 0097). A jump's matches are `~` too, and its labels, from `Editor::jump_cells`, are
+//! (ADR 0097), and with `a`, `r`, `A`, `R`, `h` and `c` a review's added and removed lines,
+//! their refined words, its headers and its cards, from `Editor::review_cells` (ADR 0122). A jump's matches are `~` too, and its labels, from `Editor::jump_cells`, are
 //! `J` under each one's first key and `j` under the keys after it, over every other mark, with
 //! a line between `@` below that gives the keys at their cells (ADR 0116). On the line between
 //! `:`, `.` marks the cells
@@ -57,6 +58,8 @@ use super::motion_tests::drain;
 #[cfg(test)]
 mod jumps;
 mod preview;
+#[cfg(test)]
+mod review;
 mod rows;
 mod text_area;
 #[cfg(test)]

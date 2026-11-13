@@ -8,8 +8,8 @@
 //! goes, and whose report is dropped here once it is not the live one. A report is also
 //! dropped once its prompt is not the innermost, and the prompt is then matched again when it
 //! is, and a match once the list it matched is no longer the prompt's. What the prompt no
-//! longer holds of a list past 5000, and a report dropped, are freed by a job of their own, on
-//! the worker.
+//! longer holds of a list past 5000, a report dropped and a job dropped before the host took
+//! it are freed by a job of their own, on the worker.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -29,6 +29,27 @@ pub(in crate::editor) struct CompletionWork {
     /// Jobs for a worker, until the host takes them, oldest first.
     jobs: VecDeque<CompletionJob>,
     waiting: Option<Waiting>,
+}
+
+impl CompletionWork {
+    /// Takes back the jobs the host has not taken, but those that only free, and queues
+    /// `next`, if any, in their place. They go to one job after it that frees them on the
+    /// worker, as the last copy of a list or of a dictionary that was replaced may be theirs,
+    /// and dropping it here would hold the UI thread; after it, so `next` waits for no drop.
+    fn free_untaken_jobs(&mut self, next: Option<CompletionJob>) {
+        let mut dropped = Vec::new();
+        for job in std::mem::take(&mut self.jobs) {
+            if job.frees_only() {
+                self.jobs.push_back(job);
+            } else {
+                dropped.push(job);
+            }
+        }
+        self.jobs.extend(next);
+        if !dropped.is_empty() {
+            self.jobs.push_back(CompletionJob::free(Box::new(dropped)));
+        }
+    }
 }
 
 /// The job a prompt waits for.
@@ -150,8 +171,8 @@ impl Editor {
         let work = &mut self.completion_work;
         // The job before stops at its next look, and one the host has not taken yet goes.
         let generation = work.live.fetch_add(1, Ordering::Relaxed) + 1;
-        work.jobs.retain(CompletionJob::frees_only);
-        work.jobs.push_back(job(generation, Arc::clone(&work.live)));
+        let next = job(generation, Arc::clone(&work.live));
+        work.free_untaken_jobs(Some(next));
         work.waiting = Some(Waiting {
             generation,
             prompt,
@@ -188,7 +209,7 @@ impl Editor {
     pub(in crate::editor) fn stop_completion_job(&mut self) {
         let work = &mut self.completion_work;
         if work.waiting.take().is_some() {
-            work.jobs.retain(CompletionJob::frees_only);
+            work.free_untaken_jobs(None);
             work.live.fetch_add(1, Ordering::Relaxed);
         }
         if let Some((candidates, _)) = self.completion_mut() {
@@ -281,6 +302,8 @@ impl Editor {
                 self.relayout_prompt();
             }
         }
+        // A dictionary that came while it ran is taken now (ADR 0116).
+        self.completion_look_again();
         true
     }
 
@@ -310,7 +333,7 @@ impl Editor {
         if waits {
             let work = &mut self.completion_work;
             work.waiting = None;
-            work.jobs.retain(CompletionJob::frees_only);
+            work.free_untaken_jobs(None);
             work.live.fetch_add(1, Ordering::Relaxed);
         }
     }

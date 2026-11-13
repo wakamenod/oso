@@ -11,8 +11,10 @@
 use std::sync::Arc;
 
 use super::Editor;
+use super::migemo::Cache;
 use crate::buffer::Replacement;
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
+use crate::migemo;
 use crate::minibuffer::{Kind, PromptError, PromptId};
 
 pub(super) use worker::CompletionWork;
@@ -139,10 +141,12 @@ impl Editor {
         // An answer too long to match, such as a whole file yanked into it, is never read.
         let text = (buffer.text().len() <= MAX_INPUT_BYTES).then(|| buffer.text().to_string());
         let unmerged = self.has_pending_batches();
+        let table = self.migemo.table();
         let Some((candidates, seen)) = self.completion_mut() else {
             return;
         };
         *seen = revision;
+        candidates.stale_for(migemo::generation(table.as_ref()));
         match text {
             // A job adding a walk's batches matches the input too, so none is lost to a match.
             Some(_) if unmerged => {
@@ -151,21 +155,59 @@ impl Editor {
                 }
             }
             Some(text) if candidates.total() > WORKER_PAST => {
-                match candidates.matching(&text) {
+                match candidates.matching_with(&text, table.as_ref()) {
                     Some(matching) => self.leave_match(matching, revision),
                     // Back to what was matched last: a job for what came between is stale.
                     None => self.stop_completion_job(),
                 }
             }
-            Some(text) => candidates.set_input(&text),
+            Some(text) => candidates.set_input_with(&text, table.as_ref()),
             None => {
                 candidates.set_too_long();
                 self.stop_completion_job();
                 self.merge_pending_batches();
             }
         }
+        self.note_completion_wants_dictionary();
         // Which also keeps the selection in view, in the rows the float has now.
         self.relayout_prompt();
+    }
+
+    /// Matches the innermost prompt's answer again if a migemo component took its words from
+    /// another dictionary than the one migemo has now, as one came or went (ADR 0116), and
+    /// says if one compiled with none.
+    pub(super) fn completion_look_again(&mut self) {
+        if self.searches_project() {
+            return;
+        }
+        let generation = migemo::generation(self.migemo.table().as_ref());
+        let Some((candidates, seen)) = self.completion_mut() else {
+            return;
+        };
+        if candidates.stale_for(generation) {
+            // No revision: the answer is matched as if it was typed.
+            *seen = u64::MAX;
+            self.match_completion();
+        } else {
+            self.note_completion_wants_dictionary();
+        }
+    }
+
+    /// Says migemo wants its dictionary if the innermost prompt's query has a migemo
+    /// component compiled with none, unless the prompt or a window is around a buffer that
+    /// may hold secrets.
+    fn note_completion_wants_dictionary(&mut self) {
+        let Some(prompt) = self.prompts.last() else {
+            return;
+        };
+        let wants = prompt
+            .completion
+            .as_ref()
+            .is_some_and(|(candidates, _)| candidates.query().wants_dictionary());
+        if wants {
+            let cache = Cache::unless(prompt.around_secret || self.shows_secret());
+            self.migemo.wanted_without(cache);
+        }
     }
 
     /// The innermost prompt's candidates, if it completes.

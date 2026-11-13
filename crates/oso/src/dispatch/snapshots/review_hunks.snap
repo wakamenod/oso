@@ -1,0 +1,189 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: "
+---
+keys: none
+│Review · uncommitted · oso              │
+:^                                       :
+│modified  src/a.rs  +2 −1               │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -2 +2 @@                             │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-let a = 1;                             │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│+let a = 2;                             │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│@@ -8,0 +9 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+call();                                │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│added  src/b.rs  +1 −0                  │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -0,0 +1 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+fn b() {}                              │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│modified  src/c.rs                      │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│reading…                                │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+=%% *review: uncommitte…  1:0  Review  UT=
+"                                        "
+
+keys: n
+│Review · uncommitted · oso              │
+│modified  src/a.rs  +2 −1               │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -2 +2 @@                             │
+:^                                       :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-let a = 1;                             │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│+let a = 2;                             │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│@@ -8,0 +9 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+call();                                │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│added  src/b.rs  +1 −0                  │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -0,0 +1 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+fn b() {}                              │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│modified  src/c.rs                      │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│reading…                                │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+=%% *review: uncommitte…  3:0  Review  UT=
+"                                        "
+
+keys: n
+│Review · uncommitted · oso              │
+│modified  src/a.rs  +2 −1               │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -2 +2 @@                             │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-let a = 1;                             │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│+let a = 2;                             │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│@@ -8,0 +9 @@                           │
+:^                                       :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+call();                                │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│added  src/b.rs  +1 −0                  │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -0,0 +1 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+fn b() {}                              │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│modified  src/c.rs                      │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│reading…                                │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+=%% *review: uncommitte…  6:0  Review  UT=
+"                                        "
+
+keys: N
+│Review · uncommitted · oso              │
+│modified  src/a.rs  +2 −1               │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -2 +2 @@                             │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-let a = 1;                             │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│+let a = 2;                             │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│@@ -8,0 +9 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+call();                                │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│added  src/b.rs  +1 −0                  │
+:^                                       :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -0,0 +1 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+fn b() {}                              │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│modified  src/c.rs                      │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│reading…                                │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+=%% *review: uncommitte…  8:0  Review  UT=
+"                                        "
+
+keys: P
+│Review · uncommitted · oso              │
+│modified  src/a.rs  +2 −1               │
+:^                                       :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -2 +2 @@                             │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-let a = 1;                             │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│+let a = 2;                             │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│@@ -8,0 +9 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+call();                                │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│added  src/b.rs  +1 −0                  │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -0,0 +1 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+fn b() {}                              │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│modified  src/c.rs                      │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│reading…                                │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+=%% *review: uncommitte…  2:0  Review  UT=
+"                                        "
+
+keys: p
+│Review · uncommitted · oso              │
+│modified  src/a.rs  +2 −1               │
+:^                                       :
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -2 +2 @@                             │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│-let a = 1;                             │
++rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
+│+let a = 2;                             │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│@@ -8,0 +9 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+call();                                │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│added  src/b.rs  +1 −0                  │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│@@ -0,0 +1 @@                           │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│+fn b() {}                              │
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
+│modified  src/c.rs                      │
++hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
+│reading…                                │
+│                                        │
+│                                        │
+│                                        │
+│                                        │
+=%% *review: uncommitte…  2:0  Review  UT=
+"No hunk before                          "

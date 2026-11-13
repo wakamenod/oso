@@ -133,6 +133,15 @@ const SCREENS: &[(&str, &str, &str, Target, &str)] = &[
         IDLE,
         "prompt",
     ),
+    // A session started with `--name`, whose prompt box's top rule ends with that name, after a
+    // message from another session started a turn that ended.
+    (
+        "message",
+        include_str!("screens/message.txt"),
+        "✳ Fixture ping",
+        IDLE,
+        "prompt",
+    ),
 ];
 
 #[test]

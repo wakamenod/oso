@@ -199,7 +199,7 @@ pub(crate) fn compile_isearch(
 }
 
 /// The deepest a migemo pattern's groups nest (ADR 0116).
-const MIGEMO_NEST: u32 = 32;
+const MIGEMO_NEST: u32 = crate::migemo::NEST_LIMIT;
 
 /// Compiles migemo's `pattern` (ADR 0116) on a key, case-insensitive if `insensitive`,
 /// within `size_limit`. Its characters are escaped kana, letters and a dictionary's words with
