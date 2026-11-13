@@ -65,6 +65,8 @@ impl App {
                 | SessionRequest::Row { .. }
                 | SessionRequest::Regroup
                 | SessionRequest::Refresh => continue,
+                // Sending is carried out once sessions are fed (ADR 0121 step 5).
+                SessionRequest::Send { .. } | SessionRequest::FollowMessage(_) => continue,
             };
             match &self.sessions {
                 Some(worker) => worker.send(job),
@@ -110,6 +112,8 @@ impl App {
             }
             // Its text is the screen's: never logged.
             Out::Recap(..) => {}
+            // Its text is the screen's too; the row shows it once sessions are fed (step 5).
+            Out::Message(..) => {}
         }
     }
 

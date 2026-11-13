@@ -101,6 +101,7 @@ const TABLES: &[&[Command]] = &[
     session::COMMANDS,
     agent_sessions::COMMANDS,
     agent_sessions::LIST_COMMANDS,
+    agent_sessions::SEND_COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -271,7 +272,10 @@ mod tests {
         // A hosted session's `claude`, a process the person starts (ADR 0121).
         "claude",
         "session-fork",
+        // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
+        "session-mention",
         "session-resume",
+        "session-send",
         "session-stop",
         "sessions-resume",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).

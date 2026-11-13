@@ -14,6 +14,7 @@ use oso_platform::file_meta::open_for_reading;
 use super::{DROP_AFTER, EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey};
 use crate::sessions::engine::{Fallback, evaluate, evaluate_within};
 use crate::sessions::explain;
+use crate::sessions::messages::{Seen, senders};
 use crate::sessions::recap::recap;
 use crate::sessions::rules::{BUDGET, Deadline, RuleSet, Source};
 use crate::sessions::screen::Evidence;
@@ -39,6 +40,8 @@ struct Session {
     late: u32,
     /// The recap last told the app; none is told yet while it is empty.
     recap: String,
+    /// The message lines of the last look judged in time.
+    messages: Seen,
 }
 
 impl Session {
@@ -133,6 +136,7 @@ impl Core {
                     last: None,
                     late: 0,
                     recap: String::new(),
+                    messages: Seen::default(),
                 };
                 self.sessions.insert(key, session);
                 return Vec::new();
@@ -195,6 +199,7 @@ impl Core {
                 continue;
             }
             let mut recapped = None;
+            let mut sent_by = Vec::new();
             let target = if screen_due {
                 let Some(evidence) = &session.evidence else {
                     continue;
@@ -226,6 +231,9 @@ impl Core {
                         session.recap.clone_from(&found);
                         recapped = Some(found);
                     }
+                    let deadline = Deadline::after(*budget);
+                    sent_by = senders(rules.messages(), evidence, &mut session.messages, &deadline)
+                        .unwrap_or_default();
                 }
                 session.last = Some(verdict.target);
                 verdict.target
@@ -241,6 +249,7 @@ impl Core {
             if let Some(recap) = recapped {
                 found.push(Out::Recap(key, recap));
             }
+            found.extend(sent_by.into_iter().map(|from| Out::Message(key, from)));
         }
         found
     }

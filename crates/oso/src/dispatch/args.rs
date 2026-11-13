@@ -53,7 +53,7 @@ pub fn map(
             "{name} reads a theme's name, which only its prompt takes, from keys"
         )),
         // The host's lists, of sessions and spaces, are read only in their prompt (ADR 0121).
-        (ArgSpec::Listed { .. }, _) => Err(format!(
+        (ArgSpec::Listed { .. } | ArgSpec::ListedAndNoteUnlessRegion { .. }, _) => Err(format!(
             "{name} reads one of a list, which only its prompt takes, from keys"
         )),
         // A menu reads keys, and no channel opens one (ADR 0117).

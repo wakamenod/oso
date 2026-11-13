@@ -7,6 +7,7 @@
 //! - Otherwise a rule with anything wrong in it, an unknown name included, is skipped with a
 //!   problem: a misspelt matcher must not leave a rule that matches more than meant.
 
+mod message;
 mod recap;
 
 use std::fmt;
@@ -78,6 +79,7 @@ pub fn parse(text: &str, source: Source) -> Parsed {
     }
     if reader.parsed.refused {
         reader.parsed.rules.clear();
+        reader.parsed.messages.clear();
         reader.parsed.disabled.clear();
     }
     reader.parsed
@@ -86,6 +88,7 @@ pub fn parse(text: &str, source: Source) -> Parsed {
 /// A rule's table read, or the name it disables.
 enum Read {
     Rule(Rule),
+    Message(crate::sessions::messages::MessageRule),
     Disable(String),
 }
 
@@ -131,6 +134,7 @@ impl Reader<'_> {
             match key.get_ref().as_ref() {
                 "version" => {}
                 "rule" => self.rules(value),
+                "message" => self.messages(value),
                 other => self.problem(
                     key.span().start,
                     format_args!("unknown name {}, skipped", Quoted(other)),
@@ -158,9 +162,11 @@ impl Reader<'_> {
             };
             let name = match &read {
                 Read::Rule(rule) => &rule.name,
+                Read::Message(message) => &message.name,
                 Read::Disable(name) => name,
             };
             let taken = self.parsed.rules.iter().any(|rule| &rule.name == name)
+                || self.parsed.messages.iter().any(|other| &other.name == name)
                 || self.parsed.disabled.iter().any(|other| other == name);
             if taken {
                 let message = format_args!("rule {} again, skipped", Quoted(name));
@@ -169,6 +175,7 @@ impl Reader<'_> {
             }
             match read {
                 Read::Rule(rule) => self.parsed.rules.push(rule),
+                Read::Message(message) => self.parsed.messages.push(message),
                 Read::Disable(name) => self.parsed.disabled.push(name),
             }
         }

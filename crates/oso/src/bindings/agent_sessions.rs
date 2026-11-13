@@ -1,6 +1,5 @@
 //! Default key bindings of the agent session commands (ADR 0121, Q7): `C-x a` and a key, and
-//! the keys of `*Sessions*`. `C-x a w`, `C-x a o`, `C-x a m` and `C-x a @` come with their
-//! commands, in later steps.
+//! the keys of `*Sessions*`. `C-x a w` and `C-x a o` come with their commands, in later steps.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -15,6 +14,9 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("C-x a j", "space-switch"),
     ("C-x a z", "space-zoom"),
     ("C-x a e", "session-explain"),
+    ("C-x a m", "session-send"),
+    ("C-x a @", "session-mention"),
+    ("C-x a f", "session-follow-message"),
 ];
 
 /// The keys of `*Sessions*`, above the global ones in it.

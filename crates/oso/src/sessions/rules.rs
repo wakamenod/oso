@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 
+use super::messages::MessageRule;
 use super::recap::Recap;
 use super::screen::Region;
 use super::state::Target;
@@ -182,7 +183,7 @@ impl Deadline {
         }
     }
 
-    pub(super) fn check(&self) -> Result<(), Late> {
+    pub(in crate::sessions) fn check(&self) -> Result<(), Late> {
         if Instant::now() >= self.at {
             return Err(Late);
         }
@@ -194,6 +195,8 @@ impl Deadline {
 #[derive(Debug, Default)]
 pub struct Parsed {
     pub rules: Vec<Rule>,
+    /// Its `[[message]]` rules, in its order.
+    pub messages: Vec<MessageRule>,
     pub disabled: Vec<String>,
     /// What is wrong, `LINE: message`, in the order of the file: the first
     /// [`MAX_PROBLEMS`](parse::MAX_PROBLEMS).
@@ -210,6 +213,9 @@ pub struct Parsed {
 #[derive(Debug, Default)]
 pub struct RuleSet {
     rules: Vec<Rule>,
+    /// The `[[message]]` rules: the bundled ones, less those the local file disables or
+    /// replaces, then the local file's.
+    messages: Vec<MessageRule>,
     /// How many came from each source, and how many bundled rules the local file disabled.
     pub bundled: usize,
     pub local: usize,
@@ -241,8 +247,16 @@ impl RuleSet {
         rules.extend(local.rules);
         // A stable sort keeps the files' order within a priority.
         rules.sort_by_key(|rule| std::cmp::Reverse(rule.priority));
+        let replaced = |name: &str| local.messages.iter().any(|m| m.name == name);
+        let mut messages: Vec<MessageRule> = bundled
+            .messages
+            .into_iter()
+            .filter(|message| !is_disabled(&message.name) && !replaced(&message.name))
+            .collect();
+        messages.extend(local.messages);
         Self {
             rules,
+            messages,
             bundled: kept,
             local: local_count,
             disabled,
@@ -251,6 +265,11 @@ impl RuleSet {
 
     pub fn rules(&self) -> &[Rule] {
         &self.rules
+    }
+
+    /// The `[[message]]` rules in force.
+    pub fn messages(&self) -> &[MessageRule] {
+        &self.messages
     }
 }
 
