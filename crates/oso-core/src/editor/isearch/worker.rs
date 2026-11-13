@@ -40,7 +40,7 @@ impl Editor {
             report => report,
         };
         let live = self.search_live.load(Ordering::Relaxed);
-        if self.isearch_follow_text() {
+        if self.follow_text() {
             return true;
         }
         let Some(state) = &mut self.isearch else {
@@ -117,19 +117,12 @@ impl Editor {
         true
     }
 
-    /// Keeps the search true to its window and its text: ends it if the selected window no
-    /// longer shows its buffer, or a prompt is open, and searches again if the text changed
-    /// since it last looked. While the buffer still loads, only the count waits for the
-    /// load to end, so a load's updates do not restart the search each time. Keeps a jump
-    /// true to its text too (ADR 0116). Returns whether what shows changed. The host calls
-    /// this before it waits.
-    pub fn isearch_follow_text(&mut self) -> bool {
-        let jumped = self.jump_follow_text();
-        self.search_follows_text() || jumped
-    }
-
-    /// [`Editor::isearch_follow_text`] for the search alone.
-    fn search_follows_text(&mut self) -> bool {
+    /// Keeps the search true to its window and its text, as [`Editor::follow_text`] does for
+    /// it: ends it if the selected window no longer shows its buffer, or a prompt is open,
+    /// and searches again if the text changed since it last looked. While the buffer still
+    /// loads, only the count waits for the load to end, so a load's updates do not restart
+    /// the search each time. Returns whether what shows changed.
+    pub(in crate::editor) fn isearch_follow_text(&mut self) -> bool {
         let Some(state) = &self.isearch else {
             return false;
         };

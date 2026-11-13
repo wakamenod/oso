@@ -40,7 +40,7 @@ pub(in crate::editor) fn outward(at: usize, count: usize) -> impl Iterator<Item 
 }
 
 /// Adds the candidates of `kind` in a window's rows in view to `found`, reading at most
-/// `budget` bytes and adding at most `most`, from the cursor's row outward. Returns about how many bytes it read. `room` is room to work in: a
+/// `budget` bytes and adding at most `most`, from the cursor's row outward. Returns how many bytes it read. `room` is room to work in: a
 /// match's ranges and a line's text.
 pub(super) fn candidates_in(
     place: &Place<'_>,
@@ -143,7 +143,9 @@ struct Run<'a> {
 
 /// Adds to `found` the matches of `run`'s needle that start in its rows' columns in view, each
 /// with its row, reading at most `budget` bytes and adding at most `most`. The rows are matched as one span from the first's start, widened as
-/// isearch's highlights are, so no two of them overlap. Returns about how many bytes it read.
+/// isearch's highlights are, so no two of them overlap. Returns how many bytes it read, the
+/// text a regexp reads around the span too, and at least one, so that a run costs something;
+/// all of `budget` if it had no room to read the run.
 /// `room` is room to work in.
 fn run_matches(
     place: &Place<'_>,
@@ -177,7 +179,8 @@ fn run_matches(
         Needle::Regexp(regexp) if !regexp.plain() => Some(Instant::now() + FRAME_TIME),
         _ => None,
     };
-    run.needle
+    let read = run
+        .needle
         .matches_in((text, invalid), one, (most, budget), (until, line), ranges);
     let (mut at, mut row) = (0, bounds(0));
     for range in ranges.drain(..) {
@@ -191,5 +194,10 @@ fn run_matches(
             found.push(near(place, range, index.abs_diff(run.cursor_row)));
         }
     }
-    span.len().max(1)
+    // A run the budget left no room for was not read: the walk stops there, so that the rows
+    // left out are the farthest, not a nearer long one.
+    if read == 0 && !span.is_empty() {
+        return budget.max(1);
+    }
+    read.max(1)
 }

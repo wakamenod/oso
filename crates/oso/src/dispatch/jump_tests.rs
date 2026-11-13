@@ -8,7 +8,7 @@
 use oso_core::editor::{Editor, Status};
 use oso_core::jump::{Keys, Stage};
 
-use super::motion_tests::{at, cursors, send, text};
+use super::motion_tests::{at, cursors, drain, send, text};
 
 fn echo(editor: &Editor) -> String {
     let mut status = Status::default();
@@ -94,7 +94,9 @@ fn m_g_f_labels_lines_and_a_digit_reads_a_line_number() {
 #[test]
 fn m_j_in_isearch_labels_its_matches_and_ends_it_at_the_one_chosen() {
     let (mut d, mut editor) = at("foo bar foo\n", &[0]);
-    send(&mut d, &mut editor, "C-s f o o M-j");
+    send(&mut d, &mut editor, "C-s f o o");
+    drain(&mut editor);
+    send(&mut d, &mut editor, "M-j");
     assert_eq!(stage(&editor), Some(Stage::Labels));
     assert!(editor.isearch().is_some());
     send(&mut d, &mut editor, "s");
@@ -134,7 +136,7 @@ fn a_key_after_a_change_ended_the_labels_types_nothing_and_says_why() {
         text: "y",
     };
     editor.apply_edits(id, &[edit]).unwrap();
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     send(&mut d, &mut editor, "s");
     assert!(editor.jump().is_none());
     assert_eq!(text(&editor), "ab abxy\n", "the label's key typed nothing");

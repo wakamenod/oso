@@ -1,5 +1,6 @@
 //! How the cursors and marks of every window follow a change to a buffer they show,
-//! and are put where a cursor can be afterwards (ADR 0053, ADR 0071).
+//! and are put where a cursor can be afterwards (ADR 0053, ADR 0071), and how isearch and
+//! a jump are kept true to the text they show before the host waits (ADR 0082, ADR 0116).
 //!
 //! Must not depend on: `command` or `keymap`; it works out sets of selections from
 //! offsets and a display snapshot, and the editor swaps them in.
@@ -12,6 +13,17 @@ use crate::display_map::DisplaySnapshot;
 use crate::motion;
 use crate::selection::{MarkActive, OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
+
+impl Editor {
+    /// Keeps isearch and a jump true to their windows and their text: isearch ends if its
+    /// window no longer shows its buffer, or a prompt is open, and searches again if the text
+    /// changed; a jump reading its string finds its matches again, and one showing labels ends,
+    /// saying so. Returns whether what shows changed. The host calls this before it waits.
+    pub fn follow_text(&mut self) -> bool {
+        let jumped = self.jump_follow_text();
+        self.isearch_follow_text() || jumped
+    }
+}
 
 /// What the selected window's cursors do when a buffer it shows changes.
 #[derive(Clone, Copy)]

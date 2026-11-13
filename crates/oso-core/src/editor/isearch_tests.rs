@@ -298,10 +298,10 @@ fn a_change_to_the_text_searches_again() {
         text: "foo ",
     }];
     editor.apply_edits(id, &edit).unwrap();
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     drain(&mut editor);
     assert_eq!(line(&editor), "I-search: foo [2/2]");
-    assert!(!editor.isearch_follow_text());
+    assert!(!editor.follow_text());
 }
 
 #[test]
@@ -421,7 +421,7 @@ fn a_prompt_over_a_search_ends_it() {
     let kind = crate::minibuffer::Kind::Number { history: None };
     editor.open_prompt("Go to line: ", kind).unwrap();
     assert!(editor.isearch().is_none());
-    assert!(!editor.isearch_follow_text());
+    assert!(!editor.follow_text());
 }
 
 #[test]
@@ -495,7 +495,7 @@ fn a_load_holds_the_count_until_it_ends() {
         .buffer_mut(id)
         .unwrap()
         .apply_load(builder.snapshot());
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     assert_eq!(line(&editor), "I-search: ab [?/…]");
     assert!(editor.take_isearch_job().is_none(), "nothing counts a part");
     builder.push(b"ab");
@@ -503,13 +503,13 @@ fn a_load_holds_the_count_until_it_ends() {
         .buffer_mut(id)
         .unwrap()
         .apply_load(builder.snapshot());
-    assert!(!editor.isearch_follow_text());
+    assert!(!editor.follow_text());
     builder.finish();
     editor
         .buffer_mut(id)
         .unwrap()
         .apply_load(builder.snapshot());
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     drain(&mut editor);
     assert_eq!(line(&editor), "I-search: ab [1/4]");
 }
@@ -567,7 +567,7 @@ fn a_repeat_the_worker_goes_on_with_survives_the_end_of_a_load() {
         .buffer_mut(id)
         .unwrap()
         .apply_load(builder.snapshot());
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     drain(&mut editor);
     assert_eq!(
         cursor(&editor),

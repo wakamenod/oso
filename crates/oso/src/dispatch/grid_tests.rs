@@ -52,6 +52,7 @@ use oso_core::motion;
 use oso_core::window::{Screen, ViewSize};
 
 use super::Dispatcher;
+use super::motion_tests::drain;
 
 #[cfg(test)]
 mod jumps;
@@ -515,19 +516,20 @@ fn run_steps(
             assert_eq!(result, Ok(()), "{keys}");
         } else if !keys.is_empty() {
             let sequence: KeySequence = keys.parse().unwrap();
-            dispatcher.handle_keys(&mut editor, sequence.0);
+            // A key at a time, each with what isearch's worker gives it before the next, as
+            // when it is typed: a key searches on its own for a few milliseconds only, and a
+            // search left to the worker that the next key replaces leaves no place to go back
+            // to with DEL.
+            for key in sequence.0 {
+                dispatcher.handle_keys(&mut editor, [key]);
+                drain(&mut editor);
+            }
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
         }
         // Whether the step's last key flashes, as the app asks after each input.
         let flashing = dispatcher.take_view_jumped() == Some(true);
         // isearch's count, as its worker would give it before the frame.
-        while let Some(job) = editor.take_isearch_job() {
-            let mut reports = Vec::new();
-            job.run(|report| reports.push(report));
-            for report in reports {
-                editor.isearch_reported(report);
-            }
-        }
+        drain(&mut editor);
         let keys = if keys.is_empty() { "none" } else { keys };
         frames.push(format!(
             "keys: {keys}\n{}",

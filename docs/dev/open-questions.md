@@ -414,6 +414,12 @@ item notes when it must be settled.
 
 ## Later
 
+- Search tests that read a result before isearch's worker runs: 16 in `oso-core`'s
+  `isearch_regexp_tests`, `isearch_migemo_tests` and `cursors/isearch_tests` assert right after
+  `isearch_repeat` or `isearch_mark`, which search a few bytes with a pattern already built, so
+  only a thread paused for 3 ms (`KEY_TIME`) fails them. They fail with `KEY_TIME` at 0; the
+  dispatcher's search tests do not since they run the worker's jobs first. Finish them the same
+  way if one ever flakes.
 - Notification banners once oso ships as an app bundle, and Desktop's coordinator routing,
   suggested threads and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - An option for East Asian Ambiguous characters to take 2 cells
