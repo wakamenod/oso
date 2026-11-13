@@ -85,11 +85,13 @@ impl Reader {
         let answered = match request {
             Request::Open(scope) => self.open(&scope, stop, out),
             Request::Refresh { first } => self.refresh(&first, stop, out),
-            Request::Baseline => self.baseline(out),
+            Request::Baseline => self.baseline(stop, out),
             Request::Carry(carry) => self.carry(carry, out),
         };
         if let Err(e) = answered {
             out(match e {
+                // Stopped as its root was revoked: the host knows why.
+                ScopeError::Stopped => return,
                 ScopeError::BaselineGone => Report::BaselineGone,
                 e => Report::Failed {
                     asked,
@@ -246,12 +248,12 @@ impl Reader {
         Ok(())
     }
 
-    fn baseline(&mut self, out: &mut Out<'_>) -> Result<(), ScopeError> {
+    fn baseline(&mut self, stop: &dyn Fn() -> bool, out: &mut Out<'_>) -> Result<(), ScopeError> {
         self.repository()?;
         let (Some(repository), Some(scratch)) = (&self.repository, &mut self.scratch) else {
             return Err(ScopeError::NoScratch);
         };
-        let (tree, left_out) = scope::baseline(&repository.git, &repository.index, scratch)?;
+        let (tree, left_out) = scope::baseline(&repository.git, &repository.index, scratch, stop)?;
         if left_out > 0 {
             log::warn!("a review's baseline left out at least {left_out} files git could not read");
         }
@@ -350,5 +352,6 @@ fn message(error: &ScopeError) -> String {
                 .into()
         }
         ScopeError::Copy(e) => format!("cannot copy the index: {e}"),
+        ScopeError::Stopped => "stopped".into(),
     }
 }

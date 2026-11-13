@@ -1,13 +1,12 @@
 //! The review glue's choices that need no window: which scope a request names, what a review
-//! is called, which open review a request finds, and which project the menu counts.
+//! is called, and which open review a request finds.
 //!
 //! Must not depend on: winit, the renderer or the review's threads.
 
-use oso_core::editor::{Editor, ScopeKind};
+use oso_core::editor::ScopeKind;
 
-use super::menu::menu_project;
-use super::{MAX_NAME, one_line, same_scope, scope_label, scope_of};
-use crate::commands::review::tests::in_project;
+use super::{same_scope, scope_label, scope_of};
+use crate::commands::review::{MAX_NAME, one_line};
 use crate::review::{Id, Scope};
 
 fn id(digit: u8) -> Id {
@@ -82,15 +81,4 @@ fn names_are_one_line_with_no_control_and_cut() {
         }),
         "range a..b"
     );
-}
-
-#[test]
-fn the_menu_counts_the_current_buffers_project_or_the_reviews() {
-    let (mut editor, project) = in_project(true);
-    assert_eq!(menu_project(&editor), Some(project));
-    let (_, buffer) = editor.add_review(project, "*review*".into());
-    let window = editor.tiled().0.id();
-    editor.show_in(window, buffer);
-    assert_eq!(menu_project(&editor), Some(project));
-    assert_eq!(menu_project(&Editor::default()), None);
 }

@@ -54,6 +54,9 @@ pub(super) fn review(
         TempDir::new("review").map_err(|e| format!("cannot create a temporary directory: {e}"))?;
     let root = dir.file("repo");
     std::fs::create_dir(&root).map_err(|e| format!("{}: {e}", root.display()))?;
+    // An empty directory beside the repository, the only place git looks for hooks.
+    let hooks = hooks_of(&root);
+    std::fs::create_dir(&hooks).map_err(|e| format!("{}: {e}", hooks.display()))?;
     let mut rng = Lcg(57);
     repository(&root, &mut rng)?;
     let count = (count / KEYS.len()).max(1) * KEYS.len();
@@ -163,7 +166,8 @@ fn repository(root: &Path, rng: &mut Lcg) -> Result<(), String> {
     Ok(())
 }
 
-/// Changes one file again, a line in its first hunk, so that `g` has one file to read.
+/// Changes one file again, a line added at its end, which is a new hunk, so that `g` has one
+/// file to read.
 fn change(root: &Path, run: usize) -> Result<(), String> {
     let path = root.join(name(run % FILES));
     let mut text =
@@ -180,11 +184,27 @@ fn write(root: &Path, index: usize, text: &str) -> Result<(), String> {
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The empty directory beside the repository at `root` that git looks for hooks in.
+fn hooks_of(root: &Path) -> std::path::PathBuf {
+    root.with_file_name("hooks")
+}
+
+/// Runs git in the repository at `root`, kept from the person's configuration, hooks and git
+/// variables, so that the benchmark runs only what it asks.
 fn git(root: &Path, args: &[&str]) -> Result<(), String> {
+    let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+    let mut hooks = std::ffi::OsString::from("core.hooksPath=");
+    hooks.push(hooks_of(root));
     let output = process::command("git")
+        .arg("-c")
+        .arg(hooks)
         .args(args)
         .current_dir(root)
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", null)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
         .output()
         .map_err(|e| format!("cannot run git: {e}"))?;
     if output.status.success() {

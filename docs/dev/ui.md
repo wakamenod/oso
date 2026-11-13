@@ -372,7 +372,9 @@ project and how long ago the baseline was taken. Only a trusted project runs git
 - `n`/`p` go to the next or previous hunk, `N`/`P` to the next or previous file, each with a
   count; `g` reads the files again, those in view first; `q` goes back; `?` lists the keys.
 - `C-x k` closes the review, asking first while comments of yours that were not sent would be
-  lost.
+  lost; a review not shown is shown before the question.
+- In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
+  project is not trusted to run: M-x trust-project".
 
 ## Echo area
 

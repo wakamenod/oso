@@ -214,7 +214,9 @@ impl Timings {
             }
         }
         let spans = self.frame_spans.take();
-        if let Some(text) = self.review_text.take()
+        // A frame that left glyphs for the next has not shown the text yet.
+        if complete
+            && let Some(text) = self.review_text.take()
             && self.review_frames.len() < MAX_KEY_SAMPLES
         {
             self.review_frames.push((micros(unix_now()), text));

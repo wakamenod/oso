@@ -88,6 +88,8 @@ pub(crate) enum ScopeError {
     NoScratch,
     /// The copy could not be made.
     Copy(std::io::Error),
+    /// The request was stopped between two runs of git, as its root was revoked.
+    Stopped,
 }
 
 impl From<GitError> for ScopeError {
@@ -250,10 +252,12 @@ pub(crate) fn list(
 /// Takes a baseline: the work tree with its untracked files, as a tree, through a copy of
 /// `index`. It gives the tree and at least how many files git could not read and left out:
 /// the count is of the lines git wrote within [`MAX_STDERR`] of its own words, in the C locale.
+/// It runs git no more once `stop` says so, as when the project is no longer trusted.
 pub(crate) fn baseline(
     git: &Git,
     index: &Path,
     scratch: &mut Scratch,
+    stop: &dyn Fn() -> bool,
 ) -> Result<(Id, usize), ScopeError> {
     let copy = scratch.copy(index).map_err(ScopeError::Copy)?;
     let path = for_git(copy.path());
@@ -262,6 +266,9 @@ pub(crate) fn baseline(
         // The count below reads git's own words.
         ("LC_ALL", OsStr::new("C")),
     ];
+    if stop() {
+        return Err(ScopeError::Stopped);
+    }
     let added = add(git, &["add", "-A", "--ignore-errors"], &set)?;
     let left_out = added
         .stderr
@@ -277,6 +284,9 @@ pub(crate) fn baseline(
             stderr: added.stderr,
         }
         .into());
+    }
+    if stop() {
+        return Err(ScopeError::Stopped);
     }
     let out = git.run(&[OsStr::new("write-tree")], &set, MAX_SHORT)?;
     let tree = Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not a tree id"))?;

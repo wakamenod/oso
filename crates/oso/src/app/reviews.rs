@@ -17,14 +17,13 @@ use oso_core::editor::{ReviewId, ReviewRequest, ScopeKind};
 use oso_core::project::ProjectId;
 
 use super::{App, UserEvent};
+use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
 use crate::review::count::{Counted, Counter};
 use crate::review::view::{Tell, Text, View};
 use crate::review::{Content, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
 
 /// What the review's note says once its project is no longer trusted.
 const UNTRUSTED: &str = "the project is no longer trusted: M-x trust-project, then g";
-/// The most characters of a revision or a project's name a review's name and title take.
-const MAX_NAME: usize = 80;
 /// The most characters of a failure the echo area shows.
 const MAX_MESSAGE: usize = 200;
 
@@ -65,7 +64,8 @@ impl fmt::Debug for ReviewEvent {
     }
 }
 
-/// An open review's threads, and the texts its view built that wait to go in.
+/// An open review's threads, and the text its view built that waits to go in: one at most, as
+/// the view builds the next only once this one went in.
 struct Running {
     id: ReviewId,
     project: ProjectId,
@@ -86,10 +86,12 @@ pub(in crate::app) struct Reviews {
     open: Vec<Running>,
     /// Each project's session baseline, as its thread took it.
     baselines: Vec<(ProjectId, Id)>,
-    /// The threads taking a baseline, one per project at most.
-    baseliners: Vec<(ProjectId, Reviewer)>,
+    /// The threads taking a baseline, one per project at most, with the root each runs in.
+    baseliners: Vec<(ProjectId, TrustedRoot, Reviewer)>,
     /// The menu's counting threads, once the menu opened.
     counter: Option<Counter>,
+    /// The project the menu's counts were last started for, and the root they run in.
+    counted: Option<(ProjectId, TrustedRoot)>,
     /// Whether the review menu was open when last looked at.
     menu_open: bool,
     next_serial: u64,
@@ -108,19 +110,6 @@ fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |now| now.as_secs())
-}
-
-/// `text` on one line, at most `max` characters, with no control character.
-fn one_line(text: &str, max: usize) -> String {
-    let mut out: String = text
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .take(max)
-        .collect();
-    if text.chars().nth(max).is_some() {
-        out.push('\u{2026}');
-    }
-    out
 }
 
 /// What a review's name and title call its scope.
@@ -173,15 +162,16 @@ fn scope_of(
 }
 
 impl App {
-    /// After commands and after each event: carries out what review commands asked, starts or
-    /// stops the menu's counts, revokes the roots of projects no longer trusted, and puts in
-    /// the texts that wait while nothing holds them.
+    /// After commands and after each event: revokes the roots of projects no longer trusted,
+    /// first, so that nothing asked runs git for one, then carries out what review commands
+    /// asked, starts or stops the menu's counts, and puts in the texts that wait while nothing
+    /// holds them.
     pub(super) fn sync_reviews(&mut self) {
+        self.revoke_untrusted_reviews();
         for request in self.editor.take_review_requests() {
             self.review_request(request);
         }
         self.sync_review_menu();
-        self.revoke_untrusted_reviews();
         self.put_in_review_texts();
     }
 
@@ -210,9 +200,7 @@ impl App {
             Err(why) => return self.editor.message(why),
         };
         let Some(root) = TrustedRoot::of(&self.editor, project) else {
-            return self
-                .editor
-                .message("This project is not trusted to run git: M-x trust-project");
+            return self.editor.message(RESTRICTED);
         };
         self.editor.set_last_scope(project, kind);
         let window = self.editor.tiled().0.id();
@@ -326,9 +314,7 @@ impl App {
         let running = &mut self.reviews.open[index];
         if running.revoked {
             let Some(root) = TrustedRoot::of(&self.editor, running.project) else {
-                return self
-                    .editor
-                    .message("This project is not trusted to run git: M-x trust-project");
+                return self.editor.message(RESTRICTED);
             };
             running.root = root;
             running.revoked = false;
@@ -336,6 +322,9 @@ impl App {
             let scope = running.scope.clone();
             self.start_reviewer(index);
             return self.ask_review(index, Request::Open(scope));
+        }
+        if !self.editor.project_trusted(running.project) {
+            return self.editor.message(RESTRICTED);
         }
         let mut first = std::mem::take(&mut self.reviews.shown);
         self.editor.shown_review_files(id, &mut first);
@@ -353,19 +342,17 @@ impl App {
     /// Takes a baseline of `project`'s work tree on a thread of its own.
     fn take_baseline(&mut self, project: ProjectId) {
         let Some(root) = TrustedRoot::of(&self.editor, project) else {
-            return self
-                .editor
-                .message("This project is not trusted to run git: M-x trust-project");
+            return self.editor.message(RESTRICTED);
         };
         let waker = self.waker.clone();
-        let started = Reviewer::start(root, state(), move |report| {
+        let started = Reviewer::start(root.clone(), state(), move |report| {
             waker.send(UserEvent::Review(ReviewEvent::Baseline { project, report }))
         });
         match started {
             Ok(reviewer) => {
                 reviewer.ask(Request::Baseline);
-                self.reviews.baseliners.retain(|(id, _)| *id != project);
-                self.reviews.baseliners.push((project, reviewer));
+                self.reviews.baseliners.retain(|(id, ..)| *id != project);
+                self.reviews.baseliners.push((project, root, reviewer));
             }
             Err(e) => self.editor.message(format!("Cannot take a baseline: {e}")),
         }
@@ -425,7 +412,11 @@ impl App {
     }
 
     fn baseline_report(&mut self, project: ProjectId, report: Report) {
-        self.reviews.baseliners.retain(|(id, _)| *id != project);
+        self.reviews.baseliners.retain(|(id, ..)| *id != project);
+        // A baseline taken as the trust was taken back is not used.
+        if !self.editor.project_trusted(project) {
+            return self.freer.free(report);
+        }
         match report {
             Report::Baseline { tree, left_out } => {
                 self.reviews.baselines.retain(|(id, _)| *id != project);
@@ -496,20 +487,25 @@ impl App {
             carried,
             reading,
         } = text;
-        // Kept, at O(1), so that the text it replaces is freed off the UI thread.
+        // Kept, at O(1), so that the text it replaces is freed off the UI thread, with the rows
+        // and highlights it replaces.
         let before = self
             .editor
             .buffer(buffer)
             .map(|shown| (shown.text().clone(), shown.display()));
-        match text {
+        let left = match text {
             Some(text) => self.editor.set_review_text(id, text, rows, highlights),
-            None => {
-                if !self.editor.set_review_paint(id, rows, highlights) {
+            None => self
+                .editor
+                .set_review_paint(id, rows, highlights)
+                .unwrap_or_else(|left| {
                     log::warn!("a review's paint did not cover its text");
-                }
-            }
-        }
-        self.freer.free(before);
+                    left
+                }),
+        };
+        self.freer.free((before, left));
+        // The view builds the next text only now.
+        self.reviews.open[index].view.taken();
         for (reading, carried) in carried {
             let Some(model) = self.editor.review_mut(id) else {
                 break;
@@ -532,15 +528,34 @@ impl App {
         });
     }
 
-    /// Revokes the root of every review whose project is no longer trusted, once.
+    /// Revokes the root of every review, baseline and count whose project is no longer
+    /// trusted: a review's once, saying so; a baseline's thread is dropped, and the counts are
+    /// stopped.
     fn revoke_untrusted_reviews(&mut self) {
+        let editor = &self.editor;
         for running in &mut self.reviews.open {
-            if running.revoked || self.editor.project_trusted(running.project) {
+            if running.revoked || editor.project_trusted(running.project) {
                 continue;
             }
             running.root.revoke();
             running.revoked = true;
             running.view.tell(Tell::Said(vec![UNTRUSTED.to_owned()]));
+        }
+        self.reviews.baseliners.retain(|(project, root, _)| {
+            let trusted = editor.project_trusted(*project);
+            if !trusted {
+                root.revoke();
+            }
+            trusted
+        });
+        if let Some((project, root)) = &self.reviews.counted
+            && !editor.project_trusted(*project)
+        {
+            root.revoke();
+            if let Some(counter) = &self.reviews.counter {
+                counter.stop();
+            }
+            self.reviews.counted = None;
         }
     }
 }

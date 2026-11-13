@@ -1,5 +1,6 @@
 //! The review's commands on an editor with a review in it: moving by its rows, opening a scope
-//! only in a trusted project, refreshing, burying, listing the keys and killing.
+//! only in a trusted project, from a review buffer too, refreshing, burying, listing the keys
+//! and killing the review asked about.
 //!
 //! Must not depend on: `bindings`, `dispatch`, `app` or winit; these run commands through the
 //! registry.
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use oso_core::buffer::{Baseline, Buffer};
-use oso_core::command::Args;
+use oso_core::command::{Args, Ctx, Invocation};
 use oso_core::editor::{Editor, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::load::decode_all;
 use oso_core::project::{Found, ProjectId, RootIdentity, TrustList};
@@ -80,8 +81,34 @@ fn with_review(editor: &mut Editor, project: ProjectId) -> ReviewId {
     let window = editor.window().id();
     editor.show_in(window, buffer);
     let text = decode_all(TEXT.as_bytes(), Default::default()).compared_with(&Rope::new());
-    editor.set_review_text(review, text, rows(), Highlights::new(TEXT.len()));
+    let _ = editor.set_review_text(review, text, rows(), Highlights::new(TEXT.len()));
     review
+}
+
+/// Gives the review `review` an unsent comment of the person's.
+fn comment_in(editor: &mut Editor, review: ReviewId) {
+    let shape = Arc::new(
+        Shape::new(
+            Base::Unknown,
+            vec![Hunk {
+                old_start: 1,
+                new_start: 1,
+                removed: vec![b"x\n".as_slice().into()],
+                added: vec![b"y\n".as_slice().into()],
+            }],
+        )
+        .unwrap(),
+    );
+    let model = editor.review_mut(review).unwrap();
+    let carried = model.carry(b"a", shape).run(|_, _| None, |_, _| Vec::new());
+    model.apply(carried);
+    let anchor = Anchor::Line {
+        side: Side::New,
+        number: 1,
+    };
+    model
+        .add_comment(Author::Person, b"a", anchor, "fix this".into())
+        .unwrap();
 }
 
 fn line(editor: &Editor) -> usize {
@@ -139,10 +166,7 @@ fn motions_refuse_outside_a_review() {
 fn opening_asks_the_host_only_in_a_trusted_project() {
     let (mut editor, project) = in_project(false);
     let (result, _) = run(&mut editor, "review-uncommitted", Args::NONE);
-    assert_eq!(
-        result,
-        Err("This project is not trusted to run git: M-x trust-project".into())
-    );
+    assert_eq!(result, Err(super::RESTRICTED.into()));
     assert!(editor.take_review_requests().is_empty());
     let (mut editor, project_trusted) = in_project(true);
     assert_eq!(run(&mut editor, "review-staged", Args::NONE).0, Ok(()));
@@ -216,30 +240,46 @@ fn killing_a_review_asks_only_while_it_holds_unsent_comments_of_yours() {
     );
 
     let review = with_review(&mut editor, project);
-    let shape = Arc::new(
-        Shape::new(
-            Base::Unknown,
-            vec![Hunk {
-                old_start: 1,
-                new_start: 1,
-                removed: vec![b"x\n".as_slice().into()],
-                added: vec![b"y\n".as_slice().into()],
-            }],
-        )
-        .unwrap(),
-    );
-    let model = editor.review_mut(review).unwrap();
-    let carried = model.carry(b"a", shape).run(|_, _| None, |_, _| Vec::new());
-    model.apply(carried);
-    let anchor = Anchor::Line {
-        side: Side::New,
-        number: 1,
-    };
-    model
-        .add_comment(Author::Person, b"a", anchor, "fix this".into())
-        .unwrap();
+    comment_in(&mut editor, review);
     assert_eq!(run(&mut editor, "review-kill", Args::NONE).0, Ok(()));
     let question = editor.prompt().map(|prompt| prompt.label().to_owned());
     assert!(question.is_some_and(|q| q.starts_with("1 comment of yours will be lost; kill?")));
     assert!(editor.review(review).is_some());
+}
+
+#[test]
+fn the_question_about_a_review_not_shown_shows_it_so_that_y_kills_that_one() {
+    let (mut editor, project) = in_project(true);
+    let asked = with_review(&mut editor, project);
+    comment_in(&mut editor, asked);
+    let shown = with_review(&mut editor, project);
+    assert_eq!(editor.review_of(editor.window().buffer()), Some(shown));
+    // As `C-x k` naming the review not shown does.
+    assert_eq!(super::kill(&mut Ctx::new(&mut editor), asked), Ok(()));
+    assert!(editor.prompt().is_some());
+    assert_eq!(editor.review_of(editor.tiled().0.buffer()), Some(asked));
+    editor.answer_question(true).unwrap();
+    let yes = Invocation {
+        confirmed: true,
+        ..Invocation::default()
+    };
+    let registry = crate::commands::registry();
+    let kill = registry.lookup("review-kill").unwrap();
+    let mut ctx = Ctx::invoked(&mut editor, yes);
+    assert!(registry.execute(kill, &mut ctx, Args::NONE).is_ok());
+    assert!(editor.review(asked).is_none());
+    assert!(editor.review(shown).is_some());
+}
+
+#[test]
+fn reviews_start_from_the_shown_buffers_project_or_the_shown_reviews() {
+    let (mut editor, project) = in_project(true);
+    assert_eq!(super::review_project(&editor), Some(project));
+    let (_, buffer) = editor.add_review(project, "*review*".into());
+    let window = editor.tiled().0.id();
+    editor.show_in(window, buffer);
+    assert_eq!(editor.buffer(buffer).unwrap().project(), None);
+    assert_eq!(super::review_project(&editor), Some(project));
+    assert_eq!(run(&mut editor, "review-staged", Args::NONE).0, Ok(()));
+    assert_eq!(super::review_project(&Editor::default()), None);
 }

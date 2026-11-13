@@ -1,5 +1,5 @@
-//! The view's whole text from what it is told: files listed then read, files that go, and the
-//! thread's batches and end.
+//! The view's whole text from what it is told: files listed then read, files that go, nothing
+//! laid out when nothing changed, and the thread's batches, one in flight, and end.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these drive the view's state and thread.
 
@@ -119,6 +119,76 @@ fn the_thread_sends_a_text_for_each_batch_and_ends_when_dropped() {
     assert!(view.tell(Tell::Said(vec!["the project is no longer trusted".into()])));
     let text = texts.recv_timeout(Duration::from_secs(10)).unwrap();
     assert_eq!(text.rows.lines(), 2);
+    view.taken();
     drop(view);
     assert!(texts.recv_timeout(Duration::from_secs(10)).is_err());
+}
+
+#[test]
+fn nothing_is_laid_out_again_when_nothing_in_the_text_changed() {
+    let mut state = State::new("t".into());
+    let entries: Arc<[Entry]> = vec![entry(b"a", Status::Modified)].into();
+    state.take(Tell::Listed {
+        entries: Arc::clone(&entries),
+        more: 0,
+    });
+    state.take(Tell::File {
+        reading: Arc::new(text_reading(b"a", vec![hunk(1, 1, &[b"x\n"], &[])])),
+        carry: None,
+    });
+    let first = state.build();
+    assert!(first.text.is_some());
+    // g with nothing changed: the same listing, then the end of the reading.
+    state.take(Tell::Listed { entries, more: 0 });
+    assert!(!state.dirty, "the same listing changes no text");
+    let listed = state.build();
+    assert!(listed.text.is_none());
+    assert_eq!(listed.reading, Some((1, 1)));
+    state.take(Tell::Read);
+    state.take(Tell::Said(Vec::new()));
+    let read = state.build();
+    assert!(read.text.is_none());
+    assert_eq!(read.reading, None);
+    assert_eq!(read.rows.lines(), first.rows.lines());
+    assert_eq!(read.highlights.len(), first.highlights.len());
+    // A line under the title changes it.
+    state.take(Tell::Said(vec!["the project is no longer trusted".into()]));
+    assert!(state.build().text.is_some());
+}
+
+#[test]
+fn a_file_read_before_it_is_listed_goes_last_once() {
+    let mut state = State::new("t".into());
+    let entries: Arc<[Entry]> = vec![entry(b"a", Status::Modified)].into();
+    state.take(Tell::Listed { entries, more: 0 });
+    for _ in 0..2 {
+        state.take(Tell::File {
+            reading: Arc::new(text_reading(b"b", vec![hunk(1, 1, &[b"x\n"], &[])])),
+            carry: None,
+        });
+    }
+    assert_eq!(
+        state.order,
+        [b"a".as_slice().into(), b"b".as_slice().into()]
+    );
+}
+
+#[test]
+fn the_next_text_waits_until_the_ui_took_the_last() {
+    let (sent, texts) = mpsc::channel();
+    let view = View::start("t".into(), move |text| sent.send(text).is_ok()).unwrap();
+    view.tell(Tell::Said(vec!["one".into()]));
+    texts.recv_timeout(Duration::from_secs(10)).unwrap();
+    // Told twice while the first text waits: nothing is built yet.
+    view.tell(Tell::Said(vec!["two".into()]));
+    view.tell(Tell::Said(vec!["three".into()]));
+    assert!(texts.recv_timeout(Duration::from_millis(200)).is_err());
+    // Once taken, one text has what both said.
+    view.taken();
+    let text = texts.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(text.text.is_some_and(|text| text.is_changed()));
+    assert!(texts.recv_timeout(Duration::from_millis(200)).is_err());
+    view.taken();
+    // Taken with nothing told since: no text.
+    assert!(texts.recv_timeout(Duration::from_millis(200)).is_err());
 }

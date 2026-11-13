@@ -65,7 +65,7 @@ fn review(told: Vec<Tell>, (rows, columns): (usize, usize)) -> Editor {
     let window = editor.tiled().0.id();
     editor.show_in(window, buffer);
     let text = built("Review \u{b7} uncommitted \u{b7} oso", told);
-    editor.set_review_text(id, text.text.unwrap(), text.rows, text.highlights);
+    let _ = editor.set_review_text(id, text.text.unwrap(), text.rows, text.highlights);
     editor.set_review_reading(id, text.reading);
     editor
 }

@@ -1,12 +1,12 @@
 //! The tests of the open reviews: adding and closing one, putting in its text with the cursors
-//! carried and waiting under a prompt, the backgrounds of the rows in view, and the menu's
-//! counts by opening.
+//! carried and waiting under a prompt, what a text or paint leaves for the host to free, the
+//! backgrounds of the rows in view, and the menu's counts by opening.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads or files.
 
 use std::sync::Arc;
 
-use super::{Count, Editor, ReviewCells, ReviewRequest, ScopeKind};
+use super::{Count, Editor, ReviewCells, ReviewLeftover, ReviewRequest, ScopeKind};
 use crate::buffer::Mode;
 use crate::display_map::TabWidth;
 use crate::frame::FrameSize;
@@ -43,12 +43,12 @@ fn review_text(files: &[(&str, usize)]) -> (String, Rows) {
     (text, Rows::new(sections))
 }
 
-fn put_in(editor: &mut Editor, id: super::ReviewId, files: &[(&str, usize)]) {
+fn put_in(editor: &mut Editor, id: super::ReviewId, files: &[(&str, usize)]) -> ReviewLeftover {
     let buffer = editor.review_buffer(id).unwrap();
     let (text, rows) = review_text(files);
     let old = editor.buffer(buffer).unwrap().text().clone();
     let reloaded = decode_all(text.as_bytes(), TabWidth::default()).compared_with(&old);
-    editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()));
+    editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()))
 }
 
 fn editor_with_review() -> (Editor, super::ReviewId) {
@@ -88,7 +88,7 @@ fn a_review_has_a_read_only_buffer_of_its_own_until_it_closes() {
 #[test]
 fn a_new_text_carries_the_cursor_through_what_changed() {
     let (mut editor, id) = editor_with_review();
-    put_in(&mut editor, id, &[("a.rs", 3), ("b.rs", 3)]);
+    let _ = put_in(&mut editor, id, &[("a.rs", 3), ("b.rs", 3)]);
     let buffer = editor.review_buffer(id).unwrap();
     let text = editor.buffer(buffer).unwrap().text().clone();
     // On b.rs's second added line.
@@ -97,7 +97,7 @@ fn a_new_text_carries_the_cursor_through_what_changed() {
     assert_eq!(editor.review_rows(id).unwrap().at(8).unwrap().path, b"b.rs");
 
     // a.rs gains two lines above it.
-    put_in(&mut editor, id, &[("a.rs", 5), ("b.rs", 3)]);
+    let _ = put_in(&mut editor, id, &[("a.rs", 5), ("b.rs", 3)]);
     let text = editor.buffer(buffer).unwrap().text().clone();
     let moved = editor.window().selections.primary().cursor;
     assert_eq!(moved, text.line_start(10));
@@ -107,6 +107,64 @@ fn a_new_text_carries_the_cursor_through_what_changed() {
         !editor.buffer(buffer).unwrap().is_modified(),
         "no edit of the person's"
     );
+}
+
+#[test]
+fn what_a_text_or_paint_replaces_comes_back_to_be_freed() {
+    let (mut editor, id) = editor_with_review();
+    // The first text replaces the empty rows; there were no highlights yet.
+    assert_eq!(
+        put_in(&mut editor, id, &[("a.rs", 3)]).holds(),
+        (true, false, false)
+    );
+    assert_eq!(
+        put_in(&mut editor, id, &[("a.rs", 4)]).holds(),
+        (true, true, false)
+    );
+    // The same text: only the rows and highlights go in, and the text built again comes back.
+    assert_eq!(
+        put_in(&mut editor, id, &[("a.rs", 4)]).holds(),
+        (true, true, true)
+    );
+
+    let (text, rows) = review_text(&[("a.rs", 4)]);
+    let painted = editor.set_review_paint(id, rows, Highlights::new(text.len()));
+    assert_eq!(painted.unwrap().holds(), (true, true, false));
+    // Rows that do not cover the text change nothing and come back.
+    let (_, short) = review_text(&[("a.rs", 1)]);
+    let refused = editor.set_review_paint(id, short, Highlights::new(text.len()));
+    assert_eq!(refused.unwrap_err().holds(), (true, true, false));
+    assert_eq!(editor.review_rows(id).unwrap().lines(), 6);
+    // A closed review takes nothing.
+    editor.remove_review(id);
+    assert_eq!(put_in_closed(&mut editor, id).holds(), (true, true, true));
+}
+
+/// Puts a text in the review `id`, which has closed.
+fn put_in_closed(editor: &mut Editor, id: super::ReviewId) -> ReviewLeftover {
+    let (text, rows) = review_text(&[("a.rs", 1)]);
+    let reloaded =
+        decode_all(text.as_bytes(), TabWidth::default()).compared_with(&crate::rope::Rope::new());
+    editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()))
+}
+
+#[test]
+fn every_scope_has_a_place_of_its_own_in_the_menus_counts() {
+    use ScopeKind::*;
+    let all = [
+        Session,
+        Uncommitted,
+        Unstaged,
+        Staged,
+        Branch,
+        Commit,
+        Range,
+        PullRequest,
+    ];
+    assert_eq!(all.len(), ScopeKind::COUNT);
+    let mut places: Vec<usize> = all.iter().map(|scope| scope.index()).collect();
+    places.sort_unstable();
+    assert_eq!(places, (0..ScopeKind::COUNT).collect::<Vec<_>>());
 }
 
 #[test]
@@ -121,7 +179,7 @@ fn a_new_text_waits_while_a_prompt_is_open() {
 #[test]
 fn only_the_rows_in_view_take_backgrounds() {
     let (mut editor, id) = editor_with_review();
-    put_in(&mut editor, id, &[("a.rs", 40)]);
+    let _ = put_in(&mut editor, id, &[("a.rs", 40)]);
     let window = editor.window().id();
     let mut screen = Screen::default();
     editor.screen_of(window, &mut screen);

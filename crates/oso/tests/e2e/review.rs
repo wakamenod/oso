@@ -5,6 +5,7 @@
 //! Must not depend on: the app's internals, or logic a lower layer can test. The sections'
 //! text, the rows and the keys have their own tests.
 
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -14,10 +15,23 @@ use super::harness::{App, Scratch};
 use super::{cursor, typing};
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
-/// Runs git in `root` with `args`, which must succeed.
+/// Runs git in `root` with `args`, which must succeed, kept from the person's configuration
+/// and hooks: git looks for hooks only in an empty directory beside `root`.
 fn git(root: &Path, args: &[&str]) {
     let git = Executable::from_path("git", None).expect("git is on PATH");
-    let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+    let hooks = root.with_file_name("hooks");
+    std::fs::create_dir_all(&hooks).expect("cannot make the hooks directory");
+    let mut hooks_path = OsString::from("core.hooksPath=");
+    hooks_path.push(&hooks);
+    let args: Vec<OsString> = ["-c".into(), hooks_path]
+        .into_iter()
+        .chain(args.iter().map(Into::into))
+        .collect();
+    let null = OsStr::new(if cfg!(windows) { "NUL" } else { "/dev/null" });
+    let set = [
+        ("GIT_CONFIG_GLOBAL", null),
+        ("GIT_CONFIG_NOSYSTEM", OsStr::new("1")),
+    ];
     let status = spawn(&Spawn {
         executable: &git,
         args: &args,
@@ -28,7 +42,7 @@ fn git(root: &Path, args: &[&str]) {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
-        set: &[],
+        set: &set,
         terminal: None,
     })
     .and_then(|mut child| child.wait())
@@ -109,7 +123,7 @@ fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
     let state = app.state();
     assert_eq!(
         state["echo"],
-        "This project is not trusted to run git: M-x trust-project"
+        "Reviewing runs git, which this project is not trusted to run: M-x trust-project"
     );
     assert_eq!(state["buffer"]["name"], "a.rs");
     app.send_keys(&format!("M-x {} RET y", typing("trust-project")));

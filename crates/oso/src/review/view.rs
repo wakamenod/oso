@@ -7,9 +7,15 @@
 //!
 //! - One thread per review, started and dropped with it. It takes everything waiting before it
 //!   builds, so a burst of readings costs one text.
+//! - One text is in flight at a time: the next is built only once the UI took the last
+//!   ([`View::taken`]), and what is told meanwhile is gathered for it. So a review whose texts
+//!   wait under a prompt holds one text, not one per batch, and each text is compared with the
+//!   one the UI put in last.
 //! - Each text is whole: every section is kept as bytes and laid end to end through
 //!   `load::Builder`, which keeps invalid bytes for `\xNN` as a loaded file's, and compared
-//!   with the text before so the UI swaps in only the span that changed.
+//!   with the text before so the UI swaps in only the span that changed. When no section, line
+//!   under the title or listing changed, nothing is laid out: the text is `None`, with the last
+//!   rows and highlights, which cost O(1) to share.
 //! - The text is at most [`MAX_TEXT`]; files past it show their header and a note.
 //! - Comments are carried here when a file has none to place, which costs hashing alone; a file
 //!   with comments is carried on the review's own thread, which reads old sides.
@@ -18,6 +24,7 @@
 mod section;
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry as Slot;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -67,9 +74,15 @@ pub(crate) struct Text {
 /// Hands a text to the event loop; `false` once it is gone.
 type SendText = Box<dyn FnMut(Text) -> bool + Send>;
 
+/// What the thread takes: what it is told, or that the UI took its last text.
+enum Message {
+    Tell(Tell),
+    Taken,
+}
+
 /// A review's view thread. Dropping it ends the thread.
 pub(crate) struct View {
-    tell: Sender<Tell>,
+    tell: Sender<Message>,
     live: Arc<AtomicBool>,
 }
 
@@ -91,7 +104,13 @@ impl View {
 
     /// Tells the thread `what`; `false` if it has ended.
     pub(crate) fn tell(&self, what: Tell) -> bool {
-        self.tell.send(what).is_ok()
+        self.tell.send(Message::Tell(what)).is_ok()
+    }
+
+    /// Says the UI put in the last text, so that the thread may build the next.
+    pub(crate) fn taken(&self) {
+        // A thread that has ended needs no word.
+        let _ = self.tell.send(Message::Taken);
     }
 }
 
@@ -121,6 +140,11 @@ struct State {
     text: Rope,
     /// Whether the text before held no invalid byte.
     valid: bool,
+    /// Whether the text would change from the last one built: a file, the listing or what the
+    /// title says changed since.
+    dirty: bool,
+    /// The last text's rows and highlights, for a text that did not change.
+    last: Option<(Rows, Highlights)>,
 }
 
 impl State {
@@ -135,12 +159,22 @@ impl State {
             carried: Vec::new(),
             text: Rope::new(),
             valid: true,
+            dirty: true,
+            last: None,
         }
     }
 
     fn take(&mut self, told: Tell) {
         match told {
             Tell::Listed { entries, more } => {
+                let same = self.more == more
+                    && self.order.len() == entries.len()
+                    && self
+                        .order
+                        .iter()
+                        .zip(entries.iter())
+                        .all(|(a, b)| *a == b.path);
+                self.dirty |= !same;
                 self.more = more;
                 self.reading = true;
                 let mut files = std::mem::take(&mut self.files);
@@ -161,18 +195,23 @@ impl State {
                 if let Some(carry) = carry {
                     self.carry(&reading, carry);
                 }
+                self.dirty = true;
                 let path = reading.entry.path.clone();
-                let file = self.files.entry(path.clone()).or_insert_with(|| File {
-                    entry: reading.entry.clone(),
-                    reading: None,
-                    rendered: None,
-                });
+                let file = match self.files.entry(path) {
+                    Slot::Occupied(file) => file.into_mut(),
+                    Slot::Vacant(vacant) => {
+                        // Not listed yet: it goes last.
+                        self.order.push(vacant.key().clone());
+                        vacant.insert(File {
+                            entry: reading.entry.clone(),
+                            reading: None,
+                            rendered: None,
+                        })
+                    }
+                };
                 file.entry = reading.entry.clone();
                 file.reading = Some(reading);
                 file.rendered = None;
-                if !self.order.contains(&path) {
-                    self.order.push(path);
-                }
             }
             Tell::Carry { reading, carry } => {
                 let current = self
@@ -185,7 +224,10 @@ impl State {
                 }
             }
             Tell::Read => self.reading = false,
-            Tell::Said(said) => self.said = said,
+            Tell::Said(said) => {
+                self.dirty |= said != self.said;
+                self.said = said;
+            }
         }
     }
 
@@ -196,8 +238,21 @@ impl State {
         self.carried.push((Arc::clone(reading), carried));
     }
 
-    /// The whole text, laid out from each file's section, those changed laid out again.
+    /// The whole text, laid out from each file's section, those changed laid out again; or,
+    /// when nothing in it changed, `None` with the last rows and highlights.
     fn build(&mut self) -> Text {
+        let reading = self.reading_now();
+        if !self.dirty
+            && let Some((rows, highlights)) = &self.last
+        {
+            return Text {
+                text: None,
+                rows: rows.clone(),
+                highlights: highlights.clone(),
+                carried: std::mem::take(&mut self.carried),
+                reading,
+            };
+        }
         let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
         let mut said = self.said.clone();
         if self.more > 0 {
@@ -205,12 +260,10 @@ impl State {
         }
         sections.push(Arc::new(section::title(&self.title, &said)));
         let mut size = sections[0].bytes.len();
-        let mut read = 0;
         for path in &self.order {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
-            read += usize::from(file.reading.is_some());
             // A file past the limit shows its header alone; one read meanwhile is laid out anew.
             let whole = size < MAX_TEXT;
             let rendered = match (&file.rendered, &file.reading) {
@@ -248,31 +301,61 @@ impl State {
         let text = (text.is_changed() || !valid || !self.valid).then_some(text);
         self.text = new_text;
         self.valid = valid;
+        self.dirty = false;
+        self.last = Some((rows.clone(), highlights.clone()));
         Text {
             text,
             rows,
             highlights,
             carried: std::mem::take(&mut self.carried),
-            reading: self.reading.then_some((read, self.order.len())),
+            reading,
         }
+    }
+
+    /// How many of the files listed are read, while a reading runs.
+    fn reading_now(&self) -> Option<(usize, usize)> {
+        self.reading.then(|| {
+            let read = self
+                .files
+                .values()
+                .filter(|file| file.reading.is_some())
+                .count();
+            (read, self.order.len())
+        })
     }
 }
 
-/// Takes what is told, everything waiting at once, and hands out a text after each batch,
-/// until the view is dropped or the event loop has gone.
-fn serve(told: &Receiver<Tell>, mut send: SendText, title: String, live: &AtomicBool) {
+/// Takes what is told, everything waiting at once, and hands out a text after each batch once
+/// the UI took the last, until the view is dropped or the event loop has gone.
+fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &AtomicBool) {
     let mut state = State::new(title);
+    // Whether a text was sent that the UI has not taken yet, and whether anything was told
+    // since the last text.
+    let mut in_flight = false;
+    let mut told_since = false;
     while let Ok(first) = told.recv() {
-        state.take(first);
+        let mut take = |message| match message {
+            Message::Tell(tell) => {
+                state.take(tell);
+                told_since = true;
+            }
+            Message::Taken => in_flight = false,
+        };
+        take(first);
         while let Ok(more) = told.try_recv() {
-            state.take(more);
+            take(more);
         }
         if !live.load(Ordering::SeqCst) {
             return;
         }
+        if in_flight || !told_since {
+            continue;
+        }
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.build()));
         match built {
             Ok(text) => {
+                in_flight = true;
+                told_since = false;
                 if !send(text) {
                     return;
                 }

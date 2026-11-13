@@ -6,25 +6,13 @@
 
 use std::sync::{Mutex, PoisonError};
 
-use oso_core::editor::{Editor, ScopeKind};
-use oso_core::project::ProjectId;
+use oso_core::editor::ScopeKind;
 
 use super::super::{App, UserEvent, Waker};
 use super::{ReviewEvent, state};
+use crate::commands::review::review_project;
 use crate::review::count::{Counted, Counter, Counting, Job};
 use crate::review::{Scope, TrustedRoot};
-
-/// The project the menu opens for: the review's when a review buffer is current, else the
-/// current buffer's.
-pub(super) fn menu_project(editor: &Editor) -> Option<ProjectId> {
-    let buffer = editor.tiled().0.buffer();
-    if let Some(review) = editor.review_of(buffer) {
-        return editor
-            .reviews()
-            .find_map(|(id, project)| (id == review).then_some(project));
-    }
-    editor.buffer(buffer)?.project()
-}
 
 impl App {
     /// Starts the menu's counts as the review menu opens, and stops them as it closes.
@@ -40,12 +28,14 @@ impl App {
             }
             return;
         }
-        let Some(project) = menu_project(&self.editor) else {
+        let Some(project) = review_project(&self.editor) else {
             return;
         };
         let Some(root) = TrustedRoot::of(&self.editor, project) else {
             return;
         };
+        // Kept so that the counts stop running git if the project stops being trusted.
+        self.reviews.counted = Some((project, root.clone()));
         let baseline = self.reviews.baseline(project);
         let mut scopes = Vec::with_capacity(5);
         let mut countings = Vec::with_capacity(5);

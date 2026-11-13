@@ -283,13 +283,29 @@ impl Buffer {
 
     /// Shows `highlights`, which a host built with the text of a buffer it generates, as a
     /// review's (ADR 0122), in place of a worker's. Nothing changes when they do not cover the
-    /// text, or for a buffer of the person's.
-    pub(crate) fn set_generated_highlights(&mut self, highlights: Highlights) {
+    /// text, or for a buffer of the person's: then they come back. The highlights before are
+    /// dropped here; [`Buffer::take_generated_highlights`] takes them first.
+    pub(crate) fn set_generated_highlights(
+        &mut self,
+        highlights: Highlights,
+    ) -> Option<Highlights> {
         if self.mode != Mode::Review || highlights.len() != self.text.len() {
-            return;
+            return Some(highlights);
         }
         self.highlighting.highlights = Some(highlights);
         self.highlighting.changes += 1;
+        None
+    }
+
+    /// Takes a generated buffer's highlights out, for the host to free off the UI thread
+    /// (ADR 0122). `None` for a buffer of the person's, whose highlights stay.
+    pub(crate) fn take_generated_highlights(&mut self) -> Option<Highlights> {
+        if self.mode != Mode::Review {
+            return None;
+        }
+        let taken = self.highlighting.highlights.take();
+        self.highlighting.changes += 1;
+        taken
     }
 
     /// Stops showing highlights, as when highlighting is turned off.

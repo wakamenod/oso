@@ -103,7 +103,7 @@ pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
-pub use reviews::{Count, ReviewCells, ReviewId, ReviewRequest, ScopeKind, ScopeMenu};
+pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use sessions::SessionRequest;
 pub use status::Status;
