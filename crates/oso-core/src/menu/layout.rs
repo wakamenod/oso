@@ -5,7 +5,9 @@
 //! Must not depend on: `keymap`, or any GPU or window-system type. It reads no editor state: the
 //! caller reads the states and the notes, and this only counts cells.
 
-use super::{Definition, Notes};
+use std::fmt::Write as _;
+
+use super::{Definition, Note, Notes};
 use crate::frame::CellRect;
 use crate::minibuffer::cells_of;
 
@@ -155,7 +157,7 @@ impl Block<'_> {
     fn width(&self, fit: &Fit) -> usize {
         let title = if fit.titled { self.title_cells } else { 0 };
         let more = if self.heads.len() > fit.limit {
-            cells_of(&more_text(self.heads.len()))
+            more_cells(self.heads.len())
         } else {
             0
         };
@@ -218,9 +220,12 @@ impl Fit {
     }
 }
 
-/// `… N more`, for a column of `heads` heads cut to show one fewer than its limit.
-fn more_text(heads: usize) -> String {
-    format!("… {heads} more")
+/// The cells `… N more` may take, for a column of `heads` heads cut to show one fewer than its
+/// limit: `…`, a space, the number left out, which is at most `heads - 1`, and ` more`. Counted,
+/// not written, since a layout may measure it many times.
+fn more_cells(heads: usize) -> usize {
+    let digits = heads.saturating_sub(1).max(1).ilog10() as usize + 1;
+    2 + digits + 5
 }
 
 /// Each group's column, with the heads it shows, measured.
@@ -230,20 +235,32 @@ fn blocks<'d>(
     checks: &[Option<bool>],
 ) -> Vec<Block<'d>> {
     let heads = definition.heads();
+    // Each head's note, found once: a describe function gives at most one per head.
+    let mut by_head: Vec<Option<&Note>> = vec![None; heads.len()];
+    for (head, note) in notes.heads.iter().rev() {
+        if let Some(slot) = by_head.get_mut(*head) {
+            *slot = Some(note);
+        }
+    }
+    let mut spelled = String::new();
     let mut blocks = Vec::with_capacity(definition.groups().len());
     for group in definition.groups() {
         let shown: Vec<usize> = group
             .heads()
-            .filter(|&i| !notes.get(i).is_some_and(|note| note.hidden))
+            .filter(|&i| !by_head[i].is_some_and(|note| note.hidden))
             .collect();
         if shown.is_empty() {
             continue;
         }
-        let key_cells: Vec<usize> = shown
+        let keys = shown
             .iter()
-            .map(|&i| cells_of(&heads[i].keys.to_string()))
-            .collect();
-        let keys = key_cells.iter().copied().max().unwrap_or(0);
+            .map(|&i| {
+                spelled.clear();
+                let _ = write!(spelled, "{}", heads[i].keys);
+                cells_of(&spelled)
+            })
+            .max()
+            .unwrap_or(0);
         let body = shown
             .iter()
             .map(|&i| {
@@ -252,7 +269,7 @@ fn blocks<'d>(
                 } else {
                     0
                 };
-                let note = notes.get(i).map_or(0, |note| cells_of(&note.text));
+                let note = by_head[i].map_or(0, |note| cells_of(&note.text));
                 let note = if note > 0 { GAP + note } else { 0 };
                 keys + GAP + check + cells_of(&heads[i].label) + note
             })

@@ -10,9 +10,7 @@ use std::borrow::Cow;
 
 use oso_core::command::Registry;
 use oso_core::key::{KeyPress, KeySequence};
-use oso_core::menu::{
-    Definition, ForeignKeys, Head, HeadAction, MAX_KEYS, MAX_ROWS, MenuId, Menus, Stay,
-};
+use oso_core::menu::{Definition, ForeignKeys, Head, HeadAction, MAX_KEYS, MenuId, Menus, Stay};
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
@@ -190,13 +188,12 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
             for (name, value) in entries {
                 match name.get_ref().as_ref() {
                     "title" => title = self.string(value, "a group's title"),
-                    "row" => match integer(value).and_then(|n| u8::try_from(n).ok()) {
-                        Some(n) => row = n,
-                        None => self.found.at(
-                            value.span().start,
-                            format_args!("a group's row is 1 to {MAX_ROWS}"),
-                        ),
-                    },
+                    // A row past a `u8` is as wrong as 4, which the definition refuses.
+                    "row" => {
+                        row = integer(value)
+                            .and_then(|n| u8::try_from(n).ok())
+                            .unwrap_or(0);
+                    }
                     "heads" => heads = Some(value),
                     other => unknown(self.found, name.span().start, other, "a group"),
                 }
@@ -330,12 +327,17 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
             },
             DeValue::Table(entries) if entries.len() == 1 => {
                 let (kind, name) = entries.iter().next()?;
+                let kind_is = |k: &str| kind.get_ref().as_ref() == k;
                 let DeValue::String(name) = name.get_ref() else {
-                    self.found.about(
-                        at,
-                        spelled,
-                        format_args!("a {} names it with a string", kind.get_ref()),
-                    );
+                    // Only a known kind is named in the message: the key is the file's text.
+                    match ["menu", "switch"].into_iter().find(|k| kind_is(k)) {
+                        Some(known) => self.found.about(
+                            at,
+                            spelled,
+                            format_args!("a {known} is named with a string"),
+                        ),
+                        None => self.found.about(at, spelled, format_args!("{ACTIONS}")),
+                    }
                     return None;
                 };
                 match kind.get_ref().as_ref() {

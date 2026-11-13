@@ -76,8 +76,9 @@ pub enum ArgSpec {
     /// [`Editor::take_search_hit`](crate::editor::Editor::take_search_hit).
     ProjectSearch { history: &'static str },
     /// A menu's name, read in a prompt that says `prompt` and completes over every menu, kept in
-    /// the history named `history` (ADR 0117). The command reads it with
-    /// [`Ctx::answer`](super::Ctx::answer).
+    /// the history named `history` (ADR 0117). The dispatcher opens the menu named in place of
+    /// running the command, as it runs the command `Command` names, since the open menus are
+    /// its own.
     Menu {
         prompt: &'static str,
         history: &'static str,

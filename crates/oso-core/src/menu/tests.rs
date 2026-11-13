@@ -221,6 +221,14 @@ fn heads_exit_by_default_and_a_menu_or_a_head_may_say_stay() {
     menu.add_head(head("- f", HeadAction::Switch("files".to_owned())))
         .unwrap();
     menu.add_head(head("x", HeadAction::Quit)).unwrap();
+    let mut menus = Menus::new();
+    let other = menus.id("other").unwrap();
+    menu.add_head(head("o", HeadAction::Menu(other))).unwrap();
+    assert_eq!(
+        menu.stay(4),
+        Stay::Stay,
+        "a submenu is pushed over this one"
+    );
     assert_eq!(
         [0, 1, 2, 3, 99].map(|i| menu.stay(i)),
         [Stay::Stay, Stay::Exit, Stay::Stay, Stay::Exit, Stay::Exit]
@@ -232,7 +240,7 @@ fn heads_exit_by_default_and_a_menu_or_a_head_may_say_stay() {
     };
     menu.add_head(exits).unwrap();
     assert_eq!(
-        [0, 1, 4].map(|i| menu.stay(i)),
+        [0, 1, 5].map(|i| menu.stay(i)),
         [Stay::Stay, Stay::Stay, Stay::Exit]
     );
     assert_eq!(menu.default_head(), Stay::Stay);

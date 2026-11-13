@@ -204,16 +204,16 @@ impl Definition {
     }
 
     /// Whether the menu stays after `head`: its own rule, or the menu's default. A switch always
-    /// stays, and a head that only closes the menu always exits. Exit for an index it has no
-    /// head at.
+    /// stays, and so does a head that opens another menu, which is pushed over this one (Q16); a
+    /// head that only closes the menu always exits. Exit for an index it has no head at.
     pub fn stay(&self, head: usize) -> Stay {
         let Some(head) = self.heads.get(head) else {
             return Stay::Exit;
         };
         match head.action {
-            HeadAction::Switch(_) => Stay::Stay,
+            HeadAction::Switch(_) | HeadAction::Menu(_) => Stay::Stay,
             HeadAction::Quit => Stay::Exit,
-            HeadAction::Command(_) | HeadAction::Menu(_) => head.stay.unwrap_or(self.default_head),
+            HeadAction::Command(_) => head.stay.unwrap_or(self.default_head),
         }
     }
 

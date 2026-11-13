@@ -345,13 +345,12 @@ fn warn_if_shift_finds_more(
         }
     }
     let finds = match resolver.feed(&layers, *last) {
-        Resolution::Shifted(_) => true,
+        // The user's layer leaves the keys themselves undefined, so a menu is found without
+        // Shift.
+        Resolution::Shifted(_) | Resolution::Menu(_) => true,
         // A prefix found without Shift stays among the pending keys unshifted.
         Resolution::Pending => resolver.pending().last() == Some(&unshifted),
-        Resolution::Command(_)
-        | Resolution::Menu(_)
-        | Resolution::Unbound(_)
-        | Resolution::Cancelled => false,
+        Resolution::Command(_) | Resolution::Unbound(_) | Resolution::Cancelled => false,
     };
     if finds {
         let mut keys = before.to_vec();

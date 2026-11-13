@@ -84,8 +84,9 @@ impl Dispatcher {
                 log::debug!("menu {} cannot open yet", definition.name());
                 editor.echo("Menus cannot open yet");
             }
-            // The configuration unbinds a default key whose menu it removes, so this is a menu
-            // of no set in force.
+            // A menu the set does not define: one the file removed, bound by a default key
+            // (ADR 0117 Q7). No default key opens a menu until step 3, which also unbinds such
+            // keys in the user's keymap, so that they say what an undefined key says.
             None => {
                 log::debug!("a key names a menu no longer defined");
                 editor.echo("That key is undefined");

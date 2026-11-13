@@ -299,3 +299,56 @@ fn a_rejected_file_keeps_the_menus_in_force() {
     assert!(loaded.rejected());
     assert!(loaded.menus.is_none());
 }
+
+#[test]
+fn an_action_table_of_another_kind_never_quotes_its_key() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        "[menus.m]\n[[menus.m.groups]]\nheads = [[\"a\", { \"\\u202e\\u001b[2J\" = 1 }, \"x\"], [\"b\", { menu = 1 }, \"x\"]]\n",
+    );
+    let said = messages(&loaded);
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(
+        said[0].ends_with("or false to only close the menu"),
+        "{said:?}"
+    );
+    assert!(
+        !said[0].contains('\u{202e}') && !said[0].contains('\u{1b}'),
+        "{said:?}"
+    );
+    assert!(
+        said[1].ends_with("\"b\": a menu is named with a string"),
+        "{said:?}"
+    );
+}
+
+#[test]
+fn a_row_past_any_number_skips_its_group() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        "[menus.m]\n[[menus.m.groups]]\nrow = 300\nheads = [[\"a\", \"forward-char\", \"x\"]]\n",
+    );
+    assert_eq!(
+        messages(&loaded),
+        ["2:1: a group's row is 1 to 3; the group is skipped"]
+    );
+    assert!(menu(&loaded, "m").heads().is_empty());
+}
+
+#[test]
+fn unbinding_a_shifted_key_warns_when_shift_still_finds_a_menu() {
+    let f = with_builtins();
+    let loaded = f.parse(
+        r#"
+        [keys.global]
+        "C-c C-t" = { menu = "toggles" }
+        "C-c C-T" = false
+        "#,
+    );
+    let said = messages(&loaded);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("changes nothing while \"C-c C-t\" is bound"),
+        "{said:?}"
+    );
+}

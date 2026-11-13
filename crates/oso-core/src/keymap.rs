@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::command::{CommandId, Registry};
-use crate::key::{Key, KeyPress, KeySequence, Modifiers};
+use crate::key::{KeyPress, KeySequence};
 use crate::menu::MenuId;
 
 /// What a key is bound to in a keymap.
@@ -267,12 +267,12 @@ impl Keymap {
 pub enum BindError {
     /// The key sequence is empty.
     Empty,
-    /// The sequence is already bound to a command.
+    /// The sequence is already bound to a command or a menu, or left undefined.
     AlreadyBound,
     /// The sequence is a prefix key with bindings under it.
     IsPrefix,
-    /// The first `len` keys are bound to a command, so they cannot be a
-    /// prefix.
+    /// The first `len` keys are bound to a command or a menu, or left undefined, so they
+    /// cannot be a prefix.
     NonPrefix { len: usize },
 }
 
@@ -285,7 +285,7 @@ impl fmt::Display for BindError {
             Self::NonPrefix { len } => {
                 write!(
                     f,
-                    "its first {len} key(s) are bound to a command, not a prefix"
+                    "its first {len} key(s) are bound to a command or a menu, not a prefix"
                 )
             }
         }
@@ -412,15 +412,12 @@ pub enum Resolution<'a> {
 }
 
 /// `C-g`, which cancels a pending prefix.
-pub const CANCEL: KeyPress = KeyPress {
-    modifiers: Modifiers::CONTROL,
-    key: Key::Char('g'),
-};
+pub const CANCEL: KeyPress = crate::key::CANCEL;
 
 /// Whether `key` is `C-g`, with Shift or not (`C-G`): the key that is never the user's, which
 /// the dispatcher, `M-x`'s bindings and the configuration file all judge by (ADR 0108, ADR 0110).
 pub fn is_cancel(key: KeyPress) -> bool {
-    key == CANCEL || key.unshifted() == Some(CANCEL)
+    crate::key::cancels(key)
 }
 
 /// Turns key presses into commands, keeping the keys of a pending prefix.

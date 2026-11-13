@@ -16,7 +16,7 @@
 //! - A built-in menu may have a [`Describe`] function, which gives [`Notes`] as it is drawn.
 
 use crate::command::CommandId;
-use crate::key::{Key, KeyPress, KeySequence, Modifiers};
+use crate::key::{Key, KeyPress, KeySequence, Modifiers, cancels as is_cancel};
 
 mod definition;
 mod error;
@@ -163,17 +163,9 @@ fn is_name(name: &str) -> bool {
         })
 }
 
-/// Whether `key` is `C-g`, with Shift or not, which always cancels.
-fn is_cancel(key: KeyPress) -> bool {
-    const CANCEL: KeyPress = KeyPress {
-        modifiers: Modifiers::CONTROL,
-        key: Key::Char('g'),
-    };
-    key == CANCEL || key.unshifted() == Some(CANCEL)
-}
-
 /// Whether `key` builds a prefix argument in an open menu (ADR 0117, Q15): `C-u`, `M-<digit>`
-/// or `M--`, so a head on it could never run.
+/// or `M--`, so a head on it could never run. The same keys as the tip crate's prefix bindings
+/// (`bindings/prefix.rs`), which must change with these.
 fn builds_prefix(key: KeyPress) -> bool {
     match key.key {
         Key::Char('u') => key.modifiers == Modifiers::CONTROL,

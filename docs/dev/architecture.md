@@ -256,8 +256,8 @@ A panicking command is caught at the command boundary
 
 ### Keymaps
 
-- `oso_core::keymap::Keymap` maps a key press to a command or to a nested
-  prefix keymap. Bindings refer to commands by id, resolved from names
+- `oso_core::keymap::Keymap` maps a key press to a command, a menu
+  ([ADR 0117](adr/0117-menus.md)) or a nested prefix keymap. Bindings refer to commands by id, resolved from names
   once, when a keymap is built from a table in Emacs notation
   ([ADR 0033](adr/0033-key-presses-and-notation.md)). Default bindings are
   in `crates/oso/src/bindings/`, with a table for each module of commands.
@@ -474,8 +474,9 @@ text command. The PTY is `oso-platform::process::pty`, spawned through the
 process module's rules ([ADR 0015](adr/0015-terminal.md),
 [ADR 0120](adr/0120-the-terminal.md)).
 
-The minibuffer, menus (hydra/transient-style), completion popups and hover
-documentation are buffers shown in floating windows. Editing commands work
+The minibuffer, completion popups and hover documentation are buffers shown in
+floating windows; a menu (hydra/transient-style) is a float with no window or
+buffer, whose heads act on the window beneath ([ADR 0117](adr/0117-menus.md)). Editing commands work
 inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). A command never
 waits for an answer: the dispatcher reads what its `ArgSpec` asks for in a prompt
 before running it, and a command that has to ask leaves a question whose `y` runs a
