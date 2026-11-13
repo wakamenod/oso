@@ -709,3 +709,18 @@ a switch made with its command stands until that setting changes in the file
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
   `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
   Code's own settings give it.
+- Which states ask for attention, in `config.toml`:
+
+  ```toml
+  [sessions.notify]
+  needs_input = true        # the defaults
+  done = true
+  failed = true
+  ready_for_review = false
+  ```
+
+  A session that enters one of these while it is not shown in the selected window of a focused
+  oso window, and is still in it 1 s later, gets an echo-area line naming it, and on macOS a
+  Dock bounce: repeated until oso is focused for needs input and failed, once otherwise. On
+  Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
+  sessions need input"). A notification names the session and its state, never screen text.

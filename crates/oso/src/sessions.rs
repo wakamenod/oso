@@ -20,6 +20,7 @@
 //! - `bridge`: whether a connection is a hosted session's bridge.
 //! - `start`: getting a session ready on a thread of its own.
 
+pub mod attention;
 pub mod bridge;
 pub mod command;
 pub mod engine;
