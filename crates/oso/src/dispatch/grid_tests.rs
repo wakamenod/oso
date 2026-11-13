@@ -1503,7 +1503,8 @@ mod scenarios {
             "foo bar foo\nbaz foo\nFoo\n",
             (6, 30),
             &[
-                "C-s f o",
+                // Literal, so the count fits the line (migemo's is below).
+                "C-s M-m f o",
                 "C-s",
                 "C-s C-s C-s",
                 "C-s",
@@ -1512,6 +1513,16 @@ mod scenarios {
                 "M-c",
                 "C-g",
             ],
+        );
+    }
+
+    #[test]
+    fn migemo_highlights_the_kana_romaji_spells_and_m_m_takes_it_back() {
+        check_frame(
+            "isearch_migemo",
+            "かな カナ ｶﾅ kana\nかんじ が\n",
+            (6, 40),
+            &["C-s k a n", "C-s", "M-m"],
         );
     }
 

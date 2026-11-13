@@ -1,6 +1,7 @@
 //! Search over a rope, for isearch (ADR 0082) and query-replace (ADR 0113): a literal query
 //! built from a string with smart case, searched forward, backward, in a range and through
-//! the whole text, and the regexps of `regexp`, matched one line at a time.
+//! the whole text, and the regexps of `regexp`, matched one line at a time, among them
+//! migemo's pattern for a romaji string (ADR 0116).
 //!
 //! Must not depend on: `buffer`, `motion`, `editor`, threads or a log. The worker's
 //! [`SearchJob`] is a plain function here, and the host runs it on its thread.
@@ -32,8 +33,8 @@ pub(crate) use job::{Counting, Find, MatchWork, Matched, Prepared, Report, after
 pub use job::{SearchJob, SearchReport};
 pub(crate) use needle::Needle;
 pub(crate) use regexp::{
-    CompileError, Line, LineTooLong, MAX_LINE, On, Regexp, compile as compile_regexp,
-    compile_isearch, quote, smart_case as regexp_smart_case,
+    CompileError, FRAME_TIME, Line, LineRoom, LineTooLong, MAX_LINE, On, Regexp,
+    compile as compile_regexp, compile_isearch, quote, smart_case as regexp_smart_case,
 };
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
@@ -65,12 +66,12 @@ impl Limits {
         on_key: false,
     };
 
-    /// A key's on the UI thread: [`KEY_BUDGET`], [`KEY_TIME`] from now, and the rest left to
-    /// the worker.
-    pub(crate) fn key() -> Self {
+    /// A key's on the UI thread: [`KEY_BUDGET`], [`KEY_TIME`] from `started`, when the key began
+    /// to build what it searches for, and the rest left to the worker.
+    pub(crate) fn key(started: Instant) -> Self {
         Self {
             work: KEY_BUDGET,
-            until: Some(Instant::now() + KEY_TIME),
+            until: Some(started + KEY_TIME),
             on_key: true,
         }
     }

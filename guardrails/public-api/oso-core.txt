@@ -1720,6 +1720,7 @@ pub fn oso_core::editor::Editor::isearch_exit(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_history(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_repeat(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
+pub fn oso_core::editor::Editor::isearch_toggle_migemo(&mut self)
 pub fn oso_core::editor::Editor::isearch_toggle_regexp(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
@@ -1841,6 +1842,8 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::SessionRequest)
 pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::set_migemo(&mut self, bool)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::tab_to_tab_stop(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
@@ -1891,6 +1894,7 @@ pub fn oso_core::editor::Isearch::backward(&self) -> bool
 pub fn oso_core::editor::Isearch::case_sensitive(&self) -> bool
 pub fn oso_core::editor::Isearch::count(&self) -> core::option::Option<(usize, usize)>
 pub fn oso_core::editor::Isearch::failing(&self) -> bool
+pub fn oso_core::editor::Isearch::migemo(&self) -> bool
 pub fn oso_core::editor::Isearch::regexp(&self) -> bool
 pub fn oso_core::editor::Isearch::searching(&self) -> bool
 pub fn oso_core::editor::Isearch::string(&self) -> &str
