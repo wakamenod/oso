@@ -129,6 +129,17 @@ pub fn list(dir: &Path) -> Listing {
     Listing { entries, cut }
 }
 
+/// The entry in the file called `name` in `dir`, if `name` is one [`read`] opens and the file
+/// passes its checks.
+pub fn read_file(dir: &Path, name: &std::ffi::OsStr) -> Option<Entry> {
+    read_entry(&dir.join(name), pid_of(name)?)
+}
+
+/// Whether a file called `name` is one [`read`] opens: `<digits>.json`.
+pub fn is_entry_name(name: &std::ffi::OsStr) -> bool {
+    pid_of(name).is_some()
+}
+
 /// The process id a file called `name` is for, if it is `<digits>.json`.
 fn pid_of(name: &std::ffi::OsStr) -> Option<u32> {
     let digits = name.to_str()?.strip_suffix(".json")?;

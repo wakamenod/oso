@@ -845,3 +845,35 @@ a switch made with its command stands until that setting changes in the file
   Dock bounce: repeated until oso is focused for needs input and failed, once otherwise. On
   Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
   sessions need input"). A notification names the session and its state, never screen text.
+- `*Sessions*` lists every session in a side window, 32 columns wide at the frame's left, shown
+  by itself while oso has a session that is not archived. Each session takes three lines: its
+  state's mark (⚠ needs input, ✗ failed, ▶ working, ◆ ready for review, ● done, ○ idle,
+  ■ stopped), name and age; its space and branch; its recap, the dialog's question or the
+  status line. Sessions are grouped by state, pinned ones first, sessions a session started
+  nested under it; archived ones last, folded. In a window 60 columns wide or more, each takes
+  one line. The list is withheld from agents: while it is shown, the agent channel's commands
+  answer in the echo area only.
+  - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
+    if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
+    for again. `C-x o` skips it; a click or `windmove-left` reaches it. While it is selected,
+    `C-x 2`, `C-x 3`, `C-x 1` and showing a buffer act on the window selected before it.
+  - The commands that show a session or the list, and pinning and archiving, need a person at
+    the keyboard: the agent channel cannot run them.
+  - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
+    renders again with fresh ages, `s` groups by space instead, `P` pins, `A` archives or
+    brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
+    explains its state.
+- `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and
+  recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
+  that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
+  session's state in `*Session explain*`.
+- A space is a project with its sessions, and keeps its own windows. `C-x a j` (`space-switch`)
+  switches to another; showing a session of another space switches to it first. A space
+  entered for the first time shows its last file and its last session side by side.
+  `C-x a z` (`space-zoom`) shows the selected window alone, and back.
+- The selected window's modeline counts `⚠ N` sessions that need input and `● N` done or
+  ready for review. A session's own modeline says its state and age, `needs input
+  (permission) 3m`, before its title. A session counts as seen after 2 s in the selected window
+  of a focused oso window: done becomes idle.
+- Sessions of Claude Code run outside oso, from its registry, are listed too, as working or
+  idle; they are never shown.

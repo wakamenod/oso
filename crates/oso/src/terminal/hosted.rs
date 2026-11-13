@@ -49,6 +49,8 @@ pub(crate) struct Hosted {
     pub selected: u64,
     /// Whether the program was last told it has the focus (mode 1004).
     pub focused: Option<bool>,
+    /// An agent session's state, reason and age, for its modeline (ADR 0121 step 3).
+    pub session_note: String,
     /// The note the modeline was last given, so that it is set only on a change.
     pub note: String,
     /// The title or the end changed since the note was made.
@@ -73,6 +75,7 @@ impl Hosted {
             ready: false,
             selected: 0,
             focused: None,
+            session_note: String::new(),
             note: String::new(),
             note_stale: false,
             noted_input: Input::SemiChar,
@@ -107,9 +110,9 @@ impl Hosted {
         self.ended.is_none()
     }
 
-    /// What the modeline says after `Terminal`: oso's own marks, the input mode and how the
-    /// program ended, then the program's title last and in quotes, so that a title can never
-    /// pass for one of them.
+    /// What the modeline says after `Terminal`: oso's own marks (an agent session's state,
+    /// the input mode and how the program ended), then the program's title last and in
+    /// quotes, so that a title can never pass for one of them.
     pub(crate) fn note_text(&self, input: Input) -> String {
         let mut note = String::new();
         let mut push = |part: &str| {
@@ -118,6 +121,9 @@ impl Hosted {
             }
             note.push_str(part);
         };
+        if !self.session_note.is_empty() {
+            push(&self.session_note);
+        }
         if input == Input::Char {
             push("char");
         }

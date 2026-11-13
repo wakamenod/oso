@@ -50,9 +50,6 @@ pub(in crate::app) struct Hosting {
     shared: Option<Begin>,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
     pub(in crate::app) worktrees: super::worktrees::Worktrees,
-    /// The spaces (ADR 0121, Q8): step 4 opens a worktree session's, nested under its
-    /// repository's.
-    pub(in crate::app) spaces: crate::sessions::spaces::Spaces,
 }
 
 /// What a new session starts with.
@@ -79,6 +76,11 @@ impl Hosting {
         &self.table
     }
 
+    /// oso's own state directory, where reviews make their index copies.
+    pub(in crate::app) fn state_directory(&self) -> Option<PathBuf> {
+        self.directory.clone()
+    }
+
     /// Sessions remembered in `directory`, oso's state directory.
     pub(in crate::app) fn new(directory: Option<PathBuf>) -> Self {
         Self {
@@ -92,7 +94,6 @@ impl Hosting {
             parents: HashMap::new(),
             shared: None,
             worktrees: super::worktrees::Worktrees::default(),
-            spaces: crate::sessions::spaces::Spaces::default(),
         }
     }
 }
@@ -160,8 +161,10 @@ impl App {
 
     /// Notes that the sessions changed: [`App::save_sessions`] hands them to the worker once
     /// for every change an event made.
-    fn remember_sessions(&mut self) {
+    /// The views of sessions are made again too (ADR 0121, step 3).
+    pub(in crate::app) fn remember_sessions(&mut self) {
         self.hosting.unsaved = true;
+        self.sessions_touched();
     }
 
     /// After an event: hands the sessions to the worker to remember, keeping another

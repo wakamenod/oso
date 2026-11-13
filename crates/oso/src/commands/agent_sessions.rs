@@ -8,12 +8,15 @@
 //! and asks the host, whose start thread and sessions worker do the work.
 //!
 //! What starts or resumes a session needs a person at the keyboard: a session runs a process.
-//! What only shows is `Look`: an agent that runs one still cannot show a buffer withheld from
-//! it, a session's terminal among them.
+//! So does what puts a session's terminal or `*Sessions*` in front of the person's keys, as the
+//! host selects the window after the command (the author's choice, 2026-11-13).
+//! `session-switch` and `session-explain` are `Look`: the first completes over a list the agent
+//! channel cannot answer, and the second shows only a buffer withheld from agents.
 
 mod list;
 
 pub use list::COMMANDS as LIST_COMMANDS;
+pub use list::ROW_MARKS;
 
 use std::path::PathBuf;
 
@@ -74,7 +77,7 @@ pub const COMMANDS: &[Command] = &[
 
 The list groups the sessions by state, most urgent first, or by space. `C-x o` passes the side window over, and `C-x 1` keeps it. Once hidden, it does not show by itself again until oso restarts.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: sessions,
         state: None,
     },
@@ -96,7 +99,7 @@ Each session is its buffer's name, with its state, space, branch and recap after
         name: "session-next-waiting",
         doc: "Show the session that has needed input longest, switching to its space.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: session_next_waiting,
         state: None,
     },
@@ -104,7 +107,7 @@ Each session is its buffer's name, with its state, space, branch and recap after
         name: "session-next-done",
         doc: "Show the session done or ready for review longest, switching to its space.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: session_next_done,
         state: None,
     },
@@ -118,7 +121,7 @@ The windows of the space left are kept for when it is shown again. A space shown
             prompt: "Space:",
             history: "space",
         },
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: space_switch,
         state: None,
     },
@@ -128,7 +131,7 @@ The windows of the space left are kept for when it is shown again. A space shown
 
 Back, the window it was zoomed from shows what the zoomed window showed, where it was.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: space_zoom,
         state: None,
     },

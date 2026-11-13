@@ -8,7 +8,7 @@
 //! host-owned state and does not know its keys.
 
 mod agent;
-mod agent_sessions;
+pub(crate) mod agent_sessions;
 mod aids;
 mod buffers;
 mod complete;
@@ -104,8 +104,8 @@ const TABLES: &[&[Command]] = &[
     scroll::COMMANDS,
     session::COMMANDS,
     agent_sessions::COMMANDS,
-    terminal::COMMANDS,
     agent_sessions::LIST_COMMANDS,
+    terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -290,6 +290,18 @@ mod tests {
         "claude",
         "session-fork",
         "session-resume",
+        "session-stop",
+        "sessions-resume",
+        // What puts a session's terminal or `*Sessions*` in front of the person's keys, and
+        // what changes which sessions ask for them (ADR 0121, step 3).
+        "sessions",
+        "session-next-done",
+        "session-next-waiting",
+        "sessions-archive",
+        "sessions-pin",
+        "sessions-show",
+        "space-switch",
+        "space-zoom",
         // Worktree sessions, which run git, gh and a session (ADR 0121).
         "brief-cancel",
         "brief-send",
@@ -307,8 +319,6 @@ mod tests {
         "terminal-send-interrupt",
         "terminal-send-next-key",
         "terminal-yank",
-        "session-stop",
-        "sessions-resume",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
