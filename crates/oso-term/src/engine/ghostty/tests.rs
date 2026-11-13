@@ -6,8 +6,11 @@
 use oso_platform::process::pty::Size;
 
 use super::Ghostty;
+use crate::engine::Effect;
 use crate::engine::Engine;
-use crate::snapshot::{Attrs, Color, CursorShape, Mouse, Palette, Rgb, Row, Snapshot, Underline};
+use crate::snapshot::{
+    Attrs, Color, CursorShape, Mouse, Palette, Rgb, Row, Scroll, Snapshot, Underline,
+};
 
 /// What `XTVERSION` answers in these tests; the policy's is the thread's.
 pub(crate) const XTVERSION: &str = "oso test";
@@ -247,6 +250,102 @@ fn modes_and_the_cursor_follow_the_program() {
     assert!(!s.modes.alternate_screen);
 }
 
+/// The screen a snapshot leaves, applied over the rows of the ones before it.
+fn apply(screen: &mut Vec<String>, s: &Snapshot) {
+    screen.resize(usize::from(s.size.rows), String::new());
+    for row in &s.rows {
+        screen[usize::from(row.index)] = text(row);
+    }
+}
+
+#[test]
+fn a_scroll_moves_the_view_and_output_keeps_it_there() {
+    let mut e = engine(10, 3);
+    for i in 0..20 {
+        e.feed(format!("l{i}\r\n").as_bytes());
+    }
+    let mut screen = Vec::new();
+    let (s, _) = snapshot(&mut e);
+    apply(&mut screen, &s);
+    assert_eq!((s.scrolled, s.history), (0, 18));
+    assert_eq!(screen, ["l18", "l19", ""]);
+    e.scroll(Scroll::Lines(-5));
+    let (s, changed) = snapshot(&mut e);
+    assert!(changed);
+    assert_eq!(s.rows.len(), 3, "a scroll sends the rows scrolled to");
+    apply(&mut screen, &s);
+    assert_eq!(s.scrolled, 5);
+    assert_eq!(screen, ["l13", "l14", "l15"]);
+    e.feed(b"more\r\nand more\r\n");
+    let (s, _) = snapshot(&mut e);
+    apply(&mut screen, &s);
+    assert_eq!(s.scrolled, 7, "output keeps the view where it is");
+    assert_eq!(screen, ["l13", "l14", "l15"]);
+    e.scroll(Scroll::Lines(isize::MAX));
+    let (s, _) = snapshot(&mut e);
+    apply(&mut screen, &s);
+    assert_eq!(s.scrolled, 0);
+    assert_eq!(screen, ["more", "and more", ""]);
+    e.scroll(Scroll::Lines(isize::MIN));
+    let (s, _) = snapshot(&mut e);
+    apply(&mut screen, &s);
+    assert_eq!(s.scrolled, s.history);
+    assert_eq!(screen, ["l0", "l1", "l2"]);
+    e.scroll(Scroll::Bottom);
+    let (s, _) = snapshot(&mut e);
+    apply(&mut screen, &s);
+    assert_eq!(s.scrolled, 0);
+    assert_eq!(screen, ["more", "and more", ""]);
+}
+
+/// Every input scrolls to the bottom first: at the bottom already, that sends no row.
+#[test]
+fn a_scroll_to_the_bottom_at_the_bottom_changes_nothing() {
+    let mut e = engine(10, 3);
+    e.feed(b"one\r\ntwo");
+    snapshot(&mut e);
+    e.scroll(Scroll::Bottom);
+    e.scroll(Scroll::Lines(0));
+    let (s, changed) = snapshot(&mut e);
+    assert!(!changed && s.rows.is_empty(), "{:?}", s.rows);
+}
+
+#[test]
+fn the_alternate_screen_does_not_scroll() {
+    let mut e = engine(10, 3);
+    for i in 0..20 {
+        e.feed(format!("l{i}\r\n").as_bytes());
+    }
+    e.feed(b"\x1b[?1049h");
+    e.scroll(Scroll::Lines(-5));
+    let (s, _) = snapshot(&mut e);
+    assert_eq!(s.scrolled, 0);
+}
+
+/// Mode 2027 is on before any output, and after a reset: a flag is one cluster in one wide
+/// cell, and DECRQM reports the mode set.
+#[test]
+fn grapheme_clustering_is_on_from_the_start() {
+    for reset in [&b""[..], b"\x1bc"] {
+        let mut e = engine(10, 2);
+        e.feed(reset);
+        e.feed(b"\x1b[?2027$p");
+        let mut effects = Vec::new();
+        e.take_effects(&mut effects);
+        effects.retain(|effect| matches!(effect, Effect::Reply(_)));
+        assert_eq!(effects, [Effect::Reply(b"\x1b[?2027;1$y".to_vec())]);
+        e.feed("\u{1F1EF}\u{1F1F5}x".as_bytes());
+        let (s, _) = snapshot(&mut e);
+        let row = &s.rows[0];
+        assert!(row.cells[0].attrs.contains(Attrs::WIDE));
+        assert!(row.cells[0].attrs.contains(Attrs::GRAPHEME));
+        assert!(row.cells[1].attrs.contains(Attrs::WIDE_SPACER));
+        assert_eq!(row.cells[2].ch, 'x');
+        assert_eq!(row.text, "\u{1F1EF}\u{1F1F5}");
+        assert_eq!(row.graphemes, [(0, 0..8)]);
+    }
+}
+
 #[test]
 fn spare_rows_are_reused() {
     let mut e = engine(10, 3);
@@ -268,9 +367,10 @@ fn a_reused_row_keeps_no_cluster_text_of_its_last_use() {
     let mut spare = Vec::new();
     e.feed("e\u{301}a\u{1F1EF}\u{1F1F5}".as_bytes());
     e.snapshot(&mut out, &mut spare);
-    assert_eq!(out.rows[0].graphemes.len(), 1, "{:?}", out.rows[0]);
+    // Clustering (mode 2027) is on from the start: the flag is one cluster too.
+    assert_eq!(out.rows[0].graphemes.len(), 2, "{:?}", out.rows[0]);
     out.clear(&mut spare);
-    e.feed("\ru\u{308}".as_bytes());
+    e.feed("\ru\u{308}bcd".as_bytes());
     e.snapshot(&mut out, &mut spare);
     let row = &out.rows[0];
     assert_eq!(row.text, "u\u{308}");

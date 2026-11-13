@@ -183,6 +183,7 @@ define_class!(
             state.deliver(Delivery::Window(Event::ModifiersChanged(
                 crate::window::Held::NONE,
             )));
+            state.deliver(Delivery::Window(Event::Unfocused));
         }
     }
 );

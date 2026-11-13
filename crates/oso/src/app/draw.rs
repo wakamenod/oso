@@ -13,11 +13,14 @@ use std::time::Instant;
 
 use oso_core::editor::{Editor, MatchCells, Status};
 use oso_core::window::{Screen, WindowId};
-use oso_render::{Bands, Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span};
+use oso_render::{
+    Bands, Face, GridRow, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span,
+};
 
 use super::App;
 use super::shell::{Loop, Window};
 use crate::dispatch::OpenMenu;
+use crate::terminal::hosted::Terminals;
 use crate::text;
 
 mod float;
@@ -44,6 +47,10 @@ pub(super) struct Cells {
     panes: Vec<Pane<'static>>,
     /// An open menu's float, worked out again only when it changes (ADR 0117).
     menu: menu::MenuCells,
+    /// Room for the rows of the terminals shown, and which of them each one's are
+    /// (ADR 0120).
+    grid_rows: Vec<GridRow<'static>>,
+    grids: Vec<(oso_core::buffer::BufferId, std::ops::Range<usize>)>,
 }
 
 /// `room`'s allocation, emptied, for elements that differ from its own only in their
@@ -67,13 +74,14 @@ pub(super) fn with_panes<R>(
     cells: &mut Cells,
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
-    with_frame(editor, None, statuses, cells, draw)
+    let terminals = Terminals::default();
+    with_frame((editor, &terminals), None, statuses, cells, draw)
 }
 
 /// As [`with_panes`], with the open menu's float over the tiled panes, if one is open
 /// (ADR 0117).
 pub(super) fn with_frame<R>(
-    editor: &Editor,
+    (editor, terminals): (&Editor, &Terminals),
     open_menu: Option<&OpenMenu<'_>>,
     statuses: &[(WindowId, Status)],
     cells: &mut Cells,
@@ -101,7 +109,11 @@ pub(super) fn with_frame<R>(
     let windows = editor.frame().windows();
     let spans = tiled::spans_of(windows, statuses, &cells.windows, &empty, &mut room);
     let rows = tiled::rows_of(&spans.0, &spans.1, &mut room);
+    let mut grid_rows: Vec<GridRow<'_>> = reuse(std::mem::take(&mut cells.grid_rows));
+    let mut grids = std::mem::take(&mut cells.grids);
+    shown_grids((editor, terminals), &mut grid_rows, &mut grids);
     let drawn = tiled::Drawn {
+        terminals: tiled::Grids::new(terminals, &grid_rows, &grids),
         cells: &cells.windows,
         fills: &spans.2,
         labels: &spans.3,
@@ -151,6 +163,7 @@ pub(super) fn with_frame<R>(
     }
     let result = draw(&list);
     cells.panes = reuse(list);
+    (cells.grid_rows, cells.grids) = (reuse(grid_rows), grids);
     let menu_room = menu::lines_back(menu_room, menu_lines);
     cells
         .menu
@@ -159,6 +172,32 @@ pub(super) fn with_frame<R>(
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;
     result
+}
+
+/// Every terminal a window shows, its rows once however many windows show it, into `rows`,
+/// and which of them each one's are into `grids`, emptied first (ADR 0120).
+fn shown_grids<'a>(
+    (editor, terminals): (&Editor, &'a Terminals),
+    rows: &mut Vec<GridRow<'a>>,
+    grids: &mut Vec<(oso_core::buffer::BufferId, std::ops::Range<usize>)>,
+) {
+    grids.clear();
+    for (id, _) in editor.frame().windows() {
+        let Some(buffer) = editor
+            .window_by_id(*id)
+            .map(oso_core::window::Window::buffer)
+        else {
+            continue;
+        };
+        if grids.iter().any(|(shown, _)| *shown == buffer) {
+            continue;
+        }
+        if let Some(hosted) = terminals.get(buffer) {
+            let start = rows.len();
+            hosted.grid.rows_into(rows);
+            grids.push((buffer, start..rows.len()));
+        }
+    }
 }
 
 /// The window and its renderer. The tip crate owns the window; `oso-render`
@@ -273,6 +312,10 @@ impl App {
     pub(super) fn draw_frame(&mut self) {
         let frame = Instant::now();
         self.poll_loads();
+        // At most one snapshot per terminal per frame (ADR 0120, Q4); one more may wait.
+        if self.take_terminal_snapshots() {
+            self.request_redraw();
+        }
         // A load, a reload or a key may have given the line count another digit (ADR 0097).
         self.editor.fit_gutter();
         let Some(view) = self.view.as_mut() else {
@@ -286,6 +329,11 @@ impl App {
                 Some(_) => view.theme = Some(name),
                 None => debug_assert!(false, "the renderer has no theme named {name}"),
             }
+            super::terminals::retheme(
+                &self.terminals.map,
+                &self.terminals.palettes,
+                self.editor.theme(),
+            );
         }
         let window = &view.window;
         let window_size = || window.inner_size();
@@ -299,7 +347,7 @@ impl App {
         cells.flash = self.flash.strength(Instant::now());
         let open_menu = self.dispatcher.menu();
         let result = with_frame(
-            &self.editor,
+            (&self.editor, &self.terminals.map),
             open_menu.as_ref(),
             &self.statuses,
             cells,
@@ -390,6 +438,7 @@ mod tests {
                         let spans = match &pane.content {
                             PaneContent::Text(_)
                             | PaneContent::Masked(_)
+                            | PaneContent::Grid(_)
                             | PaneContent::Divider => Vec::new(),
                             PaneContent::Lines(lines) => lines[0]
                                 .iter()
@@ -451,6 +500,7 @@ mod tests {
                             .unwrap_or_default(),
                         PaneContent::Divider => "divider".to_owned(),
                         PaneContent::Masked(_) => String::new(),
+                        PaneContent::Grid(_) => "grid".to_owned(),
                     };
                     (pane.id, pane.region, pane.background, what)
                 })

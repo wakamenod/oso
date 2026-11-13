@@ -175,6 +175,10 @@ impl App {
             };
         }
         let (rows, columns) = wheeling.remainder.add(rows, columns);
+        // Over a terminal, the wheel scrolls its scrollback, on its thread (ADR 0120).
+        if self.wheel_terminal(window, rows) {
+            return Some((window, false));
+        }
         if crate::dispatch::holds_input(&self.editor) {
             match self
                 .held_wheel

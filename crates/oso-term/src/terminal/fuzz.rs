@@ -2,8 +2,10 @@
 //! sequences fed through the engine and the policy, as a terminal's thread feeds them.
 //! libFuzzer's coverage does not reach inside Zig, so inputs come from a grammar: CSI with huge
 //! parameters, private modes, SGR's colon forms, OSC numbers with fixed payloads, DCS heads,
-//! Kitty APC keys, ESC forms, REP and margins, invalid UTF-8 and resizes; the long run also
-//! makes long clusters, a link on each of many cells, and the largest grid.
+//! Kitty APC keys, ESC forms, REP and margins, synchronized updates set and reset, invalid
+//! UTF-8, and resizes; between them, the UI's keys, pastes, scrolls and focus changes
+//! (`requests`), served as the thread serves them, on a clock each input moves on. The long
+//! run also makes long clusters, a link on each of many cells, and the largest grid.
 //!
 //! Must not depend on: the thread or a PTY; it drives the engine directly.
 //!
@@ -12,22 +14,25 @@
 //! restarts it after the input and records the stop. `smoke` runs a few hundred in `just test`.
 //!
 //! Settings of `long`, through the environment: `OSO_TERM_FUZZ_SECONDS`, `_SEED`, `_FIRST`
-//! (the first iteration), `_STATE` and `_REPORT` (files), `_NO_RESIZE`, `_SCROLLBACK`; and
-//! `_INPUT=<iteration>`, which writes that input as a script (`new`, `resize`, `write HEX`)
-//! to the report instead of running, for reducing a finding outside the repository, or
-//! `_SCRIPT=<file>`, which runs one.
+//! (the first iteration), `_STATE` and `_REPORT` (files), `_NO_RESIZE`, `_SCROLLBACK`;
+//! `_INPUT=<iteration>` writes that input as a script (`script`) and `_SCRIPT=<file>` runs one.
 
 #![cfg(unix)]
 
+mod requests;
+mod script;
+
+use script::sized;
+
 use std::env;
-use std::fmt::Write as _;
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::time::{Duration, Instant};
 
 use oso_platform::process::pty::Size;
 
-use super::thread::judge;
+use super::Request;
+use super::thread::{Hold, Inputs, judge};
 use crate::engine::ghostty::Ghostty;
 use crate::engine::{Effect, Engine};
 use crate::event::Event;
@@ -363,7 +368,9 @@ fn esc(rng: &mut Rng, out: &mut Vec<u8>) {
 }
 
 fn piece(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
-    match rng.below(20) {
+    match rng.below(21) {
+        20 if rng.chance(50) => out.extend_from_slice(b"\x1b[?2026h"),
+        20 => out.extend_from_slice(b"\x1b[?2026l"),
         0..=5 => text(rng, out, grammar),
         6 => out.push(rng.below(32) as u8),
         7..=12 => csi(rng, out),
@@ -374,9 +381,20 @@ fn piece(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
     }
 }
 
-/// The input of `iteration` under `seed`: bytes of output, and a resize after them.
-fn input(seed: u64, iteration: u64, resizes: bool, grammar: Grammar) -> (Vec<u8>, Option<Size>) {
+/// One input: the UI's requests, the time since the last input, bytes of output, and a
+/// resize after them.
+struct Case {
+    requests: Vec<Request>,
+    tick: Duration,
+    data: Vec<u8>,
+    resize: Option<Size>,
+}
+
+/// The input of `iteration` under `seed`.
+fn input(seed: u64, iteration: u64, resizes: bool, grammar: Grammar) -> Case {
     let mut rng = Rng::new(seed, iteration);
+    let requests = requests::requests(&mut rng);
+    let tick = Duration::from_millis(rng.below(1500));
     let mut out = Vec::new();
     for _ in 0..1 + rng.below(200) {
         piece(&mut rng, &mut out, grammar);
@@ -392,17 +410,12 @@ fn input(seed: u64, iteration: u64, resizes: bool, grammar: Grammar) -> (Vec<u8>
         let &(columns, rows) = rng.pick(sizes);
         sized(columns, rows)
     });
-    (out, resize)
-}
-
-fn sized(columns: u16, rows: u16) -> Size {
-    // As a terminal's thread clamps every size.
-    limits::clamp(Size {
-        columns,
-        rows,
-        width: columns.saturating_mul(8),
-        height: rows.saturating_mul(16),
-    })
+    Case {
+        requests,
+        tick,
+        data: out,
+        resize,
+    }
 }
 
 /// The scrollback of `iteration`'s block, rotating 100, 1,000 and 10,000 lines.
@@ -413,14 +426,17 @@ fn scrollback(iteration: u64) -> usize {
     set.unwrap_or([100, 1000, 10_000][(iteration / BLOCK % 3) as usize])
 }
 
-/// Feeds one input as a terminal's thread would: parse, resize, judge (with the thread's own
-/// `judge`), snapshot.
+/// Feeds one input as a terminal's thread would: serve the requests (with the thread's own
+/// `Inputs`), parse, resize, judge (with its `judge`), and snapshot unless a hold is open.
 struct Driver {
     engine: Ghostty,
     snapshot: Snapshot,
     spare: Vec<Row>,
     effects: Vec<Effect>,
     replies: Vec<u8>,
+    inputs: Inputs,
+    hold: Hold,
+    now: Instant,
 }
 
 impl Driver {
@@ -432,22 +448,61 @@ impl Driver {
             spare: Vec::new(),
             effects: Vec::new(),
             replies: Vec::new(),
+            inputs: Inputs::new(),
+            hold: Hold::default(),
+            now: Instant::now(),
         }
     }
 
-    fn feed(&mut self, data: &[u8], resize: Option<Size>) {
+    fn serve(&mut self, request: Request) {
+        match request {
+            Request::Input(input) => {
+                let pasted = matches!(input, super::Input::Paste { .. });
+                let (bytes, _) = self
+                    .inputs
+                    .serve(input, &mut self.engine, &mut self.snapshot);
+                if pasted {
+                    requests::check_paste(&bytes);
+                }
+            }
+            Request::Scroll(scroll) => self.engine.scroll(scroll),
+            _ => {}
+        }
+    }
+
+    fn feed(&mut self, data: &[u8], resize: Option<Size>, tick: Duration) {
+        self.now += tick;
         self.engine.feed(data);
         if let Some(size) = resize {
             self.engine.resize(size);
         }
         self.engine.take_effects(&mut self.effects);
-        judge(&mut self.effects, &mut self.replies, &mut self.snapshot);
+        let (snapshot, hold) = (&mut self.snapshot, &mut self.hold);
+        judge(
+            &mut self.effects,
+            &mut self.replies,
+            snapshot,
+            hold,
+            self.now,
+        );
         self.replies.clear();
         for event in &self.snapshot.events {
             check(event);
         }
+        if self.hold.holds(self.now, limits::RENDER_HOLD_MAX) {
+            return;
+        }
         self.engine.snapshot(&mut self.snapshot, &mut self.spare);
+        let s = &self.snapshot;
+        assert!(s.scrolled <= s.history, "{} {}", s.scrolled, s.history);
         self.snapshot.clear(&mut self.spare);
+    }
+
+    fn run(&mut self, case: Case) {
+        for request in case.requests {
+            self.serve(request);
+        }
+        self.feed(&case.data, case.resize, case.tick);
     }
 }
 
@@ -471,8 +526,7 @@ fn smoke() {
         if iteration.is_multiple_of(BLOCK) {
             driver = Driver::new(scrollback(iteration));
         }
-        let (data, resize) = input(0x5eed, iteration, true, Grammar::Basic);
-        driver.feed(&data, resize);
+        driver.run(input(0x5eed, iteration, true, Grammar::Basic));
     }
 }
 
@@ -495,12 +549,12 @@ fn long() {
     let seed = setting("SEED").unwrap_or(1);
     let resizes = env::var_os("OSO_TERM_FUZZ_NO_RESIZE").is_none();
     if let Some(iteration) = setting("INPUT") {
-        let script = script_of(seed, iteration, resizes);
+        let script = script::script_of(seed, iteration, resizes);
         report.write_all(script.as_bytes()).expect("the report");
         return;
     }
     if let Ok(path) = env::var("OSO_TERM_FUZZ_SCRIPT") {
-        run_script(&fs::read_to_string(path).expect("the script"));
+        script::run_script(&fs::read_to_string(path).expect("the script"));
         return;
     }
     let seconds = setting("SECONDS").unwrap_or(60);
@@ -518,20 +572,18 @@ fn long() {
         state
             .write_all(format!("{iteration:020}\n").as_bytes())
             .expect("the state file");
-        let (data, resize) = input(seed, iteration, resizes, Grammar::Full);
+        let case = input(seed, iteration, resizes, Grammar::Full);
+        let len = case.data.len();
         let started = Instant::now();
-        driver.feed(&data, resize);
+        driver.run(case);
         let took = started.elapsed();
         if took > SLOW {
             slow += 1;
             let ms = took.as_millis();
-            let line = format!(
-                "SLOW iteration {iteration} seed {seed}: {ms} ms, {} bytes\n",
-                data.len()
-            );
+            let line = format!("SLOW iteration {iteration} seed {seed}: {ms} ms, {len} bytes\n");
             report.write_all(line.as_bytes()).expect("the report");
         }
-        bytes += data.len() as u64;
+        bytes += len as u64;
         iteration += 1;
     }
     let done = format!(
@@ -539,45 +591,4 @@ fn long() {
         bytes / 1_000_000
     );
     report.write_all(done.as_bytes()).expect("the report");
-}
-
-/// The script that rebuilds `iteration`'s terminal: its block's inputs up to it.
-fn script_of(seed: u64, iteration: u64, resizes: bool) -> String {
-    let mut script = format!("new 80 24 {}\n", scrollback(iteration));
-    for i in iteration - iteration % BLOCK..=iteration {
-        let (data, resize) = input(seed, i, resizes, Grammar::Full);
-        script.push_str("write ");
-        for byte in data {
-            let _ = write!(script, "{byte:02x}");
-        }
-        script.push('\n');
-        if let Some(size) = resize {
-            let _ = writeln!(script, "resize {} {}", size.columns, size.rows);
-        }
-    }
-    script
-}
-
-fn run_script(script: &str) {
-    let mut driver = Driver::new(scrollback(0));
-    for line in script.lines() {
-        let words: Vec<&str> = line.split_whitespace().collect();
-        match words.as_slice() {
-            ["new", _, _, lines] => driver = Driver::new(lines.parse().expect("lines")),
-            ["resize", columns, rows] => {
-                let size = sized(
-                    columns.parse().expect("columns"),
-                    rows.parse().expect("rows"),
-                );
-                driver.feed(&[], Some(size));
-            }
-            ["write", hex] => {
-                let data: Vec<u8> = (0..hex.len() / 2)
-                    .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex"))
-                    .collect();
-                driver.feed(&data, None);
-            }
-            _ => panic!("unknown script line {line:?}"),
-        }
-    }
 }

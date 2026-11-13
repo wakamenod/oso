@@ -127,6 +127,10 @@ impl Editor {
             return None;
         }
         let (window, buffer, regions) = self.selected_in_tree(id)?;
+        // A terminal's grid is its program's to mark (ADR 0120).
+        if buffer.is_terminal() {
+            return None;
+        }
         let line = window.cursor_point(&buffer.display()).row;
         let text = regions.text;
         let rows = &screen.rows()[..screen.rows().len().min(text.rows)];

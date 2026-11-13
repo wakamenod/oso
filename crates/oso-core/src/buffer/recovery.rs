@@ -47,13 +47,15 @@ impl Buffer {
     }
 
     /// Sets its mode, as a command or a visit does, and says whether it took: an internal
-    /// buffer keeps the mode it was made with, and the emergency copies' modes, whose keys
-    /// read copies, are only an internal buffer's. Highlights and edits logged for another mode
+    /// buffer and a terminal's keep the mode they were made with, and the emergency copies'
+    /// modes, whose keys read copies, are only an internal buffer's, as `Terminal` is only a
+    /// terminal's. Highlights and edits logged for another mode
     /// go, and the mode's revision moves on even for the same mode, as setting a mode again
     /// gives highlighting that stopped another try (ADR 0111). Its indentation stays as it
     /// was; the editor's `set_buffer_mode` gives it the mode's too (ADR 0115).
     pub fn set_mode(&mut self, mode: Mode) -> bool {
-        if self.internal || mode.shows_copies() {
+        // A terminal's mode is its own, and no other buffer takes it (ADR 0120).
+        if self.internal || self.terminal || mode.shows_copies() || mode == Mode::Terminal {
             return false;
         }
         self.put_mode(mode);

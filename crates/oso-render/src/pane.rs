@@ -1,8 +1,10 @@
 //! What a frame is made of: the list of panes the caller hands the renderer,
 //! and the faces they draw with (ADR 0061).
 //!
-//! Must not depend on: `atlas`, `grid`, `rows`, `scene`, `shape`, `text` or the
+//! Must not depend on: `atlas`, `cells`, `grid`, `rows`, `scene`, `shape`, `text` or the
 //! GPU. These are plain data, and everything else in this crate reads them.
+
+use std::ops::Range;
 
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot, Preedit};
@@ -141,6 +143,39 @@ pub enum Face {
     ReviewCommentAgent,
     /// What says a comment is outdated, dim.
     ReviewOutdated,
+    /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
+    /// for its text or its background. A theme gives the 16 colours that suit it.
+    TerminalColor0,
+    /// A terminal's colour 1, red.
+    TerminalColor1,
+    /// A terminal's colour 2, green.
+    TerminalColor2,
+    /// A terminal's colour 3, yellow.
+    TerminalColor3,
+    /// A terminal's colour 4, blue.
+    TerminalColor4,
+    /// A terminal's colour 5, magenta.
+    TerminalColor5,
+    /// A terminal's colour 6, cyan.
+    TerminalColor6,
+    /// A terminal's colour 7, white.
+    TerminalColor7,
+    /// A terminal's colour 8, bright black.
+    TerminalColor8,
+    /// A terminal's colour 9, bright red.
+    TerminalColor9,
+    /// A terminal's colour 10, bright green.
+    TerminalColor10,
+    /// A terminal's colour 11, bright yellow.
+    TerminalColor11,
+    /// A terminal's colour 12, bright blue.
+    TerminalColor12,
+    /// A terminal's colour 13, bright magenta.
+    TerminalColor13,
+    /// A terminal's colour 14, bright cyan.
+    TerminalColor14,
+    /// A terminal's colour 15, bright white.
+    TerminalColor15,
 }
 
 impl Face {
@@ -305,6 +340,127 @@ pub enum PaneContent<'a> {
     /// The line between side by side windows: one pixel wide down the middle of the pane's
     /// column, in [`Face::Divider`] (ADR 0112).
     Divider,
+    /// A terminal's cell grid (ADR 0120).
+    Grid(GridView<'a>),
+}
+
+/// What [`PaneContent::Grid`] shows: a terminal's visible rows, from the pane's top row, each
+/// cell at its own column (ADR 0120). Rows past the pane and cells past its width are not
+/// drawn, and what the rows leave of the pane shows the text's background.
+pub struct GridView<'a> {
+    /// Which grid it is, so that shaped rows of another are not reused.
+    pub id: u64,
+    pub rows: &'a [GridRow<'a>],
+    /// The cursor, or `None` while the program hides it.
+    pub cursor: Option<GridCursor>,
+    /// What an input method is composing, drawn over the cells from `preedit_at` on, which it
+    /// covers and does not push (ADR 0069).
+    pub preedit: Option<&'a Preedit>,
+    /// The row and column the preedit starts at: the program's cursor cell, also while the
+    /// program hides the cursor, as a TUI's input box does (ADR 0120).
+    pub preedit_at: (u16, u16),
+}
+
+/// One row of a [`GridView`]. No `Debug`: it holds what a program printed (ADR 0028).
+pub struct GridRow<'a> {
+    /// Changes whenever the row's cells do. While it holds, the row is not read again.
+    pub generation: u64,
+    /// From the row's first column, one a column.
+    pub cells: &'a [GridCell],
+    /// The text of each cell of more than one code point, one after another.
+    pub text: &'a str,
+    /// Each such cell's column and its bytes in `text`, sorted by column.
+    pub graphemes: &'a [(u16, Range<u32>)],
+}
+
+/// One cell of a [`GridRow`]. A cell of [`GridStyle::GRAPHEME`] takes its text from the row's
+/// `graphemes`, and any other `ch`. `' '` and `'\0'` draw no glyph.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GridCell {
+    pub ch: char,
+    pub fg: GridColor,
+    pub bg: GridColor,
+    pub underline_color: GridColor,
+    pub style: GridStyle,
+}
+
+/// A cell's colour, resolved when it is drawn, so a switch of theme needs no new rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GridColor {
+    /// [`Face::Text`]'s foreground for a cell's text, its background for the cell's
+    /// background, and the cell's text's colour for its underline.
+    Default,
+    /// The face's foreground, for the text or the background alike: the terminal faces are
+    /// single colours.
+    Face(Face),
+    /// sRGB, drawn as given.
+    Rgb([u8; 3]),
+}
+
+/// How a cell is drawn, as flags.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct GridStyle(u16);
+
+impl GridStyle {
+    /// Kept, and drawn regular: there are no font weights yet.
+    pub const BOLD: Self = Self(1);
+    /// Kept, and drawn regular.
+    pub const ITALIC: Self = Self(1 << 1);
+    /// The text's colour halfway to the background's.
+    pub const DIM: Self = Self(1 << 2);
+    /// The text's and the background's colours swapped.
+    pub const INVERSE: Self = Self(1 << 3);
+    /// No glyph, only the background.
+    pub const HIDDEN: Self = Self(1 << 4);
+    /// A line through the cell.
+    pub const STRIKE: Self = Self(1 << 5);
+    /// A line under the cell, in its underline colour.
+    pub const UNDERLINE: Self = Self(1 << 6);
+    /// Two lines under the cell.
+    pub const DOUBLE_UNDERLINE: Self = Self(1 << 7);
+    /// A glyph two columns wide, over this cell and the spacer after it.
+    pub const WIDE: Self = Self(1 << 8);
+    /// The second column of a wide cell: only its background is drawn.
+    pub const WIDE_SPACER: Self = Self(1 << 9);
+    /// The cell's text is more than one code point, in the row's `graphemes`.
+    pub const GRAPHEME: Self = Self(1 << 10);
+
+    /// Whether every flag of `other` is set.
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// The flags of both.
+    pub const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// The flags of this one but `other`'s.
+    pub(crate) const fn without(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+}
+
+/// A terminal's cursor, in its grid's cells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GridCursor {
+    pub row: u16,
+    pub column: u16,
+    pub shape: GridCursorShape,
+    /// Drawn as the outline of its cell, whatever its shape, as a window that is not
+    /// selected draws its cursor.
+    pub hollow: bool,
+}
+
+/// How a program asks its cursor to look.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GridCursorShape {
+    /// The cursor face's box, with the glyph on it in the box's own colour.
+    Block,
+    /// A thin bar at the cell's left.
+    Bar,
+    /// A line at the cell's bottom.
+    Underline,
 }
 
 /// What [`PaneContent::Masked`] shows.

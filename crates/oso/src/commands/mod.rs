@@ -37,6 +37,7 @@ pub(crate) mod review;
 mod save;
 mod scroll;
 mod session;
+mod terminal;
 mod theme;
 mod view;
 mod whitespace;
@@ -103,6 +104,7 @@ const TABLES: &[&[Command]] = &[
     session::COMMANDS,
     agent_sessions::COMMANDS,
     agent_sessions::LIST_COMMANDS,
+    terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -288,6 +290,13 @@ mod tests {
         "session-resume",
         "session-stop",
         "sessions-resume",
+        // A terminal, which runs a program and takes the person's keys (ADR 0120).
+        "terminal",
+        "terminal-char-mode",
+        "terminal-paste-lines",
+        "terminal-send-interrupt",
+        "terminal-send-next-key",
+        "terminal-yank",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

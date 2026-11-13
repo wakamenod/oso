@@ -108,7 +108,8 @@ impl Offer {
             | Mode::Markdown
             | Mode::Toml
             | Mode::Review
-            | Mode::Sessions => None,
+            | Mode::Sessions
+            | Mode::Terminal => None,
             Mode::CopyList => {
                 let index = line.checked_sub(HEADER_ROWS)?;
                 (index < self.rows.len()).then_some(index)

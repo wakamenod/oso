@@ -24,7 +24,7 @@ const QUIET: Duration = Duration::from_millis(700);
 const AFTER_TYPING: Duration = Duration::from_millis(1200);
 
 /// An agent on the channel's socket.
-struct Agent {
+pub(super) struct Agent {
     stream: ControlStream,
     reader: BufReader<ControlStream>,
     next_id: u64,
@@ -85,12 +85,17 @@ impl Agent {
         }
     }
 
-    fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {
+    pub(super) fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {
         self.send(method, params);
         self.reply().expect("the channel closed")
     }
 
-    fn run(&mut self, name: &str, arg: Option<i64>, reach: &str) -> Result<Value, String> {
+    pub(super) fn run(
+        &mut self,
+        name: &str,
+        arg: Option<i64>,
+        reach: &str,
+    ) -> Result<Value, String> {
         self.call(
             "run",
             Some(json!({ "name": name, "arg": arg, "reach": reach })),
@@ -117,7 +122,7 @@ fn answer_after_quiet(app: &mut App, key: &str, asked: Instant) {
 
 /// Turns the channel on as the person would, connects, and lets the agent in with `y` after a
 /// quiet moment, checking on the way that a hasty `y` does not answer.
-fn let_in(app: &mut App) -> Agent {
+pub(super) fn let_in(app: &mut App) -> Agent {
     app.run_command("agent-channel-start", None).unwrap();
     let state = app.wait_for("the channel", |state| {
         state["modeline"]

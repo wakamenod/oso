@@ -152,7 +152,8 @@ impl Editor {
             | Mode::Markdown
             | Mode::Toml
             | Mode::Review
-            | Mode::Sessions => {}
+            | Mode::Sessions
+            | Mode::Terminal => {}
             Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {
                 let list = self.copies_buffer();

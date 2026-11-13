@@ -52,6 +52,8 @@ pub(super) struct Keymaps {
     pub(super) sessions: Keymap,
     /// A review buffer's own keys, above the global ones (ADR 0122).
     pub(super) review: Keymap,
+    /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
+    pub(super) terminal: Keymap,
 }
 
 impl Keymaps {
@@ -77,12 +79,13 @@ impl Keymaps {
             markdown: bindings::markdown_keymap(registry),
             sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
+            terminal: bindings::terminal_keymap(registry),
         }
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 16] {
+    pub(super) fn all(&self) -> [&Keymap; 17] {
         let Self {
             global,
             user,
@@ -99,10 +102,11 @@ impl Keymaps {
             markdown,
             sessions,
             review,
+            terminal,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            jump, replace, rigid, markdown, sessions, review,
+            jump, replace, rigid, markdown, sessions, review, terminal,
         ]
     }
 
@@ -158,6 +162,7 @@ impl Keymaps {
                 Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
+                Mode::Terminal => Some(&self.terminal),
             }
         };
         Layers {
