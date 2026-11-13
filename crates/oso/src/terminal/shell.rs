@@ -139,7 +139,6 @@ pub(crate) fn inherit(env: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
     use std::io;
     use std::path::{Path, PathBuf};
 
@@ -155,7 +154,7 @@ mod tests {
     fn the_order_is_the_setting_shell_the_account_then_sh() {
         let order = candidates(
             Some(Path::new("/opt/fish")),
-            Some(OsStr::new("/bin/zsh")),
+            Some(std::ffi::OsStr::new("/bin/zsh")),
             || Some(PathBuf::from("/bin/bash")),
         );
         assert_eq!(
@@ -167,7 +166,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_relative_shell_is_skipped_and_each_is_tried_once() {
-        let order = candidates(None, Some(OsStr::new("zsh")), || {
+        let order = candidates(None, Some(std::ffi::OsStr::new("zsh")), || {
             Some(PathBuf::from("/bin/sh"))
         });
         assert_eq!(order, paths(&["/bin/sh"]));
