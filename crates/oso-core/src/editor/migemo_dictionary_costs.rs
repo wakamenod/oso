@@ -221,7 +221,7 @@ pub(super) const WORDS: &[&str] = &[
 
 /// Every string measured: each prefix of [`WORDS`], and every string of one to three letters
 /// that gives kana.
-fn strings() -> Vec<String> {
+pub(super) fn strings() -> Vec<String> {
     let mut strings: Vec<String> = WORDS
         .iter()
         .flat_map(|word| (1..=word.len()).map(|end| word[..end].to_owned()))

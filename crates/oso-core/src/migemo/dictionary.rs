@@ -23,7 +23,7 @@ use std::cmp::Reverse;
 use std::fmt;
 use std::ops::Range;
 
-use super::Romaji;
+use super::{Budget, Romaji, Spent};
 
 /// The most bytes of a file's text read: past it, the rest is left out.
 pub const MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -178,9 +178,20 @@ impl Dictionary {
     /// [`MAX_PREFIX_ENTRIES`] do, else of the readings that are its kana and an end exactly,
     /// none if it is only an unfinished end. The exact readings' come first, then the
     /// shorter readings'.
+    #[cfg(test)]
     pub(crate) fn pattern_words(&self, romaji: &Romaji) -> Vec<&str> {
+        self.pattern_words_within(romaji, Budget::PATTERN).0
+    }
+
+    /// [`Self::pattern_words`], at most as many and as costly as `budget` leaves, and what
+    /// they spent of it.
+    pub(crate) fn pattern_words_within(
+        &self,
+        romaji: &Romaji,
+        budget: Budget,
+    ) -> (Vec<&str>, Spent) {
         let Some(found) = self.found(romaji) else {
-            return Vec::new();
+            return (Vec::new(), Spent::default());
         };
         let count: usize = found.iter().map(|(range, _)| range.len()).sum();
         let mut chosen: Vec<(usize, bool)> = Vec::new();
@@ -205,15 +216,22 @@ impl Dictionary {
         let words = chosen
             .into_iter()
             .flat_map(|(at, _)| self.words[self.entries[at].words.range()].iter());
-        let mut bytes = 0;
-        words
-            .take(MAX_PATTERN_WORDS)
-            .map(|span| &self.text[span.range()])
-            .take_while(|word| {
-                bytes += word_cost(word);
-                bytes <= MAX_PATTERN_WORD_BYTES
-            })
-            .collect()
+        let budget = budget.within(Budget::PATTERN);
+        let mut spent = Spent::default();
+        let mut given = Vec::new();
+        for word in words.map(|span| &self.text[span.range()]) {
+            let with = Budget {
+                words: spent.spent.words + 1,
+                bytes: spent.spent.bytes + word_cost(word),
+            };
+            if !budget.holds(with) {
+                spent.next = Some(with);
+                break;
+            }
+            spent.spent = with;
+            given.push(word);
+        }
+        (given, spent)
     }
 
     /// The ranges of entries whose reading starts with `romaji`'s kana and then one of its

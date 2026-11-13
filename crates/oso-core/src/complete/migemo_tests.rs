@@ -175,3 +175,78 @@ proptest! {
         }
     }
 }
+
+/// The word of `family` (`漢`, `桜` or `田`) numbered `n` in [`heavy`].
+fn heavy_word(family: char, n: usize) -> String {
+    format!("{}{n:04}", family.to_string().repeat(18))
+}
+
+/// A dictionary in which the readings `ka`, `sa` and `ta` start give 250 words of 58 bytes
+/// each, numbered in the order a pattern takes them: two of them spend most of one pattern's
+/// budget of words.
+fn heavy() -> Table {
+    let kana: Vec<char> = ('ぁ'..='ゖ').collect();
+    let mut text = String::new();
+    for (first, family) in [('か', '漢'), ('さ', '桜'), ('た', '田')] {
+        for n in 0..250 {
+            let reading = format!("{first}{}{}", kana[n / 86], kana[n % 86]);
+            text.push_str(&format!("{reading}\t{}\n", heavy_word(family, n)));
+        }
+    }
+    Table {
+        generation: 1,
+        dictionary: Arc::new(Dictionary::new(text)),
+    }
+}
+
+#[test]
+fn an_inputs_migemo_components_share_one_patterns_words() {
+    let table = heavy();
+    let three = query("%ka %sa %ta", Some(&table));
+    let text = |n: usize| {
+        let (ka, sa) = (heavy_word('漢', 0), heavy_word('桜', 0));
+        format!("{ka} {sa} {}", heavy_word('田', n))
+    };
+    assert!(three.matches(&candidate(&text(0))));
+    // The third has what the first two left: its first words, and its kana all the same.
+    assert!(!three.matches(&candidate(&text(249))));
+    let kana = format!("{} {} たぁ", heavy_word('漢', 0), heavy_word('桜', 0));
+    assert!(three.matches(&candidate(&kana)));
+    // Alone, or first, it has them all.
+    assert!(query("%ta", Some(&table)).matches(&candidate(&heavy_word('田', 249))));
+    assert!(query("%ta %ka %sa", Some(&table)).matches(&candidate(&text(249))));
+    // A change before it gives it more, and a kept one is as one compiled afresh.
+    let two = Query::parse_after("%sa %ta", &three, Some(&table));
+    assert!(two == query("%sa %ta", Some(&table)));
+    let pair = format!("{} {}", heavy_word('桜', 0), heavy_word('田', 249));
+    assert!(two.matches(&candidate(&pair)));
+}
+
+proptest! {
+    /// A component kept from the input before, or from earlier in the same input, matches as
+    /// one compiled for this input alone (ADR 0116, Q7).
+    #[test]
+    fn a_kept_component_matches_as_one_compiled_afresh(
+        first in prop::collection::vec(0usize..9, 0..5),
+        second in prop::collection::vec(0usize..9, 0..5),
+    ) {
+        const TOKENS: [&str; 9] = ["%ka", "%sa", "ta%", "%kan", "%t", "ka", "!%sa", "x1", "%Ta"];
+        let table = heavy();
+        let input = |picks: &[usize]| picks.iter().map(|&at| TOKENS[at]).collect::<Vec<_>>().join(" ");
+        let before = query(&input(&first), Some(&table));
+        let kept = Query::parse_after(&input(&second), &before, Some(&table));
+        let fresh = query(&input(&second), Some(&table));
+        prop_assert!(kept == fresh, "{:?} after {:?}", input(&second), input(&first));
+        let mut texts: Vec<String> = Vec::new();
+        for n in [0, 63, 64, 120, 249] {
+            let words = ['漢', '桜', '田'].map(|family| heavy_word(family, n));
+            texts.push(words.join(" "));
+            texts.push(format!("{} {}", words[1], words[2]));
+            texts.push(format!("{} ka x1", words[2]));
+        }
+        for text in &texts {
+            let item = candidate(text);
+            prop_assert_eq!(kept.matches(&item), fresh.matches(&item), "{:?}", text);
+        }
+    }
+}

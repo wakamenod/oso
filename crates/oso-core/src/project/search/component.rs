@@ -4,16 +4,22 @@
 //!
 //! Must not depend on: `complete`, `editor` or file I/O.
 
+use std::sync::Arc;
+
 use regex::bytes::{Regex, RegexBuilder};
 
 use super::LineQuery;
-use crate::migemo::{self, Dictionary, Table};
+use crate::migemo::{self, Budget, Dictionary, Spent, Table};
 
 /// The most memory a component's expression may take once compiled, as in completion.
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
 
 /// The deepest an expression may nest, as in completion.
 const REGEX_NEST_LIMIT: u32 = 32;
+
+/// The most strings a migemo component's pattern is kept as, besides its words, for a longer
+/// one to be checked against: past them, a search for a longer one starts again.
+pub(super) const MAX_ALTERNATIVES: usize = 1024;
 
 /// The characters that make a component an expression, as well as a literal, as in completion.
 const REGEX_META: &[char] = &[
@@ -32,10 +38,18 @@ pub(super) struct Component {
     pub(super) kind: Kind,
     /// What was typed, without its affix, in lower case where case is ignored.
     pub(super) pattern: Box<str>,
+    /// For a migemo one, what its words spent of the input's budget, which decides them.
+    pub(super) spent: Spent,
+    /// For one that matches as migemo's pattern, every string the pattern matches, if they
+    /// are at most [`MAX_ALTERNATIVES`] besides its words: a line it matches holds one.
+    pub(super) alternatives: Option<Strings>,
     /// It was compiled for this query, not kept from the one before, for tests.
     #[cfg(test)]
     pub(super) fresh: bool,
 }
+
+/// The strings a migemo component's pattern matches, shared by the components that keep it.
+pub(super) type Strings = Arc<[Box<str>]>;
 
 /// What a component was asked to be, by its text, its affix and the setting.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,17 +114,20 @@ pub(super) fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Opt
         .map(|regex| (regex, false))
 }
 
-/// Migemo's pattern for `string`, ignoring case if `ignore_case`, with `dictionary`'s words,
-/// `None` if it gives no kana and is matched as a literal.
+/// Migemo's pattern for `string`, ignoring case if `ignore_case`, with as many of
+/// `dictionary`'s words as `budget` leaves, and the strings it matches: `None` if it gives no
+/// kana and is matched as a literal.
 fn compile_migemo(
     string: &str,
     ignore_case: bool,
     dictionary: Option<&Dictionary>,
-) -> Option<Regex> {
-    migemo::compile(
+    budget: Budget,
+) -> (Option<(Regex, Option<Strings>)>, Spent) {
+    let compiled = migemo::compile_within(
         string,
         dictionary,
         migemo::WORDS_SIZE_LIMIT,
+        budget,
         |pattern, size_limit| {
             RegexBuilder::new(pattern)
                 .case_insensitive(ignore_case)
@@ -119,20 +136,26 @@ fn compile_migemo(
                 .build()
                 .ok()
         },
-    )
+    );
+    let regex = compiled.compiled.map(|regex| {
+        let alternatives = migemo::alternatives(string, &compiled.words, MAX_ALTERNATIVES);
+        (regex, alternatives.map(Arc::from))
+    });
+    (regex, compiled.spent)
 }
 
 impl Component {
     /// The component `raw` stands for, with its affix read, reusing what a component of
     /// `before`, or one `built` before it of the same input, compiled for the same text and
     /// request, or `None` if nothing is left to match or not even its literal compiles.
-    /// `migemo` is the setting, and `table` the dictionary.
+    /// `migemo` is the setting, and `table` the dictionary. A migemo one spends `budget`, which
+    /// the input's components share, and one kept spent what it would now.
     pub(super) fn parse(
         raw: &str,
         ignore_case: bool,
         (before, built): (&LineQuery, &[Self]),
-        migemo: bool,
-        table: Option<&Table>,
+        (migemo, table): (bool, Option<&Table>),
+        budget: &mut Budget,
     ) -> Option<Self> {
         let (not, literal, rest) = match raw.chars().next() {
             Some('!') => (true, false, &raw[1..]),
@@ -160,34 +183,41 @@ impl Component {
         let same = (before.components.iter())
             .filter(|_| before.ignore_case == ignore_case)
             .chain(built)
-            .find(|old| old.asked == asked && old.pattern == pattern);
+            .find(|old| {
+                old.asked == asked && old.pattern == pattern && old.spent.same_within(*budget)
+            });
         if let Some(old) = same {
+            budget.spend(old.spent.spent);
             return Some(Self {
                 regex: old.regex.clone(),
                 not,
                 asked,
                 kind: old.kind,
                 pattern,
+                spent: old.spent,
+                alternatives: old.alternatives.clone(),
                 #[cfg(test)]
                 fresh: false,
             });
         }
-        let migemo = match &asked {
-            Asked::Migemo(_) => compile_migemo(rest, ignore_case, table.map(|t| &*t.dictionary)),
-            _ => None,
+        let (migemo, spent) = match &asked {
+            Asked::Migemo(_) => {
+                let dictionary = table.map(|table| &*table.dictionary);
+                compile_migemo(rest, ignore_case, dictionary, *budget)
+            }
+            _ => (None, Spent::default()),
         };
-        let (regex, kind) = match migemo {
-            Some(regex) => (regex, Kind::Migemo),
+        budget.spend(spent.spent);
+        let (regex, kind, alternatives) = match migemo {
+            Some((regex, alternatives)) => (regex, Kind::Migemo, alternatives),
             None => {
                 let (regex, expression) = compile(rest, asked == Asked::Expression, ignore_case)?;
-                (
-                    regex,
-                    if expression {
-                        Kind::Expression
-                    } else {
-                        Kind::Literal
-                    },
-                )
+                let kind = if expression {
+                    Kind::Expression
+                } else {
+                    Kind::Literal
+                };
+                (regex, kind, None)
             }
         };
         Some(Self {
@@ -196,6 +226,8 @@ impl Component {
             asked,
             kind,
             pattern,
+            spent,
+            alternatives,
             #[cfg(test)]
             fresh: true,
         })

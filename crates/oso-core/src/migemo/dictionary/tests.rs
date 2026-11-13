@@ -9,7 +9,7 @@ use super::{
     Dictionary, Entry, MAX_BYTES, MAX_ENTRIES, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS,
     MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS, MAX_WORDS_A_READING, Span, word_cost,
 };
-use crate::migemo::Romaji;
+use crate::migemo::{Budget, Romaji};
 
 /// The words `string`'s kana give from `dictionary`, sorted.
 fn words(dictionary: &Dictionary, string: &str) -> Vec<String> {
@@ -394,5 +394,41 @@ proptest! {
         let cost: usize = given.iter().map(|word| word_cost(word)).sum();
         prop_assert!(given.len() <= MAX_PATTERN_WORDS);
         prop_assert!(cost <= MAX_PATTERN_WORD_BYTES, "{cost}");
+    }
+}
+
+proptest! {
+    /// What a budget left gives the words it does, and another budget gives the same words
+    /// exactly when what they spent says so (ADR 0116, Q7).
+    #[test]
+    fn a_budget_gives_the_same_words_exactly_when_what_they_spent_says_so(
+        readings in 1usize..400,
+        long in 1usize..40,
+        string in "[a-z]{1,3}",
+        budgets in prop::collection::vec((0usize..600, 0usize..20_000), 2..6),
+    ) {
+        let mut text = String::new();
+        for n in 0..readings {
+            let word = "漢".repeat(1 + n % long);
+            text.push_str(&format!("{}\t{word}{n}\n", hiragana(n)));
+        }
+        let dictionary = Dictionary::new(text);
+        let Some(romaji) = Romaji::new(&string) else {
+            return Ok(());
+        };
+        let given: Vec<_> = (budgets.iter())
+            .map(|&(words, bytes)| {
+                let budget = Budget { words, bytes };
+                (budget, dictionary.pattern_words_within(&romaji, budget))
+            })
+            .collect();
+        for (budget, (words, spent)) in &given {
+            let cost: usize = words.iter().map(|word| word_cost(word)).sum();
+            prop_assert_eq!(spent.spent, Budget { words: words.len(), bytes: cost });
+            prop_assert!(budget.holds(spent.spent));
+            for (other, (other_words, _)) in &given {
+                prop_assert_eq!(spent.same_within(*other), words == other_words, "{:?} {:?}", budget, other);
+            }
+        }
     }
 }

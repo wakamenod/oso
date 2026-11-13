@@ -18,14 +18,18 @@
 //!   its length; one that does not compile alone matches as a literal.
 //! - A component the input before had too, with the same case, keeps what it compiled, so a
 //!   key compiles only what it changed, as in completion (ADR 0076). A migemo component is kept
-//!   only for the dictionary it was compiled with.
+//!   only for the dictionary it was compiled with, and the words it was given.
+//! - The migemo components of an input share one pattern's words, taken in order, so one event
+//!   compiles at most that many on the UI thread; a component past them has its kana alone.
+//! - A query narrows the one before when every line it matches is one that one matched: for a
+//!   migemo component, when the old one matches each string the new one's pattern matches.
 //! - `Debug` gives how many components, never what they say, which may be about a file that
 //!   may hold secrets.
 
 use std::fmt;
 use std::ops::Range;
 
-use crate::migemo::Table;
+use crate::migemo::{Budget, Table};
 #[cfg(test)]
 use component::compile;
 use component::{Asked, Component, Kind};
@@ -139,8 +143,17 @@ impl LineQuery {
             return Self::too_long();
         }
         let mut components: Vec<Component> = Vec::with_capacity(raw.len());
+        // The input's migemo components share one pattern's words, in order (ADR 0116, Q7).
+        let mut budget = Budget::PATTERN;
         for raw in &raw {
-            let parsed = Component::parse(raw, ignore_case, (before, &components), migemo, table);
+            let request = (migemo, table);
+            let parsed = Component::parse(
+                raw,
+                ignore_case,
+                (before, &components),
+                request,
+                &mut budget,
+            );
             components.extend(parsed);
         }
         Self {
@@ -185,9 +198,11 @@ impl LineQuery {
 
     /// Whether every line this query matches is one `before` matched, so that the lines found
     /// for `before` hold every one: each of `before`'s components is one of this query's, in its
-    /// place, a literal one at most longer at its end, and an expression or an exclusion the
-    /// same, a migemo one with the same dictionary. Case may stop being ignored, and never
-    /// start.
+    /// place, and an expression or an exclusion the same. A literal one may be longer at its
+    /// end. Where either is migemo's, the old one matches as a literal or migemo's pattern,
+    /// and so a line holding one of its strings: it narrows when it matches each string the new
+    /// one matches, which a migemo one keeps unless they are too many (ADR 0116, Q8). Case may
+    /// stop being ignored, and never start.
     pub fn narrows(&self, before: &Self) -> bool {
         if before.too_long || self.too_long {
             return false;
@@ -198,6 +213,7 @@ impl LineQuery {
         if self.components.len() < before.components.len() {
             return false;
         }
+        let same_case = self.ignore_case == before.ignore_case;
         self.components
             .iter()
             .zip(&before.components)
@@ -205,18 +221,30 @@ impl LineQuery {
                 if new.not != old.not {
                     return false;
                 }
-                if new.not || new.kind != Kind::Literal || old.kind != Kind::Literal {
-                    // A literal read as an expression too matches more, and the other way less,
-                    // and a longer romaji string's words may not be the shorter one's.
-                    return new.kind == old.kind
-                        && new.asked == old.asked
-                        && new.pattern == old.pattern
-                        && self.ignore_case == before.ignore_case;
+                let same = new.kind == old.kind
+                    && new.asked == old.asked
+                    && new.pattern == old.pattern
+                    && new.spent == old.spent
+                    && same_case;
+                // A literal read as an expression too matches more, and the other way less.
+                if same || new.not || new.kind == Kind::Expression || old.kind == Kind::Expression {
+                    return same;
                 }
-                if self.ignore_case == before.ignore_case {
-                    new.pattern.starts_with(&*old.pattern)
-                } else {
-                    new.pattern.to_lowercase().starts_with(&*old.pattern)
+                match (new.kind, old.kind) {
+                    (Kind::Literal, Kind::Literal) if same_case => {
+                        new.pattern.starts_with(&*old.pattern)
+                    }
+                    (Kind::Literal, Kind::Literal) => {
+                        new.pattern.to_lowercase().starts_with(&*old.pattern)
+                    }
+                    // A literal kept in lower case is the text as typed only in ASCII.
+                    (Kind::Literal, _) => {
+                        (!self.ignore_case || new.pattern.is_ascii())
+                            && old.regex.is_match(new.pattern.as_bytes())
+                    }
+                    _ => new.alternatives.as_ref().is_some_and(|alternatives| {
+                        (alternatives.iter()).all(|string| old.regex.is_match(string.as_bytes()))
+                    }),
                 }
             })
     }

@@ -1,6 +1,7 @@
 //! Measures of migemo in a project's search and in completion (ADR 0116, step 4), ignored by
 //! default, for the ADR's notes: what a key costs on the UI thread as it parses the input, a
-//! migemo component compiled with the dictionary a person names, and a paste of several. The
+//! migemo component compiled with the dictionary a person names, a paste of several, the
+//! heaviest strings pasted and an upper-case key after them, and whether a key narrows. The
 //! dictionary is read from the file `OSO_MIGEMO_DICTIONARY` names; only these measures read a
 //! file, and they print no word of it. Run in a release build on an idle machine:
 //! `OSO_MIGEMO_DICTIONARY=… cargo test -p oso-core --release --lib migemo_prompt_costs -- --ignored --nocapture --test-threads 1`.
@@ -14,11 +15,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::Editor;
+use super::WalkEnd;
 use super::edit_tests::edit;
-use super::migemo_dictionary_costs::WORDS;
+use super::migemo_dictionary_costs::{WORDS, strings};
 use crate::buffer::Buffer;
 use crate::complete::{Candidate, WORKER_PAST};
-use crate::migemo::Dictionary;
+use crate::migemo::Table;
+use crate::migemo::{Dictionary, Romaji, word_cost};
+use crate::project::LineQuery;
 
 /// Milliseconds since `started`.
 fn ms(started: Instant) -> f64 {
@@ -152,4 +156,163 @@ fn migemo_prompt_costs_of_a_key() {
             next,
         );
     }
+}
+
+/// The `count` strings of one to three letters, or prefixes of [`WORDS`], whose patterns'
+/// words cost the most.
+fn heaviest(dictionary: &Dictionary, count: usize) -> Vec<String> {
+    let mut strings: Vec<(usize, String)> = (strings().into_iter())
+        .map(|string| {
+            let romaji = Romaji::new(&string).expect("romaji");
+            let words = dictionary.pattern_words(&romaji);
+            (words.iter().map(|word| word_cost(word)).sum(), string)
+        })
+        .collect();
+    strings.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.0));
+    strings
+        .into_iter()
+        .take(count)
+        .map(|(_, string)| string)
+        .collect()
+}
+
+/// A paste of the 32 heaviest strings, `prefix`ed, then an upper-case key, which makes case
+/// count and so compiles every component again: the time of each, over `rounds` rotations.
+fn heavy_pastes(editor: &mut Editor, heavy: &[String], prefix: &str) -> (Vec<f64>, Vec<f64>) {
+    let (mut pastes, mut uppers) = (Vec::new(), Vec::new());
+    for start in 0..heavy.len() {
+        clear(editor);
+        let input: Vec<String> = (0..heavy.len())
+            .map(|at| format!("{prefix}{}", heavy[(start + at) % heavy.len()]))
+            .collect();
+        pastes.push(key(editor, &input.join(" ")));
+        editor.take_search_request();
+        uppers.push(key(editor, " X"));
+        editor.take_search_request();
+    }
+    (pastes, uppers)
+}
+
+/// Each word typed a letter at a time in a project's search whose every search ends, so each
+/// key may narrow the one before: the time of each key, and how many narrowed of how many
+/// started.
+fn typed_ending(editor: &mut Editor) -> (Vec<f64>, usize, usize) {
+    let (mut times, mut narrowed, mut started) = (Vec::new(), 0, 0);
+    for _ in 0..3 {
+        for word in WORDS {
+            clear(editor);
+            for letter in word.chars() {
+                times.push(key(editor, &letter.to_string()));
+                if let Some(request) = editor.take_search_request() {
+                    started += 1;
+                    narrowed += usize::from(request.narrow.is_some());
+                    let end = Some(WalkEnd { cut: false });
+                    editor.rows_found(request.generation, Vec::new(), end);
+                }
+            }
+        }
+    }
+    (times, narrowed, started)
+}
+
+/// How long `new` narrowing `old` takes to tell, each parsed with `table` and `new` after
+/// `old`, over `rounds`, and whether it narrows.
+fn narrowing(old: &str, new: &str, table: &Table, rounds: usize) -> (Vec<f64>, bool) {
+    let before = LineQuery::parse_after(old, &LineQuery::parse(""), true, Some(table));
+    let query = LineQuery::parse_after(new, &before, true, Some(table));
+    let mut times = Vec::new();
+    let mut narrows = false;
+    for _ in 0..rounds {
+        // A clone has a cold cache, as a query the editor compiled for this key.
+        let before = before.clone();
+        let started = Instant::now();
+        narrows = std::hint::black_box(query.narrows(&before));
+        times.push(ms(started));
+    }
+    (times, narrows)
+}
+
+#[test]
+#[ignore = "a measure for the ADR's notes, which needs a dictionary"]
+fn migemo_prompt_costs_of_heavy_input_and_narrowing() {
+    let dictionary = dictionary();
+    let report = |what: &str, mut times: Vec<f64>| {
+        let (p50, p99, max) = spread(&mut times);
+        println!(
+            "{what}: {p50:.3} ms p50, {p99:.3} ms p99, {max:.3} ms most, {} keys",
+            times.len()
+        );
+    };
+    let heavy = heaviest(&dictionary, 32);
+    let mut editor = searching(&dictionary);
+    let (pastes, uppers) = heavy_pastes(&mut editor, &heavy, "");
+    report("project search, a paste of the 32 heaviest", pastes);
+    report("project search, an upper-case key after them", uppers);
+    let (times, narrowed, started) = typed_ending(&mut editor);
+    report("project search, typing, each search ended", times);
+    println!("  {narrowed} of {started} searches narrowed the one before");
+    let mut editor = completing(&dictionary);
+    let (pastes, uppers) = heavy_pastes(&mut editor, &heavy, "%");
+    report("completion of 5000, a paste of the 32 heaviest", pastes);
+    report("completion of 5000, an upper-case key after them", uppers);
+
+    let table = Table {
+        generation: 1,
+        dictionary: Arc::clone(&dictionary),
+    };
+    // Realistic: each prefix of the words, and the next letter.
+    let (mut times, mut narrowed, mut pairs) = (Vec::new(), 0, 0);
+    for word in WORDS {
+        for end in 1..word.len() {
+            let (taken, narrows) = narrowing(&word[..end], &word[..=end], &table, 3);
+            times.extend(taken);
+            narrowed += usize::from(narrows);
+            pairs += 1;
+        }
+    }
+    report(
+        "narrowing, a letter typed onto each prefix of the words",
+        times,
+    );
+    println!("  {narrowed} of {pairs} narrowed");
+    // Crafted: either of two kana up to the expansion's cap, and the heaviest strings and a
+    // letter after each.
+    let mut times = Vec::new();
+    for count in 1..=10 {
+        let old = "zu".repeat(count);
+        let (taken, narrows) = narrowing(&old, &format!("{old}z"), &table, 5);
+        let (p50, _, max) = spread(&mut taken.clone());
+        println!(
+            "  narrowing, {count} zu then z: {p50:.3} ms p50, {max:.3} ms most, narrows {narrows}"
+        );
+        times.extend(taken);
+    }
+    let (mut heavy_times, mut narrowed) = (Vec::new(), 0);
+    for string in &heavy {
+        for letter in ['a', 'i', 'u', 'k', 'n'] {
+            let new = format!("{string}{letter}");
+            let (taken, narrows) = narrowing(string, &new, &table, 3);
+            heavy_times.extend(taken);
+            narrowed += usize::from(narrows);
+        }
+    }
+    report(
+        "narrowing, a letter after each of the 32 heaviest",
+        heavy_times,
+    );
+    println!("  {narrowed} of {} narrowed", heavy.len() * 5);
+    // Thirty-two components each of the most strings under the cap, all changed at once.
+    let old = vec!["zu".repeat(7); 32].join(" ");
+    let new = vec!["zu".repeat(8); 32].join(" ");
+    let (taken, narrows) = narrowing(&old, &new, &table, 5);
+    report(
+        &format!("narrowing, 32 × zu×7 to zu×8 (narrows {narrows})"),
+        taken,
+    );
+    let pasted = heavy.join(" ");
+    let (taken, narrows) = narrowing(&pasted, &format!("{pasted}a"), &table, 5);
+    report(
+        &format!("narrowing, the 32 heaviest and a letter (narrows {narrows})"),
+        taken,
+    );
 }

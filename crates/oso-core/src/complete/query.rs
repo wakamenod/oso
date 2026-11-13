@@ -8,7 +8,7 @@ use std::ops::Range;
 use regex::{Regex, RegexBuilder};
 
 use super::{AFFIXES, Candidate};
-use crate::migemo::Table;
+use crate::migemo::{Budget, Spent, Table};
 
 mod romaji;
 
@@ -80,12 +80,14 @@ struct Component {
     /// For a migemo one, the generation of the dictionary its pattern took words from, if
     /// any: never the table, so a query keeps none alive.
     dictionary: Option<u64>,
+    /// For a migemo one, what its words spent of the input's budget, which decides them.
+    spent: Spent,
 }
 
 impl PartialEq for Component {
     /// The expression and the searcher follow from the rest: whether it is tried as an
     /// expression too, as `=` says it is not, and for a migemo one the dictionary's
-    /// generation.
+    /// generation and what its words spent.
     fn eq(&self, other: &Self) -> bool {
         (
             self.style,
@@ -99,7 +101,7 @@ impl PartialEq for Component {
             other.annotation,
             other.tried,
             &other.pattern,
-        ) && self.dictionary == other.dictionary
+        ) && (self.dictionary, self.spent) == (other.dictionary, other.spent)
     }
 }
 
@@ -123,12 +125,14 @@ fn compile_within(pattern: &str, ignore_case: bool, size_limit: usize) -> Option
 
 impl Component {
     /// The component `raw` stands for, with its affix read, or `None` if nothing is left
-    /// to match once the affix is. A migemo one takes `dictionary`'s words.
+    /// to match once the affix is. A migemo one takes `table`'s words, as many as `budget`
+    /// leaves, which the input's components share.
     fn parse(
         raw: &str,
         ignore_case: bool,
         (before, built): (&Query, &[Self]),
         table: Option<&Table>,
+        budget: &mut Budget,
     ) -> Option<Self> {
         let first = raw.chars().next()?;
         let last = raw.chars().next_back()?;
@@ -155,8 +159,12 @@ impl Component {
         };
         // `%` and romaji that gives kana is migemo's; anything else after it is a literal.
         if affix == Some('%')
-            && let Some(component) =
-                Self::migemo((rest, &pattern), ignore_case, (before, built), table)
+            && let Some(component) = Self::migemo(
+                (rest, &pattern),
+                ignore_case,
+                (before, built),
+                (table, budget),
+            )
         {
             return Some(component);
         }
@@ -203,6 +211,7 @@ impl Component {
             annotation: affix == Some('&'),
             pattern,
             dictionary: None,
+            spent: Spent::default(),
         })
     }
 
@@ -414,8 +423,11 @@ impl Query {
             return Self::too_long();
         }
         let mut components: Vec<Component> = Vec::with_capacity(raw.len());
+        // The input's migemo components share one pattern's words, in order (ADR 0116, Q7).
+        let mut budget = Budget::PATTERN;
         for raw in &raw {
-            let parsed = Component::parse(raw, ignore_case, (before, &components), table);
+            let built = (before, components.as_slice());
+            let parsed = Component::parse(raw, ignore_case, built, table, &mut budget);
             components.extend(parsed);
         }
         Self {

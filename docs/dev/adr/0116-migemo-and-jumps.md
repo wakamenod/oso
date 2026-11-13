@@ -721,7 +721,8 @@ coordinator; the notes below are those choices as built.
 #### As built (step 4, 2026-11-13)
 
 The author chose the first option of each of six questions on 2026-11-13, through the
-coordinator; the notes below are those choices as built.
+coordinator, and of two more the reviews raised (Q7, Q8); the notes below are those choices as
+built.
 
 - **The API.** No public signature changes. `LineQuery::parse` reads a romaji component as
   migemo's, with no dictionary: its kana. The editor parses with `LineQuery::parse_after`
@@ -743,15 +744,37 @@ coordinator; the notes below are those choices as built.
   before had it with the same affix, text and case, as completion does (ADR 0076). A migemo
   component is kept only for the dictionary it was compiled with, which it holds. So a key
   compiles only the component it changed, and a paste compiles each new component once (Q3).
-  A case change anywhere in the input compiles every component again. A migemo component
-  narrows a search only when it is the same, with the same dictionary: a longer string's
-  words need not be the shorter one's.
+  A case change anywhere in the input compiles every component again. A migemo component is
+  kept only while the input's budget (Q7) gives it the same words.
+- **One budget of words an input (Q7).** Every migemo component of one input, in a project's
+  search and in completion, shares one pattern's caps, 4096 words and 32 KiB by
+  `word_cost`, taken in the input's order. A component past them compiles its kana alone. So
+  one event compiles at most one pattern's words on the UI thread, whatever it is: a paste, an
+  upper-case key that makes case count and compiles every component again, or the dictionary
+  coming. A third or later component whose readings give many words may lose its kanji: with
+  the author's dictionary, two of the heaviest prefixes spend most of the budget. A component
+  keeps what it spent and, if the budget left a word out, what that word would have made it;
+  it is kept only while the budget it is given now gives the same words, so a kept component
+  matches as one compiled afresh. Otherwise it compiles again.
+- **Narrowing (Q8).** A project's search narrows when each of the old query's components
+  matches every line the new one's does. Where either is migemo's, the old one must be a
+  literal or migemo's pattern, which match a line holding one of their strings, and it must
+  match each string the new one's pattern matches: the string, its full-width letters, its
+  hiragana, katakana and half-width forms, each with either of two kana (`ず` or `づ`) and each
+  unfinished end, and its words. A migemo component keeps them, an `Arc`'d list built when it
+  compiles, while they are at most 1024 besides the words; past that it never narrows, and
+  the search starts again. A literal one is its text. So typing `n`, `na`, `nam`, `name`
+  narrows on each key, and so do `kan` then `kanj` with a dictionary, but not `ji` then
+  `kanji`, whose `漢字` holds no `じ`. Case may stop being ignored, never start, and an
+  exclusion or an expression narrows only as it is. A proptest checks that a query that
+  narrows matches no line the one before did not, with and without a dictionary. Completion
+  still narrows only on the same component.
 - **Completion's `%` (Q4).** `%` at a component's start or end, as every affix, makes romaji
   migemo's: `%kan` matches `かんじ.md`, `カンジ`, `ｶﾝｼﾞ` and `kanji`, and `漢字.md` with a
   dictionary. After `%`, anything that is not romaji, or whose letters spell no kana, is a
   literal, as after `=`: `%Kan`, `%a.b`. As at an end, `100%` is the literal `100`. Without
   `%`, a component matches as before. A migemo component highlights where it matched. It
-  narrows only when it is the same, with the same dictionary.
+  narrows only when it is the same, with the same dictionary and words.
 - **Decomposed kana (Q5).** A candidate whose text holds U+3099 or U+309A, as macOS names
   files, keeps a second copy with each kana and its mark composed (`か` and U+3099 are `が`).
   The copy is built when the candidate is made, by a table of oso's own of the 58 pairs
