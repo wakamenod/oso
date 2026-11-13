@@ -2,7 +2,7 @@
 //! turns the rules' verdicts, the process's exit, the person's looks and the review's answers
 //! into it, with the debounce and the grace period.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; the tracker is pure, driven by the
+//! Must not depend on: `app` or `dispatch`; the tracker is pure, driven by the
 //! instants its caller gives, so its tests need no clock.
 //!
 //! No state authorises anything: not a paste, not an answer, not an action of an agent.
@@ -95,13 +95,6 @@ pub enum Target {
 
 /// How the process ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the terminal's thread reports exits (ADR 0121 step 3)"
-    )
-)]
 pub enum Exit {
     /// Status 0, or stopped by the person or oso.
     Stopped,

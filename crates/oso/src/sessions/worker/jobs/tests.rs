@@ -1,7 +1,7 @@
 //! The worker's jobs, with made-up instants: coalescing, the debounce's own wake-ups, rules
 //! swapped for every session, and reading a saved screen.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 
 use std::fs;

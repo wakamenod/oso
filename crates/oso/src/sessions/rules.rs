@@ -2,7 +2,7 @@
 //! set, compiled into oso, and the person's local file, which replaces bundled rules by name and
 //! disables them. Never read from a project, never fetched.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; `config`'s thread hands this
+//! Must not depend on: `app`, `dispatch` or `config`; `config`'s thread hands this
 //! the local file's text, and this compiles it there.
 //!
 //! The format is in `docs/dev/agent-rules.md`. Every pattern is the `regex` crate's (ADR

@@ -392,13 +392,17 @@ item notes when it must be settled.
 
 - Check on the current Claude Code CLI, before the step that relies on each
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)): that hooks given with `--settings` merge
-  with the person's own, that `--append-system-prompt` applies to interactive sessions, which of
-  two MCP servers named `oso` wins, and that auto memory is shared by a repository's worktrees.
+  with the person's own, that `--append-system-prompt` applies to interactive sessions, and that
+  auto memory is shared by a repository's worktrees. Step 1's run of the CLI settled the rest:
+  the `oso` server given with `--mcp-config` is the one started, `claude` is its parent, and both
+  `claude`'s environment and the server's `env` reach it. That the registry entry's `sessionId`
+  and `name` are the ones oso passed is checked only with a fake `claude` in the end-to-end flows
+  (ADR 0121, "Step 1, as built").
 - A review in restricted projects, read in-process with `gix` once ADR 0011's check that it skips
   config commands is done ([ADR 0122](adr/0122-agent-review.md)).
 - Agent identity in a review: `Author::Agent` names no session yet, so "its own" comments are any
-  agent's. Settle it with the agent tools (ADR 0122 step 7), when ADR 0121's session id reaches
-  the bridge ([ADR 0122](adr/0122-agent-review.md)).
+  agent's. Settle it with the agent tools (ADR 0122 step 7): since ADR 0121's step 1, a hosted
+  session's bridge connection knows its session ([ADR 0122](adr/0122-agent-review.md)).
 - A public form of `oso-core`'s path judgement for secrets (`secret::judge`), so that a review
   can give `oso_syntax::Scheduler::open` the verdict on every path a side names. Settle it before
   ADR 0122 step 9 opens review sides, or in step 3 ([ADR 0122](adr/0122-agent-review.md),
@@ -430,6 +434,11 @@ item notes when it must be settled.
   ([ADR 0130](adr/0130-agent-chat.md)).
 - Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
   own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
+- After ADR 0121 step 6 lands, rename the hosted session's table entry,
+  `sessions::hosted::Hosted`, which shares its name with a terminal's `terminal::hosted::Hosted`
+  (for example `sessions::table::Session`), move `SessionKey` out of the worker, and call the
+  directory `App::new` takes the state directory. Renaming earlier would churn steps 3 to 6,
+  which build on step 1 ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 1 as built).
 - Dictation: the author deferred it on 2026-11-13. [ADR 0129](adr/0129-dictation.md) stays
   Proposed with its questions open (where recognition runs, the text, the key, the language, the
   macOS microphone permission).
