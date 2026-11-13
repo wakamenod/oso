@@ -71,7 +71,7 @@ fn a_string_is_read_then_its_matches_are_labelled_nearest_first() {
     assert_eq!(editor.jump().unwrap().labelled(), 4);
     // The cursor's row first, then a row away either way by columns from the cursor's.
     assert_eq!(targets(&editor), [9, 3, 0, 12]);
-    assert_eq!(editor.jump_choose('s'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('s'), Ok(Chose::Jumped));
     assert!(editor.jump().is_none());
     assert_eq!(cursor(&editor), 3);
     let primary = editor.window().selections.primary();
@@ -103,11 +103,11 @@ fn a_label_of_two_keys_narrows_at_its_first() {
     assert_eq!(targets(&editor), [0, 2, 4]);
     assert!(editor.jump().unwrap().takes('y'));
     assert!(!editor.jump().unwrap().takes('z'));
-    assert_eq!(editor.jump_choose('y'), Chose::Narrowed);
+    assert_eq!(editor.jump_choose('y'), Ok(Chose::Narrowed));
     let shown = cells(&editor);
     assert_eq!(shown.labels.len(), 2, "only those that start with `y`");
     assert_eq!(shown.text, "xy", "what is left of each");
-    assert_eq!(editor.jump_choose('y'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('y'), Ok(Chose::Jumped));
     assert_eq!(cursor(&editor), 4);
 }
 
@@ -115,7 +115,7 @@ fn a_label_of_two_keys_narrows_at_its_first() {
 fn a_key_no_label_goes_on_with_ends_the_jump_with_nothing_moved() {
     let mut editor = editor("a a\n");
     jump_for(&mut editor, "a");
-    assert_eq!(editor.jump_choose('z'), Chose::NoSuch);
+    assert_eq!(editor.jump_choose('z'), Ok(Chose::NoSuch));
     assert!(editor.jump().is_none());
     assert_eq!(cursor(&editor), 0);
     assert_eq!(line(&editor), "No such candidate");
@@ -221,7 +221,7 @@ fn every_window_is_labelled_and_a_jump_into_another_selects_it() {
         [first, first, other, other],
         "the selected window first"
     );
-    assert_eq!(editor.jump_choose('d'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('d'), Ok(Chose::Jumped));
     assert_eq!(editor.window().id(), other);
     assert_eq!(cursor(&editor), 0);
     editor.select_window(first);
@@ -272,7 +272,7 @@ fn a_shown_region_is_extended_and_the_other_cursors_stay() {
     jump_for(&mut editor, "a");
     let label = targets(&editor).iter().position(|&at| at == 8).unwrap();
     let key = ['a', 's', 'd'][label];
-    assert_eq!(editor.jump_choose(key), Chose::Jumped);
+    assert_eq!(editor.jump_choose(key), Ok(Chose::Jumped));
     let selections = &editor.window().selections;
     assert_eq!(selections.primary().cursor, 8);
     assert_eq!(
@@ -297,7 +297,7 @@ fn a_change_under_the_labels_ends_the_jump_saying_so_and_takes_the_next_key() {
         text: "b",
     };
     editor.apply_edits(id, &[edit]).unwrap();
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     assert_eq!(line(&editor), "Jump ended: the text changed");
     // The person did not end it: the key meant for a label goes nowhere, and says why.
     let jump = editor.jump().unwrap();
@@ -307,10 +307,10 @@ fn a_change_under_the_labels_ends_the_jump_saying_so_and_takes_the_next_key() {
         drawn.labels.is_empty() && drawn.matches.is_empty(),
         "it draws nothing"
     );
-    assert!(!editor.isearch_follow_text(), "nothing more to follow");
+    assert!(!editor.follow_text(), "nothing more to follow");
     editor.clear_echo();
     let before = cursor(&editor);
-    assert_eq!(editor.jump_choose('a'), Chose::NoSuch);
+    assert_eq!(editor.jump_choose('a'), Ok(Chose::NoSuch));
     assert!(editor.jump().is_none());
     assert_eq!(cursor(&editor), before, "nothing moved");
     assert_eq!(line(&editor), "Jump ended: the text changed");
@@ -325,7 +325,7 @@ fn a_line_jumps_digits_go_to_goto_line_only_before_a_label_is_begun() {
     assert!(!jump.gives_goto_line('1'), "a label's key");
     assert!(jump.gives_goto_line('7'));
     assert!(!jump.gives_goto_line('x'));
-    assert_eq!(editor.jump_choose('1'), Chose::Narrowed);
+    assert_eq!(editor.jump_choose('1'), Ok(Chose::Narrowed));
     assert!(
         !editor.jump().unwrap().gives_goto_line('7'),
         "a label is begun"
@@ -341,17 +341,17 @@ fn a_scroll_finds_the_matches_again_while_reading_and_ends_the_labels() {
     editor.jump_add("a");
     assert_eq!(targets(&editor)[0], 0);
     assert!(editor.scroll_view(id, 20));
-    assert!(editor.isearch_follow_text(), "found again");
+    assert!(editor.follow_text(), "found again");
     let top = editor.top_row() * 2;
     assert!(targets(&editor).iter().all(|&at| at >= top), "in view");
-    assert!(!editor.isearch_follow_text(), "nothing moved since");
+    assert!(!editor.follow_text(), "nothing moved since");
 
     editor.jump_show_labels();
     assert_eq!(editor.jump().unwrap().stage(), Stage::Labels);
     assert!(editor.scroll_view(id, -5));
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     assert_eq!(line(&editor), "Jump ended: the view changed");
-    assert_eq!(editor.jump_choose('a'), Chose::NoSuch);
+    assert_eq!(editor.jump_choose('a'), Ok(Chose::NoSuch));
     assert!(editor.jump().is_none());
 }
 
@@ -422,7 +422,7 @@ fn avy_isearch_ends_the_search_at_the_match_chosen() {
     editor.isearch_add("foo");
     assert!(editor.jump_begin(Kind::Isearch, false));
     assert_eq!(targets(&editor), [0, 8]);
-    assert_eq!(editor.jump_choose('s'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('s'), Ok(Chose::Jumped));
     assert!(editor.isearch().is_none());
     assert_eq!(cursor(&editor), 8);
     assert_eq!(
@@ -461,17 +461,87 @@ fn avy_isearch_with_a_regexp_on_a_long_line_reads_around_the_view() {
     }
     let at = cursor(&editor);
     assert_eq!(at, middle + 4);
-    let started = std::time::Instant::now();
     assert!(editor.jump_begin(Kind::Isearch, false));
-    let took = started.elapsed();
     let found = targets(&editor);
     assert!(!found.is_empty());
-    // Only what the view shows is read, a few rows of 40 columns around the cursor.
+    // Only what the view shows is read, a few rows of 40 columns around the cursor, and the
+    // 256 bytes on each side a regexp reads around them.
     assert!(
         found.iter().all(|&start| start.abs_diff(at) < 4096),
         "{found:?}"
     );
-    assert!(took.as_millis() < 50, "{took:?}");
+    // Bytes, not time, bound a jump (ADR 0116); `migemo_costs` measures its time.
+    let read = editor.jump_read();
+    assert!((40 + 2 * 256..4096).contains(&read), "{read}");
+}
+
+#[test]
+fn a_jump_over_long_lines_reads_its_budgets_with_what_a_regexp_reads_around_a_row() {
+    // Lines of 4 KiB cut at the view, a thousand rows of them: each row read with the text
+    // around it is more than the view shows.
+    let text = format!("{}\n", "foo bar ".repeat(512)).repeat(4000);
+    let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", &text));
+    editor.set_frame_size(FrameSize {
+        rows: 1000,
+        columns: 400,
+    });
+    editor.window_mut(0).0.selections = SelectionSet::new(text.len() / 2);
+    editor.follow_cursor();
+    editor.set_migemo(true);
+    let read_for = |editor: &mut Editor, keys: &str| {
+        assert!(editor.jump_begin(Kind::Char, false));
+        let mut most = 0;
+        for key in keys.chars() {
+            editor.jump_add(&key.to_string());
+            most = most.max(editor.jump_read());
+        }
+        editor.jump_end();
+        most
+    };
+    // A window's budget, 256 KiB, then every window's, 1 MiB, in each key.
+    let read = read_for(&mut editor, "ka");
+    assert!((200 * 1024..=256 * 1024).contains(&read), "{read}");
+    for way in [Way::Across, Way::Down, Way::Across] {
+        editor.split_window(way, false).unwrap();
+    }
+    let read = read_for(&mut editor, "ka");
+    assert!((512 * 1024..=1024 * 1024).contains(&read), "{read}");
+    // A string migemo reads no kana in is a literal: it reads only what its rows show, the
+    // frame's 1000 rows of 400 columns at most, and a few bytes on each side of a row. Typed
+    // whole, as `z` alone is the start of a kana.
+    assert!(editor.jump_begin(Kind::Char, false));
+    editor.jump_add("zq");
+    let literal = editor.jump_read();
+    editor.jump_end();
+    assert!(literal <= 1000 * (400 + 16), "{literal}");
+    assert!(literal < read, "{literal} {read}");
+}
+
+#[test]
+fn a_jump_out_of_budget_leaves_out_the_farthest_rows() {
+    // Short lines above the cursor, long ones from it down: the long rows near it spend the
+    // budget, and the short rows as far up are left out too, with the matches on them.
+    let found_with = |far: &str| {
+        // A thousand short lines, those more than 450 above the cursor holding `far`: the
+        // budget runs out about 400 rows from it, each long row read with 256 bytes after it.
+        let short = format!("{}{}", format!("{far}\n").repeat(550), "zzz\n".repeat(450));
+        let long = format!("{}\n", "foo bar ".repeat(512)).repeat(600);
+        let text = format!("{short}{long}");
+        let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", &text));
+        editor.set_frame_size(FrameSize {
+            rows: 1000,
+            columns: 400,
+        });
+        editor.window_mut(0).0.selections = SelectionSet::new(short.len());
+        editor.follow_cursor();
+        editor.recenter(crate::window::Recenter::Middle);
+        editor.set_migemo(true);
+        assert!(editor.jump_begin(Kind::Char, false));
+        editor.jump_add("fo");
+        assert_eq!(editor.jump_read(), 256 * 1024);
+        editor.jump().unwrap().found
+    };
+    assert_eq!(found_with("foo"), found_with("zzz"));
 }
 
 #[test]

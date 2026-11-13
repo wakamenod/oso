@@ -15,14 +15,16 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `slices`, `walks`, `greps`, `wraps`, `flash` and `jumps` do the work, `control`
+  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash` and `jumps` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.
 - `src/config/` reads the user configuration file and turns its text into the user keymap and
   settings (ADR 0108, ADR 0110), and reads and writes the record of trusted projects beside it
-  (`config/trust.rs`, ADR 0114). Its parsing does no I/O. Only it and `sessions::rules`, which
+  (`config/trust.rs`, ADR 0114). `config/checked.rs` reads each such file, and one the
+  configuration names (migemo's dictionary, ADR 0116), with ADR 0108's checks. Its parsing does
+  no I/O. Only it and `sessions::rules`, which
   parses the agent rules files (ADR 0121), use `toml`, which review keeps: no guard test checks
   it.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a

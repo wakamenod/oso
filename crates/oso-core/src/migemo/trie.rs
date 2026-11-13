@@ -75,13 +75,22 @@ impl Trie {
 /// `key` onto `out`: its character, or a class of its two. An escaped character is one
 /// inside a class too.
 fn write_key((c, other): Key, out: &mut String) {
-    let mut one = [0; 4];
     let Some(other) = other else {
-        out.push_str(&regex::escape(c.encode_utf8(&mut one)));
+        escape(c, out);
         return;
     };
     out.push('[');
-    out.push_str(&regex::escape(c.encode_utf8(&mut one)));
-    out.push_str(&regex::escape(other.encode_utf8(&mut one)));
+    escape(c, out);
+    escape(other, out);
     out.push(']');
+}
+
+/// `c` onto `out` through `regex::escape`, which escapes only ASCII, so any other character
+/// goes as it is, with nothing allocated.
+fn escape(c: char, out: &mut String) {
+    if c.is_ascii() {
+        out.push_str(&regex::escape(c.encode_utf8(&mut [0; 4])));
+    } else {
+        out.push(c);
+    }
 }

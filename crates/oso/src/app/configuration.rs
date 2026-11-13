@@ -201,13 +201,10 @@ impl App {
         self.editor
             .set_trim_whitespace(configuration.in_force.trim_whitespace);
         self.editor.set_migemo(configuration.in_force.migemo);
-        // On every look, as neither has a run-time switch: one the file leaves out goes back to
-        // the default (ADR 0116).
+        // On every look, as neither has a run-time switch (ADR 0116).
         let jump = &configuration.in_force.jump;
-        self.editor
-            .set_jump_keys(jump.keys.clone().unwrap_or_default());
-        self.jump_timer
-            .set_timeout(jump.timeout.unwrap_or(super::jumps::DEFAULT_TIMEOUT));
+        self.editor.set_jump_keys(jump.keys.clone());
+        self.jump_timer.set_timeout(jump.timeout);
         if let Some(on) = changes.electric_indent {
             self.editor.set_electric_indent(on);
         }
@@ -238,6 +235,8 @@ impl App {
             self.editor.set_theme_pair([first, second]);
         }
         self.remember_theme();
+        let dictionary = self.configuration.in_force.migemo_dictionary.clone();
+        self.set_migemo_dictionary(dictionary.as_deref());
         self.request_redraw();
         if changes.start_channel {
             let name = self.configuration.name.clone();

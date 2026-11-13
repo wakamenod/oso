@@ -62,6 +62,8 @@ pub(crate) struct PanelStyle {
     /// How far a key's chip stays inside its cells, across and up and down.
     pub(crate) key_inset: [f32; 2],
     pub(crate) key_radius: f32,
+    /// How far a menu key's chip reaches past its cells, across, which hold only the key.
+    pub(crate) key_reach: f32,
     /// How far the selected candidate's box reaches past its row's cells, across.
     pub(crate) selected_reach: f32,
     pub(crate) selected_radius: f32,
@@ -83,6 +85,7 @@ const SIZES: PanelStyle = PanelStyle {
     field_outline: 1.0,
     key_inset: [1.0, 2.0],
     key_radius: 4.0,
+    key_reach: 3.0,
     selected_reach: 6.0,
     selected_radius: 4.0,
     border_width: 5.0,
@@ -187,7 +190,7 @@ impl Theme {
 pub(crate) const SYNTAX_FILLS: [Face; 1] = [Face::CurrentLine];
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 44] = [
+const FACES: [Face; 49] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -232,6 +235,11 @@ const FACES: [Face; 44] = [
     Face::SyntaxMarkup,
     Face::JumpLabel,
     Face::JumpLabelNext,
+    Face::MenuKey,
+    Face::MenuKeyStay,
+    Face::MenuKeySwitch,
+    Face::MenuTitle,
+    Face::MenuNote,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -282,6 +290,11 @@ const fn index(face: Face) -> usize {
         Face::SyntaxMarkup => 41,
         Face::JumpLabel => 42,
         Face::JumpLabelNext => 43,
+        Face::MenuKey => 44,
+        Face::MenuKeyStay => 45,
+        Face::MenuKeySwitch => 46,
+        Face::MenuTitle => 47,
+        Face::MenuNote => 48,
     }
 }
 
@@ -340,6 +353,12 @@ fn faces(face: Face) -> (Name, Name) {
         // Drawn over the text, each in a fill of its own (ADR 0116).
         Face::JumpLabel => (FgJump, BgJump),
         Face::JumpLabelNext => (FgJumpNext, BgJumpNext),
+        // A menu's float is a completion's panel, on the text's background (ADR 0117).
+        Face::MenuKey => (FgMenuKey, BgMenuKey),
+        Face::MenuKeyStay => (FgMenuKey, BgMenuStay),
+        Face::MenuKeySwitch => (FgMenuKey, BgMenuSwitch),
+        Face::MenuTitle => (Azure, BgMain),
+        Face::MenuNote => (Slate, BgMain),
     }
 }
 
@@ -502,12 +521,12 @@ pub(crate) mod tests {
                 (Face::ModelineInactive, LABEL),
             ],
             Face::Key => &[(Face::Key, LABEL)],
-            Face::CompletionAnnotation | Face::CompletionBinding => {
+            Face::CompletionAnnotation | Face::CompletionBinding | Face::MenuNote => {
                 &[(LIST[0], LABEL), (LIST[1], LABEL)]
             }
             Face::CompletionPrompt => &[(Face::Text, LABEL)],
-            // The gutter has no band and no fill: only the background.
-            Face::LineNumber => &[(Face::Text, LABEL)],
+            // The gutter has no band and no fill, and a menu's titles are on the text's background.
+            Face::LineNumber | Face::MenuTitle => &[(Face::Text, LABEL)],
             Face::LineNumberCurrent => &[(Face::Text, READ)],
             // A mark sits on everything behind buffer text.
             Face::Whitespace | Face::WrapMark => &[
@@ -536,6 +555,10 @@ pub(crate) mod tests {
             // the text's glyphs under a label are not drawn: no escape or mark lists its fill.
             Face::JumpLabel => &[(Face::JumpLabel, READ)],
             Face::JumpLabelNext => &[(Face::JumpLabelNext, READ)],
+            // A menu's keys on their chips (ADR 0117).
+            Face::MenuKey => &[(Face::MenuKey, LABEL)],
+            Face::MenuKeyStay => &[(Face::MenuKeyStay, LABEL)],
+            Face::MenuKeySwitch => &[(Face::MenuKeySwitch, LABEL)],
             // Drawn as fills or lines, checked as such below.
             Face::Preedit
             | Face::FloatBorder
@@ -697,6 +720,29 @@ pub(crate) mod tests {
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
+            }
+        }
+    }
+
+    /// A menu's key chips are marks on its panel, the text's background, and on the box that
+    /// marks the default head's row, at 3:1, and the three kinds are told apart by their fills
+    /// (ADR 0117).
+    #[test]
+    fn a_menus_key_chips_stand_out_on_its_panel_and_apart() {
+        let chips = [Face::MenuKey, Face::MenuKeyStay, Face::MenuKeySwitch];
+        for theme in &themes() {
+            let name = theme.name();
+            for under in [Face::Text, Face::CompletionSelected] {
+                for chip in chips {
+                    let ratio = contrast(theme.background(chip), theme.background(under));
+                    assert!(ratio >= 3.0, "{name}: {chip:?} on {under:?} {ratio:.2}");
+                }
+            }
+            for (i, a) in chips.iter().enumerate() {
+                for b in &chips[i + 1..] {
+                    let apart = distance(theme.background(*a), theme.background(*b));
+                    assert!(apart >= 0.09, "{name}: {a:?} and {b:?} {apart:.3}");
+                }
             }
         }
     }

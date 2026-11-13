@@ -496,12 +496,15 @@ mod tests {
     /// field on row 1 and a key on row 2, in a pane of `rows` rows from the top. A point
     /// is 20 / 16 px.
     fn panel(rows: usize) -> Vec<u8> {
-        let keys = [CellRect {
-            row: 2,
-            column: 5,
-            rows: 1,
-            columns: 3,
-        }];
+        let keys = [(
+            CellRect {
+                row: 2,
+                column: 5,
+                rows: 1,
+                columns: 3,
+            },
+            Face::Key,
+        )];
         let panes = [Pane {
             panel: Some(Panel {
                 cells: CellRect {
@@ -523,6 +526,7 @@ mod tests {
                     columns: 6,
                 },
                 keys: &keys,
+                marked: None,
                 selected: None,
                 border: false,
             }),
@@ -632,6 +636,7 @@ mod tests {
                     columns: 0,
                 },
                 keys: &[],
+                marked: None,
                 selected: Some(CellRect {
                     row: 3,
                     column: 2,
@@ -732,6 +737,7 @@ mod tests {
                     columns: 0,
                 },
                 keys: &[],
+                marked: None,
                 selected: None,
                 border: false,
             }),

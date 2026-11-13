@@ -6,6 +6,7 @@
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
 //! (ADR 0108's "Settings and run-time choices").
 
+use std::path::Component;
 use std::time::Duration;
 
 use oso_core::jump::Keys;
@@ -54,11 +55,17 @@ pub struct Save {
 }
 
 /// `[search]`: how isearch and jumps search (ADR 0116).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Search {
     /// `migemo`: whether a search starts with migemo on.
     pub migemo: Option<bool>,
+    /// `migemo-dictionary`: the file migemo takes words from, as written: an absolute path,
+    /// or one starting with `~/`.
+    pub migemo_dictionary: Option<String>,
 }
+
+/// The longest `[search] migemo-dictionary` path, in bytes.
+pub(super) const MAX_DICTIONARY_PATH: usize = 4096;
 
 /// `[theme]`: built-in themes, by name (ADR 0089).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -201,10 +208,51 @@ pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Search 
     for (name, value) in entries {
         match name.get_ref().as_ref() {
             "migemo" => search.migemo = switch(value, "[search]", "migemo", found),
+            "migemo-dictionary" => search.migemo_dictionary = dictionary_path(value, found),
             other => unknown(found, name.span().start, other, "[search]"),
         }
     }
     search
+}
+
+/// `[search] migemo-dictionary`: a path, absolute or `~/` and a relative one, not on another
+/// computer, of at most [`MAX_DICTIONARY_PATH`] bytes. Nothing is looked at on disk here.
+fn dictionary_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<String> {
+    let at = value.span().start;
+    let DeValue::String(path) = value.get_ref() else {
+        found.at(
+            at,
+            format_args!(
+                "[search] migemo-dictionary takes a file's path, not {}",
+                type_name(value.get_ref())
+            ),
+        );
+        return None;
+    };
+    let absolute = path.starts_with("~/") || std::path::Path::new(path.as_ref()).is_absolute();
+    // A share on another computer, or a Windows device, is no file of the person's here.
+    let elsewhere = path.starts_with("\\\\") || path.starts_with("//");
+    // Joined to the home directory, a rooted path would replace it.
+    let rooted = path.strip_prefix("~/").is_some_and(|rest| {
+        let rest = std::path::Path::new(rest);
+        let prefix = matches!(rest.components().next(), Some(Component::Prefix(_)));
+        rest.as_os_str().to_string_lossy().starts_with(['/', '\\']) || rest.has_root() || prefix
+    });
+    let why = if elsewhere {
+        "takes a path on this computer, not one starting with \\\\ or //".to_owned()
+    } else if !absolute {
+        "takes an absolute path, or one starting with ~/".to_owned()
+    } else if rooted {
+        "takes ~/ and a relative path, not ~/ and one from a root".to_owned()
+    } else if path.len() > MAX_DICTIONARY_PATH {
+        format!("takes a path of at most {MAX_DICTIONARY_PATH} bytes")
+    } else if path.contains('\0') {
+        "takes a path with no NUL character".to_owned()
+    } else {
+        return Some(path.as_ref().to_owned());
+    };
+    found.at(at, format_args!("[search] migemo-dictionary {why}"));
+    None
 }
 
 /// `[save]`.

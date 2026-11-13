@@ -629,6 +629,95 @@ editor.
   regexp's highlights and a jump's key read each line into room they keep, so neither
   allocates once it has grown.
 
+#### As built (step 3, 2026-11-13)
+
+The author chose the first option of each of eight questions on 2026-11-13, through the
+coordinator; the notes below are those choices as built.
+
+- **The API (Q1).** `oso_core::migemo` is public now, with only `Dictionary` (`new` from a
+  file's text, and its counts `readings`, `words` and `skipped`) and its limits `MAX_BYTES`,
+  `MAX_READING`, `MAX_WORD`, `MAX_WORDS_A_READING`, `MAX_ENTRIES`, `MAX_WORDS` and
+  `MAX_PREFIX_ENTRIES`; the romaji, the forms and the pattern stay private to the crate until
+  step 4. The editor gains `Editor::set_migemo_dictionary` and
+  `Editor::take_migemo_dictionary_wanted`. Nothing in `guardrails/layers.txt` changes.
+- **The setting.** `[search] migemo-dictionary` takes a path, absolute or `~/` and a relative
+  one, of at most 4096 bytes, and not one starting with `\\` or `//`, a share on another
+  computer or a Windows device; `~/` and a path from a root (`~//srv`, `~/\\srv`, `~/C:`)
+  would replace the home directory, so it is refused too. Anything else is a problem the file
+  reports, and the setting is left out. Parsing looks at nothing on disk. `~/` is the home
+  directory when the file is read, if that is absolute: else `*Messages*` says the file was not
+  read, so an empty `HOME` never names a file in the directory oso started in. The path the
+  home directory makes is judged again, and one on another computer is not read either.
+- **Reading it.** The editor says when a search, isearch's or a jump's, built or took migemo's
+  needle with no dictionary, but not around a buffer that may hold secrets, where the table's
+  coming would say what was typed; before the event loop waits, the app then sends the file to the
+  `oso-migemo` thread (`app/migemo.rs`) if one is named and not read yet. The thread reads it
+  with `config.toml`'s checks (ADR 0108): through links, refused if other users can change it
+  or a directory or link on the way, a regular file, the one judged, at most 64 MiB, in UTF-8;
+  one its group can change is read, and `*Messages*` warns of it (Q5), as a package
+  manager's files may be a group's. It builds the table there and hands it over. A table read
+  for an older setting is dropped. `*Messages*` says `Migemo dictionary: 137,025 readings`, or
+  `Migemo dictionary not read:` and why, never the path or a word.
+- **When it comes (Q6),** the cache of needles empties, the search on screen builds its needle
+  again and looks from its match, as typing does, with no step of its own, so `DEL` goes back
+  as before; a jump still reading its string finds its matches again, and one at its labels
+  stays as it is. A setting changed to another file reads it at once if a table is in, which
+  serves until the new one is, or, if the new one cannot be read, is dropped; a setting taken
+  away drops the table. A table replaced is freed on the freeing thread, not the UI's. A file that could not be
+  read is tried again only when `config.toml` is read again or the setting changes (Q7). A dev
+  restart does not carry the table: the next search reads it again.
+- **The formats (Q3, Q4).** Each line by its shape: a tab makes it `migemo-dict`'s, and
+  ` /` with a final `/` SKK's. A byte-order mark, `\r\n` and `;` comments are taken; an SKK
+  word's `;annotation` is cut, a Lisp word (`(` and a lowercase letter, to a `)`) and an
+  okuri-ari block (`[す/愛/]`) are left out, `(株)` stays, and okurigana (`かk`) drops its
+  letter in SKK's lines only; a word of only white space is left out in either format. A reading is 1 to
+  64 characters of hiragana, `ー` and `ゔ`, and a word 1 to 64 bytes with no control character;
+  a reading keeps at most 256 words over every line that gives it, and a dictionary at most
+  2^20 readings and 2^22 words. What is left out is counted (`Dictionary::skipped`).
+- **The table** is the file's text itself, the entries' and words' ranges into it, 16 bytes a
+  reading and 8 a word, sorted by reading, each reading once: at most 64 MiB of text, 16 MiB
+  of entries and 32 MiB of words. While it is built, the words of a reading several lines give
+  are copied together, up to 32 MiB more, and then kept once. The author's `migemo-dict`
+  (C/Migemo's, 5 MB) gives 137,025 readings and 190,759 words, with 26,246 lines and words
+  left out, nearly all readings in ASCII, built in 14 ms.
+- **The words a string's kana give (Q2, Q3).** The table is narrowed by binary search a kana
+  at a time; either of two kana (`ず` or `づ`) splits a range, and more than 2048 live ranges
+  give no words. An unfinished end's spellings are looked for as the last step, one that
+  another starts (`きゃ` after `き`) once. While at most 2048 readings start with the kana and
+  an end, their words go in; past that, those of the readings that are the kana and an end
+  exactly, none for a string that is only an unfinished end (`k`). At most 4096 words and
+  32 KiB of them a pattern, a letter with a case counting four times its bytes, as a search
+  that ignores case compiles it as a class of every letter it folds to: about twice what the
+  largest pattern the author's dictionary gives costs (the author's choice of 2026-11-13, so
+  a pattern of any file's words compiles in about the time of that largest one). The exact
+  readings' come first, then the shorter readings', then the table's order.
+- **Compiling.** The words go into the kana's trie in order, so each is added after its node's
+  last child, every character through `regex::escape`, which changes only ASCII, so the rest
+  goes as it is with nothing allocated. The pattern compiles with a size limit of 4 MiB and
+  the nest limit of 32; past either, the pattern drops its words and compiles the kana alone
+  within step 2's 256 KiB (`words_past_their_size_limit_are_dropped_for_the_kana`). One word
+  that nests too deep drops all of them, which no common dictionary does. So the kana's
+  largest patterns keep their
+  bound (`the_largest_migemo_patterns_compile_on_a_key`), and a dictionary at every limit still
+  gives a needle on a key (`the_largest_migemo_patterns_with_words_give_a_needle_on_a_key`).
+- **Q7's 2 ms,** measured by the ignored tests in `editor/migemo_dictionary_costs.rs` over the
+  author's dictionary on their Mac, in a release build on an idle machine: every prefix of 174
+  common words and every string of one to three letters that gives kana, 5,619 strings built
+  three times each, uncached. Building and compiling a needle takes 0.071 ms p50, 1.35 ms p99
+  and at most 2.3 ms; 19 of 16,857 builds pass 2 ms, each of a pattern of about 2,700 words.
+  The largest pattern, of 2,972 words, is 17 KB, and none drops its words, nor loses any to
+  the 32 KiB, which the heaviest pattern fills to 80%. Looking up the
+  words takes at most 0.1 ms and writing the pattern 0.3 ms; the rest is the compile. So the
+  build stays on the key.
+- **A key's cost.** An isearch key over 20 MB of short Japanese lines, its highlights with it,
+  takes 0.99 ms p50 and 3.1 ms p99: a string with no match near searches for step 1's 3 ms,
+  counted from the needle's build, before the worker goes on, and the slowest keys took up to
+  6.2 ms, as a large pattern's first look in a line can pass the time before it is looked at
+  again. A jump's key, over text made of the words its string finds so nearly every place
+  matches, takes at most 3.5 ms in four windows of 120 by 400, so a jump keeps step 5's
+  budgets of bytes and candidates and no time of its own. `DEL` takes its needle from the
+  cache. The 32 needles of the most words take about 14 MB more than one.
+
 #### As built (step 5, 2026-11-12)
 
 The author answered seven questions on 2026-11-12, through the coordinator. Two depart from the
@@ -698,6 +787,54 @@ at most 1 MiB in all (Q5).
 - **Left for later,** as a chore: `[jump] timeout`'s default moves into the configuration, so
   that its value in force needs no exception, and an `Editor::follow_text` keeps every session
   true to its text in place of jumps going through `isearch_follow_text`.
+- **Done in that chore (2026-11-13):** the jump's keys and timeout, 0.5 s where the file says
+  nothing, are values in force as every other setting is, and `Editor::follow_text` keeps isearch
+  and a jump true to their text before the host waits, in place of `isearch_follow_text`. A
+  jump's byte budgets count what a regexp reads around each row too, not the row alone.
+
+#### As built (step 6, 2026-11-13)
+
+The author answered nine questions on 2026-11-13, through the coordinator, each as
+recommended. None departs from the text above; these notes say what it left open. The ninth,
+after review, named the error `JumpActionError`, so that it reads as a jump's beside
+`RecoveryAction`.
+
+- **The API,** as the snapshots show: `Chose::Armed`, `JumpActionError` (`Edit`, `Yank`,
+  `Cursor`), and `Editor::jump_choose`, which now gives `Result<Chose, JumpActionError>`. The
+  actions themselves are crate-private (`jump::Action`, `editor/jump/actions.rs`), and run
+  inside `avy-printing-char`, so they need no command of their own and are `Person` as it is.
+- **The keys and the labels:** `[jump] keys` refuses `W`, `K`, `Y`, `T` and `c` as before, and a
+  space as not printable, so no label key is an action's. While `avy-goto-char-timer` reads its
+  string, an action's key is a character of it, as in avy; the keys act once the labels show.
+- **Arming (Q1, Q6):** an action's key keeps what is typed of a label, and the label's next key
+  acts; another action's key takes the first one's place. The echo row adds the one armed, as
+  `Jump: ka  [kill line]` (`mark`, `copy line`, `kill line`, `yank line`, `move line`, `add
+  cursor`). With one armed, a digit at `M-g f`'s labels is no line number.
+- **The whole line (Q3),** as the author's avy actions take it: from its start through its line
+  break. A last line with no break is copied as its text alone, and killed with the break before
+  it, so no empty line is left, where Emacs's `kill-whole-line` leaves one. Such a line has no
+  break of its own, so `Y` and `T` yank it into the line at the cursor: `T` on `last` in
+  `a\nb\nlast`, from the buffer's start, gives `\nlasta\nb`. The author accepted this.
+- **`SPC` (Q7):** `C-SPC`, then the jump: every cursor's mark is set where that cursor is, the
+  regions show, and the primary goes to the target, so a region shown before gives way to one
+  from the cursor.
+- **`Y` and `T` (Q2)** yank as `C-u C-y` at every cursor of the selected window: each cursor stays
+  before the line and its mark after it, and a region shown is replaced. They yank the entry the
+  action made, never the clipboard's, and nothing when the line was empty.
+- **`c` (Q5)** adds a cursor with no mark, and the primary stays; past 1000 cursors it says so.
+- **Other windows (Q4):** `W`, `K`, `Y` and `T` keep the selected window, and `K` and `T` kill in
+  the target's buffer. `SPC` and `c` select the target's window, as a jump does.
+- **`avy-isearch`** ends the search as `RET` does, and then acts. avy ends it after the action;
+  oso ends it before, so that a kill or a yank never edits under a search, and the cursor a yank
+  goes to is where `RET` leaves it.
+- **Undo, the ring and secrets:** the action is part of the command of its label's last key, so
+  it undoes as one step in each buffer it changed. Its kill is an entry of its own, which goes to
+  the clipboard as any kill does. A line from a buffer that may hold secrets is a secret entry,
+  concealed on the clipboard, and a yank of it makes its buffer one too (ADR 0074).
+- **Refusals:** every buffer an action would change is asked first. A read-only one, or a yank
+  past `kill::MAX_YANK` at every cursor, ends the jump with the error, with the text, the
+  cursors and the ring as they were (`avy-isearch`'s search has ended). `W` copies from a
+  read-only buffer.
 
 ## Changes to accepted ADRs
 

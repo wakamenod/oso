@@ -31,6 +31,8 @@ pub(super) struct Reading {
     passphrase: bool,
     /// What the answer is for.
     then: Then,
+    /// The switches the menu whose head ran the command had on, for it to read (ADR 0117).
+    pub(super) switches: Vec<String>,
 }
 
 /// What a prompt's answer is for.
@@ -44,6 +46,8 @@ enum Then {
     Replace(ReplaceStage),
     /// The directory a project's prompt opens on, as `C-u` asks (ADR 0114).
     Directory(ProjectPrompt),
+    /// The menu it names, in the command's place, as `open-menu` does (ADR 0117).
+    OpenMenu,
 }
 
 /// A project's prompt, which `C-u` reads a directory for first (ADR 0114).
@@ -64,6 +68,7 @@ impl Reading {
             prompt,
             passphrase: false,
             then: Then::Run,
+            switches: Vec::new(),
         }
     }
 }
@@ -152,6 +157,7 @@ impl Dispatcher {
             Some(ArgSpec::Command { prompt, history } | ArgSpec::Theme { prompt, history }) => {
                 (prompt, Kind::Complete { history })
             }
+            Some(ArgSpec::Menu { prompt, history }) => (prompt, Kind::Complete { history }),
             Some(ArgSpec::Buffer {
                 prompt,
                 history,
@@ -177,9 +183,15 @@ impl Dispatcher {
         let (prompt, kind) = kind;
         // `M-x` completes over the commands, and runs the one named in its place (ADR 0076).
         let runs_answer = matches!(spec, Some(ArgSpec::Command { .. }));
+        // `open-menu` completes over the menus, and opens the one named in its place (ADR 0117).
+        let opens_menu = matches!(spec, Some(ArgSpec::Menu { .. }));
         let opened = match kind {
             Kind::Complete { history } if runs_answer => {
                 let items = self.command_candidates(editor);
+                editor.open_completion(extended::with_prefix(prompt, args.raw()), history, items)
+            }
+            Kind::Complete { history } if opens_menu => {
+                let items = self.menu_candidates(editor);
                 editor.open_completion(extended::with_prefix(prompt, args.raw()), history, items)
             }
             // `load-theme` completes over the themes the host draws with (ADR 0089).
@@ -196,9 +208,12 @@ impl Dispatcher {
                 passphrase: kind == Kind::Passphrase,
                 then: if runs_answer {
                     Then::RunAnswer
+                } else if opens_menu {
+                    Then::OpenMenu
                 } else {
                     Then::Run
                 },
+                switches: Vec::new(),
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
@@ -375,6 +390,7 @@ impl Dispatcher {
                 prompt,
                 passphrase: false,
                 then: Then::Replace(stage),
+                switches: Vec::new(),
             }),
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -438,6 +454,11 @@ impl Dispatcher {
                         let args = Args::with_prefix(reading.prefix);
                         match &reading.then {
                             Then::RunAnswer => self.run_answer(editor, &text, args),
+                            Then::OpenMenu => {
+                                // The prefix argument typed before goes to its first head.
+                                self.prefix = reading.prefix;
+                                self.open_menu_named(editor, &text)
+                            }
                             Then::Replace(stage) => {
                                 self.replace_answered(editor, &reading, stage, &text)
                             }
@@ -445,8 +466,11 @@ impl Dispatcher {
                                 self.directory_answered(editor, &reading, *project, &text)
                             }
                             Then::Run => {
+                                let switches: Vec<&str> =
+                                    reading.switches.iter().map(String::as_str).collect();
                                 let invocation = Invocation {
                                     answer: Some(&text),
+                                    switches: &switches,
                                     ..Invocation::default()
                                 };
                                 self.execute(editor, reading.id, args, invocation, Step::MayJoin)
@@ -526,7 +550,16 @@ impl Dispatcher {
         let effects = self
             .execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)
             .0;
-        effects.union(self.after_prompts(editor))
+        let effects = effects.union(self.after_prompts(editor));
+        // The question takes the keys from an open menu, which closes, as it would from a key
+        // (ADR 0117). This runs outside an input, so nothing else closes it.
+        if self.close_menus_if_taken(editor) {
+            return effects.union(Effects {
+                redraw: true,
+                ..Effects::default()
+            });
+        }
+        effects
     }
 
     /// Runs the command named `name`, given to `M-x`, with `M-x`'s prefix argument, reading

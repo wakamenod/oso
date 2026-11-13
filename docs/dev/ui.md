@@ -287,17 +287,31 @@ are rounded.
 
 ## Menus
 
-Hydra/transient-style menus float at the **center** of the frame, as they do
-with hydra-posframe today ([ADR 0117](adr/0117-menus.md)):
+Hydra/transient-style menus float at the **center** of the tiled area, as they do
+with hydra-posframe today ([ADR 0117](adr/0117-menus.md)). Steps 1 and 2 are built:
+menus from `config.toml` and the open menu with its float. The built-in menus and the key list
+are planned.
 
 - A head closes the menu unless it says `stay`; switches (`[x]`/`[ ]`) stay and are read by the
-  head that runs. A key the menu does not bind is refused with `q to quit`. `C-g` closes one
-  level of submenus; `q` closes the menu unless a head binds it.
-- Built-in menus are defaults: `toggles` on `C-c t`, `review` on `C-x v r`, and `windows`,
-  `jumps` and `search` through `M-x open-menu`. `[menus.<name>]` in `config.toml` adds a menu,
-  replaces one of the same name whole, or removes it with `false`.
-- After a prefix key waits 1.0 s, a panel along the bottom of the frame lists the keys that may
-  follow, as which-key does; `C-h` shows it at once and pages it.
+  head that runs. A key the menu does not bind is refused with `x is not in this menu: q to quit`
+  and drops the prefix argument. `C-g` first ends a half-typed head or the prefix argument, then
+  closes one level of submenus; `q` closes one level too unless a head binds it.
+- The float is completion's panel at the center of the tiled area. Each key is a chip: the usual
+  colour for a head that closes the menu, a red one for a head that stays, and a third for a
+  switch, whose `[x]` sits on a chip of its colour while it is on. Titles are in their own colour,
+  notes dim and aligned in a column, and a head that cannot run now is dim with no chip. The head
+  `RET` runs is marked with a box. `C-u 5-` shows at the end of the title's row while it is typed.
+- `C-u`, `M-<digit>` and `M--` build a prefix argument for the next head; plain digits are heads.
+- A head that opens a prompt, a search or a replay closes the menu first; no menu opens in a
+  prompt (`Not in the minibuffer`). A menu's key ends isearch, query-replace or the layer of
+  `C-x TAB` and opens the menu; during a jump it ends the jump and does not run, as any key
+  the jump does not bind. The input method is off while a menu is open, and the agent
+  channel waits (`the person is in a menu`). `M-x open-menu` opens any menu by name.
+- `[menus.<name>]` in `config.toml` adds a menu, replaces one of the same name whole, or removes
+  it with `false`. Planned (step 3): built-in menus as defaults, `toggles` on `C-c t`, `review`
+  on `C-x v r`, and `windows`, `jumps` and `search` through `M-x open-menu`.
+- Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
+  the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
 
 ## Echo area
 
@@ -464,8 +478,11 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   uppercase letter among them, searches literally, and so does a string with a letter that starts
   no spelling (`struct`). A regexp's search never uses it. `M-m` turns it off or on for the rest
   of a search, and `[search] migemo = false` starts every search with it off
-  ([ADR 0116](adr/0116-migemo-and-jumps.md)). Kanji wait for the dictionary of the ADR's
-  step 3.
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)). With a dictionary the person names in
+  `[search] migemo-dictionary` (C/Migemo's `migemo-dict` or an SKK file, in UTF-8), it also
+  finds the words whose reading starts with the kana: `kanji` finds `漢字`. oso ships none. The
+  file is read at the first search that would use it, and until it is in, searches find kana;
+  `*Messages*` then says `Migemo dictionary: 137,025 readings`, or why it was not read.
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case
@@ -490,6 +507,14 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - The primary cursor jumps and the others stay. A jump into another window selects it. With a
   region shown, the jump extends it; otherwise the place left is pushed onto the mark ring.
   `C-u` keeps to the selected window.
+- At the labels, an action's key acts on the label typed next instead of going there, as avy's
+  dispatch keys: `SPC` sets the region from the cursor to it; `W` copies its whole line and `K`
+  kills it, and the cursor stays; `Y` copies it and `T` kills it, and each yanks it at every
+  cursor as `C-u C-y` does; `c` adds a cursor there, and the primary stays. What is typed of a
+  label stays, another action's key takes the place of the first, and the echo row shows the one
+  armed: `Jump to a line  [kill line]`. While a string is read, these keys are characters of it.
+  An action is one undo step in each buffer it changes; in a read-only buffer it says so and does
+  nothing (ADR 0116 step 6).
 - `C-g` ends a jump with nothing moved, before anything else it would do. A key that is not a
   label, `DEL` and `RET` among them, says `No such candidate` and does not run; while the string
   is read, a key the jump does not bind ends it silently. A change to the text or a scroll under

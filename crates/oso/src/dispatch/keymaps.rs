@@ -5,7 +5,8 @@
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
-//! The default keymaps come from `bindings`.
+//! The default keymaps come from `bindings`. The user's keymap from the configuration goes in
+//! here too, once no prefix key waits for the one before.
 
 use oso_core::buffer::Mode;
 use oso_core::command::{CommandId, Prefix, Registry};
@@ -14,6 +15,8 @@ use oso_core::keymap::{Keymap, Layers};
 use oso_core::minibuffer::Kind;
 
 use crate::bindings;
+
+use super::Dispatcher;
 
 /// Every keymap a dispatcher holds.
 pub(super) struct Keymaps {
@@ -159,5 +162,47 @@ impl Keymaps {
     /// without user keys.
     pub(super) fn user(&self) -> Option<&Keymap> {
         Some(&self.user).filter(|user| !user.is_empty())
+    }
+}
+
+/// The user's keymap from the configuration, which waits for a pending prefix key to go in
+/// (ADR 0108).
+impl Dispatcher {
+    /// Puts in the user's keymap that waited for a prefix key, once none is pending. The one
+    /// it replaces waits in turn, for [`Dispatcher::take_replaced_keymap`].
+    pub(super) fn take_waiting_user(&mut self) {
+        if !self.resolver.pending().is_empty() {
+            return;
+        }
+        self.menus.take_waiting();
+        if let Some(user) = self.user_waiting.take() {
+            let old = std::mem::replace(&mut self.keymaps.user, user);
+            self.replaced.push(old);
+        }
+    }
+
+    /// Puts the user's keys from the configuration just above the global keymap, in place of
+    /// those before; an empty keymap takes them away (ADR 0108). While a prefix key is
+    /// pending, they wait for it to resolve, so that its next key reads the keymaps it
+    /// started in.
+    ///
+    /// Returns the keymap this replaces now, the one in force or one that was waiting, for the
+    /// caller to drop elsewhere: a large one takes milliseconds to drop. One that a waiting
+    /// keymap replaces later is kept for [`Dispatcher::take_replaced_keymap`].
+    pub fn set_user_keymap(&mut self, user: Keymap) -> Option<Keymap> {
+        if self.resolver.pending().is_empty() {
+            if let Some(stale) = self.user_waiting.take() {
+                self.replaced.push(stale);
+            }
+            Some(std::mem::replace(&mut self.keymaps.user, user))
+        } else {
+            self.user_waiting.replace(user)
+        }
+    }
+
+    /// A user's keymap that a waiting one replaced, once its prefix key resolved, for the
+    /// caller to drop elsewhere. Call it until it gives `None`.
+    pub fn take_replaced_keymap(&mut self) -> Option<Keymap> {
+        self.replaced.pop()
     }
 }

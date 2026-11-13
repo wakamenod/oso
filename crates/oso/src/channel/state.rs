@@ -40,8 +40,9 @@ pub fn unreadable(buffer: &Buffer) -> bool {
 }
 
 /// The state: every buffer the person has, every tiled window, the selected window's rows,
-/// the echo area and the prompts open, the outermost first.
-pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
+/// the echo area, the prompts open, the outermost first, and `menu`, the name of the menu the
+/// person has open, or null (ADR 0117).
+pub fn state(editor: &Editor, menu: Option<&str>, buffer_offset: usize) -> Value {
     let shows_secret = editor.shows_secret();
     let (window, buffer) = editor.tiled();
     let mut state = json!({
@@ -66,6 +67,8 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
             .collect::<Vec<_>>(),
         "text": (!unreadable(buffer)).then(|| visible_text(window, buffer.text(), &buffer.display())),
         "undoing": undoing_state(editor),
+        // A menu's name is the configuration's, never a buffer's text.
+        "menu": menu,
         "prompts": editor.prompts().iter().map(|prompt| {
             let mut state = json!({
                 "kind": kind(prompt.kind()),
@@ -320,7 +323,7 @@ mod tests {
         let mut opening = Buffer::visiting(PathBuf::from("/tmp/plain.txt"));
         opening.set_agent_pending(true);
         editor.add_buffer(opening);
-        let state = state(&editor, 0);
+        let state = state(&editor, None, 0);
         let names: Vec<_> = state["buffers"]
             .as_array()
             .unwrap()
@@ -334,9 +337,9 @@ mod tests {
     #[test]
     fn says_how_far_an_undo_under_way_is_but_not_around_a_secret() {
         let mut editor = editor("");
-        assert_eq!(state(&editor, 0)["undoing"], json!(null));
+        assert_eq!(state(&editor, None, 0)["undoing"], json!(null));
         begin_a_large_undo(&mut editor);
-        let undoing = &state(&editor, 0)["undoing"];
+        let undoing = &state(&editor, None, 0)["undoing"];
         assert_eq!(undoing["redo"], false);
         assert!(
             undoing["done"]
@@ -354,12 +357,15 @@ mod tests {
         let secret = editor.add_buffer(secret);
         editor.show(secret);
         begin_a_large_undo(&mut editor);
-        assert_eq!(state(&editor, 0)["undoing"], json!({ "active": true }));
+        assert_eq!(
+            state(&editor, None, 0)["undoing"],
+            json!({ "active": true })
+        );
     }
 
     #[test]
     fn shows_buffers_windows_and_the_rows_in_view() {
-        let state = state(&editor("one\ntwo"), 0);
+        let state = state(&editor("one\ntwo"), None, 0);
         assert_eq!(state["version"], 1);
         assert_eq!(state["buffers"][0]["name"], "notes.md");
         assert_eq!(state["buffers"][0]["secret"], false);
@@ -401,7 +407,7 @@ mod tests {
             let secret = editor.add_buffer(secret);
             editor.show(secret);
             editor.other_window(1);
-            state(&editor, 0)
+            state(&editor, None, 0)
         };
         let state = shown(3);
         assert_eq!(state["version"], 1, "new fields keep the version");
@@ -431,7 +437,7 @@ mod tests {
         let mut editor = Editor::with_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
         editor.set_view_size(ViewSize::new(10, 40));
         assert!(editor.shows_secret());
-        let state = state(&editor, 0);
+        let state = state(&editor, None, 0);
         assert_eq!(state["text"], json!(null));
         assert_eq!(state["buffers"][0]["secret"], true);
         assert!(state["windows"][0].get("selections").is_none());
@@ -452,7 +458,7 @@ mod tests {
         editor.set_view_size(ViewSize::new(10, 40));
         let id = editor.window().buffer();
         assert!(editor.set_wraps(id, true));
-        let state = state(&editor, 0);
+        let state = state(&editor, None, 0);
         assert_eq!(state["text"], json!(null));
         assert!(state["windows"][0].get("first_row").is_none());
         assert_eq!(state["buffers"][0]["wrapped"], json!(null));
@@ -464,19 +470,26 @@ mod tests {
         let id = editor.window().buffer();
         assert!(editor.set_wraps(id, true));
         assert!(editor.scroll_lines(3).is_ok());
-        let state = state(&editor, 0);
+        let state = state(&editor, None, 0);
         assert_eq!(state["buffers"][0]["wrapped"], true);
         assert_eq!(state["windows"][0]["first_row"], 0, "still the long line");
         assert_eq!(state["text"]["first_row"], 0);
     }
 
     #[test]
+    fn the_state_names_the_open_menu_or_none() {
+        let editor = editor("one");
+        assert_eq!(state(&editor, None, 0)["menu"], json!(null));
+        assert_eq!(state(&editor, Some("toggles"), 0)["menu"], "toggles");
+    }
+
+    #[test]
     fn keys_in_progress_never_show() {
         let mut editor = editor("ab");
         editor.message("Saved");
-        assert_eq!(state(&editor, 0)["echo"], "Saved");
+        assert_eq!(state(&editor, None, 0)["echo"], "Saved");
         editor.set_keys_in_progress("C-u 5");
-        assert!(state(&editor, 0).get("echo").is_none());
+        assert!(state(&editor, None, 0).get("echo").is_none());
     }
 
     #[test]
@@ -485,14 +498,14 @@ mod tests {
         for n in 0..150 {
             editor.add_buffer(Buffer::from_text(format!("b{n}"), ""));
         }
-        let first = state(&editor, 0);
+        let first = state(&editor, None, 0);
         let count = first["buffer_count"].as_u64().unwrap();
         assert!(count > 150);
         assert_eq!(
             first["buffers"].as_array().unwrap().len(),
             super::MAX_BUFFERS
         );
-        let rest = state(&editor, super::MAX_BUFFERS);
+        let rest = state(&editor, None, super::MAX_BUFFERS);
         let left = usize::try_from(count).unwrap() - super::MAX_BUFFERS;
         assert_eq!(rest["buffers"].as_array().unwrap().len(), left);
         assert_eq!(rest["buffer_offset"], super::MAX_BUFFERS);
@@ -503,7 +516,7 @@ mod tests {
         let long = "a".repeat(MAX_VISIBLE_TEXT * 2);
         let mut editor = editor(&format!("{long}\n{long}"));
         editor.set_view_size(ViewSize::new(10, MAX_VISIBLE_TEXT * 2));
-        let state = state(&editor, 0);
+        let state = state(&editor, None, 0);
         assert_eq!(state["text"]["truncated"], true);
         let rows = state["text"]["rows"].as_array().unwrap();
         assert!(
@@ -519,7 +532,7 @@ mod tests {
         let mut editor = editor("");
         editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
         editor.for_agent(|editor| editor.ask("Save over notes.md?", "save-buffer").unwrap());
-        let prompts = state(&editor, 0)["prompts"].clone();
+        let prompts = state(&editor, None, 0)["prompts"].clone();
         assert_eq!(prompts[0], json!({ "kind": "question", "by": "person" }));
         assert_eq!(prompts[1]["by"], "agent");
         assert!(

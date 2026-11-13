@@ -48,6 +48,10 @@ const SIZE_LIMIT: usize = 2 * 1024 * 1024;
 /// size compiles within about a millisecond, and a larger one compiles on the worker.
 pub(crate) const KEY_SIZE_LIMIT: usize = 256 * 1024;
 
+/// The most memory migemo's pattern with a dictionary's words takes (ADR 0116, Q7): past it,
+/// the pattern drops the words and keeps the kana, within [`KEY_SIZE_LIMIT`].
+pub(crate) const WORDS_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
 /// What reading a line costs besides its bytes, as a line's seek and copy take time of
 /// their own.
 const PER_LINE: usize = 64;
@@ -409,6 +413,18 @@ impl fmt::Debug for LineRoom {
 }
 
 impl Regexp {
+    /// The bytes of its pattern, for the measures of migemo's needles.
+    #[cfg(test)]
+    pub(crate) fn pattern_len(&self) -> usize {
+        self.source.0.len()
+    }
+
+    /// Its first match in `text`, for tests of what a pattern matches.
+    #[cfg(test)]
+    pub(crate) fn find_in(&self, text: &str) -> Option<String> {
+        self.regex.find(text).map(|found| found.as_str().to_owned())
+    }
+
     /// The replacement for the match at `range`: `to` with its `$1`, `${name}`, `$0` and `$$`
     /// expanded from the match's groups, as `Regex::replace` expands them. It reads the
     /// match and the character before it, not the whole line.
@@ -435,7 +451,8 @@ impl Regexp {
     /// after, from one character before that, so `^` and `\b` see what is there, reading at
     /// most `limit` bytes in all and until `until` if one is given, so a frame or a key costs
     /// as much as its view. A match the window cuts at its end is left out, as it may be longer or none.
-    /// `room` is where each line's text is read.
+    /// `room` is where each line's text is read. Returns how many bytes it read, the text
+    /// around each span too.
     pub(crate) fn matches_in(
         &self,
         text: &Rope,
@@ -443,7 +460,7 @@ impl Regexp {
         (most, limit): (usize, usize),
         (until, room): (Option<Instant>, &mut LineRoom),
         out: &mut Vec<Range<usize>>,
-    ) {
+    ) -> usize {
         let passed = || until.is_some_and(|until| Instant::now() >= until);
         let (mut left, line) = (limit, &mut room.0);
         let mut looks = 0_usize;
@@ -457,7 +474,7 @@ impl Regexp {
             let read_from = if look > start { clip(look - 1) } else { start };
             let read_to = clip(shown.end.min(end).saturating_add(VIEW_REACH).min(end));
             let Some(rest) = left.checked_sub(read_to - read_from) else {
-                return;
+                return limit - left;
             };
             left = rest;
             line.clear();
@@ -469,7 +486,7 @@ impl Regexp {
                 // A line full of matches looks at the time now and then, too.
                 looks += 1;
                 if looks.is_multiple_of(TIME_EVERY) && passed() {
-                    return;
+                    return limit - left;
                 }
                 let Some(found) = self.regex.find_at(line, at) else {
                     break;
@@ -489,11 +506,12 @@ impl Regexp {
                 if !cut_off && !skipped && !matched.is_empty() {
                     out.push(matched);
                     if out.len() == most {
-                        return;
+                        return limit - left;
                     }
                 }
             }
         }
+        limit - left
     }
 }
 

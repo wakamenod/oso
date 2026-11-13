@@ -206,7 +206,6 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
             span("Not a command yet", Face::CompletionAnnotation),
         ],
     ];
-    let outer = cells(10, 10, 9, 60);
     let panes = [
         text_pane((&buffer, &screen), id, (0, &OTHERS), &fills, None),
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
@@ -217,10 +216,11 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
             layer: Layer::FLOAT,
             background: None,
             panel: Some(Panel {
-                cells: outer,
+                cells: cells(10, 10, 9, 60),
                 field: None,
                 field_room: cells(11, 12, 1, 0),
                 keys: &[],
+                marked: None,
                 selected: Some(cells(14, 11, 1, 58)),
                 border: true,
             }),
@@ -252,7 +252,10 @@ fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
         span(" n ", Face::Key),
         span(" keep", Face::Prompt),
     ]];
-    let chips = [cells(2, 6, 1, 3), cells(2, 18, 1, 3)];
+    let chips = [
+        (cells(2, 6, 1, 3), Face::Key),
+        (cells(2, 18, 1, 3), Face::Key),
+    ];
     let band = [cells(6, GUTTER, 1, COLUMNS - GUTTER)];
     let fills = [(Face::CurrentLine, &band[..])];
     let flash = Some(FlashFill {
@@ -291,6 +294,7 @@ fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
                 field: None,
                 field_room: cells(1, 6, 1, 0),
                 keys: &chips,
+                marked: None,
                 selected: None,
                 border: false,
             }),

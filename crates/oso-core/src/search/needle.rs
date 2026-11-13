@@ -12,6 +12,7 @@ use std::time::Instant;
 use super::regexp::{self, Line, LineRoom, LineTooLong, Regexp};
 use super::{Count, Found, Limits, Query, count, find_backward, find_forward, find_in, matches_in};
 use crate::decode::InvalidBytes;
+use crate::migemo::{Dictionary, Romaji};
 use crate::rope::Rope;
 
 /// A literal query or a regexp.
@@ -36,12 +37,36 @@ pub(crate) enum Scan<'a> {
 }
 
 impl Needle {
-    /// Migemo's needle for `string` (ADR 0116): its pattern, compiled on a key with the case
-    /// `case_sensitive` says. `None` if the string gives no kana or its pattern is over a
-    /// key's size limit, and the caller searches for it as it is.
-    pub(crate) fn migemo(string: &str, case_sensitive: bool) -> Option<Self> {
-        let pattern = crate::migemo::pattern(string)?;
-        regexp::compile_migemo(&pattern, !case_sensitive).map(Self::Regexp)
+    /// Migemo's needle for `string` (ADR 0116): its pattern, with `dictionary`'s words if
+    /// one is given, compiled on a key with the case `case_sensitive` says. A pattern with
+    /// words over their size limit, or nested too deep, drops them and keeps the kana. `None`
+    /// if the string gives no kana or its kana's pattern is over a key's size limit, and the
+    /// caller searches for it as it is.
+    pub(crate) fn migemo(
+        string: &str,
+        case_sensitive: bool,
+        dictionary: Option<&Dictionary>,
+    ) -> Option<Self> {
+        Self::migemo_within(string, case_sensitive, dictionary, regexp::WORDS_SIZE_LIMIT)
+    }
+
+    /// [`Self::migemo`], its words compiled within `limit`.
+    pub(super) fn migemo_within(
+        string: &str,
+        case_sensitive: bool,
+        dictionary: Option<&Dictionary>,
+        limit: usize,
+    ) -> Option<Self> {
+        let romaji = Romaji::new(string)?;
+        let words = dictionary.map(|dictionary| dictionary.pattern_words(&romaji));
+        if let Some(words) = words.filter(|words| !words.is_empty()) {
+            let pattern = romaji.pattern(string, &words);
+            if let Some(regexp) = regexp::compile_migemo(&pattern, !case_sensitive, limit) {
+                return Some(Self::Regexp(regexp));
+            }
+        }
+        let pattern = romaji.pattern(string, &[]);
+        regexp::compile_migemo(&pattern, !case_sensitive, regexp::KEY_SIZE_LIMIT).map(Self::Regexp)
     }
 
     /// A search through `ranges` of `snapshot` from `from`, an empty match there skipped if a
@@ -82,8 +107,9 @@ impl Needle {
 
     /// The matches within `spans`, at most `most` and reading at most `limit` bytes, for a
     /// frame's highlights or a jump's key. A regexp's stop at `until` too if one is given, and
-    /// read each line into `line`; a literal query's read only the text the spans cover, so
-    /// its budget alone bounds them.
+    /// read each line into `line`, with a little of the text around each span; a literal
+    /// query's read only the text the spans cover, so its budget alone bounds them. Returns
+    /// how many bytes it read, at most `limit`; for a literal query, the spans' bytes up to it.
     pub(crate) fn matches_in(
         &self,
         (text, invalid): (&Rope, &InvalidBytes),
@@ -91,9 +117,16 @@ impl Needle {
         (most, limit): (usize, usize),
         (until, line): (Option<Instant>, &mut LineRoom),
         out: &mut Vec<Range<usize>>,
-    ) {
+    ) -> usize {
         match self {
-            Self::Literal(query) => matches_in((text, invalid), query, spans, (most, limit), out),
+            Self::Literal(query) => {
+                matches_in((text, invalid), query, spans, (most, limit), out);
+                spans
+                    .iter()
+                    .map(|span| span.end.saturating_sub(span.start))
+                    .fold(0, usize::saturating_add)
+                    .min(limit)
+            }
             Self::Regexp(regexp) => {
                 regexp.matches_in(text, spans, (most, limit), (until, line), out)
             }
