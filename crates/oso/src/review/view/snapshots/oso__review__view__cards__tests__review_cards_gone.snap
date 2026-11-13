@@ -1,0 +1,18 @@
+---
+source: crates/oso/src/review/view/cards_tests.rs
+expression: grid(&rendered)
+---
+file     |no longer changed  a.rs  · 3 comments (1 agent, 1 unread)
+         |hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+label 0  |    ▍You  #0 · outdated, was L1 (new)
+         |    ppppppppooooooooooooooooooooooooo
+card 0   |    ▍  was on gone
+         |    p
+label 1  |    ▍Agent  #1 · new · outdated, was hunk 2
+         |    aaaaaaaaaaaaaaaaooooooooooooooooooooooo
+card 1   |    ▍  was on the second hunk
+         |    a
+label 2  |    ▍You  #2 · outdated, was L3 (new)
+         |    ppppppppooooooooooooooooooooooooo
+card 2   |    ▍  on new three
+         |    p

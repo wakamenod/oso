@@ -33,7 +33,7 @@ fn listed_files_show_until_read_then_their_sections() {
     };
     state.take(Tell::File {
         reading,
-        carry: Some(review.carry(b"b", shape)),
+        carry: Carrying::Here(review.carry(b"b", shape)),
     });
     state.take(Tell::Read);
     let second = state.build();
@@ -84,7 +84,7 @@ fn a_carry_again_runs_only_for_the_files_current_reading() {
     };
     state.take(Tell::File {
         reading: Arc::clone(&second),
-        carry: None,
+        carry: Carrying::Nothing,
     });
     // A carry asked again for a reading a newer one replaced is dropped.
     state.take(Tell::Carry {
@@ -106,7 +106,7 @@ fn a_file_no_longer_listed_goes() {
     let mut state = State::new("t".into());
     state.take(Tell::File {
         reading: Arc::new(text_reading(b"a", vec![hunk(1, 1, &[b"x\n"], &[])])),
-        carry: None,
+        carry: Carrying::Nothing,
     });
     let entries: Arc<[Entry]> = vec![entry(b"b", Status::Modified)].into();
     state.take(Tell::Listed {
@@ -143,7 +143,7 @@ fn nothing_is_laid_out_again_when_nothing_in_the_text_changed() {
     });
     state.take(Tell::File {
         reading: Arc::new(text_reading(b"a", vec![hunk(1, 1, &[b"x\n"], &[])])),
-        carry: None,
+        carry: Carrying::Nothing,
     });
     let first = state.build();
     assert!(first.text.is_some());
@@ -181,7 +181,7 @@ fn a_file_read_before_it_is_listed_goes_last_once() {
     for _ in 0..2 {
         state.take(Tell::File {
             reading: Arc::new(text_reading(b"b", vec![hunk(1, 1, &[b"x\n"], &[])])),
-            carry: None,
+            carry: Carrying::Nothing,
         });
     }
     assert_eq!(

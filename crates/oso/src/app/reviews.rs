@@ -19,7 +19,7 @@ use oso_core::project::ProjectId;
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
 use crate::review::count::Counted;
-use crate::review::view::{Tell, Text, View};
+use crate::review::view::{Carrying, Tell, Text, View};
 use crate::review::{Content, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
 pub(in crate::app) use state::Reviews;
 use state::{Baseliner, Reopen, Running};
@@ -375,7 +375,10 @@ impl App {
                 entries, more, cut, ..
             } => Tell::Listed { entries, more, cut },
             Report::File { reading, .. } => {
-                let carry = self.carry_for(review, &reading);
+                let carry = match self.carry_for(review, &reading) {
+                    Some(carry) => Carrying::Here(carry),
+                    None => Carrying::Nothing,
+                };
                 Tell::File { reading, carry }
             }
             Report::Read { .. } => Tell::Read,

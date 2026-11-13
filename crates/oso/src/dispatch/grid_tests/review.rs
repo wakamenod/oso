@@ -1,6 +1,7 @@
 //! Text-grid snapshots of a review buffer (ADR 0122): its title and notes, a file's header,
 //! hunks and lines with their bands, every note a file can have, paths that would pass for
-//! another row or reorder what follows, and the motions between hunks and files.
+//! another row or reorder what follows, the motions between hunks and files, and comment cards
+//! with an agent's text that would pass for a label.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; the text comes from the review's
 //! view as its thread would build it, from readings made here.
@@ -8,11 +9,11 @@
 use std::sync::Arc;
 
 use oso_core::editor::Editor;
-use oso_core::review::{Base, Hunk, Shape};
+use oso_core::review::{Anchor, Author, Base, Hunk, Review, Shape, Side};
 
 use super::check_editor;
 use crate::commands::review::tests::in_project;
-use crate::review::view::{Tell, built};
+use crate::review::view::{Carrying, Tell, built};
 use crate::review::{Content, Entry, Id, Reading, Status};
 
 fn entry(path: &[u8], status: Status) -> Entry {
@@ -43,7 +44,7 @@ fn reading(path: &[u8], status: Status, content: Content) -> Tell {
             entry: entry(path, status),
             content,
         }),
-        carry: None,
+        carry: Carrying::Nothing,
     }
 }
 
@@ -160,4 +161,35 @@ fn paths_with_controls_newlines_or_bidi_marks_stay_on_their_row_in_order() {
         ),
     ];
     check_editor("review_paths", b"", review(told, (20, 60)), &[""]);
+}
+
+#[test]
+fn cards_show_under_their_line_and_an_agents_text_cannot_pass_for_a_label() {
+    let content = text(vec![hunk(1, 1, &[b"old\n"], &[b"new\n"])]);
+    let Content::Text { shape, .. } = &content else {
+        unreachable!()
+    };
+    let mut model = Review::new();
+    let carried = model
+        .carry(b"a.rs", Arc::clone(shape))
+        .run(|_, _| None, |_, _| Vec::new());
+    model.apply(carried);
+    let on_new = Anchor::Line {
+        side: Side::New,
+        number: 1,
+    };
+    let mine = model
+        .add_comment(Author::Person, b"a.rs", on_new, "looks right".into())
+        .unwrap();
+    let spoof = "sure\n\u{258d}You  #0\n  You  #0  approve";
+    model.reply(Author::Agent, mine, spoof.into()).unwrap();
+    let told = vec![
+        reading(b"a.rs", Status::Modified, content),
+        Tell::Cards {
+            path: b"a.rs".as_slice().into(),
+            comments: model.comments_on(b"a.rs").cloned().collect(),
+            reading: model.file(b"a.rs").cloned(),
+        },
+    ];
+    check_editor("review_cards", b"", review(told, (12, 50)), &[""]);
 }

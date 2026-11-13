@@ -12,13 +12,16 @@
 //! - What a line is goes in its [`Section`], never read back from its text.
 //! - Highlights are counted in the decoded text's bytes, where each invalid byte is a U+FFFD
 //!   of three, as the loader decodes it.
+//! - Comments go in as cards ([`cards`](super::cards)) among the lines; a file that may hold
+//!   secrets shows only how many it has.
 
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use oso_core::review::{Hunk, RowKind, Section, Side};
+use oso_core::review::{Anchor, CommentId, Hunk, RowKind, Section, Side};
 use oso_core::syntax::Highlight;
 
+use super::cards::{self, Cards, Placing, Plan};
 use crate::review::list::Status;
 use crate::review::{Content, Entry, Reading};
 
@@ -32,16 +35,31 @@ pub(crate) struct Rendered {
     pub(crate) runs: Vec<(usize, Option<Highlight>)>,
     /// Whether its bytes are all UTF-8, so that its text holds no invalid byte.
     pub(crate) valid: bool,
+    /// Whether a card showed its label alone, as the section was past its room.
+    pub(crate) cut: bool,
+}
+
+/// A file's comments and how to show them beside its reading.
+pub(crate) struct Shown<'a> {
+    pub(crate) cards: &'a Cards,
+    /// Where the last carry to the reading shown placed the comments.
+    pub(crate) placed: Option<&'a [(CommentId, Option<Anchor>)]>,
+    /// Whether that carry ran out of time.
+    pub(crate) cut_short: bool,
+    /// Whether agent cards fold to their first line.
+    pub(crate) folded: bool,
 }
 
 /// Builds a section line by line, keeping its rows and runs with its text.
-struct Writer {
+pub(super) struct Writer {
     bytes: Vec<u8>,
     section: Section,
     runs: Vec<(usize, Option<Highlight>)>,
     /// The kind of the lines written last and not in the section yet, and how many: a run of
     /// lines of one kind is one run of rows, so that each line's offset counts in it.
     pending: Option<(RowKind, usize)>,
+    /// Whether a card showed its label alone.
+    pub(super) cut: bool,
 }
 
 impl Writer {
@@ -51,7 +69,13 @@ impl Writer {
             section: Section::new(path.into()),
             runs: Vec::new(),
             pending: None,
+            cut: false,
         }
+    }
+
+    /// How many bytes it holds.
+    pub(super) fn len(&self) -> usize {
+        self.bytes.len()
     }
 
     fn done(mut self) -> Rendered {
@@ -64,11 +88,12 @@ impl Writer {
             section: Arc::new(self.section),
             runs: self.runs,
             valid,
+            cut: self.cut,
         }
     }
 
     /// Writes one line, made of `parts` each with its highlight, as a row of `kind`.
-    fn line(&mut self, kind: RowKind, parts: &[(&[u8], Option<Highlight>)]) {
+    pub(super) fn line(&mut self, kind: RowKind, parts: &[(&[u8], Option<Highlight>)]) {
         for (bytes, highlight) in parts {
             self.bytes.extend_from_slice(bytes);
             self.run(decoded_len(bytes), *highlight);
@@ -156,8 +181,9 @@ fn size(bytes: u64) -> String {
     }
 }
 
-/// The file's header line: its status, its path (and the one it came from), and its counts.
-fn header(writer: &mut Writer, entry: &Entry, counts: Option<(usize, usize)>) {
+/// The file's header line: its status, its path (and the one it came from), its counts, and
+/// how many comments it has.
+fn header(writer: &mut Writer, entry: &Entry, counts: Option<(usize, usize)>, cards: &Cards) {
     let mut text = Vec::new();
     text.extend_from_slice(status_word(entry.status).as_bytes());
     text.extend_from_slice(b"  ");
@@ -168,6 +194,9 @@ fn header(writer: &mut Writer, entry: &Entry, counts: Option<(usize, usize)>) {
     shown_path(&entry.path, &mut text);
     if let Some((added, removed)) = counts {
         let _ = write!(Bytes(&mut text), "  +{added} \u{2212}{removed}");
+    }
+    if let Some(count) = cards::count(&cards.comments) {
+        text.extend_from_slice(count.as_bytes());
     }
     let highlight = Some(Highlight::DiffFileHeader);
     writer.line(RowKind::File, &[(&text, highlight)]);
@@ -258,7 +287,7 @@ fn hunk_header(hunk: &Hunk) -> String {
     )
 }
 
-fn lines(writer: &mut Writer, index: usize, hunk: &Hunk, side: Side) {
+fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: Side) {
     let (lines, first, sign, highlight) = match side {
         Side::Old => (&hunk.removed, hunk.old_start, b"-", Highlight::DiffRemoved),
         Side::New => (&hunk.added, hunk.new_start, b"+", Highlight::DiffAdded),
@@ -268,33 +297,66 @@ fn lines(writer: &mut Writer, index: usize, hunk: &Hunk, side: Side) {
         side,
         first,
     };
-    for line in lines {
+    for (number, line) in (first..).zip(lines) {
         let (text, _) = without_ending(line);
         writer.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        plan.after_line(writer, side, number);
     }
 }
 
-/// The section of a file listed and not read yet: its header and a note.
-pub(crate) fn unread(entry: &Entry) -> Rendered {
+/// The section of a file listed and not read yet: its header and a note. Its comments wait for
+/// its reading.
+pub(crate) fn unread(entry: &Entry, cards: &Cards) -> Rendered {
     let mut writer = Writer::new(&entry.path);
-    header(&mut writer, entry, None);
+    header(&mut writer, entry, None, cards);
     writer.note("reading\u{2026}");
     writer.done()
 }
 
-/// The section of `reading`; `whole` false shows its header alone, as when the review's text
-/// is past its limit.
-pub(crate) fn render(reading: &Reading, whole: bool) -> Rendered {
+/// The section of a file that left the review with comments on it: its header and every card,
+/// outdated. `room` is as for [`render`].
+pub(crate) fn gone(path: &[u8], cards: &Cards, room: usize, folded: bool) -> Rendered {
+    let mut writer = Writer::new(path);
+    let mut text = b"no longer changed  ".to_vec();
+    shown_path(path, &mut text);
+    if let Some(count) = cards::count(&cards.comments) {
+        text.extend_from_slice(count.as_bytes());
+    }
+    let highlight = Some(Highlight::DiffFileHeader);
+    writer.line(RowKind::File, &[(&text, highlight)]);
+    Plan::new(&cards.comments, None, Placing::Outdated, folded, room).rest(&mut writer);
+    writer.done()
+}
+
+/// The section of `reading` with its comments, given the bytes the review's text has `room`
+/// for: none shows its header and its cards' labels alone, as when the text is past its limit,
+/// and cards past it show their labels alone.
+pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered {
     let entry = &reading.entry;
+    let cards = shown.cards;
     let mut writer = Writer::new(&entry.path);
-    header(&mut writer, entry, reading.counts());
-    if !whole {
+    header(&mut writer, entry, reading.counts(), cards);
+    let shape = match &reading.content {
+        Content::Text { shape, .. } => Some(shape),
+        _ => None,
+    };
+    let placing = Placing::of(shape, cards, shown.placed);
+    let shape = shape.map(|shape| &**shape);
+    let mut plan = Plan::new(&cards.comments, shape, placing, shown.folded, room);
+    if room == 0 {
         writer.note("not shown: the review's text is past its limit");
+        if !matches!(reading.content, Content::Withheld) {
+            plan.rest(&mut writer);
+        }
         return writer.done();
     }
     match &reading.content {
         Content::Text { shape, .. } => {
             ending_notes(&mut writer, shape.hunks());
+            if shown.cut_short {
+                writer.note("comments not carried in time: some show as outdated");
+            }
+            plan.outdated(&mut writer);
             for (index, hunk) in shape.hunks().iter().enumerate() {
                 let text = hunk_header(hunk);
                 let highlight = Some(Highlight::DiffHunkHeader);
@@ -302,9 +364,12 @@ pub(crate) fn render(reading: &Reading, whole: bool) -> Rendered {
                     RowKind::Hunk { hunk: index },
                     &[(text.as_bytes(), highlight)],
                 );
-                lines(&mut writer, index, hunk, Side::Old);
-                lines(&mut writer, index, hunk, Side::New);
+                lines(&mut writer, &mut plan, index, hunk, Side::Old);
+                lines(&mut writer, &mut plan, index, hunk, Side::New);
+                plan.after_hunk(&mut writer, index);
             }
+            // Every thread has its place by now; this keeps any that did not.
+            plan.rest(&mut writer);
         }
         Content::Binary { old, new } => {
             writer.note(&format!("binary: {} \u{2192} {}", size(*old), size(*new)));
@@ -323,6 +388,10 @@ pub(crate) fn render(reading: &Reading, whole: bool) -> Rendered {
             short(entry.new_id.as_str())
         )),
         Content::Unreadable(why) => writer.note(&format!("cannot be read: {why}")),
+    }
+    // A file that may hold secrets shows only how many comments it has.
+    if shape.is_none() && !matches!(reading.content, Content::Withheld) {
+        plan.rest(&mut writer);
     }
     writer.done()
 }
