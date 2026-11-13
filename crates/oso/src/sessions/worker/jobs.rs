@@ -147,6 +147,8 @@ impl Core {
                 }
                 return Vec::new();
             }
+            // The thread takes the slot's screens itself.
+            Job::Screens => return Vec::new(),
             Job::Forget(key) => {
                 self.sessions.remove(&key);
                 return Vec::new();

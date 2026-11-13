@@ -1036,7 +1036,9 @@ questions through the coordinator, (a) for each, and the coordinator approved th
     again after the person's `y`, the job asks the app to clear the worktree and waits at most
     10 s for its word. The app looks at what it holds once more, stops the idle sessions there
     and closes the space, then says go. A refusal, or no word, keeps the worktree. `git
-    worktree remove` itself still refuses a worktree with changes by then.
+    worktree remove` itself still refuses a worktree with changes by then. The coordinator
+    approved this order on 2026-11-13: it keeps "stop, close, then remove" without the UI
+    thread waiting.
 - **Left to step 3's part B:**
   - Keeping each hosted session's live state on the UI thread (`Out::Changed`). Until then a
     running session's state is not known: it counts as busy, and the list says `running`.

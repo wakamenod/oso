@@ -35,6 +35,8 @@ pub(crate) struct Hosted {
     pub sized: Option<Size>,
     /// The program's title (OSC 0, 1, 2), already cleaned by the policy.
     pub title: String,
+    /// The OSC 9;4 progress the program reported last, for agent sessions (ADR 0121).
+    pub progress: Option<oso_term::Progress>,
     /// How the program ended, for the modeline: `exited 0`, `ended`.
     pub ended: Option<String>,
     /// A paste of several lines waits for the person's yes to the question asked, without
@@ -64,6 +66,7 @@ impl Hosted {
             owner: None,
             sized: None,
             title: String::new(),
+            progress: None,
             ended: None,
             pending_paste: None,
             ready: false,

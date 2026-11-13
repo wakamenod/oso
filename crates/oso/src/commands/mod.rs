@@ -298,6 +298,7 @@ mod tests {
         "worktree-list",
         "worktree-remove",
         "worktree-remove-confirmed",
+        // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",
         "terminal-char-mode",
         "terminal-paste-lines",

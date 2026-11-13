@@ -10,9 +10,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, SessionRequest};
 
+mod feed;
 mod hosting;
+mod watch;
 mod worktrees;
 pub(super) use hosting::Hosting;
+pub(super) use watch::Watch;
 
 use super::{App, UserEvent, Waker};
 use crate::config::RulesReport;
