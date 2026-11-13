@@ -144,7 +144,8 @@ impl Keymaps {
             }
         } else {
             match editor.current().1.mode() {
-                Mode::Fundamental | Mode::Rust | Mode::Toml => None,
+                // The review's keys come with its view (ADR 0122 step 3).
+                Mode::Fundamental | Mode::Rust | Mode::Toml | Mode::Review => None,
                 Mode::Markdown => Some(&self.markdown),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
