@@ -29,6 +29,8 @@ often, so it must rebuild within 2 s.
   hosted session's state from its screen, the tracker, and the `oso-sessions` worker. Their
   patterns use `regex`, compiled with size limits; the screen is untrusted text. `app/sessions.rs`
   carries out what the worker finds.
+- `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
+  a trusted project's root, and git only through `oso_platform::process`.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it uses `ignore`, which
   review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same
   walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`.

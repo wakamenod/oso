@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 
 use oso_platform::file_meta::AccessList;
-use oso_platform::process::{Executable, Sink, Spawn, spawn};
+use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
 use super::*;
 
@@ -20,6 +20,7 @@ fn tool(program: &str, args: &[&std::ffi::OsStr]) {
         cwd: None,
         project: None,
         inherit: &[],
+        stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,

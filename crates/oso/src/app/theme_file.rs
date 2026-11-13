@@ -345,7 +345,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_pipe_in_its_place_is_refused_without_waiting() {
-        use oso_platform::process::{Executable, Sink, Spawn, spawn};
+        use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
         let scratch = Scratch::new();
         write_name(&scratch.oso(), "light");
         let path = scratch.oso().join(FILE);
@@ -357,6 +357,7 @@ mod tests {
             cwd: None,
             project: None,
             inherit: &[],
+            stdin: Source::Closed,
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,

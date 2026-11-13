@@ -7,13 +7,14 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{Buffer, BufferId, Replacement};
+use oso_core::buffer::{Buffer, BufferId, Replacement, Verdict};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
 use oso_core::load::decode_all;
+use oso_core::rope::Rope;
 use oso_core::syntax::{Highlight, Highlights};
 use oso_core::window::ViewSize;
-use oso_syntax::{Failure, Outcome, Report};
+use oso_syntax::{Failure, Job, Language, Outcome, Refused, Report};
 
 use super::pool::Pool;
 use super::{MOST_RUNS_COMPARED, Orders, Syntax, Taken, changed};
@@ -226,6 +227,85 @@ fn the_threads_report_highlights_and_failures() {
         message.as_deref(),
         Some("Highlighting stopped in slow.rs: it took too long")
     );
+}
+
+/// A key as the review's (ADR 0122 step 9): buffers, and documents no buffer owns, apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Key {
+    Buffer(BufferId),
+    Document(u64),
+}
+
+/// Two real threads, with documents no buffer owns beside a shown buffer: a crafted document
+/// that fails as too slow holds the one thread documents may have, never the shown buffer's,
+/// and the other document waits for it. The order inside the lane is tested in `oso_syntax`.
+#[test]
+fn documents_share_the_threads_and_a_slow_one_never_holds_a_shown_buffer_back() {
+    let slow = "(".repeat(64 << 10);
+    let (editor, shown) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let (reports, received) = mpsc::channel();
+    let pool = Pool::start(move |report| drop(reports.send(report))).unwrap();
+    let open = |key, verdict, text: &str, shown| {
+        pool.open(
+            Key::Document(key),
+            Language::Rust,
+            verdict,
+            Rope::from(text),
+            shown,
+        )
+    };
+    open(
+        1,
+        Verdict::Ordinary,
+        &slow,
+        std::iter::once(0..slow.len()).collect(),
+    )
+    .unwrap();
+    open(2, Verdict::Ordinary, "fn b() {}\n", Vec::new()).unwrap();
+    let secret = open(3, Verdict::SecretName, "fn c() {}\n", Vec::new());
+    assert_eq!(secret, Err(Refused::MayHoldSecrets));
+    let jobs = (Syntax::default().orders(&editor).jobs.into_iter())
+        .map(|job| Job {
+            buffer: Key::Buffer(job.buffer),
+            language: job.language,
+            epoch: job.epoch,
+            revision: job.revision,
+            text: job.text,
+            edits: job.edits,
+            shown: job.shown,
+        })
+        .collect();
+    pool.send(Orders {
+        drops: Vec::new(),
+        jobs,
+    });
+    // Reports are sent after the lock, so two threads' may arrive in either order; their stamps
+    // are given under it, in the order slices ended.
+    let (mut buffer, mut document, mut slow) = (None, None, None);
+    while buffer.is_none() || document.is_none() || slow.is_none() {
+        let report = received.recv_timeout(Duration::from_secs(30)).unwrap();
+        let stamp = Some(report.stamp);
+        match (report.buffer, report.outcome) {
+            (Key::Buffer(id), Outcome::Highlights(_)) if id == shown => buffer = buffer.or(stamp),
+            (Key::Document(2), Outcome::Highlights(_)) => document = document.or(stamp),
+            (Key::Document(1), Outcome::Failed(Failure::TooSlow)) => slow = stamp,
+            (_, Outcome::Highlights(_)) => {}
+            (key, outcome) => panic!("{key:?}: {outcome:?}"),
+        }
+    }
+    assert!(
+        buffer < slow,
+        "the slow document held the shown buffer back"
+    );
+    assert!(
+        slow < document,
+        "the second document took the lane's thread"
+    );
+    // Done: showing it again starts nothing, and closing it frees nothing more.
+    pool.show(Key::Document(2), std::iter::once(0..4).collect());
+    let late = received.recv_timeout(Duration::from_millis(100));
+    assert!(late.is_err(), "a report after the end: {late:?}");
+    pool.close(Key::Document(2));
 }
 
 #[test]

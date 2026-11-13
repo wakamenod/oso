@@ -157,7 +157,7 @@ impl Buffer {
         for step in &steps[first..] {
             staged.highlighting.follow(step);
         }
-        // Once a run, as each follow reads every edited range.
+        // Once a run, as a follow may read every edited range.
         for run in staged.apply.take_runs() {
             staged.edited.follow(&run);
         }

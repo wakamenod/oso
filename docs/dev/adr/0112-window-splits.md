@@ -390,6 +390,16 @@ file or a 10 MB line.
     next, whatever the windows.
 - **`oso`:** the commands and bindings, panes per window, the sockets, the handoff's version 4 and
   the wheel.
+- **A pair of windows (ADR 0122, step 10)** is a run of exactly two windows that scroll together,
+  which the tree splits, resizes and deletes as one, and never merges into a run of its way.
+  `C-x 2` and `C-x 3` in either split the pair's area; `C-x 0` deletes both, but not when the
+  pair is the whole frame, which stays as the only window does; `C-x 1` keeps both;
+  `enlarge-window` and `balance-windows` resize the pair as one child, its windows kept the
+  same; when the frame is too small, both are hidden together, but the selected window, which
+  is never hidden, and the first of a pair that is all an area too small for both can keep,
+  as a run's first window is. The handoff's version 4 carries
+  a pair as two windows of their own, in the same cells, which its owner pairs again. ADR 0122's
+  "As built" for step 10 has the rest.
 
 ## Questions
 

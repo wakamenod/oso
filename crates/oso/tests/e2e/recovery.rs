@@ -7,7 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use oso_platform::process::{Executable, Sink, Spawn, spawn};
+use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::Value;
 
 use super::harness::{App, FAKE_SECRET, Scratch, emergency_dir};
@@ -399,6 +399,7 @@ fn a_hostile_directory_costs_nothing_and_changes_nothing() {
             cwd: None,
             project: None,
             inherit: &[],
+            stdin: Source::Closed,
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
