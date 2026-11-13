@@ -4,12 +4,14 @@ OS abstractions: the text system backends, the clipboard (ADR 0074), and later
 IME and filesystem (ADR 0003, ADR 0004). `clipboard` runs on threads of
 its own, as reading it can wait on another process. `privacy` holds what keeps text
 private to its user: no core dumps, and private directories (ADR 0062), where oso's
-state and configuration live, and who else can change a file by its mode (ADR 0108), and
+state and configuration live, the home directory, and who else can change a file by its mode
+(ADR 0108), and
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065). The
 control sockets' transport lives in `control`, in every build, for the dev socket
 and the agent channel (ADR 0085); only the dev tooling and the agent channel
 listen. Process spawning lives in `process`, and pseudo-terminals in
-`process::pty`, in every build (ADR 0120). `window` holds the window layer's
+`process::pty`, in every build (ADR 0120). `random` reads the system's random bytes, for
+ids such as a hosted session's (ADR 0121). `window` holds the window layer's
 events, which the tip crate's winit adapter builds too, and on macOS the window system itself, in `window/appkit/`
 (ADR 0070).
 
