@@ -30,7 +30,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_platform::control::ControlDir;
-use oso_platform::process::{Executable, Sink, Spawn, spawn};
+use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use super::build_errors;
@@ -320,6 +320,7 @@ impl Running {
             cwd: Some(root),
             project: Some(root),
             inherit: &INSTANCE_ENV,
+            stdin: Source::Closed,
             stdout: Sink::Inherit,
             stderr: Sink::Inherit,
             own_process_group: true,
@@ -451,6 +452,7 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         cwd: Some(root),
         project: Some(root),
         inherit: &CARGO_ENV,
+        stdin: Source::Closed,
         stdout: Sink::Piped,
         stderr: Sink::Inherit,
         own_process_group: false,
@@ -538,7 +540,7 @@ mod tests {
         use crate::dev::protocol::EXIT_REFUSED;
         use crate::dev::server;
         use oso_platform::control::{ControlDir, Socket};
-        use oso_platform::process::{Executable, Sink, Spawn, spawn};
+        use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
         use std::ffi::OsString;
         use std::fs::{self, Permissions};
         use std::os::unix::fs::PermissionsExt;
@@ -568,6 +570,7 @@ mod tests {
                 cwd: None,
                 project: None,
                 inherit: &[],
+                stdin: Source::Closed,
                 stdout: Sink::Null,
                 stderr: Sink::Null,
                 own_process_group: false,
@@ -683,6 +686,7 @@ mod tests {
                 cwd: None,
                 project: None,
                 inherit: &[],
+                stdin: Source::Closed,
                 stdout: Sink::Piped,
                 stderr: Sink::Null,
                 own_process_group: false,

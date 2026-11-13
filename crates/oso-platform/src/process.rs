@@ -9,7 +9,8 @@
 //! - A child gets an environment built from an allowlist, plus variables the
 //!   caller sets by value. Anything else, such as `LD_PRELOAD`, `DYLD_*` or an
 //!   API token, stays behind.
-//! - Standard input is closed, unless the child runs in a terminal ([`pty`]).
+//! - Standard input is closed, unless the caller pipes it ([`Source::Piped`]) or the child
+//!   runs in a terminal ([`pty`]).
 //! - A caller can ask for a process group of its own, so that Ctrl-C leaves it.
 //! - Every spawn is logged, with the names of the variables but not their
 //!   values.
@@ -124,6 +125,24 @@ impl From<Sink> for Stdio {
     }
 }
 
+/// Where a child's standard input comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// Nothing: the child reads the end of its input at once.
+    Closed,
+    /// Written through the [`Child`]'s `stdin`.
+    Piped,
+}
+
+impl From<Source> for Stdio {
+    fn from(source: Source) -> Self {
+        match source {
+            Source::Closed => Self::null(),
+            Source::Piped => Self::piped(),
+        }
+    }
+}
+
 /// A process to start. Its `Debug` shows the names in `set`, never their values.
 #[derive(Clone, Copy)]
 pub struct Spawn<'a> {
@@ -137,6 +156,8 @@ pub struct Spawn<'a> {
     /// Variables this program needs on top of the base set, by name. Refused
     /// as `set`'s names are.
     pub inherit: &'a [&'a str],
+    /// Its standard input. It must be [`Source::Closed`] for a child in a terminal.
+    pub stdin: Source,
     pub stdout: Sink,
     pub stderr: Sink,
     /// Starts it in a process group of its own, so that what a terminal signals to
@@ -152,8 +173,9 @@ pub struct Spawn<'a> {
     /// agent channel: a shell runs what some variables name.
     pub set: &'a [(&'a str, &'a OsStr)],
     /// The terminal the child runs in: its standard input, output and error,
-    /// and its controlling terminal, in a session of its own. `stdout` and
-    /// `stderr` must then be [`Sink::Inherit`], and `own_process_group` false.
+    /// and its controlling terminal, in a session of its own. `stdin` must then
+    /// be [`Source::Closed`], `stdout` and `stderr` [`Sink::Inherit`], and
+    /// `own_process_group` false.
     /// Such a spawn forks this whole process, which can take milliseconds, so
     /// it never runs on the UI thread.
     pub terminal: Option<&'a pty::Slave>,
@@ -167,6 +189,7 @@ impl fmt::Debug for Spawn<'_> {
             .field("cwd", &self.cwd)
             .field("project", &self.project)
             .field("inherit", &self.inherit)
+            .field("stdin", &self.stdin)
             .field("stdout", &self.stdout)
             .field("stderr", &self.stderr)
             .field("own_process_group", &self.own_process_group)
@@ -188,12 +211,17 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     let path = env::join_paths(dirs).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let variables = allowed_env(env::vars_os(), request.inherit);
     log::info!(
-        "{SPAWN_MARKER}: {} {:?} in {:?}{} with PATH and {:?}",
+        "{SPAWN_MARKER}: {} {:?} in {:?}{}{} with PATH and {:?}",
         request.executable.path().display(),
         request.args,
         request.cwd,
         if request.terminal.is_some() {
             " in a terminal"
+        } else {
+            ""
+        },
+        if request.stdin == Source::Piped {
+            " with standard input piped"
         } else {
             ""
         },
@@ -214,7 +242,7 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
         .envs(variables)
         .env("PATH", path)
         .envs(request.set.iter().copied())
-        .stdin(Stdio::null())
+        .stdin(request.stdin)
         .stdout(request.stdout)
         .stderr(request.stderr);
     if let Some(cwd) = request.cwd {
@@ -235,7 +263,8 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
 fn check(request: &Spawn<'_>) -> io::Result<()> {
     let invalid = |message: String| Err(io::Error::new(io::ErrorKind::InvalidInput, message));
     if request.terminal.is_some()
-        && (request.stdout != Sink::Inherit
+        && (request.stdin != Source::Closed
+            || request.stdout != Sink::Inherit
             || request.stderr != Sink::Inherit
             || request.own_process_group)
     {
@@ -368,7 +397,7 @@ mod tests {
     /// The process group of a long `sleep`, started with or without its own.
     #[cfg(unix)]
     fn group_of_a_child(own_process_group: bool) -> (u32, u32) {
-        use super::{Sink, Spawn, spawn};
+        use super::{Sink, Source, Spawn, spawn};
         use std::io::Read;
         let start = |name: &str, args: &[OsString], stdout: Sink| {
             spawn(&Spawn {
@@ -377,6 +406,7 @@ mod tests {
                 cwd: None,
                 project: None,
                 inherit: &[],
+                stdin: Source::Closed,
                 stdout,
                 stderr: Sink::Null,
                 own_process_group: name == "sleep" && own_process_group,
@@ -536,7 +566,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_child_runs_where_it_is_told_with_only_the_allowed_variables() {
-        use super::{Sink, Spawn, spawn};
+        use super::{Sink, Source, Spawn, spawn};
         use std::io::Read;
 
         let program = Executable::from_path("sh", None).unwrap();
@@ -548,6 +578,7 @@ mod tests {
             cwd: Some(&cwd),
             project: None,
             inherit: &[],
+            stdin: Source::Closed,
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
@@ -582,6 +613,41 @@ mod tests {
             );
         }
         fs::remove_dir_all(cwd).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_piped_standard_input_reaches_the_child() {
+        use super::{Sink, Source, Spawn, spawn};
+        use std::io::{Read, Write};
+
+        let program = Executable::from_path("cat", None).unwrap();
+        let mut child = spawn(&Spawn {
+            executable: &program,
+            args: &[],
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Piped,
+            stdout: Sink::Piped,
+            stderr: Sink::Null,
+            own_process_group: false,
+            set: &[],
+            terminal: None,
+        })
+        .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        input.write_all(b"one\ntwo\n").unwrap();
+        drop(input);
+        let mut output = Vec::new();
+        child
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_end(&mut output)
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(output, b"one\ntwo\n");
     }
 
     #[cfg(unix)]

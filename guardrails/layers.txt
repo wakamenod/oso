@@ -60,8 +60,9 @@ lister
 # `grep` searches a project's files over `walk`'s walk (ADR 0114).
 # `sessions` judges hosted agent sessions' screens on its own thread (ADR 0121, Q24).
 commands dev grep keys loader sessions text
-# `walk` lists a project's files (ADR 0114), beside `project`, which finds them.
-channel project walk
+# `walk` lists a project's files (ADR 0114), beside `project`, which finds them, and
+# `review`, which runs git and diffs for a review (ADR 0122).
+channel project review walk
 
 [oso-syntax]
 crate

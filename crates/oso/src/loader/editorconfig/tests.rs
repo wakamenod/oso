@@ -386,7 +386,7 @@ fn a_new_file_takes_what_editorconfig_gives_where_it_will_be() {
 #[cfg(all(unix, feature = "dev"))]
 #[test]
 fn a_fifo_is_not_waited_on() {
-    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+    use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
     let scratch = Scratch::new("fifo");
     let mkfifo = Executable::from_path("mkfifo", None).expect("mkfifo is on PATH");
     let status = spawn(&Spawn {
@@ -395,6 +395,7 @@ fn a_fifo_is_not_waited_on() {
         cwd: None,
         project: None,
         inherit: &[],
+        stdin: Source::Closed,
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,

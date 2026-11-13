@@ -402,9 +402,10 @@ item notes when it must be settled.
   step 8).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
-- Terminal engine: `alacritty_terminal` or libghostty-vt, decided by ADR 0120's
-  step 1, a comparison of at most three days
-  ([ADR 0120](adr/0120-the-terminal.md)).
+- libghostty-vt's release tarballs in the repository or fetched and checked by a `just` recipe,
+  and its key encoder or oso's own: ADR 0120's step 3 decides. Its Kitty images through its Wuffs
+  decoder or a pure-Rust one in oso: step 12 ([ADR 0120](adr/0120-the-terminal.md), step 1 as
+  built).
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,

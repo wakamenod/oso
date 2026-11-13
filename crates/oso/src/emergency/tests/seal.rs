@@ -74,7 +74,7 @@ mod real_lists {
     use std::fs;
     use std::path::Path;
 
-    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+    use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
     use super::{Ticks, Why, prepared, texts, write};
 
@@ -87,6 +87,7 @@ mod real_lists {
             cwd: None,
             project: None,
             inherit: &[],
+            stdin: Source::Closed,
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,

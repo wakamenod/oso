@@ -10,7 +10,7 @@ use std::process::Child;
 use std::time::{Duration, Instant};
 
 use super::{Master, Ready, Size, Slave, open, wake_pair};
-use crate::process::{Executable, Sink, Spawn, account_shell, spawn};
+use crate::process::{Executable, Sink, Source, Spawn, account_shell, spawn};
 
 const SIZE: Size = Size {
     rows: 24,
@@ -34,6 +34,7 @@ fn request<'a>(
         cwd: None,
         project: None,
         inherit: &[],
+        stdin: Source::Closed,
         stdout: Sink::Inherit,
         stderr: Sink::Inherit,
         own_process_group: false,
@@ -266,6 +267,10 @@ fn a_child_in_a_terminal_takes_no_other_streams_or_group() {
             own_process_group: true,
             ..base
         },
+        Spawn {
+            stdin: Source::Piped,
+            ..base
+        },
     ] {
         let error = spawn(&request).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
@@ -364,6 +369,7 @@ fn names_passed_by_name_are_refused_too() {
     for name in ["LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "PATH"] {
         let error = spawn(&Spawn {
             inherit: &[name],
+            stdin: Source::Closed,
             ..request(&sh, &[], &[], None)
         })
         .unwrap_err();

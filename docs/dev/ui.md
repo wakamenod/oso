@@ -288,7 +288,16 @@ are rounded.
 ## Menus
 
 Hydra/transient-style menus float at the **center** of the frame, as they do
-with hydra-posframe today.
+with hydra-posframe today ([ADR 0117](adr/0117-menus.md)):
+
+- A head closes the menu unless it says `stay`; switches (`[x]`/`[ ]`) stay and are read by the
+  head that runs. A key the menu does not bind is refused with `q to quit`. `C-g` closes one
+  level of submenus; `q` closes the menu unless a head binds it.
+- Built-in menus are defaults: `toggles` on `C-c t`, `review` on `C-x v r`, and `windows`,
+  `jumps` and `search` through `M-x open-menu`. `[menus.<name>]` in `config.toml` adds a menu,
+  replaces one of the same name whole, or removes it with `false`.
+- After a prefix key waits 1.0 s, a panel along the bottom of the frame lists the keys that may
+  follow, as which-key does; `C-h` shows it at once and pages it.
 
 ## Echo area
 
