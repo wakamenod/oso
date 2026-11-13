@@ -24,30 +24,9 @@ impl App {
         let cwd = self.terminal_directory();
         let project = self.terminal_project();
         let id = self.editor.add_terminal_buffer(NAME);
-        self.editor.show(id);
-        let window = self.editor.window().id();
         self.terminals.map.add(id);
-        self.terminals.map.selected(id, window);
-        // From now on, until it ends or fails: a restart or an exit started before the shell
-        // is found would end the child about to start.
-        self.editor.set_running(id, true);
-        let size = self.window_size(window).unwrap_or(Size {
-            rows: 24,
-            columns: 80,
-            width: 0,
-            height: 0,
-        });
-        if let Some(hosted) = self.terminals.map.get_mut(id) {
-            hosted.sized = Some(size);
-        }
-        let configured = self.configuration.terminal();
-        let defaults = shell::Settings::default();
-        let settings = shell::Settings {
-            shell: configured.shell.clone(),
-            login: configured.login.unwrap_or(defaults.login),
-            env: configured.env.clone().unwrap_or(defaults.env),
-            scrollback: configured.scrollback.unwrap_or(defaults.scrollback),
-        };
+        let size = self.prepare_terminal(id);
+        let settings = self.terminal_settings();
         let request = Request {
             buffer: id,
             settings,
@@ -73,9 +52,76 @@ impl App {
         self.request_redraw();
     }
 
-    /// Where a new terminal starts: the selected buffer's project root, else its file's
-    /// directory, else the home directory (ADR 0120, Q18).
+    /// Shows the terminal buffer `id`, already in the map, in the selected window, says it
+    /// runs, and gives the size its terminal starts at.
+    pub(in crate::app) fn prepare_terminal(&mut self, id: BufferId) -> Size {
+        self.editor.show(id);
+        let window = self.editor.window().id();
+        self.terminals.map.selected(id, window);
+        // From now on, until it ends or fails: a restart or an exit started before the shell
+        // is found would end the child about to start.
+        self.editor.set_running(id, true);
+        let size = self.window_size(window).unwrap_or(Size {
+            rows: 24,
+            columns: 80,
+            width: 0,
+            height: 0,
+        });
+        if let Some(hosted) = self.terminals.map.get_mut(id) {
+            hosted.sized = Some(size);
+        }
+        size
+    }
+
+    /// Gives the terminal buffer `buffer` its started `terminal`, and sends it what was typed
+    /// while it started. Returns `false`, dropping `terminal`, which hangs it up, if its
+    /// buffer went meanwhile.
+    pub(in crate::app) fn install_terminal(
+        &mut self,
+        buffer: BufferId,
+        terminal: oso_term::Terminal,
+        passed_over: &[String],
+    ) -> bool {
+        let Some(hosted) = self.terminals.map.get_mut(buffer) else {
+            return false;
+        };
+        // A theme switched while it started is the one it answers colour queries from.
+        terminal.set_palette(palette_of(&self.terminals.palettes, self.editor.theme()));
+        hosted.terminal = Some(terminal);
+        let waiting = std::mem::take(&mut hosted.waiting);
+        self.editor.set_running(buffer, true);
+        for send in waiting {
+            self.terminal_send(buffer, send);
+        }
+        for passed in passed_over {
+            self.editor
+                .note(format!("Terminal shell passed over: {passed}"));
+        }
+        true
+    }
+
+    /// `[terminal]`'s settings in force, for the next terminal started.
+    pub(in crate::app) fn terminal_settings(&self) -> shell::Settings {
+        let configured = self.configuration.terminal();
+        let defaults = shell::Settings::default();
+        shell::Settings {
+            shell: configured.shell.clone(),
+            login: configured.login.unwrap_or(defaults.login),
+            env: configured.env.clone().unwrap_or(defaults.env),
+            scrollback: configured.scrollback.unwrap_or(defaults.scrollback),
+        }
+    }
+
+    /// Where a new terminal starts: [`App::buffer_directory`], else the home directory
+    /// (ADR 0120, Q18).
     fn terminal_directory(&self) -> Option<PathBuf> {
+        self.buffer_directory()
+            .or_else(|| self.editor.home().map(std::path::Path::to_path_buf))
+    }
+
+    /// The selected buffer's project root, else its file's directory: where a new terminal
+    /// starts, and a new session (ADR 0121).
+    pub(in crate::app) fn buffer_directory(&self) -> Option<PathBuf> {
         if let Some(root) = self.terminal_project() {
             return Some(root);
         }
@@ -84,7 +130,6 @@ impl App {
             .path()
             .and_then(|path| path.parent())
             .map(std::path::Path::to_path_buf)
-            .or_else(|| self.editor.home().map(std::path::Path::to_path_buf))
     }
 
     fn terminal_project(&self) -> Option<PathBuf> {
@@ -93,32 +138,21 @@ impl App {
     }
 
     /// The theme's colours as a terminal's engine takes them.
-    fn terminal_palette(&self) -> oso_term::Palette {
+    pub(in crate::app) fn terminal_palette(&self) -> oso_term::Palette {
         palette_of(&self.terminals.palettes, self.editor.theme())
     }
 
     /// The start thread found the shell and started the terminal, or could not.
     pub(in crate::app) fn terminal_started(&mut self, started: Started) {
         let Started { buffer, outcome } = started;
-        let Some(hosted) = self.terminals.map.get_mut(buffer) else {
+        if self.terminals.map.get(buffer).is_none() {
             // Its buffer went while it started: dropping it hangs it up.
             return;
-        };
+        }
         match outcome {
             Ok(launched) => {
-                // A theme switched while it started is the one it answers colour queries from.
-                launched
-                    .terminal
-                    .set_palette(palette_of(&self.terminals.palettes, self.editor.theme()));
-                hosted.terminal = Some(launched.terminal);
-                let waiting = std::mem::take(&mut hosted.waiting);
-                self.editor.set_running(buffer, true);
-                for send in waiting {
-                    self.terminal_send(buffer, send);
-                }
-                for passed in &launched.passed_over {
-                    self.editor
-                        .note(format!("Terminal shell passed over: {passed}"));
+                if !self.install_terminal(buffer, launched.terminal, &launched.passed_over) {
+                    return;
                 }
                 let dir = (launched.cwd.as_ref())
                     .map_or_else(String::new, |dir| format!(" in {}", dir.display()));

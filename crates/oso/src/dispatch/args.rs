@@ -68,6 +68,11 @@ pub fn map(
         (ArgSpec::KillEntry { .. }, _) => Err(format!(
             "{name} reads a kill, which only its prompt takes, from keys"
         )),
+        // A directory and a name are read only in prompts, with a prefix argument (ADR 0121).
+        (ArgSpec::DirectoryAndTextOnPrefix { .. }, Given::Nothing) => plain(Args::NONE),
+        (ArgSpec::DirectoryAndTextOnPrefix { .. }, _) => Err(format!(
+            "{name} reads a directory and a name, which only its prompts take, from keys"
+        )),
         // query-replace asks at each match, from keys (ADR 0113).
         (ArgSpec::Replace { .. }, _) => Err(format!(
             "{name} reads two strings, which only its prompts take, from keys"

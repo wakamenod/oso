@@ -409,7 +409,7 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     reports itself, and `oso mcp` only when the process runs oso's own program. A connection
     that sends nothing within 2 s is closed unasked and uncounted, so a probe raises no
     question. One connection waits at a time, at most 10 ask a minute, at most 60 connect a
-    minute and 2 are open at once, and a refusal holds off new connections for 60 s. One let
+    minute and 2 are open at once (a hosted session's bridge apart, below), and a refusal holds off new connections for 60 s. One let
     in sends at most 30 requests a second. The modeline shows `Agent` while it is on, and
     `*Agent*` lists each request without its text.
   - It runs registered commands only, by name, with arguments checked against their spec, and
@@ -444,6 +444,21 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   `[sessions] steer_worktrees = true`, a session oso starts gets one `PreToolUse` hook for that
   session only, passed with `--settings`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)); no hook reports a session's state.
+- `claude` hosts a Claude Code session in a terminal
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). Its command line is built from parts oso
+  controls, never from text an agent gave, and passes no permission option, so a session starts
+  in the mode the person's own settings give it. Through the login shell, its arguments are
+  positional parameters of a fixed script, never script text, and `claude` is found on the
+  shell's `PATH` as in any terminal the person opens, unless `[sessions] claude` names it by
+  absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,
+  resuming and forking are `Person`. oso's start brings sessions back stopped, and runs nothing.
+  - A resume reads Claude Code's registry first, and refuses while a live process has that id,
+    offering a fork. The registry is read on a thread, `<digits>.json` names only, bounded,
+    without following links and only the reading user's; oso never reads the `*.key` files.
+  - A session's `oso mcp` names its session, and is let in without the question only if its
+    parent is the `claude` oso started and has not reaped, it runs oso's own program, and no
+    other connection holds that session. Such a bridge is outside the channel's cap of 2, one a
+    session, and keeps every rate limit. A claim that fails this asks as any connection does.
 - A hosted session's state comes from rules over its screen, which a model wrote: untrusted
   text ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). No state authorises anything, and
   needs input is set only by a rule that knows a dialog; an unknown prompt is idle. The rules

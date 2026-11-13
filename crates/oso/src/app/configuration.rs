@@ -65,6 +65,17 @@ impl Configuration {
         &self.in_force.theme
     }
 
+    /// `[sessions] claude` in force: the executable a hosted session runs, by absolute path, if
+    /// the file names one (ADR 0121).
+    pub(super) fn session_claude(&self) -> Option<&std::path::Path> {
+        self.in_force.sessions.claude.as_deref()
+    }
+
+    /// `[sessions] env` in force: the variables a hosted session takes from oso's environment.
+    pub(super) fn session_env(&self) -> &[String] {
+        &self.in_force.sessions.env
+    }
+
     /// Takes `name`, remembered with the theme shown last, as the default theme in force,
     /// for the file's to be compared with.
     pub(super) fn set_default_theme(&mut self, name: String) {

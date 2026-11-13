@@ -130,10 +130,11 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 - **A session is a hosted `claude` in an oso terminal, plus its identity:** the session id, a name,
   the directory it runs in (a repository or a worktree), the transcript's path once found, the
   space it belongs to, and the session that started it, if any.
-- **`claude` (`Person`)** starts a session in the selected window's project root, else the buffer's
-  directory. With a prefix argument it asks for a name and a directory. The session's terminal is a
+- **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
+  directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
-- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
+- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 random bytes of the system's
+  (`oso_platform::random`, `/dev/urandom` on Unix), and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for
   it. The name is passed with `--name`: the project's name, then `-2`, `-3` for more in it. The
   registry entry for the child's process id gives the inbox socket's path and the CLI's own status;
@@ -709,7 +710,7 @@ For the author, the recommended option first. Each is answered on its own.
 
 - `objc2-user-notifications` for banners on macOS, only once oso ships as an app bundle (Q9 a).
 - Nothing else: `toml`, `regex` and `ignore` are already dependencies of the tip crate, and the
-  UUID comes from `/dev/urandom`.
+  UUID comes from `oso_platform::random`, which reads `/dev/urandom`.
 
 ## The author's choices
 
@@ -745,9 +746,139 @@ Each passage stays in its ADR as written; what holds now follows it.
   bridge whose parent is a `claude` oso started. "anything that spawns a process" is `Person`: a
   session tool may ask the person, and the process starts on the person's `y`. "A channel action
   never starts a process by itself": except an agent's `worktree_remove`, which runs `git worktree
-  remove` without a question once every check above holds (Q14).
+  remove` without a question once every check above holds (Q14). "At most 2 clients": a hosted
+  session's proven bridge is outside the 2 (the author's choice, see "Step 1, as built").
 - [ADR 0122](0122-agent-review.md), "Turns: … with ADR 0121, the Stop and PostToolUse hooks": a turn's end is the state's
   transition; a write tool's end is not given.
+
+## Step 1, as built
+
+Step 1 was built on 2026-11-13, after step 2 and on ADR 0120 step 4a's terminal. The author
+answered its questions through the coordinator, (a) for each, and the coordinator approved these
+points:
+
+- **A hosted session's bridge does not count toward the channel's cap of 2 connections (the
+  author's choice, 2026-11-13).** Each session's `oso mcp` keeps its connection open for its
+  life, so with ADR 0085's cap a third session would get no oso tools. The rule:
+  - A connection proven to be a hosted session's bridge is let in without the question and
+    outside the cap.
+  - Each session holds at most one such connection; a second claim of the same session asks as
+    any connection does, and counts.
+  - The rate limits stay for every connection: 30 requests a second, 60 connections and 10
+    questions a minute.
+- **The proof is the parent only, not "parent or grandparent".** A one-time run of the real CLI
+  (2.1.322) showed that `claude` starts a stdio MCP server itself, with no process between. So a
+  claim is believed only if the connecting process runs oso's own program, its parent is the
+  `claude` that oso holds as its child (its process id from the terminal's start until it is
+  reaped), the id it claims is that session's, the session's terminal has not ended, and no other
+  connection holds that session. It is one pure function, `sessions::bridge::admit`, and the UI
+  thread decides with it (`Event::Claims`). The same run showed that both `claude`'s environment
+  and the configuration's `env` reach the server, and that the `oso` server given with
+  `--mcp-config` is the one started.
+- **The claim:** `oso mcp` reads `OSO_SESSION` and sends it as `{"session": ID}` in its first
+  request, `version`, at most 64 bytes. A claim that fails proof is dropped, and the connection
+  asks and has no session.
+- **The command line** uses `--flag=value` for every option, and `--` before a brief, since
+  `--mcp-config` takes several values and would take a brief as one. A fork passes oso's new id
+  with `--session-id`, which the CLI accepts only together with `--fork-session`. A test keeps the
+  line to these flags only.
+- **The login-shell wrapper** is `SHELL -l -c SCRIPT CLAUDE ARGS…` for a shell whose file name is
+  `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with `$(…)`,
+  backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments. The
+  script runs `[sessions] claude` as given. Else it looks for `claude` on the `PATH` the login
+  shell set, as oso's own look does when the shell is not one of these: only in absolute
+  entries, and in none inside the session's directory, compared with links resolved.
+  The shell is ADR 0120's: `[terminal] shell`, then `$SHELL`, then the account's, then `/bin/sh`.
+- **The registry reader** (`sessions::registry`) reads only names of the form `<digits>.json` in
+  `$CLAUDE_CONFIG_DIR/sessions`, else `~/.claude/sessions`: at most 256 files of 64 KiB, opened
+  without following a link, and only the reading user's. oso never reads the `*.key` files.
+  Whether a session runs cannot be told, and a resume is refused with the fork offered, when the
+  directory has more entry files than are read, when oso's `CLAUDE_CONFIG_DIR` is not an
+  absolute path, or when there is no home. A
+  process is live if `process::start_time` of its pid is within 2 s of the entry's `procStart`
+  (the start as C `ctime` text in UTC), or, when that does not parse, within 10 s of `startedAt`
+  (ms since the epoch). A process whose start cannot be told counts as live, so a resume is
+  refused rather than risked: an entry with neither field, and a pid the system gives no start
+  time for, though it may run. Step 1 reads it only before and 5 s after a resume; the poll comes
+  with step 3's list.
+- **`oso-platform` gained `process::start_time(pid: u32) -> io::Result<Option<SystemTime>>`,**
+  with 3 `unsafe` blocks, each with its `// SAFETY:` comment: `proc_pidinfo` and reading its
+  result on macOS, and `sysconf(_SC_CLK_TCK)` on Linux. `Ok(None)` is no such process; an error
+  is a process the system does not say the start of, such as another user's, or any process on
+  a system it does not support, and the registry reader counts it as live.
+- **`oso-platform` gained, in the first follow-up, `privacy::home() -> Option<PathBuf>` and a
+  module `random` with `fill(bytes: &mut [u8]) -> io::Result<()>`, with no `unsafe`** (the
+  author's approval, 2026-11-13), so that the tip crate reads neither the environment's home nor
+  `/dev/urandom` itself. `home` is `$HOME` on Unix and `%USERPROFILE%` on Windows, only an
+  absolute path, from the environment and not the disk; the registry's `~/.claude` and the app's
+  `~` both take it, so a relative or empty `HOME` is no home for either. `random::fill` reads
+  `/dev/urandom` on Unix and is `ErrorKind::Unsupported` elsewhere for now, where a session
+  refuses to start with that error. `random` is on the lowest line of `[oso-platform]` in
+  `guardrails/layers.txt`. One exception is intentional: `oso-term`'s build script still reads
+  `HOME` for its vendor cache, as a build script cannot use `oso-platform` without a
+  build-dependency, which is not worth it there.
+- **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
+  start until it is reaped, cleared before the reap, so a reused id is never given.
+- **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
+  directory, project root, parent, pin and archive marks, last change and the baseline's tree:
+  at most 256 sessions and 256 KiB, private, refused if a link or another user's, written to a
+  part file and renamed. A write reads the file again first and keeps the ids this instance never
+  knew, so two instances do not drop each other's sessions. It keeps the sessions that changed
+  last, and stops before a line that would take the file past 256 KiB, so every file written
+  can be read back. The table oso holds keeps 256 too: past that, the sessions that do not run
+  go, archived ones first, then unpinned ones, the oldest change first; a buffer whose session
+  went says `forgotten` in its modeline. It is read and written on the
+  `oso-sessions` worker (`Job::Recall`, `Job::Remember`).
+- **The start thread** (`oso-session-start`, one per start) makes the id, checks the directory and
+  `[sessions] claude`, reads the registry before a resume and 5 s after it, finds the shell, and
+  in a trusted project takes ADR 0122's baseline, waiting at most 2 s; past that, `claude` starts
+  and the baseline follows. Only `claude` takes a baseline, and only when the session runs at
+  the root of the selected buffer's trusted project: a resume, a fork, and `C-u claude` in
+  another directory take none. It then starts the session's `oso_term::Terminal` itself, so the UI
+  thread never waits on the spawn. The shell is found by the same function as a terminal's
+  (`terminal::hosted::find_shell`), and the app puts the terminal in its buffer with the same code
+  (`app/terminals/start.rs`).
+- **The environment** is ADR 0120's terminal environment, `[sessions] env`'s names,
+  `OSO_SESSION`, and always `CLAUDE_CONFIG_DIR` when oso has it: the session's registry entry is
+  then in the directory oso reads. A login profile that sets `CLAUDE_CONFIG_DIR` itself, which oso
+  started from the Dock does not see, moves the session's registry where oso does not look, and a
+  resume then finds no live process for it. Set the same value where oso is started too.
+- **The start baseline is the project's review baseline:** when it comes, in time or late, the
+  review takes it as if `B` had been pressed (ADR 0122), and the review menu shows when it was
+  taken. The review's index copies for it are in the same state directory as the review's own.
+  Its root is revoked with the project's trust, as a review's is.
+- **A refused resume's fork question forks that session,** whichever buffer is selected when `y`
+  is answered. A start that is refused turns the agent channel off again if that start turned it
+  on and no session runs, starts or holds a connection, unless the person or the configuration
+  asked for the channel since. A bridge's claim whose answer comes after the channel's server
+  stopped waiting holds no session.
+- **`C-u claude` reads a directory, then a name,** each with its own history. `oso-core` gained
+  `ArgSpec::DirectoryAndTextOnPrefix { directory, directory_history, prompt, history }` and
+  `Ctx::directory_and_text(&self) -> Option<(&str, &str)>`, and the new
+  `SessionRequest::{Start { name, directory }, Resume(BufferId), Fork(BufferId)}`. With no
+  prefix, nothing is read.
+- **Keys:** `C-x a c` (`claude`) and `C-x a r` (`session-resume`); the rest of `C-x a` comes
+  with step 3. `claude`, `session-resume` and `session-fork` are `Person`.
+- **`C-x k` on a session's buffer archives the session:** it is not brought back at the next
+  start, and step 3's list shows and restores it. Its `claude` is hung up, and the session counts
+  as stopped, not failed. Any other end is stopped for status 0 and failed otherwise; the buffer
+  keeps the last screen and its modeline says `stopped: session-resume to continue`, or `failed
+  (exited 3): …`.
+- **ADR 0122's seams in step 1:** the baseline at start, and "which review is this agent's" as
+  the connection's session. Delivering comments as a paste and "a turn ended" wait for step 3,
+  which feeds screens to the states: until oso reads a session's screen it cannot refuse a paste
+  into an open dialog, so a delivery stays in the kill ring.
+- **Configuration:** `[sessions] claude`, the absolute path of `claude`, and `[sessions] env`,
+  at most 64 names of variables a session takes from oso's environment besides ADR 0120's; `PATH`,
+  `LD_*`, `DYLD_*`, an empty name and one with `=` are refused.
+- **Layers:** `sessions` is on its own line in `guardrails/layers.txt`, above
+  `commands dev grep keys loader terminal text`, so it starts its terminals itself. Only `app` and
+  `config` use it.
+- **`dispatch/prompts/replace.rs`** holds `query-replace`'s prompts, moved out of `prompts.rs`,
+  which the directory and name prompt took past the file size limit.
+- **Not verified on the CLI:** that the registry entry's `sessionId` and `name` are the ones oso
+  passed. The one real run ended before the entry was read, and no other real run is allowed;
+  the end-to-end flows check the fields with a fake `claude`.
 
 ## Step 2, as built
 

@@ -9,7 +9,7 @@ use oso_core::editor::Editor;
 use oso_core::minibuffer::PromptError;
 
 use super::super::{Dispatcher, Step};
-use super::{ProjectPrompt, Reading, Then};
+use super::{ProjectPrompt, Reading, TextPrompt, Then};
 
 impl Dispatcher {
     /// Opens the prompt for the command `id` that lists what `spec` reads: a mark, a path by its
@@ -93,6 +93,50 @@ impl Dispatcher {
             Err(not) => editor.message(not.to_string()),
         }
         (redraw(), Ok(()))
+    }
+
+    /// Opens the directory prompt of a `DirectoryAndTextOnPrefix` command `id`, labelled and
+    /// kept as `(label, history)`, whose answer opens `then` (ADR 0121).
+    pub(super) fn read_directory(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        (label, history): (&'static str, &'static str),
+        then: TextPrompt,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
+        }
+        if let Some(prompt) = open_path_prompt(editor, label, history, true) {
+            self.reading.push(Reading {
+                then: Then::DirectoryThenText(then),
+                ..Reading::run(id, prefix, prompt)
+            });
+        }
+        (redraw(), Ok(()))
+    }
+
+    /// Takes the directory read for `reading`, and opens its text prompt, which runs the
+    /// command with both.
+    pub(super) fn open_text_after(
+        &mut self,
+        editor: &mut Editor,
+        reading: &Reading,
+        then: TextPrompt,
+        directory: String,
+    ) -> Effects {
+        let kind = oso_core::minibuffer::Kind::Text {
+            history: Some(then.history),
+        };
+        match editor.open_prompt(then.prompt, kind) {
+            Ok(prompt) => self.reading.push(Reading {
+                then: Then::TextAfter(directory),
+                ..Reading::run(reading.id, reading.prefix, prompt)
+            }),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
+        redraw()
     }
 
     /// Takes the directory `C-u` read for `project`, and opens that prompt on it, unless it is

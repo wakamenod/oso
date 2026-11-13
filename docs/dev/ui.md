@@ -776,3 +776,37 @@ a switch made with its command stands until that setting changes in the file
   limits over ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)).
 - A buffer containing bidirectional control characters (the nine of Trojan Source,
   CVE-2021-42574) shows a warning in its modeline.
+
+## Agent sessions
+
+- `C-x a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
+  the selected buffer's project root, else its file's directory, as a new terminal does, else the
+  directory oso started in. NAME is the directory's
+  name, then `-2`, `-3` for more sessions there. `C-u C-x a c` asks for the directory, then the
+  name. The agent channel turns on if it was off, and the echo area says so: the session's own
+  oso tools connect without asking, and any other agent still asks
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
+- oso remembers its sessions. At the next start, each comes back as a buffer with no process,
+  `stopped: session-resume to continue`; nothing runs until the person asks.
+- `C-x a r` (`session-resume`), in a stopped session's buffer, continues its conversation in the
+  same buffer. If Claude Code runs that conversation elsewhere, it refuses, names the process and
+  its directory, and asks whether to fork instead; `y` forks that session, whichever buffer is
+  selected by then. `session-fork` copies the conversation into a
+  new session and buffer.
+- `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
+- `config.toml`:
+
+  ```toml
+  [sessions]
+  claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
+  env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
+  ```
+
+  `claude` is started as the login shell would start it, so its `PATH`, version managers and
+  proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`
+  names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
+  `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
+  Code's own settings give it.
+- A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
+  where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
+  runs elsewhere.

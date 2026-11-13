@@ -1,6 +1,7 @@
 //! Keeping what the editor holds private to its user: no core dumps, and a directory
 //! only the user can reach (ADR 0028, ADR 0062, ADR 0065). Also where oso's own state and
-//! configuration live, and who else can change a file read as the person's (ADR 0108).
+//! configuration live, the person's home directory, and who else can change a file read as the
+//! person's (ADR 0108).
 //!
 //! Must not depend on: `control`, `process` or `text`. `control` uses the checks here, so
 //! that the two kinds of private directory cannot drift apart.
@@ -34,6 +35,13 @@ pub(crate) use unix::{euid, itself_problem, list_problem};
 /// If the system refuses.
 pub fn disable_core_dumps() -> io::Result<()> {
     backend::disable_core_dumps()
+}
+
+/// The person's home directory, asking the environment and not the disk: `$HOME` on Unix and
+/// `%USERPROFILE%` on Windows. `None` when it is unset or not an absolute path, which would
+/// name a place in the directory oso started in.
+pub fn home() -> Option<PathBuf> {
+    backend::home_from(&|name| std::env::var_os(name))
 }
 
 /// The per-user directory for state: `$XDG_STATE_HOME` or `~/.local/state`,
@@ -529,6 +537,42 @@ mod tests {
                 Err(DirProblem::LooseMode),
                 "{mode:o}"
             );
+        }
+    }
+
+    #[test]
+    fn home_comes_from_the_environment_and_only_an_absolute_path_counts() {
+        use super::backend::home_from;
+        use std::path::PathBuf;
+        let home = |vars: &'static [(&'static str, &'static str)]| {
+            home_from(&|name| {
+                vars.iter()
+                    .find(|(var, _)| *var == name)
+                    .map(|(_, value)| value.into())
+            })
+        };
+        assert_eq!(home(&[]), None);
+        assert_eq!(home(&[("HOME", ""), ("USERPROFILE", "")]), None);
+        assert_eq!(
+            home(&[("HOME", "relative"), ("USERPROFILE", "relative")]),
+            None
+        );
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                home(&[("USERPROFILE", r"C:\Users\me")]),
+                Some(PathBuf::from(r"C:\Users\me"))
+            );
+            // `HOME` is not what Windows goes by.
+            assert_eq!(home(&[("HOME", r"C:\Users\me")]), None);
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(
+                home(&[("HOME", "/home/me")]),
+                Some(PathBuf::from("/home/me"))
+            );
+            assert_eq!(home(&[("USERPROFILE", "/home/me")]), None);
         }
     }
 

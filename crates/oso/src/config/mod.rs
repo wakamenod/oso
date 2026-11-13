@@ -186,6 +186,7 @@ fn apply(root: &DeTable<'_>, builtin: Builtin<'_>, found: &mut Found) -> (Keymap
             "jump" => settings.jump = settings::jump(value, found),
             "indent" => settings.indent = indentation::indent(value, found),
             "modes" => settings.modes = indentation::modes(value, found),
+            "sessions" => settings.sessions = settings::sessions(value, found),
             "terminal" => settings.terminal = terminal::terminal(value, found),
             other => found.at(
                 name.span().start,
@@ -271,6 +272,8 @@ mod keys_tests;
 mod menus_tests;
 #[cfg(test)]
 mod search_tests;
+#[cfg(test)]
+mod sessions_tests;
 #[cfg(test)]
 mod terminal_tests;
 #[cfg(test)]

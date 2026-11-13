@@ -1,7 +1,7 @@
 //! What the sessions worker does with each job, apart from its thread and its clock: the
 //! instants come from the caller, so the tests drive it with made-up ones.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`.
+//! Must not depend on: `app` or `dispatch`.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read as _;
@@ -148,6 +148,19 @@ impl Core {
                 return Vec::new();
             }
             Job::ExplainFile(path) => return vec![self.explain_file(&path)],
+            Job::Recall(directory) => {
+                return vec![Out::Recalled(super::super::record::read(&directory))];
+            }
+            Job::Remember {
+                directory,
+                sessions,
+                known,
+            } => {
+                if let Err(e) = super::super::record::write(&directory, &sessions, &known) {
+                    log::warn!("could not remember the sessions: {e}");
+                }
+                return Vec::new();
+            }
             Job::Exited(key, exit) => (key, self.tracker(key, |t| t.exited(exit, now))),
             Job::Seen(key) => (key, self.tracker(key, |t| t.seen(now))),
             Job::Changes(key, yes) => (key, self.tracker(key, |t| t.changes(yes, now))),

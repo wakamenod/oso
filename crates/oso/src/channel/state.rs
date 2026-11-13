@@ -277,6 +277,8 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::Number { .. } => "number",
                     ArgSpec::Text { .. } => "text",
                     ArgSpec::TextOnPrefix { .. } => "optional text",
+                    // With no prefix it reads nothing, and the channel gives no prefix.
+                    ArgSpec::DirectoryAndTextOnPrefix { .. } => "none",
                     // The name of a buffer `C-x b` lists (ADR 0094).
                     ArgSpec::Buffer {
                         purpose: BufferPurpose::Switch,

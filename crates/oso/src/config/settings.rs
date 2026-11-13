@@ -1,7 +1,7 @@
 //! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108),
 //! whitespace cleanup on save (ADR 0113), migemo in isearch and jumps, and jumps' keys and
-//! timeout (ADR 0116). Indentation's are in `indentation` (ADR 0115), and terminals' in
-//! `terminal` (ADR 0120).
+//! timeout (ADR 0116), and how hosted sessions start (ADR 0121). Indentation's are in
+//! `indentation` (ADR 0115), and terminals' in `terminal` (ADR 0120).
 //! Each is `None` where the file leaves it out or gives a bad value, so the caller keeps its own.
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
@@ -37,9 +37,26 @@ pub struct Settings {
     pub indent: Indent,
     /// `[modes.<mode>]`'s indentation (ADR 0115).
     pub modes: Modes,
+    /// `[sessions]` (ADR 0121).
+    pub sessions: Sessions,
     /// `[terminal]` (ADR 0120).
     pub terminal: super::Terminal,
 }
+
+/// `[sessions]`: how a hosted session's `claude` starts (ADR 0121).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Sessions {
+    /// `claude`: its executable, by absolute path; else the login shell finds it on `PATH`.
+    pub claude: Option<std::path::PathBuf>,
+    /// `env`: the names of more variables a session takes from oso's environment.
+    pub env: Vec<String>,
+}
+
+/// The most names `[sessions] env` takes.
+pub(super) const MAX_ENV_NAMES: usize = 64;
+/// The longest name in `[sessions] env`, and the longest `[sessions] claude`, in bytes.
+pub(super) const MAX_ENV_NAME: usize = 256;
+pub(super) const MAX_CLAUDE_PATH: usize = 4096;
 
 /// `[jump]`: how jumps label and read (ADR 0116).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -256,6 +273,107 @@ fn dictionary_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<St
     };
     found.at(at, format_args!("[search] migemo-dictionary {why}"));
     None
+}
+
+/// `[sessions]`.
+pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessions {
+    let mut sessions = Sessions::default();
+    let Some(entries) = table(value, "[sessions]", found) else {
+        return sessions;
+    };
+    for (name, value) in entries {
+        match name.get_ref().as_ref() {
+            "claude" => sessions.claude = claude_path(value, found),
+            "env" => sessions.env = env_names(value, found),
+            other => unknown(found, name.span().start, other, "[sessions]"),
+        }
+    }
+    sessions
+}
+
+/// `[sessions] claude`: an absolute path on this computer, of at most [`MAX_CLAUDE_PATH`]
+/// bytes. Nothing is looked at on disk here; the session's start thread checks the file.
+fn claude_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<std::path::PathBuf> {
+    let at = value.span().start;
+    let DeValue::String(path) = value.get_ref() else {
+        found.at(
+            at,
+            format_args!(
+                "[sessions] claude takes the absolute path of claude, not {}",
+                type_name(value.get_ref())
+            ),
+        );
+        return None;
+    };
+    let elsewhere = path.starts_with("\\\\") || path.starts_with("//");
+    let why = if !std::path::Path::new(path.as_ref()).is_absolute() || elsewhere {
+        "takes an absolute path on this computer".to_owned()
+    } else if path.len() > MAX_CLAUDE_PATH {
+        format!("takes a path of at most {MAX_CLAUDE_PATH} bytes")
+    } else if path.contains('\0') {
+        "takes a path with no NUL character".to_owned()
+    } else {
+        return Some(std::path::PathBuf::from(path.as_ref()));
+    };
+    found.at(at, format_args!("[sessions] claude {why}"));
+    None
+}
+
+/// `[sessions] env`: at most [`MAX_ENV_NAMES`] variables' names, each one oso may pass on:
+/// not empty, with no `=` or NUL, and not `PATH`, `LD_*` or `DYLD_*`. A name refused is said
+/// and left out; the others stay.
+fn env_names(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Vec<String> {
+    let DeValue::Array(names) = value.get_ref() else {
+        found.at(
+            value.span().start,
+            format_args!(
+                "[sessions] env takes a list of variables' names, such as [\"HTTPS_PROXY\"], not {}",
+                type_name(value.get_ref())
+            ),
+        );
+        return Vec::new();
+    };
+    if names.len() > MAX_ENV_NAMES {
+        found.at(
+            value.span().start,
+            format_args!("[sessions] env takes at most {MAX_ENV_NAMES} names"),
+        );
+        return Vec::new();
+    }
+    let mut kept = Vec::new();
+    for name in names {
+        let DeValue::String(text) = name.get_ref() else {
+            found.at(
+                name.span().start,
+                format_args!(
+                    "[sessions] env takes names, not {}",
+                    type_name(name.get_ref())
+                ),
+            );
+            continue;
+        };
+        let upper = text.to_ascii_uppercase();
+        let refused = text.is_empty()
+            || text.len() > MAX_ENV_NAME
+            || text.contains(['=', '\0'])
+            || upper == "PATH"
+            || upper.starts_with("LD_")
+            || upper.starts_with("DYLD_");
+        if refused {
+            found.at(
+                name.span().start,
+                format_args!(
+                    "[sessions] env cannot pass {}: oso sets PATH itself, and never passes the loader's variables",
+                    quoted(&cut(text.as_ref()))
+                ),
+            );
+            continue;
+        }
+        if !kept.iter().any(|kept: &String| kept == text.as_ref()) {
+            kept.push(text.as_ref().to_owned());
+        }
+    }
+    kept
 }
 
 /// `[save]`.

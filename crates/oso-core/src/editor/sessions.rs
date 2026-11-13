@@ -7,12 +7,24 @@
 use std::path::PathBuf;
 
 use super::Editor;
+use crate::buffer::BufferId;
 
 /// What a command asks of the host about agent sessions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionRequest {
     /// Explain the saved screen in this file with the rules in force (`session-explain-file`).
     ExplainFile(PathBuf),
+    /// Start a session (`claude`): in `directory`, else the selected window's project root,
+    /// else the buffer's directory, named `name`, else after its directory.
+    Start {
+        name: Option<String>,
+        directory: Option<PathBuf>,
+    },
+    /// Resume the stopped session whose terminal is this buffer (`session-resume`).
+    Resume(BufferId),
+    /// Copy the conversation of the session whose terminal is this buffer under a new id, in a
+    /// new buffer (`session-fork`).
+    Fork(BufferId),
 }
 
 impl Editor {
