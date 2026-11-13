@@ -62,9 +62,18 @@ fn type_line(app: &mut App, line: &str) {
     app.send_keys(&keys.join(" "));
 }
 
-/// Waits for a row that is `wanted` exactly.
+/// Whether a row of `state` is `wanted`, or ends in a prompt and then `wanted`: a shell that
+/// reads lines (dash) prints what typed-ahead input printed after its next prompt.
+fn shows_row(state: &Value, wanted: &str) -> bool {
+    let after_prompt = format!("$ {wanted}");
+    rows(state)
+        .iter()
+        .any(|row| row == wanted || row.ends_with(&after_prompt))
+}
+
+/// Waits for a row that is `wanted`, as [`shows_row`] reads it.
 fn wait_for_row(app: &mut App, wanted: &str) -> Value {
-    app.wait_for(wanted, |state| rows(state).iter().any(|row| row == wanted))
+    app.wait_for(wanted, |state| shows_row(state, wanted))
 }
 
 #[test]
@@ -99,13 +108,30 @@ fn a_terminal_runs_the_shell_and_its_output_is_drawn() {
 fn oso_keeps_its_keys_and_the_rest_reach_the_program() {
     let (_scratch, mut app) = start("terminal-keys");
     open_terminal(&mut app);
-    // C-c C-c sends C-c: the sleep ends, so the echo after it runs at once.
+    // C-c C-c sends C-c: the sleep ends, so the echo after it runs at once. An interrupt
+    // drops input typed ahead, and a C-c that comes before the shell has started the sleep
+    // reaches the shell instead, so both are sent again until the echo runs, as a slow
+    // machine may need.
     type_line(&mut app, "sleep 100");
-    // So that the shell has started it: a C-c before that reaches the shell instead.
-    std::thread::sleep(Duration::from_millis(500));
-    app.send_keys("C-c C-c");
-    type_line(&mut app, "echo stopped");
-    wait_for_row(&mut app, "stopped");
+    let mut stopped = false;
+    for _ in 0..10 {
+        std::thread::sleep(Duration::from_millis(500));
+        app.send_keys("C-c C-c");
+        type_line(&mut app, "echo stopped");
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until && !stopped {
+            stopped = shows_row(&app.state(), "stopped");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if stopped {
+            break;
+        }
+    }
+    assert!(
+        stopped,
+        "no C-c reached the sleep: {:?}",
+        rows(&app.state())
+    );
     // C-q sends oso's own key as it is.
     type_line(&mut app, "cat -v");
     app.send_keys("C-q C-x RET");
@@ -200,7 +226,12 @@ fn the_input_method_commits_into_the_program_at_its_cursor() {
 fn a_paste_of_lines_asks_without_bracketed_paste_and_is_cleaned_with_it() {
     let scratch = Scratch::new("terminal-paste");
     let config = scratch.write("config.toml", CONFIG.as_bytes());
-    let lines = scratch.write("lines.txt", b"echo one\necho two\n");
+    // What the commands print is computed, so that it never reads as the input a shell echoes,
+    // which a shell may print on the row of its next prompt (dash does).
+    let lines = scratch.write(
+        "lines.txt",
+        b"echo pasted-$((10+1))\necho pasted-$((10+2))\n",
+    );
     let mut app = App::start_with_config(Some(&lines), scratch.path(), &config);
     app.wait_until_ready();
     app.wait_for("the file", |state| state["buffer"]["loading"].is_null());
@@ -215,13 +246,16 @@ fn a_paste_of_lines_asks_without_bracketed_paste_and_is_cleaned_with_it() {
     app.send_keys("n");
     type_line(&mut app, "echo none");
     wait_for_row(&mut app, "none");
-    assert!(!rows(&app.state()).iter().any(|row| row == "one"));
+    let printed = |state: &Value, what: &str| rows(state).iter().any(|row| row.ends_with(what));
+    assert!(!printed(&app.state(), "pasted-11"));
     app.send_keys("C-y");
     app.wait_for("the question", |state| {
         state["prompts"].as_array().is_some_and(|p| !p.is_empty())
     });
     app.send_keys("y");
-    wait_for_row(&mut app, "two");
+    app.wait_for("both lines run", |state| {
+        printed(state, "pasted-11") && printed(state, "pasted-12")
+    });
     // With bracketed paste on, the text arrives between the brackets.
     type_line(&mut app, "printf '\\033[?2004h'; cat -v");
     app.wait_for("bracketed paste on", |state| {
@@ -231,7 +265,7 @@ fn a_paste_of_lines_asks_without_bracketed_paste_and_is_cleaned_with_it() {
     app.wait_for("the bracketed text", |state| {
         rows(state)
             .iter()
-            .any(|row| row.contains("^[[200~echo one"))
+            .any(|row| row.contains("^[[200~echo pasted-"))
     });
     app.send_keys("C-c C-c");
 }

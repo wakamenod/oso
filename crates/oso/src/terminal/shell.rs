@@ -149,6 +149,8 @@ mod tests {
         list.iter().map(PathBuf::from).collect()
     }
 
+    // The paths are Unix's: on Windows, which has no terminals yet, none is absolute.
+    #[cfg(unix)]
     #[test]
     fn the_order_is_the_setting_shell_the_account_then_sh() {
         let order = candidates(
@@ -162,6 +164,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_relative_shell_is_skipped_and_each_is_tried_once() {
         let order = candidates(None, Some(OsStr::new("zsh")), || {
