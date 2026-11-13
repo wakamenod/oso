@@ -16,11 +16,14 @@ use oso_core::command::{
 };
 use oso_core::editor::{CompletionStyle, Editor};
 use oso_core::kill::FromClipboard;
-use oso_core::minibuffer::{self, Kind, Outcome, PromptError, PromptId};
+use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
 
 use super::{Dispatcher, Step, buffers, extended};
 
 mod paths;
+mod replace;
+
+use replace::ReplaceStage;
 
 /// A command waiting for the answer of the prompt `prompt`.
 pub(super) struct Reading {
@@ -48,6 +51,18 @@ enum Then {
     Directory(ProjectPrompt),
     /// The menu it names, in the command's place, as `open-menu` does (ADR 0117).
     OpenMenu,
+    /// The directory a `DirectoryAndTextOnPrefix` command read first; its text prompt follows
+    /// (ADR 0121).
+    DirectoryThenText(TextPrompt),
+    /// The text a `DirectoryAndTextOnPrefix` command reads after this directory.
+    TextAfter(String),
+}
+
+/// The text prompt that follows a directory's (ADR 0121).
+#[derive(Clone, Copy)]
+struct TextPrompt {
+    prompt: &'static str,
+    history: &'static str,
 }
 
 /// A project's prompt, which `C-u` reads a directory for first (ADR 0114).
@@ -70,27 +85,6 @@ impl Reading {
             then: Then::Run,
             switches: Vec::new(),
         }
-    }
-}
-
-/// Which of query-replace's two prompts a command waits for (ADR 0113).
-#[derive(Clone)]
-enum ReplaceStage {
-    /// The string to replace.
-    From { regexp: bool },
-    /// Its replacement, after this string.
-    To { regexp: bool, from: String },
-}
-
-/// The most cells of the string to replace that the second prompt's label shows.
-const REPLACE_LABEL_CELLS: usize = 40;
-
-/// The history query-replace's prompts share, one for each kind.
-fn replace_history(regexp: bool) -> &'static str {
-    if regexp {
-        "query-replace-regexp"
-    } else {
-        "query-replace"
     }
 }
 
@@ -148,6 +142,21 @@ impl Dispatcher {
                     history: Some(history),
                 },
             ),
+            Some(ArgSpec::DirectoryAndTextOnPrefix {
+                directory,
+                directory_history,
+                prompt,
+                history,
+            }) if args.raw().is_some() => {
+                let then = TextPrompt { prompt, history };
+                return self.read_directory(
+                    editor,
+                    id,
+                    args.raw(),
+                    (directory, directory_history),
+                    then,
+                );
+            }
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
@@ -334,103 +343,41 @@ impl Dispatcher {
         (effects, Ok(()))
     }
 
-    /// Opens query-replace's first prompt, offering the last pair as the default, unless the
-    /// selected buffer is read-only, which it says before anything is read (ADR 0113).
-    fn read_replace(
-        &mut self,
-        editor: &mut Editor,
-        id: CommandId,
-        prefix: Option<Prefix>,
-        regexp: bool,
-    ) -> (Effects, Result<(), ExecuteError>) {
-        let redraw = Effects {
-            redraw: true,
-            ..Effects::default()
-        };
-        if let Err(refused) = editor.replace_may_begin() {
-            editor.message(refused.to_string());
-            return (redraw, Ok(()));
-        }
-        let kind = if regexp { " regexp" } else { "" };
-        let label = match editor.last_replace(regexp) {
-            Some((from, to)) => {
-                let (from, from_cut) = minibuffer::cut_to(from, REPLACE_LABEL_CELLS);
-                let (to, to_cut) = minibuffer::cut_to(to, REPLACE_LABEL_CELLS);
-                format!("Query replace{kind} (default {from}{from_cut} → {to}{to_cut}): ")
-            }
-            None => format!("Query replace{kind}: "),
-        };
-        let stage = ReplaceStage::From { regexp };
-        self.open_replace_prompt(editor, id, prefix, label, stage);
-        if regexp {
-            // A regexp that does not compile keeps the prompt open, saying why (ADR 0113).
-            editor.prompt_takes_regexp();
-        }
-        (redraw, Ok(()))
-    }
-
-    fn open_replace_prompt(
-        &mut self,
-        editor: &mut Editor,
-        id: CommandId,
-        prefix: Option<Prefix>,
-        label: String,
-        stage: ReplaceStage,
-    ) {
-        let regexp = match &stage {
-            ReplaceStage::From { regexp } | ReplaceStage::To { regexp, .. } => *regexp,
-        };
-        let kind = Kind::Text {
-            history: Some(replace_history(regexp)),
-        };
-        match editor.open_prompt(label, kind) {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix,
-                prompt,
-                passphrase: false,
-                then: Then::Replace(stage),
-                switches: Vec::new(),
-            }),
-            Err(error) => editor.prompt_says(error.to_string()),
-        }
-    }
-
-    /// Takes the answer of one of query-replace's prompts: the string opens the second, and
-    /// the replacement, or an empty string, runs the command.
-    fn replace_answered(
-        &mut self,
-        editor: &mut Editor,
-        reading: &Reading,
-        stage: &ReplaceStage,
-        text: &str,
-    ) -> Effects {
-        let (from, to) = match stage {
-            ReplaceStage::From { regexp } if !text.is_empty() => {
-                let kind = if *regexp { " regexp" } else { "" };
-                let (shown, cut) = minibuffer::cut_to(text, REPLACE_LABEL_CELLS);
-                let label = format!("Query replace{kind} {shown}{cut} with: ");
-                let stage = ReplaceStage::To {
-                    regexp: *regexp,
-                    from: text.to_owned(),
-                };
-                self.open_replace_prompt(editor, reading.id, reading.prefix, label, stage);
-                return Effects {
-                    redraw: true,
-                    ..Effects::default()
-                };
-            }
-            ReplaceStage::From { .. } => ("", ""),
-            ReplaceStage::To { from, .. } => (from.as_str(), text),
-        };
-        let invocation = Invocation {
-            answer: Some(from),
-            second: Some(to),
-            ..Invocation::default()
-        };
+    /// Runs what `reading` waited for, now that its prompt answered `text`.
+    fn answered(&mut self, editor: &mut Editor, reading: &Reading, text: &str) -> Effects {
         let args = Args::with_prefix(reading.prefix);
-        self.execute(editor, reading.id, args, invocation, Step::MayJoin)
-            .0
+        match &reading.then {
+            Then::RunAnswer => self.run_answer(editor, text, args),
+            Then::OpenMenu => {
+                // The prefix argument typed before goes to its first head.
+                self.prefix = reading.prefix;
+                self.open_menu_named(editor, text)
+            }
+            Then::Replace(stage) => self.replace_answered(editor, reading, stage, text),
+            Then::Directory(project) => self.directory_answered(editor, reading, *project, text),
+            Then::DirectoryThenText(then) => {
+                self.open_text_after(editor, reading, *then, text.to_owned())
+            }
+            Then::TextAfter(directory) => {
+                let invocation = Invocation {
+                    answer: Some(directory),
+                    second: Some(text),
+                    ..Invocation::default()
+                };
+                self.execute(editor, reading.id, args, invocation, Step::MayJoin)
+                    .0
+            }
+            Then::Run => {
+                let switches: Vec<&str> = reading.switches.iter().map(String::as_str).collect();
+                let invocation = Invocation {
+                    answer: Some(text),
+                    switches: &switches,
+                    ..Invocation::default()
+                };
+                self.execute(editor, reading.id, args, invocation, Step::MayJoin)
+                    .0
+            }
+        }
     }
 
     /// Runs what the prompts that ended call for: a command waiting for an answer, or the
@@ -450,34 +397,7 @@ impl Dispatcher {
                     self.passphrase_next =
                         waiting.as_ref().is_some_and(|reading| reading.passphrase);
                     self.forget_closed(editor);
-                    waiting.map(|reading| {
-                        let args = Args::with_prefix(reading.prefix);
-                        match &reading.then {
-                            Then::RunAnswer => self.run_answer(editor, &text, args),
-                            Then::OpenMenu => {
-                                // The prefix argument typed before goes to its first head.
-                                self.prefix = reading.prefix;
-                                self.open_menu_named(editor, &text)
-                            }
-                            Then::Replace(stage) => {
-                                self.replace_answered(editor, &reading, stage, &text)
-                            }
-                            Then::Directory(project) => {
-                                self.directory_answered(editor, &reading, *project, &text)
-                            }
-                            Then::Run => {
-                                let switches: Vec<&str> =
-                                    reading.switches.iter().map(String::as_str).collect();
-                                let invocation = Invocation {
-                                    answer: Some(&text),
-                                    switches: &switches,
-                                    ..Invocation::default()
-                                };
-                                self.execute(editor, reading.id, args, invocation, Step::MayJoin)
-                                    .0
-                            }
-                        }
-                    })
+                    waiting.map(|reading| self.answered(editor, &reading, &text))
                 }
                 Some(Outcome::Run(name)) => {
                     // What the person's `y` to the agent's question runs is the agent's, so

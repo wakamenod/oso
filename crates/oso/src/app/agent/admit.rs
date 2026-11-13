@@ -46,6 +46,7 @@ impl App {
             return;
         }
         self.agent.started_by = None;
+        self.agent.started_for_a_session = false;
         self.agent.run += 1;
         let run = self.agent.run;
         let waker = self.waker.clone();
@@ -69,6 +70,7 @@ impl App {
     pub(in crate::app) fn agent_started(&mut self, started: std::io::Result<channel::Channel>) {
         self.agent.starting = false;
         let started_by = self.agent.started_by.take();
+        let for_a_session = std::mem::take(&mut self.agent.started_for_a_session);
         if std::mem::take(&mut self.agent.stop_when_started) {
             return;
         }
@@ -77,6 +79,12 @@ impl App {
                 self.agent.channel = Some(channel);
                 self.agent.started = Some(Instant::now());
                 self.agent_log("the agent channel is on");
+                if for_a_session {
+                    self.editor.message(
+                        "Agent channel on for the session's oso tools: any other agent asks you first",
+                    );
+                    return;
+                }
                 let on = match started_by {
                     Some(file) => format!("Agent channel on, as {file} says"),
                     None => "Agent channel on".to_owned(),
@@ -117,6 +125,7 @@ impl App {
             }
         }
         self.agent.connected.clear();
+        self.session_bridge_gone(None);
         self.forget_undo_of(None);
         self.orphan_questions(None);
         self.drop_agent_opens(None);

@@ -83,6 +83,8 @@ pub struct InForce {
     /// Each mode's indentation, in the order of `config::MODES`, with where each property
     /// came from: the file or the compiled-in default.
     pub mode_indents: [(indent::Settings, indent::Origins); 4],
+    /// How hosted sessions start (ADR 0121): read when one starts.
+    pub sessions: super::settings::Sessions,
 }
 
 impl InForce {
@@ -107,6 +109,7 @@ impl InForce {
             },
             electric_indent: true,
             mode_indents: [Default::default(); 4],
+            sessions: super::settings::Sessions::default(),
         }
     }
 
@@ -142,6 +145,7 @@ impl InForce {
                 let mode = settings.modes[index];
                 (mode.over(compiled.mode_indents[index].0), mode.origins())
             }),
+            sessions: settings.sessions.clone(),
         }
     }
 
@@ -230,6 +234,7 @@ mod tests {
                 },
                 electric_indent: true,
                 mode_indents: [Default::default(); 4],
+                sessions: crate::config::settings::Sessions::default(),
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -282,6 +287,7 @@ mod tests {
                 },
                 electric_indent: true,
                 mode_indents: [Default::default(); 4],
+                sessions: crate::config::settings::Sessions::default(),
             }
         );
     }

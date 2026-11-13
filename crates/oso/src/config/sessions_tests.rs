@@ -1,0 +1,74 @@
+//! The tests of `[sessions]` in [`parse`](super::parse): `claude`'s path and `env`'s names, and
+//! what is reported of bad ones (ADR 0121).
+//!
+//! Must not depend on: `app`, `dispatch` or the file system; these run on strings alone.
+
+use std::path::PathBuf;
+
+use super::tests::{Fixture, messages};
+
+#[test]
+fn claude_is_an_absolute_path() {
+    let f = Fixture::new();
+    let absolute = if cfg!(windows) {
+        "C:/bin/claude"
+    } else {
+        "/opt/bin/claude"
+    };
+    let loaded = f.parse(&format!("[sessions]\nclaude = \"{absolute}\"\n"));
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert_eq!(
+        loaded.settings.sessions.claude,
+        Some(PathBuf::from(absolute))
+    );
+    for (value, said) in [
+        ("\"claude\"", "takes an absolute path on this computer"),
+        (
+            "\"//host/claude\"",
+            "takes an absolute path on this computer",
+        ),
+        ("3", "takes the absolute path of claude, not a number"),
+    ] {
+        let loaded = f.parse(&format!("[sessions]\nclaude = {value}\n"));
+        let messages = messages(&loaded);
+        assert_eq!(messages.len(), 1, "{value}");
+        assert!(messages[0].ends_with(said), "{}", messages[0]);
+        assert_eq!(loaded.settings.sessions.claude, None);
+    }
+}
+
+#[test]
+fn env_names_are_kept_and_refused_ones_said() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        "[sessions]\nenv = [\"HTTPS_PROXY\", \"PATH\", \"LD_PRELOAD\", \"dyld_x\", \"A=B\", \"\", \"HTTPS_PROXY\", \"NODE_OPTIONS\"]\n",
+    );
+    assert_eq!(
+        loaded.settings.sessions.env,
+        ["HTTPS_PROXY", "NODE_OPTIONS"]
+    );
+    let messages = messages(&loaded);
+    assert_eq!(messages.len(), 5, "{messages:?}");
+    assert!(
+        messages
+            .iter()
+            .all(|m| m.contains("[sessions] env cannot pass"))
+    );
+    let loaded = f.parse("[sessions]\nenv = \"HTTPS_PROXY\"\n");
+    assert!(messages_of(&loaded).contains("takes a list of variables' names"));
+    let many: Vec<String> = (0..=super::settings::MAX_ENV_NAMES)
+        .map(|n| format!("\"V{n}\""))
+        .collect();
+    let loaded = f.parse(&format!("[sessions]\nenv = [{}]\n", many.join(", ")));
+    assert!(messages_of(&loaded).contains("at most 64 names"));
+    assert!(loaded.settings.sessions.env.is_empty());
+    let loaded = f.parse("[sessions]\nshell = \"/bin/sh\"\n");
+    assert!(
+        messages_of(&loaded).contains("shell"),
+        "an unknown key is said"
+    );
+}
+
+fn messages_of(loaded: &super::Loaded) -> String {
+    messages(loaded).join("\n")
+}

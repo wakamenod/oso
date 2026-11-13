@@ -95,13 +95,6 @@ pub enum Target {
 
 /// How the process ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the terminal's thread reports exits (ADR 0121 step 3)"
-    )
-)]
 pub enum Exit {
     /// Status 0, or stopped by the person or oso.
     Stopped,

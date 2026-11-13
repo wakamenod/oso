@@ -303,3 +303,54 @@ fn connections_that_say_nothing_keep_no_agent_out() {
     assert_eq!(client.reply().unwrap()["protocol"], 1);
     drop(silent);
 }
+
+/// The next event, which must be a claim of `session`; answered with `bridges`.
+fn claim(running: &Running, session: &str, bridges: bool) -> Connection {
+    let request = running.next();
+    let Event::Claims {
+        session: claimed, ..
+    } = &request.event
+    else {
+        panic!("{:?}", request.event);
+    };
+    assert_eq!(claimed, session);
+    request
+        .reply
+        .unwrap()
+        .send(Ok(Value::Bool(bridges)))
+        .unwrap();
+    request.connection
+}
+
+#[test]
+fn a_hosted_sessions_bridge_is_let_in_unasked_and_beside_the_others() {
+    let running = Running::new();
+    // Two connections the person let in hold the two slots.
+    let mut held = Vec::new();
+    for _ in 0..super::MAX_CLIENTS {
+        let mut client = running.connect();
+        client.send("version", None);
+        running.answer(true);
+        client.reply().unwrap();
+        held.push(client);
+    }
+    let session = json!({ "session": "s-1" });
+    let mut bridge = running.connect();
+    bridge.send("version", Some(session.clone()));
+    let connection = claim(&running, "s-1", true);
+    assert_eq!(bridge.reply().unwrap()["protocol"], 1);
+    bridge.send("state", None);
+    let request = running.next();
+    assert_eq!(request.connection, connection);
+    assert!(matches!(request.event, Event::Op(Op::State { .. })));
+    request.reply.unwrap().send(Ok(json!({}))).unwrap();
+    bridge.reply().unwrap();
+    drop(bridge);
+    assert!(matches!(running.next().event, Event::Gone));
+    // A claim the UI does not believe asks as any connection, and then needs a slot.
+    let mut other = running.connect();
+    other.send("version", Some(session));
+    claim(&running, "s-1", false);
+    assert!(other.reply().unwrap_err().contains("too many agents"));
+    drop(held);
+}

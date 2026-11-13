@@ -22,7 +22,7 @@ use oso_core::buffer::BufferId;
 use oso_core::command::Reach;
 use oso_core::editor::AgentChannel;
 use oso_core::minibuffer::PromptId;
-use oso_platform::control::Peer;
+use oso_platform::control::{Peer, PeerProcess};
 
 mod admit;
 mod open;
@@ -62,6 +62,8 @@ pub(super) struct Agent {
     stop_when_started: bool,
     /// The configuration file, by this name, started it at launch (ADR 0108).
     started_by: Option<String>,
+    /// `claude` started it, for its session's bridge (ADR 0121, Q20).
+    started_for_a_session: bool,
     started: Option<Instant>,
     /// The connections the person let in.
     connected: Vec<Connection>,
@@ -162,6 +164,16 @@ fn waits(now: &Now) -> Option<&'static str> {
 }
 
 impl App {
+    /// Turns the agent channel on for a hosted session's bridge, if it is off, and says so
+    /// (ADR 0121, Q20): the person asked for a session whose `oso mcp` needs it.
+    pub(super) fn turn_agent_channel_on_for_a_session(&mut self) {
+        if self.agent.channel.is_some() || self.agent.starting {
+            return;
+        }
+        self.start_agent_channel();
+        self.agent.started_for_a_session = self.agent.starting;
+    }
+
     /// A connection of the agent channel brought something.
     pub(super) fn handle_agent(&mut self, event_loop: &Loop<'_>, request: channel::Request) {
         let channel::Request {
@@ -194,6 +206,19 @@ impl App {
                     reply,
                     question: None,
                 });
+            }
+            // A hosted session's bridge is let in without the question, as that session's
+            // (ADR 0121, Q19), and logged as any connection.
+            Event::Claims { peer, session } => {
+                let Some(reply) = reply else { return };
+                let bridges = self.session_bridge(connection, &peer, &session);
+                if let Some(name) = &bridges {
+                    self.agent.connected.push(connection);
+                    let pid = peer.process.as_ref().map_or(0, PeerProcess::pid);
+                    self.agent_log(&format!("pid {pid}: let in as session {name}'s bridge"));
+                    self.request_redraw();
+                }
+                let _ = reply.send(Ok(serde_json::Value::Bool(bridges.is_some())));
             }
             Event::Gone => self.agent_gone(connection),
             Event::Silent => self.agent_log_often("closed connections that sent nothing"),
@@ -283,6 +308,7 @@ impl App {
     /// A connection closed, or the channel stopped under it.
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
+        self.session_bridge_gone(Some(connection));
         saving::forget_saves_of(&mut self.agent.saving, connection);
         self.forget_undo_of(Some(connection));
         self.orphan_questions(Some(connection));

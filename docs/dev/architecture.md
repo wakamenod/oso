@@ -620,6 +620,18 @@ The UI thread never blocks on I/O or parsing:
   (`UserEvent::Sessions`). The terminal's host API (ADR 0120) feeds it from step 3; step 2 built
   it against recorded screens, and `session-explain-file` explains a saved one in
   `*Session explain*`, a buffer the agent channel cannot read.
+- A hosted session (`claude`, ADR 0121 step 1) gets ready on a short `oso-session-start`
+  thread of its own (`sessions/start.rs`): the id from `/dev/urandom`, the directory and
+  `[sessions] claude` checked, Claude Code's registry read before a resume and again 5 s after
+  (`sessions/registry.rs`, liveness by `oso_platform::process::start_time`), the shell found, and
+  in a trusted project ADR 0122's baseline, waited for at most 2 s. Its command line is built by
+  pure functions (`sessions/command.rs`, `sessions/launch.rs`), and its terminal starts through
+  ADR 0120's start path. The app's table of hosted sessions (`sessions/hosted.rs`, glue in
+  `app/sessions/hosting.rs`) holds each session's buffer and its `claude`'s process id
+  (`oso_term::Terminal::pid`); the set oso remembers, `sessions` in the state directory
+  (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
+  judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
+  asks (`Event::Claims`).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -672,6 +684,10 @@ read. See [ADR 0019](adr/0019-configuration.md).
   (`config/agent_rules.rs`), and handed to the sessions worker for every session at once; a
   file that fails to parse keeps the rules in force. Its format is in
   [agent-rules.md](agent-rules.md) ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
+- `[sessions]` says how a hosted session's `claude` starts: `claude`, its absolute path, and
+  `env`, the names of more variables a session takes from oso's environment; the start thread
+  reads them as they are in force when the session starts
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 1).
 - Indentation ([ADR 0115](adr/0115-indentation.md)): each buffer has an indentation setting,
   property by property from the EditorConfig files that apply to it, then the configuration's
   `[modes.<mode>]`, then the defaults, and knows where each came from (`describe-indentation`).

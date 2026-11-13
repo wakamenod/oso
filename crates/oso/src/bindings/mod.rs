@@ -4,6 +4,7 @@
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
+mod agent_sessions;
 mod buffers;
 mod complete;
 mod cursors;
@@ -41,6 +42,7 @@ use oso_core::keymap::Keymap;
 /// key does: a key bound twice fails to build the keymap, whichever comes first.
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
+    agent_sessions::BINDINGS,
     complete::BINDINGS,
     cursors::BINDINGS,
     edit::BINDINGS,
