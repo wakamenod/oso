@@ -20,6 +20,7 @@ mod defaults;
 mod in_force;
 mod indentation;
 mod keys;
+mod menus;
 mod outcome;
 mod problems;
 mod settings;
@@ -31,6 +32,7 @@ use std::fmt;
 
 use oso_core::command::Registry;
 use oso_core::keymap::Keymap;
+use oso_core::menu::Menus;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
@@ -54,6 +56,9 @@ pub struct Loaded {
     /// The user's keymap, empty if the file binds no keys. `None` if the file was rejected, and
     /// then nothing in it applies: what was in force stays (ADR 0108).
     pub keys: Option<Keymap>,
+    /// The menus in force: the built-in ones with what the file adds, replaces and removes
+    /// (ADR 0117). `None` if the file was rejected.
+    pub menus: Option<Menus>,
     /// The settings the file gives. All unset if it was rejected.
     pub settings: Settings,
     /// What is wrong, in the order of the file: the first [`MAX_PROBLEMS`](problems::MAX_PROBLEMS)
@@ -71,25 +76,38 @@ impl Loaded {
     }
 }
 
-/// Parses `text`, the file's contents, and builds the user's keymap over the commands in
-/// `registry`, checked against the default keys in `defaults`. `themes` are the built-in themes'
-/// names. Never panics, whatever the text.
-pub fn parse(text: &str, registry: &Registry, defaults: &Keymap, themes: &[&str]) -> Loaded {
+/// The built-in parts of oso a file is read against.
+#[derive(Clone, Copy)]
+pub struct Builtin<'b> {
+    /// The commands it may name.
+    pub registry: &'b Registry,
+    /// The default keys its keys are checked against.
+    pub defaults: &'b Keymap,
+    /// The built-in menus it may replace or remove.
+    pub menus: &'b Menus,
+    /// The built-in themes' names.
+    pub themes: &'b [&'b str],
+}
+
+/// Parses `text`, the file's contents, and builds the user's keymap and the menus over what is
+/// built in. Never panics, whatever the text.
+pub fn parse(text: &str, builtin: Builtin<'_>) -> Loaded {
     let mut found = Found::default();
-    let (keys, settings) = match DeTable::parse(text) {
+    let (keys, menus, settings) = match DeTable::parse(text) {
         Ok(root) => {
-            let (keys, settings) = apply(root.get_ref(), registry, defaults, themes, &mut found);
+            let (keys, menus, settings) = apply(root.get_ref(), builtin, &mut found);
             tear_down(root.into_inner());
-            (Some(keys), settings)
+            (Some(keys), Some(menus), settings)
         }
         Err(first) => {
             syntax_errors(text, &first, &mut found);
-            (None, Settings::default())
+            (None, None, Settings::default())
         }
     };
     let (problems, more) = found.placed(text);
     Loaded {
         keys,
+        menus,
         settings,
         problems,
         more,
@@ -132,19 +150,28 @@ fn syntax_errors(text: &str, first: &toml::de::Error, found: &mut Found) {
     tear_down(root.into_inner());
 }
 
-/// The user's keymap and the settings from the tables of a file that parsed.
-fn apply(
-    root: &DeTable<'_>,
-    registry: &Registry,
-    defaults: &Keymap,
-    themes: &[&str],
-    found: &mut Found,
-) -> (Keymap, Settings) {
+/// The user's keymap, the menus and the settings from the tables of a file that parsed. The
+/// menus come first, so that a key can name one whatever the order of the tables.
+fn apply(root: &DeTable<'_>, builtin: Builtin<'_>, found: &mut Found) -> (Keymap, Menus, Settings) {
+    let Builtin {
+        registry,
+        defaults,
+        themes,
+        ..
+    } = builtin;
     let mut user = Keymap::new();
     let mut settings = Settings::default();
+    let menus = root
+        .iter()
+        .find(|(name, _)| name.get_ref() == "menus")
+        .map_or_else(
+            || builtin.menus.clone(),
+            |(_, value)| menus::menus(value, registry, builtin.menus, found),
+        );
     for (name, value) in root {
         match name.get_ref().as_ref() {
-            "keys" => user = keys::keys(value, registry, defaults, found),
+            "menus" => {}
+            "keys" => user = keys::keys(value, registry, &menus, defaults, found),
             "theme" => settings.theme = settings::theme(value, themes, found),
             "aids" => settings.aids = settings::aids(value, found),
             "agent-channel" => settings.agent_channel_start = settings::agent_channel(value, found),
@@ -158,7 +185,7 @@ fn apply(
             ),
         }
     }
-    (user, settings)
+    (user, menus, settings)
 }
 
 /// Drops parsed tables a level at a time, so that deep nesting needs no deep stack.
@@ -231,5 +258,7 @@ impl fmt::Display for TableName<'_> {
 mod jump_tests;
 #[cfg(test)]
 mod keys_tests;
+#[cfg(test)]
+mod menus_tests;
 #[cfg(test)]
 mod tests;

@@ -19,6 +19,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: exit_minibuffer,
+        state: None,
     },
     Command {
         name: "previous-history-element",
@@ -26,6 +27,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: previous_history_element,
+        state: None,
     },
     Command {
         name: "next-history-element",
@@ -33,6 +35,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: next_history_element,
+        state: None,
     },
     Command {
         name: "answer-yes",
@@ -40,6 +43,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: answer_yes,
+        state: None,
     },
     Command {
         name: "answer-no",
@@ -47,6 +51,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: answer_no,
+        state: None,
     },
 ];
 

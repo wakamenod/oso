@@ -16,26 +16,38 @@ use proptest::prelude::*;
 
 use super::problems::{MAX_PROBLEMS, MAX_QUOTED};
 use super::settings::{Aids, Jump, ThemeSetting};
-use super::{Loaded, STACK, parse};
+use super::{Builtin, Loaded, STACK, parse};
 use crate::{bindings, commands};
 
 const THEMES: &[&str] = &["dark", "light", "dusk"];
 
-/// The registry and default keymap that `parse` checks a file against.
+/// The registry, default keymap and built-in menus that `parse` checks a file against.
 pub(super) struct Fixture {
     pub(super) registry: Registry,
     pub(super) defaults: Keymap,
+    pub(super) menus: oso_core::menu::Menus,
 }
 
 impl Fixture {
     pub(super) fn new() -> Self {
         let registry = commands::registry();
         let defaults = bindings::global_keymap(&registry);
-        Self { registry, defaults }
+        let menus = bindings::menus(&registry);
+        Self {
+            registry,
+            defaults,
+            menus,
+        }
     }
 
     pub(super) fn parse(&self, text: &str) -> Loaded {
-        parse(text, &self.registry, &self.defaults, THEMES)
+        let builtin = Builtin {
+            registry: &self.registry,
+            defaults: &self.defaults,
+            menus: &self.menus,
+            themes: THEMES,
+        };
+        parse(text, builtin)
     }
 
     /// What `keys` runs in `keymap`: a command's name, "prefix", "undefined" or nothing.
@@ -44,6 +56,7 @@ impl Fixture {
         Some(match keymap.lookup(&keys.0)? {
             Binding::Command(id) => self.registry.get(id).unwrap().name,
             Binding::Prefix(_) => "prefix",
+            Binding::Menu(_) => "menu",
             Binding::Undefined => "undefined",
         })
     }
@@ -251,7 +264,7 @@ fn quoted_text_is_cut_and_escaped() {
         self::messages(&loaded),
         [
             r#"2:11: "C-c a": no command is named "x\" is fine; C-c a now runs \"undo""#,
-            r#"3:11: "C-c \\": a key takes a command's name or false, not a number"#,
+            r#"3:11: "C-c \\": a key takes a command's name, { menu = "name" } or false, not a number"#,
         ]
     );
 }

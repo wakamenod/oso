@@ -12,6 +12,7 @@ use oso_core::key::KeyPress;
 use oso_core::keymap::{
     BindError, KeyResolver, Keymap, Layers, Resolution, display_keys, is_cancel,
 };
+use oso_core::menu::{MenuId, Menus};
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
@@ -27,6 +28,14 @@ pub const MAX_ENTRIES: usize = 10_000;
 /// keymaps from nesting deeper than a few levels.
 pub const MAX_KEYS: usize = 16;
 
+/// What an entry binds its keys to.
+#[derive(Clone, Copy)]
+enum Target {
+    Command(CommandId),
+    /// `{ menu = "<name>" }` (ADR 0117).
+    Menu(MenuId),
+}
+
 /// One entry of `[keys.global]` whose keys parse and may be configured.
 pub(super) struct Entry<'t> {
     /// The keys as the file spells them.
@@ -41,6 +50,7 @@ pub(super) struct Entry<'t> {
 pub(super) fn keys(
     value: &Spanned<DeValue<'_>>,
     registry: &Registry,
+    menus: &Menus,
     defaults: &Keymap,
     found: &mut Found,
 ) -> Keymap {
@@ -51,7 +61,7 @@ pub(super) fn keys(
     for (name, value) in keymaps {
         let at = name.span().start;
         match name.get_ref().as_ref() {
-            "global" => keymap = global(value, at, registry, defaults, found),
+            "global" => keymap = global(value, at, registry, menus, defaults, found),
             "question" => found.at(
                 at,
                 format_args!(
@@ -77,6 +87,7 @@ fn global(
     value: &Spanned<DeValue<'_>>,
     at: usize,
     registry: &Registry,
+    menus: &Menus,
     defaults: &Keymap,
     found: &mut Found,
 ) -> Keymap {
@@ -94,7 +105,7 @@ fn global(
         );
         return keymap;
     }
-    let (mut unbinds, mut binds) = read(entries, registry, found);
+    let (mut unbinds, mut binds) = read(entries, registry, menus, found);
     // Shorter sequences first, so that of two entries that conflict the longer one is skipped,
     // whatever the file's order.
     unbinds.sort_unstable_by(|a, b| (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled)));
@@ -115,8 +126,8 @@ fn global(
         let _ = keymap.unbind(&entry.keys);
         shadows.warn(entry, false, found);
     }
-    for (entry, command) in &binds {
-        if shadows.allows(entry, found) && bind(&mut keymap, entry, *command, found) {
+    for (entry, target) in &binds {
+        if shadows.allows(entry, found) && bind(&mut keymap, entry, *target, found) {
             shadows.warn(entry, true, found);
         }
     }
@@ -130,8 +141,9 @@ fn global(
 fn read<'t>(
     entries: &'t DeTable<'_>,
     registry: &Registry,
+    menus: &Menus,
     found: &mut Found,
-) -> (Vec<Entry<'t>>, Vec<(Entry<'t>, CommandId)>) {
+) -> (Vec<Entry<'t>>, Vec<(Entry<'t>, Target)>) {
     let (mut unbinds, mut binds) = (Vec::with_capacity(entries.len()), Vec::new());
     for (spelled, value) in entries {
         let Some(entry) = entry(spelled, found) else {
@@ -157,13 +169,18 @@ fn read<'t>(
         match value.get_ref() {
             DeValue::Boolean(false) => unbinds.push(entry),
             DeValue::String(name) => match registry.lookup(name) {
-                Some(command) => binds.push((entry, command)),
+                Some(command) => binds.push((entry, Target::Command(command))),
                 None => found.about(
                     at,
                     spelled,
                     format_args!("no command is named {}", quoted(name)),
                 ),
             },
+            DeValue::Table(table) => {
+                if let Some(menu) = menu(table, menus, at, spelled, found) {
+                    binds.push((entry, Target::Menu(menu)));
+                }
+            }
             DeValue::Boolean(true) => found.about(
                 at,
                 spelled,
@@ -173,7 +190,7 @@ fn read<'t>(
                 at,
                 spelled,
                 format_args!(
-                    "a key takes a command's name or false, not {}",
+                    "a key takes a command's name, {{ menu = \"name\" }} or false, not {}",
                     type_name(other)
                 ),
             ),
@@ -228,10 +245,51 @@ fn entry<'t>(
     Some(Entry { spelled, at, keys })
 }
 
-/// Binds `entry` to `command`, unless it conflicts with the file's other entries. Whether it
+/// The menu a key's table `{ menu = "<name>" }` names, if it is one in force.
+fn menu(
+    table: &DeTable<'_>,
+    menus: &Menus,
+    at: usize,
+    spelled: &str,
+    found: &mut Found,
+) -> Option<MenuId> {
+    let mut entries = table.iter();
+    let name = match (entries.next(), entries.next()) {
+        (Some((kind, value)), None) if kind.get_ref() == "menu" => match value.get_ref() {
+            DeValue::String(name) => name,
+            _ => {
+                found.about(at, spelled, format_args!("a menu is named with a string"));
+                return None;
+            }
+        },
+        _ => {
+            found.about(
+                at,
+                spelled,
+                format_args!("a key's table is {{ menu = \"name\" }}, which opens that menu"),
+            );
+            return None;
+        }
+    };
+    let menu = menus.lookup(name);
+    if menu.is_none() {
+        found.about(
+            at,
+            spelled,
+            format_args!("no menu is named {}", quoted(name)),
+        );
+    }
+    menu
+}
+
+/// Binds `entry` to `target`, unless it conflicts with the file's other entries. Whether it
 /// bound.
-fn bind(keymap: &mut Keymap, entry: &Entry<'_>, command: CommandId, found: &mut Found) -> bool {
-    let Err(error) = keymap.bind(&entry.keys, command) else {
+fn bind(keymap: &mut Keymap, entry: &Entry<'_>, target: Target, found: &mut Found) -> bool {
+    let bound = match target {
+        Target::Command(command) => keymap.bind(&entry.keys, command),
+        Target::Menu(menu) => keymap.bind_menu(&entry.keys, menu),
+    };
+    let Err(error) = bound else {
         return true;
     };
     let (at, spelled) = (entry.at, entry.spelled);
@@ -250,7 +308,7 @@ fn bind(keymap: &mut Keymap, entry: &Entry<'_>, command: CommandId, found: &mut 
             at,
             spelled,
             format_args!(
-                "{} is bound to a command here, so it cannot be a prefix; skipped",
+                "{} is bound to a command or a menu here, so it cannot be a prefix; skipped",
                 quoted(display_keys(&entry.keys[..len]))
             ),
         ),
@@ -290,7 +348,10 @@ fn warn_if_shift_finds_more(
         Resolution::Shifted(_) => true,
         // A prefix found without Shift stays among the pending keys unshifted.
         Resolution::Pending => resolver.pending().last() == Some(&unshifted),
-        Resolution::Command(_) | Resolution::Unbound(_) | Resolution::Cancelled => false,
+        Resolution::Command(_)
+        | Resolution::Menu(_)
+        | Resolution::Unbound(_)
+        | Resolution::Cancelled => false,
     };
     if finds {
         let mut keys = before.to_vec();

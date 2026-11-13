@@ -15,6 +15,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: scroll_up_command,
+        state: None,
     },
     Command {
         name: "scroll-down-command",
@@ -22,6 +23,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: scroll_down_command,
+        state: None,
     },
     Command {
         name: "recenter-top-bottom",
@@ -29,6 +31,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: recenter_top_bottom,
+        state: None,
     },
 ];
 

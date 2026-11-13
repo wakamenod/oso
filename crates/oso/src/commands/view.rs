@@ -13,6 +13,7 @@ pub const COMMANDS: &[Command] = &[Command {
     // It changes how text is shown, never the text, a file or the clipboard (ADR 0100).
     reach: Reach::Look,
     run: toggle_truncate_lines,
+    state: None,
 }];
 
 /// Emacs's argument: none toggles, a positive one truncates, zero or a negative one wraps.

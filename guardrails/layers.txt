@@ -21,6 +21,8 @@ oso-core oso-platform
 
 [oso-core]
 keymap
+# `menu` holds the menus' definitions (ADR 0117): heads name commands, and keymaps name menus.
+menu
 command
 editor
 minibuffer jump

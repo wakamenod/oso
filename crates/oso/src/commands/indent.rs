@@ -25,6 +25,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: newline,
+        state: None,
     },
     Command {
         name: "indent-for-tab-command",
@@ -32,6 +33,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: indent_for_tab_command,
+        state: None,
     },
     Command {
         name: "electric-newline-and-maybe-indent",
@@ -39,6 +41,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: electric_newline_and_maybe_indent,
+        state: None,
     },
     Command {
         name: "newline-and-indent",
@@ -46,6 +49,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: newline_and_indent,
+        state: None,
     },
     Command {
         name: "electric-indent-mode",
@@ -53,6 +57,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: electric_indent_mode,
+        state: None,
     },
     Command {
         name: "indent-region",
@@ -60,6 +65,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: indent_region,
+        state: None,
     },
     Command {
         name: "indent-rigidly",
@@ -67,6 +73,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: indent_rigidly,
+        state: None,
     },
     Command {
         name: "indent-rigidly-left",
@@ -74,6 +81,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: indent_rigidly_left,
+        state: None,
     },
     Command {
         name: "indent-rigidly-right",
@@ -81,6 +89,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: indent_rigidly_right,
+        state: None,
     },
     Command {
         name: "indent-rigidly-left-to-tab-stop",
@@ -88,6 +97,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: indent_rigidly_left_to_tab_stop,
+        state: None,
     },
     Command {
         name: "indent-rigidly-right-to-tab-stop",
@@ -95,6 +105,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: indent_rigidly_right_to_tab_stop,
+        state: None,
     },
     Command {
         name: "back-to-indentation",
@@ -102,6 +113,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: back_to_indentation,
+        state: None,
     },
     Command {
         name: "delete-indentation",
@@ -109,6 +121,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: delete_indentation,
+        state: None,
     },
     Command {
         name: "markdown-insert-list-item",
@@ -116,6 +129,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: markdown_insert_list_item,
+        state: None,
     },
     Command {
         name: "describe-indentation",
@@ -123,6 +137,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: describe::describe_indentation,
+        state: None,
     },
 ];
 

@@ -22,6 +22,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Look,
         run: switch_to_buffer,
+        state: None,
     },
     Command {
         name: "kill-buffer",
@@ -33,6 +34,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: kill_buffer,
+        state: None,
     },
     Command {
         name: "kill-buffer-anyway",
@@ -40,6 +42,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: kill_buffer_anyway,
+        state: None,
     },
     Command {
         name: "previous-buffer",
@@ -47,6 +50,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: previous_buffer,
+        state: None,
     },
     Command {
         name: "next-buffer",
@@ -54,6 +58,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: next_buffer,
+        state: None,
     },
 ];
 

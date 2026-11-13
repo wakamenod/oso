@@ -15,6 +15,7 @@ macro_rules! answer {
             args: ArgSpec::None,
             reach: Reach::Person,
             run: |ctx, _| $run(ctx, $answer),
+            state: None,
         }
     };
 }
@@ -27,6 +28,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Replace { regexp: false },
         reach: Reach::Person,
         run: query_replace,
+        state: None,
     },
     Command {
         name: "query-replace-regexp",
@@ -34,6 +36,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Replace { regexp: true },
         reach: Reach::Person,
         run: query_replace_regexp,
+        state: None,
     },
     answer!(
         "replace-this",
