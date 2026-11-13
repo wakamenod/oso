@@ -190,7 +190,21 @@ fn apply(root: &DeTable<'_>, builtin: Builtin<'_>, found: &mut Found) -> (Keymap
             ),
         }
     }
+    unbind_removed_menus(&mut user, &menus, defaults);
     (user, menus, settings)
+}
+
+/// Unbinds, in the user's keymap `user`, each default key whose built-in menu `menus` no longer
+/// has, so that the key is undefined as any unbound key is, and `open-menu` and the key list do
+/// not show it (ADR 0117, step 1's Q7). A key the file binds or unbinds itself is the file's.
+fn unbind_removed_menus(user: &mut Keymap, menus: &Menus, defaults: &Keymap) {
+    defaults.menu_bindings(|keys, id| {
+        if menus.get(id).is_none() && user.lookup(keys).is_none() {
+            // Fails only under a key the file binds to a command or a menu, which the default
+            // key cannot reach then anyway.
+            let _ = user.unbind(keys);
+        }
+    });
 }
 
 /// Drops parsed tables a level at a time, so that deep nesting needs no deep stack.

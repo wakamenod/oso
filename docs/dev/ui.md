@@ -288,9 +288,9 @@ are rounded.
 ## Menus
 
 Hydra/transient-style menus float at the **center** of the tiled area, as they do
-with hydra-posframe today ([ADR 0117](adr/0117-menus.md)). Steps 1 and 2 are built:
-menus from `config.toml` and the open menu with its float. The built-in menus and the key list
-are planned.
+with hydra-posframe today ([ADR 0117](adr/0117-menus.md)). Steps 1 to 3 are built: menus
+from `config.toml`, the open menu with its float, and the built-in menus. The key list is
+planned.
 
 - A head closes the menu unless it says `stay`; switches (`[x]`/`[ ]`) stay and are read by the
   head that runs. A key the menu does not bind is refused with `x is not in this menu: q to quit`
@@ -307,9 +307,49 @@ are planned.
   `C-x TAB` and opens the menu; during a jump it ends the jump and does not run, as any key
   the jump does not bind. The input method is off while a menu is open, and the agent
   channel waits (`the person is in a menu`). `M-x open-menu` opens any menu by name.
-- `[menus.<name>]` in `config.toml` adds a menu, replaces one of the same name whole, or removes
-  it with `false`. Planned (step 3): built-in menus as defaults, `toggles` on `C-c t`, `review`
-  on `C-x v r`, and `windows`, `jumps` and `search` through `M-x open-menu`.
+- Built-in menus, each with heads only for commands oso has:
+  - `toggles` on `C-c t`: whitespace, whitespace cleanup, the cursor flash, truncation, line
+    numbers, the current line's band, highlighting, and the theme pair, whose note names the
+    theme drawn now. Each toggle shows `[x]` or `[ ]`, and every head closes the menu.
+  - `windows`: the arrows resize the window by 3 and stay, `=` balances and stays, `-` and `/`
+    split, `d` kills a buffer, `0` deletes the window and `O` the others, `b` switches buffer,
+    `,` and `.` go to the previous and next buffer and stay, `f` finds a project's file and `F`
+    a file.
+  - `jumps`: `t` the timed character jump, `l` and `h` a line, `e` a line's end, `n` a line by
+    number.
+  - `search`: `f` a project's file, `r` the project's lines.
+  The review menu on `C-x v r` comes with ADR 0122. `windows`, `jumps` and `search` have no
+  key: `M-x open-menu` opens them, or a key in `config.toml`.
+- `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
+  or removes it with `false`. A removed menu's default key is then undefined. For example:
+
+  ```toml
+  [menus]
+  search = false                    # removes the built-in search menu
+
+  [menus.toggles]                   # replaces the built-in toggles; C-c t opens this one
+  title = "Toggles"
+  [[menus.toggles.groups]]
+  title = "Aids"
+  heads = [
+    ["w", "global-whitespace-mode", "whitespace"],
+    ["n", "global-display-line-numbers-mode", "line numbers", { stay = true }],
+  ]
+
+  [menus.buffers]                   # adds a menu
+  title = "Buffers"
+  [[menus.buffers.groups]]
+  heads = [
+    ["b", "switch-to-buffer", "switch"],
+    [",", "previous-buffer", "previous", { stay = true }],
+    [".", "next-buffer", "next", { stay = true }],
+    ["w", { menu = "windows" }, "windows…"],
+  ]
+
+  [keys.global]
+  "C-c w" = { menu = "windows" }
+  "C-c b" = { menu = "buffers" }
+  ```
 - Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
   the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
 

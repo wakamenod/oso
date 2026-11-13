@@ -626,6 +626,8 @@ mod macro_tests;
 #[cfg(test)]
 mod mark_tests;
 #[cfg(test)]
+mod menu_builtin_tests;
+#[cfg(test)]
 mod menu_close_tests;
 #[cfg(test)]
 mod menu_tests;

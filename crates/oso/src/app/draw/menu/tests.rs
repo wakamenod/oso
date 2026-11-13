@@ -279,3 +279,39 @@ fn a_label_of_controls_and_invisible_characters_stays_in_its_columns_pane() {
     assert_eq!(holding.len(), 1, "{content:?}");
     assert_eq!(holding[0].3[0][0].0, "One");
 }
+
+#[test]
+fn the_toggles_float_shows_each_toggles_state_and_the_theme() {
+    let mut d = Dispatcher::new();
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", "abc"));
+    editor.set_frame_size(FrameSize {
+        rows: 30,
+        columns: 100,
+    });
+    editor.set_themes(vec![("dark", "dark"), ("light", "light")], 1);
+    d.handle_keys(&mut editor, "C-c t".parse::<KeySequence>().unwrap().0);
+    let (floats, ..) = drawn(&d, &editor);
+    // Each column's rows as text.
+    let rows: Vec<String> = floats
+        .iter()
+        .filter(|(_, layer, ..)| *layer == Layer::FLOAT_CONTENT)
+        .flat_map(|(.., rows)| rows.iter())
+        .map(|row| row.iter().map(|(text, _)| text.as_str()).collect())
+        .collect();
+    let row = |label: &str| {
+        rows.iter()
+            .find(|row| row.contains(label))
+            .unwrap_or_else(|| panic!("no {label} in {rows:?}"))
+    };
+    assert!(rows.iter().any(|row| row.contains("Toggles")));
+    for (label, check) in [
+        ("whitespace", "[x]"),
+        ("line numbers", "[ ]"),
+        ("truncate lines", "[x]"),
+        ("syntax", "[x]"),
+    ] {
+        assert!(row(label).contains(check), "{label}: {:?}", row(label));
+    }
+    assert!(!row("whitespace cleanup").contains('['));
+    assert!(row("dark/light").contains("light"));
+}

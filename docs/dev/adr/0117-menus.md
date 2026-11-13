@@ -825,6 +825,31 @@ asked through the coordinator). After review, the author added `Column::group` a
   is public, so the dispatcher and a definition's checks share one rule.
 - The menu's panes take ids from `1 << 21`, as the preview's do from `1 << 20`.
 
+### Step 3: the built-in menus (2026-11-13)
+
+The author approved the plan and chose the recommended answer to each of its eight questions,
+through the coordinator.
+
+- **Heads only for commands oso has**, with the author's keys where the command matches. The
+  author's heads with no command yet stay out, and their keys stay free for them. Where the
+  author's menus have no head, the new ones take `S` (highlighting) and `T` (the theme pair) in
+  `toggles`, and `=` (balance), `0` (delete the window) and `F` (find a file) in `windows`.
+- **`toggles`** heads all close the menu, as the author's do. Six commands gained
+  `Command::state`: the four visual aids, `toggle-truncate-lines` (on while the selected window's
+  buffer truncates) and `global-font-lock-mode`. `toggle-theme` is not on or off: the menu's
+  describe function gives its head a note naming the theme drawn now, padded to the longest
+  built-in theme's name, so switching never lays the menu out again.
+- **`windows`:** `d` runs `kill-buffer`, whose prompt offers the current buffer first; the
+  arrows resize by a fixed count of 3 and stay. No head selects another window, as the author's
+  menu has none. **`jumps`** keeps both `l` and `h` on `avy-goto-line`, as the author's does.
+- **Only `C-c t` has a default key.** A head whose command a registry lacks is left out, so the
+  built-in menus and their ids are the same over any registry.
+- **A removed built-in menu's default key is unbound in the user's layer** as the file is read,
+  unless the file binds or unbinds that key itself, so it is undefined as any unbound key is, and
+  `open-menu`'s key column and the key list do not show it. A replaced menu keeps its id, so its
+  default key opens the file's menu.
+- The sample `[menus]` is in [`ui.md`](../ui.md)'s Menus section.
+
 ## The author's choices
 
 The author answered every question on 2026-11-13, through the coordinator: (a) for each, but

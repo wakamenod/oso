@@ -32,6 +32,7 @@ mod view;
 mod windows;
 
 use oso_core::command::Registry;
+use oso_core::key::KeySequence;
 use oso_core::keymap::Keymap;
 
 /// Every feature's bindings. A new feature adds a module and one line here, in
@@ -82,6 +83,17 @@ pub fn global_keymap(registry: &Registry) -> Keymap {
         panic!("no command named {}", edit::TEXT_COMMAND);
     };
     keymap.set_text_command(typing);
+    // The built-in menus' keys, by the ids `menus` gives them, which every set built from them
+    // keeps (ADR 0117).
+    let built_in = menus(registry);
+    for (keys, name) in menus::MENU_KEYS {
+        let (Ok(sequence), Some(id)) = (keys.parse::<KeySequence>(), built_in.lookup(name)) else {
+            panic!("no built-in menu {name} for {keys}");
+        };
+        keymap
+            .bind_menu(&sequence.0, id)
+            .unwrap_or_else(|e| panic!("{keys}: {e}"));
+    }
     keymap
 }
 
