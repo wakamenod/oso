@@ -1018,7 +1018,7 @@ each of its sixteen questions.
   its cells of more than one code point in one `text` string, and `graphemes` gives each such
   cell's column and byte range in it, so a snapshot allocates nothing per cluster and a
   recycled row keeps its buffer (an approved change of the planned `Vec<(u16, String)>`).
-- **The `unsafe` (Q9):** 23 foreign functions, and 54 blocks of one operation each (four only
+- **The `unsafe` (Q9):** 23 foreign functions, and 59 blocks of one operation each (five only
   in tests), each with its `// SAFETY:` comment: one per foreign call in `raw`, and in each
   callback one for its sink and one per pointer it reads. Every callback catches panics.
   Packed cells are decoded with bit positions a test checks against the library's manifest,
