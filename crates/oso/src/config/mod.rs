@@ -9,6 +9,8 @@
 //! when it changes, and parses it. `outcome` and `in_force` say what that comes to. `trust` reads
 //! and writes the record of trusted projects beside it, as `watch` reads the file (ADR 0114).
 //! `agent_rules` reads the local agent rules file beside it on the same thread (ADR 0121).
+//! `checked` reads each of them, and a file the configuration names (migemo's dictionary,
+//! ADR 0116), with ADR 0108's checks.
 //!
 //! - A syntax error rejects the whole file: no keys and no settings, and every syntax error is
 //!   a problem.
@@ -16,6 +18,7 @@
 //!   Unknown tables and names are skipped too, so a file written for a newer oso still loads.
 
 mod agent_rules;
+mod checked;
 mod defaults;
 mod in_force;
 mod indentation;
@@ -37,9 +40,10 @@ use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
 pub use agent_rules::RulesReport;
+pub use checked::read_checked;
 pub use in_force::{InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
-pub use outcome::outcome;
+pub use outcome::{group_writes_note, outcome};
 pub use problems::Problem;
 pub use settings::Settings;
 #[cfg(test)]
@@ -261,5 +265,7 @@ mod jump_tests;
 mod keys_tests;
 #[cfg(test)]
 mod menus_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod tests;

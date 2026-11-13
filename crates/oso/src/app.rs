@@ -33,6 +33,7 @@ mod input;
 mod jumps;
 mod loads;
 mod log_gate;
+mod migemo;
 mod projects;
 mod reloads;
 mod saves;
@@ -123,6 +124,8 @@ pub enum UserEvent {
     AgentStarted(std::io::Result<crate::channel::Channel>),
     /// The sessions worker found something (ADR 0121).
     Sessions(crate::sessions::worker::Out),
+    /// The thread that reads migemo's dictionary read it, or could not (ADR 0116).
+    Migemo(Box<migemo::DictionaryRead>),
 }
 
 /// Top-level application state.
@@ -180,6 +183,8 @@ pub struct App {
     clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
+    /// The thread that reads migemo's dictionary, and what became of it (ADR 0116).
+    migemo_reader: migemo::MigemoReader,
     /// Soft wrap's worker (ADR 0100).
     wrapper: wraps::Wrapper,
     /// Syntax highlighting's worker (ADR 0111).
@@ -297,7 +302,6 @@ impl App {
     ) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
-        let leaving = Leaving::with_cell(emergency.agreement_cell());
         let offer = emergency.offer();
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
@@ -331,7 +335,7 @@ impl App {
             disk,
             configuration,
             freer: Freer::start(),
-            leaving,
+            leaving: Leaving::with_cell(emergency.agreement_cell()),
             emergency,
             offer,
             answering: None,
@@ -347,6 +351,7 @@ impl App {
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
+            migemo_reader: migemo::MigemoReader::default(),
             wrapper: wraps::Wrapper::default(),
             syntax: syntax::Syntax::default(),
             completer: completions::Completer::default(),
