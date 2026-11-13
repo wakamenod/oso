@@ -61,6 +61,7 @@ impl App {
                     .message("Sessions are not available: see the log"),
             }
         }
+        self.drop_unanswered_fork_offer();
     }
 
     /// The configuration's thread read the agent rules file: what it says goes to

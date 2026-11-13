@@ -5,7 +5,6 @@
 //! Must not depend on: key presses or how a frame is drawn, beyond a window's size.
 
 use oso_core::buffer::BufferId;
-use oso_platform::process::pty::Size;
 use oso_term::End;
 
 use super::now_ms;
@@ -44,21 +43,9 @@ impl App {
                 id
             }
         };
-        self.editor.show(buffer);
-        let window = self.editor.window().id();
-        self.terminals.map.selected(buffer, window);
         // Running from now on, as a terminal is while its shell is found: an exit asks first.
-        self.editor.set_running(buffer, true);
+        let size = self.prepare_terminal(buffer);
         self.editor.set_mode_note(buffer, String::new());
-        let size = self.window_size(window).unwrap_or(Size {
-            rows: 24,
-            columns: 80,
-            width: 0,
-            height: 0,
-        });
-        if let Some(hosted) = self.terminals.map.get_mut(buffer) {
-            hosted.sized = Some(size);
-        }
         self.hosting.starting.insert(key, buffer);
         let ready = self.waker.clone();
         TerminalOrder {
@@ -85,29 +72,18 @@ impl App {
             directory,
             ..
         } = ready;
-        // A theme switched while it started is the one it answers colour queries from.
-        terminal.set_palette(self.terminal_palette());
-        let Some(hosted) = self.terminals.map.get_mut(buffer) else {
-            return false;
-        };
         let child = terminal.pid();
-        hosted.terminal = Some(terminal);
-        hosted.note_stale = true;
-        let waiting = std::mem::take(&mut hosted.waiting);
-        for send in waiting {
-            self.terminal_send(buffer, send);
+        if !self.install_terminal(buffer, terminal, &passed_over) {
+            return false;
         }
-        self.editor.set_running(buffer, true);
-        for passed in &passed_over {
-            self.editor
-                .note(format!("Terminal shell passed over: {passed}"));
+        if let Some(hosted) = self.terminals.map.get_mut(buffer) {
+            hosted.note_stale = true;
         }
         let Some(session) = self.hosting.table.get_mut(key) else {
             return false;
         };
         session.buffer = Some(buffer);
         session.run = Run::Running { child };
-        session.ended_by_oso = false;
         session.archived = false;
         let name = session.name.clone();
         // The path only: the environment's values are never shown (ADR 0120).
@@ -214,7 +190,6 @@ impl App {
         for (key, ran) in gone {
             if let Some(session) = self.hosting.table.get_mut(key) {
                 session.buffer = None;
-                session.ended_by_oso = true;
                 session.archived = true;
                 session.bridge = None;
                 session.run = Run::Stopped;

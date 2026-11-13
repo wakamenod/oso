@@ -24,7 +24,7 @@ pub enum Run {
     Starting,
     /// Running as this process, while it is not reaped.
     Running { child: Option<u32> },
-    /// Not running: remembered from an earlier oso, or ended with status 0 or by oso.
+    /// Not running: remembered from an earlier oso, ended with status 0, or archived.
     Stopped,
     /// Ended otherwise.
     Failed,
@@ -44,8 +44,6 @@ pub struct Hosted {
     /// Its terminal buffer, once it has one.
     pub buffer: Option<BufferId>,
     pub run: Run,
-    /// oso stopped it (`C-x k`, `C-x C-c`, a hang-up), so an end by a signal is no failure.
-    pub ended_by_oso: bool,
     /// Its baseline's tree id (ADR 0122), once taken.
     pub baseline: Option<String>,
     pub pinned: bool,
@@ -131,7 +129,6 @@ impl Table {
             parent: new.parent,
             buffer: None,
             run: Run::Starting,
-            ended_by_oso: false,
             baseline: None,
             pinned: false,
             archived: false,
@@ -165,7 +162,6 @@ impl Table {
                 parent: session.parent,
                 buffer: None,
                 run: Run::Stopped,
-                ended_by_oso: false,
                 baseline: session.baseline,
                 pinned: session.pinned,
                 archived: session.archived,
@@ -297,7 +293,7 @@ impl Table {
     /// The session `key`'s `claude` ended with `status`, or a signal: stopped or failed.
     pub fn ended(&mut self, key: SessionKey, status: Option<i32>, changed: u64) -> Option<Exit> {
         let session = self.get_mut(key)?;
-        let exit = exit_of(status, session.ended_by_oso);
+        let exit = exit_of(status);
         session.run = match exit {
             Exit::Stopped => Run::Stopped,
             Exit::Failed => Run::Failed,
@@ -318,12 +314,13 @@ impl Table {
     }
 }
 
-/// How an end reads: status 0, or a signal when oso stopped it, is stopped; else failed.
-pub fn exit_of(status: Option<i32>, ended_by_oso: bool) -> Exit {
-    match status {
-        Some(0) => Exit::Stopped,
-        None if ended_by_oso => Exit::Stopped,
-        _ => Exit::Failed,
+/// How an end reads: status 0 is stopped; another status or a signal is failed. A session oso
+/// ends itself, with `C-x k`, is archived with its buffer and never reported as ended.
+pub fn exit_of(status: Option<i32>) -> Exit {
+    if status == Some(0) {
+        Exit::Stopped
+    } else {
+        Exit::Failed
     }
 }
 
@@ -424,10 +421,8 @@ mod tests {
 
     #[test]
     fn an_end_is_stopped_or_failed() {
-        assert_eq!(exit_of(Some(0), false), Exit::Stopped);
-        assert_eq!(exit_of(Some(3), false), Exit::Failed);
-        assert_eq!(exit_of(Some(3), true), Exit::Failed);
-        assert_eq!(exit_of(None, true), Exit::Stopped);
-        assert_eq!(exit_of(None, false), Exit::Failed);
+        assert_eq!(exit_of(Some(0)), Exit::Stopped);
+        assert_eq!(exit_of(Some(3)), Exit::Failed);
+        assert_eq!(exit_of(None), Exit::Failed);
     }
 }

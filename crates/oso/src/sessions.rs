@@ -18,7 +18,7 @@
 //! - `record`: the sessions oso remembers, in its state directory.
 //! - `hosted`: the table of the sessions oso hosts.
 //! - `bridge`: whether a connection is a hosted session's bridge.
-//! - `start`: getting a session ready on a thread of its own.
+//! - `start`: getting a session ready and starting its terminal, on a thread of its own.
 
 pub mod bridge;
 pub mod command;
