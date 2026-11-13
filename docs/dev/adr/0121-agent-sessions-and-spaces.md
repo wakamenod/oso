@@ -1168,11 +1168,12 @@ questions through the coordinator, (a) for each, and the coordinator approved th
     remove` itself still refuses a worktree with changes by then. The coordinator approved this
     order on 2026-11-13: it keeps "stop, then remove" without the UI thread waiting.
   - The end-to-end flows, with a fake `claude` (`tests/e2e/worktrees.rs`).
-- **Left open:**
-  - Closing a space, which the removal's clearing would call, entering the repository's space
-    first if the worktree's is the one in the frame. Step 3's spaces are never closed: they are
-    kept by their place in the list, which the frame's space and `space-switch` refer to. A
-    removed worktree's space stays listed until oso restarts.
+- **The removal closes the worktree's space** (the coordinator's call, 2026-11-13: ADR 0121
+  says so, and step 4 carries it). `Spaces::remove`, crate-private in step 3's module, enters
+  the repository's space first when the worktree's is in the frame, else the first other one,
+  and moves the later spaces down one place with the current one. With a prompt open the
+  frame's tree cannot change, so that space then stays until oso starts again.
+- **Left open (a follow-up, not before the PR):**
   - A worktree session recalled after a restart gets a space of its own, not nested under its
     repository's: nesting needs ADR 0114's claim, which only making the worktree checks now.
 

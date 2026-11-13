@@ -1,13 +1,13 @@
 //! `worktree-remove` (ADR 0121): the worktree to remove, its checks on a job, the question
 //! that names what git ignores there, and the removal, never with `--force`, which keeps the
 //! branch. The person's `y` runs every check again, in the job that removes it; once they hold,
-//! the worktree's idle sessions are stopped before git removes it.
+//! the worktree's idle sessions are stopped and its space closed before git removes it.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
 use std::path::{Path, PathBuf};
 
-use oso_core::project::ProjectId;
+use oso_core::project::{ProjectId, same_place};
 
 use super::super::super::App;
 use super::{QUESTION_NAMES, Removing, hosted_state};
@@ -163,11 +163,32 @@ impl App {
                 .message(format!("Worktree {shown} kept: {}", check.why()));
         }
         self.stop_idle_sessions_in(path);
-        // ADR 0121 step 3 part B: close the worktree's space here, entering its repository's
-        // first if it is the one in the frame. Step 3's `Spaces` never closes a space: it has
-        // no way to, and keeps each by its place in the list (`current`, `enter`), so the
-        // removed worktree's space stays listed until oso restarts.
+        self.close_worktree_space(path);
         go.proceed();
+    }
+
+    /// Closes the space of the worktree at `path`, entering its repository's first if it is
+    /// the one in the frame (ADR 0121). With a prompt open, the frame's tree cannot change, so
+    /// the space stays until oso starts again, and the removal goes on.
+    fn close_worktree_space(&mut self, path: &Path) {
+        let spaces = self.watch.spaces();
+        let at = spaces.find(path).or_else(|| {
+            spaces
+                .of_path(path)
+                .filter(|&at| spaces.get(at).is_some_and(|s| same_place(&s.root, path)))
+        });
+        let Some(at) = at else {
+            return;
+        };
+        if self
+            .watch
+            .spaces_mut()
+            .remove(&mut self.editor, at)
+            .is_err()
+        {
+            log::debug!("a removed worktree's space stays while a prompt is open");
+        }
+        self.request_redraw();
     }
 
     /// Stops the idle hosted sessions in the worktree at `path`, which check 4 let through, as
