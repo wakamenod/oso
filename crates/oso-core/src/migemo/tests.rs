@@ -213,3 +213,44 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_kana_and_a_combining_sound_mark_compose_as_unicode_has_it() {
+    let (voiced, semi) = ('\u{3099}', '\u{309A}');
+    for (base, mark, one) in [
+        ('か', voiced, 'が'),
+        ('う', voiced, 'ゔ'),
+        ('ゝ', voiced, 'ゞ'),
+        ('は', semi, 'ぱ'),
+        ('ホ', semi, 'ポ'),
+        ('ワ', voiced, 'ヷ'),
+        ('ヽ', voiced, 'ヾ'),
+    ] {
+        assert_eq!(super::composed(base, mark), Some(one), "{base}");
+    }
+    for (base, mark) in [
+        ('あ', voiced),
+        ('か', semi),
+        ('ん', voiced),
+        ('a', voiced),
+        ('が', voiced),
+    ] {
+        assert_eq!(super::composed(base, mark), None, "{base}");
+    }
+    assert_eq!(super::composed('か', 'x'), None);
+    // Every voiced kana composes from the one before it, and every semi-voiced from the one
+    // two before, but for the few Unicode gives apart.
+    let pairs = ('\u{3041}'..='\u{30FF}')
+        .flat_map(|base| [voiced, semi].map(|mark| (base, mark)))
+        .filter_map(|(base, mark)| super::composed(base, mark).map(|one| (base, mark, one)));
+    let mut count = 0;
+    for (base, mark, one) in pairs {
+        count += 1;
+        let step = if mark == voiced { 1 } else { 2 };
+        let apart = ['う', 'ゝ', 'ウ', 'ワ', 'ヰ', 'ヱ', 'ヲ', 'ヽ'];
+        if !apart.contains(&base) {
+            assert_eq!(u32::from(one), u32::from(base) + step, "{base}");
+        }
+    }
+    assert_eq!(count, 58);
+}

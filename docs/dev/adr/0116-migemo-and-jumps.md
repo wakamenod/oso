@@ -718,6 +718,67 @@ coordinator; the notes below are those choices as built.
   budgets of bytes and candidates and no time of its own. `DEL` takes its needle from the
   cache. The 32 needles of the most words take about 14 MB more than one.
 
+#### As built (step 4, 2026-11-13)
+
+The author chose the first option of each of six questions on 2026-11-13, through the
+coordinator; the notes below are those choices as built.
+
+- **The API.** No public signature changes. `LineQuery::parse` reads a romaji component as
+  migemo's, with no dictionary: its kana. The editor parses with `LineQuery::parse_after`
+  (private to the crate), which takes the query before, the setting and the dictionary. Both
+  sit below `search`, so `oso_core::migemo::compile` builds the pattern with words within
+  4 MiB, or the kana alone within 256 KiB. Each caller compiles with its own builder, of bytes
+  for a project's lines and of text for completion; isearch's needle uses the same function.
+  The romaji, the forms and the pattern stay private to the crate.
+- **A project's search (Q2, Q6).** After `!` or `=`: `=` gives a literal. Romaji by isearch's
+  rule (lowercase ASCII letters, `'` and `-`, at most 256 characters) gives migemo's pattern,
+  which holds the literal too. A component with a character an expression reads is a literal
+  and that expression, as before. Romaji has no such character. A component whose letters
+  spell no kana (`struct`) is a literal. `!kan` leaves out the lines holding `かん` and
+  `カン` too. Rows match line text, never paths. Every `oso-grep` thread shares the compiled
+  query.
+- **The setting (Q1).** With `[search] migemo = false`, a project's search reads romaji as a
+  literal, as isearch does. Completion's `%` is asked for explicitly, so it applies either way.
+- **Kept components.** A project's search now keeps what a component compiled while the input
+  before had it with the same affix, text and case, as completion does (ADR 0076). A migemo
+  component is kept only for the dictionary it was compiled with, which it holds. So a key
+  compiles only the component it changed, and a paste compiles each new component once (Q3).
+  A case change anywhere in the input compiles every component again. A migemo component
+  narrows a search only when it is the same, with the same dictionary: a longer string's
+  words need not be the shorter one's.
+- **Completion's `%` (Q4).** `%` at a component's start or end, as every affix, makes romaji
+  migemo's: `%kan` matches `かんじ.md`, `カンジ`, `ｶﾝｼﾞ` and `kanji`, and `漢字.md` with a
+  dictionary. After `%`, anything that is not romaji, or whose letters spell no kana, is a
+  literal, as after `=`: `%Kan`, `%a.b`. As at an end, `100%` is the literal `100`. Without
+  `%`, a component matches as before. A migemo component highlights where it matched. It
+  narrows only when it is the same, with the same dictionary.
+- **Decomposed kana (Q5).** A candidate whose text holds U+3099 or U+309A, as macOS names
+  files, keeps a second copy with each kana and its mark composed (`か` and U+3099 are `が`).
+  The copy is built when the candidate is made, by a table of oso's own of the 58 pairs
+  Unicode composes, and a migemo component matches it. Where it matched maps back to the
+  original, so the mark is highlighted with its kana. A mark that composes with nothing stays
+  as it is. A candidate with no mark keeps no copy. A project's lines and isearch still match
+  precomposed kana only, and the half-width marks are as they were. Both stay in
+  `open-questions.md`.
+- **The dictionary.** A project's search or a completion that compiled a migemo component
+  with no dictionary says so, as isearch does. Around a buffer that may hold secrets, or a
+  prompt opened around one, it does not. When the table comes or goes, a project's search
+  with a migemo component starts again (a new generation, never narrowing), and a completion
+  with one matches its input again: on the UI thread, or as a job for the worker past 5000
+  candidates. The worker's jobs (`Build`, `Matching`, `Merge`) carry the table. A job that ran
+  with the table before it is superseded by the new match.
+- **Secrets.** No string or pattern reaches a log. `Debug` gives counts only, and `get-state`
+  is as it was.
+- **A key's cost (Q3),** with the author's dictionary in a release build, load about 2–3 (the
+  ignored `editor/migemo_elsewhere_costs.rs`): every prefix of step 3's 174 common words,
+  typed three times. A project's search key takes 0.14 ms p50, 2.1 ms p99 and 4.2 ms at most, and a key
+  over 5000 candidates with `%` 0.28 ms, 2.3 ms and 2.5 ms. A paste of 3, 8 or 32 of the words
+  takes about 2.0, 3.4 and 8.0 ms at p99 in either. The key after a paste takes 0.11 ms p99 in
+  a project's search and 0.33 ms over 5000 candidates. In a first probe over 109 of those prefixes, one
+  component compiled in 0.15 to 0.18 ms p50, 1.5 to 1.7 ms p99 and at most about 3.4 ms. A migemo component's search through
+  20 MB of mixed code and Japanese on an `oso-grep` thread takes 1.3 to 11 ms, against 1 to
+  2 ms for a literal.
+
 #### As built (step 5, 2026-11-12)
 
 The author answered seven questions on 2026-11-12, through the coordinator. Two depart from the

@@ -17,8 +17,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::Range;
 use std::sync::Arc;
+
+use crate::migemo;
+use folded::Folded;
 
 pub(crate) use job::{
     Build, Built, Matched, Matching, Merge, Report, WORKER_PAST, listed, matched_part,
@@ -30,6 +32,7 @@ pub use query::Query;
 
 use job::{match_over, order_of};
 
+mod folded;
 mod job;
 mod merge;
 pub(crate) mod path;
@@ -40,8 +43,8 @@ pub const ROWS: usize = 18;
 
 /// The characters that pick a component's style, at its start or its end, as orderless's
 /// `orderless-affix-dispatch-alist`: `!` not, `,` initialism, `=` literal, `^` literal
-/// prefix, `~` flex, `&` the annotation.
-pub(crate) const AFFIXES: [char; 6] = ['!', ',', '=', '^', '~', '&'];
+/// prefix, `~` flex, `&` the annotation, and `%` migemo's pattern (ADR 0116).
+pub(crate) const AFFIXES: [char; 7] = ['!', ',', '=', '^', '~', '&', '%'];
 
 /// One thing a prompt may complete to.
 pub struct Candidate {
@@ -50,6 +53,9 @@ pub struct Candidate {
     annotation: Box<str>,
     folded: Folded,
     folded_annotation: Folded,
+    /// Its text with each kana and combining sound mark composed, for a migemo component,
+    /// only where it holds such a mark, as names of files on macOS may (ADR 0116).
+    composed: Option<Box<Folded>>,
     /// It shows only while nothing is typed, as a secret kill does (ADR 0091).
     hidden_by_input: bool,
 }
@@ -66,6 +72,7 @@ impl Candidate {
         Self {
             folded: Folded::of(&text),
             folded_annotation: Folded::of(&annotation),
+            composed: Folded::composed(&text).map(Box::new),
             text,
             binding: binding.into(),
             annotation,
@@ -87,6 +94,7 @@ impl Candidate {
             annotation: annotation.into(),
             folded: unfolded(),
             folded_annotation: unfolded(),
+            composed: None,
             hidden_by_input: false,
         }
     }
@@ -109,6 +117,7 @@ impl Candidate {
             annotation: self.annotation.clone(),
             folded: self.folded.clone(),
             folded_annotation: self.folded_annotation.clone(),
+            composed: self.composed.clone(),
             hidden_by_input: self.hidden_by_input,
         }
     }
@@ -144,72 +153,9 @@ impl fmt::Debug for Candidate {
     }
 }
 
-/// A string in lower case, for matching that ignores case, and where its bytes came from.
-#[derive(Clone)]
-struct Folded {
-    /// The folded string, or `None` where folding changes nothing.
-    text: Option<Box<str>>,
-    /// For each byte of `text` and its end, the offset in the original of the character it
-    /// came from: `None` where every character folds to one of the same length, so that
-    /// offsets agree.
-    from: Option<Box<[u32]>>,
-}
-
-impl Folded {
-    fn of(text: &str) -> Self {
-        if !text.chars().any(changes_when_folded) {
-            return Self {
-                text: None,
-                from: None,
-            };
-        }
-        let mut folded = String::with_capacity(text.len());
-        let mut from = Vec::with_capacity(text.len() + 1);
-        let mut same = true;
-        for (offset, c) in text.char_indices() {
-            let start = folded.len();
-            folded.extend(c.to_lowercase());
-            same &= folded.len() - start == c.len_utf8();
-            from.resize(folded.len(), offset_u32(offset));
-        }
-        from.push(offset_u32(text.len()));
-        Self {
-            text: Some(folded.into()),
-            from: (!same).then(|| from.into()),
-        }
-    }
-
-    /// The range of the original that `range` of the folded string covers, widened to whole
-    /// characters.
-    fn original(&self, range: Range<usize>) -> Range<usize> {
-        let Some(from) = &self.from else {
-            return range;
-        };
-        // Read with `get`: matching runs after a command's panic boundary, so a range it was
-        // never given must give an empty range, not a panic.
-        let start = from.get(range.start).map_or(0, |&offset| offset as usize);
-        // The end is where the next original character starts, past the one `range` ends in.
-        let last = from
-            .get(range.end.saturating_sub(1).max(range.start))
-            .copied()
-            .unwrap_or(0);
-        let end = from
-            .get(range.end..)
-            .and_then(|rest| rest.iter().find(|&&offset| offset > last))
-            .map_or(start, |&offset| offset as usize);
-        start..end.max(start)
-    }
-}
-
 /// An offset as kept in [`Folded::from`]; a candidate is never 4 GiB long.
 fn offset_u32(offset: usize) -> u32 {
     u32::try_from(offset).unwrap_or(u32::MAX)
-}
-
-/// Whether ignoring case reads `c` as something else.
-fn changes_when_folded(c: char) -> bool {
-    let mut lower = c.to_lowercase();
-    lower.next() != Some(c) || lower.next().is_some()
 }
 
 /// The candidates of a prompt, the ones its input matches, and which of them is selected.
@@ -247,6 +193,8 @@ pub struct Candidates {
     given_order: bool,
     /// Only what is typed after the last `/` is matched, as a path's last segment (ADR 0087).
     last_segment: bool,
+    /// The dictionary a migemo component takes words from (ADR 0116).
+    dictionary: Option<Arc<migemo::Dictionary>>,
 }
 
 impl Candidates {
@@ -294,6 +242,7 @@ impl Candidates {
             previews: false,
             given_order: false,
             last_segment: false,
+            dictionary: None,
         }
     }
 
@@ -381,11 +330,13 @@ impl Candidates {
             return;
         }
         let before = (&self.matches[..], &self.query);
-        if let Some(matched) =
-            match_over(&self.items, &self.order, Some(before), Some(part), &|| {
-                false
-            })
-        {
+        if let Some(matched) = match_over(
+            &self.items,
+            &self.order,
+            Some(before),
+            (Some(part), self.dictionary.as_ref()),
+            &|| false,
+        ) {
             self.apply(matched, false);
         }
     }
@@ -401,6 +352,7 @@ impl Candidates {
             order: Arc::clone(&self.order),
             before: Some((Arc::clone(&self.matches), self.query.clone())),
             input: part.map(str::to_owned),
+            dictionary: self.dictionary.clone(),
         })
     }
 
@@ -422,6 +374,26 @@ impl Candidates {
         if let Some(place) = kept.and_then(|index| self.place_of(index)) {
             self.select(place);
         }
+    }
+
+    /// Takes `dictionary` for a migemo component's words from the next input matched on
+    /// (ADR 0116). Whether the input matched last must be matched anew, as the dictionary is
+    /// not the one it had and a component is migemo's: what it matched stays until then.
+    pub(crate) fn use_dictionary(&mut self, dictionary: Option<&Arc<migemo::Dictionary>>) -> bool {
+        let same = match (&self.dictionary, dictionary) {
+            (Some(had), Some(given)) => Arc::ptr_eq(had, given),
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            return false;
+        }
+        self.dictionary = dictionary.cloned();
+        let again = self.query.uses_migemo();
+        if again {
+            self.input = None;
+        }
+        again
     }
 
     /// Forgets that a candidate was moved to, as an input was typed after it.
@@ -584,5 +556,7 @@ impl fmt::Debug for Candidates {
     }
 }
 
+#[cfg(test)]
+mod migemo_tests;
 #[cfg(test)]
 mod tests;

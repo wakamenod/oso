@@ -208,7 +208,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   itself, and gives the words of the readings a string's kana start, at most 4096 a pattern;
   the editor reads no file, but says when a search wanted a dictionary, and the host's
   `oso-migemo` thread (`app/migemo.rs`) reads the one `[search] migemo-dictionary` names, checked
-  as `config.toml` is, and hands the table over, kept for the session. Each key searches 256 KiB, and a regexp's 3 ms counted from the key's start, a
+  as `config.toml` is, and hands the table over, kept for the session. A project's search and
+  completion's `%` compile their components' patterns with it themselves
+  (`migemo::compile`), each keeping a component the input before had. Each key searches 256 KiB, and a regexp's 3 ms counted from the key's start, a
   compile on the key included, on the UI thread, and one worker thread of the host's
   (`app/searches.rs`) goes on with a far match, a long line and a regexp too large to compile on
   a key, and counts the matches over an O(1) snapshot, superseded by the next job through a

@@ -42,7 +42,7 @@ fn dictionary() -> (Dictionary, f64) {
 }
 
 /// Common romaji words, typed one character at a time.
-const WORDS: &[&str] = &[
+pub(super) const WORDS: &[&str] = &[
     "kanji",
     "henkan",
     "nihongo",

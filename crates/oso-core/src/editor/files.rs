@@ -297,6 +297,7 @@ impl Editor {
             keep,
             history,
             input: matched_part(text, true).map(str::to_owned),
+            dictionary: self.migemo.dictionary().cloned(),
         }
     }
 

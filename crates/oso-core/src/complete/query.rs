@@ -4,10 +4,15 @@
 
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
 use regex::{Regex, RegexBuilder};
 
 use super::{AFFIXES, Candidate};
+use crate::migemo::Dictionary;
+use migemo::same_dictionary;
+
+mod migemo;
 
 /// The most memory a component's expression may take once compiled, so that one pasted in
 /// cannot take long to compile. A larger one matches as a literal. It admits ordinary Perl
@@ -43,6 +48,9 @@ enum Style {
     Initialism,
     /// Each character in order, anything between: `~fwc` is `forward-char`.
     Flex,
+    /// Migemo's pattern for romaji, which holds the literal too: `%kan` is `かんじ.md`, and
+    /// with a dictionary `漢字.md` (ADR 0116). It matches the text with its kana composed.
+    Migemo,
 }
 
 /// One component of a query.
@@ -71,11 +79,14 @@ struct Component {
     annotation: bool,
     /// What it matches, in lower case where case is ignored.
     pattern: Box<str>,
+    /// For a migemo one, the dictionary its pattern took words from, if any.
+    dictionary: Option<Arc<Dictionary>>,
 }
 
 impl PartialEq for Component {
     /// The expression and the searcher follow from the rest: whether it is tried as an
-    /// expression too, as `=` says it is not.
+    /// expression too, as `=` says it is not, and for a migemo one the dictionary, which it
+    /// holds, so the one compared is the one it was compiled with.
     fn eq(&self, other: &Self) -> bool {
         (
             self.style,
@@ -89,7 +100,7 @@ impl PartialEq for Component {
             other.annotation,
             other.tried,
             &other.pattern,
-        )
+        ) && same_dictionary(self.dictionary.as_ref(), other.dictionary.as_ref())
     }
 }
 
@@ -113,8 +124,13 @@ fn compile_within(pattern: &str, ignore_case: bool, size_limit: usize) -> Option
 
 impl Component {
     /// The component `raw` stands for, with its affix read, or `None` if nothing is left
-    /// to match once the affix is.
-    fn parse(raw: &str, ignore_case: bool, before: &Query) -> Option<Self> {
+    /// to match once the affix is. A migemo one takes `dictionary`'s words.
+    fn parse(
+        raw: &str,
+        ignore_case: bool,
+        before: &Query,
+        dictionary: Option<&Arc<Dictionary>>,
+    ) -> Option<Self> {
         let first = raw.chars().next()?;
         let last = raw.chars().next_back()?;
         let (affix, rest) = if AFFIXES.contains(&first) {
@@ -133,11 +149,17 @@ impl Component {
             Some('~') => Style::Flex,
             _ => Style::Literal,
         };
-        let pattern = if ignore_case {
+        let pattern: Box<str> = if ignore_case {
             rest.to_lowercase().into()
         } else {
             rest.into()
         };
+        // `%` and romaji that gives kana is migemo's; anything else after it is a literal.
+        if affix == Some('%')
+            && let Some(component) = Self::migemo(rest, &pattern, ignore_case, before, dictionary)
+        {
+            return Some(component);
+        }
         // `=` and the other affixes but `!` and `&` take one style only.
         let wants_regex = matches!(affix, None | Some('!' | '&')) && rest.contains(REGEX_META);
         // What the query before compiled for the same component is reused, a failure too:
@@ -180,6 +202,7 @@ impl Component {
             not: affix == Some('!'),
             annotation: affix == Some('&'),
             pattern,
+            dictionary: None,
         })
     }
 
@@ -203,7 +226,8 @@ impl Component {
         };
         let pattern = &*self.pattern;
         let Some(out) = out else {
-            return self.hits(text, haystack) != self.not;
+            let composed = candidate.composed.as_ref().and_then(|c| c.text.as_deref());
+            return self.hits(text, haystack, composed) != self.not;
         };
         let mut out = Some(out).filter(|_| !self.not && !self.annotation);
         let start = out.as_ref().map_or(0, |out| out.len());
@@ -250,6 +274,18 @@ impl Component {
             }
             Style::Flex => in_order(haystack, pattern, |_, _| true, push),
             Style::Initialism => in_order(haystack, pattern, starts_word, push),
+            Style::Migemo => {
+                // Its expression ignores case itself, and where it matched in the composed
+                // text maps back to the original.
+                original = true;
+                match self.migemo_find(candidate) {
+                    Some(range) => {
+                        push(range);
+                        true
+                    }
+                    None => false,
+                }
+            }
         };
         if let Some(out) = out {
             if !hit {
@@ -265,8 +301,9 @@ impl Component {
 
     /// Whether it is found in `text`, or in `haystack`, its folded form where case is ignored,
     /// as [`Component::matches`] finds it, without where: a search that need not report where
-    /// it matched stops at the first match it is sure of.
-    fn hits(&self, text: &str, haystack: &str) -> bool {
+    /// it matched stops at the first match it is sure of. `composed` is the text with its
+    /// kana composed, if it has such a form, which a migemo one matches.
+    fn hits(&self, text: &str, haystack: &str, composed: Option<&str>) -> bool {
         let pattern = &*self.pattern;
         match self.style {
             Style::Literal => {
@@ -287,6 +324,10 @@ impl Component {
             Style::Prefix => haystack.starts_with(pattern),
             Style::Flex => in_order(haystack, pattern, |_, _| true, |_| {}),
             Style::Initialism => in_order(haystack, pattern, starts_word, |_| {}),
+            Style::Migemo => self.regex.as_ref().is_some_and(|regex| match composed {
+                Some(composed) => regex.is_match(composed),
+                None => regex.is_match(text),
+            }),
         }
     }
 }
@@ -342,11 +383,16 @@ impl Query {
     /// holds an upper-case letter.
     #[cfg(test)]
     pub(crate) fn parse(input: &str) -> Self {
-        Self::parse_after(input, &Self::default())
+        Self::parse_after(input, &Self::default(), None)
     }
 
-    /// [`Query::parse`], reusing what `before` compiled for a component that is the same.
-    pub(crate) fn parse_after(input: &str, before: &Query) -> Self {
+    /// [`Query::parse`], reusing what `before` compiled for a component that is the same,
+    /// a migemo one taking `dictionary`'s words.
+    pub(crate) fn parse_after(
+        input: &str,
+        before: &Query,
+        dictionary: Option<&Arc<Dictionary>>,
+    ) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
         }
@@ -372,13 +418,28 @@ impl Query {
         }
         let components = raw
             .iter()
-            .filter_map(|raw| Component::parse(raw, ignore_case, before))
+            .filter_map(|raw| Component::parse(raw, ignore_case, before, dictionary))
             .collect();
         Self {
             components,
             ignore_case,
             too_long: false,
         }
+    }
+
+    /// Whether a component matches as migemo's pattern, so a dictionary that comes would
+    /// change what it matches.
+    pub(crate) fn uses_migemo(&self) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.style == Style::Migemo)
+    }
+
+    /// Whether a migemo component was compiled with no dictionary, so one would add words.
+    pub(crate) fn wants_dictionary(&self) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.style == Style::Migemo && component.dictionary.is_none())
     }
 
     /// The query of an input too long to match: nothing matches it.
@@ -406,7 +467,7 @@ impl Query {
     /// Whether `candidate` matches every component, each found with where it matched, as
     /// highlighting finds it, for tests that [`Query::matches`] agrees.
     #[cfg(test)]
-    fn matches_finding_where(&self, candidate: &Candidate) -> bool {
+    pub(crate) fn matches_finding_where(&self, candidate: &Candidate) -> bool {
         let mut out = Vec::new();
         !self.too_long
             && self
@@ -487,7 +548,10 @@ impl Query {
                     return false;
                 }
                 // A negation that matches less, or with case, keeps more candidates, and a
-                // longer expression may match more.
+                // longer expression may match more, as may longer romaji, whose words differ.
+                if new.style == Style::Migemo {
+                    return new == old && self.ignore_case == before.ignore_case;
+                }
                 if new.not || new.tried || old.tried {
                     // A literal read as an expression too matches more, and the other way less.
                     return new.tried == old.tried

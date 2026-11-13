@@ -1,0 +1,219 @@
+//! One component of a project's search (ADR 0114, ADR 0116): what it was asked to be, by its
+//! affix, its text and the migemo setting, and compiling it, or keeping what a component of
+//! the input before compiled.
+//!
+//! Must not depend on: `complete`, `editor` or file I/O.
+
+use std::sync::Arc;
+
+use regex::bytes::{Regex, RegexBuilder};
+
+use super::LineQuery;
+use crate::migemo::{self, Dictionary};
+
+/// The most memory a component's expression may take once compiled, as in completion.
+const REGEX_SIZE_LIMIT: usize = 1 << 20;
+
+/// The deepest an expression may nest, as in completion.
+const REGEX_NEST_LIMIT: u32 = 32;
+
+/// The characters that make a component an expression, as well as a literal, as in completion.
+const REGEX_META: &[char] = &[
+    '\\', '.', '+', '*', '?', '(', ')', '|', '[', ']', '{', '}', '^', '$',
+];
+
+/// One component of a search.
+#[derive(Clone)]
+pub(super) struct Component {
+    pub(super) regex: Regex,
+    /// A line must not hold it.
+    pub(super) not: bool,
+    /// What it was asked to be, which decides the rest.
+    pub(super) asked: Asked,
+    /// What it matches as.
+    pub(super) kind: Kind,
+    /// What was typed, without its affix, in lower case where case is ignored.
+    pub(super) pattern: Box<str>,
+    /// It was compiled for this query, not kept from the one before, for tests.
+    #[cfg(test)]
+    pub(super) fresh: bool,
+}
+
+/// What a component was asked to be, by its text, its affix and the setting.
+#[derive(Clone)]
+pub(super) enum Asked {
+    /// `=` or no character an expression reads, and not romaji.
+    Literal,
+    /// A literal, and an expression too if it is one alone.
+    Expression,
+    /// Migemo's pattern, with the dictionary given, if any.
+    Migemo(Option<Arc<Dictionary>>),
+}
+
+impl PartialEq for Asked {
+    /// A migemo component is the same only with the same dictionary, which it holds, so the
+    /// one compared is the one it was compiled with.
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Literal, Self::Literal) | (Self::Expression, Self::Expression) => true,
+            (Self::Migemo(a), Self::Migemo(b)) => match (a, b) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+}
+
+/// What a component matches as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Kind {
+    /// The text as typed.
+    Literal,
+    /// The literal or an expression, so a longer one may match more.
+    Expression,
+    /// Migemo's pattern, whose words a longer string may not hold.
+    Migemo,
+}
+
+/// `pattern` as an expression that matches where it does as an expression or as a literal, or as
+/// a literal alone, ignoring case if `ignore_case`, and whether it was read as an expression too.
+/// `None` if not even the literal compiles within the limits.
+///
+/// The expression must parse alone: joined to the literal, one that is no expression alone, as
+/// `a)|(b`, can compile and match what neither does. A `(?x)` comment would run past the
+/// expression's group, so the group is then ended by a line break, which `(?x)` ignores; the
+/// literal writes its own line breaks as escapes, so that no comment ends inside it.
+pub(super) fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Option<(Regex, bool)> {
+    let build = |source: &str, size_limit: usize| {
+        RegexBuilder::new(source)
+            .case_insensitive(ignore_case)
+            .multi_line(true)
+            .crlf(true)
+            .size_limit(size_limit)
+            .nest_limit(REGEX_NEST_LIMIT)
+            .build()
+    };
+    let literal = regex::escape(pattern)
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    // With no room to compile in, a build stops once the expression has parsed.
+    let parses = || !matches!(build(pattern, 0), Err(regex::Error::Syntax(_)));
+    if expression && parses() {
+        let joined = build(&format!("(?:{pattern})|(?:{literal})"), REGEX_SIZE_LIMIT)
+            .ok()
+            .or_else(|| {
+                pattern.contains('#').then(|| {
+                    build(&format!("(?:{pattern}\n)|(?:{literal})"), REGEX_SIZE_LIMIT).ok()
+                })?
+            });
+        if let Some(regex) = joined {
+            return Some((regex, true));
+        }
+    }
+    build(&literal, REGEX_SIZE_LIMIT)
+        .ok()
+        .map(|regex| (regex, false))
+}
+
+/// Migemo's pattern for `string`, ignoring case if `ignore_case`, with `dictionary`'s words,
+/// `None` if it gives no kana and is matched as a literal.
+fn compile_migemo(
+    string: &str,
+    ignore_case: bool,
+    dictionary: Option<&Dictionary>,
+) -> Option<Regex> {
+    migemo::compile(
+        string,
+        dictionary,
+        migemo::WORDS_SIZE_LIMIT,
+        |pattern, size_limit| {
+            RegexBuilder::new(pattern)
+                .case_insensitive(ignore_case)
+                .size_limit(size_limit)
+                .nest_limit(REGEX_NEST_LIMIT)
+                .build()
+                .ok()
+        },
+    )
+}
+
+impl Component {
+    /// The component `raw` stands for, with its affix read, reusing what a component of
+    /// `before` compiled for the same text and request, or `None` if nothing is left to match
+    /// or not even its literal compiles. `migemo` is the setting and `dictionary` the table.
+    pub(super) fn parse(
+        raw: &str,
+        ignore_case: bool,
+        before: &LineQuery,
+        migemo: bool,
+        dictionary: Option<&Arc<Dictionary>>,
+    ) -> Option<Self> {
+        let (not, literal, rest) = match raw.chars().next() {
+            Some('!') => (true, false, &raw[1..]),
+            Some('=') => (false, true, &raw[1..]),
+            _ => (false, false, raw),
+        };
+        if rest.is_empty() {
+            return None;
+        }
+        let asked = if literal {
+            Asked::Literal
+        } else if migemo && migemo::is_romaji(rest) {
+            Asked::Migemo(dictionary.cloned())
+        } else if rest.contains(REGEX_META) {
+            Asked::Expression
+        } else {
+            Asked::Literal
+        };
+        let pattern: Box<str> = if ignore_case {
+            rest.to_lowercase().into()
+        } else {
+            rest.into()
+        };
+        let same = before
+            .components
+            .iter()
+            .filter(|_| before.ignore_case == ignore_case)
+            .find(|old| old.not == not && old.asked == asked && old.pattern == pattern);
+        if let Some(old) = same {
+            return Some(Self {
+                regex: old.regex.clone(),
+                not,
+                asked,
+                kind: old.kind,
+                pattern,
+                #[cfg(test)]
+                fresh: false,
+            });
+        }
+        let migemo = match &asked {
+            Asked::Migemo(dictionary) => compile_migemo(rest, ignore_case, dictionary.as_deref()),
+            _ => None,
+        };
+        let (regex, kind) = match migemo {
+            Some(regex) => (regex, Kind::Migemo),
+            None => {
+                let (regex, expression) = compile(rest, asked == Asked::Expression, ignore_case)?;
+                (
+                    regex,
+                    if expression {
+                        Kind::Expression
+                    } else {
+                        Kind::Literal
+                    },
+                )
+            }
+        };
+        Some(Self {
+            regex,
+            not,
+            asked,
+            kind,
+            pattern,
+            #[cfg(test)]
+            fresh: true,
+        })
+    }
+}

@@ -31,6 +31,14 @@ pub use dictionary::{
 pub(crate) use dictionary::{MAX_PATTERN_WORD_BYTES, word_cost};
 use trie::{Key, Trie};
 
+/// The most memory a pattern with a dictionary's words may take once compiled (ADR 0116, Q7):
+/// past it, [`compile`] drops the words and keeps the kana.
+pub(crate) const WORDS_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
+/// The most memory the kana's pattern alone may take once compiled, an isearch key's: the
+/// largest, of 256 characters, compiles within it on a key.
+pub(crate) const KANA_SIZE_LIMIT: usize = 256 * 1024;
+
 /// The most characters of a string that has a pattern. Its pattern then compiles in under a
 /// millisecond on a key; a longer string is searched for as it is.
 pub(crate) const MAX_CHARS: usize = 256;
@@ -227,6 +235,39 @@ fn keys(hiragana: &[Key], form: Form) -> Vec<Key> {
         }
     }
     keys
+}
+
+/// Migemo's pattern for `string`, compiled by `build` from a pattern's text within a size
+/// limit (ADR 0116): with `dictionary`'s words within [`WORDS_SIZE_LIMIT`], or, if there are
+/// none or that does not compile, the kana alone within [`KANA_SIZE_LIMIT`]. `None` if the
+/// string gives no kana (see [`Romaji::new`]) or not even the kana's pattern compiles, and
+/// the caller matches the string as it is. `build` sets the case and the nest limit.
+pub(crate) fn compile<R>(
+    string: &str,
+    dictionary: Option<&Dictionary>,
+    words_limit: usize,
+    mut build: impl FnMut(&str, usize) -> Option<R>,
+) -> Option<R> {
+    let romaji = Romaji::new(string)?;
+    let words = dictionary.map(|dictionary| dictionary.pattern_words(&romaji));
+    if let Some(words) = words.filter(|words| !words.is_empty())
+        && let Some(compiled) = build(&romaji.pattern(string, &words), words_limit)
+    {
+        return Some(compiled);
+    }
+    build(&romaji.pattern(string, &[]), KANA_SIZE_LIMIT)
+}
+
+/// Whether `c` is a combining sound mark, U+3099 or U+309A, which a kana before it may compose
+/// with.
+pub(crate) fn is_sound_mark(c: char) -> bool {
+    matches!(c, '\u{3099}' | '\u{309A}')
+}
+
+/// The kana `base` and `mark`, a combining sound mark, compose to: `か` and U+3099 are `が`,
+/// as Unicode's canonical composition has it. `None` where they do not compose.
+pub(crate) fn composed(base: char, mark: char) -> Option<char> {
+    forms::composed(base, mark)
 }
 
 /// Every spelling of the table, for tests that build romaji strings from them.

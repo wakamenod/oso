@@ -281,6 +281,8 @@ impl Editor {
                 self.relayout_prompt();
             }
         }
+        // A dictionary that came while it ran is taken now (ADR 0116).
+        self.completion_look_again();
         true
     }
 

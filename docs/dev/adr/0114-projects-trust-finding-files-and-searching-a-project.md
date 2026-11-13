@@ -177,7 +177,9 @@ Listing and searching walk the same files, in-process, with the `ignore` crate (
 - **The input is ADR 0076's orderless components, matched against each line (Q12):** a line
   matches when every component does, in any order. A component is a literal or a regular
   expression as in completion, `!` excludes lines, and smart case holds over the whole input as
-  in isearch. A search starts once a component that is not excluded has 2 characters.
+  in isearch. A search starts once a component that is not excluded has 2 characters. Changed
+  by [ADR 0116](0116-migemo-and-jumps.md): a component that is romaji matches as its migemo
+  pattern, and `=` keeps it literal.
 - **It runs in-process (Q1), on a thread of its own, `oso-grep`,** which walks and hands files to
   `min(cores - 1, 8)` searching threads, at least one. Each key starts a new search with a new
   generation, which every thread reads before each file and each block; a superseded search
