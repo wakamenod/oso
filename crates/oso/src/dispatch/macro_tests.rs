@@ -12,13 +12,15 @@ use oso_core::minibuffer::Kind;
 use oso_core::rope::Rope;
 
 use super::Dispatcher;
-use super::motion_tests::{at, send, text};
+use super::motion_tests::{at, drain, send, text};
 
-/// Runs a replay to its end, as the host's turns would.
+/// Runs a replay to its end, as the host's turns would, with a search's worker jobs, which
+/// a replay waits for.
 fn replay(d: &mut Dispatcher, editor: &mut Editor) {
     let until = Instant::now() + Duration::from_secs(10);
     while editor.macro_replaying() {
         d.replay(editor, until);
+        drain(editor);
     }
 }
 
@@ -93,12 +95,44 @@ fn input_during_a_replay_waits_for_it_and_c_g_stops_it() {
 #[test]
 fn a_replay_runs_a_search_and_stops_where_it_fails() {
     let (mut d, mut editor) = at("x1 x2 x3\n", &[0]);
-    send(&mut d, &mut editor, "C-x ( C-s x RET DEL C-x )");
+    send(&mut d, &mut editor, "C-x ( C-s x");
+    drain(&mut editor);
+    send(&mut d, &mut editor, "RET DEL C-x )");
     assert_eq!(text(&editor), "1 x2 x3\n");
     send(&mut d, &mut editor, "C-u 0 C-x e");
     replay(&mut d, &mut editor);
     assert_eq!(text(&editor), "1 2 3\n");
     assert!(editor.isearch().is_none() || editor.isearch().unwrap().failing());
+}
+
+#[test]
+fn a_replay_stops_when_its_search_fails_on_the_worker() {
+    // Past the last `x`, more text than a key searches itself (256 KiB): the search that
+    // fails there goes on on the worker, which says so only after the key.
+    let filler = "-".repeat(1024 * 1024);
+    let (mut d, mut editor) = at(&format!("x1 x2 {filler}\n"), &[0]);
+    send(&mut d, &mut editor, "C-x ( C-s x");
+    drain(&mut editor);
+    send(&mut d, &mut editor, "RET DEL C-x )");
+    assert_eq!(text(&editor), format!("1 x2 {filler}\n"));
+    send(&mut d, &mut editor, "C-u 0 C-x e");
+    let until = Instant::now() + Duration::from_secs(10);
+    let mut on_the_worker = false;
+    while editor.macro_replaying() {
+        d.replay(&mut editor, until);
+        on_the_worker |= editor.isearch().is_some_and(|search| search.searching());
+        drain(&mut editor);
+    }
+    assert!(
+        on_the_worker,
+        "the replay waited for a search on the worker"
+    );
+    assert_eq!(
+        text(&editor),
+        format!("1 2 {filler}\n"),
+        "the RET DEL after the failing search did not run"
+    );
+    assert!(editor.isearch().is_none_or(|search| search.failing()));
 }
 
 #[test]
