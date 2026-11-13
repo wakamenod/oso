@@ -88,3 +88,15 @@ fn a_removed_menus_default_key_is_undefined() {
     send(&mut d, &mut editor, "C-c C-<");
     assert_ne!(echo(&editor), "C-c C-< is undefined");
 }
+
+#[test]
+fn a_jump_from_the_jumps_menu_closes_it_and_takes_the_jumps_action_keys() {
+    let (mut d, mut editor) = at("one\ntwo\nthree\n", &[0]);
+    let _ = d.open_menu_named(&mut editor, "jumps");
+    send(&mut d, &mut editor, "l");
+    assert_eq!(d.menu_name(), None);
+    // `K`, an action's key at the labels, is the jump's now, not a foreign key of the menu.
+    send(&mut d, &mut editor, "K");
+    assert!(echo(&editor).ends_with("[kill line]"), "{}", echo(&editor));
+    send(&mut d, &mut editor, "C-g");
+}

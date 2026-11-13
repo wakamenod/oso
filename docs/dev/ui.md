@@ -538,7 +538,7 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   the last key, or at `RET`, each match shows a label; with no string yet, it waits
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `M-g f` (`avy-goto-line`) labels each line's start in view at once, and a digit that no label
-  takes, typed before any of a label, opens `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key. `M-j` in
+  takes, typed before any of a label, opens `goto-line` with it. `avy-goto-end-of-line` labels each line's end and has no key but `e` in the `jumps` menu. `M-j` in
   isearch (`avy-isearch`) labels the search's matches in the selected window, and ends the search
   at the one chosen, as `RET` does.
 - Labels show in every tiled window, nearest the window's cursor first, over the first cells of
