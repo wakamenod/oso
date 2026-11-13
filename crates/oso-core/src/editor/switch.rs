@@ -49,6 +49,9 @@ pub enum KillRefused {
     /// It holds unsaved text. [`Editor::kill_asked`] names it, for a question whose `y`
     /// kills it with `anyway`.
     Modified,
+    /// A program runs in its terminal (ADR 0120). [`Editor::kill_asked`] names it, as for
+    /// `Modified`.
+    Running,
     /// There is no such buffer.
     Gone,
 }
@@ -201,8 +204,13 @@ impl Editor {
         let shown = std::iter::once(window.buffer());
         let shown_before = shown.chain(window.places().map(|(id, _)| id));
         let rest = self.buffers().map(|(id, _)| id);
+        // A walk the agent channel runs never reaches a terminal, where the person's next keys
+        // would go to its program (ADR 0120).
+        let agent = self.runs_for_agent();
         for id in shown_before.chain(rest) {
-            let kept = self.buffer(id).is_some_and(|buffer| !buffer.is_internal());
+            let kept = self
+                .buffer(id)
+                .is_some_and(|buffer| !(buffer.is_internal() || (agent && buffer.is_terminal())));
             if kept && !ring.contains(&id) {
                 ring.push(id);
             }
@@ -365,8 +373,9 @@ impl Editor {
         self.home = home;
     }
 
-    /// Kills `id` as a person asked: a modified buffer only with `anyway`, after a question
-    /// about that buffer, never while it saves, and never an internal one (ADR 0088).
+    /// Kills `id` as a person asked: a modified buffer, or a terminal a program runs in
+    /// (ADR 0120), only with `anyway`, after a question about that buffer, never while it
+    /// saves, and never an internal one (ADR 0088).
     ///
     /// # Errors
     ///
@@ -380,10 +389,15 @@ impl Editor {
             return Err(KillRefused::Saving);
         }
         let modified = buffer.is_modified();
+        let running = buffer.is_running();
         let asked = self.kill_asked.take();
-        if modified && !(anyway && asked == Some(id)) {
+        if (modified || running) && !(anyway && asked == Some(id)) {
             self.kill_asked = Some(id);
-            return Err(KillRefused::Modified);
+            return Err(if modified {
+                KillRefused::Modified
+            } else {
+                KillRefused::Running
+            });
         }
         self.kill_buffer(id);
         Ok(())

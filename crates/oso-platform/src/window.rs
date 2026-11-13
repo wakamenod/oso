@@ -34,6 +34,8 @@ pub enum Event<'a> {
     Occluded(bool),
     /// The window has gained the keyboard focus.
     Focused,
+    /// The window has lost the keyboard focus.
+    Unfocused,
     RedrawRequested,
     /// The mouse wheel or the trackpad scrolled, with the pointer `at` a place over the
     /// drawable area, if the window system says where (ADR 0112).

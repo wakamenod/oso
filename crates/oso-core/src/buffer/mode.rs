@@ -27,6 +27,8 @@ pub enum Mode {
     Toml,
     /// A review's buffer (ADR 0122).
     Review,
+    /// A terminal (ADR 0120): its keys go to the program in it, but for oso's own.
+    Terminal,
 }
 
 impl Mode {
@@ -64,6 +66,7 @@ impl Mode {
             Self::Markdown => "Markdown",
             Self::Toml => "TOML",
             Self::Review => "Review",
+            Self::Terminal => "Terminal",
         }
     }
 
@@ -73,7 +76,7 @@ impl Mode {
     }
 
     /// The rules its lines are indented by (ADR 0115), or none for the emergency copies'
-    /// buffers, whose text is not the person's to indent.
+    /// buffers, whose text is not the person's to indent, and for a terminal, which has none.
     #[expect(
         clippy::type_complexity,
         reason = "the rules' own signature, which naming would make a public item of its own"
@@ -84,7 +87,7 @@ impl Mode {
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
             Self::Fundamental => Some(indent::fundamental),
-            Self::CopyList | Self::CopyView | Self::Review => None,
+            Self::CopyList | Self::CopyView | Self::Review | Self::Terminal => None,
         }
     }
 }
@@ -112,6 +115,7 @@ mod tests {
         assert!(modes.iter().all(|mode| mode.indent_rules().is_some()));
         assert!(Mode::CopyList.indent_rules().is_none());
         assert!(Mode::CopyView.indent_rules().is_none());
+        assert!(Mode::Terminal.indent_rules().is_none());
     }
 
     #[test]

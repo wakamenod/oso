@@ -96,6 +96,10 @@ impl Dispatcher {
         if self.hold_text(text, commit) {
             return Effects::default();
         }
+        // Text for a terminal's program goes as a key does, and no macro records it (ADR 0120).
+        if self.text_to_terminal(editor, text) {
+            return Effects::default();
+        }
         if editor.macro_recording() && !self.macros.replaying && editor.macro_takes_text(text.len())
         {
             self.macros.group.push(event());
@@ -173,6 +177,12 @@ impl Dispatcher {
         if editor.macro_recording() && !self.macros.replaying {
             self.macros.group.push(MacroEvent::Key(key));
         }
+    }
+
+    /// Drops what the current input noted for a recording: keys that went to a terminal's
+    /// program, which a macro never holds (ADR 0120).
+    pub(super) fn macro_forget_input(&mut self) {
+        self.macros.group.clear();
     }
 
     /// After input from the window was taken: once its command has run, what it took goes into

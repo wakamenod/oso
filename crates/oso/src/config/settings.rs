@@ -1,6 +1,7 @@
 //! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108),
 //! whitespace cleanup on save (ADR 0113), migemo in isearch and jumps, and jumps' keys and
-//! timeout (ADR 0116). Indentation's are in `indentation` (ADR 0115).
+//! timeout (ADR 0116). Indentation's are in `indentation` (ADR 0115), and terminals' in
+//! `terminal` (ADR 0120).
 //! Each is `None` where the file leaves it out or gives a bad value, so the caller keeps its own.
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
@@ -36,6 +37,8 @@ pub struct Settings {
     pub indent: Indent,
     /// `[modes.<mode>]`'s indentation (ADR 0115).
     pub modes: Modes,
+    /// `[terminal]` (ADR 0120).
+    pub terminal: super::Terminal,
 }
 
 /// `[jump]`: how jumps label and read (ADR 0116).
