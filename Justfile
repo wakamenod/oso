@@ -550,6 +550,43 @@ health-report out="target/design-health.md":
     } >"$out"
     echo "design health report: $out"
 
+# Fetch libghostty-vt's pinned release for oso-term into a cache outside the repository
+# ($OSO_VENDOR_DIR, by default ~/.cache/oso/vendor) and check each tarball against the
+# minisign key and the sha256 in crates/oso-term/ghostty-vt.lock (ADR 0120). Needs curl and
+# minisign. build.rs never downloads; it checks the sha256 again before it unpacks.
+ghostty-vt:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lock=crates/oso-term/ghostty-vt.lock
+    field() { awk -v k="$1" '$1 == k { print $2 }' "$lock"; }
+    sha256() {
+        if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi \
+            | cut -d' ' -f1
+    }
+    command -v minisign >/dev/null || { echo "error: needs minisign"; exit 1; }
+    version=$(field version)
+    url=$(field url)
+    key=$(field minisign)
+    dir="${OSO_VENDOR_DIR:-$HOME/.cache/oso/vendor}/libghostty-vt-$version"
+    mkdir -p "$dir"
+    awk '$1 == "source" || $1 == "deps" { print $2, $3 }' "$lock" | while read -r name sum; do
+        for file in "$name" "$name.minisig"; do
+            [ -f "$dir/$file" ] && continue
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --output "$dir/$file.part" "$url/$file"
+            mv "$dir/$file.part" "$dir/$file"
+        done
+        if ! minisign -V -q -P "$key" -m "$dir/$name" -x "$dir/$name.minisig"; then
+            rm -f "$dir/$name" "$dir/$name.minisig"
+            echo "error: $name does not match its signature; removed"; exit 1
+        fi
+        if [ "$(sha256 "$dir/$name")" != "$sum" ]; then
+            rm -f "$dir/$name" "$dir/$name.minisig"
+            echo "error: $name does not match the sha256 in $lock; removed"; exit 1
+        fi
+    done
+    echo "libghostty-vt $version: ok ($dir)"
+
 # Check dependencies against deny.toml (advisories, licenses, sources, bans)
 deny:
     cargo deny check

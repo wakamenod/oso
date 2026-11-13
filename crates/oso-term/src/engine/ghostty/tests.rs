@@ -1,0 +1,202 @@
+//! The engine's grid: text, wide characters and clusters, styles, which rows a snapshot
+//! sends, sizes, scrollback and modes.
+//!
+//! Must not depend on: the policy or the thread.
+
+use oso_platform::process::pty::Size;
+
+use super::Ghostty;
+use crate::engine::Engine;
+use crate::snapshot::{Attrs, Color, CursorShape, Mouse, Palette, Rgb, Row, Snapshot, Underline};
+
+pub(crate) fn size(columns: u16, rows: u16) -> Size {
+    Size {
+        columns,
+        rows,
+        width: columns.saturating_mul(8),
+        height: rows.saturating_mul(16),
+    }
+}
+
+pub(crate) fn palette() -> Palette {
+    let gray = |v| Rgb { r: v, g: v, b: v };
+    let mut ansi = [gray(0); 16];
+    for (i, color) in ansi.iter_mut().enumerate() {
+        *color = Rgb {
+            r: i as u8 * 10,
+            g: 1,
+            b: 2,
+        };
+    }
+    Palette {
+        foreground: gray(0xdd),
+        background: gray(0x11),
+        cursor: Some(Rgb {
+            r: 0xff,
+            g: 0,
+            b: 0,
+        }),
+        ansi,
+    }
+}
+
+pub(crate) fn engine(columns: u16, rows: u16) -> Ghostty {
+    let mut engine = Ghostty::new(size(columns, rows), 1000).expect("an engine");
+    engine.set_palette(&palette());
+    engine
+}
+
+/// Takes one snapshot, returning its rows.
+fn snapshot(engine: &mut Ghostty) -> (Snapshot, bool) {
+    let mut out = Snapshot::new(size(1, 1));
+    let changed = engine.snapshot(&mut out, &mut Vec::new());
+    (out, changed)
+}
+
+fn text(row: &Row) -> String {
+    let mut line: String = row
+        .cells
+        .iter()
+        .filter(|c| !c.attrs.contains(Attrs::WIDE_SPACER))
+        .map(|c| c.ch)
+        .collect();
+    line.truncate(line.trim_end().len());
+    line
+}
+
+#[test]
+fn a_first_snapshot_sends_every_row_and_the_next_only_what_changed() {
+    let mut e = engine(10, 4);
+    e.feed(b"one\r\ntwo");
+    let (first, changed) = snapshot(&mut e);
+    assert!(changed);
+    assert_eq!(first.rows.len(), 4);
+    assert_eq!(text(&first.rows[0]), "one");
+    assert_eq!(text(&first.rows[1]), "two");
+    assert_eq!((first.cursor.row, first.cursor.column), (1, 3));
+    let (idle, changed) = snapshot(&mut e);
+    assert!(!changed);
+    assert!(idle.rows.is_empty());
+    e.feed(b"\r\nthree");
+    let (next, _) = snapshot(&mut e);
+    let indices: Vec<u16> = next.rows.iter().map(|r| r.index).collect();
+    assert!(indices.contains(&2) && !indices.contains(&0), "{indices:?}");
+}
+
+#[test]
+fn wide_characters_take_two_cells_and_clusters_keep_their_text() {
+    let mut e = engine(10, 2);
+    // Mode 2027 joins a flag's two regional indicators into one cluster.
+    e.feed("\x1b[?2027h漢a\u{1F1EF}\u{1F1F5}e\u{301}".as_bytes());
+    let (s, _) = snapshot(&mut e);
+    let row = &s.rows[0];
+    assert_eq!(row.cells[0].ch, '漢');
+    assert!(row.cells[0].attrs.contains(Attrs::WIDE));
+    assert!(row.cells[1].attrs.contains(Attrs::WIDE_SPACER));
+    assert_eq!(row.cells[2].ch, 'a');
+    assert!(row.cells[3].attrs.contains(Attrs::GRAPHEME));
+    let texts: Vec<&str> = row.graphemes.iter().map(|(_, t)| t.as_str()).collect();
+    assert!(texts.contains(&"\u{1F1EF}\u{1F1F5}"), "{texts:?}");
+    assert!(texts.contains(&"e\u{301}"), "{texts:?}");
+}
+
+#[test]
+fn styles_reach_the_cells() {
+    let mut e = engine(20, 2);
+    e.feed(b"\x1b[1;3;4:3;38;5;196;48;2;1;2;3mx\x1b[0;7;9my\x1b[0;53;58;5;4mz");
+    let (s, _) = snapshot(&mut e);
+    let cells = &s.rows[0].cells;
+    assert!(cells[0].attrs.contains(Attrs::BOLD));
+    assert!(cells[0].attrs.contains(Attrs::ITALIC));
+    assert_eq!(cells[0].underline, Underline::Curly);
+    assert_eq!(cells[0].fg, Color::Indexed(196));
+    assert_eq!(cells[0].bg, Color::Rgb(Rgb { r: 1, g: 2, b: 3 }));
+    assert!(cells[1].attrs.contains(Attrs::INVERSE));
+    assert!(cells[1].attrs.contains(Attrs::STRIKE));
+    assert_eq!(cells[1].fg, Color::Default);
+    assert!(cells[2].attrs.contains(Attrs::OVERLINE));
+    assert_eq!(cells[2].underline_color, Color::Indexed(4));
+}
+
+#[test]
+fn a_cleared_cell_keeps_only_its_background() {
+    let mut e = engine(10, 2);
+    e.feed(b"\x1b[44m\x1b[K\x1b[48;2;9;8;7m\x1b[5X");
+    let (s, _) = snapshot(&mut e);
+    let cells = &s.rows[0].cells;
+    assert_eq!(cells[0].ch, ' ');
+    assert_eq!(cells[0].bg, Color::Rgb(Rgb { r: 9, g: 8, b: 7 }));
+    assert_eq!(cells[9].bg, Color::Indexed(4));
+}
+
+#[test]
+fn soft_wraps_are_marked() {
+    let mut e = engine(4, 3);
+    e.feed(b"abcdef\r\ngh");
+    let (s, _) = snapshot(&mut e);
+    assert!(s.rows[0].wrapped);
+    assert!(!s.rows[1].wrapped);
+    assert_eq!(text(&s.rows[1]), "ef");
+}
+
+#[test]
+fn a_resize_sends_every_row_at_the_new_size() {
+    let mut e = engine(10, 3);
+    e.feed(b"x");
+    snapshot(&mut e);
+    e.resize(size(6, 5));
+    let (s, changed) = snapshot(&mut e);
+    assert!(changed);
+    assert_eq!(s.rows.len(), 5);
+    assert!(s.rows.iter().all(|r| r.cells.len() == 6));
+    assert_eq!((s.size.columns, s.size.rows), (6, 5));
+}
+
+#[test]
+fn scrollback_keeps_the_lines_asked_for_and_not_a_small_default() {
+    let mut e = Ghostty::new(size(80, 24), 10_000).expect("an engine");
+    for i in 0..5000 {
+        e.feed(format!("line {i}\r\n").as_bytes());
+    }
+    let (s, _) = snapshot(&mut e);
+    assert!(s.history >= 4900, "history {}", s.history);
+    let mut small = Ghostty::new(size(80, 24), 100).expect("an engine");
+    for i in 0..5000 {
+        small.feed(format!("line {i}\r\n").as_bytes());
+    }
+    let (s, _) = snapshot(&mut small);
+    assert!(s.history < 1000, "history {}", s.history);
+}
+
+#[test]
+fn modes_and_the_cursor_follow_the_program() {
+    let mut e = engine(10, 3);
+    e.feed(b"\x1b[?1049h\x1b[?1h\x1b[?2004h\x1b[?1004h\x1b[?1002h\x1b[?1006h\x1b[>1u\x1b[6 q");
+    let (s, _) = snapshot(&mut e);
+    assert!(s.modes.alternate_screen);
+    assert!(s.modes.application_cursor);
+    assert!(s.modes.bracketed_paste);
+    assert!(s.modes.focus_reports);
+    assert_eq!(s.modes.mouse, Mouse::Drag);
+    assert!(s.modes.sgr_mouse);
+    assert_eq!(s.modes.kitty_keyboard, 1);
+    assert_eq!(s.cursor.shape, CursorShape::Bar);
+    e.feed(b"\x1b[?25l\x1b[?1049l");
+    let (s, _) = snapshot(&mut e);
+    assert!(!s.cursor.visible);
+    assert!(!s.modes.alternate_screen);
+}
+
+#[test]
+fn spare_rows_are_reused() {
+    let mut e = engine(10, 3);
+    let mut out = Snapshot::new(size(1, 1));
+    let mut spare = Vec::new();
+    e.snapshot(&mut out, &mut spare);
+    out.clear(&mut spare);
+    assert_eq!(spare.len(), 3);
+    e.feed(b"\x1b[2J");
+    e.snapshot(&mut out, &mut spare);
+    assert_eq!(out.rows.len(), 3);
+    assert!(spare.is_empty());
+}

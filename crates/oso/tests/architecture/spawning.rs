@@ -9,12 +9,14 @@
 use crate::lexer::{Token, tokenize};
 
 /// The files that may silence the ban: the process module, its terminals'
-/// child-side hook (ADR 0120), and the benchmark harness, which never ships
-/// (ADR 0046). Adding one needs an ADR.
-pub const ALLOWED: [&str; 3] = [
+/// child-side hook (ADR 0120), the benchmark harness (ADR 0046), and oso-term's
+/// build script, which runs Zig (ADR 0120); the last two never ship. Adding one
+/// needs an ADR.
+pub const ALLOWED: [&str; 4] = [
     "crates/oso-platform/src/process.rs",
     "crates/oso-platform/src/process/pty/unix.rs",
     "crates/oso/examples/perf/process.rs",
+    "crates/oso-term/build.rs",
 ];
 
 /// What is wrong with `files`, given as paths and sources. Any file outside

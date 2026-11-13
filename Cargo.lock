@@ -1463,6 +1463,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oso-term"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "oso-core",
+ "oso-platform",
+ "serde_json",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
