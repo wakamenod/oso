@@ -807,8 +807,8 @@ with the five conditions at the end of this step.
 | Clean build | 4 s, crates.io only | 35 to 75 s a target; Zig, with bundled C++ (simdutf, highway) and C (Wuffs) |
 | Windows (MSVC) | Builds | Needs the MSVC SDK: a Windows runner, or `xwin` and a local patch |
 | `cargo deny`, `cargo audit`, licences | Nothing new; Apache-2.0 and MIT; 10 new crates | Not a crate, so neither sees it; MIT, with bundled code under MIT, Apache-2.0 and BSD |
-| A control string that never ends | An OSC string is buffered without limit: `oso-term` would need a 4 KiB pre-filter | Bounded |
-| Fuzzing with generated escape sequences, two hours or more each | Stopped only in a 1-column terminal; with 2 columns at least, none in 7.7 million inputs | The pre-release commit stopped on crafted output; 1.0.1 did not, in 8.4 million inputs, `ReleaseSafe` included |
+| Unbounded string buffering | Yes: `oso-term` would need a 4 KiB pre-filter | No |
+| Fuzzing with generated escape sequences, two hours or more each | No stop at the sizes oso allows (2 columns or more) in 7.7 million inputs | 1.0.1: no stop in 8.4 million inputs, `ReleaseSafe` included |
 | Memory safety | Safe Rust; its `unsafe` is in PTY code oso never calls | Zig built `ReleaseFast`, and C++, in oso's process |
 | OSC 7, 133, 9, 777 and 9;4; OSCs it does not know | Through the second parser | Callbacks, and unknown OSCs up to a size oso sets |
 | Kitty graphics | oso's to build; `vte` drops APC strings | Built in |
@@ -841,7 +841,7 @@ What this changes in the steps after it, which were written for `alacritty_termi
 - **The engine and the crates, and step 3:** the second `vte` parser and its 4 KiB cap are not
   built. The library reports OSC 7, 133, 9, 777 and 9;4 through callbacks, and an OSC it does not
   know, oso's shell command sequence among them, through its unknown-sequence callback, capped at
-  4 KiB. No pre-filter and no 2-column floor are needed.
+  4 KiB. No pre-filter is needed.
   - `oso-term` holds the FFI (hand-written, checked against the library's manifest), a `build.rs`
     that runs Zig, and the safe `Engine` over them; all its `unsafe` is there.
   - Each terminal's thread owns one terminal handle and one render state: the library makes no
