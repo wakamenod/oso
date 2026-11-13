@@ -9,13 +9,14 @@ use super::tests::{Fixture, messages};
 #[test]
 fn a_migemo_dictionary_is_a_path_absolute_or_from_home() {
     let f = Fixture::new();
-    let long = format!("/{}", "d".repeat(MAX_DICTIONARY_PATH));
     // No escape in it, so the TOML string is the path.
     let absolute = if cfg!(windows) {
         "C:/dict"
     } else {
         "/usr/share/dict"
     };
+    // Absolute on every system, so only its length is wrong.
+    let long = format!("{absolute}/{}", "d".repeat(MAX_DICTIONARY_PATH));
     let elsewhere = r"takes a path on this computer, not one starting with \\ or //";
     for (path, said) in [
         ("~/dict", None),

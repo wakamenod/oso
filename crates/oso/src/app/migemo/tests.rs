@@ -140,11 +140,15 @@ fn a_thread_that_cannot_start_reads_nothing_until_the_configuration_says_so() {
 
 #[test]
 fn a_path_from_home_needs_an_absolute_home() {
-    let home = Path::new("/home/me");
+    let home = Path::new(if cfg!(windows) {
+        r"C:\home\me"
+    } else {
+        "/home/me"
+    });
     let file = |path: &str| Named::File(PathBuf::from(path));
     assert_eq!(
         named("~/dict/migemo-dict", Some(home)),
-        file("/home/me/dict/migemo-dict")
+        Named::File(home.join("dict/migemo-dict"))
     );
     assert_eq!(named("~/dict", None), Named::NoHome);
     // An empty or relative `HOME` would name a file in the directory oso started in.
