@@ -23,6 +23,9 @@ pub struct Snapshot {
     pub echo_off: bool,
     /// Lines in the scrollback, above the screen.
     pub history: usize,
+    /// Lines the view is scrolled back from the bottom, 0 at the bottom. While it is not 0,
+    /// `rows` and `cursor` are of the lines scrolled to, and output keeps the view on them.
+    pub scrolled: usize,
     pub events: Vec<Event>,
     /// Events left out because a snapshot holds at most 256.
     pub dropped_events: u32,
@@ -37,6 +40,7 @@ impl Snapshot {
             modes: Modes::default(),
             echo_off: false,
             history: 0,
+            scrolled: 0,
             events: Vec::new(),
             dropped_events: 0,
         }
@@ -186,6 +190,15 @@ pub struct Modes {
     pub sgr_mouse: bool,
     /// The kitty keyboard protocol's flags the program pushed; 0 for none.
     pub kitty_keyboard: u8,
+}
+
+/// How `Terminal::scroll` moves the view over the scrollback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scroll {
+    /// By this many lines: negative is up, into the scrollback.
+    Lines(isize),
+    /// To the bottom, the live screen.
+    Bottom,
 }
 
 /// Which mouse reports the program asked for (1000, 1002, 1003).

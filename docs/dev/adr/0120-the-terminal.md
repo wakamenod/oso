@@ -547,7 +547,16 @@ for OSC 133), and may go in any order.
    snapshots, the policy and every table row's test, the key encoder, the host API, and a fuzz target.
 4. **The terminal view:** `terminal`, drawing, the 16 faces, semi-char and char mode, the input method,
    resize, the mouse, paste, echo off, the channel's rules, `[terminal]`'s `shell`, `login`, `env` and
-   `scrollback`, end-to-end flows and `just perf` flows.
+   `scrollback`, end-to-end flows and `just perf` flows. Split in two pull requests (the author's
+   choice, 2026-11-13; see As built):
+   - **4a, the minimum to run `claude` day to day:** `terminal` and the terminal buffer, drawing and
+     the 16 faces, semi-char mode's keys of this step (`C-x`, `M-x`, the `C-c` prefix, `C-q`, `C-y`)
+     and char mode, the key encoder, the input method, resize, paste, focus reports, synchronized
+     updates (mode 2026), the wheel over the scrollback, `[terminal]`'s four settings, the modeline,
+     the questions at a kill, an exit and a restart, the channel's safe minimum (it reads and
+     types nothing in a terminal), and end-to-end flows.
+   - **4b, the rest:** the mouse, echo off, the channel's full rules (listing,
+     `terminal-allow-agent-read` and the rows it reads), and the `just perf` flows.
 5. **The live search and the author's keys:** `C-s` on the terminal's thread, `C-k`'s copy, `M-p` and
    `M-n`, and the search's `just perf` flow.
 6. **Copy mode,** links, OSC 7 and 133, OSC 52 writes, notifications, progress, the bell, and the shell

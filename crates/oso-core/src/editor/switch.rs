@@ -49,6 +49,9 @@ pub enum KillRefused {
     /// It holds unsaved text. [`Editor::kill_asked`] names it, for a question whose `y`
     /// kills it with `anyway`.
     Modified,
+    /// A program runs in its terminal (ADR 0120). [`Editor::kill_asked`] names it, as for
+    /// `Modified`.
+    Running,
     /// There is no such buffer.
     Gone,
 }
@@ -365,8 +368,9 @@ impl Editor {
         self.home = home;
     }
 
-    /// Kills `id` as a person asked: a modified buffer only with `anyway`, after a question
-    /// about that buffer, never while it saves, and never an internal one (ADR 0088).
+    /// Kills `id` as a person asked: a modified buffer, or a terminal a program runs in
+    /// (ADR 0120), only with `anyway`, after a question about that buffer, never while it
+    /// saves, and never an internal one (ADR 0088).
     ///
     /// # Errors
     ///
@@ -380,10 +384,15 @@ impl Editor {
             return Err(KillRefused::Saving);
         }
         let modified = buffer.is_modified();
+        let running = buffer.is_running();
         let asked = self.kill_asked.take();
-        if modified && !(anyway && asked == Some(id)) {
+        if (modified || running) && !(anyway && asked == Some(id)) {
             self.kill_asked = Some(id);
-            return Err(KillRefused::Modified);
+            return Err(if modified {
+                KillRefused::Modified
+            } else {
+                KillRefused::Running
+            });
         }
         self.kill_buffer(id);
         Ok(())

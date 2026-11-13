@@ -26,6 +26,7 @@
 
 mod engine;
 mod event;
+mod input;
 pub mod limits;
 mod policy;
 mod snapshot;
@@ -33,6 +34,7 @@ mod terminal;
 
 pub use event::{End, Event, Progress, Prompt};
 pub use snapshot::{
-    Attrs, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Rgb, Row, Snapshot, Underline,
+    Attrs, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Rgb, Row, Scroll, Snapshot,
+    Underline,
 };
 pub use terminal::{QueueFull, Start, Terminal};

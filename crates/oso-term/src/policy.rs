@@ -21,6 +21,8 @@ pub(crate) enum Verdict {
     Reply(Vec<u8>),
     /// Tell the host.
     Event(Event),
+    /// A synchronized update began (true) or ended (false): the thread holds snapshots.
+    Hold(bool),
     /// Denied: nothing happens.
     Drop,
 }
@@ -42,6 +44,7 @@ pub(crate) fn judge(effect: Effect) -> Verdict {
         Effect::Prompt(mark) => prompt(mark),
         Effect::ClipboardWrite(data) => clipboard_write(data),
         Effect::Unknown(_) => unknown(),
+        Effect::Hold(held) => hold(held),
     }
 }
 
@@ -164,6 +167,13 @@ fn clipboard_write(data: Vec<u8>) -> Verdict {
         return Verdict::Drop;
     }
     Verdict::Event(Event::ClipboardWrite(text))
+}
+
+/// Synchronized updates (mode 2026) are allowed: while one is open, the terminal's thread
+/// sends no snapshot, for at most 1 s (`limits::RENDER_HOLD_MAX`), and its end sends one of
+/// all that changed. DECRQM reports the mode as the library has it.
+fn hold(held: bool) -> Verdict {
+    Verdict::Hold(held)
 }
 
 /// Sequences the engine does not know are denied: OSC 51, iTerm2's OSC 1337, OSC 50 and the

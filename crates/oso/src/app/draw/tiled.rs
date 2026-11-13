@@ -9,12 +9,16 @@
 //! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
+use oso_core::buffer::BufferId;
 use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, Status};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
-    Bands, CursorStyle, Face, FlashFill, Layer, Pane, PaneContent, PaneId, Span, TextView,
+    Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, PaneId, Span,
+    TextView,
 };
+
+use crate::terminal::hosted::Terminals;
 
 /// The first pane id of the windows': the echo area's and the floats' are below it.
 const FIRST: u32 = 16;
@@ -304,8 +308,31 @@ pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, fills, label
     room.labels = super::reuse(labels);
 }
 
+/// The terminals a frame shows (ADR 0120): their rows, each terminal's once, and which of
+/// them each terminal's buffer has.
+pub(super) struct Grids<'a> {
+    pub(super) terminals: &'a Terminals,
+    pub(super) rows: &'a [GridRow<'a>],
+    pub(super) shown: &'a [(BufferId, std::ops::Range<usize>)],
+}
+
+impl<'a> Grids<'a> {
+    pub(super) fn new(
+        terminals: &'a Terminals,
+        rows: &'a [GridRow<'a>],
+        shown: &'a [(BufferId, std::ops::Range<usize>)],
+    ) -> Grids<'a> {
+        Grids {
+            terminals,
+            rows,
+            shown,
+        }
+    }
+}
+
 /// What [`panes`] reads, per window in the tree's order.
 pub(super) struct Drawn<'a> {
+    pub(super) terminals: Grids<'a>,
     pub(super) cells: &'a [WindowCells],
     pub(super) fills: &'a [[(Face, &'a [CellRect]); FILLS]],
     /// Every window's jump labels, one window's after another's in the tree's order.
@@ -410,6 +437,9 @@ fn text<'a>(
         return PaneContent::Lines(&[]);
     };
     let buffer = editor.shown(window);
+    if buffer.is_terminal() {
+        return grid(editor, (window, selected), &drawn.terminals);
+    }
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
     let screen = &cells.screen;
@@ -438,5 +468,36 @@ fn text<'a>(
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
         highlights: buffer.highlights(),
+    })
+}
+
+/// The text pane's content of a window that shows a terminal: its grid, as its thread last
+/// sent it, with the cursor as the program set it, hollow in a window not selected, and the
+/// preedit at the cursor in the selected one (ADR 0120). Nothing of the buffer's own text,
+/// fills or flash.
+fn grid<'a>(
+    editor: &'a Editor,
+    (window, selected): (&oso_core::window::Window, bool),
+    grids: &Grids<'a>,
+) -> PaneContent<'a> {
+    let buffer = window.buffer();
+    let rows = grids
+        .shown
+        .iter()
+        .find(|(shown, _)| *shown == buffer)
+        .and_then(|(_, range)| grids.rows.get(range.clone()))
+        .unwrap_or_default();
+    let cursor = grids
+        .terminals
+        .get(buffer)
+        .and_then(|hosted| hosted.grid.cursor(selected));
+    let preedit = editor
+        .preedit()
+        .filter(|_| selected && editor.prompt().is_none());
+    PaneContent::Grid(GridView {
+        id: buffer.get(),
+        rows,
+        cursor,
+        preedit,
     })
 }

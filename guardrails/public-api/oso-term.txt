@@ -48,6 +48,8 @@ pub oso_term::Event::Ended(oso_term::End)
 pub oso_term::Event::Notification
 pub oso_term::Event::Notification::body: alloc::string::String
 pub oso_term::Event::Notification::title: alloc::string::String
+pub oso_term::Event::PasteRefused
+pub oso_term::Event::PasteRefused::lines: usize
 pub oso_term::Event::Progress(oso_term::Progress)
 pub oso_term::Event::Prompt(oso_term::Prompt)
 pub oso_term::Event::Title(alloc::string::String)
@@ -99,6 +101,18 @@ pub fn oso_term::Prompt::eq(&self, &oso_term::Prompt) -> bool
 impl core::fmt::Debug for oso_term::Prompt
 pub fn oso_term::Prompt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_term::Prompt
+pub enum oso_term::Scroll
+pub oso_term::Scroll::Bottom
+pub oso_term::Scroll::Lines(isize)
+impl core::clone::Clone for oso_term::Scroll
+pub fn oso_term::Scroll::clone(&self) -> oso_term::Scroll
+impl core::cmp::Eq for oso_term::Scroll
+impl core::cmp::PartialEq for oso_term::Scroll
+pub fn oso_term::Scroll::eq(&self, &oso_term::Scroll) -> bool
+impl core::fmt::Debug for oso_term::Scroll
+pub fn oso_term::Scroll::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::Scroll
+impl core::marker::StructuralPartialEq for oso_term::Scroll
 pub enum oso_term::Underline
 pub oso_term::Underline::Curly
 pub oso_term::Underline::Dashed
@@ -264,6 +278,7 @@ pub oso_term::Snapshot::events: alloc::vec::Vec<oso_term::Event>
 pub oso_term::Snapshot::history: usize
 pub oso_term::Snapshot::modes: oso_term::Modes
 pub oso_term::Snapshot::rows: alloc::vec::Vec<oso_term::Row>
+pub oso_term::Snapshot::scrolled: usize
 pub oso_term::Snapshot::size: oso_platform::process::pty::Size
 impl core::fmt::Debug for oso_term::Snapshot
 pub fn oso_term::Snapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -284,9 +299,13 @@ pub fn oso_term::Start::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::
 pub struct oso_term::Terminal
 impl oso_term::Terminal
 pub fn oso_term::Terminal::hang_up(&self)
+pub fn oso_term::Terminal::paste(&self, alloc::string::String, bool) -> core::result::Result<(), oso_term::QueueFull>
 pub fn oso_term::Terminal::recycle(&self, oso_term::Snapshot)
 pub fn oso_term::Terminal::resize(&self, oso_platform::process::pty::Size)
+pub fn oso_term::Terminal::scroll(&self, oso_term::Scroll)
 pub fn oso_term::Terminal::send(&self, alloc::vec::Vec<u8>) -> core::result::Result<(), oso_term::QueueFull>
+pub fn oso_term::Terminal::send_key(&self, oso_core::key::KeyPress) -> core::result::Result<(), oso_term::QueueFull>
+pub fn oso_term::Terminal::set_focused(&self, bool)
 pub fn oso_term::Terminal::set_palette(&self, oso_term::Palette)
 pub fn oso_term::Terminal::start(oso_term::Start, alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>) -> std::io::error::Result<oso_term::Terminal>
 pub fn oso_term::Terminal::take_snapshot(&self) -> core::option::Option<oso_term::Snapshot>

@@ -126,6 +126,10 @@ impl App {
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
         self.person_typed("text");
+        if self.types_into_terminal() {
+            self.send_text(text);
+            return;
+        }
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
@@ -175,6 +179,10 @@ impl App {
             };
         }
         let (rows, columns) = wheeling.remainder.add(rows, columns);
+        // Over a terminal, the wheel scrolls its scrollback, on its thread (ADR 0120).
+        if self.wheel_terminal(window, rows) {
+            return Some((window, false));
+        }
         if crate::dispatch::holds_input(&self.editor) {
             match self
                 .held_wheel

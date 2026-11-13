@@ -1,8 +1,9 @@
-//! The safe layer over libghostty-vt's C API: one terminal, its render state and the
-//! callbacks, owned together by `Vt` (ADR 0120). Each foreign call sits in an `unsafe` block
-//! of its own with its `// SAFETY:` comment, and nothing outside this file and `ffi` holds
-//! `unsafe`. The library makes no threads and its handles are not thread-safe, so a `Vt` is
-//! neither `Send` nor `Sync`: it lives and dies on its terminal's thread.
+//! The safe layer over libghostty-vt's C API: one terminal, its render state, its key encoder
+//! and the one key event it encodes, and the callbacks, owned together by `Vt` (ADR 0120).
+//! Each foreign call sits in an `unsafe` block of its own with its `// SAFETY:` comment, and
+//! nothing outside this file and `ffi` holds `unsafe`. The library makes no threads and its
+//! handles are not thread-safe, so a `Vt` is neither `Send` nor `Sync`: it lives and dies on
+//! its terminal's thread.
 //!
 //! Must not depend on: the policy, the thread or the snapshot's types; `Ghostty` turns what
 //! this reads into those.
@@ -16,49 +17,26 @@ use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
 use super::ffi;
-use crate::engine::Effect;
 use crate::limits;
+pub(super) use callbacks::Sink;
 #[cfg(test)]
 use callbacks::bytes;
 use callbacks::{
-    on_bell, on_clipboard_write, on_notification, on_progress, on_prompt, on_pwd, on_size,
-    on_title, on_unknown, on_write_pty, on_xtversion,
+    on_bell, on_clipboard_write, on_notification, on_progress, on_prompt, on_pwd, on_render_hold,
+    on_size, on_title, on_unknown, on_write_pty, on_xtversion,
 };
 
-/// What the callbacks write to while the library runs.
-pub(super) struct Sink {
-    pub effects: Vec<Effect>,
-    /// What `XTVERSION` answers.
-    xtversion: &'static str,
-    /// Reply bytes among `effects`.
-    reply_bytes: usize,
-    /// What the text area size reports (`CSI 14 t`, `CSI 18 t`) answer.
-    pub size: ffi::SizeReportSize,
-}
-
-impl Sink {
-    pub(super) fn push(&mut self, effect: Effect) {
-        if self.has_room() {
-            self.effects.push(effect);
-        }
-    }
-
-    /// Whether another effect would be kept; a callback checks before it copies anything.
-    pub(super) fn has_room(&self) -> bool {
-        self.effects.len() < limits::EFFECTS_PENDING_MAX
-    }
-
-    pub(super) fn reply(&mut self, bytes: &[u8]) {
-        if self.reply_bytes + bytes.len() <= limits::REPLIES_PENDING_MAX {
-            self.reply_bytes += bytes.len();
-            self.push(Effect::Reply(bytes.to_vec()));
-        }
-    }
-
-    pub fn take(&mut self, out: &mut Vec<Effect>) {
-        out.append(&mut self.effects);
-        self.reply_bytes = 0;
-    }
+/// One key as the encoder takes it, made from a `KeyPress` by `keys`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct KeyInput {
+    pub key: ffi::Key,
+    pub mods: ffi::Mods,
+    /// The modifiers the text already holds: Shift for `A` or `!`.
+    pub consumed: ffi::Mods,
+    /// The key's text, UTF-8, unmodified by Control or Alt; empty for a named key.
+    pub text: [u8; 4],
+    pub text_len: usize,
+    pub unshifted: u32,
 }
 
 /// The terminal state `Vt::state` reads in one go.
@@ -67,6 +45,7 @@ pub(super) struct State {
     pub history: usize,
     pub alternate_screen: bool,
     pub kitty_keyboard: u8,
+    pub scrollbar: ffi::Scrollbar,
 }
 
 /// The render state's view of the screen, as `Vt::frame` reads it.
@@ -83,6 +62,11 @@ pub(super) struct Vt {
     render: ffi::RenderState,
     rows: ffi::RowIterator,
     cells: ffi::RowCells,
+    encoder: ffi::KeyEncoder,
+    event: ffi::KeyEvent,
+    /// The event's text, which it borrows: boxed, so that it stays put until the event is
+    /// freed.
+    text: Box<[u8; 4]>,
     sink: NonNull<Sink>,
     /// Neither `Send` nor `Sync`.
     _thread: PhantomData<*mut ()>,
@@ -97,22 +81,15 @@ impl Vt {
         scrollback_lines: usize,
         xtversion: &'static str,
     ) -> Option<Vt> {
-        let sink = Box::new(Sink {
-            effects: Vec::new(),
-            xtversion,
-            reply_bytes: 0,
-            size: ffi::SizeReportSize {
-                rows,
-                columns,
-                cell_width: 0,
-                cell_height: 0,
-            },
-        });
+        let sink = Box::new(Sink::new(xtversion, columns, rows));
         let mut vt = Vt {
             terminal: ptr::null_mut(),
             render: ptr::null_mut(),
             rows: ptr::null_mut(),
             cells: ptr::null_mut(),
+            encoder: ptr::null_mut(),
+            event: ptr::null_mut(),
+            text: Box::new([0; 4]),
             sink: NonNull::from(Box::leak(sink)),
             _thread: PhantomData,
         };
@@ -137,6 +114,18 @@ impl Vt {
         if made != ffi::SUCCESS {
             return None;
         }
+        // SAFETY: as above, for the key encoder.
+        let made = unsafe { ffi::ghostty_key_encoder_new(ptr::null(), &mut vt.encoder) };
+        if made != ffi::SUCCESS {
+            return None;
+        }
+        // SAFETY: as above, for the key event.
+        let made = unsafe { ffi::ghostty_key_event_new(ptr::null(), &mut vt.event) };
+        if made != ffi::SUCCESS {
+            return None;
+        }
+        // SAFETY: the event is live, and `PRESS` is a `GhosttyKeyAction`.
+        unsafe { ffi::ghostty_key_event_set_action(vt.event, ffi::KEY_ACTION_PRESS) };
         vt.configure(scrollback_lines).then_some(vt)
     }
 
@@ -148,7 +137,12 @@ impl Vt {
         let unknown = limits::UNKNOWN_SEQUENCE_MAX;
         let kitty_apc = limits::KITTY_APC_MAX;
         let clipboard = limits::CLIPBOARD_WRITE_MAX;
-        let settings: [(c_int, *const c_void); 23] = [
+        // Grapheme clustering (mode 2027) is on before any output, and after a reset.
+        let clusters = ffi::ModeConfig {
+            mode: ffi::dec_mode(2027),
+            value: true,
+        };
+        let settings: [(c_int, *const c_void); 13] = [
             (ffi::OPT_USERDATA, self.sink.as_ptr().cast_const().cast()),
             // The byte limit first: NULL would restore a small default (step 1's condition 4).
             (ffi::OPT_SCROLLBACK_MAX_BYTES, (&raw const unlimited).cast()),
@@ -171,57 +165,24 @@ impl Vt {
             ),
             (ffi::OPT_APC_MAX_BYTES_KITTY, (&raw const kitty_apc).cast()),
             (ffi::OPT_UNKNOWN_MAX_BYTES, (&raw const unknown).cast()),
+            (ffi::OPT_MODE_DEFAULT, (&raw const clusters).cast()),
             (
                 ffi::OPT_CLIPBOARD_WRITE_MAX_BYTES,
                 (&raw const clipboard).cast(),
             ),
-            (
-                ffi::OPT_WRITE_PTY,
-                on_write_pty as ffi::WritePtyFn as *const c_void,
-            ),
-            (ffi::OPT_BELL, on_bell as ffi::BellFn as *const c_void),
-            (
-                ffi::OPT_XTVERSION,
-                on_xtversion as ffi::XtversionFn as *const c_void,
-            ),
-            (
-                ffi::OPT_TITLE_CHANGED,
-                on_title as ffi::ChangedFn as *const c_void,
-            ),
-            (
-                ffi::OPT_PWD_CHANGED,
-                on_pwd as ffi::ChangedFn as *const c_void,
-            ),
-            (ffi::OPT_SIZE, on_size as ffi::SizeFn as *const c_void),
-            (
-                ffi::OPT_CLIPBOARD_WRITE,
-                on_clipboard_write as ffi::ClipboardWriteFn as *const c_void,
-            ),
-            (
-                ffi::OPT_DESKTOP_NOTIFICATION,
-                on_notification as ffi::DesktopNotificationFn as *const c_void,
-            ),
-            (
-                ffi::OPT_PROGRESS_REPORT,
-                on_progress as ffi::ProgressReportFn as *const c_void,
-            ),
-            (
-                ffi::OPT_SEMANTIC_PROMPT,
-                on_prompt as ffi::SemanticPromptFn as *const c_void,
-            ),
-            (
-                ffi::OPT_UNKNOWN_SEQUENCE,
-                on_unknown as ffi::UnknownSequenceFn as *const c_void,
-            ),
         ];
-        settings.into_iter().all(|(option, value)| {
-            // SAFETY: the terminal is live. Each value is what terminal.h gives as the
-            // option's input type: the userdata pointer itself, a pointer to a live local of
-            // the documented type (`size_t`, `uint64_t`, `bool`), NULL where NULL disables,
-            // or a callback of the documented signature (`ffi`'s types, which
-            // `manifest_tests` checks). The library copies scalars before it returns.
-            unsafe { ffi::ghostty_terminal_set(self.terminal, option, value) == ffi::SUCCESS }
-        })
+        settings
+            .into_iter()
+            .chain(callbacks())
+            .all(|(option, value)| {
+                // SAFETY: the terminal is live. Each value is what terminal.h gives as the
+                // option's input type: the userdata pointer itself, a pointer to a live local of
+                // the documented type (`size_t`, `uint64_t`, `bool`, `GhosttyTerminalModeConfig`),
+                // NULL where NULL disables,
+                // or a callback of the documented signature (`ffi`'s types, which
+                // `manifest_tests` checks). The library copies scalars before it returns.
+                unsafe { ffi::ghostty_terminal_set(self.terminal, option, value) == ffi::SUCCESS }
+            })
     }
 
     /// The default colors and the 256-color palette the terminal draws and answers queries
@@ -281,21 +242,24 @@ impl Vt {
         unsafe { self.sink.as_mut() }
     }
 
-    /// The scrollback's length, the active screen and the kitty keyboard flags.
+    /// The scrollback's length, the active screen, the kitty keyboard flags and the
+    /// scrollbar.
     pub fn state(&self) -> State {
         let mut state = State::default();
         let mut screen = ffi::TERMINAL_SCREEN_PRIMARY;
-        let reads: [(c_int, *mut c_void); 3] = [
+        let reads: [(c_int, *mut c_void); 4] = [
             (ffi::DATA_SCROLLBACK_ROWS, (&raw mut state.history).cast()),
             (ffi::DATA_ACTIVE_SCREEN, (&raw mut screen).cast()),
             (
                 ffi::DATA_KITTY_KEYBOARD_FLAGS,
                 (&raw mut state.kitty_keyboard).cast(),
             ),
+            (ffi::DATA_SCROLLBAR, (&raw mut state.scrollbar).cast()),
         ];
         for (data, out) in reads {
             // SAFETY: the terminal is live, and each `out` points to a live value of the
-            // data's output type in terminal.h: `size_t`, the screen enum (`int`), `uint8_t`.
+            // data's output type in terminal.h: `size_t`, the screen enum (`int`), `uint8_t`,
+            // `GhosttyTerminalScrollbar`.
             unsafe { ffi::ghostty_terminal_get(self.terminal, data, out) };
         }
         state.alternate_screen = screen == ffi::TERMINAL_SCREEN_ALTERNATE;
@@ -316,6 +280,76 @@ impl Vt {
             };
             read == ffi::SUCCESS && config.value
         })
+    }
+
+    /// Moves the view by `delta` rows, up negative, or to the bottom for `None`.
+    pub fn scroll(&mut self, delta: Option<isize>) {
+        let behavior = match delta {
+            Some(delta) => ffi::ScrollViewport {
+                tag: ffi::SCROLL_VIEWPORT_DELTA,
+                value: ffi::ScrollViewportValue { delta },
+            },
+            None => ffi::ScrollViewport {
+                tag: ffi::SCROLL_VIEWPORT_BOTTOM,
+                value: ffi::ScrollViewportValue { padding: [0; 2] },
+            },
+        };
+        // SAFETY: the terminal is live, and the tag names the union member set (BOTTOM reads
+        // none).
+        unsafe { ffi::ghostty_terminal_scroll_viewport(self.terminal, behavior) };
+    }
+
+    /// Encodes `key` into `out` against the terminal's modes as they are now: the cursor
+    /// keys, the kitty keyboard flags, Alt's ESC prefix (mode 1036, on by default) and the
+    /// rest. Returns the bytes written: 0 for a key that encodes to nothing, or would not fit.
+    pub fn encode_key(&mut self, key: &KeyInput, out: &mut [u8]) -> usize {
+        // SAFETY: both handles are live and this thread's alone.
+        unsafe { ffi::ghostty_key_encoder_set_from_terminal(self.encoder, self.terminal) };
+        // Meta, Command on macOS, is sent as Alt; the call above reset this to false.
+        let option_as_alt = ffi::OPTION_AS_ALT_TRUE;
+        // SAFETY: the encoder is live, and the value points to a live `GhosttyOptionAsAlt`,
+        // which the library copies.
+        unsafe {
+            ffi::ghostty_key_encoder_set(
+                self.encoder,
+                ffi::KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
+                (&raw const option_as_alt).cast(),
+            )
+        };
+        *self.text = key.text;
+        let text = ffi::KeyText {
+            ptr: self.text.as_ptr(),
+            len: key.text_len.min(self.text.len()),
+        };
+        // SAFETY: the event is live; the key is a `GhosttyKey` (`keys` makes only those).
+        unsafe { ffi::ghostty_key_event_set_key(self.event, key.key) };
+        // SAFETY: the event is live; any `GhosttyMods` is valid.
+        unsafe { ffi::ghostty_key_event_set_mods(self.event, key.mods) };
+        // SAFETY: as above.
+        unsafe { ffi::ghostty_key_event_set_consumed_mods(self.event, key.consumed) };
+        // SAFETY: the event is live. It keeps the pointer, not the bytes, which are UTF-8 in
+        // `self.text`: a box that lives until `drop` frees the event, and is written only
+        // before this call sets the text again.
+        unsafe { ffi::ghostty_key_event_set_utf8(self.event, text) };
+        // SAFETY: the event is live; any code point is valid.
+        unsafe { ffi::ghostty_key_event_set_unshifted_codepoint(self.event, key.unshifted) };
+        let mut written = 0;
+        // SAFETY: both handles are live; `out` is writable for `out.len()` bytes, of which
+        // the library writes at most that many, reporting how many in `written`.
+        let encoded = unsafe {
+            ffi::ghostty_key_encoder_encode(
+                self.encoder,
+                self.event,
+                out.as_mut_ptr(),
+                out.len(),
+                &mut written,
+            )
+        };
+        if encoded == ffi::SUCCESS {
+            written.min(out.len())
+        } else {
+            0
+        }
     }
 
     /// Brings the render state up to the terminal.
@@ -463,6 +497,14 @@ impl Vt {
 
 impl Drop for Vt {
     fn drop(&mut self) {
+        if !self.event.is_null() {
+            // SAFETY: made by `new` and freed once, here, before its text's box.
+            unsafe { ffi::ghostty_key_event_free(self.event) };
+        }
+        if !self.encoder.is_null() {
+            // SAFETY: as above.
+            unsafe { ffi::ghostty_key_encoder_free(self.encoder) };
+        }
         if !self.cells.is_null() {
             // SAFETY: made by `new` and freed once, here.
             unsafe { ffi::ghostty_render_state_row_cells_free(self.cells) };
@@ -483,6 +525,55 @@ impl Drop for Vt {
         // userdata is gone.
         drop(unsafe { Box::from_raw(self.sink.as_ptr()) });
     }
+}
+
+/// The callbacks oso installs, as the options that take them. The library never gets a
+/// clipboard-read, enquiry or window-resize callback.
+fn callbacks() -> [(c_int, *const c_void); 12] {
+    [
+        (
+            ffi::OPT_WRITE_PTY,
+            on_write_pty as ffi::WritePtyFn as *const c_void,
+        ),
+        (ffi::OPT_BELL, on_bell as ffi::BellFn as *const c_void),
+        (
+            ffi::OPT_RENDER_HOLD,
+            on_render_hold as ffi::RenderHoldFn as *const c_void,
+        ),
+        (
+            ffi::OPT_XTVERSION,
+            on_xtversion as ffi::XtversionFn as *const c_void,
+        ),
+        (
+            ffi::OPT_TITLE_CHANGED,
+            on_title as ffi::ChangedFn as *const c_void,
+        ),
+        (
+            ffi::OPT_PWD_CHANGED,
+            on_pwd as ffi::ChangedFn as *const c_void,
+        ),
+        (ffi::OPT_SIZE, on_size as ffi::SizeFn as *const c_void),
+        (
+            ffi::OPT_CLIPBOARD_WRITE,
+            on_clipboard_write as ffi::ClipboardWriteFn as *const c_void,
+        ),
+        (
+            ffi::OPT_DESKTOP_NOTIFICATION,
+            on_notification as ffi::DesktopNotificationFn as *const c_void,
+        ),
+        (
+            ffi::OPT_PROGRESS_REPORT,
+            on_progress as ffi::ProgressReportFn as *const c_void,
+        ),
+        (
+            ffi::OPT_SEMANTIC_PROMPT,
+            on_prompt as ffi::SemanticPromptFn as *const c_void,
+        ),
+        (
+            ffi::OPT_UNKNOWN_SEQUENCE,
+            on_unknown as ffi::UnknownSequenceFn as *const c_void,
+        ),
+    ]
 }
 
 /// The Kitty graphics settings, read back for the policy's tests: the image store's limit,

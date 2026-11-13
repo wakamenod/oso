@@ -1,8 +1,8 @@
 //! A terminal's thread (ADR 0120, Q4): it makes the engine, opens the PTY and starts the child
 //! in it, and then reads at most 64 KiB at a time, parses for at most 4 ms (and at most 1 MiB)
-//! before it looks at the UI's requests again, writes what is queued, judges each effect, and
-//! sends a snapshot when the last one was taken. When the PTY ends it reaps the child and sends
-//! the end.
+//! before it looks at the UI's requests again, encodes and writes what is queued, judges each
+//! effect, and sends a snapshot when the last one was taken and no synchronized update holds
+//! it back. When the PTY ends it reaps the child and sends the end.
 //!
 //! Must not depend on: the UI thread's state; it shares only the channels and `Shared`.
 
@@ -17,38 +17,26 @@ use std::time::{Duration, Instant};
 use oso_platform::process::pty::{self, Master, Size, Wakeup};
 use oso_platform::process::{self as spawning, Sink, Source, Spawn};
 
-use super::{Request, Shared, Start};
+use super::{Input, Request, Shared, Start};
 use crate::engine::ghostty::Ghostty;
 use crate::engine::{Effect, Engine};
 use crate::event::{End, Event};
+use crate::input::{self, Refused};
 use crate::limits;
 use crate::policy::{self, Verdict};
-use crate::snapshot::{Row, Snapshot};
+use crate::snapshot::{Row, Scroll, Snapshot};
 
 /// How often, and for how long, a child is looked for after the PTY ended.
 const REAP_EVERY: Duration = Duration::from_millis(50);
 const REAP_FOR: Duration = Duration::from_secs(2);
 
-/// Runs a terminal to its end, and sends the end as the last snapshot's event.
-pub(super) fn run(
-    start: Start,
-    wakeup: &Wakeup,
-    requests: &mpsc::Receiver<Request>,
-    snapshots: &mpsc::Sender<Snapshot>,
-    shared: &Shared,
-    wake: &dyn Fn(),
-) {
+/// Runs a terminal to its end, and sends the end as the last snapshot's event, whatever
+/// holds snapshots back. A synchronized update holds them for at most `hold_limit`.
+pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
     let size = limits::clamp(start.size);
     let mut last = Snapshot::new(size);
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        let channels = Channels {
-            wakeup,
-            requests,
-            snapshots,
-            shared,
-            wake,
-        };
-        let mut running = Running::open(start, size, channels)?;
+        let mut running = Running::open(start, size, hold_limit, channels)?;
         let end = running.run();
         last = running.finish();
         if running.detached {
@@ -70,17 +58,111 @@ pub(super) fn run(
     log::debug!("a terminal ended: {end:?}");
     last.events.push(Event::Ended(end));
     // The end goes even with a snapshot in flight; nothing follows it.
-    if snapshots.send(last).is_ok() {
-        wake();
+    if channels.snapshots.send(last).is_ok() {
+        (channels.wake)();
     }
 }
 
-/// Judges the effects the output raised: replies queue, while 64 KiB wait at most; events go
-/// into `next`. A title, a directory, a progress or a clipboard write replaces the one of its
-/// kind already there, and is never dropped, so a snapshot holds the latest of each; the rest,
-/// at most 256, are counted past that, a bell right after a bell joined to it. Returns whether
-/// an event came. The terminal's thread and the fuzz target both judge through this.
-pub(super) fn judge(effects: &mut Vec<Effect>, replies: &mut Vec<u8>, next: &mut Snapshot) -> bool {
+/// A synchronized update (mode 2026) as the thread keeps it: when the open one began.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Hold {
+    began: Option<Instant>,
+}
+
+impl Hold {
+    /// The program began (true) or ended (false) a hold at `now`. A beginning while one is
+    /// open keeps the time it began, so nothing makes a hold last longer.
+    pub(super) fn set(&mut self, held: bool, now: Instant) {
+        if !held {
+            self.began = None;
+        } else if self.began.is_none() {
+            self.began = Some(now);
+        }
+    }
+
+    /// Whether snapshots wait at `now`: a hold is open and younger than `limit`. Past it,
+    /// snapshots go as if none were open, until the program ends it and begins another.
+    pub(super) fn holds(&self, now: Instant, limit: Duration) -> bool {
+        self.left(now, limit).is_some()
+    }
+
+    /// How long from `now` the open hold still holds snapshots back, if it does.
+    pub(super) fn left(&self, now: Instant, limit: Duration) -> Option<Duration> {
+        let age = now.saturating_duration_since(self.began?);
+        limit.checked_sub(age).filter(|left| !left.is_zero())
+    }
+}
+
+/// What the thread keeps to serve input: the focus it last heard of, and a key's bytes.
+pub(super) struct Inputs {
+    focused: Option<bool>,
+    key: [u8; limits::KEY_BYTES_MAX],
+}
+
+impl Inputs {
+    pub(super) fn new() -> Inputs {
+        Inputs {
+            focused: None,
+            key: [0; limits::KEY_BYTES_MAX],
+        }
+    }
+
+    /// Encodes one input against the engine's modes as they are now, and returns its bytes
+    /// for the program, maybe none, and whether it raised an event into `next`. Input that
+    /// sends anything but a focus report scrolls the view to the bottom first. The terminal's
+    /// thread and the fuzz target both serve input through this.
+    pub(super) fn serve(
+        &mut self,
+        input: Input,
+        engine: &mut impl Engine,
+        next: &mut Snapshot,
+    ) -> (Vec<u8>, bool) {
+        let bytes = match input {
+            Input::Bytes(bytes) => bytes,
+            Input::Key(key) => {
+                let n = engine.encode_key(key, &mut self.key);
+                self.key[..n].to_vec()
+            }
+            Input::Paste {
+                text,
+                lines_allowed,
+            } => {
+                let bracketed = engine.modes().bracketed_paste;
+                match input::paste(&text, bracketed, lines_allowed) {
+                    Ok(bytes) => bytes,
+                    Err(Refused { lines }) => {
+                        keep(Event::PasteRefused { lines }, next);
+                        return (Vec::new(), true);
+                    }
+                }
+            }
+            Input::Focus(focused) => {
+                let changed = self.focused.replace(focused) != Some(focused);
+                let report = changed && engine.modes().focus_reports;
+                let bytes = if report { input::focus(focused) } else { &[] };
+                return (bytes.to_vec(), false);
+            }
+        };
+        if !bytes.is_empty() {
+            engine.scroll(Scroll::Bottom);
+        }
+        (bytes, false)
+    }
+}
+
+/// Judges the effects the output raised: replies queue, while 64 KiB wait at most; holds
+/// begin and end at `now`; events go into `next`. A title, a directory, a progress or a
+/// clipboard write replaces the one of its kind already there, and is never dropped, so a
+/// snapshot holds the latest of each; the rest, at most 256, are counted past that, a bell
+/// right after a bell joined to it. Returns whether an event came. The terminal's thread and
+/// the fuzz target both judge through this.
+pub(super) fn judge(
+    effects: &mut Vec<Effect>,
+    replies: &mut Vec<u8>,
+    next: &mut Snapshot,
+    hold: &mut Hold,
+    now: Instant,
+) -> bool {
     let mut evented = false;
     for effect in effects.drain(..) {
         match policy::judge(effect) {
@@ -93,6 +175,7 @@ pub(super) fn judge(effects: &mut Vec<Effect>, replies: &mut Vec<u8>, next: &mut
                 evented = true;
                 keep(event, next);
             }
+            Verdict::Hold(held) => hold.set(held, now),
             Verdict::Drop => {}
         }
     }
@@ -128,12 +211,13 @@ fn keep(event: Event, next: &mut Snapshot) {
 }
 
 /// What the thread shares with the handle.
-struct Channels<'a> {
-    wakeup: &'a Wakeup,
-    requests: &'a mpsc::Receiver<Request>,
-    snapshots: &'a mpsc::Sender<Snapshot>,
-    shared: &'a Shared,
-    wake: &'a dyn Fn(),
+#[derive(Clone, Copy)]
+pub(super) struct Channels<'a> {
+    pub wakeup: &'a Wakeup,
+    pub requests: &'a mpsc::Receiver<Request>,
+    pub snapshots: &'a mpsc::Sender<Snapshot>,
+    pub shared: &'a Shared,
+    pub wake: &'a dyn Fn(),
 }
 
 /// How a read slice ended.
@@ -168,13 +252,21 @@ struct Running<'a> {
     recycled: Option<Snapshot>,
     /// Whether `next` holds anything worth sending.
     changed: bool,
+    hold: Hold,
+    hold_limit: Duration,
+    inputs: Inputs,
     echo_off: bool,
     /// The requests ended: the handle is gone.
     detached: bool,
 }
 
 impl<'a> Running<'a> {
-    fn open(start: Start, size: Size, channels: Channels<'a>) -> io::Result<Running<'a>> {
+    fn open(
+        start: Start,
+        size: Size,
+        hold_limit: Duration,
+        channels: Channels<'a>,
+    ) -> io::Result<Running<'a>> {
         // The engine first: once a child runs, an error must not leave it unreaped.
         let scrollback = start.scrollback.min(limits::SCROLLBACK_MAX);
         let mut engine = Ghostty::new(size, scrollback, policy::XTVERSION)
@@ -217,6 +309,9 @@ impl<'a> Running<'a> {
             spare: Vec::new(),
             recycled: None,
             changed: true,
+            hold: Hold::default(),
+            hold_limit,
+            inputs: Inputs::new(),
             echo_off: false,
             detached: false,
         })
@@ -238,12 +333,20 @@ impl<'a> Running<'a> {
                 Err(error) => return End::Failed(error),
             };
             self.engine.take_effects(&mut self.effects);
-            self.changed |= judge(&mut self.effects, &mut self.replies, &mut self.next);
+            let (next, hold) = (&mut self.next, &mut self.hold);
+            self.changed |= judge(
+                &mut self.effects,
+                &mut self.replies,
+                next,
+                hold,
+                Instant::now(),
+            );
             self.publish();
             let timeout = match slice {
                 Slice::Ended => return End::Closed,
                 Slice::Cut => Some(Duration::ZERO),
-                Slice::Drained => None,
+                // An open hold is looked at again when it stops holding.
+                Slice::Drained => self.hold.left(Instant::now(), self.hold_limit),
             };
             let writable = !self.replies.is_empty() || !self.input.is_empty();
             let channels = &self.channels;
@@ -260,7 +363,11 @@ impl<'a> Running<'a> {
             .store(false, Ordering::Release);
         loop {
             match self.channels.requests.try_recv() {
-                Ok(Request::Input(bytes)) => self.input.push_back(bytes),
+                Ok(Request::Input(input)) => self.serve_input(input),
+                Ok(Request::Scroll(scroll)) => {
+                    self.engine.scroll(scroll);
+                    self.changed = true;
+                }
                 Ok(Request::Resize(size)) => self.resize = Some(limits::clamp(size)),
                 Ok(Request::Palette(palette)) => {
                     self.engine.set_palette(&palette);
@@ -291,6 +398,24 @@ impl<'a> Running<'a> {
         }
     }
 
+    /// Encodes one input and queues its bytes, correcting what the handle held of the queue
+    /// for it to what it took.
+    fn serve_input(&mut self, input: Input) {
+        let reserved = input.reserved();
+        let (bytes, evented) = self.inputs.serve(input, &mut self.engine, &mut self.next);
+        self.changed |= evented;
+        let shared = self.channels.shared;
+        if let Some(unused) = reserved.checked_sub(bytes.len()) {
+            shared.release(unused);
+        } else if shared.reserve(bytes.len() - reserved).is_err() {
+            // Only a focus report takes more than it held: past a full queue it is dropped.
+            return;
+        }
+        if !bytes.is_empty() {
+            self.input.push_back(bytes);
+        }
+    }
+
     /// Writes until the PTY would block. Replies go between input chunks, whole, never inside
     /// one: a reply inside a paste would split its bracket and let its lines run.
     fn write(&mut self) -> io::Result<()> {
@@ -309,7 +434,7 @@ impl<'a> Running<'a> {
                 return Ok(());
             };
             self.written += n;
-            self.channels.shared.queued.fetch_sub(n, Ordering::AcqRel);
+            self.channels.shared.release(n);
             if self.written == chunk.len() {
                 self.input.pop_front();
                 self.written = 0;
@@ -335,17 +460,21 @@ impl<'a> Running<'a> {
             }
             let shared = self.channels.shared;
             let wanted = shared.requested.load(Ordering::Acquire)
-                || !shared.in_flight.load(Ordering::Acquire);
+                || !(shared.in_flight.load(Ordering::Acquire)
+                    || self.hold.holds(Instant::now(), self.hold_limit));
             if wanted || parsed >= limits::PARSE_SLICE || started.elapsed() >= limits::PARSE_TIME {
                 return Ok(Slice::Cut);
             }
         }
     }
 
-    /// Sends a snapshot if the UI took the last one and something changed since.
+    /// Sends a snapshot if the UI took the last one, something changed since, and no
+    /// synchronized update holds it back: the hold's end sends all it held.
     fn publish(&mut self) {
         let shared = self.channels.shared;
-        if shared.in_flight.load(Ordering::Acquire) {
+        if shared.in_flight.load(Ordering::Acquire)
+            || self.hold.holds(Instant::now(), self.hold_limit)
+        {
             return;
         }
         // A failed check reads as echo off, as on systems with no echo flag.
@@ -370,7 +499,14 @@ impl<'a> Running<'a> {
     /// The last snapshot: what the output did before it ended.
     fn finish(&mut self) -> Snapshot {
         self.engine.take_effects(&mut self.effects);
-        judge(&mut self.effects, &mut self.replies, &mut self.next);
+        let (next, hold) = (&mut self.next, &mut self.hold);
+        judge(
+            &mut self.effects,
+            &mut self.replies,
+            next,
+            hold,
+            Instant::now(),
+        );
         self.engine.snapshot(&mut self.next, &mut self.spare);
         self.next.echo_off = self.echo_off;
         let size = self.next.size;

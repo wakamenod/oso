@@ -35,6 +35,7 @@ mod reload;
 mod replace;
 #[cfg(target_os = "macos")]
 mod secure;
+mod terminal;
 mod undo;
 mod windows;
 mod wrap;

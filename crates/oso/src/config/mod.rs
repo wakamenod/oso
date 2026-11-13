@@ -28,6 +28,7 @@ mod outcome;
 mod problems;
 mod settings;
 mod source;
+mod terminal;
 mod trust;
 mod watch;
 
@@ -49,6 +50,7 @@ pub use settings::Settings;
 #[cfg(test)]
 pub use source::FILE_NAME;
 pub use source::Source;
+pub use terminal::Terminal;
 pub use trust::{Record, TRUST_FILE_NAME, TrustFile};
 pub use watch::{Reader, Report};
 
@@ -184,6 +186,7 @@ fn apply(root: &DeTable<'_>, builtin: Builtin<'_>, found: &mut Found) -> (Keymap
             "jump" => settings.jump = settings::jump(value, found),
             "indent" => settings.indent = indentation::indent(value, found),
             "modes" => settings.modes = indentation::modes(value, found),
+            "terminal" => settings.terminal = terminal::terminal(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),
@@ -268,5 +271,7 @@ mod keys_tests;
 mod menus_tests;
 #[cfg(test)]
 mod search_tests;
+#[cfg(test)]
+mod terminal_tests;
 #[cfg(test)]
 mod tests;

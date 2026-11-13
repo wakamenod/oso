@@ -1,10 +1,12 @@
 //! libghostty-vt as oso-term's `Engine` (ADR 0120, step 1's choice): snapshots from the
 //! render state's dirty rows, packed cells decoded with the bit positions `manifest_tests`
-//! checks against the library's manifest, and a style read once per style id per row.
+//! checks against the library's manifest, and a style read once per style id per row; keys
+//! through the library's encoder, and the view moved over the scrollback by the library.
 //!
 //! Must not depend on: the policy or the thread. This file is safe code over `raw`.
 
 mod ffi;
+mod keys;
 mod raw;
 
 #[cfg(test)]
@@ -12,12 +14,14 @@ mod manifest_tests;
 #[cfg(test)]
 pub(crate) mod tests;
 
+use oso_core::key::KeyPress;
 use oso_platform::process::pty::Size;
 
 use super::{Effect, Engine};
 use crate::limits;
 use crate::snapshot::{
-    Attrs, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Rgb, Row, Snapshot, Underline,
+    Attrs, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Rgb, Row, Scroll, Snapshot,
+    Underline,
 };
 use raw::Vt;
 
@@ -51,6 +55,7 @@ pub(crate) struct Ghostty {
     cursor: Cursor,
     modes: Modes,
     history: usize,
+    scrolled: usize,
     raw: Vec<ffi::Cell>,
     grapheme: [u8; limits::GRAPHEME_MAX],
     /// The row's styles read so far, as cells, by style id: a direct-mapped cache, cleared
@@ -73,6 +78,7 @@ impl Ghostty {
             cursor: Cursor::default(),
             modes: Modes::default(),
             history: 0,
+            scrolled: 0,
             raw: Vec::new(),
             grapheme: [0; limits::GRAPHEME_MAX],
             styles: [(0, Cell::default()); STYLES_CACHED],
@@ -162,7 +168,9 @@ impl Ghostty {
         }
     }
 
-    fn read_modes(&self) -> (Modes, usize) {
+    /// The modes, the scrollback's length and how far the view is scrolled back from the
+    /// bottom.
+    fn read_modes(&self) -> (Modes, usize, usize) {
         let state = self.vt.state();
         let [cursor_keys, paste, focus, click, drag, motion, sgr] = self.vt.dec_modes(MODES);
         let mouse = if motion {
@@ -183,7 +191,10 @@ impl Ghostty {
             sgr_mouse: sgr,
             kitty_keyboard: state.kitty_keyboard,
         };
-        (modes, state.history)
+        let bar = state.scrollbar;
+        let below = bar.offset.saturating_add(bar.len);
+        let scrolled = usize::try_from(bar.total.saturating_sub(below)).unwrap_or(usize::MAX);
+        (modes, state.history, scrolled)
     }
 }
 
@@ -235,14 +246,37 @@ impl Engine for Ghostty {
         }
         self.vt.clean();
         let cursor = Self::read_cursor(&frame);
-        let (modes, history) = self.read_modes();
-        changed |= cursor != self.cursor || modes != self.modes || history != self.history;
-        (self.cursor, self.modes, self.history) = (cursor, modes, history);
+        let (modes, history, scrolled) = self.read_modes();
+        changed |= cursor != self.cursor
+            || modes != self.modes
+            || history != self.history
+            || scrolled != self.scrolled;
+        (self.cursor, self.modes) = (cursor, modes);
+        (self.history, self.scrolled) = (history, scrolled);
         out.size = self.size;
         out.cursor = cursor;
         out.modes = modes;
         out.history = history;
+        out.scrolled = scrolled;
         changed
+    }
+
+    fn encode_key(&mut self, key: KeyPress, out: &mut [u8; limits::KEY_BYTES_MAX]) -> usize {
+        self.vt.encode_key(&keys::input(key), out)
+    }
+
+    fn scroll(&mut self, scroll: Scroll) {
+        // No view moves further than the most scrollback and rows there can be.
+        let most = (limits::SCROLLBACK_MAX + usize::from(limits::MAX_ROWS)) as isize;
+        match scroll {
+            Scroll::Lines(0) => {}
+            Scroll::Lines(delta) => self.vt.scroll(Some(delta.clamp(-most, most))),
+            Scroll::Bottom => self.vt.scroll(None),
+        }
+    }
+
+    fn modes(&self) -> Modes {
+        self.read_modes().0
     }
 
     fn take_effects(&mut self, out: &mut Vec<Effect>) {

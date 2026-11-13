@@ -1,9 +1,10 @@
-//! libghostty-vt's callbacks into oso-term (ADR 0120). They run inside
-//! `ghostty_terminal_vt_write` and `ghostty_terminal_resize`, only push onto the `Sink`, never
-//! call back into a function that writes the terminal, and catch any panic, which must not
-//! unwind into the library.
+//! libghostty-vt's callbacks into oso-term (ADR 0120), and the `Sink` they write to: the
+//! effects raised while the library runs, each bounded, and what the callbacks answer from.
+//! They run inside `ghostty_terminal_vt_write` and `ghostty_terminal_resize`, only push onto
+//! the `Sink`, never call back into a function that writes the terminal, and catch any panic,
+//! which must not unwind into the library.
 //!
-//! Must not depend on: anything but `ffi`, the `Sink` and the effect types.
+//! Must not depend on: anything but `ffi` and the effect types.
 
 #![expect(unsafe_code, reason = "the library's C API (ADR 0120)")]
 
@@ -11,10 +12,77 @@ use std::ffi::{c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use super::super::ffi;
-use super::Sink;
 use crate::engine::{Effect, PromptMark};
 use crate::event::Progress;
 use crate::limits;
+
+/// What the callbacks write to while the library runs.
+pub(crate) struct Sink {
+    effects: Vec<Effect>,
+    /// What `XTVERSION` answers.
+    xtversion: &'static str,
+    /// Reply bytes among `effects`.
+    reply_bytes: usize,
+    /// What the text area size reports (`CSI 14 t`, `CSI 18 t`) answer.
+    pub(super) size: ffi::SizeReportSize,
+    /// The last synchronized-update state raised, and whether a hold ended before it. Holds
+    /// are kept apart from `effects`, whatever their room: a hold is never dropped, and a
+    /// program toggling mode 2026 costs at most two effects per take.
+    hold: Option<bool>,
+    hold_ended: bool,
+}
+
+impl Sink {
+    pub(super) fn new(xtversion: &'static str, columns: u16, rows: u16) -> Sink {
+        Sink {
+            effects: Vec::new(),
+            xtversion,
+            reply_bytes: 0,
+            size: ffi::SizeReportSize {
+                rows,
+                columns,
+                cell_width: 0,
+                cell_height: 0,
+            },
+            hold: None,
+            hold_ended: false,
+        }
+    }
+
+    pub(super) fn push(&mut self, effect: Effect) {
+        if let Effect::Hold(held) = effect {
+            self.hold_ended |= !held;
+            self.hold = Some(held);
+        } else if self.has_room() {
+            self.effects.push(effect);
+        }
+    }
+
+    /// Whether another effect would be kept; a callback checks before it copies anything.
+    pub(super) fn has_room(&self) -> bool {
+        self.effects.len() < limits::EFFECTS_PENDING_MAX
+    }
+
+    pub(super) fn reply(&mut self, bytes: &[u8]) {
+        if self.reply_bytes + bytes.len() <= limits::REPLIES_PENDING_MAX {
+            self.reply_bytes += bytes.len();
+            self.push(Effect::Reply(bytes.to_vec()));
+        }
+    }
+
+    /// Moves the effects raised since the last take into `out`, the hold's last.
+    pub(crate) fn take(&mut self, out: &mut Vec<Effect>) {
+        out.append(&mut self.effects);
+        self.reply_bytes = 0;
+        if let Some(held) = self.hold.take() {
+            if held && self.hold_ended {
+                out.push(Effect::Hold(false));
+            }
+            out.push(Effect::Hold(held));
+        }
+        self.hold_ended = false;
+    }
+}
 
 /// Runs a callback's body, so that a panic never unwinds into the library.
 fn guarded<T>(fallback: T, body: impl FnOnce() -> T) -> T {
@@ -82,6 +150,11 @@ pub(super) extern "C" fn on_write_pty(
 pub(super) extern "C" fn on_bell(_terminal: ffi::Terminal, ud: *mut c_void) {
     // SAFETY: called by the library with `configure`'s userdata.
     guarded((), || unsafe { sink(ud) }.push(Effect::Bell));
+}
+
+pub(super) extern "C" fn on_render_hold(_terminal: ffi::Terminal, ud: *mut c_void, held: bool) {
+    // SAFETY: called by the library with `configure`'s userdata.
+    guarded((), || unsafe { sink(ud) }.push(Effect::Hold(held)));
 }
 
 pub(super) extern "C" fn on_xtversion(_terminal: ffi::Terminal, ud: *mut c_void) -> ffi::GString {

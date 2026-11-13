@@ -38,10 +38,48 @@ const fn rgba(rgb: u32, alpha: f32) -> Color {
 impl Color {
     /// In linear RGB, as the GPU blends.
     fn linear(self) -> [f32; 4] {
-        let channel = |shift: u32| decode(((self.rgb >> shift) & 0xff) as f32 / 255.0);
-        [channel(16), channel(8), channel(0), self.alpha]
+        let [r, g, b] = self.bytes();
+        let channel = |byte: u8| decode(f32::from(byte) / 255.0);
+        [channel(r), channel(g), channel(b), self.alpha]
+    }
+
+    /// Its sRGB bytes, red first. The alpha is left out.
+    fn bytes(self) -> [u8; 3] {
+        let [_, r, g, b] = self.rgb.to_be_bytes();
+        [r, g, b]
     }
 }
+
+/// A theme's colours as a terminal's engine is given them, to answer a program that asks
+/// (ADR 0120): the text's foreground and background, the cursor box's colour and the 16
+/// terminal faces', in sRGB bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalPalette {
+    pub foreground: [u8; 3],
+    pub background: [u8; 3],
+    pub cursor: [u8; 3],
+    pub ansi: [[u8; 3]; 16],
+}
+
+/// The terminal faces, colour 0 first.
+const TERMINAL: [Face; 16] = [
+    Face::TerminalColor0,
+    Face::TerminalColor1,
+    Face::TerminalColor2,
+    Face::TerminalColor3,
+    Face::TerminalColor4,
+    Face::TerminalColor5,
+    Face::TerminalColor6,
+    Face::TerminalColor7,
+    Face::TerminalColor8,
+    Face::TerminalColor9,
+    Face::TerminalColor10,
+    Face::TerminalColor11,
+    Face::TerminalColor12,
+    Face::TerminalColor13,
+    Face::TerminalColor14,
+    Face::TerminalColor15,
+];
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
 /// over 16), and the shadow's and border's colours (ADR 0075, ADR 0076). A light theme wants a
@@ -118,6 +156,7 @@ pub struct Theme {
     background: [[f32; 4]; FACES.len()],
     panel: PanelStyle,
     text: TextGamma,
+    terminal: TerminalPalette,
 }
 
 impl Theme {
@@ -128,6 +167,11 @@ impl Theme {
 
     pub fn kind(&self) -> Kind {
         self.kind
+    }
+
+    /// Its colours as a terminal's engine is given them (ADR 0120).
+    pub fn terminal_palette(&self) -> TerminalPalette {
+        self.terminal
     }
 
     /// The colour of `face`'s coverage glyphs.
@@ -169,6 +213,15 @@ impl Theme {
             FACES.map(|face| (source.palette)(pick((source.faces)(face))).linear())
         };
         let palette = |name| (source.palette)(name).linear();
+        let bytes = |face, pick: fn((Name, Name)) -> Name| {
+            (source.palette)(pick((source.faces)(face))).bytes()
+        };
+        let terminal = TerminalPalette {
+            foreground: bytes(Face::Text, |(fg, _)| fg),
+            background: bytes(Face::Text, |(_, bg)| bg),
+            cursor: bytes(Face::Cursor, |(_, bg)| bg),
+            ansi: TERMINAL.map(|face| bytes(face, |(fg, _)| fg)),
+        };
         Self {
             name: source.name,
             kind: source.kind,
@@ -180,6 +233,7 @@ impl Theme {
                 ..SIZES
             },
             text: source.text,
+            terminal,
         }
     }
 }
@@ -190,7 +244,7 @@ impl Theme {
 pub(crate) const SYNTAX_FILLS: [Face; 1] = [Face::CurrentLine];
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 49] = [
+const FACES: [Face; 65] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -240,6 +294,22 @@ const FACES: [Face; 49] = [
     Face::MenuKeySwitch,
     Face::MenuTitle,
     Face::MenuNote,
+    Face::TerminalColor0,
+    Face::TerminalColor1,
+    Face::TerminalColor2,
+    Face::TerminalColor3,
+    Face::TerminalColor4,
+    Face::TerminalColor5,
+    Face::TerminalColor6,
+    Face::TerminalColor7,
+    Face::TerminalColor8,
+    Face::TerminalColor9,
+    Face::TerminalColor10,
+    Face::TerminalColor11,
+    Face::TerminalColor12,
+    Face::TerminalColor13,
+    Face::TerminalColor14,
+    Face::TerminalColor15,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -295,6 +365,22 @@ const fn index(face: Face) -> usize {
         Face::MenuKeySwitch => 46,
         Face::MenuTitle => 47,
         Face::MenuNote => 48,
+        Face::TerminalColor0 => 49,
+        Face::TerminalColor1 => 50,
+        Face::TerminalColor2 => 51,
+        Face::TerminalColor3 => 52,
+        Face::TerminalColor4 => 53,
+        Face::TerminalColor5 => 54,
+        Face::TerminalColor6 => 55,
+        Face::TerminalColor7 => 56,
+        Face::TerminalColor8 => 57,
+        Face::TerminalColor9 => 58,
+        Face::TerminalColor10 => 59,
+        Face::TerminalColor11 => 60,
+        Face::TerminalColor12 => 61,
+        Face::TerminalColor13 => 62,
+        Face::TerminalColor14 => 63,
+        Face::TerminalColor15 => 64,
     }
 }
 
@@ -359,6 +445,23 @@ fn faces(face: Face) -> (Name, Name) {
         Face::MenuKeySwitch => (FgMenuKey, BgMenuSwitch),
         Face::MenuTitle => (Azure, BgMain),
         Face::MenuNote => (Slate, BgMain),
+        // One colour each, on the text's background (ADR 0120).
+        Face::TerminalColor0 => (Terminal(0), BgMain),
+        Face::TerminalColor1 => (Terminal(1), BgMain),
+        Face::TerminalColor2 => (Terminal(2), BgMain),
+        Face::TerminalColor3 => (Terminal(3), BgMain),
+        Face::TerminalColor4 => (Terminal(4), BgMain),
+        Face::TerminalColor5 => (Terminal(5), BgMain),
+        Face::TerminalColor6 => (Terminal(6), BgMain),
+        Face::TerminalColor7 => (Terminal(7), BgMain),
+        Face::TerminalColor8 => (Terminal(8), BgMain),
+        Face::TerminalColor9 => (Terminal(9), BgMain),
+        Face::TerminalColor10 => (Terminal(10), BgMain),
+        Face::TerminalColor11 => (Terminal(11), BgMain),
+        Face::TerminalColor12 => (Terminal(12), BgMain),
+        Face::TerminalColor13 => (Terminal(13), BgMain),
+        Face::TerminalColor14 => (Terminal(14), BgMain),
+        Face::TerminalColor15 => (Terminal(15), BgMain),
     }
 }
 
@@ -387,7 +490,7 @@ pub fn themes() -> Vec<Theme> {
 }
 
 /// An sRGB value in linear light.
-fn decode(value: f32) -> f32 {
+pub(crate) fn decode(value: f32) -> f32 {
     if value <= 0.04045 {
         value / 12.92
     } else {
@@ -478,6 +581,7 @@ pub(crate) mod tests {
 
     /// What each face's foreground must reach on which background (ADR 0089). A match with no
     /// wildcard, so that a new face does not compile until it has its pairs.
+    #[expect(clippy::too_many_lines, reason = "one arm per face or group of faces")]
     fn pairs(face: Face) -> &'static [(Face, f32)] {
         const READ: f32 = 7.0;
         const LABEL: f32 = 4.5;
@@ -559,6 +663,24 @@ pub(crate) mod tests {
             Face::MenuKey => &[(Face::MenuKey, LABEL)],
             Face::MenuKeyStay => &[(Face::MenuKeyStay, LABEL)],
             Face::MenuKeySwitch => &[(Face::MenuKeySwitch, LABEL)],
+            // A terminal's colours are read on the text's background, as highlighted text is,
+            // but its blacks, greys and whites, which programs draw on one another (ADR 0120).
+            Face::TerminalColor1
+            | Face::TerminalColor2
+            | Face::TerminalColor3
+            | Face::TerminalColor4
+            | Face::TerminalColor5
+            | Face::TerminalColor6
+            | Face::TerminalColor9
+            | Face::TerminalColor10
+            | Face::TerminalColor11
+            | Face::TerminalColor12
+            | Face::TerminalColor13
+            | Face::TerminalColor14 => &[(Face::Text, READ)],
+            Face::TerminalColor0
+            | Face::TerminalColor7
+            | Face::TerminalColor8
+            | Face::TerminalColor15 => &[],
             // Drawn as fills or lines, checked as such below.
             Face::Preedit
             | Face::FloatBorder
@@ -1037,6 +1159,52 @@ pub(crate) mod tests {
                 }
             }
         }
+    }
+
+    /// A terminal's colours 1 to 6 and 9 to 14 are read on the text's background at 7:1, the
+    /// floor highlighted text has there (ADR 0120).
+    #[test]
+    fn a_terminals_colours_are_read_on_the_text_background() {
+        for theme in &themes() {
+            let behind = theme.background(Face::Text);
+            for n in [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14] {
+                let face = TERMINAL[n];
+                let ratio = contrast(over(theme.foreground(face), behind), behind);
+                assert!(ratio >= 7.0, "{}: {face:?} {ratio:.2}", theme.name());
+            }
+        }
+    }
+
+    /// The colours a terminal's engine is given are the faces' (ADR 0120).
+    #[test]
+    fn a_terminal_palette_is_the_faces_colours() {
+        let linear = |[r, g, b]: [u8; 3]| rgb(u32::from_be_bytes([0, r, g, b])).linear();
+        for theme in &themes() {
+            let palette = theme.terminal_palette();
+            let name = theme.name();
+            assert_eq!(
+                linear(palette.foreground),
+                theme.foreground(Face::Text),
+                "{name}"
+            );
+            assert_eq!(
+                linear(palette.background),
+                theme.background(Face::Text),
+                "{name}"
+            );
+            assert_eq!(
+                linear(palette.cursor),
+                theme.background(Face::Cursor),
+                "{name}"
+            );
+            for (n, colour) in palette.ansi.iter().enumerate() {
+                let face = TERMINAL[n];
+                assert_eq!(linear(*colour), theme.foreground(face), "{name}: {face:?}");
+            }
+        }
+        let dark = themes()[0].terminal_palette();
+        assert_eq!(dark.background, [0x0d, 0x0e, 0x12]);
+        assert_eq!(dark.ansi[1], [0xff, 0x8f, 0x87]);
     }
 
     #[test]

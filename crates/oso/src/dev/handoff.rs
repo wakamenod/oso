@@ -90,14 +90,26 @@ pub fn export(
         return Err(SECRET_SHOWN.into());
     }
     held(editor)?;
+    // Until terminals are handed over (ADR 0120, step 11), one with a program running holds
+    // the restart, which would end it.
+    if let Some((_, buffer)) = editor
+        .buffers()
+        .find(|(_, buffer)| buffer.is_terminal() && buffer.is_running())
+    {
+        return Err(format!(
+            "cannot hand over {}: a program runs in it",
+            buffer.name()
+        ));
+    }
     carried_bytes(editor)?;
     let mut items = Vec::new();
     let mut buffers = Vec::new();
     // A file the agent channel is still opening goes with its open: the next instance would
     // hold it as an ordinary buffer, unchecked (ADR 0094).
+    // An ended terminal's buffer holds no text: it is not handed over (ADR 0120).
     for (id, buffer) in editor
         .buffers()
-        .filter(|(_, buffer)| !buffer.agent_pending())
+        .filter(|(_, buffer)| !buffer.agent_pending() && !buffer.is_terminal())
     {
         buffers.push(buffer_state(id, buffer, &mut items)?);
     }
@@ -107,8 +119,10 @@ pub fn export(
     let mut stand_ins = Vec::new();
     for window in editor.windows() {
         let id = window.buffer();
-        if editor.shown(window).is_internal()
-            && behind_internal(editor, window).is_none()
+        let shown = editor.shown(window);
+        // So does a window on an ended terminal, which is not handed over.
+        if (shown.is_terminal()
+            || (shown.is_internal() && behind_internal(editor, window).is_none()))
             && !stand_ins.contains(&id)
         {
             stand_ins.push(id);

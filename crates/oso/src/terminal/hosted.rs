@@ -1,0 +1,309 @@
+//! The terminals the app hosts, by their buffers' ids (ADR 0120): each one's handle to its
+//! thread, the screen the UI keeps, how it reads keys, and which window's size it takes. A
+//! terminal starts on a thread of its own, which finds the shell, since that looks at the disk
+//! and may ask the user database, never on the UI thread.
+//!
+//! Must not depend on: `app`, `config` or `dispatch`. The app gives the settings, and wakes
+//! itself through the functions it hands in.
+
+use std::collections::HashMap;
+use std::io;
+use std::path::PathBuf;
+
+use oso_core::buffer::BufferId;
+use oso_core::window::WindowId;
+use oso_platform::process::pty::Size;
+use oso_platform::process::{self, Executable};
+use oso_term::{End, Palette, Start, Terminal};
+
+use super::grid::Grid;
+use super::route::Input;
+use super::shell::{self, Settings};
+
+/// One hosted terminal.
+pub(crate) struct Hosted {
+    /// Its thread, once the start thread handed it over; `None` before, and after the end.
+    pub terminal: Option<Terminal>,
+    pub grid: Grid,
+    /// The window whose size the PTY takes: the last that selected it (ADR 0120).
+    pub owner: Option<WindowId>,
+    /// The size last given to the PTY.
+    pub sized: Option<Size>,
+    /// The program's title (OSC 0, 1, 2), already cleaned by the policy.
+    pub title: String,
+    /// How the program ended, for the modeline: `exited 0`, `ended`.
+    pub ended: Option<String>,
+    /// A paste of several lines waits for the person's yes, without bracketed paste.
+    pub pending_paste: Option<String>,
+    /// A snapshot is ready to take.
+    pub ready: bool,
+    /// When it was last selected, by the app's count, for `terminal`'s "last".
+    pub selected: u64,
+    /// Whether the program was last told it has the focus (mode 1004).
+    pub focused: Option<bool>,
+    /// The note the modeline was last given, so that it is set only on a change.
+    pub note: String,
+}
+
+impl Hosted {
+    fn new() -> Hosted {
+        Hosted {
+            terminal: None,
+            grid: Grid::default(),
+            owner: None,
+            sized: None,
+            title: String::new(),
+            ended: None,
+            pending_paste: None,
+            ready: false,
+            selected: 0,
+            focused: None,
+            note: String::new(),
+        }
+    }
+
+    /// Whether a program runs: started, and not ended.
+    pub(crate) fn running(&self) -> bool {
+        self.ended.is_none()
+    }
+
+    /// What the modeline says after `Terminal`: the input mode, how it ended, the title.
+    pub(crate) fn note_text(&self, input: Input) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        if input == Input::Char {
+            parts.push("char");
+        }
+        if let Some(ended) = &self.ended {
+            parts.push(ended);
+        }
+        if !self.title.is_empty() {
+            parts.push(&self.title);
+        }
+        parts.join("  ")
+    }
+}
+
+/// Every hosted terminal.
+#[derive(Default)]
+pub(crate) struct Terminals {
+    map: HashMap<BufferId, Hosted>,
+    /// Counts selections, for "the last selected".
+    clock: u64,
+}
+
+impl Terminals {
+    /// Adds a terminal for `buffer`, which starts on its own thread.
+    pub(crate) fn add(&mut self, buffer: BufferId) -> &mut Hosted {
+        self.clock += 1;
+        let hosted = self.map.entry(buffer).or_insert_with(Hosted::new);
+        hosted.selected = self.clock;
+        hosted
+    }
+
+    pub(crate) fn get(&self, buffer: BufferId) -> Option<&Hosted> {
+        self.map.get(&buffer)
+    }
+
+    pub(crate) fn get_mut(&mut self, buffer: BufferId) -> Option<&mut Hosted> {
+        self.map.get_mut(&buffer)
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (BufferId, &Hosted)> {
+        self.map.iter().map(|(id, hosted)| (*id, hosted))
+    }
+
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (BufferId, &mut Hosted)> {
+        self.map.iter_mut().map(|(id, hosted)| (*id, hosted))
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Notes that `window` selected `buffer`'s terminal: its PTY takes that window's size.
+    pub(crate) fn selected(&mut self, buffer: BufferId, window: WindowId) {
+        self.clock += 1;
+        if let Some(hosted) = self.map.get_mut(&buffer) {
+            hosted.selected = self.clock;
+            hosted.owner = Some(window);
+        }
+    }
+
+    /// The terminal still running that was selected last, for `terminal` (ADR 0120, Q2).
+    pub(crate) fn last_running(&self) -> Option<BufferId> {
+        self.map
+            .iter()
+            .filter(|(_, hosted)| hosted.running())
+            .max_by_key(|(_, hosted)| hosted.selected)
+            .map(|(id, _)| *id)
+    }
+
+    /// Drops the terminals whose buffers are gone, which hangs each up. `alive` says which
+    /// buffers still are.
+    pub(crate) fn retain(&mut self, mut alive: impl FnMut(BufferId) -> bool) -> Vec<Hosted> {
+        let gone: Vec<BufferId> = self.map.keys().copied().filter(|id| !alive(*id)).collect();
+        gone.iter().filter_map(|id| self.map.remove(id)).collect()
+    }
+}
+
+/// What a terminal starts with, from the app.
+pub(crate) struct Request {
+    pub buffer: BufferId,
+    pub settings: Settings,
+    pub cwd: Option<PathBuf>,
+    pub project: Option<PathBuf>,
+    pub size: Size,
+    pub palette: Palette,
+}
+
+/// What the start thread found.
+#[derive(Debug)]
+pub(crate) struct Started {
+    pub buffer: BufferId,
+    pub outcome: io::Result<Launched>,
+}
+
+/// A terminal that started, and what to say of it.
+#[derive(Debug)]
+pub(crate) struct Launched {
+    pub terminal: Terminal,
+    /// The shell's path, for `*Messages*` (ADR 0120, step 4's Q9).
+    pub shell: PathBuf,
+    /// Shells passed over before it, and why.
+    pub passed_over: Vec<String>,
+}
+
+/// Starts `request`'s terminal from a thread of its own, which finds the shell, then hands
+/// the terminal to `started`. `ready` is called from the terminal's thread whenever a
+/// snapshot is ready.
+///
+/// # Errors
+///
+/// When no thread can start.
+pub(crate) fn start(
+    request: Request,
+    started: Box<dyn FnOnce(Started) + Send>,
+    ready: Box<dyn Fn() + Send>,
+) -> io::Result<()> {
+    std::thread::Builder::new()
+        .name("oso-terminal-start".into())
+        .spawn(move || {
+            let buffer = request.buffer;
+            let outcome = launch(request, ready);
+            started(Started { buffer, outcome });
+        })
+        .map(drop)
+}
+
+fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched> {
+    let Request {
+        settings,
+        cwd,
+        project,
+        size,
+        palette,
+        ..
+    } = request;
+    let candidates = shell::candidates(
+        settings.shell.as_deref(),
+        std::env::var_os("SHELL").as_deref(),
+        process::account_shell,
+    );
+    let found = shell::resolve(candidates, |path| Executable::absolute(path))?;
+    let start = Start {
+        executable: found.executable,
+        args: shell::args(settings.login),
+        cwd,
+        project,
+        inherit: shell::inherit(&settings.env),
+        set: shell::set(&found.path),
+        size,
+        scrollback: settings.scrollback,
+        palette,
+    };
+    let terminal = Terminal::start(start, ready)?;
+    Ok(Launched {
+        terminal,
+        shell: found.path,
+        passed_over: found.passed_over,
+    })
+}
+
+/// How `end` reads in the modeline.
+pub(crate) fn ended(end: &End) -> String {
+    match end {
+        End::Exited(status) => match status.code() {
+            Some(code) => format!("exited {code}"),
+            None => signal(status),
+        },
+        End::Closed => "ended".to_owned(),
+        End::Failed(_) => "failed".to_owned(),
+    }
+}
+
+#[cfg(unix)]
+fn signal(status: &std::process::ExitStatus) -> String {
+    use std::os::unix::process::ExitStatusExt;
+    status.signal().map_or_else(
+        || "ended".to_owned(),
+        |signal| format!("killed by signal {signal}"),
+    )
+}
+
+#[cfg(not(unix))]
+fn signal(_: &std::process::ExitStatus) -> String {
+    "ended".to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use oso_core::buffer::BufferId;
+    use oso_core::editor::Editor;
+
+    use super::{Input, Terminals};
+
+    fn ids() -> (BufferId, BufferId) {
+        let mut editor = Editor::default();
+        (
+            editor.add_terminal_buffer("*terminal*"),
+            editor.add_terminal_buffer("*terminal*"),
+        )
+    }
+
+    #[test]
+    fn the_last_running_is_the_one_selected_last() {
+        let (a, b) = ids();
+        let mut terminals = Terminals::default();
+        terminals.add(a);
+        terminals.add(b);
+        assert_eq!(terminals.last_running(), Some(b));
+        let window = Editor::default().window().id();
+        terminals.selected(a, window);
+        assert_eq!(terminals.last_running(), Some(a));
+        terminals.get_mut(a).unwrap().ended = Some("exited 0".into());
+        assert_eq!(terminals.last_running(), Some(b));
+    }
+
+    #[test]
+    fn the_note_says_char_mode_the_end_and_the_title() {
+        let (a, _) = ids();
+        let mut terminals = Terminals::default();
+        let hosted = terminals.add(a);
+        assert_eq!(hosted.note_text(Input::SemiChar), "");
+        hosted.title = "vim".into();
+        hosted.ended = Some("exited 1".into());
+        assert_eq!(hosted.note_text(Input::Char), "char  exited 1  vim");
+    }
+
+    #[test]
+    fn gone_buffers_drop_their_terminals() {
+        let (a, b) = ids();
+        let mut terminals = Terminals::default();
+        terminals.add(a);
+        terminals.add(b);
+        let dropped = terminals.retain(|id| id == b);
+        assert_eq!(dropped.len(), 1);
+        assert!(terminals.get(a).is_none());
+        assert!(terminals.get(b).is_some());
+    }
+}

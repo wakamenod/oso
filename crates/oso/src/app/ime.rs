@@ -31,8 +31,9 @@ use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
     // Letters answer among the copies (ADR 0064).
     let answers = buffer.mode().shows_copies();
-    // So that a letter fails at once, and not after a whole composition.
-    let refuses = buffer.read_only().is_some();
+    // So that a letter fails at once, and not after a whole composition. A terminal is
+    // read-only, but what is typed there goes to its program (ADR 0120).
+    let refuses = buffer.read_only().is_some() && !buffer.is_terminal();
     // As macOS password fields do.
     let secret = buffer.is_secret();
     !(answers || refuses || secret || reads_keys || reads_input)
@@ -303,6 +304,11 @@ impl App {
     /// method's commits go. Returns whether it asked for a frame.
     fn commit(&mut self, event_loop: &Loop<'_>, text: &str) -> bool {
         log::trace!("commit");
+        // The committed text goes to a terminal's program as UTF-8 (ADR 0120).
+        if self.types_into_terminal() {
+            self.send_text(text);
+            return false;
+        }
         let effects = self.dispatcher.commit_text(&mut self.editor, text);
         self.note_logging();
         self.apply(event_loop, effects);
@@ -324,7 +330,14 @@ impl App {
         else {
             return;
         };
-        let Some(area) = self.editor.cursor_area(view.render_state.pixel_grid()) else {
+        let grid = view.render_state.pixel_grid();
+        // In a terminal, the program's cursor cell, even while it hides the cursor (ADR 0120).
+        let area = if self.editor.current().1.is_terminal() {
+            self.terminal_cursor_area(grid)
+        } else {
+            self.editor.cursor_area(grid)
+        };
+        let Some(area) = area else {
             return;
         };
         let scale = view.window.scale_factor();
@@ -345,9 +358,12 @@ impl App {
             return;
         };
         let mut positions = std::mem::take(&mut self.ime.scratch);
-        let first = self
-            .editor
-            .preedit_layout(view.render_state.pixel_grid(), &mut positions);
+        let grid = view.render_state.pixel_grid();
+        let first = if self.editor.current().1.is_terminal() {
+            self.terminal_preedit_layout(grid, &mut positions)
+        } else {
+            self.editor.preedit_layout(grid, &mut positions)
+        };
         let text = first
             .and(self.editor.preedit())
             .map_or("", |preedit| preedit.text());

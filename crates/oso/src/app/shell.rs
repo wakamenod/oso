@@ -332,6 +332,7 @@ fn translate(event: WindowEvent) -> Event<'static> {
         }
         WindowEvent::Occluded(occluded) => Event::Occluded(occluded),
         WindowEvent::Focused(true) => Event::Focused,
+        WindowEvent::Focused(false) => Event::Unfocused,
         WindowEvent::RedrawRequested => Event::RedrawRequested,
         WindowEvent::ModifiersChanged(modifiers) => {
             Event::ModifiersChanged(held(modifiers.state()))
@@ -545,7 +546,7 @@ mod tests {
         ));
         assert!(matches!(
             translate(WindowEvent::Focused(false)),
-            Event::Other
+            Event::Unfocused
         ));
     }
 

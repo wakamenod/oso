@@ -41,6 +41,7 @@ mod prompts;
 #[cfg(any(test, feature = "dev"))]
 mod run_command;
 mod shown;
+mod terminal;
 
 use keymaps::Keymaps;
 use shown::{masked, reads_passphrase};
@@ -105,6 +106,9 @@ pub struct Dispatcher {
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
+    /// How each terminal reads keys, and what waits there for the next key (ADR 0120).
+    terminal_keys:
+        std::collections::HashMap<oso_core::buffer::BufferId, crate::terminal::route::State>,
     /// The only commands `M-x` lists, for snapshots that a new command must not change.
     #[cfg(test)]
     m_x_only: Option<&'static [&'static str]>,
@@ -154,6 +158,7 @@ impl Dispatcher {
             completion_held: None,
             view_jumped: None,
             ran_for_agent: false,
+            terminal_keys: std::collections::HashMap::new(),
             #[cfg(test)]
             m_x_only: None,
         }
@@ -467,6 +472,10 @@ impl Dispatcher {
         if self.hold_key(key) {
             return Effects::default();
         }
+        // Before a macro records it: a key for a terminal's program is not recorded.
+        if let Some(effects) = self.route_to_terminal(editor, key) {
+            return effects;
+        }
         self.macro_key(editor, key);
         let effects = self.as_input(editor, |this, editor| this.resolve_key(editor, key));
         self.macro_after(editor);
@@ -647,6 +656,8 @@ mod replace_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod terminal_tests;
 #[cfg(test)]
 mod undo_tests;
 #[cfg(test)]

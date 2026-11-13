@@ -20,7 +20,10 @@ use super::{App, UserEvent};
 fn keeps_state_true(event: &Event<'_>) -> bool {
     matches!(
         event,
-        Event::ModifiersChanged(_) | Event::Resized { .. } | Event::ScaleFactorChanged(_)
+        Event::ModifiersChanged(_)
+            | Event::Resized { .. }
+            | Event::ScaleFactorChanged(_)
+            | Event::Unfocused
     )
 }
 
@@ -31,6 +34,7 @@ impl App {
         self.sync_ime_after_event(event_loop);
         self.sync_agent();
         self.sync_sessions();
+        self.sync_terminals();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
     }
@@ -73,6 +77,8 @@ impl App {
             UserEvent::Agent(request) => self.handle_agent(event_loop, request),
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
+            UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
+            UserEvent::TerminalStarted(started) => self.terminal_started(*started),
             // `after_event` looks at the deadlines.
             UserEvent::AgentDeadline => {}
         }
@@ -140,9 +146,13 @@ impl App {
 
             // ---- In front again: another program may have changed open files ----
             Event::Focused => {
+                self.terminals.focused = true;
                 self.window_focused();
                 self.look_at_configuration_again();
             }
+
+            // ---- Elsewhere: a terminal's program that asks is told (ADR 0120) ----
+            Event::Unfocused => self.terminals.focused = false,
 
             // ---- Redraw ----
             Event::RedrawRequested => self.draw_frame(),

@@ -83,6 +83,8 @@ pub struct InForce {
     /// Each mode's indentation, in the order of `config::MODES`, with where each property
     /// came from: the file or the compiled-in default.
     pub mode_indents: [(indent::Settings, indent::Origins); 4],
+    /// `[terminal]`, as the file gives it: it applies to the next terminal started (ADR 0120).
+    pub terminal: super::Terminal,
 }
 
 impl InForce {
@@ -107,6 +109,7 @@ impl InForce {
             },
             electric_indent: true,
             mode_indents: [Default::default(); 4],
+            terminal: super::Terminal::default(),
         }
     }
 
@@ -142,6 +145,7 @@ impl InForce {
                 let mode = settings.modes[index];
                 (mode.over(compiled.mode_indents[index].0), mode.origins())
             }),
+            terminal: settings.terminal.clone(),
         }
     }
 
@@ -230,6 +234,7 @@ mod tests {
                 },
                 electric_indent: true,
                 mode_indents: [Default::default(); 4],
+                terminal: crate::config::Terminal::default(),
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -282,6 +287,7 @@ mod tests {
                 },
                 electric_indent: true,
                 mode_indents: [Default::default(); 4],
+                terminal: crate::config::Terminal::default(),
             }
         );
     }

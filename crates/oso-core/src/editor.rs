@@ -67,6 +67,7 @@ mod sessions;
 mod status;
 mod switch;
 mod tab;
+mod terminals;
 mod themes;
 mod trim;
 mod undo_group;
@@ -106,6 +107,7 @@ pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use sessions::SessionRequest;
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
+pub use terminals::TerminalRequest;
 pub use themes::NoSuchTheme;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
@@ -247,6 +249,7 @@ pub struct Editor {
     agent: agent::Agent,
     /// What commands asked of the host about agent sessions (ADR 0121).
     session_requests: Vec<SessionRequest>,
+    terminal_requests: Vec<TerminalRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// Migemo's setting, its dictionary, and the needles of the last romaji strings
@@ -352,6 +355,7 @@ impl Editor {
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
             session_requests: Vec::new(),
+            terminal_requests: Vec::new(),
             isearch: None,
             migemo: migemo::Migemo::default(),
             jump: None,

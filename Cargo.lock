@@ -1401,6 +1401,7 @@ dependencies = [
  "oso-platform",
  "oso-render",
  "oso-syntax",
+ "oso-term",
  "pollster",
  "proptest",
  "regex",

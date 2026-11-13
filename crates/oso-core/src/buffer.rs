@@ -44,6 +44,7 @@ mod reload;
 pub(crate) use reload::Noticed;
 mod sliced;
 mod splice;
+mod terminal;
 mod trim;
 pub(crate) use trim::{Reads, TooLong, Trim, TrimRules, as_spans, trailing_whitespace};
 
@@ -83,16 +84,19 @@ pub enum ReadOnly {
     Binary,
     /// The editor keeps this buffer for itself, and only the editor changes it.
     Internal,
+    /// A terminal's buffer, whose screen is its program's (ADR 0120).
+    Terminal,
 }
 
 impl ReadOnly {
-    /// `"loading"`, `"invalid-utf8"`, `"binary"` or `"internal"`.
+    /// `"loading"`, `"invalid-utf8"`, `"binary"`, `"internal"` or `"terminal"`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Loading => "loading",
             Self::InvalidUtf8 => "invalid-utf8",
             Self::Binary => "binary",
             Self::Internal => "internal",
+            Self::Terminal => "terminal",
         }
     }
 }
@@ -205,6 +209,12 @@ pub struct Buffer {
     withheld_from_agents: bool,
     /// The agent channel opened it (ADR 0085).
     opened_by_agent: bool,
+    /// A terminal's buffer, which holds no text of its own (ADR 0120).
+    terminal: bool,
+    /// A program runs in its terminal, as the host says.
+    running: bool,
+    /// What the modeline says after the mode, as the host sets it: a terminal's title.
+    mode_note: String,
     /// The agent channel is opening it and has not shown it yet.
     agent_pending: bool,
     /// The state of the content now.
@@ -263,6 +273,9 @@ impl Buffer {
             yanked_secret: false,
             withheld_from_agents: false,
             opened_by_agent: false,
+            terminal: false,
+            running: false,
+            mode_note: String::new(),
             agent_pending: false,
             content: ContentId(0),
             saved: ContentId(0),
@@ -531,7 +544,9 @@ impl Buffer {
     /// Why the buffer cannot be edited, if it cannot. A reason that lasts
     /// wins over loading.
     pub fn read_only(&self) -> Option<ReadOnly> {
-        if self.internal && !self.takes_typing {
+        if self.terminal {
+            Some(ReadOnly::Terminal)
+        } else if self.internal && !self.takes_typing {
             Some(ReadOnly::Internal)
         } else if self.info.binary {
             Some(ReadOnly::Binary)
@@ -560,6 +575,7 @@ mod tests {
         assert_eq!(ReadOnly::InvalidUtf8.as_str(), "invalid-utf8");
         assert_eq!(ReadOnly::Binary.as_str(), "binary");
         assert_eq!(ReadOnly::Internal.as_str(), "internal");
+        assert_eq!(ReadOnly::Terminal.as_str(), "terminal");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! The bounds every terminal keeps, whatever a program prints (ADR 0120): scrollback, queues,
-//! the sizes of what a sequence may carry, and the grid's size.
+//! the sizes of what a sequence may carry and what a key encodes to, how long a synchronized
+//! update may hold the view, and the grid's size.
 //!
 //! Must not depend on: anything else in the crate.
 
@@ -11,6 +12,14 @@ pub const SCROLLBACK_DEFAULT: usize = 10_000;
 pub const SCROLLBACK_MAX: usize = 100_000;
 /// The most input bytes queued for a program; `Terminal::send` refuses more.
 pub const INPUT_QUEUE_MAX: usize = 16 << 20;
+
+/// The most bytes one key encodes to. `Terminal::send_key` holds this much of the input
+/// queue for a key until its thread has encoded it, and gives back what it did not take.
+pub(crate) const KEY_BYTES_MAX: usize = 128;
+/// The longest a synchronized update (mode 2026) holds snapshots back: Ghostty's own app's
+/// limit. Past it a terminal sends snapshots as if no hold were open, until the program ends
+/// that hold.
+pub(crate) const RENDER_HOLD_MAX: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The most bytes read from the PTY at once.
 pub(crate) const READ_CHUNK: usize = 64 << 10;

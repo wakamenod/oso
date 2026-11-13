@@ -599,6 +599,51 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - A replay runs a few milliseconds at each turn, so frames keep coming. A command's error, an
   undefined key, a failing search, a question or a passphrase prompt stops it, and `C-g`
   does. What it changed in a buffer undoes as one step.
+- Keys a terminal sends to its program are not recorded ([ADR 0120](adr/0120-the-terminal.md)).
+
+## Terminals
+
+[ADR 0120](adr/0120-the-terminal.md); step 4a so far.
+
+- `M-x terminal` switches to the terminal still running that was selected last, or starts one;
+  with `C-u`, it always starts one. Buffers are `*terminal*`, `*terminal*<2>` and on. The
+  program's title, `char` in char mode, and `exited N` once the program ends follow `Terminal`
+  in the modeline. An ended terminal keeps its last screen.
+- It starts `[terminal] shell` (an absolute path), else `$SHELL` if absolute, else the account's
+  shell, else `/bin/sh`, in the selected buffer's project root, else its file's directory, else
+  the home directory. A restricted project opens one too: what runs in it is the person's.
+  `*Messages*` says `Started <shell> in <dir>`.
+- `[terminal] login = true` (the default) starts it as a login shell (`-l`). With `false`, the
+  shell is interactive but not a login shell, and starts with oso's own environment: from the
+  Dock that is the GUI's short `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`) unless its startup files
+  set one. bash then reads `~/.bashrc` and not `~/.bash_profile` or `~/.profile`; zsh reads
+  `~/.zshenv` and `~/.zshrc` but not `~/.zprofile`; fish reads `config.fish` either way.
+- The environment is the process module's allowlist, `SHELL`, `TERM=xterm-256color`,
+  `COLORTERM=truecolor`, `TERM_PROGRAM=oso`, `TERM_PROGRAM_VERSION`, `SSH_AUTH_SOCK`, and the
+  names `[terminal] env` lists, passed on from oso's own environment. `PATH`, `LD_*`, `DYLD_*`
+  and the names a terminal sets itself are refused there, and reported.
+- `[terminal] scrollback` keeps 0 to 100,000 lines above the screen, 10,000 by default; the
+  library frees them a page at a time, so a few hundred fewer may be kept. The wheel scrolls
+  them; the next key sent to the program goes back to the bottom.
+- **Semi-char mode**, the default, sends every key to the program but `C-x` and `M-x`, the
+  `C-c` prefix, `C-q` and `C-y`, and every key while a prompt, a search or a key sequence of
+  oso's is open. `C-c C-c` sends `C-c`; `C-c C-k` switches to char mode; `C-c` and any other key
+  sends both. `C-q` sends the next key as it is, oso's own among them.
+- **Char mode** sends every key but `C-c C-k`, which comes back to semi-char mode.
+- Keys are encoded on the terminal's thread against the program's modes, in xterm's forms, or
+  the kitty keyboard protocol's once the program pushes it, so `S-RET` reaches a program that
+  reads it. `M-` is sent as Alt, with an `ESC` before the key.
+- `C-y` pastes the newest kill, or what another app put on the clipboard; `C-u N C-y` the Nth.
+  With bracketed paste on, control characters but tab and new line are removed first. With it
+  off, text of several lines asks `Paste N lines into a program that may run them?`.
+- The input method composes at the program's cursor, and its candidate window opens at that
+  cell even while the program hides the cursor; the committed text goes to the program.
+- The PTY takes the size of the window that last selected the terminal; other windows showing
+  it clip or pad the same grid.
+- `C-x k` on a terminal whose program still runs asks first, as `C-x C-c` does for every such
+  terminal. Under `oso dev`, a running terminal holds the restart, until terminals are handed
+  over: run long-lived programs in an oso that is not rebuilt.
+- The agent channel reads no terminal's text and types nothing into one.
 
 ## Input method (IME)
 

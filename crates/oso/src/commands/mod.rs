@@ -36,6 +36,7 @@ mod replace;
 mod save;
 mod scroll;
 mod session;
+mod terminal;
 mod theme;
 mod view;
 mod whitespace;
@@ -100,6 +101,7 @@ const TABLES: &[&[Command]] = &[
     scroll::COMMANDS,
     session::COMMANDS,
     agent_sessions::COMMANDS,
+    terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -267,6 +269,12 @@ mod tests {
         "save-buffers-kill-terminal",
         // A hosted session's saved screen, which an agent must not read (ADR 0121).
         "session-explain-file",
+        "terminal",
+        "terminal-char-mode",
+        "terminal-paste-lines",
+        "terminal-send-interrupt",
+        "terminal-send-next-key",
+        "terminal-yank",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

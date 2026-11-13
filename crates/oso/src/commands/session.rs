@@ -19,7 +19,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer or a save running, this asks whether to exit without saving, and says how many. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish.",
+        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, or a program running in a terminal, this asks whether to exit, and says how many. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffers_kill_terminal,
@@ -51,12 +51,31 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    match ctx.editor.confirm_exit(ctx.confirmed()) {
-        Ok(()) => ctx.request_exit(),
+    // Programs in terminals end with oso, so an exit asks about them too, once, in the same
+    // question as unsaved text (ADR 0120).
+    let running = ctx.editor.running_terminals().count();
+    let terminals = match running {
+        1 => "1 terminal runs a program".to_owned(),
+        n => format!("{n} terminals run programs"),
+    };
+    let confirmed = ctx.confirmed();
+    match ctx.editor.confirm_exit(confirmed) {
+        Ok(()) if running == 0 || confirmed => ctx.request_exit(),
+        Ok(()) => ask(
+            ctx,
+            format!("{terminals}; exit anyway?"),
+            "save-buffers-kill-terminal",
+            ["exit", "stay"],
+        )?,
         Err(refused) => {
+            let question = if running == 0 {
+                format!("{refused}; exit without saving?")
+            } else {
+                format!("{refused}, and {terminals}; exit without saving?")
+            };
             ask(
                 ctx,
-                format!("{refused}; exit without saving?"),
+                question,
                 "save-buffers-kill-terminal",
                 ["exit", "stay"],
             )?;
@@ -102,6 +121,34 @@ mod tests {
         let (_, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
         assert!(effects.exit);
         assert!(!effects.redraw);
+    }
+
+    #[test]
+    fn save_buffers_kill_terminal_asks_once_while_a_terminal_runs_a_program() {
+        let mut editor = editor("");
+        let terminal = editor.add_terminal_buffer("*terminal*");
+        editor.set_running(terminal, true);
+        let (result, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
+        assert_eq!(result, Ok(()));
+        assert!(!effects.exit);
+        let prompt = editor.prompt().expect("a question");
+        assert_eq!(
+            prompt.label(),
+            "1 terminal runs a program; exit anyway? (y or n)"
+        );
+        editor.quit();
+        let id = editor.window().buffer();
+        let edit = Replacement {
+            range: 0..0,
+            text: "x",
+        };
+        editor.apply_edits(id, &[edit]).unwrap();
+        let (_, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
+        assert!(!effects.exit);
+        assert_eq!(
+            editor.prompt().expect("a question").label(),
+            "1 modified buffer, and 1 terminal runs a program; exit without saving? (y or n)"
+        );
     }
 
     #[test]

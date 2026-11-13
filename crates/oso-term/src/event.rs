@@ -26,6 +26,12 @@ pub enum Event {
     Prompt(Prompt),
     /// OSC 52's text, at most 1 MiB, for the kill ring.
     ClipboardWrite(String),
+    /// A paste of `lines` lines (as `str::lines` counts them, CR and CRLF read as LF) was not
+    /// sent: it was not allowed lines, and the program had bracketed paste off when its
+    /// thread wrote it, as when the program turned the mode off after the UI asked.
+    PasteRefused {
+        lines: usize,
+    },
     /// The terminal ended; nothing follows.
     Ended(End),
 }

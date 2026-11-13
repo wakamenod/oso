@@ -29,6 +29,7 @@ mod project;
 mod review;
 mod saver;
 mod sessions;
+mod terminal;
 mod text;
 mod walk;
 
