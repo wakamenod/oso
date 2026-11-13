@@ -1,9 +1,11 @@
 //! Migemo (ADR 0116): a pattern that finds Japanese text from a romaji string. The string
 //! becomes kana by a table of oso's own, and the pattern matches the string itself, its
-//! hiragana, katakana and half-width katakana, and its full-width letters, joined as a trie.
+//! hiragana, katakana and half-width katakana, its full-width letters, and, with a
+//! [`Dictionary`], the words of the readings its hiragana start, joined as a trie.
 //!
 //! Must not depend on: any module of this crate, I/O or a log. It uses only
-//! `regex::escape`, and compiling the pattern is the caller's.
+//! `regex::escape`, and compiling the pattern is the caller's; reading a dictionary's file is
+//! the host's.
 //!
 //! - A string is romaji while it holds only lowercase ASCII letters, `'` and `-`, and at
 //!   least one letter. It converts the longest spelling first, so it has one reading: `nn`
@@ -16,10 +18,15 @@
 //! - The pattern grows with the string, at most about 18 bytes a letter, and has no line
 //!   break. A string longer than [`MAX_CHARS`] has none.
 
+mod dictionary;
 mod forms;
 mod table;
 mod trie;
 
+pub use dictionary::{
+    Dictionary, MAX_BYTES, MAX_ENTRIES, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS,
+    MAX_WORDS_A_READING,
+};
 use trie::{Key, Trie};
 
 /// The most characters of a string that has a pattern. Its pattern then compiles in under a
@@ -154,30 +161,41 @@ fn ends(rest: &str) -> Vec<&'static str> {
 /// The pattern for `string`, a regexp's text that matches the string, its kana in every
 /// form and its full-width letters, `None` if it gives no kana (see [`Romaji::new`]). It
 /// holds no flag: the caller compiles it with the case it wants.
+#[cfg(test)]
 pub(crate) fn pattern(string: &str) -> Option<String> {
-    let romaji = Romaji::new(string)?;
-    let mut trie = Trie::default();
-    trie.insert(string);
-    trie.insert(&string.chars().map(forms::full_width).collect::<String>());
-    let forms: [Form; 3] = [
-        |c, out| out.push(c),
-        |c, out| out.push(forms::katakana(c)),
-        |c, out| forms::push_half_width(forms::katakana(c), out),
-    ];
-    for form in forms {
-        let node = trie.node(keys(&romaji.hiragana, form));
-        if romaji.ends.is_empty() {
-            node.end();
+    Romaji::new(string).map(|romaji| romaji.pattern(string, &[]))
+}
+
+impl Romaji {
+    /// The pattern for `string`, whose kana these are: the string, its kana in every form,
+    /// its full-width letters and each of `words`, a dictionary's.
+    pub(crate) fn pattern(&self, string: &str, words: &[&str]) -> String {
+        let mut trie = Trie::default();
+        trie.insert(string);
+        trie.insert(&string.chars().map(forms::full_width).collect::<String>());
+        let forms: [Form; 3] = [
+            |c, out| out.push(c),
+            |c, out| out.push(forms::katakana(c)),
+            |c, out| forms::push_half_width(forms::katakana(c), out),
+        ];
+        for form in forms {
+            let node = trie.node(keys(&self.hiragana, form));
+            if self.ends.is_empty() {
+                node.end();
+            }
+            for end in &self.ends {
+                let mut out = String::new();
+                end.chars().for_each(|c| form(c, &mut out));
+                node.insert(&out);
+            }
         }
-        for end in &romaji.ends {
-            let mut out = String::new();
-            end.chars().for_each(|c| form(c, &mut out));
-            node.insert(&out);
+        for word in words {
+            trie.insert(word);
         }
+        let mut out = String::new();
+        trie.write(&mut out);
+        out
     }
-    let mut out = String::new();
-    trie.write(&mut out);
-    Some(out)
 }
 
 /// A form of the kana: a hiragana's own, pushed onto a string.

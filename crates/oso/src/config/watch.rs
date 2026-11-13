@@ -349,6 +349,21 @@ pub(super) enum Unread {
 /// file opened must be the one judged. With whether the users of a group can change it or the
 /// way.
 pub(super) fn read(file: &Path) -> Result<(String, bool), Unread> {
+    read_within(file, MAX_BYTES)
+}
+
+/// The text of a file the person names in the configuration, as [`read`] reads the file
+/// itself, of at most `max` bytes: migemo's dictionary (ADR 0116). With whether the users of
+/// a group can change it or the way; else why it was not read, which does not quote it.
+pub fn read_named(file: &Path, max: u64) -> Result<(String, bool), String> {
+    read_within(file, max).map_err(|unread| match unread {
+        Unread::Missing => "there is no such file".to_owned(),
+        Unread::Refused(why) => why,
+    })
+}
+
+/// [`read`], of at most `max` bytes.
+fn read_within(file: &Path, max: u64) -> Result<(String, bool), Unread> {
     let refused = |why: &str| Err(Unread::Refused(why.to_owned()));
     let who = match privacy::who_can_change(file) {
         Ok(who) => who,
@@ -364,13 +379,8 @@ pub(super) fn read(file: &Path) -> Result<(String, bool), Unread> {
     if !who.metadata.is_file() {
         return refused("it is not a regular file");
     }
-    let too_large = || {
-        Err(Unread::Refused(format!(
-            "it is larger than {} KiB",
-            MAX_BYTES / 1024
-        )))
-    };
-    if who.metadata.len() > MAX_BYTES {
+    let too_large = || Err(Unread::Refused(format!("it is larger than {}", size(max))));
+    if who.metadata.len() > max {
         return too_large();
     }
     let mut opened = match open_for_reading(file) {
@@ -380,16 +390,27 @@ pub(super) fn read(file: &Path) -> Result<(String, bool), Unread> {
         Err(e) => return Err(Unread::Refused(format!("it cannot be opened: {e}"))),
     };
     let mut bytes = Vec::new();
-    if let Err(e) = (&mut opened).take(MAX_BYTES + 1).read_to_end(&mut bytes) {
+    if let Err(e) = (&mut opened).take(max + 1).read_to_end(&mut bytes) {
         return Err(Unread::Refused(format!("it cannot be read: {e}")));
     }
-    if bytes.len() as u64 > MAX_BYTES {
+    if bytes.len() as u64 > max {
         return too_large();
     }
     let Ok(text) = String::from_utf8(bytes) else {
         return refused("it is not UTF-8 text");
     };
     Ok((text, who.file.max(who.way) == Writers::Group))
+}
+
+/// `max` bytes, in KiB from one and in MiB from one.
+fn size(max: u64) -> String {
+    if max >= 1024 * 1024 {
+        format!("{} MiB", max / (1024 * 1024))
+    } else if max >= 1024 {
+        format!("{} KiB", max / 1024)
+    } else {
+        format!("{max} bytes")
+    }
 }
 
 #[cfg(test)]

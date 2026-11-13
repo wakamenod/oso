@@ -276,6 +276,18 @@ impl Editor {
         self.isearch_typed(started);
     }
 
+    /// Looks again with migemo's needle built anew, as its dictionary came or went
+    /// (ADR 0116), from the match as typing does, with no step of its own, so `DEL` goes
+    /// back as before. A search whose pattern is not migemo's is left as it is.
+    pub(super) fn isearch_look_again(&mut self) {
+        if !self.isearch.as_ref().is_some_and(Isearch::migemo) {
+            return;
+        }
+        self.isearch_follow_text();
+        let started = self.isearch_rebuild();
+        self.isearch_typed(started);
+    }
+
     /// `DEL`: goes back one step, the string and the place together. Returns false with no
     /// step to go back to.
     pub fn isearch_delete(&mut self) -> bool {

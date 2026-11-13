@@ -1,0 +1,263 @@
+//! Tests of migemo's dictionary (ADR 0116): both formats, what each line leaves out, the
+//! limits, readings made one, and the words a string's kana give, over synthetic text.
+//!
+//! Must not depend on: any other module of this crate.
+
+use proptest::prelude::*;
+
+use super::{
+    Dictionary, MAX_BYTES, MAX_PATTERN_WORDS, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD,
+    MAX_WORDS_A_READING,
+};
+use crate::migemo::Romaji;
+
+/// The words `string`'s kana give from `dictionary`, sorted.
+fn words(dictionary: &Dictionary, string: &str) -> Vec<String> {
+    let romaji = Romaji::new(string).unwrap();
+    let mut words: Vec<String> = (dictionary.pattern_words(&romaji).into_iter())
+        .map(str::to_owned)
+        .collect();
+    words.sort();
+    words
+}
+
+/// Each reading with its words, in the table's order.
+fn table(dictionary: &Dictionary) -> Vec<(String, Vec<String>)> {
+    (dictionary.entries.iter())
+        .map(|entry| {
+            let words = &dictionary.words[entry.words.range()];
+            let words = words
+                .iter()
+                .map(|span| dictionary.text[span.range()].to_owned());
+            (dictionary.reading(*entry).to_owned(), words.collect())
+        })
+        .collect()
+}
+
+fn entry(reading: &str, words: &[&str]) -> (String, Vec<String>) {
+    let words = words.iter().map(|word| (*word).to_owned()).collect();
+    (reading.to_owned(), words)
+}
+
+#[test]
+fn reads_migemo_dict_lines() {
+    let dictionary = Dictionary::new("かんじ\t漢字\t感じ\nあい\t愛\n".to_owned());
+    assert_eq!(
+        table(&dictionary),
+        [entry("あい", &["愛"]), entry("かんじ", &["漢字", "感じ"])]
+    );
+    assert_eq!((dictionary.readings(), dictionary.words()), (2, 3));
+    assert_eq!(dictionary.skipped(), 0);
+}
+
+#[test]
+fn reads_skk_lines_with_okurigana_annotations_and_lisp() {
+    let text = ";; okuri-ari entries.\n\
+                かk /書/描;picture/\n\
+                かんじ /漢字/幹事;secretary/(concat \"a\\057b\")/(株)/\n";
+    let dictionary = Dictionary::new(text.to_owned());
+    assert_eq!(
+        table(&dictionary),
+        [
+            entry("か", &["書", "描"]),
+            entry("かんじ", &["漢字", "幹事", "(株)"])
+        ]
+    );
+    // The Lisp word.
+    assert_eq!(dictionary.skipped(), 1);
+}
+
+#[test]
+fn tells_the_formats_apart_line_by_line() {
+    let text = "\u{feff}かな\t仮名\r\nかに /蟹/\r\n";
+    let dictionary = Dictionary::new(text.to_owned());
+    assert_eq!(
+        table(&dictionary),
+        [entry("かな", &["仮名"]), entry("かに", &["蟹"])]
+    );
+}
+
+#[test]
+fn leaves_out_lines_in_neither_shape_and_readings_not_hiragana() {
+    let long = "あ".repeat(MAX_READING + 1);
+    let text = format!(
+        "no shape here\nabc\tエービーシー\nカナ\t仮名\nか゛\tが\n{long}\t長\n\
+         いぬ /\nねこ\t\n;comment\n\nぱーてぃー\tパーティー\nゔぁ\tヴァ\n"
+    );
+    let dictionary = Dictionary::new(text);
+    assert_eq!(
+        table(&dictionary),
+        [
+            entry("ぱーてぃー", &["パーティー"]),
+            entry("ゔぁ", &["ヴァ"])
+        ]
+    );
+    // Seven lines: no shape, `abc`, `カナ`, `か゛`, too long, and two with no word.
+    assert_eq!(dictionary.skipped(), 7);
+}
+
+#[test]
+fn leaves_out_words_too_long_or_with_control_characters() {
+    let long = "x".repeat(MAX_WORD + 1);
+    let most = "y".repeat(MAX_WORD);
+    let text = format!("あ\t{long}\t{most}\tbell\u{7}\t\u{202e}は\n");
+    let dictionary = Dictionary::new(text);
+    // U+202E is a format character, not a control one: a word is only text in a pattern.
+    assert_eq!(table(&dictionary), [entry("あ", &[&most, "\u{202e}は"])]);
+    assert_eq!(dictionary.skipped(), 2);
+}
+
+#[test]
+fn a_reading_given_twice_is_one_entry_with_both_lines_words() {
+    // Okurigana counts only in SKK's lines.
+    let text = "かk /書/\nか\t蚊\nか /課/\nかk\t掻\n";
+    let dictionary = Dictionary::new(text.to_owned());
+    assert_eq!(table(&dictionary), [entry("か", &["書", "蚊", "課"])]);
+}
+
+#[test]
+fn a_reading_keeps_at_most_its_limit_of_words_over_its_lines() {
+    let words: Vec<String> = (0..MAX_WORDS_A_READING + 10)
+        .map(|n| format!("w{n}"))
+        .collect();
+    let (first, second) = words.split_at(200);
+    let text = format!("あ\t{}\nあ /{}/\n", first.join("\t"), second.join("/"));
+    let dictionary = Dictionary::new(text);
+    let table = table(&dictionary);
+    assert_eq!(table[0].1, words[..MAX_WORDS_A_READING]);
+    assert_eq!(dictionary.skipped(), 10);
+}
+
+#[test]
+fn reads_at_most_its_limit_of_bytes_to_a_whole_line() {
+    let line = "あい\t愛\n";
+    let mut text = line.repeat(MAX_BYTES / line.len());
+    text.push_str("ん\tここまで\n");
+    assert!(text.len() > MAX_BYTES);
+    let dictionary = Dictionary::new(text);
+    assert_eq!(
+        table(&dictionary).len(),
+        1,
+        "the last line is past the limit"
+    );
+}
+
+#[test]
+fn a_strings_kana_give_the_words_of_the_readings_they_start() {
+    let text = "かん\t缶\nかんじ\t漢字\nかんじゃ\t患者\nかな\t仮名\nき\t木\n";
+    let dictionary = Dictionary::new(text.to_owned());
+    // `かんじゃ` starts with `かんじ`.
+    assert_eq!(words(&dictionary, "kanji"), ["患者", "漢字"]);
+    assert_eq!(words(&dictionary, "kanjo"), Vec::<String>::new());
+    assert_eq!(words(&dictionary, "kanj"), ["患者", "漢字"]);
+    assert_eq!(words(&dictionary, "kan"), ["仮名", "患者", "漢字", "缶"]);
+    assert_eq!(
+        words(&dictionary, "k"),
+        ["仮名", "患者", "木", "漢字", "缶"]
+    );
+    assert!(words(&dictionary, "sa").is_empty());
+}
+
+#[test]
+fn either_of_two_kana_finds_both_readings() {
+    let text = "つづく\t続く\nつずく\t続く2\nはなぢ\t鼻血\n";
+    let dictionary = Dictionary::new(text.to_owned());
+    assert_eq!(words(&dictionary, "tsuzuku"), ["続く", "続く2"]);
+    assert_eq!(words(&dictionary, "hanaji"), ["鼻血"]);
+    assert_eq!(words(&dictionary, "hanaj"), ["鼻血"]);
+}
+
+/// A dictionary of `count` readings of `prefix` and three kana, each with `words` words.
+fn many(prefix: &str, count: usize, words: usize) -> String {
+    let kana: Vec<char> = ('ぁ'..='ゖ').collect();
+    let mut text = String::new();
+    for n in 0..count {
+        let (a, b, c) = (n % 86, n / 86 % 86, n / 86 / 86);
+        let reading: String = [kana[c], kana[b], kana[a]].iter().collect();
+        let words: Vec<String> = (0..words).map(|word| format!("w{n}.{word}")).collect();
+        text.push_str(&format!("{prefix}{reading}\t{}\n", words.join("\t")));
+    }
+    text
+}
+
+#[test]
+fn past_its_limit_of_entries_only_the_exact_readings_give_words() {
+    let mut text = many("かな", MAX_PREFIX_ENTRIES - 2, 1);
+    text.push_str("かな\t仮名\nかん\t缶\n");
+    let dictionary = Dictionary::new(text.clone());
+    assert_eq!(words(&dictionary, "kan").len(), MAX_PREFIX_ENTRIES);
+    text.push_str("か\t蚊\nかんじ\t漢字\n");
+    let dictionary = Dictionary::new(text);
+    assert_eq!(words(&dictionary, "ka"), ["蚊"]);
+    // The kana and each unfinished end, exactly.
+    assert_eq!(words(&dictionary, "kan"), ["仮名", "缶"]);
+    // An unfinished end alone gives none.
+    assert!(words(&dictionary, "k").is_empty());
+    // Few enough again.
+    assert_eq!(words(&dictionary, "kanji"), ["漢字"]);
+}
+
+#[test]
+fn a_pattern_takes_at_most_its_limit_of_words_the_exact_and_shorter_first() {
+    let mut text = many("あい", MAX_PREFIX_ENTRIES - 2, 2);
+    let shorter: Vec<String> = (0..10).map(|n| format!("s{n}")).collect();
+    text.push_str(&format!("あいう\t{}\nあい\t愛\n", shorter.join("\t")));
+    let dictionary = Dictionary::new(text);
+    let romaji = Romaji::new("ai").unwrap();
+    let words = dictionary.pattern_words(&romaji);
+    assert_eq!(words.len(), MAX_PATTERN_WORDS);
+    assert_eq!(words[0], "愛");
+    assert_eq!(words[1..11], shorter);
+    assert!(words[11..].iter().all(|word| word.starts_with('w')));
+}
+
+#[test]
+fn an_unfinished_end_that_starts_another_counts_its_readings_once() {
+    let dictionary = Dictionary::new("きゃく\t客\nき\t木\n".to_owned());
+    assert_eq!(words(&dictionary, "k"), ["客", "木"]);
+}
+
+#[test]
+fn many_splits_of_either_kana_give_none_past_the_limit() {
+    // Readings of `ず` or `づ` 12 times, each a range of its own for `zu` 12 times.
+    let readings = |count: usize| {
+        let mut text = String::new();
+        for n in 0..count {
+            let reading: String = (0..12)
+                .map(|bit| if n >> bit & 1 == 1 { 'ず' } else { 'づ' })
+                .collect();
+            text.push_str(&format!("{reading}\tw{n}\n"));
+        }
+        Dictionary::new(text)
+    };
+    let string = "zu".repeat(12);
+    assert_eq!(
+        words(&readings(MAX_PREFIX_ENTRIES), &string).len(),
+        MAX_PREFIX_ENTRIES
+    );
+    assert!(words(&readings(MAX_PREFIX_ENTRIES + 1), &string).is_empty());
+}
+
+#[test]
+fn debug_prints_only_counts() {
+    let dictionary = Dictionary::new("ひみつ\t秘密\n".to_owned());
+    let printed = format!("{dictionary:?}");
+    assert!(
+        !printed.contains("秘密") && !printed.contains("ひみつ"),
+        "{printed}"
+    );
+}
+
+proptest! {
+    #[test]
+    fn any_text_gives_a_table_within_its_limits(text in "[ぁ-ゖa-z\t /;\\n()゛]{0,400}") {
+        let dictionary = Dictionary::new(text);
+        for (reading, words) in table(&dictionary) {
+            prop_assert!(super::is_reading(&reading));
+            prop_assert!(!words.is_empty() && words.len() <= MAX_WORDS_A_READING);
+            prop_assert!(words.iter().all(|word| !word.is_empty() && word.len() <= MAX_WORD));
+        }
+        let readings: Vec<String> = table(&dictionary).into_iter().map(|(r, _)| r).collect();
+        prop_assert!(readings.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+}

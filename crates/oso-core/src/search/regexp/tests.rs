@@ -245,7 +245,7 @@ fn highlights_past_their_time_find_nothing_more() {
 
 #[test]
 fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
-    let needle = Needle::migemo("ka", false).unwrap();
+    let needle = Needle::migemo("ka", false, None).unwrap();
     // A match lies far into a line of 8 MiB.
     let mut text = "x".repeat(8 * 1024 * 1024);
     text.push_str("か\n");
@@ -276,7 +276,7 @@ fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
 
 #[test]
 fn a_migemo_match_at_a_cut_needs_no_regexps_for_a_cut() {
-    let Some(Needle::Regexp(regexp)) = Needle::migemo("ka", false) else {
+    let Some(Needle::Regexp(regexp)) = Needle::migemo("ka", false, None) else {
         panic!("ka gives kana");
     };
     // The range ends inside the line, just after a match.
@@ -324,8 +324,8 @@ proptest! {
     #[test]
     fn every_migemo_pattern_compiles_on_a_key(string in romaji_strings()) {
         if migemo::pattern(&string).is_some() {
-            prop_assert!(Needle::migemo(&string, false).is_some(), "{} chars", string.len());
-            prop_assert!(Needle::migemo(&string, true).is_some(), "{} chars", string.len());
+            prop_assert!(Needle::migemo(&string, false, None).is_some(), "{} chars", string.len());
+            prop_assert!(Needle::migemo(&string, true, None).is_some(), "{} chars", string.len());
         }
     }
 }
@@ -342,6 +342,46 @@ fn the_largest_migemo_patterns_compile_on_a_key() {
     for unit in units {
         let string = longest(unit);
         assert!(migemo::pattern(&string).is_some(), "{unit}");
-        assert!(Needle::migemo(&string, false).is_some(), "{unit}");
+        assert!(Needle::migemo(&string, false, None).is_some(), "{unit}");
+    }
+}
+
+/// A synthetic dictionary at the limits of a pattern's words: `MAX_PREFIX_ENTRIES` readings
+/// that `ka` starts, each with two words of the most bytes, distinct, so no prefix is shared.
+fn dictionary_at_its_limits() -> migemo::Dictionary {
+    let kana: Vec<char> = ('ぁ'..='ゖ').collect();
+    let mut text = String::new();
+    let mut n: u32 = 0;
+    for entry in 0..migemo::MAX_PREFIX_ENTRIES {
+        let reading: String = [kana[entry / 86 % 86], kana[entry % 86]].iter().collect();
+        text.push('か');
+        text.push_str(&reading);
+        for _ in 0..2 {
+            text.push('\t');
+            // 21 kanji, 63 bytes.
+            for _ in 0..21 {
+                n += 1;
+                let c = char::from_u32(0x4E00 + n.wrapping_mul(7919) % 20_000).unwrap();
+                text.push(c);
+            }
+        }
+        text.push('\n');
+    }
+    migemo::Dictionary::new(text)
+}
+
+/// A pattern with as many words as a dictionary can give it, of the most bytes, still gives a
+/// needle on a key: with its words within their size limit, or else the kana alone (ADR 0116).
+#[test]
+fn the_largest_migemo_patterns_with_words_give_a_needle_on_a_key() {
+    let dictionary = dictionary_at_its_limits();
+    for string in ["ka", "k"] {
+        for case_sensitive in [false, true] {
+            let needle = Needle::migemo(string, case_sensitive, Some(&dictionary));
+            let Some(Needle::Regexp(regexp)) = needle else {
+                panic!("{string:?} gives no needle");
+            };
+            assert!(regexp.regex.is_match("か"), "{string:?}");
+        }
     }
 }

@@ -54,11 +54,17 @@ pub struct Save {
 }
 
 /// `[search]`: how isearch and jumps search (ADR 0116).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Search {
     /// `migemo`: whether a search starts with migemo on.
     pub migemo: Option<bool>,
+    /// `migemo-dictionary`: the file migemo takes words from, as written: an absolute path,
+    /// or one starting with `~/`.
+    pub migemo_dictionary: Option<String>,
 }
+
+/// The longest `[search] migemo-dictionary` path, in bytes.
+pub const MAX_DICTIONARY_PATH: usize = 4096;
 
 /// `[theme]`: built-in themes, by name (ADR 0089).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -201,10 +207,39 @@ pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Search 
     for (name, value) in entries {
         match name.get_ref().as_ref() {
             "migemo" => search.migemo = switch(value, "[search]", "migemo", found),
+            "migemo-dictionary" => search.migemo_dictionary = dictionary_path(value, found),
             other => unknown(found, name.span().start, other, "[search]"),
         }
     }
     search
+}
+
+/// `[search] migemo-dictionary`: a path, absolute or starting with `~/`, of at most
+/// [`MAX_DICTIONARY_PATH`] bytes. Nothing is looked at on disk here.
+fn dictionary_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<String> {
+    let at = value.span().start;
+    let DeValue::String(path) = value.get_ref() else {
+        found.at(
+            at,
+            format_args!(
+                "[search] migemo-dictionary takes a file's path, not {}",
+                type_name(value.get_ref())
+            ),
+        );
+        return None;
+    };
+    let absolute = path.starts_with("~/") || std::path::Path::new(path.as_ref()).is_absolute();
+    let why = if !absolute {
+        "takes an absolute path, or one starting with ~/"
+    } else if path.len() > MAX_DICTIONARY_PATH {
+        "takes a path of at most 4096 bytes"
+    } else if path.contains('\0') {
+        "takes a path with no NUL character"
+    } else {
+        return Some(path.as_ref().to_owned());
+    };
+    found.at(at, format_args!("[search] migemo-dictionary {why}"));
+    None
 }
 
 /// `[save]`.

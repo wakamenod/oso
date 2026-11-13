@@ -24,7 +24,7 @@ pub mod key;
 pub mod keymap;
 pub mod kill;
 pub mod load;
-mod migemo;
+pub mod migemo;
 pub mod minibuffer;
 pub mod motion;
 pub mod project;

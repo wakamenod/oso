@@ -629,6 +629,70 @@ editor.
   regexp's highlights and a jump's key read each line into room they keep, so neither
   allocates once it has grown.
 
+#### As built (step 3, 2026-11-13)
+
+The author chose the first option of each of eight questions on 2026-11-13, through the
+coordinator; the notes below are those choices as built.
+
+- **The API (Q1).** `oso_core::migemo` is public now, with only `Dictionary` (`new` from a
+  file's text, and its counts `readings`, `words` and `skipped`) and its limits `MAX_BYTES`,
+  `MAX_READING`, `MAX_WORD`, `MAX_WORDS_A_READING`, `MAX_ENTRIES`, `MAX_WORDS` and
+  `MAX_PREFIX_ENTRIES`; the romaji, the forms and the pattern stay private to the crate until
+  step 4. The editor gains `Editor::set_migemo_dictionary` and
+  `Editor::take_migemo_dictionary_wanted`. Nothing in `guardrails/layers.txt` changes.
+- **The setting.** `[search] migemo-dictionary` takes a path, absolute or starting with `~/`, of
+  at most 4096 bytes; anything else is a problem the file reports, and the setting is left
+  out. Parsing looks at nothing on disk; `~/` is the home directory when the file is read.
+- **Reading it.** The editor says when a search, isearch's or a jump's, built or took migemo's
+  needle with no dictionary; before the event loop waits, the app then sends the file to the
+  `oso-migemo` thread (`app/migemo.rs`) if one is named and not read yet. The thread reads it
+  with `config.toml`'s checks (ADR 0108): through links, refused if other users can change it
+  or a directory or link on the way, a regular file, the one judged, at most 64 MiB, in UTF-8;
+  one its group can change is read, and `*Messages*` warns of it (Q5), as a package
+  manager's files may be a group's. It builds the table there and hands it over. A table read
+  for an older setting is dropped. `*Messages*` says `Migemo dictionary: 137,025 readings`, or
+  `Migemo dictionary not read:` and why, never the path or a word.
+- **When it comes (Q6),** the cache of needles empties, the search on screen builds its needle
+  again and looks from its match, as typing does, with no step of its own, so `DEL` goes back
+  as before; a jump still reading its string finds its matches again, and one at its labels
+  stays as it is. A setting changed to another file reads it at once if a table is in, which
+  serves until the new one is; a setting taken away drops the table. A file that could not be
+  read is tried again only when `config.toml` is read again or the setting changes (Q7). A dev
+  restart does not carry the table: the next search reads it again.
+- **The formats (Q3, Q4).** Each line by its shape: a tab makes it `migemo-dict`'s, and
+  ` /` with a final `/` SKK's. A byte-order mark, `\r\n` and `;` comments are taken; an SKK
+  word's `;annotation` is cut, a Lisp word (`(` and a lowercase letter, to a `)`) is left out,
+  `(株)` stays, and okurigana (`かk`) drops its letter in SKK's lines only. A reading is 1 to
+  64 characters of hiragana, `ー` and `ゔ`, and a word 1 to 64 bytes with no control character;
+  a reading keeps at most 256 words over every line that gives it, and a dictionary at most
+  2^20 readings and 2^22 words. What is left out is counted (`Dictionary::skipped`).
+- **The table** is the file's text itself, the entries' and words' ranges into it, 16 bytes a
+  reading and 8 a word, sorted by reading, each reading once: at most 64 MiB of text, 16 MiB
+  of entries and 32 MiB of words. The author's `migemo-dict` (C/Migemo's, 5 MB) gives 137,025
+  readings and 190,761 words, with 26,244 lines and words left out, nearly all readings in
+  ASCII, built in 14 ms.
+- **The words a string's kana give (Q2, Q3).** The table is narrowed by binary search a kana
+  at a time; either of two kana (`ず` or `づ`) splits a range, and more than 2048 live ranges
+  give no words. An unfinished end's spellings are looked for as the last step, one that
+  another starts (`きゃ` after `き`) once. While at most 2048 readings start with the kana and
+  an end, their words go in; past that, those of the readings that are the kana and an end
+  exactly, none for a string that is only an unfinished end (`k`). At most 4096 words a
+  pattern: the exact readings' first, then the shorter readings', then the table's order.
+- **Compiling.** The words go into the kana's trie, each through `regex::escape`, compiled with
+  a size limit of 4 MiB and the nest limit of 32; past either, the pattern drops its words and
+  compiles the kana alone within step 2's 256 KiB, so the kana's largest patterns keep their
+  bound (`the_largest_migemo_patterns_compile_on_a_key`), and a dictionary at every limit still
+  gives a needle on a key (`the_largest_migemo_patterns_with_words_give_a_needle_on_a_key`).
+- **Q7's 2 ms,** measured by the ignored tests in `editor/migemo_dictionary_costs.rs` over the
+  author's dictionary on their Mac, in a release build: every prefix of 174 common words and
+  every string of one to three letters that gives kana, 5,619 strings built three times each,
+  uncached. Building and compiling a needle takes 0.075 ms p50, 1.4 ms p99 and at most 2.4 ms;
+  the largest pattern, of 2,973 words, is 17 KB. Looking up the words takes at most 0.1 ms and
+  writing the pattern 0.4 ms; the rest is the compile. An isearch key over 20 MB of short
+  Japanese lines, its highlights with it, takes 1.1 ms p50; one with no match near searches
+  for step 1's 3 ms, counted from the needle's build, before the worker goes on. So the build
+  stays on the key.
+
 #### As built (step 5, 2026-11-12)
 
 The author answered seven questions on 2026-11-12, through the coordinator. Two depart from the

@@ -44,7 +44,7 @@ pub use settings::Settings;
 pub use source::FILE_NAME;
 pub use source::Source;
 pub use trust::{Record, TRUST_FILE_NAME, TrustFile};
-pub use watch::{Reader, Report};
+pub use watch::{Reader, Report, read_named};
 
 use problems::{Found, MAX_QUOTED, quoted};
 
@@ -232,5 +232,7 @@ impl fmt::Display for TableName<'_> {
 mod jump_tests;
 #[cfg(test)]
 mod keys_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod tests;

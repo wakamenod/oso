@@ -58,6 +58,9 @@ pub struct InForce {
     /// Whether isearch starts with migemo on, and jumps match by it (ADR 0116). `M-m` turns it
     /// for one search, so the value in force is the one that applies.
     pub migemo: bool,
+    /// The file migemo takes words from, as written in `[search] migemo-dictionary`, if any
+    /// (ADR 0116). The app reads it at the first search that would use it.
+    pub migemo_dictionary: Option<String>,
     /// The jump's keys and timeout (ADR 0116), `None` where the file leaves them out, for the
     /// editor's and the app's own. They have no run-time switch either.
     pub jump: Jump,
@@ -83,6 +86,7 @@ impl InForce {
             agent_channel_start: false,
             trim_whitespace: false,
             migemo: true,
+            migemo_dictionary: None,
             jump: Jump::default(),
             electric_indent: true,
             mode_indents: [Default::default(); 4],
@@ -111,6 +115,7 @@ impl InForce {
                 .trim_whitespace
                 .unwrap_or(compiled.trim_whitespace),
             migemo: or(settings.search.migemo, compiled.migemo),
+            migemo_dictionary: settings.search.migemo_dictionary.clone(),
             jump: settings.jump.clone(),
             electric_indent: or(settings.indent.electric, compiled.electric_indent),
             mode_indents: std::array::from_fn(|index| {
@@ -198,6 +203,7 @@ mod tests {
                 agent_channel_start: false,
                 trim_whitespace: false,
                 migemo: true,
+                migemo_dictionary: None,
                 jump: Jump::default(),
                 electric_indent: true,
                 mode_indents: [Default::default(); 4],
@@ -224,6 +230,7 @@ mod tests {
             },
             search: Search {
                 migemo: Some(false),
+                migemo_dictionary: Some("~/dict/migemo-dict".to_owned()),
             },
             jump: Jump {
                 keys: Some(Keys::new("hjkl").unwrap()),
@@ -245,6 +252,7 @@ mod tests {
                 agent_channel_start: true,
                 trim_whitespace: true,
                 migemo: false,
+                migemo_dictionary: Some("~/dict/migemo-dict".to_owned()),
                 jump: Jump {
                     keys: Some(Keys::new("hjkl").unwrap()),
                     timeout: Some(Duration::from_secs(1)),

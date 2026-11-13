@@ -464,8 +464,11 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   uppercase letter among them, searches literally, and so does a string with a letter that starts
   no spelling (`struct`). A regexp's search never uses it. `M-m` turns it off or on for the rest
   of a search, and `[search] migemo = false` starts every search with it off
-  ([ADR 0116](adr/0116-migemo-and-jumps.md)). Kanji wait for the dictionary of the ADR's
-  step 3.
+  ([ADR 0116](adr/0116-migemo-and-jumps.md)). With a dictionary the person names in
+  `[search] migemo-dictionary` (C/Migemo's `migemo-dict` or an SKK file, in UTF-8), it also
+  finds the words whose reading starts with the kana: `kanji` finds `漢字`. oso ships none. The
+  file is read at the first search that would use it, and until it is in, searches find kana;
+  `*Messages*` then says `Migemo dictionary: 137,025 readings`, or why it was not read.
 - Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
   match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
   every match, with the search's string and case

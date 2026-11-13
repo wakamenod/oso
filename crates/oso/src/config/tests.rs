@@ -97,6 +97,7 @@ trim-whitespace = true
 
 [search]
 migemo = false
+migemo-dictionary = "~/dict/migemo-dict"
 
 [jump]
 keys = "hjkl"
@@ -128,6 +129,10 @@ timeout = 0.3
     assert_eq!(settings.agent_channel_start, Some(true));
     assert_eq!(settings.save.trim_whitespace, Some(true));
     assert_eq!(settings.search.migemo, Some(false));
+    assert_eq!(
+        settings.search.migemo_dictionary.as_deref(),
+        Some("~/dict/migemo-dict")
+    );
     assert_eq!(
         settings.jump,
         Jump {
@@ -187,7 +192,7 @@ trim = true
 [jump]
 labels = "asdf"
 [search]
-migemo-dictionary = "~/dict"
+migemo-skk = "~/dict"
 "#,
     );
     assert_eq!(
@@ -199,7 +204,7 @@ migemo-dictionary = "~/dict"
             r#"9:1: unknown name "stop" in [agent-channel], skipped"#,
             r#"11:1: unknown name "trim" in [save], skipped"#,
             r#"13:1: unknown name "labels" in [jump], skipped"#,
-            r#"15:1: unknown name "migemo-dictionary" in [search], skipped"#,
+            r#"15:1: unknown name "migemo-skk" in [search], skipped"#,
         ]
     );
     assert_eq!(loaded.settings.aids.flash, Some(true));

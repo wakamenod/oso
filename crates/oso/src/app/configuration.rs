@@ -231,6 +231,8 @@ impl App {
             self.editor.set_theme_pair([first, second]);
         }
         self.remember_theme();
+        let dictionary = self.configuration.in_force.migemo_dictionary.clone();
+        self.set_migemo_dictionary(dictionary.as_deref());
         self.request_redraw();
         if changes.start_channel {
             let name = self.configuration.name.clone();
