@@ -555,7 +555,10 @@ fn twenty_worktrees_are_listed_and_the_time_is_printed() {
         if rows == COUNT && !pending {
             break started.elapsed();
         }
-        assert!(started.elapsed() < DEADLINE, "{rows} rows: {lines:?}");
+        if started.elapsed() >= DEADLINE {
+            let state = app.state();
+            panic!("{rows} rows: {lines:?}; state: {state}");
+        }
         thread::sleep(Duration::from_millis(5));
     };
     let first = first.unwrap_or(all);

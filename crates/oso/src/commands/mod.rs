@@ -297,6 +297,8 @@ mod tests {
         "session-worktree",
         "worktree-list",
         "worktree-remove",
+        "worktree-list-refresh",
+        "worktree-list-remove",
         "worktree-remove-confirmed",
         // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",

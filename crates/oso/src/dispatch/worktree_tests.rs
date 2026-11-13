@@ -62,3 +62,16 @@ fn the_worktrees_letters_run_commands() {
     send(&mut d, &mut editor, "x");
     assert_eq!(editor.current().1.text().to_string(), "worktrees\n");
 }
+
+#[test]
+fn m_x_offers_the_worktree_commands_outside_their_list() {
+    let (d, editor) = (Dispatcher::new(), Editor::default());
+    let items = d.command_candidates(&editor);
+    let listed = |name: &str| items.iter().any(|item| item.text() == name);
+    assert!(listed("worktree-list"));
+    assert!(listed("worktree-remove"));
+    assert!(listed("session-worktree"));
+    // The list's own keys are offered in the list alone.
+    assert!(!listed("worktree-list-refresh"));
+    assert!(!listed("worktree-list-remove"));
+}
