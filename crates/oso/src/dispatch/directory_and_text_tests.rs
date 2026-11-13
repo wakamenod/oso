@@ -77,7 +77,10 @@ fn with_c_u_it_reads_a_directory_then_a_name() {
     assert!(prompt.label().starts_with("Name:"), "{}", prompt.label());
     send(&mut d, &mut editor, "a p i RET");
     assert!(editor.prompt().is_none());
-    assert_eq!(last(&editor), "ran Some((\"/p/oso/\", \"api\")) Some(4)");
+    // The completion joins a directory with the system's separator.
+    let directory = format!("/p{}oso/", std::path::MAIN_SEPARATOR);
+    let ran = format!("ran {:?} Some(4)", Some((directory.as_str(), "api")));
+    assert_eq!(last(&editor), ran);
 }
 
 #[test]
