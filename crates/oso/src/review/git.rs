@@ -1,8 +1,9 @@
-//! Running `git` for a review (ADR 0122): oso's own arguments and environment, every read
-//! bounded, and a run past [`RUN_LIMIT`] killed.
+//! Running `git` for a review (ADR 0122) and for worktree sessions (ADR 0121): oso's own
+//! arguments and environment, every read bounded, and a run past [`RUN_LIMIT`] killed.
 //!
-//! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the review's
-//! thread and waits for git.
+//! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on a review's
+//! thread, `oso-review`, and on the worktree jobs' threads, `oso-sessions-git`, and waits for
+//! git.
 //!
 //! - Every run starts `git --no-pager -c core.quotePath=false -c core.fsmonitor=false
 //!   -c core.hooksPath=HOOKS`, where `HOOKS` is an empty private directory, so that no hook
@@ -21,9 +22,9 @@
 //!   or holds a control character, then resolved to an object id; only ids go further.
 //! - What git writes is read as bytes, up to a limit per run; past it the run is killed.
 //!   Standard error is kept up to [`MAX_STDERR`] for the message a failure gives.
-//! - Its output is read on threads of their own, and a run past [`RUN_LIMIT`] is killed and
-//!   left: a process git started may still hold its output open, and the review does not wait
-//!   for it.
+//! - Its output is read on threads of their own, `oso-git-read` and `oso-git-write`, and a run
+//!   past [`RUN_LIMIT`] is killed and left: a process git started may still hold its output
+//!   open, and the caller does not wait for it.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -88,7 +89,7 @@ impl fmt::Display for GitError {
             Self::Spawn(e) => write!(f, "cannot run git: {e}"),
             Self::Io(e) => write!(f, "cannot talk to git: {e}"),
             Self::TimedOut => write!(f, "git took more than {} s", RUN_LIMIT.as_secs()),
-            Self::TooLong => f.write_str("git wrote more than a review reads"),
+            Self::TooLong => f.write_str("git wrote more than oso reads"),
             Self::NoCeiling => write!(
                 f,
                 "git cannot be kept from looking above the project, as its parent's path holds \
@@ -379,7 +380,7 @@ fn reader(
     sent: mpsc::Sender<Stream>,
 ) -> io::Result<()> {
     thread::Builder::new()
-        .name("oso-review-read".into())
+        .name("oso-git-read".into())
         .spawn(move || {
             let _ = sent.send(read());
         })
@@ -394,7 +395,7 @@ fn write_away(child: &mut Child, input: Vec<u8>) -> Result<(), GitError> {
         .take()
         .ok_or(GitError::Unexpected("no input stream"))?;
     thread::Builder::new()
-        .name("oso-review-write".into())
+        .name("oso-git-write".into())
         .spawn(move || {
             let _ = writer.write_all(&input);
         })

@@ -34,7 +34,23 @@ pub struct Shown {
 }
 
 /// The text for `rows` of the repository at `main`, `pending` more still being looked at.
+#[cfg(test)]
 pub fn render(main: &Path, rows: &[Row], pending: usize) -> Shown {
+    let texts: Vec<RowText> = rows.iter().map(|row| row_lines(main, row)).collect();
+    assemble(main, &texts, pending)
+}
+
+/// One row, formatted.
+#[derive(Clone, Debug)]
+pub struct RowText {
+    /// Its worktree's path.
+    pub path: PathBuf,
+    pub lines: Vec<String>,
+}
+
+/// The text for rows already formatted, each by [`row_lines`], of the repository at `main`,
+/// `pending` more still being looked at.
+pub fn assemble(main: &Path, rows: &[RowText], pending: usize) -> Shown {
     let mut text = format!(
         "Worktrees of {}    g: list again   D: remove the one at point\n\n",
         printable(&main.display().to_string(), MAX_FIELD)
@@ -45,9 +61,9 @@ pub fn render(main: &Path, rows: &[Row], pending: usize) -> Shown {
         text.push_str("No linked worktrees.\n");
     }
     for row in rows {
-        starts.push((line, row.looked.listed.path.clone()));
-        for row_line in row_lines(main, row) {
-            text.push_str(&row_line);
+        starts.push((line, row.path.clone()));
+        for row_line in &row.lines {
+            text.push_str(row_line);
             text.push('\n');
             line += 1;
         }
@@ -61,7 +77,7 @@ pub fn render(main: &Path, rows: &[Row], pending: usize) -> Shown {
 }
 
 /// The lines of one row: a heading, then its facts indented.
-fn row_lines(main: &Path, row: &Row) -> Vec<String> {
+pub fn row_lines(main: &Path, row: &Row) -> RowText {
     let looked = &row.looked;
     let listed = &looked.listed;
     let path = listed
@@ -106,7 +122,10 @@ fn row_lines(main: &Path, row: &Row) -> Vec<String> {
         lines.push(format!("  unsaved buffers: {}", row.held.unsaved));
     }
     lines.push(format!("  {}", printable(&verdict, MAX_FIELD * 2)));
-    lines
+    RowText {
+        path: listed.path.clone(),
+        lines,
+    }
 }
 
 /// The row whose lines hold `line`, by its worktree's path.
@@ -145,6 +164,7 @@ mod tests {
                 merged: Some(merged),
                 ignored: Vec::new(),
                 external: Vec::new(),
+                gh_pending: None,
             },
             held: Held::default(),
             sessions: Vec::new(),

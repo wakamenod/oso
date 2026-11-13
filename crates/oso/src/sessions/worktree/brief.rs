@@ -3,11 +3,13 @@
 //! starting session leaves behind, and the person's brief, together at most [`MAX_BRIEF`]
 //! bytes, as one argument. Facts that do not fit are dropped, least useful first.
 //!
-//! Must not depend on: `porcelain`, the file system, `app`, `dispatch` or `commands`; it is a
-//! plain function over what the worker found.
+//! Must not depend on: the file system, `app`, `dispatch` or `commands`; it is a plain function
+//! over what the worker found, and shows untrusted text as `porcelain::printable` does.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+use super::porcelain::printable;
 
 /// The most bytes the whole first prompt takes.
 pub const MAX_BRIEF: usize = 64 * 1024;
@@ -254,28 +256,7 @@ fn shown_path(path: &Path) -> String {
 /// `text` with control characters, line and paragraph separators and bidirectional controls as
 /// `\u{…}` escapes, at most [`MAX_PART_CHARS`] characters of it, then `…`.
 fn clean(text: &str) -> String {
-    let mut out = String::new();
-    for (count, c) in text.chars().enumerate() {
-        if count == MAX_PART_CHARS {
-            out.push('…');
-            break;
-        }
-        let hidden = c.is_control()
-            || matches!(
-                c,
-                '\u{061c}'
-                    | '\u{200e}'
-                    | '\u{200f}'
-                    | '\u{2028}'..='\u{202e}'
-                    | '\u{2066}'..='\u{2069}'
-            );
-        if hidden {
-            out.push_str(&format!("\\u{{{:x}}}", u32::from(c)));
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    printable(text, MAX_PART_CHARS)
 }
 
 #[cfg(test)]

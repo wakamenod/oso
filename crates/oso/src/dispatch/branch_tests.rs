@@ -158,3 +158,25 @@ fn quitting_either_prompt_runs_nothing() {
     assert!(editor.prompt().is_none());
     assert!(!last(&editor).starts_with("ran"), "{}", last(&editor));
 }
+
+#[test]
+fn another_command_or_c_g_drops_the_wait() {
+    for keys in ["C-g", "C-f", "x"] {
+        let (mut d, mut editor) = (dispatcher(), Editor::default());
+        send(&mut d, &mut editor, "C-c s");
+        assert!(d.take_branches_request());
+        send(&mut d, &mut editor, keys);
+        assert!(
+            kept_messages(&editor)
+                .iter()
+                .any(|m| m == "Branch prompt dropped"),
+            "{keys}: {:?}",
+            kept_messages(&editor)
+        );
+        d.branches_answered(&mut editor, branches());
+        assert!(
+            editor.prompt().is_none(),
+            "{keys}: the late list opens nothing"
+        );
+    }
+}

@@ -1,6 +1,7 @@
 //! Worktree sessions over temporary repositories: making a worktree, `.worktreeinclude`, the
 //! five checks of a removal in order, merge detection by ancestry and by a fake `gh`, and the
-//! removal itself, which keeps the branch.
+//! removal itself, which keeps the branch. The jobs refuse a root no longer trusted, one put in
+//! its place, and a worktree whose main repository is not trusted.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these run the jobs' functions directly, and
 //! git only through the process module.
@@ -16,9 +17,20 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
 use super::checks::{self, Check, Depth, Held};
 use super::create::{self, Order};
+use super::facts::RepoFacts;
 use super::git::{Gh, Repo};
 use super::merged::{self, Merged};
 use super::porcelain::Listed;
+
+/// An order for a worktree on `branch` with a brief.
+fn order(branch: &str) -> Order {
+    Order {
+        branch: branch.to_owned(),
+        base: None,
+        brief: "Do the thing.".to_owned(),
+        from: None,
+    }
+}
 
 /// A temporary repository with a commit on `main`, and a private directory for git's hooks.
 struct Scratch {
@@ -110,13 +122,12 @@ impl Scratch {
 
     /// Makes a worktree session's worktree on `branch` with a brief.
     fn create(&self, branch: &str) -> Result<create::Created, String> {
-        let order = Order {
-            branch: branch.to_owned(),
-            base: None,
-            brief: "Do the thing.".to_owned(),
-            from: None,
-        };
-        create::create(&self.repo(), &order, &|_| {})
+        create::create(&self.repo(), &order(branch), &|_| {}, &|| Ok(()))
+    }
+
+    /// What the job reads of the repository once, with no `GH_HOST` and no hosted session.
+    fn facts(&self) -> RepoFacts {
+        RepoFacts::gather(&self.repo(), None, &[])
     }
 
     /// The listed worktree at `path`.
@@ -132,7 +143,15 @@ impl Scratch {
     /// The first check of a removal of `path` that refuses, with `held` from the UI.
     fn refusal(&self, path: &Path, held: &Held, gh: Option<&Gh>) -> Option<Check> {
         let repo = self.repo();
-        let looked = checks::look(&repo, gh, self.listed(path), held, Depth::UntilRefused);
+        let facts = self.facts();
+        let looked = checks::look(
+            &repo,
+            gh,
+            &facts,
+            self.listed(path),
+            held,
+            Depth::UntilRefused,
+        );
         checks::removable(&looked, held).err()
     }
 
@@ -205,14 +224,14 @@ fn bad_names_and_bases_are_refused_before_anything_is_made() {
         brief: "x".to_owned(),
         from: None,
     };
-    let refused = create::create(&s.repo(), &order, &|_| {}).unwrap_err();
+    let refused = create::create(&s.repo(), &order, &|_| {}, &|| Ok(())).unwrap_err();
     assert!(refused.starts_with("Not a commit"), "{refused}");
     let empty = Order {
         brief: "  ".to_owned(),
         base: None,
         ..order
     };
-    assert!(create::create(&s.repo(), &empty, &|_| {}).is_err());
+    assert!(create::create(&s.repo(), &empty, &|_| {}, &|| Ok(())).is_err());
     assert!(!s.root.join(".claude/worktrees/new").exists());
 }
 
@@ -314,7 +333,7 @@ fn a_merged_branch_is_removed_and_kept() {
     let repo = s.repo();
     let tip = merged::tip(&repo, "done").unwrap();
     assert_eq!(
-        merged::merged(&repo, None, "done", &tip),
+        merged::merged(&repo, None, &s.facts(), "done", &tip),
         Merged::Ancestor("origin/main".into())
     );
     checks::remove(&repo, &made.path).unwrap();
@@ -338,19 +357,21 @@ fn git_refuses_a_worktree_that_changed_after_its_checks() {
 fn a_squash_merge_is_found_by_its_pull_request() {
     let s = Scratch::new("squash");
     s.with_origin();
-    s.git(&["remote", "set-url", "origin", "https://github.com/o/r.git"]);
     let made = s.create("sq").unwrap();
     fs::write(made.path.join("b.txt"), "b\n").unwrap();
     s.git_in(&made.path, &["add", "b.txt"]);
     s.git_in(&made.path, &["commit", "-q", "-m", "work"]);
+    s.git(&["push", "-q", "origin", "sq"]);
+    s.git(&["remote", "set-url", "origin", "https://github.com/o/r.git"]);
     let repo = s.repo();
+    let facts = s.facts();
     let tip = merged::tip(&repo, "sq").unwrap();
     let answer = |head: &str, base: &str| {
         format!(r#"[{{"number":7,"headRefOid":"{head}","baseRefName":"{base}"}}]"#)
     };
     let gh = s.fake_gh(&answer(&tip, "main"), 0);
     assert_eq!(
-        merged::merged(&repo, Some(&gh), "sq", &tip),
+        merged::merged(&repo, Some(&gh), &facts, "sq", &tip),
         Merged::PullRequest(7)
     );
     assert_eq!(s.refusal(&made.path, &Held::default(), Some(&gh)), None);
@@ -366,13 +387,13 @@ fn a_squash_merge_is_found_by_its_pull_request() {
         (s.fake_gh("not json", 0), "unexpected answer"),
         (s.fake_gh("[]", 1), "gh failed"),
     ] {
-        let found = merged::merged(&repo, Some(&gh), "sq", &tip);
+        let found = merged::merged(&repo, Some(&gh), &facts, "sq", &tip);
         assert!(
             matches!(&found, Merged::No(said) if said.contains(why)),
             "{found:?}"
         );
     }
-    let found = merged::merged(&repo, None, "sq", &tip);
+    let found = merged::merged(&repo, None, &facts, "sq", &tip);
     assert!(matches!(&found, Merged::No(said) if said.contains("gh is not found")));
 }
 
@@ -381,7 +402,7 @@ fn no_remote_is_not_merged() {
     let s = Scratch::new("no-remote");
     let repo = s.repo();
     let tip = merged::tip(&repo, "main").unwrap();
-    let found = merged::merged(&repo, None, "main", &tip);
+    let found = merged::merged(&repo, None, &s.facts(), "main", &tip);
     assert!(
         matches!(&found, Merged::No(said) if said.contains("no remote")),
         "{found:?}"
@@ -400,3 +421,73 @@ fn a_directory_that_is_no_linked_worktree_is_refused() {
     assert!(s.repo().in_worktree(&fake).is_none());
     assert!(s.repo().in_worktree(&made.path).is_some());
 }
+
+#[test]
+fn a_worktree_not_where_it_was_made_gets_no_copies() {
+    let s = Scratch::new("moved");
+    fs::write(s.root.join(".env"), "SECRET=1\n").unwrap();
+    fs::write(s.root.join(".worktreeinclude"), ".env\n").unwrap();
+    s.git(&["add", ".worktreeinclude"]);
+    s.git(&["commit", "-q", "-m", "include"]);
+    let outside = s.dir.join("outside");
+    fs::create_dir(&outside).unwrap();
+    // `.claude/worktrees` turns into a link between the checks and git's add.
+    let swap = || {
+        let parent = s.root.join(".claude/worktrees");
+        fs::rename(&parent, s.root.join(".claude/kept")).unwrap();
+        std::os::unix::fs::symlink(&outside, &parent).unwrap();
+    };
+    let made = create::create_with(&s.repo(), &order("away"), &|_| {}, &|| Ok(()), &swap);
+    let refused = made.unwrap_err();
+    assert!(refused.contains("not where it was made"), "{refused}");
+    assert!(!outside.join("away/.env").exists(), "nothing was copied");
+}
+
+#[test]
+fn a_rows_look_leaves_gh_for_later_and_skips_it_for_a_branch_never_pushed() {
+    let s = Scratch::new("local-look");
+    s.with_origin();
+    let pushed = s.create("pushed").unwrap();
+    let local = s.create("local").unwrap();
+    for made in [&pushed, &local] {
+        fs::write(made.path.join("b.txt"), "b\n").unwrap();
+        s.git_in(&made.path, &["add", "b.txt"]);
+        s.git_in(&made.path, &["commit", "-q", "-m", "work"]);
+    }
+    s.git(&["push", "-q", "origin", "pushed"]);
+    s.git(&["remote", "set-url", "origin", "https://github.com/o/r.git"]);
+    fs::write(pushed.path.join(".env"), "x").unwrap();
+    let (repo, facts) = (s.repo(), s.facts());
+    let gh = s.fake_gh("[]", 0);
+    let look = |path: &Path| {
+        let listed = s.listed(path);
+        checks::look(
+            &repo,
+            Some(&gh),
+            &facts,
+            listed,
+            &Held::default(),
+            Depth::Local,
+        )
+    };
+    let row = look(&pushed.path);
+    assert!(row.gh_pending.is_some());
+    assert!(
+        matches!(&row.merged, Some(Merged::No(why)) if why.contains("gh is being asked")),
+        "{:?}",
+        row.merged
+    );
+    assert!(
+        row.ignored.is_empty(),
+        "a row does not list what git ignores"
+    );
+    let row = look(&local.path);
+    assert_eq!(row.gh_pending, None);
+    assert!(
+        matches!(&row.merged, Some(Merged::No(why)) if why.contains("never pushed")),
+        "{:?}",
+        row.merged
+    );
+}
+
+mod jobs;

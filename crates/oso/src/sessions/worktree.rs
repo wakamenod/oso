@@ -2,7 +2,8 @@
 //! with a brief, copying `.worktreeinclude`'s files into it, listing a repository's linked
 //! worktrees, removing one only when nothing in it would be lost, and the hook that steers
 //! Claude away from its own worktree tools. Every `git` and `gh` call runs on the
-//! `oso-sessions-git` threads, through `oso-platform::process`, only for a trusted project.
+//! `oso-sessions-git` threads, through `oso-platform::process`, only for a trusted project
+//! whose main repository is trusted too.
 //!
 //! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; the app asks for jobs and
 //! carries out what they report.
@@ -14,6 +15,7 @@
 //! - `include`: `.worktreeinclude`'s files, matched and copied.
 //! - `steer`: `oso hook deny-worktree`, and the `--settings` that installs it for a session.
 //! - `git`: git and `gh` for a repository and its linked worktrees.
+//! - `facts`: what a job reads of a repository once, for every worktree it looks at.
 //! - `merged`: whether a branch is merged (check 5).
 //! - `checks`: what is known of a worktree, and the five checks of a removal.
 //! - `create`: making a worktree for a session.
@@ -23,6 +25,7 @@
 pub mod brief;
 pub mod checks;
 pub mod create;
+pub mod facts;
 pub mod git;
 pub mod include;
 pub mod jobs;

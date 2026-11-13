@@ -1,15 +1,16 @@
 //! `worktree-remove` (ADR 0121): the worktree to remove, its checks on a job, the question
 //! that names what git ignores there, and the removal, never with `--force`, which keeps the
-//! branch.
+//! branch. The person's `y` runs every check again, in the job that removes it.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
 use std::path::{Path, PathBuf};
 
+use oso_core::project::ProjectId;
+
 use super::super::super::App;
 use super::{QUESTION_NAMES, Removing};
-use crate::review::TrustedRoot;
-use crate::sessions::worktree::checks::Check;
+use crate::sessions::worktree::checks::{self, Check};
 use crate::sessions::worktree::list;
 use crate::sessions::worktree::porcelain::printable;
 
@@ -18,31 +19,33 @@ impl App {
     /// the selected buffer's project, checked on a job first.
     pub(super) fn remove_worktree(&mut self, path: Option<PathBuf>) {
         let target = match path {
-            Some(path) => self.trusted_here().map(|root| (root, path)),
+            Some(path) => self.project_here().map(|project| (project, path)),
             None => self.worktree_at_point(),
         };
-        let (root, path) = match target {
+        let (project, path, trust) = match target
+            .and_then(|(project, path)| Ok((project, path, self.trust_for(project)?)))
+        {
             Ok(target) => target,
             Err(why) => return self.editor.message(why),
         };
         let token = self.worktree_token();
         let snapshot = self.worktree_snapshot();
         self.worktree_jobs()
-            .check(token, root.clone(), path.clone(), snapshot);
+            .check(token, trust, path.clone(), snapshot);
         self.editor.message(format!(
             "Checking worktree {}…",
             printable(&path.display().to_string(), 200)
         ));
         self.hosting.worktrees.removing = Some(Removing {
             token,
-            root,
+            project,
             path,
             ignored: None,
         });
     }
 
     /// The worktree `worktree-remove` takes with no path given.
-    pub(super) fn worktree_at_point(&self) -> Result<(TrustedRoot, PathBuf), String> {
+    pub(super) fn worktree_at_point(&self) -> Result<(ProjectId, PathBuf), String> {
         let (current, buffer) = (self.editor.window().buffer(), self.editor.current().1);
         if let Some(list) = self
             .hosting
@@ -54,12 +57,16 @@ impl App {
             let cursor = self.editor.window().selections.primary().cursor;
             let line = buffer.text().offset_to_point(cursor).row;
             return list::row_at(&list.shown, line)
-                .map(|path| (list.root.clone(), path.to_owned()))
+                .map(|path| (list.project, path.to_owned()))
                 .ok_or_else(|| "No worktree on this line".to_owned());
         }
-        let root = self.trusted_here()?;
-        let path = root.path().to_owned();
-        Ok((root, path))
+        let project = self.project_here()?;
+        let root = self
+            .editor
+            .project(project)
+            .map(|found| found.root().to_owned())
+            .ok_or("This buffer's project is gone")?;
+        Ok((project, root))
     }
 
     pub(super) fn worktree_checked(
@@ -68,12 +75,22 @@ impl App {
         path: &Path,
         result: Result<Vec<PathBuf>, Check>,
     ) {
-        let removing = self.hosting.worktrees.removing.as_mut();
-        let Some(removing) = removing.filter(|r| r.token == token) else {
+        if self
+            .hosting
+            .worktrees
+            .removing
+            .as_ref()
+            .is_none_or(|r| r.token != token)
+        {
             return;
-        };
+        }
         let shown = printable(&path.display().to_string(), 200);
-        let ignored = match result {
+        // What the UI holds is looked at again now, as it may have changed during the checks.
+        let checked = result.and_then(|ignored| match checks::held_refusal(&self.held_at(path)) {
+            Some(check) => Err(check),
+            None => Ok(ignored),
+        });
+        let ignored = match checked {
             Ok(ignored) => ignored,
             Err(check) => {
                 self.hosting.worktrees.removing = None;
@@ -82,74 +99,56 @@ impl App {
                     .message(format!("Worktree {shown} kept: {}", check.why()));
             }
         };
-        removing.ignored = Some(ignored.clone());
-        if let Some(why) = self.held_refusal(path) {
-            self.hosting.worktrees.removing = None;
-            return self.editor.message(format!("Worktree {shown} kept: {why}"));
+        let question = question(&shown, &ignored);
+        if let Some(removing) = self.hosting.worktrees.removing.as_mut() {
+            removing.ignored = Some(ignored);
         }
-        let names: Vec<String> = ignored
-            .iter()
-            .take(QUESTION_NAMES)
-            .map(|name| printable(&name.display().to_string(), 60))
-            .collect();
-        let deletes = match ignored.len() {
-            0 => String::new(),
-            n if n > QUESTION_NAMES => format!(
-                " It also deletes what git ignores there: {} and {} more.",
-                names.join(", "),
-                n - QUESTION_NAMES
-            ),
-            _ => format!(
-                " It also deletes what git ignores there: {}.",
-                names.join(", ")
-            ),
-        };
-        let question = format!("Remove worktree {shown}? Its branch is kept.{deletes}");
         if let Err(e) = self.editor.ask(question, "worktree-remove-confirmed") {
             self.hosting.worktrees.removing = None;
             self.editor.message(e.to_string());
         }
     }
 
-    /// Why what the UI thread holds keeps the worktree at `path` (checks 3 and 4), looked at
-    /// again now.
-    pub(super) fn held_refusal(&self, path: &Path) -> Option<String> {
-        let held = self.worktree_snapshot().held(path);
-        let looked_clean = Check::Unsaved(held.unsaved);
-        if held.unsaved > 0 {
-            return Some(looked_clean.why());
-        }
-        if held.unsent {
-            return Some(Check::Unsent.why());
-        }
-        (!held.busy.is_empty()).then(|| Check::Busy(held.busy).why())
-    }
-
-    /// The person's `y`: the worktree is removed, if nothing changed that the UI holds.
+    /// The person's `y`: the worktree is removed by a job that runs every check again first,
+    /// if nothing changed that the UI holds.
     pub(super) fn remove_confirmed(&mut self) {
         let Some(removing) = self.hosting.worktrees.removing.take() else {
             return self.editor.message("No worktree waits to be removed");
         };
-        if removing.ignored.is_none() {
+        let Some(asked) = removing.ignored.as_ref().map(Vec::len) else {
             return self
                 .editor
                 .message("The worktree's checks have not finished");
-        }
+        };
         let shown = printable(&removing.path.display().to_string(), 200);
-        if let Some(why) = self.held_refusal(&removing.path) {
-            return self.editor.message(format!("Worktree {shown} kept: {why}"));
+        if let Some(check) = checks::held_refusal(&self.held_at(&removing.path)) {
+            return self
+                .editor
+                .message(format!("Worktree {shown} kept: {}", check.why()));
         }
+        let trust = match self.trust_for(removing.project) {
+            Ok(trust) => trust,
+            Err(why) => return self.editor.message(why),
+        };
         let token = self.worktree_token();
+        let snapshot = self.worktree_snapshot();
         self.worktree_jobs()
-            .remove(token, removing.root.clone(), removing.path.clone());
+            .remove(token, trust, removing.path.clone(), snapshot, asked);
+        self.editor.message(format!("Removing worktree {shown}…"));
         self.hosting.worktrees.removing = Some(Removing { token, ..removing });
     }
 
     pub(super) fn worktree_removed(&mut self, token: u64, path: &Path, result: Result<(), String>) {
-        let removing = self.hosting.worktrees.removing.take();
-        if removing.is_none_or(|r| r.token != token) {
+        if self
+            .hosting
+            .worktrees
+            .removing
+            .as_ref()
+            .is_none_or(|r| r.token != token)
+        {
             return;
         }
+        self.hosting.worktrees.removing = None;
         let shown = printable(&path.display().to_string(), 200);
         match result {
             Ok(()) => {
@@ -163,4 +162,26 @@ impl App {
             Err(why) => self.editor.message(format!("Worktree {shown} kept: {why}")),
         }
     }
+}
+
+/// The removal's question for the worktree shown as `shown`, naming what git ignores there.
+fn question(shown: &str, ignored: &[PathBuf]) -> String {
+    let names: Vec<String> = ignored
+        .iter()
+        .take(QUESTION_NAMES)
+        .map(|name| printable(&name.display().to_string(), 60))
+        .collect();
+    let deletes = match ignored.len() {
+        0 => String::new(),
+        n if n > QUESTION_NAMES => format!(
+            " It also deletes what git ignores there: {} and {} more.",
+            names.join(", "),
+            n - QUESTION_NAMES
+        ),
+        _ => format!(
+            " It also deletes what git ignores there: {}.",
+            names.join(", ")
+        ),
+    };
+    format!("Remove worktree {shown}? Its branch is kept.{deletes}")
 }

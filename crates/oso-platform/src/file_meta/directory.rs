@@ -1,5 +1,6 @@
 //! A directory opened to list it and to open what it holds relative to itself, following no
-//! link on the way, as a project's walk needs (ADR 0114).
+//! link on the way, as a project's walk needs (ADR 0114), and to make a directory or a new file
+//! in it the same way, as a worktree session's copies need (ADR 0121).
 //!
 //! Must not depend on: `control`, `privacy`, `process` or `text`.
 //!

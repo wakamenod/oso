@@ -12,8 +12,9 @@
 //!   are checked, and then with `GIT_DIR` and `GIT_WORK_TREE` given, so git looks for no
 //!   repository of its own.
 //! - `gh` runs in an empty private directory, naming the repository with `--repo` as its
-//!   remote's address gives it, so it never runs git in the repository. It gets its own token
-//!   and proxy variables by name, and the same 10 s.
+//!   remote's address gives it, so it never runs git in the repository. It is asked only about
+//!   `github.com`, or the host `GH_HOST` names. It gets by name the token for that host alone,
+//!   its configuration and the proxy variables, and the same 10 s.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -36,15 +37,13 @@ pub const MAX_GH: usize = 256 * 1024;
 /// How many merged pull requests of a branch `gh` is asked for.
 const GH_LIMIT: &str = "30";
 
-/// Variables `gh` takes from oso's environment by name: its token, host and configuration,
-/// and the proxies and certificates it talks through.
-const GH_INHERIT: [&str; 16] = [
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GH_HOST",
+/// The GitHub host `gh` knows without `GH_HOST`.
+pub const GITHUB: &str = "github.com";
+
+/// Variables `gh` takes from oso's environment by name for any host: its configuration, and the
+/// proxies and certificates it talks through.
+const GH_INHERIT: [&str; 11] = [
     "GH_CONFIG_DIR",
-    "GH_ENTERPRISE_TOKEN",
-    "GITHUB_ENTERPRISE_TOKEN",
     "XDG_CONFIG_HOME",
     "HTTPS_PROXY",
     "HTTP_PROXY",
@@ -56,6 +55,12 @@ const GH_INHERIT: [&str; 16] = [
     "SSL_CERT_DIR",
     "ALL_PROXY",
 ];
+
+/// The token variables `gh` takes for `github.com`.
+const GH_GITHUB: [&str; 2] = ["GH_TOKEN", "GITHUB_TOKEN"];
+
+/// The variables `gh` takes for the host `GH_HOST` names: the host and its tokens.
+const GH_ENTERPRISE: [&str; 3] = ["GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
 /// What `gh` is told so that it asks nothing and prints nothing but its answer.
 const GH_SET: [(&str, &str); 5] = [
@@ -219,8 +224,8 @@ pub struct GhRepo(String);
 
 impl GhRepo {
     /// The repository a remote's address names, in the https, ssh or scp form, if each part
-    /// is a plain name.
-    pub fn from_url(url: &str) -> Option<GhRepo> {
+    /// is a plain name and its host is `github.com` or `gh_host`, the host `GH_HOST` names.
+    pub fn from_url(url: &str, gh_host: Option<&str>) -> Option<GhRepo> {
         let rest = if let Some(rest) = url
             .strip_prefix("https://")
             .or_else(|| url.strip_prefix("ssh://"))
@@ -248,13 +253,38 @@ impl GhRepo {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
         };
-        (parts.len() == 3 && parts.iter().all(plain)).then(|| GhRepo(parts.join("/")))
+        if parts.len() != 3 || !parts.iter().all(plain) {
+            return None;
+        }
+        let host = parts[0];
+        let known = host.eq_ignore_ascii_case(GITHUB)
+            || gh_host.is_some_and(|gh_host| host.eq_ignore_ascii_case(gh_host.trim()));
+        known.then(|| GhRepo(parts.join("/")))
     }
 
     /// As `gh --repo` takes it.
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Whether it is on `github.com`, not the host `GH_HOST` names.
+    pub fn on_github(&self) -> bool {
+        self.0
+            .split('/')
+            .next()
+            .is_some_and(|host| host.eq_ignore_ascii_case(GITHUB))
+    }
+}
+
+/// The variables `gh` takes from oso's environment to ask about `repo`: a host's tokens go only
+/// to that host.
+pub fn gh_inherit(repo: &GhRepo) -> Vec<&'static str> {
+    let tokens: &[&str] = if repo.on_github() {
+        &GH_GITHUB
+    } else {
+        &GH_ENTERPRISE
+    };
+    GH_INHERIT.iter().chain(tokens).copied().collect()
 }
 
 /// A merged pull request of a branch, as `gh` gives it.
@@ -320,7 +350,7 @@ impl Gh {
             args: &args,
             cwd: Some(cwd),
             project: Some(cwd),
-            inherit: &GH_INHERIT,
+            inherit: &gh_inherit(repo),
             stdin: Source::Closed,
             stdout: Sink::Piped,
             stderr: Sink::Piped,
@@ -329,9 +359,8 @@ impl Gh {
             terminal: None,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
-        let gh_said = |e: GitError| porcelain::printable(&e.to_string().replace("git", "gh"), 400);
         let out = rgit::collect(child, None, |stdout| rgit::read_at_most(stdout, MAX_GH))
-            .map_err(gh_said)?;
+            .map_err(|e| gh_said(&e))?;
         if out.cut {
             return Err("gh said more than oso reads".to_owned());
         }
@@ -341,6 +370,21 @@ impl Gh {
         }
         parse_merged(&out.stdout).ok_or_else(|| "gh gave an unexpected answer".to_owned())
     }
+}
+
+/// Text for the echo area from a failed `gh` run, in `gh`'s words.
+fn gh_said(error: &GitError) -> String {
+    let said = match error {
+        GitError::Spawn(e) => format!("cannot run gh: {e}"),
+        GitError::Io(e) => format!("cannot talk to gh: {e}"),
+        GitError::TimedOut => format!("gh took more than {} s", rgit::RUN_LIMIT.as_secs()),
+        GitError::TooLong => "gh said more than oso reads".to_owned(),
+        GitError::Failed { stderr, .. } => format!("gh failed: {}", stderr.trim()),
+        GitError::NoCeiling | GitError::Unexpected(_) | GitError::BadRevision => {
+            "gh gave an unexpected answer".to_owned()
+        }
+    };
+    porcelain::printable(&said, 400)
 }
 
 /// The pull requests in `gh pr list --json number,headRefOid,baseRefName`'s answer; `None` if it
@@ -365,19 +409,15 @@ pub fn parse_merged(json: &[u8]) -> Option<Vec<MergedPr>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GhRepo, MergedPr, parse_merged};
+    use super::{GhRepo, MergedPr, gh_inherit, parse_merged};
 
     #[test]
     fn remote_addresses_name_a_repository() {
         for (url, repo) in [
             ("https://github.com/o/r.git", Some("github.com/o/r")),
             ("https://github.com/o/r", Some("github.com/o/r")),
-            ("https://user@github.com:443/o/r/", Some("github.com/o/r")),
+            ("https://user@GitHub.com:443/o/r/", Some("GitHub.com/o/r")),
             ("git@github.com:o/r.git", Some("github.com/o/r")),
-            (
-                "ssh://git@ghe.example.com/team/app.git",
-                Some("ghe.example.com/team/app"),
-            ),
             ("/srv/git/r.git", None),
             ("file:///srv/r", None),
             ("https://github.com/o/r/extra", None),
@@ -386,11 +426,36 @@ mod tests {
             ("https://github.com/../r", None),
         ] {
             assert_eq!(
-                GhRepo::from_url(url).as_ref().map(GhRepo::as_str),
+                GhRepo::from_url(url, None).as_ref().map(GhRepo::as_str),
                 repo,
                 "{url}"
             );
         }
+    }
+
+    #[test]
+    fn gh_is_asked_only_about_github_or_gh_host() {
+        let other = "ssh://git@evil.example/team/app.git";
+        assert_eq!(GhRepo::from_url(other, None), None, "no GH_HOST");
+        assert_eq!(GhRepo::from_url(other, Some("ghe.example.com")), None);
+        let enterprise = GhRepo::from_url(other, Some("evil.example")).unwrap();
+        assert_eq!(enterprise.as_str(), "evil.example/team/app");
+        assert!(!enterprise.on_github());
+        let github = GhRepo::from_url("https://github.com/o/r", Some("ghe.example.com")).unwrap();
+        assert!(github.on_github());
+    }
+
+    #[test]
+    fn a_hosts_tokens_go_only_to_that_host() {
+        let github = gh_inherit(&GhRepo::from_url("https://github.com/o/r", None).unwrap());
+        assert!(github.contains(&"GH_TOKEN") && github.contains(&"GITHUB_TOKEN"));
+        assert!(!github.iter().any(|name| name.contains("ENTERPRISE")));
+        assert!(!github.contains(&"GH_HOST"));
+        let other = GhRepo::from_url("https://ghe.example.com/o/r", Some("ghe.example.com"));
+        let enterprise = gh_inherit(&other.unwrap());
+        assert!(enterprise.contains(&"GH_ENTERPRISE_TOKEN") && enterprise.contains(&"GH_HOST"));
+        assert!(!enterprise.contains(&"GH_TOKEN") && !enterprise.contains(&"GITHUB_TOKEN"));
+        assert!(enterprise.contains(&"HTTPS_PROXY"));
     }
 
     #[test]

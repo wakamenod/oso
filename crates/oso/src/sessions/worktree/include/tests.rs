@@ -384,3 +384,44 @@ fn reading_the_patterns_wants_one_regular_file_within_its_caps() {
     assert!(matches!(error, IncludeError::Pattern(_)));
     assert!(error.to_string().starts_with(NAME));
 }
+
+#[test]
+fn a_file_with_another_name_is_not_copied() {
+    let scratch = Scratch::new("hard-link");
+    let outside = scratch.outside().join("secret");
+    fs::write(&outside, "kept elsewhere").unwrap();
+    fs::hard_link(&outside, scratch.from().join(".env")).unwrap();
+    scratch.file(".env.local", "local");
+    let copied = scratch.copy(".env*\n", &[".env", ".env.local"], NO_LIMITS);
+    assert_eq!(copied.files, 1);
+    assert_eq!(scratch.copied(), [".env.local"]);
+}
+
+#[test]
+fn each_directory_descended_gets_its_share_of_the_visits() {
+    let scratch = Scratch::new("visits-share");
+    for n in 0..20 {
+        scratch.file(&format!("big/{n:02}"), "x");
+    }
+    scratch.file("small/.env", "small");
+    let limits = Limits {
+        visits: 10,
+        ..NO_LIMITS
+    };
+    // `big/` comes first, but takes only its half of the visits.
+    let copied = scratch.copy("**/.env\n", &["big/", "small/"], limits);
+    assert_eq!(scratch.copied(), ["small/.env"]);
+    assert_eq!(copied.files, 1);
+    assert_eq!(copied.stopped, Some(Stop::Visits), "big/ was cut short");
+}
+
+#[test]
+fn a_patterns_error_is_shown_with_its_controls_escaped() {
+    let error = IncludeError::Pattern("bad \u{1b}[2J\u{202e}glob".to_owned());
+    let shown = error.to_string();
+    assert!(
+        !shown.contains('\u{1b}') && !shown.contains('\u{202e}'),
+        "{shown}"
+    );
+    assert!(shown.contains("\\u{1b}"), "{shown}");
+}

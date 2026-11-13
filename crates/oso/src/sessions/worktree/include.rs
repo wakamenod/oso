@@ -15,6 +15,9 @@ use std::path::{Component, Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use oso_platform::file_meta::{Directory, Entry, EntryKind, open_regular_here};
+use oso_platform::privacy::has_one_name;
+
+use super::porcelain::printable;
 
 /// The file's name, at the root of the main checkout.
 pub const NAME: &str = ".worktreeinclude";
@@ -66,7 +69,11 @@ impl fmt::Display for IncludeError {
             Self::TooLarge => write!(f, "{NAME} is larger than 64 KiB"),
             Self::TooMany => write!(f, "{NAME} has more than {MAX_PATTERNS} patterns"),
             Self::Read(error) => write!(f, "{NAME} could not be read: {error}"),
-            Self::Pattern(error) => write!(f, "{NAME} has a pattern that is not valid: {error}"),
+            Self::Pattern(error) => write!(
+                f,
+                "{NAME} has a pattern that is not valid: {}",
+                printable(error, 200)
+            ),
         }
     }
 }
@@ -169,10 +176,12 @@ struct Limits {
 /// A listed file is copied if the patterns take it. A listed directory is copied whole if they
 /// take it as a directory; otherwise it is descended and each regular file in it they take is
 /// copied, after every listed file and every directory taken whole, so that a large directory
-/// cannot use the visits up before them. Descending follows no link and skips a nested
+/// cannot use the visits up before them. Each directory descended gets an equal share of the
+/// visits left, so one large directory cannot use them all either. Descending follows no link and skips a nested
 /// repository. A listed path with a `..` or `.git` component or a root, or that leads through a
-/// link, is skipped. Into `to`, no link is written through: a file whose directory there is a
-/// link or no directory is skipped, and a file already there is left as it is. Each file keeps
+/// link, is skipped. On Unix a file with more than one name is skipped. Into `to`, no link is
+/// written through: a file whose directory there is a link or no directory is skipped, and a
+/// file already there is left as it is. Each file keeps
 /// its permission bits, but set-user-ID, set-group-ID and sticky. A file that cannot be copied is
 /// skipped. It touches the disk, so it belongs on a worker thread.
 ///
@@ -208,6 +217,8 @@ fn copy_within(
         to: Directory::open(to)?,
         limits,
         visits: 0,
+        share_end: limits.visits,
+        share_cut: false,
         copied: Copied::default(),
     };
     let mut descended = Vec::new();
@@ -222,11 +233,17 @@ fn copy_within(
             copier.listed(&source, names, is_dir);
         }
     }
-    for names in descended {
+    let count = descended.len();
+    for (done, names) in descended.into_iter().enumerate() {
         if copier.copied.stopped.is_some() {
             break;
         }
+        let left = limits.visits.saturating_sub(copier.visits);
+        copier.share_end = copier.visits + left / (count - done);
         copier.listed(&source, names, true);
+    }
+    if copier.share_cut {
+        copier.copied.stopped.get_or_insert(Stop::Visits);
     }
     Ok(copier.copied)
 }
@@ -276,6 +293,10 @@ struct Copier<'a> {
     to: Directory,
     limits: Limits,
     visits: usize,
+    /// The visits after which the directory being descended stops: its share.
+    share_end: usize,
+    /// A directory stopped at its share.
+    share_cut: bool,
     copied: Copied,
 }
 
@@ -314,7 +335,7 @@ impl Copier<'_> {
             return;
         };
         for entry in entries {
-            if self.copied.stopped.is_some() {
+            if self.copied.stopped.is_some() || self.visits > self.share_end {
                 return;
             }
             names.push(entry.name);
@@ -351,6 +372,10 @@ impl Copier<'_> {
                 self.copied.stopped = Some(Stop::Visits);
                 return None;
             }
+            if self.visits > self.share_end {
+                self.share_cut = true;
+                return None;
+            }
             match entry {
                 Ok(entry) => entries.push(entry),
                 Err(error) => log::debug!("worktree include: an entry: {}", error.kind()),
@@ -373,6 +398,11 @@ impl Copier<'_> {
                 return;
             }
         };
+        // Only a file with one name is copied.
+        if !has_one_name(&metadata) {
+            log::debug!("worktree include: a file with more than one name skipped");
+            return;
+        }
         if self.copied.files >= self.limits.files {
             self.copied.stopped = Some(Stop::Files);
             return;

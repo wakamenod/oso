@@ -28,11 +28,13 @@ often, so it must rebuild within 2 s.
   parses the agent rules files (ADR 0121), use `toml`, which review keeps: no guard test checks
   it.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
-  hosted session's state from its screen, the tracker, and the `oso-sessions` worker. Their
-  patterns use `regex`, compiled with size limits; the screen is untrusted text. `app/sessions.rs`
-  carries out what the worker finds.
+  hosted session's state from its screen, the tracker, the `oso-sessions` worker, and worktree
+  sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the
+  worker. Their patterns use `regex`, compiled with size limits; the screen is untrusted text.
+  `app/sessions.rs` carries out what the worker and the jobs find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
-  a trusted project's root, and git only through `oso_platform::process`.
+  a trusted project's root, and git only through `oso_platform::process`. Its runner,
+  `review/git.rs`, is shared with the worktree jobs.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it and
   `sessions/worktree/include.rs`, which matches `.worktreeinclude` (ADR 0121), use `ignore`,
   which review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same

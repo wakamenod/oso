@@ -32,17 +32,18 @@ const PATTERN_LIMIT: usize = 1 << 20;
 /// `git`, with its global options, running `worktree add`, in one simple command. It starts
 /// where a command can: at the start, after a separator, a substitution's opening, a quote or
 /// whitespace. Words are split by spaces, tabs and escaped line breaks only, so the parts cannot
-/// come from two commands on two lines.
+/// come from two commands on two lines. Its classes are ASCII where a class may be (`(?-u)`);
+/// a negated one stays Unicode, as the pattern matches text.
 const PATTERN: &str = concat!(
-    r#"(?:^|[\s;&|(`"'])"#,
-    r"(?:[\w./~-]*/)?git",
+    r#"(?:^|(?-u:[\s;&|(`"']))"#,
+    r"(?:(?-u:[\w./~-])*/)?git",
     r"(?:(?:[ \t]|\\\n)+",
     r"(?:-[Cc]|--(?:git-dir|work-tree|namespace|config-env|super-prefix|exec-path|attr-source))",
-    r#"(?:[ \t]|\\\n)+(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|]+)"#,
-    r#"|(?:[ \t]|\\\n)+-[\w-]+(?:=(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|]+))?"#,
+    r#"(?:[ \t]|\\\n)+(?:"[^"\n]*"|'[^'\n]*'|[^\t\n\x0B\x0C\r ;&|]+)"#,
+    r#"|(?:[ \t]|\\\n)+-(?-u:[\w-])+(?:=(?:"[^"\n]*"|'[^'\n]*'|[^\t\n\x0B\x0C\r ;&|]+))?"#,
     r")*",
     r"(?:[ \t]|\\\n)+worktree(?:[ \t]|\\\n)+add",
-    r#"(?:$|[\s;&|)`"'])"#,
+    r#"(?:$|(?-u:[\s;&|)`"']))"#,
 );
 
 /// Whether a `PreToolUse` input, JSON, is a call to deny: `tool_name` `EnterWorktree`, or `Bash`
@@ -57,6 +58,10 @@ pub fn decide(input: &[u8]) -> Option<&'static str> {
         "EnterWorktree" => Some(REASON),
         "Bash" => {
             let command = value.pointer("/tool_input/command")?.as_str()?;
+            // Most commands name no worktree; they are allowed before the pattern compiles.
+            if !command.contains("worktree") {
+                return None;
+            }
             pattern()?.is_match(command).then_some(REASON)
         }
         _ => None,

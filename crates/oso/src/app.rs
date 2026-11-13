@@ -443,6 +443,8 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
+        // A command that reads a branch waits for them as a yank does (ADR 0121).
+        let effects = effects.union(self.sync_branch_wait());
         let input = self.flash_after_input();
         self.time_jump(input);
         self.forget_killed();

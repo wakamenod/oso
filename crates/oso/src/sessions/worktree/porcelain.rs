@@ -229,21 +229,27 @@ pub fn made_a_commit(reflog: &[u8]) -> bool {
 /// Text safe to show a person: control characters, the line and paragraph separators and the
 /// bidirectional controls become `\u{…}` escapes. At most `max` characters of it, then `…`.
 pub fn printable(text: &str, max: usize) -> String {
-    let mut shown = String::new();
+    use std::fmt::Write;
+    let mut shown = String::with_capacity(text.len().min(max.saturating_mul(4)));
     let mut count = 0;
     for c in text.chars() {
-        let piece = if hidden(c) {
-            format!("\\u{{{:x}}}", u32::from(c))
+        let code = u32::from(c);
+        // `\u{`, the hex digits, `}`; or the character itself.
+        let width = if hidden(c) {
+            4 + (32 - code.leading_zeros()).div_ceil(4).max(1) as usize
         } else {
-            c.to_string()
+            1
         };
-        let width = piece.chars().count();
         if count + width > max {
             shown.push('…');
             return shown;
         }
         count += width;
-        shown.push_str(&piece);
+        if width == 1 {
+            shown.push(c);
+        } else {
+            let _ = write!(shown, "\\u{{{code:x}}}");
+        }
     }
     shown
 }

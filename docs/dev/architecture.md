@@ -640,10 +640,18 @@ The UI thread never blocks on I/O or parsing:
     rendered by `list.rs`), and check and remove one (`checks.rs`, `merged.rs`).
   - Every git run is ADR 0122's runner (`review::git`); `gh` runs through its bounded
     collector.
+  - Each job takes the project's trust when it is asked for (`jobs::Trust`), checks it again
+    before it runs, and refuses a repository whose main checkout is not trusted too. What
+    touches the disk, the new worktree's trust included, is made on the job's thread.
+  - A job reads the repository's remotes, main branches, GitHub repository and the registry's
+    sessions once (`facts.rs`). A listing sends every row without `gh`, then what `gh` says of
+    the rows that need it (`Report::Merged`); a newer listing stops an older one.
   - What only the UI thread knows (unsaved buffers, unsent briefs, hosted sessions) goes with
-    each job as a `Snapshot`, and is checked again before the removal's question and its `y`.
+    each job as a `Snapshot`, and is checked again before the removal's question and its `y`,
+    whose job runs every check again before it removes.
   - The dispatcher waits for the branches before `session-worktree`'s prompt opens, as it
-    waits for the clipboard (`dispatch/branches.rs`).
+    waits for the clipboard (`dispatch/branches.rs`); `app/sessions/worktrees.rs` asks for them
+    (`sync_branch_wait`), and the listing goes ahead of other jobs.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

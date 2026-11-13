@@ -354,6 +354,7 @@ impl Dispatcher {
             .text_command();
         match text_command {
             Some(id) if !text.is_empty() => {
+                self.drop_branch_wait(editor);
                 let args = Args::with_prefix(self.prefix.take());
                 let invocation = Invocation {
                     input: text,
@@ -366,9 +367,10 @@ impl Dispatcher {
         }
     }
 
-    /// An undefined or cancelled key sequence drops the prefix argument and ends a
-    /// run of one command.
+    /// An undefined or cancelled key sequence drops the prefix argument, ends a run of one
+    /// command and drops a wait for the branches (ADR 0121).
     fn forget_keys(&mut self, editor: &mut Editor) {
+        self.drop_branch_wait(editor);
         self.prefix = None;
         self.last = None;
         editor.set_indent_rigidly_layer(false);
@@ -557,6 +559,7 @@ impl Dispatcher {
                 return Effects::default();
             }
         };
+        self.drop_branch_wait(editor);
         // The text comes from the key, so keys from the window and from the socket
         // type the same. `KeyEvent.text` would type `q` for an unbound `C-q` (ADR 0051).
         let mut utf8 = [0; 4];

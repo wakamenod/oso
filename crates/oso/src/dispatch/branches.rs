@@ -6,20 +6,20 @@
 //! Must not depend on: `app`, git or the sessions worker; the host lists the branches and
 //! brings the answer.
 //!
-//! The wait is the clipboard's (ADR 0074) made simpler: no input is held, so keys typed while
-//! the branches are listed run as they come. If one of them opens a prompt or selects another
-//! window or buffer before the list comes, the wait is dropped and a message says so, as its
-//! prompt would open somewhere else. Each prompt takes any name typed, as `C-x b` does
-//! (ADR 0088): a new branch, or a revision for the base.
+//! The wait is the clipboard's (ADR 0074) made simpler: no input is held. A command the person
+//! runs before the list comes, `C-g` included, drops the wait, and the echo area says so; so
+//! does a list that comes when another window, buffer or prompt is selected, as its prompt would
+//! open somewhere else. Each prompt takes any name typed, as `C-x b` does (ADR 0088): a new
+//! branch, or a revision for the base.
 
 use std::sync::Arc;
 
-use oso_core::buffer::BufferId;
 use oso_core::command::{ArgSpec, CommandId, Effects, ExecuteError, Prefix};
 use oso_core::complete::Candidate;
 use oso_core::editor::{CompletionStyle, Editor};
 
 use super::Dispatcher;
+use super::clipboard::Place;
 use super::prompts::Reading;
 
 /// The branches in the order the host listed them, and any name typed is an answer.
@@ -36,24 +36,6 @@ pub(super) struct BranchWait {
     place: Place,
     /// The host has been asked to list them.
     asked: bool,
-}
-
-/// Where the command was when it began waiting, to drop it if that changed.
-#[derive(PartialEq, Eq)]
-struct Place {
-    window: usize,
-    buffer: BufferId,
-    prompts: usize,
-}
-
-impl Place {
-    fn of(editor: &Editor) -> Self {
-        Self {
-            window: editor.selected_window(),
-            buffer: editor.window().buffer(),
-            prompts: editor.prompts().len(),
-        }
-    }
 }
 
 /// The base prompt that follows the branch's after a prefix argument, over the same branches.
@@ -93,6 +75,14 @@ impl Dispatcher {
             asked: false,
         });
         (Effects::default(), Ok(()))
+    }
+
+    /// Drops the wait for the branches, if a command waits, as when the person runs another
+    /// command or quits: the echo area says so.
+    pub(super) fn drop_branch_wait(&mut self, editor: &mut Editor) {
+        if self.branch_wait.take().is_some() {
+            editor.message("Branch prompt dropped");
+        }
     }
 
     /// Whether the host should list the current project's branches for a command that waits:

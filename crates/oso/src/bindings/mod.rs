@@ -5,7 +5,6 @@
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 mod agent_sessions;
-mod briefs;
 mod buffers;
 mod complete;
 mod cursors;
@@ -201,7 +200,7 @@ pub fn markdown_keymap(registry: &Registry) -> Keymap {
 /// (ADR 0121). Empty for a registry without their commands, as in tests that bring their own.
 pub fn worktree_keymaps(registry: &Registry) -> [Keymap; 2] {
     let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
-    [keymap(briefs::BRIEF), keymap(worktrees::WORKTREES)]
+    [keymap(worktrees::BRIEF), keymap(worktrees::WORKTREES)]
 }
 
 /// The commands the layer of `C-x TAB` runs rather than closes for.
@@ -223,10 +222,9 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 #[cfg(test)]
 mod tests {
     use super::{
-        TABLES, briefs, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap,
-        jump, jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps,
-        prompt_keymaps, recovery, recovery_keymaps, rigid_commands, rigid_keymap, worktree_keymaps,
-        worktrees,
+        TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
+        jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
+        recovery, recovery_keymaps, rigid_commands, rigid_keymap, worktree_keymaps, worktrees,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -272,7 +270,7 @@ mod tests {
     fn the_worktree_keymaps_bind_all_their_rows() {
         let registry = commands::registry();
         let [brief, listing] = worktree_keymaps(&registry);
-        for (keymap, table) in [(&brief, briefs::BRIEF), (&listing, worktrees::WORKTREES)] {
+        for (keymap, table) in [(&brief, worktrees::BRIEF), (&listing, worktrees::WORKTREES)] {
             for (keys, name) in table {
                 let keys: KeySequence = keys.parse().unwrap();
                 let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {

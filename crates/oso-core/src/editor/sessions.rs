@@ -1,8 +1,8 @@
 //! What commands ask of the host about agent sessions (ADR 0121).
 //!
 //! Must not depend on: the host's threads or I/O. A command asks; the host takes the request
-//! after the command, does the work on its sessions worker, and fills an internal buffer with
-//! [`Editor::set_internal_text`].
+//! after the command, does the work on its sessions worker or its worktree jobs, and fills an
+//! internal buffer with [`Editor::set_internal_text`].
 
 use std::path::PathBuf;
 

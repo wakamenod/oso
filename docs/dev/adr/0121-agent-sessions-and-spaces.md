@@ -494,7 +494,8 @@ A **project** in Desktop's sense, without a coordinator model:
 - **`oso-core`'s frame** gains saving and restoring a window tree, for spaces, and a window flag that
   `other-window` skips, for the side window. No new module.
 - **One sessions worker thread,** `oso-sessions`, holds the registry poll, the rules, the transcript
-  reads and the queue of `git` and `gh` jobs (at most 2 at once). It sends the UI thread only
+  reads and the queue of `git` and `gh` jobs (at most 2 at once) (see Step 4, as built: the queue
+  is a pool beside the worker). It sends the UI thread only
   changes: a session's state, a list row, a finished job.
 
 ### Cost
@@ -933,8 +934,25 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   repository does in `post-checkout` is the person's to run in the worktree's terminal. Worktrees
   still need a trusted project: git writes there, and runs the filters the repository's
   configuration names (ADR 0011).
+- **Worktree commands run only when the main repository is trusted too (the author's choice,
+  2026-11-13),** as ADR 0114 has worktrees take their trust from it. Each job compares the main
+  checkout git names with the record of trusted projects, and otherwise refuses: "Worktree
+  sessions need the main repository trusted: trust-project it first".
+- **Each job takes the project's trust as it is when it is asked for.** `*Brief*`,
+  `*Worktrees*` and a removal keep the project, not its trust, and a job checks the root again
+  before it runs git: a project no longer trusted, or whose root is no longer the directory that
+  was trusted, runs nothing. Making a worktree checks it again between its steps.
+- **The checks are an accident guard, not a boundary.** They keep the person from losing work
+  by mistake; an agent that can write the repository's `.git` can make them pass. The person's
+  `y` runs every check again, in the job that removes the worktree, and refuses when git ignores
+  more there than the question named.
 - **`worktree-list` is `Person`, not `Look` (the author's choice):** it runs git and `gh`. Step
   6's `worktree_list` tool stays a read-only channel method, as decided above.
+- **A listing looks at every row without `gh`, then asks `gh`** only for the rows ancestry
+  leaves open whose branch went to a remote: a remote branch of the same name, or an upstream.
+  A branch never pushed is "not merged: never pushed", with no `gh`. What git ignores is read
+  only for a removal. A newer listing stops an older one between rows. The repository's
+  remotes, main branches, GitHub repository and the registry's sessions are read once a job.
 - **The shared-directory warning is the y/n question** "Another session runs in this directory.
   A worktree keeps their changes apart (C-x a w). Start here anyway?", not `w` and `RET`. `y`
   runs `session-start-shared`. The hosted table is checked on the UI thread, and the registry on
@@ -950,14 +968,18 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   a squash's merge commit never contains the tip.
   - `gh pr list --repo HOST/OWNER/REPO --head B --state merged --json number,headRefOid,baseRefName`
     names the repository from the first remote whose address is a GitHub one, `origin` first.
+    That is `github.com`, or the host `GH_HOST` names in oso's environment; `gh` is asked about
+    no other host.
   - The base must be `main`, `master`, `develop` or the branch the remote's `HEAD` points to.
 - **`gh` runs in the empty private directory,** so it never runs git in the repository. It
-  takes `GH_TOKEN`, `GITHUB_TOKEN`, `GH_HOST`, `GH_CONFIG_DIR`, the enterprise tokens,
-  `XDG_CONFIG_HOME`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR` by name. It is told
+  takes `GH_CONFIG_DIR`, `XDG_CONFIG_HOME`, the proxy variables and
+  `SSL_CERT_FILE`/`SSL_CERT_DIR` by name, and the tokens of the one host it is asked about:
+  `GH_TOKEN` and `GITHUB_TOKEN` for `github.com`, `GH_HOST` and the enterprise tokens for
+  another. It is told
   `GH_PROMPT_DISABLED=1`, the two update notifiers off, no spinner and `NO_COLOR`. It has 10 s
   and 256 KiB.
 - **A linked worktree is run in only after its claim is checked,** as ADR 0114's detection
-  checks one (`project::linked_worktree`). Git then gets `GIT_DIR` and `GIT_WORK_TREE`, so it
+  checks one (`project::linked_worktree`), and only when its `.git` is the person's or root's. Git then gets `GIT_DIR` and `GIT_WORK_TREE`, so it
   looks for no repository. A worktree whose claim fails is listed, but nothing runs in it.
 - **`.worktreeinclude`:**
   - The patterns are read without following a link, at most 64 KiB and 1,000 patterns, and
@@ -969,16 +991,23 @@ questions through the coordinator, (a) for each, and the coordinator approved th
     opened, all without following a link. So a link the checkout holds never takes a copy
     outside it.
   - The caps are 1,000 files and 256 MiB, counted as copied. Setuid, setgid and sticky bits
-    are dropped.
+    are dropped. Each directory searched gets an equal share of the entries left.
+  - On Unix a file with more than one name is not copied.
 - **`oso-platform` gained `Directory::create_directory(&self, name: &OsStr) ->
   io::Result<Option<Directory>>` and `Directory::create_file(&self, name: &OsStr, mode: u32) ->
   io::Result<File>`,** with 2 `unsafe` blocks on Unix (`mkdirat`, `openat` with
   `O_CREAT|O_EXCL|O_NOFOLLOW`), each with its `// SAFETY:` comment.
 - **`.claude/worktrees` is made or opened without following a link, and must be the person's,**
-  so a repository cannot send a worktree outside itself through a link there.
+  so a repository cannot send a worktree outside itself through a link there. It is opened so
+  again right before `git worktree add`, and the worktree's place is checked again after git
+  made it: the directory reached from the repository without following a link, inside the
+  repository. Otherwise nothing is copied and no session starts. The brief and hand-off facts are
+  put together before anything is made.
 - **The jobs** run on `oso-sessions-git`, at most 2 threads, started when a job waits and ended
   after 30 s with none. The app hands jobs to this pool directly, beside the sessions worker,
-  not through it: the worker's rules never wait on git.
+  not through it: the worker's rules never wait on git. A branch listing a prompt waits for goes
+  ahead of the other jobs. What the jobs make that touches the disk, such as the new worktree's
+  trust, is made on them, never on the UI thread.
 - **`*Brief*` is withheld from agents** (the author's choice), as `*Session explain*` is. An
   agent cannot read or rewrite the person's brief before `C-c C-c` sends it.
 - **The steering hook's reason** names `session-worktree (C-x a w)` until step 6 gives agents
@@ -991,7 +1020,8 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   StartShared}`, `ArgSpec::BranchAndBaseOnPrefix { prompt, base_prompt, history }`,
   `Ctx::branch_and_base(&self) -> Option<(&str, Option<&str>)>` and `Mode::{Brief, Worktrees}`.
   The dispatcher waits for the project's branches, which the pool lists, before the branch
-  prompt opens, as it waits for the clipboard.
+  prompt opens, as it waits for the clipboard. Only the listing the newest wait asked for opens
+  a prompt, and a command the person runs meanwhile, `C-g` included, drops the wait.
 - **Left to step 3 and ADR 0120's terminal:** the space a worktree session opens and its
   removal closes, the list's space column, live states in check 4 and the list, stopping a
   worktree's idle sessions before it is removed, and the end-to-end flows.

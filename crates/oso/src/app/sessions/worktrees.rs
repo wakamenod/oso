@@ -5,6 +5,10 @@
 //! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
+//!
+//! What a job needs from the UI thread goes with it; nothing here touches the disk. Each job
+//! takes the project's trust as it is when the job is asked for, not as it was when `*Brief*`
+//! or `*Worktrees*` opened.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,6 +17,7 @@ use std::sync::{Mutex, PoisonError};
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::command::Effects;
 use oso_core::editor::SessionRequest;
+use oso_core::project::ProjectId;
 
 use super::super::{App, Loop, UserEvent};
 
@@ -20,11 +25,13 @@ mod listing;
 mod removal;
 use super::hosting::Begin;
 use crate::review::TrustedRoot;
-use crate::sessions::hosted::Run;
+use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
-use crate::sessions::worktree::create::{From, Order};
-use crate::sessions::worktree::jobs::{Jobs, Report, Snapshot};
-use crate::sessions::worktree::list::{Row, Shown};
+use crate::sessions::worktree::brief::MAX_BRIEF;
+use crate::sessions::worktree::checks::Held;
+use crate::sessions::worktree::create::{Created, Handover, Order, Step};
+use crate::sessions::worktree::jobs::{Jobs, Report, Snapshot, Trust};
+use crate::sessions::worktree::list::{Row, RowText, Shown};
 use crate::sessions::worktree::porcelain::printable;
 use crate::sessions::worktree::slug;
 
@@ -49,15 +56,17 @@ pub(in crate::app) struct Worktrees {
     list: Option<Listing>,
     /// The removal under way: checked, asked, or removing.
     removing: Option<Removing>,
+    /// The branch listing a prompt waits for, by its job's token.
+    branch_wait: Option<u64>,
 }
 
 /// A worktree session's brief, before and while its worktree is made.
 #[derive(Debug, Clone)]
 struct Brief {
-    root: TrustedRoot,
+    project: ProjectId,
     branch: String,
     base: Option<String>,
-    from: Option<From>,
+    from: Option<Handover>,
     parent: Option<SessionId>,
     /// Where its worktree goes, for the check of unsent briefs.
     place: PathBuf,
@@ -68,8 +77,12 @@ struct Brief {
 struct Listing {
     token: u64,
     buffer: BufferId,
-    root: TrustedRoot,
+    project: ProjectId,
+    /// The project's root, as the list names it.
+    main: PathBuf,
     rows: Vec<Row>,
+    /// Each row's lines, formatted once.
+    lines: Vec<RowText>,
     pending: usize,
     shown: Shown,
 }
@@ -77,7 +90,7 @@ struct Listing {
 #[derive(Debug)]
 struct Removing {
     token: u64,
-    root: TrustedRoot,
+    project: ProjectId,
     path: PathBuf,
     /// What git ignores there, once checked: the question names it.
     ignored: Option<Vec<PathBuf>>,
@@ -122,25 +135,43 @@ impl App {
         self.hosting.worktrees.next
     }
 
-    /// The selected buffer's project's root, if it is trusted to run git.
-    fn trusted_here(&self) -> Result<TrustedRoot, String> {
-        self.editor
-            .current()
-            .1
-            .project()
-            .and_then(|id| TrustedRoot::of(&self.editor, id))
+    /// The selected buffer's project, if it is trusted to run git.
+    fn project_here(&self) -> Result<ProjectId, String> {
+        let project = self.editor.current().1.project();
+        project
+            .filter(|&id| self.editor.project_trusted(id))
             .ok_or_else(|| {
                 "Worktree sessions need a trusted project's buffer: trust-project first".to_owned()
             })
     }
 
-    /// Lists the current project's branches for the command that waits for them. The answer
-    /// comes as a job's report; a refusal is answered at once.
-    pub(in crate::app) fn list_branches_for_prompt(&mut self) -> Effects {
-        match self.trusted_here() {
-            Ok(root) => {
-                self.worktree_jobs().branches(root);
-                Effects::default()
+    /// The trust a job for `project` runs under, as it is now.
+    fn trust_for(&self, project: ProjectId) -> Result<Trust, String> {
+        let root = TrustedRoot::of(&self.editor, project).ok_or_else(|| {
+            "Worktree sessions need a trusted project: trust-project first".to_owned()
+        })?;
+        Ok(Trust {
+            root,
+            trusted: self.trusted_list(),
+        })
+    }
+
+    /// Asks for the current project's branches when a command waits for them, and says so in
+    /// the echo area. A refusal is answered at once. Returns what that answer did.
+    pub(in crate::app) fn sync_branch_wait(&mut self) -> Effects {
+        if !self.dispatcher.take_branches_request() {
+            return Effects::default();
+        }
+        match self.project_here().and_then(|id| self.trust_for(id)) {
+            Ok(trust) => {
+                let token = self.worktree_token();
+                self.hosting.worktrees.branch_wait = Some(token);
+                self.worktree_jobs().branches(token, trust);
+                self.editor.echo("Listing branches…");
+                Effects {
+                    redraw: true,
+                    ..Effects::default()
+                }
             }
             Err(why) => self
                 .dispatcher
@@ -151,7 +182,12 @@ impl App {
     /// A worktree job reported.
     pub(in crate::app) fn worktree_reported(&mut self, event_loop: &Loop<'_>, report: Report) {
         match report {
-            Report::Branches { branches, .. } => {
+            Report::Branches { token, branches } => {
+                // Only the listing the newest wait asked for opens a prompt.
+                if self.hosting.worktrees.branch_wait != Some(token) {
+                    return;
+                }
+                self.hosting.worktrees.branch_wait = None;
                 let effects = self
                     .dispatcher
                     .branches_answered(&mut self.editor, branches);
@@ -161,6 +197,11 @@ impl App {
             Report::Created { token, result } => self.worktree_created(token, result),
             Report::Listed { token, result } => self.worktrees_listed(token, result),
             Report::Row { token, looked } => self.worktree_row(token, *looked),
+            Report::Merged {
+                token,
+                path,
+                merged,
+            } => self.worktree_merged(token, &path, merged),
             Report::Checked {
                 token,
                 path,
@@ -177,8 +218,11 @@ impl App {
 
     /// `session-worktree`: opens `*Brief*` for a worktree on `branch`.
     fn open_brief(&mut self, branch: String, base: Option<String>) {
-        let root = match self.trusted_here() {
-            Ok(root) => root,
+        let (project, root) = match self.project_here() {
+            Ok(id) => match self.editor.project(id) {
+                Some(found) => (id, found.root().to_owned()),
+                None => return,
+            },
             Err(why) => return self.editor.message(why),
         };
         if let Some(open) = self.hosting.worktrees.briefs.keys().next().copied() {
@@ -188,14 +232,18 @@ impl App {
                 .message("A brief is being written: send it with C-c C-c or drop it with C-c C-k");
         }
         let starting = self.editor.window().buffer();
-        let from = self.hosting.table.by_buffer(starting).map(|session| From {
-            name: session.runs().then(|| session.name.clone()),
-            id: session.id.as_str().to_owned(),
-            directory: session.directory.clone(),
-        });
+        let from = self
+            .hosting
+            .table
+            .by_buffer(starting)
+            .map(|session| Handover {
+                name: session.runs().then(|| session.name.clone()),
+                id: session.id.as_str().to_owned(),
+                directory: session.directory.clone(),
+            });
         let parent = self.hosting.table.by_buffer(starting).map(|s| s.id.clone());
         let place = slug::slug(&branch)
-            .map(|slug| root.path().join(".claude/worktrees").join(slug))
+            .map(|slug| root.join(".claude/worktrees").join(slug))
             .unwrap_or_default();
         let mut buffer = Buffer::from_text(BRIEF, "");
         buffer.set_mode(Mode::Brief);
@@ -207,7 +255,7 @@ impl App {
         self.hosting.worktrees.briefs.insert(
             id,
             Brief {
-                root,
+                project,
                 branch,
                 base,
                 from,
@@ -228,9 +276,14 @@ impl App {
                 .editor
                 .message("This brief belongs to no worktree session");
         };
-        let Some(text) = self.editor.buffer(buffer).map(|b| b.text().to_string()) else {
+        let Some(text) = self.editor.buffer(buffer).map(Buffer::text) else {
             return;
         };
+        // Measured before it is copied.
+        if text.len() > MAX_BRIEF {
+            return self.editor.message("The brief is over 64 KiB");
+        }
+        let text = text.to_string();
         if text.trim().is_empty() {
             return self.editor.message("The brief is empty");
         }
@@ -243,6 +296,10 @@ impl App {
         {
             return self.editor.message("This worktree is being made");
         }
+        let trust = match self.trust_for(brief.project) {
+            Ok(trust) => trust,
+            Err(why) => return self.editor.message(why),
+        };
         let token = self.worktree_token();
         let order = Order {
             branch: brief.branch.clone(),
@@ -250,8 +307,7 @@ impl App {
             brief: text,
             from: brief.from.clone(),
         };
-        self.worktree_jobs()
-            .create(token, brief.root.clone(), order);
+        self.worktree_jobs().create(token, trust, order);
         self.editor.message(format!(
             "Making the worktree for {}…",
             printable(&brief.branch, 80)
@@ -260,8 +316,7 @@ impl App {
     }
 
     /// A create job reached `step`: the echo area says what comes next.
-    fn worktree_step(&mut self, token: u64, step: crate::sessions::worktree::create::Step) {
-        use crate::sessions::worktree::create::Step;
+    fn worktree_step(&mut self, token: u64, step: Step) {
         let Some(brief) = self.hosting.worktrees.creating.get(&token) else {
             return;
         };
@@ -283,16 +338,12 @@ impl App {
     }
 
     /// A create job ended: its session starts, or why not is said.
-    fn worktree_created(
-        &mut self,
-        token: u64,
-        result: Result<crate::sessions::worktree::create::Created, String>,
-    ) {
+    fn worktree_created(&mut self, token: u64, result: Result<(Created, TrustedRoot), String>) {
         let Some(brief) = self.hosting.worktrees.creating.remove(&token) else {
             return;
         };
-        let created = match result {
-            Ok(created) => created,
+        let (created, trusted) = match result {
+            Ok(made) => made,
             // The brief stays, to send again.
             Err(why) => return self.editor.message(why),
         };
@@ -313,7 +364,6 @@ impl App {
             printable(&created.path.display().to_string(), 200),
             printable(&created.branch, 80),
         ));
-        let trusted = brief.root.for_worktree(created.path.clone());
         self.begin_session(Begin {
             name: None,
             directory: Some(created.path),
@@ -322,6 +372,35 @@ impl App {
             check_shared: false,
             trusted: Some(trusted),
         });
+    }
+
+    /// What the UI thread holds about the worktree at `path` alone: buffers with unsaved
+    /// changes under it, an unsent brief for it, its busy hosted sessions.
+    fn held_at(&self, path: &Path) -> Held {
+        let unsaved = self
+            .editor
+            .buffers()
+            .filter(|(_, buffer)| buffer.is_modified())
+            .filter(|(_, buffer)| buffer.path().is_some_and(|file| file.starts_with(path)))
+            .count();
+        let worktrees = &self.hosting.worktrees;
+        let unsent = worktrees
+            .briefs
+            .values()
+            .chain(worktrees.creating.values())
+            .any(|brief| brief.place.starts_with(path));
+        let sessions = self.hosting.table.all();
+        // Until the states come (ADR 0121 step 3), a session that runs counts as busy.
+        let busy = sessions
+            .iter()
+            .filter(|session| session.runs() && session.directory.starts_with(path))
+            .map(|session| session.name.clone())
+            .collect();
+        Held {
+            unsaved,
+            unsent,
+            busy,
+        }
     }
 
     /// What the UI thread holds that a worktree job cannot read: buffers with unsaved
@@ -347,13 +426,7 @@ impl App {
             .filter(|session| session.runs())
             .map(|session| (session.directory.clone(), session.name.clone()))
             .collect();
-        let hosted = sessions
-            .iter()
-            .filter_map(|session| match session.run {
-                Run::Running { child } => child,
-                _ => None,
-            })
-            .collect();
+        let hosted = hosted_pids(sessions);
         Snapshot {
             unsaved,
             briefs,
@@ -361,4 +434,15 @@ impl App {
             hosted,
         }
     }
+}
+
+/// The process ids of the `claude`s oso hosts.
+fn hosted_pids(sessions: &[Hosted]) -> Vec<u32> {
+    sessions
+        .iter()
+        .filter_map(|session| match session.run {
+            Run::Running { child } => child,
+            _ => None,
+        })
+        .collect()
 }

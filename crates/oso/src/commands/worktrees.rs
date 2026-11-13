@@ -3,8 +3,9 @@
 //! one whose work is done, with the answers to the questions those ask.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
-//! and asks the host, whose sessions worker runs `git` and `gh`. Each needs a person at the
-//! keyboard: they run processes, and `git worktree add` runs the repository's hooks.
+//! and asks the host, whose worktree jobs run `git` and `gh` on a pool of their own, beside the
+//! sessions worker. Each needs a person at the keyboard: they run processes. No hook of the
+//! repository runs, `git worktree add` included.
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
@@ -14,7 +15,7 @@ use oso_core::editor::SessionRequest;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "session-worktree",
-        doc: "Start a Claude Code session in a new git worktree of this project, from a brief written in `*Brief*`.\n\nIt reads a branch, completing over the project's local branches; a name that is none of them makes a new branch, which starts at `HEAD`, or with `C-u` at a base read after it. `*Brief*` opens for the brief, sent with `C-c C-c` and dropped with `C-c C-k`. Sending runs `git worktree add` in `.claude/worktrees/` of the repository, copies the files `.worktreeinclude` names that git ignores, and starts a session there with the brief as its first prompt. It needs a trusted project, as git runs the repository's hooks, and refuses a branch checked out elsewhere.",
+        doc: "Start a Claude Code session in a new git worktree of this project, from a brief written in `*Brief*`.\n\nIt reads a branch, completing over the project's local branches; a name that is none of them makes a new branch, which starts at `HEAD`, or with `C-u` at a base read after it. `*Brief*` opens for the brief, sent with `C-c C-c` and dropped with `C-c C-k`. Sending runs `git worktree add` in `.claude/worktrees/` of the repository, copies the files `.worktreeinclude` names that git ignores, and starts a session there with the brief as its first prompt. It needs a trusted project whose main repository is trusted too, as git writes there and runs the filters its configuration names; no hook of the repository runs. It refuses a branch checked out elsewhere.",
         args: ArgSpec::BranchAndBaseOnPrefix {
             prompt: "Worktree branch:",
             base_prompt: "Base:",
@@ -42,7 +43,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "worktree-list",
-        doc: "List the linked worktrees of the selected project's repository in `*Worktrees*`.\n\nEach row shows its path, its branch, its uncommitted and untracked files, whether the branch is merged and how that was found, the sessions in it, the buffers with unsaved changes under it, and whether `worktree-remove` would remove it or why not. It runs `git` and `gh`, and needs a trusted project. In `*Worktrees*`, `g` lists them again and `D` removes the one at point.",
+        doc: "List the linked worktrees of the selected project's repository in `*Worktrees*`.\n\nEach row shows its path, its branch, its uncommitted and untracked files, whether the branch is merged and how that was found, the sessions in it, the buffers with unsaved changes under it, and whether `worktree-remove` would remove it or why not. It runs `git`, then `gh` for the branches that need it, and needs a trusted project whose main repository is trusted too. In `*Worktrees*`, `g` lists them again and `D` removes the one at point.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: worktree_list,
@@ -50,7 +51,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "worktree-remove",
-        doc: "Remove a linked worktree whose work is done: the one at point in `*Worktrees*`, else the selected buffer's.\n\nIt removes it only when it has no uncommitted or untracked files, no buffer under it has unsaved changes and no brief for it is unsent, no session in it is busy, and its branch is merged. It asks first, naming what git ignores there and will be deleted with it. Then it stops the idle sessions in it and runs `git worktree remove`, never with `--force`. It never deletes the branch. It needs a trusted project.",
+        doc: "Remove a linked worktree whose work is done: the one at point in `*Worktrees*`, else the selected buffer's.\n\nIt removes it only when it has no uncommitted or untracked files, no buffer under it has unsaved changes and no brief for it is unsent, no session in it is busy, and its branch is merged. It asks first, naming what git ignores there and will be deleted with it. `y` runs every check again, then `git worktree remove`, never with `--force`. It never deletes the branch. It needs a trusted project whose main repository is trusted too.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: worktree_remove,
@@ -58,7 +59,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "worktree-remove-confirmed",
-        doc: "Remove the worktree `worktree-remove` asked about, as its question's `y` does.\n\nEvery check runs again first. Only the question runs it.",
+        doc: "Remove the worktree `worktree-remove` asked about, as its question's `y` does.\n\nEvery check runs again first, in the job that removes it, and it is refused if git ignores more there than the question named. Only the question runs it.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: worktree_remove_confirmed,

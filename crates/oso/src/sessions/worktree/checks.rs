@@ -10,12 +10,11 @@
 
 use std::path::{Path, PathBuf};
 
-use oso_platform::process;
-
+use super::facts::RepoFacts;
 use super::git::{Gh, MAX_LISTING, Repo, run, said};
-use super::merged::{self, Merged};
+use super::merged::{self, Local, Merged};
 use super::porcelain::{self, Listed, Status};
-use crate::sessions::registry;
+use crate::review::git::Git;
 
 /// The most names of ignored files and directories kept, for the removal's question.
 pub const MAX_IGNORED: usize = 1_000;
@@ -31,13 +30,13 @@ pub struct Held {
     /// The hosted sessions in it that are working, need input or may have a background task,
     /// by name.
     pub busy: Vec<String>,
-    /// The process ids of `claude`s oso hosts, which the registry lists too.
-    pub hosted: Vec<u32>,
 }
 
 /// A check that does not hold, by its number in ADR 0121's order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Check {
+    /// A check that could not be run, and why: it refuses as a failed one does.
+    Unknown(String),
     /// 1: not a linked worktree of this repository, or one git cannot remove now.
     NotLinked(String),
     /// 2: changes not committed.
@@ -58,7 +57,7 @@ impl Check {
     /// Why removing it is refused, for a person.
     pub fn why(&self) -> String {
         match self {
-            Self::NotLinked(why) => why.clone(),
+            Self::Unknown(why) | Self::NotLinked(why) => why.clone(),
             Self::Dirty(Status { changed, untracked }) => {
                 format!("{changed} changed and {untracked} untracked files are not committed")
             }
@@ -91,19 +90,31 @@ pub struct Looked {
     pub ignored: Vec<PathBuf>,
     /// Sessions oso did not start that run in it, by name or process id.
     pub external: Vec<String>,
+    /// The tip of its branch, when only a merged pull request can tell whether it is merged
+    /// and a row's look left `gh` to be asked after every row.
+    pub gh_pending: Option<String>,
 }
 
 /// How far [`look`] goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Depth {
-    /// Every fact, for a row of `worktree-list`.
-    All,
+    /// Every fact but what git ignores, and no `gh`, for a row of `worktree-list`: `gh` is
+    /// asked after every row, as [`Looked::gh_pending`] says.
+    Local,
     /// In ADR 0121's order, stopping at the first check that fails, for a removal.
     UntilRefused,
 }
 
-/// Looks at the linked worktree `listed` of `repo`, asking `gh` if ancestry is not enough.
-pub fn look(repo: &Repo, gh: Option<&Gh>, listed: Listed, held: &Held, depth: Depth) -> Looked {
+/// Looks at the linked worktree `listed` of `repo`, with what the job read of the repository
+/// once, asking `gh` if ancestry is not enough and `depth` allows.
+pub fn look(
+    repo: &Repo,
+    gh: Option<&Gh>,
+    facts: &RepoFacts,
+    listed: Listed,
+    held: &Held,
+    depth: Depth,
+) -> Looked {
     let mut looked = Looked {
         linked: linked(repo, &listed),
         listed,
@@ -111,6 +122,7 @@ pub fn look(repo: &Repo, gh: Option<&Gh>, listed: Listed, held: &Held, depth: De
         merged: None,
         ignored: Vec::new(),
         external: Vec::new(),
+        gh_pending: None,
     };
     let git = repo.in_worktree(&looked.listed.path);
     let stop = |looked: &Looked| depth == Depth::UntilRefused && first(looked, held).is_some();
@@ -126,30 +138,48 @@ pub fn look(repo: &Repo, gh: Option<&Gh>, listed: Listed, held: &Held, depth: De
         looked.status = run(git, &args, MAX_LISTING)
             .ok()
             .map(|out| porcelain::status(&out));
-        let args = [
-            "ls-files",
-            "-z",
-            "--others",
-            "--ignored",
-            "--exclude-standard",
-            "--directory",
-        ];
-        if let Ok(out) = run(git, &args, MAX_LISTING) {
-            looked.ignored = porcelain::paths(&out, MAX_IGNORED);
+        // What a removal deletes is named only in its question.
+        if depth == Depth::UntilRefused {
+            looked.ignored = ignored(git);
         }
     }
-    looked.external = external(&looked.listed.path, &held.hosted);
+    looked.external = facts.external_in(&looked.listed.path);
     if stop(&looked) {
         return looked;
     }
-    looked.merged = Some(match (&looked.listed.branch, &looked.listed.head) {
+    let merged = match (&looked.listed.branch, &looked.listed.head) {
         (Some(branch), Some(_)) => match merged::tip(repo, branch) {
-            Some(tip) => merged::merged(repo, gh, branch, &tip),
+            Some(tip) if depth == Depth::Local => {
+                match merged::locally(repo, facts, branch, &tip, gh.is_some()) {
+                    Local::Done(merged) => merged,
+                    Local::AskGh => {
+                        looked.gh_pending = Some(tip);
+                        Merged::No("not known yet: gh is being asked".to_owned())
+                    }
+                }
+            }
+            Some(tip) => merged::merged(repo, gh, facts, branch, &tip),
             None => Merged::No("not known: its tip cannot be read".to_owned()),
         },
         _ => Merged::No("not merged: no branch is checked out".to_owned()),
-    });
+    };
+    looked.merged = Some(merged);
     looked
+}
+
+/// What git ignores in the worktree `git` runs in, which a removal deletes.
+fn ignored(git: &Git) -> Vec<PathBuf> {
+    let args = [
+        "ls-files",
+        "-z",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "--directory",
+    ];
+    run(git, &args, MAX_LISTING)
+        .map(|out| porcelain::paths(&out, MAX_IGNORED))
+        .unwrap_or_default()
 }
 
 /// Check 1 from git's listing: a linked worktree, not the main one, not bare, locked or
@@ -167,30 +197,6 @@ fn linked(repo: &Repo, listed: &Listed) -> Result<(), String> {
     Ok(())
 }
 
-/// The live sessions in the registry whose directory is in `path`, but those oso hosts.
-fn external(path: &Path, hosted: &[u32]) -> Vec<String> {
-    let Some(dir) = registry::directory() else {
-        return Vec::new();
-    };
-    registry::read(&dir)
-        .into_iter()
-        .filter(|entry| !hosted.contains(&entry.pid))
-        .filter(|entry| {
-            entry
-                .cwd
-                .as_deref()
-                .is_some_and(|cwd| cwd.starts_with(path))
-        })
-        .filter(|entry| registry::liveness(entry, process::start_time) != registry::Live::No)
-        .map(|entry| {
-            entry.name.clone().map_or_else(
-                || format!("process {}", entry.pid),
-                |name| porcelain::printable(&name, 48),
-            )
-        })
-        .collect()
-}
-
 /// The first check that does not hold, in ADR 0121's order, from what is known so far: a fact
 /// not looked at yet does not refuse here, so a removal asks for every fact first.
 pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
@@ -202,14 +208,8 @@ pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
     {
         return Some(Check::Dirty(status));
     }
-    if held.unsaved > 0 {
-        return Some(Check::Unsaved(held.unsaved));
-    }
-    if held.unsent {
-        return Some(Check::Unsent);
-    }
-    if !held.busy.is_empty() {
-        return Some(Check::Busy(held.busy.clone()));
+    if let Some(check) = held_refusal(held) {
+        return Some(check);
     }
     if !looked.external.is_empty() {
         return Some(Check::External(looked.external.clone()));
@@ -220,13 +220,25 @@ pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
     }
 }
 
+/// The first of checks 3 and 4 that what the UI thread holds fails: unsaved buffers, an unsent
+/// brief, busy sessions.
+pub fn held_refusal(held: &Held) -> Option<Check> {
+    if held.unsaved > 0 {
+        return Some(Check::Unsaved(held.unsaved));
+    }
+    if held.unsent {
+        return Some(Check::Unsent);
+    }
+    (!held.busy.is_empty()).then(|| Check::Busy(held.busy.clone()))
+}
+
 /// Whether every check holds: each fact was read, and none refuses.
 pub fn removable(looked: &Looked, held: &Held) -> Result<(), Check> {
     if let Some(check) = first(looked, held) {
         return Err(check);
     }
     if looked.status.is_none() {
-        return Err(Check::NotLinked(
+        return Err(Check::Unknown(
             "its changes cannot be read, so it is not known to be clean".to_owned(),
         ));
     }

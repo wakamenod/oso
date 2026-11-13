@@ -6,12 +6,18 @@
 //! Must not depend on: `app`, `dispatch`, `commands` or the UI thread.
 //!
 //! - The brief is put together before anything is made, so one that is refused leaves nothing.
+//! - The project's trust is checked again between steps: a project no longer trusted, or whose
+//!   root is no longer the directory that was trusted, stops the job.
 //! - `.claude` and `.claude/worktrees` are made or opened without following a link, and must be
 //!   the person's own: a repository cannot send a worktree outside itself with a link there.
+//!   They are opened so again right before `git worktree add`, and after it the worktree's
+//!   place is checked again: it must be the directory reached from the repository through
+//!   them, inside the repository, or nothing is copied and no session starts.
 //! - A step that fails says why and leaves what earlier steps made; [`Created`] records what
 //!   this job made, the branch included, for a clean-up later (ADR 0126).
 
 use std::ffi::OsStr;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use oso_platform::file_meta::Directory;
@@ -31,7 +37,7 @@ const MAX_UNCOMMITTED: usize = 200;
 
 /// The session a worktree session is handed from.
 #[derive(Clone, Debug)]
-pub struct From {
+pub struct Handover {
     /// Its name, only while it is live.
     pub name: Option<String>,
     /// Its id, for its transcript.
@@ -50,7 +56,7 @@ pub struct Order {
     /// The person's brief.
     pub brief: String,
     /// The session it is handed from, if any.
-    pub from: Option<From>,
+    pub from: Option<Handover>,
 }
 
 /// What a step reached, for the echo area while the job runs.
@@ -82,26 +88,46 @@ struct Branch {
     tip: Option<String>,
 }
 
-/// Makes the worktree `order` asks for in `repo`, telling `progress` of each step.
+/// What the job says of not being where it was made.
+const MOVED: &str =
+    "The worktree is not where it was made: nothing was copied and no session starts";
+
+/// Makes the worktree `order` asks for in `repo`, telling `progress` of each step, and asking
+/// `trusted` between steps whether the project is still trusted.
 ///
 /// # Errors
 ///
 /// Why it stopped, for the echo area.
-pub fn create(repo: &Repo, order: &Order, progress: &dyn Fn(Step)) -> Result<Created, String> {
+pub fn create(
+    repo: &Repo,
+    order: &Order,
+    progress: &dyn Fn(Step),
+    trusted: &dyn Fn() -> Result<(), String>,
+) -> Result<Created, String> {
+    create_with(repo, order, progress, trusted, &|| {})
+}
+
+/// [`create`], calling `before_add` right before `git worktree add`, as a test needs.
+pub(super) fn create_with(
+    repo: &Repo,
+    order: &Order,
+    progress: &dyn Fn(Step),
+    trusted: &dyn Fn() -> Result<(), String>,
+    before_add: &dyn Fn(),
+) -> Result<Created, String> {
     let branch = checked_branch(repo, &order.branch)?;
     refuse_checked_out(repo, &branch.name)?;
+    let shown = porcelain::printable(&branch.name, 120);
     let base = match (&branch.tip, &order.base) {
         (Some(_), Some(_)) => {
             return Err(format!(
-                "Branch {} exists; a base is only for a new branch",
-                branch.name
+                "Branch {shown} exists; a base is only for a new branch"
             ));
         }
         (Some(_), None) => None,
         (None, base) => Some(base_of(repo, base.as_deref())?),
     };
     let slug = slug::slug(&branch.name).ok_or("That branch makes no directory name")?;
-    worktrees_parent(repo.main())?;
     let path = slug::place(repo.main(), &slug, |p| p.symlink_metadata().is_ok())
         .ok_or("Ten worktrees of that name exist already")?;
     let shown_base = base.as_ref().map_or("its existing tip", |(name, _)| name);
@@ -115,14 +141,24 @@ pub fn create(repo: &Repo, order: &Order, progress: &dyn Fn(Step)) -> Result<Cre
     let handoff = facts.as_ref().map(Facts::handoff);
     let prompt =
         brief::compose(&header, handoff.as_ref(), &order.brief).map_err(|e| e.to_string())?;
+    trusted()?;
+    worktrees_parent(repo.main())?;
     progress(Step::Checked);
+    trusted()?;
+    // Opened again, as anything may have changed while the facts were read.
+    worktrees_parent(repo.main())?;
+    before_add();
     add(
         repo,
         &path,
         &branch.name,
         base.as_ref().map(|(_, id)| id.as_str()),
     )?;
+    if !made_in_place(repo.main(), &path) {
+        return Err(MOVED.to_owned());
+    }
     progress(Step::Added);
+    trusted()?;
     let (copied, include_note) = copy_included(repo, &path);
     progress(Step::Copied);
     Ok(Created {
@@ -133,6 +169,46 @@ pub fn create(repo: &Repo, order: &Order, progress: &dyn Fn(Step)) -> Result<Cre
         include_note,
         prompt,
     })
+}
+
+/// Whether the worktree git made at `path` is the directory reached from `main` through
+/// `.claude`, `.claude/worktrees` and its own name, each opened without following a link, and
+/// inside `main`.
+fn made_in_place(main: &Path, path: &Path) -> bool {
+    let Some(name) = path.file_name() else {
+        return false;
+    };
+    let Ok(mut dir) = Directory::open(main) else {
+        return false;
+    };
+    for name in PARENT.iter().map(OsStr::new).chain([name]) {
+        match dir.open_directory(name) {
+            Ok(Some(next)) => dir = next,
+            _ => return false,
+        }
+    }
+    let (Ok(reached), Ok(there)) = (dir.metadata(), fs::metadata(path)) else {
+        return false;
+    };
+    let inside = match (fs::canonicalize(path), fs::canonicalize(main)) {
+        (Ok(path), Ok(main)) => path.starts_with(&main) && path != main,
+        _ => false,
+    };
+    inside && same_directory(&reached, &there)
+}
+
+/// Whether two sets of metadata are of one directory: its device and inode on Unix. Elsewhere
+/// the system keeps these unstable, and the canonical path decides.
+fn same_directory(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        a.is_dir() && a.dev() == b.dev() && a.ino() == b.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        a.is_dir() && b.is_dir()
+    }
 }
 
 /// The branch name, as git normalises it, refused if git would not take it as a branch.
@@ -159,7 +235,8 @@ fn refuse_checked_out(repo: &Repo, branch: &str) -> Result<(), String> {
     let listed = repo.worktrees()?;
     match listed.iter().find(|w| w.branch.as_deref() == Some(branch)) {
         Some(w) => Err(format!(
-            "Branch {branch} is checked out already, in {}",
+            "Branch {} is checked out already, in {}",
+            porcelain::printable(branch, 120),
             porcelain::printable(&w.path.display().to_string(), 200)
         )),
         None => Ok(()),
@@ -279,7 +356,7 @@ struct Facts {
 
 impl Facts {
     /// Reads what can be read; a fact that cannot be is left out.
-    fn gather(repo: &Repo, from: &From) -> Facts {
+    fn gather(repo: &Repo, from: &Handover) -> Facts {
         let config = transcript::config_dir();
         let path = config
             .as_deref()
