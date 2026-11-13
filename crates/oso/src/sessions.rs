@@ -27,6 +27,7 @@ pub mod explain;
 pub mod hosted;
 pub mod identity;
 pub mod launch;
+pub mod recap;
 pub mod record;
 pub mod registry;
 pub mod rules;

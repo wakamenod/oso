@@ -96,6 +96,8 @@ impl App {
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
             }
+            // Its text is the screen's: never logged.
+            Out::Recap(..) => {}
         }
     }
 
