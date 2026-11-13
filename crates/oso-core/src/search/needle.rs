@@ -81,15 +81,15 @@ impl Needle {
     }
 
     /// The matches within `spans`, at most `most` and reading at most `limit` bytes, for a
-    /// frame's highlights or a jump's key. A regexp's stop at `until` too, and read each line
-    /// into `line`; a literal query's read only the text the spans cover, so its budget alone
-    /// bounds them.
+    /// frame's highlights or a jump's key. A regexp's stop at `until` too if one is given, and
+    /// read each line into `line`; a literal query's read only the text the spans cover, so
+    /// its budget alone bounds them.
     pub(crate) fn matches_in(
         &self,
         (text, invalid): (&Rope, &InvalidBytes),
         spans: &[Range<usize>],
         (most, limit): (usize, usize),
-        (until, line): (Instant, &mut LineRoom),
+        (until, line): (Option<Instant>, &mut LineRoom),
         out: &mut Vec<Range<usize>>,
     ) {
         match self {

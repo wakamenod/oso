@@ -201,7 +201,7 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
         &rope,
         &[1000..1008],
         (10, 64 * 1024),
-        (later(), &mut line),
+        (Some(later()), &mut line),
         &mut out,
     );
     assert_eq!(out, [1000..1002, 1003..1005, 1006..1008]);
@@ -213,7 +213,7 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
         &rope,
         &[0..2],
         (10, 64 * 1024),
-        (later(), &mut line),
+        (Some(later()), &mut line),
         &mut out,
     );
     assert!(out.is_empty(), "{out:?}");
@@ -229,7 +229,7 @@ fn highlights_past_their_time_find_nothing_more() {
         &rope,
         &[0..5, 6..8],
         (10, 1024),
-        (gone, &mut line),
+        (Some(gone), &mut line),
         &mut out,
     );
     assert!(out.is_empty(), "{out:?}");
@@ -237,7 +237,7 @@ fn highlights_past_their_time_find_nothing_more() {
         &rope,
         &[0..5, 6..8],
         (10, 1024),
-        (later(), &mut line),
+        (Some(later()), &mut line),
         &mut out,
     );
     assert_eq!(out, [0..2, 3..5, 6..8]);
@@ -253,7 +253,7 @@ fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
     let snapshot = (&rope, &InvalidBytes::new());
     let started = std::time::Instant::now();
     let (mut out, mut line) = (Vec::new(), super::LineRoom::default());
-    let room = (later(), &mut line);
+    let room = (Some(later()), &mut line);
     needle.matches_in(
         snapshot,
         &[0..rope.len()],
@@ -267,7 +267,7 @@ fn a_migemo_needle_on_a_long_line_reads_no_further_than_the_limit() {
         snapshot,
         &[rope.len() - 64..rope.len()],
         (16, 1024 * 1024),
-        (later(), &mut line),
+        (Some(later()), &mut line),
         &mut out,
     );
     assert_eq!(out.len(), 1);

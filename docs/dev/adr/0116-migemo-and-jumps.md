@@ -611,19 +611,23 @@ editor.
   them back, forward and backward, a key takes 1.3 to 1.7 ms p50 and `DEL`, whose needle the
   cache keeps, 0.2 to 0.3 ms; that run's slowest keys, as other work loaded the machine again,
   took 3 to 20 ms. A jump's needle of its 64 characters builds in 0.2 ms p50, at most 0.4 ms,
-  so the needle and the key's 3 ms stay well within the 8 ms of a key. A jump's key takes 0.25
+  well within the 8 ms of a key. A jump's key takes 0.25
   to 0.55 ms p50 in one window of 120 by 400 and 0.35 to 0.9 ms in four; around a secret,
   which builds its needle each key, within 0.2 ms of that. At a line of 100 MB, a migemo
   search's key takes 0.7 ms, and the worker goes on literally to the match. The strings of the
   largest patterns (`-ja`, `-vo`, `kk`, `ss` and `zu` repeated) joined those tests after these
   timings, and were not timed on an idle machine.
 - **Jumps** look for their string through the same cache, by the setting: `ka` labels `か` too.
-  As migemo makes a regexp the usual needle of a jump, a jump's key has one time for a
-  regexp's matches in every window, isearch's 3 ms, once its needle is built, which a string
-  of at most 64 characters keeps short; the rows past it, the farthest from each cursor, get no
-  label. A literal string keeps step 5's byte and candidate budgets alone, as its search is
-  linear in the bytes they bound, so a loaded machine labels as many as an idle one. A regexp's highlights and a
-  jump's key read each line into room they keep, so neither allocates once it has grown.
+  A jump is bounded by bytes, not time: migemo's needle, as a literal string, keeps step 5's
+  byte and candidate budgets alone, so a loaded machine labels as many as an idle one, and no
+  label goes missing by chance. Its pattern comes from the table, not from a person, and the
+  regexp's scan is linear in the bytes the budgets bound; the densest text measured, every
+  character a match in four windows, stays within a key. A person's own regexp, from
+  `C-M-s`, keeps the frame's time a run that step 5 gave it. The coordinator chose this on
+  2026-11-13, over one time for every window's matches, which labelled fewer on a loaded
+  machine. Isearch keeps its key's time, as the worker takes on what a key leaves. A
+  regexp's highlights and a jump's key read each line into room they keep, so neither
+  allocates once it has grown.
 
 #### As built (step 5, 2026-11-12)
 

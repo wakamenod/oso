@@ -133,7 +133,7 @@ impl Editor {
         }
         let limits = (MAX_MATCHES_SHOWN, FRAME_BUDGET);
         let until = Instant::now() + search::FRAME_TIME;
-        query.matches_in((text, invalid), spans, limits, (until, line), found);
+        query.matches_in((text, invalid), spans, limits, (Some(until), line), found);
         // The current one alone, and the rest without what overlaps it.
         if let Some(range) = current {
             found.retain(|other| other.end <= range.start || other.start >= range.end);

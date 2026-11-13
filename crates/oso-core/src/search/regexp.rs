@@ -433,22 +433,23 @@ impl Regexp {
     /// The matches within `spans`, the parts of lines a frame shows, at most `most`, for the
     /// highlights: each line is read and looked in from a little before its span to a little
     /// after, from one character before that, so `^` and `\b` see what is there, reading at
-    /// most `limit` bytes in all and until `until`, so a frame or a key costs as much as its
-    /// view. A match the window cuts at its end is left out, as it may be longer or none.
+    /// most `limit` bytes in all and until `until` if one is given, so a frame or a key costs
+    /// as much as its view. A match the window cuts at its end is left out, as it may be longer or none.
     /// `room` is where each line's text is read.
     pub(crate) fn matches_in(
         &self,
         text: &Rope,
         spans: &[Range<usize>],
         (most, limit): (usize, usize),
-        (until, room): (Instant, &mut LineRoom),
+        (until, room): (Option<Instant>, &mut LineRoom),
         out: &mut Vec<Range<usize>>,
     ) {
+        let passed = || until.is_some_and(|until| Instant::now() >= until);
         let (mut left, line) = (limit, &mut room.0);
         let mut looks = 0_usize;
         for shown in spans {
             let (_, start, end) = span(text, shown.start);
-            if shown.start > end || Instant::now() >= until {
+            if shown.start > end || passed() {
                 continue;
             }
             let clip = |at: usize| text.clip_offset(at, crate::sum_tree::Bias::Left);
@@ -467,7 +468,7 @@ impl Regexp {
             while at <= cut {
                 // A line full of matches looks at the time now and then, too.
                 looks += 1;
-                if looks.is_multiple_of(TIME_EVERY) && Instant::now() >= until {
+                if looks.is_multiple_of(TIME_EVERY) && passed() {
                     return;
                 }
                 let Some(found) = self.regex.find_at(line, at) else {

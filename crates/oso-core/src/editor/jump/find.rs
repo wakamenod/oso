@@ -11,7 +11,7 @@ use super::Near;
 use crate::buffer::Buffer;
 use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Kind};
-use crate::search::{LineRoom, Needle};
+use crate::search::{FRAME_TIME, LineRoom, Needle};
 use crate::sum_tree::Bias;
 use crate::window::{Screen, WindowId};
 
@@ -40,13 +40,12 @@ pub(in crate::editor) fn outward(at: usize, count: usize) -> impl Iterator<Item 
 }
 
 /// Adds the candidates of `kind` in a window's rows in view to `found`, reading at most
-/// `budget` bytes, adding at most `most` and, for a regexp, looking until `until`, from the
-/// cursor's row outward. Returns about how many bytes it read. `room` is room to work in: a
+/// `budget` bytes and adding at most `most`, from the cursor's row outward. Returns about how many bytes it read. `room` is room to work in: a
 /// match's ranges and a line's text.
 pub(super) fn candidates_in(
     place: &Place<'_>,
     (kind, needle): (Kind, Option<&Needle>),
-    (budget, most, until): (usize, usize, Instant),
+    (budget, most): (usize, usize),
     found: &mut Vec<Near>,
     room: (&mut Vec<Range<usize>>, &mut LineRoom),
 ) -> usize {
@@ -84,13 +83,12 @@ pub(super) fn candidates_in(
         }
         (_, Some(needle)) => {
             let (ranges, kept) = room;
-            let timed = matches!(needle, Needle::Regexp(_));
             let mut left = budget;
             // The rows of one line are matched together, as isearch's highlights are, so that
             // a match running into the next row hides the one it overlaps there.
             let mut done = 0..0;
             for index in outward(cursor_row, shown.len()) {
-                if left == 0 || found.len() >= limit || (timed && Instant::now() >= until) {
+                if left == 0 || found.len() >= limit {
                     break;
                 }
                 if done.contains(&index) {
@@ -106,7 +104,7 @@ pub(super) fn candidates_in(
                 } else {
                     done.start.min(first)..done.end.max(last)
                 };
-                let within = (left, limit - found.len(), until);
+                let within = (left, limit - found.len());
                 let run = Run {
                     needle,
                     rows: first..last,
@@ -144,14 +142,13 @@ struct Run<'a> {
 }
 
 /// Adds to `found` the matches of `run`'s needle that start in its rows' columns in view, each
-/// with its row, reading at most `budget` bytes, adding at most `most` and, for a regexp,
-/// looking until `until`. The rows are matched as one span from the first's start, widened as
+/// with its row, reading at most `budget` bytes and adding at most `most`. The rows are matched as one span from the first's start, widened as
 /// isearch's highlights are, so no two of them overlap. Returns about how many bytes it read.
 /// `room` is room to work in.
 fn run_matches(
     place: &Place<'_>,
     run: &Run<'_>,
-    (budget, most, until): (usize, usize, Instant),
+    (budget, most): (usize, usize),
     found: &mut Vec<Near>,
     (ranges, line): (&mut Vec<Range<usize>>, &mut LineRoom),
 ) -> usize {
@@ -174,6 +171,12 @@ fn run_matches(
     ranges.clear();
     let invalid = place.buffer.invalid_bytes();
     let one = std::slice::from_ref(&span);
+    // Bytes bound a jump, not time (ADR 0116): a migemo pattern's scan is linear in what it
+    // reads. A person's own regexp keeps the frame's time step 5 gave it.
+    let until = match run.needle {
+        Needle::Regexp(regexp) if !regexp.plain() => Some(Instant::now() + FRAME_TIME),
+        _ => None,
+    };
     run.needle
         .matches_in((text, invalid), one, (most, budget), (until, line), ranges);
     let (mut at, mut row) = (0, bounds(0));

@@ -275,8 +275,9 @@ impl Regexp {
         }
     }
 
-    /// Whether a match that ends at a cut is one as it is: it has no assertion.
-    pub(super) fn plain(&self) -> bool {
+    /// Whether a match that ends at a cut is one as it is: it has no assertion, as migemo's
+    /// pattern has none.
+    pub(crate) fn plain(&self) -> bool {
         self.plain
     }
 

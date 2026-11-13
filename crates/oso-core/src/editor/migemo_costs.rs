@@ -271,6 +271,42 @@ fn migemo_jump_costs() {
     }
 }
 
+/// What a jump's key costs over text where every character is a match, the densest a jump
+/// reads, as it is bounded by bytes and not by time (ADR 0116).
+#[test]
+#[ignore = "a measure, in a release build"]
+fn migemo_jump_dense_costs() {
+    for (unit, string) in [
+        ("か", "k"),
+        ("か", "か"),
+        ("a", "a"),
+        ("つ", "tsu"),
+        ("つ", "つ"),
+    ] {
+        let text = format!("{}\n", unit.repeat(400)).repeat(20_000);
+        for windows in [1, 4] {
+            let mut times = Vec::new();
+            let mut found = 0;
+            for _ in 0..20 {
+                let mut editor = jump_editor(&text, windows, false);
+                assert!(editor.jump_begin(Kind::Char, false));
+                editor.jump_add(string);
+                editor.jump_end();
+                assert!(editor.jump_begin(Kind::Char, false));
+                let started = Instant::now();
+                editor.jump_add(string);
+                times.push(ms(started));
+                found = editor.jump().map_or(0, |jump| jump.count());
+            }
+            let (p50, max) = p50_max(&mut times);
+            println!(
+                "jump dense {unit} windows={windows} {string:3} found={found} \
+                 p50={p50:.3} max={max:.3} ms"
+            );
+        }
+    }
+}
+
 /// Fills the cache with `count` of the largest needles and holds them, for a run under
 /// `/usr/bin/time -l` that compares the peak memory of 32 with that of 1.
 fn fill_cache(count: usize) {
