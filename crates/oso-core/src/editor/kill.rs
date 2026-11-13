@@ -1,4 +1,5 @@
-//! Kills and yanks of the selected window, and what goes to the OS clipboard (ADR 0074).
+//! Kills and yanks of the selected window, kills in a buffer a jump's action names
+//! (ADR 0116), and what goes to the OS clipboard (ADR 0074).
 //!
 //! Must not depend on: `command`, the clipboard itself or the host's threads; the host
 //! takes what to write and brings what it read.
@@ -321,17 +322,26 @@ fn yank_range(selection: &Selection, replaces: bool) -> Range<usize> {
     }
 }
 
+/// Whether a yank of `pieces` at `cursors` cursors is within [`kill::MAX_YANK`]: one piece
+/// each if their numbers match, or else the pieces joined at every one. A jump's action asks
+/// before it kills what it yanks (ADR 0116).
+pub(super) fn yank_fits(pieces: &[Piece], cursors: usize) -> bool {
+    let text: usize = pieces.iter().map(Piece::len).sum();
+    let total = if pieces.len() == cursors {
+        Some(text)
+    } else {
+        let joined = text + kill::PIECE_SEPARATOR.len() * pieces.len().saturating_sub(1);
+        joined.checked_mul(cursors)
+    };
+    total.is_some_and(|total| total <= kill::MAX_YANK)
+}
+
 /// The text a yank of `entry` inserts at each of `cursors` cursors: one piece each if
 /// their numbers match, or else one text, the pieces joined, for all of them.
 fn yank_texts(entry: &KillEntry, cursors: usize) -> Result<Vec<String>, YankError> {
     let pieces = entry.pieces();
     let per_cursor = pieces.len() == cursors;
-    let total = if per_cursor {
-        Some(pieces.iter().map(Piece::len).sum())
-    } else {
-        entry.len().checked_mul(cursors)
-    };
-    if total.is_none_or(|total| total > kill::MAX_YANK) {
+    if !yank_fits(pieces, cursors) {
         return Err(YankError::TooMuch);
     }
     Ok(if per_cursor {

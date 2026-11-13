@@ -1,6 +1,7 @@
 //! Scenario tests of jumps through the [`Dispatcher`] (ADR 0037, ADR 0116): their keys, their
 //! keymap in place of the others, a key it does not bind ending the jump without running, a
-//! digit at `avy-goto-line`'s labels, `avy-isearch`, and `run-command`.
+//! digit at `avy-goto-line`'s labels, `avy-isearch`, `run-command`, and the actions on a
+//! target: their echo, their undo step, their refusal and a keyboard macro's replay of one.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every
 //! OS with no window.

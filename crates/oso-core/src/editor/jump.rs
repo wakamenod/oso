@@ -15,8 +15,9 @@
 //! - The candidates nearest each window's primary cursor come first, by rows and then
 //!   columns on the screen, and at most [`MAX_LABELLED`] are labelled: the nearest rows' are
 //!   picked first, and only their columns are worked out.
-//! - Only the primary cursor moves: the place it left goes on its mark ring with no message,
-//!   unless a region shows, which the jump then extends.
+//! - With no action armed, only the primary cursor moves: the place it left goes on its mark
+//!   ring with no message, unless a region shows, which the jump then extends. What an action
+//!   does to the cursors is in [`actions`].
 //! - Nothing here logs the string, and `Debug` prints none of it (ADR 0044).
 
 use std::fmt;
@@ -64,12 +65,14 @@ pub enum Chose {
     NoSuch,
 }
 
-/// Why an action on a jump's target did nothing. The jump ended all the same.
+/// Why an action on a jump's target did nothing: the text, the cursors and the kill ring are
+/// as they were. The jump ended all the same, and `avy-isearch`'s search with it, as `RET`
+/// ends it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActionError {
-    /// A buffer it would change refused, as a read-only one does. Nothing changed.
+    /// A buffer it would change refused, as a read-only one does.
     Edit(EditError),
-    /// The line, at every cursor, is more than a yank may insert. Nothing changed.
+    /// The line, at every cursor, is more than a yank may insert.
     Yank(YankError),
     /// The window has as many cursors as it may have.
     Cursor(CursorError),
@@ -216,8 +219,8 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// An [`ActionError`] when the action armed could not act, which changed nothing. The
-    /// jump ended.
+    /// An [`ActionError`] when the action armed could not act, which left the text, the
+    /// cursors and the kill ring as they were. The jump ended.
     pub fn jump_choose(&mut self, key: char) -> Result<Chose, ActionError> {
         if self.jump_follow_text() && self.jump.is_none() {
             return Ok(Chose::NoSuch);
@@ -368,15 +371,10 @@ impl Editor {
     /// Moves the primary cursor of `candidate`'s window to it, selecting that window first.
     /// `avy-isearch` then ends the search there, as `RET` does, which saves where it began.
     fn jump_to(&mut self, kind: Kind, candidate: &Candidate) {
-        if candidate.window != self.tiled_id() {
-            self.select_window(candidate.window);
-        }
-        let Some(index) = self.window_index(candidate.window) else {
+        let Some((index, offset)) = self.jump_target(candidate) else {
             return;
         };
-        let (window, buffer) = self.window_mut(index);
-        let offset = crate::motion::cluster_start(&buffer.display(), candidate.range.start);
-        let selections = &mut window.selections;
+        let selections = &mut self.windows[index].selections;
         let from = selections.primary().cursor;
         let region = selections.mark_active().is_active();
         if kind != Kind::Isearch && !region && from != offset {
@@ -387,6 +385,24 @@ impl Editor {
         if kind == Kind::Isearch {
             self.isearch_exit();
         }
+    }
+
+    /// Selects `candidate`'s window if it is another, and gives that window's index and where
+    /// the target is, as [`Editor::target_in`] does.
+    fn jump_target(&mut self, candidate: &Candidate) -> Option<(usize, usize)> {
+        if candidate.window != self.tiled_id() {
+            self.select_window(candidate.window);
+        }
+        self.target_in(candidate)
+    }
+
+    /// The index of `candidate`'s window and where its target is, on a display cluster's
+    /// start, where a cursor can be.
+    fn target_in(&mut self, candidate: &Candidate) -> Option<(usize, usize)> {
+        let index = self.window_index(candidate.window)?;
+        let (_, buffer) = self.window_mut(index);
+        let offset = crate::motion::cluster_start(&buffer.display(), candidate.range.start);
+        Some((index, offset))
     }
 
     /// Finds a jump's matches again while its string is read, as migemo's dictionary came or

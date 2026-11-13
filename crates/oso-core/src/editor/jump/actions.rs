@@ -8,7 +8,8 @@
 //! - An action runs inside the command of the key that ended its label, so it is one undo
 //!   step in each buffer it changes, as any command is.
 //! - Every buffer it would change is asked first: a read-only one, or a yank past
-//!   `kill::MAX_YANK`, changes nothing, the kill ring included.
+//!   `kill::MAX_YANK`, changes nothing, the kill ring included. The cap on cursors is
+//!   `cursors`', which adds the one `c` adds.
 //! - A kill from a buffer that may hold secrets is a secret entry, and a yank of it makes the
 //!   buffer it goes into one too, as [`Editor::kill`] and [`Editor::yank`] have it (ADR 0074).
 //! - A line's bounds come from the rope's line index, so an action costs O(log n) before the
@@ -16,17 +17,20 @@
 
 use std::ops::Range;
 
+use super::super::kill::yank_fits;
 use super::ActionError;
 use crate::buffer::EditError;
-use crate::editor::{CursorError, Editor, YankError};
+use crate::editor::{Editor, YankError};
 use crate::jump::{Action, Candidate, Kind};
-use crate::kill::{self, Direction, KillEntry};
+use crate::kill::{Direction, KillEntry, Piece};
 use crate::rope::Rope;
-use crate::selection::{MAX_CURSORS, MarkActive, Selection, SelectionSet};
+use crate::selection::MarkActive;
 
 impl Editor {
     /// Acts with `action` on `candidate`, which a jump of `kind` chose. `avy-isearch` ends its
-    /// search first, as `RET` does, as avy ends it after the action.
+    /// search first, as `RET` does. avy ends it after the action; oso ends it before, so that
+    /// a kill or a yank never edits under a search, and the cursor a yank goes to is where
+    /// `RET` leaves it.
     pub(super) fn jump_act(
         &mut self,
         kind: Kind,
@@ -48,21 +52,9 @@ impl Editor {
         }
     }
 
-    /// Selects `candidate`'s window if it is another, and gives its index there and where its
-    /// target is, on a display cluster's start.
-    fn jump_target(&mut self, candidate: &Candidate) -> Option<(usize, usize)> {
-        if candidate.window != self.tiled_id() {
-            self.select_window(candidate.window);
-        }
-        let index = self.window_index(candidate.window)?;
-        let (_, buffer) = self.window_mut(index);
-        let offset = crate::motion::cluster_start(&buffer.display(), candidate.range.start);
-        Some((index, offset))
-    }
-
-    /// `SPC`: `C-SPC` and then the jump. Every cursor's mark goes to it, the regions show, and
-    /// the primary cursor goes to the target, so the region runs from where it was. In
-    /// another window, that window's.
+    /// `SPC`: `C-SPC` and then the jump. Every cursor's mark is set where that cursor is, the
+    /// regions show, and the primary cursor goes to the target, so the region runs from where
+    /// it was. In another window, that window's.
     fn jump_mark(&mut self, candidate: &Candidate) {
         let Some((index, offset)) = self.jump_target(candidate) else {
             return;
@@ -77,28 +69,14 @@ impl Editor {
     /// `c`: adds a cursor at the target, with no mark, and the primary stays. In another
     /// window, to that window's cursors.
     fn jump_add_cursor(&mut self, candidate: &Candidate) -> Result<(), ActionError> {
-        let full = |editor: &Self| {
-            let index = editor.window_index(candidate.window);
-            index.is_some_and(|index| editor.windows[index].selections.len() >= MAX_CURSORS)
+        let Some((index, offset)) = self.target_in(candidate) else {
+            return Ok(());
         };
-        if full(self) {
-            return Err(ActionError::Cursor(CursorError::TooMany));
+        self.add_cursor_in(index, offset)
+            .map_err(ActionError::Cursor)?;
+        if candidate.window != self.tiled_id() {
+            self.select_window(candidate.window);
         }
-        let Some((index, offset)) = self.jump_target(candidate) else {
-            return Ok(());
-        };
-        // A run of the keys that add cursors starts again, as after `edit_lines`'s.
-        self.drop_cursor_search();
-        self.marking = None;
-        let set = &self.windows[index].selections;
-        let mut parts = set.as_slice().to_vec();
-        parts.push(Selection::at(offset));
-        let (primary, shown, ring) = (set.primary_index(), set.mark_active(), *set.mark_ring());
-        let Some(mut added) = SelectionSet::from_parts(parts, primary) else {
-            return Ok(());
-        };
-        added.set_mark_active(shown);
-        self.windows[index].selections = added.with_ring(ring);
         Ok(())
     }
 
@@ -118,14 +96,17 @@ impl Editor {
         {
             return Err(read_only(reason));
         }
-        let range = whole_line(buffer.text(), candidate.range.start, action.kills());
+        let text = buffer.text();
+        let range = whole_line(text, candidate.range.start, action.kills());
         if action.yanks() {
+            // What the yank would insert, asked before the kill, so that `T` kills nothing it
+            // cannot yank. A slice of the rope: O(log n), whatever the line's length.
+            let line = [Piece::from(text.slice(range.clone()))];
             let (window, here) = self.current();
             if let Some(reason) = here.read_only() {
                 return Err(read_only(reason));
             }
-            let total = range.len().checked_mul(window.selections.len());
-            if total.is_none_or(|total| total > kill::MAX_YANK) {
+            if !yank_fits(&line, window.selections.len()) {
                 return Err(ActionError::Yank(YankError::TooMuch));
             }
         }

@@ -414,3 +414,76 @@ fn a_line_from_a_buffer_that_may_hold_secrets_is_secret_and_marks_where_it_goes(
     assert_eq!(text(&editor), "token=x\nhere\n");
     assert!(editor.current().1.is_secret(), "the buffer it went into");
 }
+
+#[test]
+fn y_and_t_past_what_a_yank_may_insert_at_every_cursor_change_nothing() {
+    use crate::kill::MAX_YANK;
+    // A line that, with its break, fills a yank at every cursor exactly, then one byte more.
+    let fits = MAX_YANK / MAX_CURSORS;
+    for (line, refused) in [(fits + 1, true), (fits, false)] {
+        let start = line;
+        let text = format!("{}\n{}\n", "x".repeat(line - 1), "y".repeat(MAX_CURSORS));
+        let mut editor = editor(&text);
+        let many: Vec<usize> = (start..start + MAX_CURSORS).collect();
+        at(&mut editor, &many);
+        for key in ['T', 'Y'] {
+            let chose = act(&mut editor, key, 0);
+            if !refused {
+                assert_eq!(chose, Ok(Chose::Jumped), "{key} at the limit");
+                break;
+            }
+            assert_eq!(chose, Err(ActionError::Yank(YankError::TooMuch)), "{key}");
+            assert_eq!(text_of(&editor, editor.window().buffer()), text, "{key}");
+            assert!(editor.kill_ring().is_empty(), "{key}");
+        }
+    }
+}
+
+#[test]
+fn t_into_a_read_only_buffer_kills_nothing_in_the_other_window() {
+    let (mut editor, other, id) = two(Buffer::from_text("b", "x\ny\n"));
+    let report = editor.add_internal_buffer("*Report*", Mode::Fundamental);
+    editor.set_internal_text(report, "r\n");
+    editor.show(report);
+    assert!(editor.jump_begin(Kind::LineStart, false));
+    editor.jump_choose('T').unwrap();
+    assert_eq!(
+        choose(&mut editor, 2, Some(other)),
+        Err(ActionError::Edit(EditError::ReadOnly(ReadOnly::Internal)))
+    );
+    assert_eq!(text_of(&editor, id), "x\ny\n", "the source kept its line");
+    assert!(editor.kill_ring().is_empty());
+    assert!(editor.take_clipboard_write().is_none());
+}
+
+#[test]
+fn k_in_a_buffer_still_loading_is_refused() {
+    let mut loading = Buffer::visiting(std::path::PathBuf::from("/nowhere/notes.txt"));
+    assert!(loading.loading().is_some());
+    loading.judge_secret(Some(&[std::path::PathBuf::from("/nowhere/notes.txt")]));
+    let (mut editor, other, _) = two(loading);
+    assert!(editor.jump_begin(Kind::LineStart, false));
+    editor.jump_choose('K').unwrap();
+    assert_eq!(
+        choose(&mut editor, 0, Some(other)),
+        Err(ActionError::Edit(EditError::ReadOnly(ReadOnly::Loading)))
+    );
+    assert!(editor.kill_ring().is_empty());
+}
+
+#[test]
+fn t_from_a_buffer_that_may_hold_secrets_is_concealed_and_marks_where_it_goes() {
+    let mut secret = secret_buffer();
+    secret.apply_load(decode_all(b"token=x\nrest\n", TabWidth::default()));
+    let (mut editor, other, id) = two(secret);
+    assert!(editor.jump_begin(Kind::LineStart, false));
+    editor.jump_choose('T').unwrap();
+    choose(&mut editor, 0, Some(other)).unwrap();
+    assert_eq!(text_of(&editor, id), "rest\n");
+    assert_eq!(text(&editor), "token=x\nhere\n");
+    assert!(
+        editor.take_clipboard_write().unwrap().secret,
+        "marked concealed"
+    );
+    assert!(editor.current().1.is_secret(), "the buffer it went into");
+}

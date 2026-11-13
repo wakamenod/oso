@@ -811,23 +811,26 @@ recommended. None departs from the text above; these notes say what it left open
 - **The whole line (Q3),** as the author's avy actions take it: from its start through its line
   break. A last line with no break is copied as its text alone, and killed with the break before
   it, as `kill-whole-line`, so no empty line is left.
-- **`SPC` (Q7):** `C-SPC`, then the jump: every cursor's mark goes to it, the regions show, and
-  the primary goes to the target, so a region shown before gives way to one from the cursor.
+- **`SPC` (Q7):** `C-SPC`, then the jump: every cursor's mark is set where that cursor is, the
+  regions show, and the primary goes to the target, so a region shown before gives way to one
+  from the cursor.
 - **`Y` and `T` (Q2)** yank as `C-u C-y` at every cursor of the selected window: each cursor stays
   before the line and its mark after it, and a region shown is replaced. They yank the entry the
   action made, never the clipboard's, and nothing when the line was empty.
 - **`c` (Q5)** adds a cursor with no mark, and the primary stays; past 1000 cursors it says so.
 - **Other windows (Q4):** `W`, `K`, `Y` and `T` keep the selected window, and `K` and `T` kill in
   the target's buffer. `SPC` and `c` select the target's window, as a jump does.
-- **`avy-isearch`** ends the search as `RET` does, and then acts, as avy's `isearch-done` after
-  the action.
+- **`avy-isearch`** ends the search as `RET` does, and then acts. avy ends it after the action;
+  oso ends it before, so that a kill or a yank never edits under a search, and the cursor a yank
+  goes to is where `RET` leaves it.
 - **Undo, the ring and secrets:** the action is part of the command of its label's last key, so
   it undoes as one step in each buffer it changed. Its kill is an entry of its own, which goes to
   the clipboard as any kill does. A line from a buffer that may hold secrets is a secret entry,
   concealed on the clipboard, and a yank of it makes its buffer one too (ADR 0074).
 - **Refusals:** every buffer an action would change is asked first. A read-only one, or a yank
-  past `kill::MAX_YANK` at every cursor, ends the jump with the error, with the text and the
-  ring as they were. `W` copies from a read-only buffer.
+  past `kill::MAX_YANK` at every cursor, ends the jump with the error, with the text, the
+  cursors and the ring as they were (`avy-isearch`'s search has ended). `W` copies from a
+  read-only buffer.
 
 ## Changes to accepted ADRs
 

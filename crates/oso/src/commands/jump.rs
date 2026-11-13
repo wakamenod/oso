@@ -9,7 +9,6 @@
 //! logs the string: it can say something of a buffer that may hold secrets.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Reach};
-use oso_core::editor::Chose;
 use oso_core::jump::{Kind, Stage};
 
 use super::not_in_prompt;
@@ -129,7 +128,7 @@ fn avy_printing_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             Some(Stage::Labels) => {
                 // What it did shows: the labels left, the cursor moved, the action's work, or
                 // the message. An action that could not act changed nothing, and says why.
-                acted = ctx.editor.jump_choose(key).map(|_: Chose| ());
+                acted = ctx.editor.jump_choose(key).map(drop);
             }
             None => {}
         }
