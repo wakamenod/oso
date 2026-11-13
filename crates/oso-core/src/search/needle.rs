@@ -1,13 +1,15 @@
 //! What query-replace and isearch look for (ADR 0113, ADR 0116): a literal string with
-//! isearch's matcher, or a regexp matched one line at a time; a search through a scope's
+//! isearch's matcher, or a regexp matched one line at a time, which may be `migemo`'s
+//! pattern for a romaji string; a search through a scope's
 //! ranges, match after match, within a budget of work; and isearch's searches forward,
 //! backward and its count over the whole text.
 //!
 //! Must not depend on: `buffer`, `editor` or a log.
 
 use std::ops::Range;
+use std::time::Instant;
 
-use super::regexp::{self, Line, LineTooLong, Regexp};
+use super::regexp::{self, Line, LineRoom, LineTooLong, Regexp};
 use super::{Count, Found, Limits, Query, count, find_backward, find_forward, find_in, matches_in};
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
@@ -34,6 +36,14 @@ pub(crate) enum Scan<'a> {
 }
 
 impl Needle {
+    /// Migemo's needle for `string` (ADR 0116): its pattern, compiled on a key with the case
+    /// `case_sensitive` says. `None` if the string gives no kana or its pattern is over a
+    /// key's size limit, and the caller searches for it as it is.
+    pub(crate) fn migemo(string: &str, case_sensitive: bool) -> Option<Self> {
+        let pattern = crate::migemo::pattern(string)?;
+        regexp::compile_migemo(&pattern, !case_sensitive).map(Self::Regexp)
+    }
+
     /// A search through `ranges` of `snapshot` from `from`, an empty match there skipped if a
     /// match ended there, within `limit` of work. `line` is a line's text the caller kept,
     /// for a regexp.
@@ -71,17 +81,22 @@ impl Needle {
     }
 
     /// The matches within `spans`, at most `most` and reading at most `limit` bytes, for a
-    /// frame's highlights.
+    /// frame's highlights or a jump's key. A regexp's stop at `until` too if one is given, and
+    /// read each line into `line`; a literal query's read only the text the spans cover, so
+    /// its budget alone bounds them.
     pub(crate) fn matches_in(
         &self,
         (text, invalid): (&Rope, &InvalidBytes),
         spans: &[Range<usize>],
         (most, limit): (usize, usize),
+        (until, line): (Option<Instant>, &mut LineRoom),
         out: &mut Vec<Range<usize>>,
     ) {
         match self {
             Self::Literal(query) => matches_in((text, invalid), query, spans, (most, limit), out),
-            Self::Regexp(regexp) => regexp.matches_in(text, spans, (most, limit), out),
+            Self::Regexp(regexp) => {
+                regexp.matches_in(text, spans, (most, limit), (until, line), out)
+            }
         }
     }
 

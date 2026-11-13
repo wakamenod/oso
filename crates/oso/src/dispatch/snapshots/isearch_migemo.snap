@@ -1,0 +1,38 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: かな カナ ｶﾅ kana\\nかんじ が\\n"
+---
+keys: C-s k a n
+│かな カナ ｶﾅ kana                       │
+:<><>^<><>                               :
++#### ~~~~ ~~ ~~~                        +
+│かんじ が                               │
+:<><><> <>                               :
++~~~~                                    +
+│                                        │
+│                                        │
+=-- test  1:4  Fundamental  UTF-8 LF     =
+"[migemo] I-search: kan [1/5]            "
+
+keys: C-s
+│かな カナ ｶﾅ kana                       │
+:<><> <><>^                              :
++~~~~ #### ~~ ~~~                        +
+│かんじ が                               │
+:<><><> <>                               :
++~~~~                                    +
+│                                        │
+│                                        │
+=-- test  1:9  Fundamental  UTF-8 LF     =
+"[migemo] I-search: kan [2/5]            "
+
+keys: M-m
+│かな カナ ｶﾅ kana                       │
+:<><> <><>       ^                       :
++             ###                        +
+│かんじ が                               │
+:<><><> <>                               :
+│                                        │
+│                                        │
+=-- test  1:16  Fundamental  UTF-8 LF    =
+"I-search: kan [1/1]                     "

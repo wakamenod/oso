@@ -52,6 +52,7 @@ use oso_core::motion;
 use oso_core::window::{Screen, ViewSize};
 
 use super::Dispatcher;
+use super::motion_tests::drain;
 
 #[cfg(test)]
 mod jumps;
@@ -515,19 +516,20 @@ fn run_steps(
             assert_eq!(result, Ok(()), "{keys}");
         } else if !keys.is_empty() {
             let sequence: KeySequence = keys.parse().unwrap();
-            dispatcher.handle_keys(&mut editor, sequence.0);
+            // A key at a time, each with what isearch's worker gives it before the next, as
+            // when it is typed: a key searches on its own for a few milliseconds only, and a
+            // search left to the worker that the next key replaces leaves no place to go back
+            // to with DEL.
+            for key in sequence.0 {
+                dispatcher.handle_keys(&mut editor, [key]);
+                drain(&mut editor);
+            }
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
         }
         // Whether the step's last key flashes, as the app asks after each input.
         let flashing = dispatcher.take_view_jumped() == Some(true);
         // isearch's count, as its worker would give it before the frame.
-        while let Some(job) = editor.take_isearch_job() {
-            let mut reports = Vec::new();
-            job.run(|report| reports.push(report));
-            for report in reports {
-                editor.isearch_reported(report);
-            }
-        }
+        drain(&mut editor);
         let keys = if keys.is_empty() { "none" } else { keys };
         frames.push(format!(
             "keys: {keys}\n{}",
@@ -1503,7 +1505,8 @@ mod scenarios {
             "foo bar foo\nbaz foo\nFoo\n",
             (6, 30),
             &[
-                "C-s f o",
+                // Literal, so the count fits the line (migemo's is below).
+                "C-s M-m f o",
                 "C-s",
                 "C-s C-s C-s",
                 "C-s",
@@ -1512,6 +1515,16 @@ mod scenarios {
                 "M-c",
                 "C-g",
             ],
+        );
+    }
+
+    #[test]
+    fn migemo_highlights_the_kana_romaji_spells_and_m_m_takes_it_back() {
+        check_frame(
+            "isearch_migemo",
+            "かな カナ ｶﾅ kana\nかんじ が\n",
+            (6, 40),
+            &["C-s k a n", "C-s", "M-m"],
         );
     }
 

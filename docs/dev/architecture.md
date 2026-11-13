@@ -205,16 +205,19 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 - **isearch** (`Editor::isearch`, [ADR 0082](adr/0082-isearch.md)) is a mode of the selected
   window, with its own keymap in place of the others. The matcher (`oso_core::search`, private to
   the crate) runs Knuth–Morris–Pratt over the rope's chunks, or a regexp one line at a time
-  (`search/regexp`, [ADR 0116](adr/0116-migemo-and-jumps.md)). Each key searches 256 KiB, and a
-  regexp's 3 ms, on the UI thread, and one worker thread of the host's (`app/searches.rs`) goes on
-  with a far match, a long line and a regexp too large to compile on a key, and counts the matches
-  over an O(1) snapshot, superseded by the next job through a generation. A frame
-  searches only the rows in view for the highlights. A search ends when its window shows another
+  (`search/regexp`, [ADR 0116](adr/0116-migemo-and-jumps.md)). A romaji string searches for
+  `oso_core::migemo`'s pattern of its kana, a regexp the matcher compiles; `migemo` is pure, on
+  the crate's lowest layer, and the editor keeps the last 32 compiled (`editor/migemo.rs`, which
+  jumps share). Each key searches 256 KiB, and a regexp's 3 ms counted from the key's start, a
+  compile on the key included, on the UI thread, and one worker thread of the host's
+  (`app/searches.rs`) goes on with a far match, a long line and a regexp too large to compile on
+  a key, and counts the matches over an O(1) snapshot, superseded by the next job through a
+  generation. A frame searches only the rows in view for the highlights. A search ends when its window shows another
   buffer or a prompt opens.
 - **Jumps by label** (`Editor::jump`, `oso_core::jump`,
   [ADR 0116](adr/0116-migemo-and-jumps.md)) are a mode of the selected window too, with their own
   keymap. A key finds the candidates in every tiled window's rows in view, within 256 KiB a window
-  and 1 MiB a jump, nearest the window's primary cursor first, and labels them with avy's tree; a
+  and 1 MiB a jump, its matches within a key's 3 ms, nearest the window's primary cursor first, and labels them with avy's tree; a
   frame draws only those found. The tip crate runs the timer that shows the labels
   (`app/jumps.rs`).
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
@@ -260,8 +263,8 @@ A panicking command is caught at the command boundary
 
 ### Keymaps
 
-- `oso_core::keymap::Keymap` maps a key press to a command or to a nested
-  prefix keymap. Bindings refer to commands by id, resolved from names
+- `oso_core::keymap::Keymap` maps a key press to a command, a menu
+  ([ADR 0117](adr/0117-menus.md)) or a nested prefix keymap. Bindings refer to commands by id, resolved from names
   once, when a keymap is built from a table in Emacs notation
   ([ADR 0033](adr/0033-key-presses-and-notation.md)). Default bindings are
   in `crates/oso/src/bindings/`, with a table for each module of commands.
@@ -478,8 +481,9 @@ text command. The PTY is `oso-platform::process::pty`, spawned through the
 process module's rules ([ADR 0015](adr/0015-terminal.md),
 [ADR 0120](adr/0120-the-terminal.md)).
 
-The minibuffer, menus (hydra/transient-style), completion popups and hover
-documentation are buffers shown in floating windows. Editing commands work
+The minibuffer, completion popups and hover documentation are buffers shown in
+floating windows; a menu (hydra/transient-style) is a float with no window or
+buffer, whose heads act on the window beneath ([ADR 0117](adr/0117-menus.md)). Editing commands work
 inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). A command never
 waits for an answer: the dispatcher reads what its `ArgSpec` asks for in a prompt
 before running it, and a command that has to ask leaves a question whose `y` runs a

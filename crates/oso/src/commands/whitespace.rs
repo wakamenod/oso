@@ -12,6 +12,7 @@ pub const COMMANDS: &[Command] = &[Command {
     args: ArgSpec::None,
     reach: Reach::Change,
     run: delete_trailing_whitespace,
+    state: None,
 }];
 
 fn delete_trailing_whitespace(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

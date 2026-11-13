@@ -8,7 +8,7 @@ use oso_core::editor::{Editor, Status};
 use oso_core::key::KeySequence;
 use oso_core::keymap::Keymap;
 
-use super::motion_tests::{at, cursors, send, text};
+use super::motion_tests::{at, cursors, drain, send, text};
 use crate::commands;
 
 fn echo(editor: &Editor) -> String {
@@ -67,6 +67,7 @@ fn a_key_that_ends_a_search_runs_the_user_s_binding() {
     let (mut d, mut editor) = at("xx abc", &[0]);
     d.set_user_keymap(user(&[("C-b", "forward-char")], &[]));
     send(&mut d, &mut editor, "C-s a");
+    drain(&mut editor);
     assert_eq!(cursors(&editor), [4]);
     send(&mut d, &mut editor, "C-b");
     assert!(editor.isearch().is_none());
@@ -164,6 +165,7 @@ fn a_search_under_way_reads_its_own_keys_before_the_user_s() {
     let (mut d, mut editor) = at("xx ab ab", &[0]);
     d.set_user_keymap(user(&[("C-r", "forward-char")], &["a"]));
     send(&mut d, &mut editor, "C-s a b");
+    drain(&mut editor);
     assert_eq!(cursors(&editor), [5], "a was searched for");
     send(&mut d, &mut editor, "C-r");
     assert!(

@@ -5,6 +5,7 @@
 //! Must not depend on: `command` or `keymap`, or the host's window or threads.
 
 use std::ops::Range;
+use std::time::Instant;
 
 use super::Tally;
 use super::state::{Asked, Pattern};
@@ -46,8 +47,8 @@ impl Editor {
 
     /// Searches for a changed string from the current match, which stays if it still
     /// matches: forward from its start, backward from as far after it as the string
-    /// reaches.
-    pub(super) fn isearch_typed(&mut self) {
+    /// reaches, in the time a key has from `started`.
+    pub(super) fn isearch_typed(&mut self, started: Instant) {
         let cursor = self.primary_cursor();
         let len = self.current().1.text().len();
         let Some(state) = &mut self.isearch else {
@@ -93,12 +94,13 @@ impl Editor {
                 after_match: false,
             }
         };
-        self.isearch_find(find, Asked::Typed);
+        self.isearch_find(find, Asked::Typed, started);
     }
 
-    /// Searches from `find` within a key's budget, and leaves the rest to a worker, also the
-    /// compile of a regexp too large for a key.
-    pub(super) fn isearch_find(&mut self, find: Find, asked: Asked) {
+    /// Searches from `find` within a key's budget and its time from `started`, when the key began
+    /// to build what it searches for, and leaves the rest to a worker, also the compile of a
+    /// regexp too large for a key.
+    pub(super) fn isearch_find(&mut self, find: Find, asked: Asked, started: Instant) {
         let Some(state) = &self.isearch else {
             return;
         };
@@ -116,7 +118,7 @@ impl Editor {
             let buffer = self.current().1;
             let snapshot = (buffer.text(), buffer.invalid_bytes());
             let never: &dyn Fn() -> bool = &|| false;
-            let limits = (Limits::key(), never);
+            let limits = (Limits::key(started), never);
             match find {
                 Find::Forward { from, after_match } => {
                     needle.find_forward(snapshot, (from, after_match), limits, &mut None)
@@ -159,14 +161,29 @@ impl Editor {
                 }
                 self.isearch_count(Some(resumed));
             }
-            Err(LineTooLong(at)) => self.isearch_line_too_long(at),
+            Err(LineTooLong(at)) => self.isearch_line_too_long(at, Some((asked, find))),
         }
     }
 
-    /// Fails the search at a line too long to match a regexp in, which starts at `at`, and
-    /// says so on its line, with no count (ADR 0116).
-    pub(super) fn isearch_line_too_long(&mut self, at: usize) {
+    /// At a line too long to match a regexp in, which starts at `at` (ADR 0116): a search for
+    /// migemo's pattern goes on with the literal string, as if `M-m` had turned migemo off, from
+    /// where `again` searched, or from the match with none, and counts anew. Any other fails
+    /// there and says so on its line, with no count.
+    pub(super) fn isearch_line_too_long(&mut self, at: usize, again: Option<(Asked, Find)>) {
         self.supersede_search();
+        if let Some(state) = &mut self.isearch
+            && matches!(state.pattern, Pattern::Migemo(_))
+        {
+            state.use_migemo = false;
+            state.searching = None;
+            let started = self.isearch_rebuild();
+            // The pattern changed, so the count starts again, as for a typed string.
+            match again {
+                Some((_, find)) => self.isearch_find(find, Asked::Typed, started),
+                None => self.isearch_typed(started),
+            }
+            return;
+        }
         let row = self.current().1.text().offset_to_point(at).row + 1;
         if let Some(state) = &mut self.isearch {
             state.failing = true;
@@ -183,7 +200,8 @@ impl Editor {
     /// rule, until the string changes.
     pub(in crate::editor) fn isearch_longest_line(&mut self, longest: usize) {
         if let Some(state) = &mut self.isearch
-            && let Pattern::Ready(Needle::Regexp(regexp)) = &mut state.pattern
+            && let Pattern::Ready(Needle::Regexp(regexp)) | Pattern::Migemo(Needle::Regexp(regexp)) =
+                &mut state.pattern
         {
             regexp.set_longest_line(longest);
         }

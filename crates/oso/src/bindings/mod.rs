@@ -16,6 +16,7 @@ mod kill;
 mod macros;
 mod mark;
 mod markdown;
+mod menus;
 mod messages;
 mod minibuffer;
 mod motion;
@@ -71,6 +72,8 @@ const TABLES: &[&[(&str, &str)]] = &[
 /// # Panics
 ///
 /// If a row of [`TABLES`] does not bind, or `registry` lacks the command that
+pub use menus::menus;
+
 /// typing runs. The tests build this keymap, so such a mistake cannot ship.
 pub fn global_keymap(registry: &Registry) -> Keymap {
     let mut keymap =

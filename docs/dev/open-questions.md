@@ -327,6 +327,12 @@ item notes when it must be settled.
   thread, about 40 ms on a 60 MB line; regexp isearch leaves such a line to the worker, and
   query-replace could too, as a chore
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
+- Migemo matches precomposed kana only: text whose voiced kana are decomposed, as `か` and
+  U+3099 in file names macOS gives, is not found by `ga`. Settle it with step 4, where file
+  names meet migemo ([ADR 0116](adr/0116-migemo-and-jumps.md)). Two cases to settle with it:
+  - a half-width voiced mark: in `ｶﾞ`, `ka` matches the `ｶ`, so a search for `か` lands inside
+    `ガ`'s half-width form;
+  - decomposed kana: in `か` followed by U+3099, `ka` matches the `か`, and `ga` finds nothing.
 
 - After indentation: a query-based indenter on the worker for `indent-region` in more languages;
   fenced code in Markdown indented by its language's rules; detecting a file's indentation when
@@ -413,6 +419,12 @@ item notes when it must be settled.
 
 ## Later
 
+- Search tests that read a result before isearch's worker runs: 16 in `oso-core`'s
+  `isearch_regexp_tests`, `isearch_migemo_tests` and `cursors/isearch_tests` assert right after
+  `isearch_repeat` or `isearch_mark`, which search a few bytes with a pattern already built, so
+  only a thread paused for 3 ms (`KEY_TIME`) fails them. They fail with `KEY_TIME` at 0; the
+  dispatcher's search tests do not since they run the worker's jobs first. Finish them the same
+  way if one ever flakes.
 - Notification banners once oso ships as an app bundle, and Desktop's coordinator routing,
   suggested threads and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - An option for East Asian Ambiguous characters to take 2 cells

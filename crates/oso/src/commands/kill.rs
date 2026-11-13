@@ -33,6 +33,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: kill_region_or_backward_word,
+        state: None,
     },
     Command {
         name: "kill-ring-save",
@@ -40,6 +41,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: kill_ring_save,
+        state: None,
     },
     Command {
         name: "kill-line",
@@ -47,6 +49,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: kill_line,
+        state: None,
     },
     Command {
         name: "kill-word",
@@ -54,6 +57,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: kill_word,
+        state: None,
     },
     Command {
         name: "backward-kill-word",
@@ -61,6 +65,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: backward_kill_word,
+        state: None,
     },
     Command {
         name: "yank",
@@ -68,6 +73,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::CountAndClipboard,
         reach: Reach::Person,
         run: yank,
+        state: None,
     },
     Command {
         name: "consult-yank-pop",
@@ -77,6 +83,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: consult_yank_pop,
+        state: None,
     },
     Command {
         name: "yank-pop",
@@ -84,6 +91,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: yank_pop,
+        state: None,
     },
 ];
 

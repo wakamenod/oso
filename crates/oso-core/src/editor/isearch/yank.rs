@@ -3,6 +3,8 @@
 //!
 //! Must not depend on: `command` or `keymap`.
 
+use std::time::Instant;
+
 use super::kill_text;
 use crate::editor::{Editor, YankPopError};
 
@@ -11,7 +13,7 @@ impl Editor {
     /// that may hold secrets makes the searched buffer one, as a yank does (ADR 0074), so that
     /// where the search goes says no more of the kill than its text would.
     pub fn isearch_yank_kill(&mut self) {
-        self.isearch_add_kill(0);
+        self.isearch_add_kill(0, None);
     }
 
     /// `M-y` right after `C-y` or `M-y`: takes back what it added, as `DEL` does, and adds the
@@ -31,13 +33,16 @@ impl Editor {
         let n = self
             .next_older(id, |entry| !entry.is_secret())
             .ok_or(YankPopError::NoOther)?;
+        // The key's time counts from here, so taking back what it added counts toward it.
+        let started = Instant::now();
         self.isearch_delete();
-        self.isearch_add_kill(n);
+        self.isearch_add_kill(n, Some(started));
         Ok(())
     }
 
-    /// Adds the `n`th newest kill, as `C-y` adds the newest, and notes it for `M-y`.
-    fn isearch_add_kill(&mut self, n: usize) {
+    /// Adds the `n`th newest kill, as `C-y` adds the newest, and notes it for `M-y`, the key's
+    /// time to search counted from `started` if given.
+    fn isearch_add_kill(&mut self, n: usize, started: Option<Instant>) {
         let Some(state) = &self.isearch else {
             return;
         };
@@ -61,7 +66,7 @@ impl Editor {
             }
         }
         let before = self.isearch.as_ref().map(|state| state.steps.len());
-        self.isearch_add_taken(&text);
+        self.isearch_add_taken(&text, started);
         // Only a step it added can be taken back for the next.
         if let Some(state) = &mut self.isearch {
             let added = Some(state.steps.len()) > before;

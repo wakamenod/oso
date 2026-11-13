@@ -29,6 +29,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Look,
         run: goto_line,
+        state: None,
     },
     Command {
         name: "forward-char",
@@ -36,6 +37,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: forward_char,
+        state: None,
     },
     Command {
         name: "backward-char",
@@ -43,6 +45,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: backward_char,
+        state: None,
     },
     Command {
         name: "forward-word",
@@ -50,6 +53,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: forward_word,
+        state: None,
     },
     Command {
         name: "backward-word",
@@ -57,6 +61,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: backward_word,
+        state: None,
     },
     Command {
         name: "next-line",
@@ -64,6 +69,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: next_line,
+        state: None,
     },
     Command {
         name: "previous-line",
@@ -71,6 +77,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: previous_line,
+        state: None,
     },
     Command {
         name: "move-beginning-of-line",
@@ -78,6 +85,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: move_beginning_of_line,
+        state: None,
     },
     Command {
         name: "move-end-of-line",
@@ -85,6 +93,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: move_end_of_line,
+        state: None,
     },
     Command {
         name: "mwim-beginning-of-code-or-line",
@@ -92,6 +101,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: mwim_beginning,
+        state: None,
     },
     Command {
         name: "mwim-end-of-code-or-line",
@@ -99,6 +109,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: mwim_end,
+        state: None,
     },
     Command {
         name: "beginning-of-buffer",
@@ -106,6 +117,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: beginning_of_buffer,
+        state: None,
     },
     Command {
         name: "end-of-buffer",
@@ -113,6 +125,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: end_of_buffer,
+        state: None,
     },
 ];
 

@@ -200,6 +200,7 @@ fn a_panic_around_a_secret_reaches_the_messages_naming_only_the_command() {
         args: ArgSpec::None,
         reach: oso_core::command::Reach::Look,
         run: panics,
+        state: None,
     };
     registry.register(command).unwrap();
     let mut global = bindings::global_keymap(&registry);

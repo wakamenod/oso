@@ -18,10 +18,11 @@ use super::not_in_prompt;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "avy-goto-char-timer",
-        doc: "Jump to a match of characters typed, by its label.\n\nCharacters are read until a moment passes with no key, or `RET`, and their matches in view show as they are typed. Then each match in every window shows a label, the nearest the cursor the shortest: typing a label goes there. A key that is no label ends the jump with nothing moved, as `C-g` does. Only the primary cursor moves, and the place it left goes on the mark ring. With `C-u`, only the selected window is labelled.",
+        doc: "Jump to a match of characters typed, by its label.\n\nCharacters are read until a moment passes with no key, or `RET`, and their matches in view show as they are typed. Romaji also match their hiragana and katakana (migemo) unless `[search] migemo = false`. Then each match in every window shows a label, the nearest the cursor the shortest: typing a label goes there. A key that is no label ends the jump with nothing moved, as `C-g` does. Only the primary cursor moves, and the place it left goes on the mark ring. With `C-u`, only the selected window is labelled.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_char_timer,
+        state: None,
     },
     Command {
         name: "avy-goto-line",
@@ -29,6 +30,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_line,
+        state: None,
     },
     Command {
         name: "avy-goto-end-of-line",
@@ -36,6 +38,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_end_of_line,
+        state: None,
     },
     Command {
         name: "avy-isearch",
@@ -43,6 +46,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_isearch,
+        state: None,
     },
     Command {
         name: "avy-printing-char",
@@ -50,6 +54,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_printing_char,
+        state: None,
     },
     Command {
         name: "avy-delete-char",
@@ -57,6 +62,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_delete_char,
+        state: None,
     },
     Command {
         name: "avy-show-labels",
@@ -64,6 +70,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_show_labels,
+        state: None,
     },
 ];
 

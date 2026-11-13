@@ -16,8 +16,9 @@ use super::problems::{Found, quoted};
 /// What pressing an entry's keys does with the default keys alone.
 #[derive(Default)]
 struct Walk<'d> {
-    /// The first `len` keys, fewer than the entry has, run this command.
-    command: Option<(usize, CommandId)>,
+    /// The first `len` keys, fewer than the entry has, run this command, or open a menu for
+    /// `None` (ADR 0117).
+    command: Option<(usize, Option<CommandId>)>,
     /// Shorter parts of the entry that begin a default prefix only without Shift: how many
     /// keys, the keys without Shift, and the prefix's keymap. The entry makes each a prefix of
     /// the user's own, which no longer reaches the defaults under it.
@@ -67,10 +68,13 @@ impl<'a> Shadows<'a> {
             return true;
         }
         let prefix = quoted(display_keys(&keys[..len]));
-        let name = self
-            .registry
-            .get(default)
-            .map_or("a command", |command| command.name);
+        let name = match default {
+            Some(default) => self
+                .registry
+                .get(default)
+                .map_or("a command", |command| command.name),
+            None => "a menu",
+        };
         found.about(
             entry.at,
             entry.spelled,
@@ -138,7 +142,8 @@ fn walk<'d>(defaults: &'d Keymap, keys: &[KeyPress]) -> Walk<'d> {
     for (i, key) in keys.iter().enumerate() {
         let len = i + 1;
         let command = match resolver.feed(&layers, *key) {
-            Resolution::Command(id) | Resolution::Shifted(id) => Some(id),
+            Resolution::Command(id) | Resolution::Shifted(id) => Some(Some(id)),
+            Resolution::Menu(_) => Some(None),
             Resolution::Pending => None,
             Resolution::Unbound(_) | Resolution::Cancelled => break,
         };

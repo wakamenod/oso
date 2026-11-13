@@ -8,8 +8,9 @@
 //!
 //! - Only the text in view is looked at: each window's rows in view, within [`WINDOW_BUDGET`]
 //!   of text a window and [`JUMP_BUDGET`] in all, the selected window first, then the others
-//!   in the tree's order, and each window's rows from its cursor's outward, so a budget that
-//!   runs out leaves out the farthest. A key costs as much as the view, not the buffer, and
+//!   in the tree's order,
+//!   and each window's rows from its cursor's outward, so a budget that runs out leaves out
+//!   the farthest. A key costs as much as the view, not the buffer, and
 //!   works out each kept candidate's display points once, for every frame after it.
 //! - The candidates nearest each window's primary cursor come first, by rows and then
 //!   columns on the screen, and at most [`MAX_LABELLED`] are labelled: the nearest rows' are
@@ -23,7 +24,7 @@ use std::ops::Range;
 use super::{Editor, Isearch};
 use crate::display_map::DisplayPoint;
 use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
-use crate::search::{self, Needle, Query};
+use crate::search;
 use crate::window::{Screen, WindowId};
 
 mod cells;
@@ -72,6 +73,8 @@ struct Near {
 pub(super) struct Scratch {
     found: Vec<Near>,
     ranges: Vec<Range<usize>>,
+    /// A line's text, for a regexp's matches.
+    line: search::LineRoom,
     /// What each window looked at shows now.
     views: Vec<Shown>,
     /// Each window looked at, by its place among them, and its primary cursor's point.
@@ -347,8 +350,14 @@ impl Editor {
         let Some(jump) = &self.jump else {
             return;
         };
-        let needle = match jump.kind {
-            Kind::Char => string_needle(&jump.string),
+        let (kind, selected_only) = (jump.kind, jump.selected_only);
+        let needle = match kind {
+            // Migemo by the setting, as isearch starts (ADR 0116), kept out of the cache as
+            // isearch keeps a string typed around a secret out of its history.
+            Kind::Char => {
+                let (string, around_secret) = (jump.string.clone(), jump.around_secret);
+                self.jump_needle(&string, around_secret)
+            }
             Kind::Isearch => self.isearch_needle(),
             Kind::LineStart | Kind::LineEnd => None,
         };
@@ -356,13 +365,14 @@ impl Editor {
         let Scratch {
             found,
             ranges,
+            line,
             views,
             cursors,
             screen,
         } = &mut scratch;
         found.clear();
         cursors.clear();
-        self.jump_views(jump.selected_only, views);
+        self.jump_views(selected_only, views);
         let mut left = JUMP_BUDGET;
         for view in views.iter() {
             let (id, buffer) = (view.window, self.buffer(view.buffer));
@@ -387,7 +397,8 @@ impl Editor {
                 rows,
                 cursor,
             };
-            left -= candidates_in(&place, (jump.kind, needle.as_ref()), within, found, ranges);
+            let room = (&mut *ranges, &mut *line);
+            left -= candidates_in(&place, (kind, needle.as_ref()), within, found, room);
             if left == 0 || found.len() >= MAX_FOUND {
                 break;
             }
@@ -438,10 +449,4 @@ impl Editor {
             }
         }
     }
-}
-
-/// What a jump's string matches: the literal string, with isearch's smart case. Migemo's
-/// pattern takes its place for a romaji string once ADR 0116's step 2 is in.
-fn string_needle(string: &str) -> Option<Needle> {
-    Query::new(string, search::smart_case(string)).map(Needle::Literal)
 }

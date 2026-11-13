@@ -14,6 +14,7 @@
 //! - A keymap may have a text command, which runs for a key that types a
 //!   character ([`KeyPress::text`]) and that it does not bind otherwise. It counts
 //!   as a binding of that key in the layers (ADR 0056).
+//! - A key may open a menu ([`Keymap::bind_menu`]), named by its [`MenuId`] (ADR 0117).
 //! - A keymap may leave a sequence undefined ([`Keymap::unbind`]), which hides what
 //!   a lower layer binds it to, as the user's layer does (ADR 0108).
 //!
@@ -25,7 +26,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::command::{CommandId, Registry};
-use crate::key::{Key, KeyPress, KeySequence, Modifiers};
+use crate::key::{KeyPress, KeySequence};
+use crate::menu::MenuId;
 
 /// What a key is bound to in a keymap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +36,8 @@ pub enum Binding<'a> {
     Command(CommandId),
     /// Wait for another key, and look it up in this keymap.
     Prefix(&'a Keymap),
+    /// Open this menu (ADR 0117).
+    Menu(MenuId),
     /// Nothing: the sequence is undefined here, and lower layers are not asked.
     Undefined,
 }
@@ -43,6 +47,7 @@ pub enum Binding<'a> {
 enum Entry {
     Command(CommandId),
     Prefix(Keymap),
+    Menu(MenuId),
     Undefined,
 }
 
@@ -93,13 +98,25 @@ impl Keymap {
     /// command. A key on the way that [`Keymap::unbind`] left undefined becomes a prefix
     /// that hides what lower layers bind under it, as Emacs makes a fresh prefix map.
     pub fn bind(&mut self, keys: &[KeyPress], command: CommandId) -> Result<(), BindError> {
+        self.bind_entry(keys, Entry::Command(command))
+    }
+
+    /// Binds `keys` to open `menu` (ADR 0117), as [`Keymap::bind`] binds them to a command and
+    /// with its rules.
+    pub fn bind_menu(&mut self, keys: &[KeyPress], menu: MenuId) -> Result<(), BindError> {
+        self.bind_entry(keys, Entry::Menu(menu))
+    }
+
+    fn bind_entry(&mut self, keys: &[KeyPress], entry: Entry) -> Result<(), BindError> {
         let (last, map) = self.prefix_for(keys)?;
         match map.bindings.get(last) {
             None => {
-                map.bindings.insert(*last, Entry::Command(command));
+                map.bindings.insert(*last, entry);
                 Ok(())
             }
-            Some(Entry::Command(_) | Entry::Undefined) => Err(BindError::AlreadyBound),
+            Some(Entry::Command(_) | Entry::Menu(_) | Entry::Undefined) => {
+                Err(BindError::AlreadyBound)
+            }
             Some(Entry::Prefix(_)) => Err(BindError::IsPrefix),
         }
     }
@@ -108,8 +125,8 @@ impl Keymap {
     /// sequence it starts, is hidden (ADR 0108, ADR 0110). On a prefix, the prefix stays, and hides
     /// what lower layers bind under it that it does not. Unbinding twice changes nothing.
     ///
-    /// Fails, and leaves the keymap unchanged, if `keys` is empty, bound to a command, or
-    /// starts with a key bound to a command.
+    /// Fails, and leaves the keymap unchanged, if `keys` is empty, bound to a command or a
+    /// menu, or starts with a key bound to one.
     pub fn unbind(&mut self, keys: &[KeyPress]) -> Result<(), BindError> {
         let (last, map) = self.prefix_for(keys)?;
         match map.bindings.get_mut(last) {
@@ -122,7 +139,7 @@ impl Keymap {
                 sub.hide();
                 Ok(())
             }
-            Some(Entry::Command(_)) => Err(BindError::AlreadyBound),
+            Some(Entry::Command(_) | Entry::Menu(_)) => Err(BindError::AlreadyBound),
         }
     }
 
@@ -162,7 +179,7 @@ impl Keymap {
             }
             match entry {
                 Entry::Prefix(sub) => map = sub,
-                Entry::Command(_) | Entry::Undefined => {
+                Entry::Command(_) | Entry::Menu(_) | Entry::Undefined => {
                     return Err(BindError::NonPrefix { len: i + 1 });
                 }
             }
@@ -186,6 +203,7 @@ impl Keymap {
         match self.bindings.get(&key) {
             Some(Entry::Command(command)) => Some(Binding::Command(*command)),
             Some(Entry::Prefix(sub)) => Some(Binding::Prefix(sub)),
+            Some(Entry::Menu(menu)) => Some(Binding::Menu(*menu)),
             Some(Entry::Undefined) => Some(Binding::Undefined),
             None => self
                 .text
@@ -205,7 +223,7 @@ impl Keymap {
         for key in rest {
             match binding {
                 Binding::Prefix(sub) => binding = sub.get(*key)?,
-                Binding::Command(_) => return None,
+                Binding::Command(_) | Binding::Menu(_) => return None,
                 Binding::Undefined => break,
             }
         }
@@ -226,7 +244,7 @@ impl Keymap {
             match entry {
                 Entry::Command(command) => f(keys, *command),
                 Entry::Prefix(sub) => sub.visit(keys, f),
-                Entry::Undefined => {}
+                Entry::Menu(_) | Entry::Undefined => {}
             }
             keys.pop();
         }
@@ -249,12 +267,12 @@ impl Keymap {
 pub enum BindError {
     /// The key sequence is empty.
     Empty,
-    /// The sequence is already bound to a command.
+    /// The sequence is already bound to a command or a menu, or left undefined.
     AlreadyBound,
     /// The sequence is a prefix key with bindings under it.
     IsPrefix,
-    /// The first `len` keys are bound to a command, so they cannot be a
-    /// prefix.
+    /// The first `len` keys are bound to a command or a menu, or left undefined, so they
+    /// cannot be a prefix.
     NonPrefix { len: usize },
 }
 
@@ -267,7 +285,7 @@ impl fmt::Display for BindError {
             Self::NonPrefix { len } => {
                 write!(
                     f,
-                    "its first {len} key(s) are bound to a command, not a prefix"
+                    "its first {len} key(s) are bound to a command or a menu, not a prefix"
                 )
             }
         }
@@ -380,6 +398,9 @@ pub enum Resolution<'a> {
     /// shifted, which a motion takes as selecting (ADR 0071). The prefix is
     /// cleared. A key that forms a prefix without Shift is [`Resolution::Pending`].
     Shifted(CommandId),
+    /// The keys so far, or with Shift taken off the last one as for
+    /// [`Resolution::Shifted`], open this menu (ADR 0117). The prefix is cleared.
+    Menu(MenuId),
     /// The keys so far are a prefix: wait for the next key.
     Pending,
     /// The keys so far are bound to nothing, or a layer leaves them undefined. The prefix
@@ -391,15 +412,12 @@ pub enum Resolution<'a> {
 }
 
 /// `C-g`, which cancels a pending prefix.
-pub const CANCEL: KeyPress = KeyPress {
-    modifiers: Modifiers::CONTROL,
-    key: Key::Char('g'),
-};
+pub const CANCEL: KeyPress = crate::key::CANCEL;
 
 /// Whether `key` is `C-g`, with Shift or not (`C-G`): the key that is never the user's, which
 /// the dispatcher, `M-x`'s bindings and the configuration file all judge by (ADR 0108, ADR 0110).
 pub fn is_cancel(key: KeyPress) -> bool {
-    key == CANCEL || key.unshifted() == Some(CANCEL)
+    crate::key::cancels(key)
 }
 
 /// Turns key presses into commands, keeping the keys of a pending prefix.
@@ -454,6 +472,10 @@ impl KeyResolver {
                 self.keys.clear();
                 Resolution::Command(id)
             }
+            Some(Binding::Menu(menu)) => {
+                self.keys.clear();
+                Resolution::Menu(menu)
+            }
             Some(Binding::Prefix(_)) => Resolution::Pending,
             // An undefined sequence is taken without Shift as an unbound one is, as Emacs
             // translates a key bound to nil (ADR 0110).
@@ -461,6 +483,10 @@ impl KeyResolver {
                 Some(Binding::Command(id)) => {
                     self.keys.clear();
                     Resolution::Shifted(id)
+                }
+                Some(Binding::Menu(menu)) => {
+                    self.keys.clear();
+                    Resolution::Menu(menu)
                 }
                 Some(Binding::Prefix(_)) => Resolution::Pending,
                 Some(Binding::Undefined) | None => {
@@ -537,6 +563,7 @@ mod tests {
                     args: ArgSpec::None,
                     reach: Reach::Look,
                     run: noop,
+                    state: None,
                 })
                 .unwrap();
         }
@@ -630,10 +657,77 @@ mod tests {
                 Resolution::Command(id) => registry.get(id).unwrap().name.to_owned(),
                 Resolution::Shifted(id) => format!("shifted {}", registry.get(id).unwrap().name),
                 Resolution::Pending => "pending".to_owned(),
+                Resolution::Menu(_) => "menu".to_owned(),
                 Resolution::Unbound(keys) => format!("unbound {}", display_keys(keys)),
                 Resolution::Cancelled => "cancelled".to_owned(),
             })
             .collect()
+    }
+
+    // --- Menus ---
+
+    #[test]
+    fn a_key_opens_a_menu_with_the_rules_of_a_command() {
+        let registry = registry(&["save"]);
+        let save = registry.lookup("save").unwrap();
+        let mut menus = crate::menu::Menus::new();
+        let toggles = menus.id("toggles").unwrap();
+        let mut keymap = Keymap::new();
+        keymap.bind_menu(&keys("C-c t"), toggles).unwrap();
+        assert_eq!(keymap.lookup(&keys("C-c t")), Some(Binding::Menu(toggles)));
+        assert_eq!(keymap.lookup(&keys("C-c t x")), None);
+        assert_eq!(
+            keymap.bind(&keys("C-c t"), save),
+            Err(BindError::AlreadyBound)
+        );
+        assert_eq!(
+            keymap.bind_menu(&keys("C-c t"), toggles),
+            Err(BindError::AlreadyBound)
+        );
+        assert_eq!(
+            keymap.bind_menu(&keys("C-c"), toggles),
+            Err(BindError::IsPrefix)
+        );
+        assert_eq!(
+            keymap.bind(&keys("C-c t x"), save),
+            Err(BindError::NonPrefix { len: 2 })
+        );
+        assert_eq!(keymap.unbind(&keys("C-c t")), Err(BindError::AlreadyBound));
+        // `bindings` lists commands only.
+        let mut listed = 0;
+        keymap.bindings(|_, _| listed += 1);
+        assert_eq!(listed, 0);
+        let layers = Layers::global(&keymap);
+        let mut resolver = KeyResolver::new();
+        assert_eq!(resolver.feed(&layers, keys("C-c")[0]), Resolution::Pending);
+        assert_eq!(
+            resolver.feed(&layers, keys("t")[0]),
+            Resolution::Menu(toggles)
+        );
+        assert!(resolver.pending().is_empty());
+        // Shift translation finds it as it finds a command (Q4).
+        let other = menus.id("other").unwrap();
+        let mut shifted = Keymap::new();
+        shifted.bind_menu(&keys("C-c C-t"), other).unwrap();
+        let layers = Layers::global(&shifted);
+        assert_eq!(resolver.feed(&layers, keys("C-c")[0]), Resolution::Pending);
+        assert_eq!(
+            resolver.feed(&layers, keys("C-T")[0]),
+            Resolution::Menu(other)
+        );
+        assert!(resolver.pending().is_empty());
+        // A higher layer's `false` hides it.
+        let mut user = Keymap::new();
+        user.unbind(&keys("C-c t")).unwrap();
+        let layers = Layers {
+            user: Some(&user),
+            ..Layers::global(&keymap)
+        };
+        resolver.feed(&layers, keys("C-c")[0]);
+        assert!(matches!(
+            resolver.feed(&layers, keys("t")[0]),
+            Resolution::Unbound(_)
+        ));
     }
 
     // --- Keymaps ---
@@ -1367,6 +1461,7 @@ mod tests {
             Resolution::Command(id) => Expected::Command(id),
             Resolution::Shifted(id) => Expected::Shifted(id),
             Resolution::Pending => Expected::Pending,
+            Resolution::Menu(_) => unreachable!("the model binds no menu"),
             Resolution::Unbound(keys) => Expected::Unbound(keys.to_vec()),
             Resolution::Cancelled => Expected::Cancelled,
         }
@@ -1382,7 +1477,7 @@ mod tests {
             for probe in &probes {
                 let actual = keymap.lookup(probe).map(|b| match b {
                     Binding::Command(id) => Ok(id),
-                    Binding::Prefix(_) | Binding::Undefined => Err(()),
+                    Binding::Prefix(_) | Binding::Menu(_) | Binding::Undefined => Err(()),
                 });
                 prop_assert_eq!(actual, model_lookup(&model, probe), "probe {:?}", probe);
             }

@@ -20,6 +20,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: rust_mode,
+        state: None,
     },
     Command {
         name: "markdown-mode",
@@ -27,6 +28,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: markdown_mode,
+        state: None,
     },
     Command {
         name: "toml-mode",
@@ -34,6 +36,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: toml_mode,
+        state: None,
     },
     Command {
         name: "fundamental-mode",
@@ -41,6 +44,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: fundamental_mode,
+        state: None,
     },
     Command {
         name: "global-font-lock-mode",
@@ -48,6 +52,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: global_font_lock_mode,
+        state: None,
     },
 ];
 

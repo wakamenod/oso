@@ -1,6 +1,6 @@
 //! The file's settings: the theme, the visual aids, the agent channel at launch (ADR 0108),
-//! whitespace cleanup on save (ADR 0113) and jumps' keys and timeout (ADR 0116). Indentation's
-//! are in `indentation` (ADR 0115).
+//! whitespace cleanup on save (ADR 0113), migemo in isearch and jumps, and jumps' keys and
+//! timeout (ADR 0116). Indentation's are in `indentation` (ADR 0115).
 //! Each is `None` where the file leaves it out or gives a bad value, so the caller keeps its own.
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's
@@ -27,6 +27,8 @@ pub struct Settings {
     pub agent_channel_start: Option<bool>,
     /// `[save]`.
     pub save: Save,
+    /// `[search]` (ADR 0116).
+    pub search: Search,
     /// `[jump]`.
     pub jump: Jump,
     /// `[indent]` (ADR 0115).
@@ -49,6 +51,13 @@ pub struct Jump {
 pub struct Save {
     /// `trim-whitespace`: clean the lines edited since the file was read or saved.
     pub trim_whitespace: Option<bool>,
+}
+
+/// `[search]`: how isearch and jumps search (ADR 0116).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Search {
+    /// `migemo`: whether a search starts with migemo on.
+    pub migemo: Option<bool>,
 }
 
 /// `[theme]`: built-in themes, by name (ADR 0089).
@@ -181,6 +190,21 @@ pub(super) fn agent_channel(value: &Spanned<DeValue<'_>>, found: &mut Found) -> 
         }
     }
     start
+}
+
+/// `[search]`.
+pub(super) fn search(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Search {
+    let mut search = Search::default();
+    let Some(entries) = table(value, "[search]", found) else {
+        return search;
+    };
+    for (name, value) in entries {
+        match name.get_ref().as_ref() {
+            "migemo" => search.migemo = switch(value, "[search]", "migemo", found),
+            other => unknown(found, name.span().start, other, "[search]"),
+        }
+    }
+    search
 }
 
 /// `[save]`.

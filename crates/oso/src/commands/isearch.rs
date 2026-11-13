@@ -1,6 +1,6 @@
 //! isearch's commands (ADR 0082, ADR 0116): starting a search, literal or a regexp's, the
-//! keys of its keymap, and its exit. Where it goes, its count and its steps back are the
-//! editor's.
+//! keys of its keymap, migemo's among them, and its exit. Where it goes, its count and its
+//! steps back are the editor's.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -16,10 +16,11 @@ use oso_core::editor::Toward;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "isearch-forward",
-        doc: "Search forward as you type.\n\nEach character typed adds to the search string, and the cursor goes to the end of the next match. Case does not matter unless the string has an uppercase letter. `C-s` goes to the next match, round to the start after a failure, `C-r` back, `DEL` back a step, `RET` ends the search there, and `C-g` takes a failing part away, then goes back where the search began. Any other key ends the search and runs. Only the primary cursor moves.",
+        doc: "Search forward as you type.\n\nEach character typed adds to the search string, and the cursor goes to the end of the next match. Case does not matter unless the string has an uppercase letter. A string of romaji also matches its hiragana and katakana (migemo) unless `[search] migemo = false`, and `M-m` turns that for this search. `C-s` goes to the next match, round to the start after a failure, `C-r` back, `DEL` back a step, `RET` ends the search there, and `C-g` takes a failing part away, then goes back where the search began. Any other key ends the search and runs. Only the primary cursor moves.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_forward,
+        state: None,
     },
     Command {
         name: "isearch-backward",
@@ -27,6 +28,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_backward,
+        state: None,
     },
     Command {
         name: "isearch-forward-regexp",
@@ -34,6 +36,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_forward_regexp,
+        state: None,
     },
     Command {
         name: "isearch-backward-regexp",
@@ -41,6 +44,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_backward_regexp,
+        state: None,
     },
     Command {
         name: "isearch-repeat-forward",
@@ -48,6 +52,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_repeat_forward,
+        state: None,
     },
     Command {
         name: "isearch-repeat-backward",
@@ -55,6 +60,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_repeat_backward,
+        state: None,
     },
     Command {
         name: "isearch-printing-char",
@@ -62,6 +68,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_printing_char,
+        state: None,
     },
     Command {
         name: "isearch-newline",
@@ -69,6 +76,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_newline,
+        state: None,
     },
     Command {
         name: "isearch-delete-char",
@@ -76,6 +84,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_delete_char,
+        state: None,
     },
     Command {
         name: "isearch-exit",
@@ -83,6 +92,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_exit,
+        state: None,
     },
     Command {
         name: "isearch-yank-word-or-char",
@@ -90,6 +100,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_yank_word_or_char,
+        state: None,
     },
     Command {
         name: "isearch-yank-kill",
@@ -97,6 +108,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_yank_kill,
+        state: None,
     },
     Command {
         name: "isearch-yank-pop",
@@ -104,6 +116,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_yank_pop,
+        state: None,
     },
     Command {
         name: "isearch-ring-retreat",
@@ -111,6 +124,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_ring_retreat,
+        state: None,
     },
     Command {
         name: "isearch-ring-advance",
@@ -118,6 +132,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_ring_advance,
+        state: None,
     },
     Command {
         name: "isearch-toggle-case-fold",
@@ -125,6 +140,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_toggle_case_fold,
+        state: None,
     },
     Command {
         name: "isearch-toggle-regexp",
@@ -132,6 +148,15 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_toggle_regexp,
+        state: None,
+    },
+    Command {
+        name: "isearch-toggle-migemo",
+        doc: "Turn migemo off or on for the rest of this search.\n\nWith migemo, a string of lowercase letters, `'` and `-` also finds the kana it spells, in hiragana, katakana and half-width katakana, and its full-width letters: `ka` finds `か` and `カ`. A regexp's search never uses it. `[search] migemo` in the configuration file says how each search starts.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_toggle_migemo,
+        state: None,
     },
     Command {
         name: "isearch-mark-next",
@@ -139,6 +164,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_mark_next,
+        state: None,
     },
     Command {
         name: "isearch-mark-previous",
@@ -146,6 +172,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_mark_previous,
+        state: None,
     },
     Command {
         name: "isearch-mark-all",
@@ -153,6 +180,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: isearch_mark_all,
+        state: None,
     },
 ];
 
@@ -263,6 +291,10 @@ fn isearch_toggle_regexp(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError>
     searching(ctx, |ctx| ctx.editor.isearch_toggle_regexp())
 }
 
+fn isearch_toggle_migemo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    searching(ctx, |ctx| ctx.editor.isearch_toggle_migemo())
+}
+
 fn isearch_mark_next(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     mark(ctx, Some(Toward::Next))
 }
@@ -302,11 +334,24 @@ mod tests {
         result.map(|()| redraw).map_err(|e| e.to_string())
     }
 
+    /// Runs the worker's jobs in place, as the host's thread would: a key searches on its
+    /// own for a few milliseconds only, counted from before it builds the pattern.
+    fn drain(editor: &mut Editor) {
+        while let Some(job) = editor.take_isearch_job() {
+            let mut reports = Vec::new();
+            job.run(|report| reports.push(report));
+            for report in reports {
+                editor.isearch_reported(report);
+            }
+        }
+    }
+
     #[test]
     fn a_search_starts_types_and_ends() {
         let mut editor = Editor::with_buffer(Buffer::from_text("a", "say foo"));
         assert_eq!(run(&mut editor, "isearch-forward", ""), Ok(true));
         assert_eq!(run(&mut editor, "isearch-printing-char", "fo"), Ok(true));
+        drain(&mut editor);
         assert_eq!(editor.window().selections.primary().cursor, 6);
         assert_eq!(run(&mut editor, "isearch-exit", ""), Ok(true));
         assert!(editor.isearch().is_none());
@@ -318,8 +363,10 @@ mod tests {
         assert_eq!(run(&mut editor, "isearch-forward-regexp", ""), Ok(true));
         assert!(editor.isearch().is_some_and(|search| search.regexp()));
         assert_eq!(run(&mut editor, "isearch-printing-char", "b."), Ok(true));
+        drain(&mut editor);
         assert_eq!(editor.window().selections.primary().cursor, 7);
         assert_eq!(run(&mut editor, "isearch-toggle-regexp", ""), Ok(true));
+        drain(&mut editor);
         assert!(editor.isearch().is_some_and(|search| !search.regexp()));
         // `b.` literally is nowhere.
         assert!(editor.isearch().is_some_and(|search| search.failing()));
@@ -336,6 +383,7 @@ mod tests {
             "isearch-exit",
             "isearch-delete-char",
             "isearch-toggle-regexp",
+            "isearch-toggle-migemo",
         ] {
             assert!(
                 run(&mut editor, name, "")

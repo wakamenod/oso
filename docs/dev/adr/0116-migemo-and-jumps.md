@@ -522,6 +522,113 @@ coordinator; the notes below are those choices as built.
   still copies a long line on the UI thread, about 40 ms on a 60 MB line (0113's "Limits"); the
   rule above, that a key leaves such a line to the worker, would fit it too.
 
+#### As built (step 2, 2026-11-13)
+
+The author chose the first option of each of six questions on 2026-11-12, through the
+coordinator; the notes below are those choices as built. Besides the strings that search
+literally (a letter that starts no spelling, over 256 characters, or a pattern over a key's
+limit, where the Decision kept the kana), two depart from the Decision's text:
+`oso_core::migemo` stays private until step 4, and the cache holds compiled needles, in the
+editor.
+
+- **The module.** `oso_core::migemo` is private to the crate until step 4, when the tip crate's
+  project search needs it, so its public shape is settled once, with the dictionary. It holds
+  the romaji table (`migemo/table.rs`, one row a spelling, tested row by row), the other forms
+  (`migemo/forms.rs`) and the trie (`migemo/trie.rs`), and uses only `regex::escape`. It sits on
+  the lowest line of `guardrails/layers.txt`, beside `sum_tree`.
+- **One reading.** The longest spelling wins, and no spelling starts another, so a string has
+  one reading: `nn` is `ん`, as C/Migemo and input methods have it, so `konnichiha` is
+  `こんいちは` and `konnnichiha` finds `こんにちは`. Besides the table, `tch` and a doubled
+  consonant give `っ`, and `n'`, an `n` before a consonant other than `y` and an `n` before `-`
+  give `ん`, as does Hepburn's `m` before `b` or `p` (`shimbun` finds `しんぶん`). An `m`
+  before `m` doubles, as input methods have it (`mma` is `っま`), so Hepburn's `semmon` does
+  not find `せんもん`: the author chose this on 2026-11-13 over `ん` alone and over either,
+  which made the largest pattern of all. The table also takes the input methods' `kwa`,
+  `gwa`, `xyi`, `xye`, `lyi` and `lye`.
+- **`ず` and `づ`, `じ` and `ぢ`.** Hepburn and kunrei write both of each pair alike, so `zu`
+  matches `ず` or `づ`, and `ji` and `zi` match `じ` or `ぢ`, as C/Migemo has it: `tsuzuku`
+  finds `つづく` and `hanaji` finds `はなぢ`. The reading keeps one place for either, and
+  the trie writes it as a class in each form (`[ずづ]`, `[ズヅ]`, `[ｽﾂ]ﾞ`), so a string of
+  many grows its pattern no faster than one of other kana. `du` and `di` stay `づ` and `ぢ`
+  alone, and `ja` stays `じゃ`.
+- **A letter that starts no spelling** before the end (`struct`, `rust`, `http`) leaves the string
+  literal: no `[migemo]`, the literal matcher, and no limit on a line's length.
+- **The forms:** the string, its hiragana, katakana and half-width katakana (`ｶﾞ`, a katakana with
+  no half-width form taking its nearest), and its full-width letters, `-` and `'`, compiled with
+  the search's case. Decomposed kana (a base and U+3099) are left to step 4, in
+  `open-questions.md`.
+- **The API:** `Editor::set_migemo`, `Editor::isearch_toggle_migemo` and `Isearch::migemo`, which
+  says whether its pattern is migemo's now: the switch is on, the search is not a regexp's, and
+  the string is romaji that gives kana. `get-state`'s `isearch` gains `migemo`, left out around a
+  buffer that may hold secrets as the rest is. `isearch-toggle-migemo` is `Person`.
+- **`M-m`** turns the search's switch and searches again from the match, as `M-r` does; `DEL`
+  takes it back. In a regexp's search it turns the switch, which shows once `M-r` makes the
+  string literal. `M-c` makes the letters case-sensitive; kana have no case. The line puts
+  `[migemo]` before Emacs's words: `[migemo] Failing I-search: kan`.
+- **Limits.** A string of at most 256 characters has a pattern, at most about 18 bytes a letter
+  with a constant for an unfinished end; a longer one searches literally, as no one types that
+  much romaji and its compile would pass a key's millisecond. The pattern compiles on a key,
+  within 0113's 256 KiB and a nest limit of 32, in under a millisecond at 256 characters; over
+  that it would search literally, which no romaji string reaches. The largest patterns, by
+  what they take of the size limit, are those of a `-` and a spelling such as `ja`, `va` or
+  `vo` repeated, then of a doubled consonant (`kk`, `ss`); `a` repeated takes about a quarter
+  less. `the_largest_migemo_patterns_compile_on_a_key` compiles them. 0116's 4 MiB and the build on
+  the worker wait for the dictionary (step 3). Searching keeps step 1's limits.
+- **`C-w` after a kana match** adds the kana after it: with `かんじ kanji`, `C-s ka C-w` makes
+  the string `kaんじ`, which is not romaji, so the search turns literal and fails, by the rule
+  above. After a match of the letters, `C-w` adds letters and migemo goes on. `C-y` and `M-p`
+  bring a string as it is, so romaji from either is migemo's.
+- **The cache** holds the last 32 compiled needles, by string and case, in the editor
+  (`editor/migemo.rs`, beside isearch and jumps), so `DEL`, a repeat and `C-s C-s` compile no
+  pattern again; a string that gives no kana is not kept, as it costs little to look at
+  again. Migemo's pattern has no assertion, as every character is escaped, so a match that ends
+  where a range is cut is one as it is, and its needle never builds step 1's regexps for a cut,
+  on a key, for cursors or on the worker. A string typed around a
+  buffer that may hold secrets stays out of it, as does a jump's string while the jump is
+  around one, and `Debug` prints none of them. At worst, 32 needles of 256 characters take
+  about 8.6 MB (the ignored tests `migemo_cache_memory_1` and `_32` under `/usr/bin/time -l`).
+- **The pattern is recorded as migemo's** (`Pattern::Migemo` in `isearch/state.rs`), so
+  `Isearch::migemo` does not guess from the needle's kind, and the worker takes the compiled
+  needle, never the string to compile.
+- **A key's time** is counted from the moment the key starts to build what it searches for, so
+  migemo's compile and step 1's search share the key's 3 ms.
+- **A line too long for a regexp** (over 64 MiB) does not stop a migemo search, as it stops a
+  regexp's: the search, or the count, that meets it goes on with the literal string from where
+  it searched, and counts anew. Migemo is then off for that search, as after `M-m`: the
+  `[migemo]` tag drops, `M-m` turns it on again and `DEL` goes back to the step before. The
+  author chose this on 2026-11-13 over failing there and over a literal look in that line
+  alone. Cursors from the search (`C->`, `C-<`, `C-c C-<`) take its needle as it is: once it
+  went on literally, the literal string, and before, migemo's regexp, which, as step 1's
+  regexp cursors, finds none past such a line.
+- **A key's cost**, the highlights included, in a release build on an idle machine (the ignored
+  tests in `editor/migemo_costs.rs`, where step 1's literal `zzq` took its 0.58 ms again).
+  Building a needle takes 0.06 ms p50 for `k` and `kanji` and 0.4 to 0.7 ms for 256
+  characters, at most 1 ms. Over 20 MB of short English lines, forward and backward, a key
+  takes 0.2 ms p50 for `k`, 1.2 to 1.5 ms for `kanji`, and 1.4 to 1.8 ms for 256 characters
+  (`kanjinohenkan`, `n`, `a`, `aiueo`, `ga` and `vu` repeated); over 20 MB of short Japanese
+  lines, 0.3 ms, 1.3 to 1.7 ms and 1.4 to 2.0 ms. All but two keys
+  took at most 2.2 ms. Typing 256 characters one at a time over the English lines and taking
+  them back, forward and backward, a key takes 1.3 to 1.7 ms p50 and `DEL`, whose needle the
+  cache keeps, 0.2 to 0.3 ms; that run's slowest keys, as other work loaded the machine again,
+  took 3 to 20 ms. A jump's needle of its 64 characters builds in 0.2 ms p50, at most 0.4 ms,
+  well within the 8 ms of a key. A jump's key takes 0.25
+  to 0.55 ms p50 in one window of 120 by 400 and 0.35 to 0.9 ms in four; around a secret,
+  which builds its needle each key, within 0.2 ms of that. At a line of 100 MB, a migemo
+  search's key takes 0.7 ms, and the worker goes on literally to the match. The strings of the
+  largest patterns (`-ja`, `-vo`, `kk`, `ss` and `zu` repeated) joined those tests after these
+  timings, and were not timed on an idle machine.
+- **Jumps** look for their string through the same cache, by the setting: `ka` labels `か` too.
+  A jump is bounded by bytes, not time: migemo's needle, as a literal string, keeps step 5's
+  byte and candidate budgets alone, so a loaded machine labels as many as an idle one, and no
+  label goes missing by chance. Its pattern comes from the table, not from a person, and the
+  regexp's scan is linear in the bytes the budgets bound; the densest text measured, every
+  character a match in four windows, stays within a key. A person's own regexp, from
+  `C-M-s`, keeps the frame's time a run that step 5 gave it. The coordinator chose this on
+  2026-11-13, over one time for every window's matches, which labelled fewer on a loaded
+  machine. Isearch keeps its key's time, as the worker takes on what a key leaves. A
+  regexp's highlights and a jump's key read each line into room they keep, so neither
+  allocates once it has grown.
+
 #### As built (step 5, 2026-11-12)
 
 The author answered seven questions on 2026-11-12, through the coordinator. Two depart from the
@@ -618,9 +725,10 @@ at most 1 MiB in all (Q5).
 - An isearch for a lowercase string now matches more: `ka` also finds `か` and `カ`, in code with
   Japanese comments too. `M-m` takes it back to the literal string for that search, and the
   setting for every search.
-- A romaji isearch is a regexp search one line at a time, so 0113's limits hold for it: a line
-  over 64 MiB stops the search there, where the literal matcher went on. `M-m` searches it
-  literally.
+- A romaji isearch is a regexp search one line at a time, so 0113's limits hold for it. At a
+  line over 64 MiB, where a regexp is not matched, the search goes on with the literal string
+  (the author's choice of 2026-11-13, in step 2's notes): kana in that line are not found, the
+  romaji is.
 - A Japanese word that a hard wrap breaks across two lines is not found (Q6).
 - A dictionary costs about its file's size in memory once a search used it, and a read on a
   worker the first time; nothing at start-up.
