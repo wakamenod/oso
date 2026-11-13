@@ -182,6 +182,8 @@ impl App {
         // Each terminal, for end-to-end flows (ADR 0120). The dev socket trusts the same user
         // (ADR 0044); the agent channel reads none of this.
         state["terminals"] = self.terminals_state();
+        // Agent sessions' states, the list and the attention asked for (ADR 0121 step 3).
+        state["sessions"] = self.sessions_state();
         // The steps of the last live resize and the frames drawn for them (ADR 0077): numbers
         // only, null on winit.
         let resize = self

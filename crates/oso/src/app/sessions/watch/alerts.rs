@@ -131,6 +131,10 @@ impl App {
         if let Some(notice) = notice {
             self.editor.message(notice.text.clone());
             oso_platform::notify::attention(notice.kind, "oso", &notice.text);
+            #[cfg(feature = "dev")]
+            {
+                self.watch.asked += 1;
+            }
             if let Some(view) = &self.view {
                 view.window.request_session_attention(notice.kind);
             }

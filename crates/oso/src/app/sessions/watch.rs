@@ -7,6 +7,8 @@
 //! Must not depend on: how a frame is drawn, key presses, or the worker's thread.
 
 mod alerts;
+#[cfg(feature = "dev")]
+mod dev_state;
 mod requests;
 mod view;
 
@@ -59,6 +61,9 @@ pub(in crate::app) struct Watch {
     made: Option<Instant>,
     /// The worker looks at Claude Code's registry: asked once oso has a session.
     polling: bool,
+    /// How many notices asked for attention, for end-to-end flows: the Dock cannot be seen.
+    #[cfg(feature = "dev")]
+    asked: u32,
 }
 
 impl Watch {
