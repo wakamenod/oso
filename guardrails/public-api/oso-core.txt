@@ -1703,6 +1703,8 @@ pub fn oso_core::editor::Editor::flash_cells(&self, oso_core::window::WindowId, 
 pub fn oso_core::editor::Editor::flashes(&self, &oso_core::editor::ViewSample, &oso_core::editor::ViewSample) -> bool
 pub fn oso_core::editor::Editor::view_sample(&self) -> oso_core::editor::ViewSample
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::follow_text(&mut self) -> bool
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
@@ -1726,7 +1728,6 @@ pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
 pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
 impl oso_core::editor::Editor

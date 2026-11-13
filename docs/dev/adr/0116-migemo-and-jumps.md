@@ -698,6 +698,10 @@ at most 1 MiB in all (Q5).
 - **Left for later,** as a chore: `[jump] timeout`'s default moves into the configuration, so
   that its value in force needs no exception, and an `Editor::follow_text` keeps every session
   true to its text in place of jumps going through `isearch_follow_text`.
+- **Done in that chore (2026-11-13):** the jump's keys and timeout, 0.5 s where the file says
+  nothing, are values in force as every other setting is, and `Editor::follow_text` keeps isearch
+  and a jump true to their text before the host waits, in place of `isearch_follow_text`. A
+  jump's byte budgets count what a regexp reads around each row too, not the row alone.
 
 ## Changes to accepted ADRs
 

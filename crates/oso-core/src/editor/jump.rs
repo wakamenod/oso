@@ -80,6 +80,8 @@ pub(super) struct Scratch {
     /// Each window looked at, by its place among them, and its primary cursor's point.
     cursors: Vec<(WindowId, DisplayPoint)>,
     screen: Screen,
+    /// How many bytes the last look for candidates read, in every window.
+    read: usize,
 }
 
 impl Editor {
@@ -369,6 +371,7 @@ impl Editor {
             views,
             cursors,
             screen,
+            read,
         } = &mut scratch;
         found.clear();
         cursors.clear();
@@ -403,6 +406,7 @@ impl Editor {
                 break;
             }
         }
+        *read = JUMP_BUDGET - left;
         let total = found.len();
         if total > MAX_LABELLED {
             // On the row the cut falls in, the text's order picks, as no column is known yet.
@@ -448,5 +452,13 @@ impl Editor {
                 near.column = candidate.start.column.abs_diff(cursor.column);
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl Editor {
+    /// How many bytes a jump's last look for its candidates read, in every window.
+    pub(super) fn jump_read(&self) -> usize {
+        self.jump_scratch.read
     }
 }
