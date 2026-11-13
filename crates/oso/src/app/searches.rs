@@ -60,7 +60,7 @@ impl App {
     /// Keeps isearch true to its window and its text, and sends the job that leaves, if
     /// any, to the worker. Each part the job ends comes back as a [`UserEvent::Search`].
     pub(super) fn start_searches(&mut self) {
-        if self.editor.isearch_follow_text() {
+        if self.editor.follow_text() {
             self.request_redraw();
         }
         let Some(job) = self.editor.take_isearch_job() else {

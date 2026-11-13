@@ -196,8 +196,9 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
     let rope = Rope::from(text.as_str());
     let regexp = compile(r"a\d").unwrap();
     let (mut out, mut line) = (Vec::new(), super::LineRoom::default());
-    // The view shows the end of the line.
-    regexp.matches_in(
+    // The view shows the end of the line: what is read is 256 bytes before it, and one
+    // character more, as nothing is after it.
+    let read = regexp.matches_in(
         &rope,
         &[1000..1008],
         (10, 64 * 1024),
@@ -205,6 +206,17 @@ fn highlights_look_around_the_view_and_leave_a_cut_match_out() {
         &mut out,
     );
     assert_eq!(out, [1000..1002, 1003..1005, 1006..1008]);
+    assert_eq!(read, 1008 - (1000 - 256 - 1));
+    // Where what it would read is past the budget, it reads nothing.
+    out.clear();
+    let read = regexp.matches_in(
+        &rope,
+        &[1000..1008],
+        (10, 264),
+        (Some(later()), &mut line),
+        &mut out,
+    );
+    assert_eq!((read, out.len()), (0, 0));
     // A window that cuts a match short leaves it out.
     let rope = Rope::from(format!("ab{}", "c".repeat(1000)).as_str());
     let regexp = compile("ab.*").unwrap();

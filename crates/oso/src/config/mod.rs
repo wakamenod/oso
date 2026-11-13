@@ -41,7 +41,7 @@ use toml::de::{DeTable, DeValue};
 
 pub use agent_rules::RulesReport;
 pub use checked::read_checked;
-pub use in_force::{InForce, Look};
+pub use in_force::{InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
 pub use outcome::{group_writes_note, outcome};
 pub use problems::Problem;

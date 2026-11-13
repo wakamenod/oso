@@ -13,9 +13,7 @@ use oso_core::key::{Key, KeyPress, NamedKey};
 
 use super::App;
 use super::flash::EARLY;
-
-/// How long a jump reads its string after the last key, as avy's `avy-timeout-seconds`.
-pub(super) const DEFAULT_TIMEOUT: Duration = Duration::from_millis(500);
+use crate::config::JUMP_TIMEOUT;
 
 /// When a jump reading its string shows its labels, if one does.
 #[derive(Debug)]
@@ -27,7 +25,7 @@ pub(super) struct JumpTimer {
 impl Default for JumpTimer {
     fn default() -> Self {
         Self {
-            timeout: DEFAULT_TIMEOUT,
+            timeout: JUMP_TIMEOUT,
             due: None,
         }
     }
@@ -99,7 +97,8 @@ fn show_labels_as_timed(editor: &mut Editor) {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_TIMEOUT, JumpTimer, show_labels_as_timed};
+    use super::{JumpTimer, show_labels_as_timed};
+    use crate::config::JUMP_TIMEOUT;
     use crate::dispatch::Dispatcher;
     use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
@@ -141,11 +140,11 @@ mod tests {
         let mut timer = JumpTimer::default();
         assert_eq!(timer.next_wake(), None);
         timer.after_input(true, start);
-        assert_eq!(timer.next_wake(), Some(start + DEFAULT_TIMEOUT));
+        assert_eq!(timer.next_wake(), Some(start + JUMP_TIMEOUT));
         let later = start + Duration::from_millis(300);
         timer.after_input(true, later);
-        assert!(!timer.take_due(start + DEFAULT_TIMEOUT));
-        assert!(timer.take_due(later + DEFAULT_TIMEOUT));
+        assert!(!timer.take_due(start + JUMP_TIMEOUT));
+        assert!(timer.take_due(later + JUMP_TIMEOUT));
         assert_eq!(timer.next_wake(), None, "once");
         timer.after_input(true, start);
         timer.after_input(false, start);

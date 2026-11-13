@@ -100,7 +100,7 @@ impl Editor {
     /// `C-s` or `C-r` in isearch: the next match that way, round the end after a failure in
     /// the same direction, or with no string, the last string searched for.
     pub fn isearch_repeat(&mut self, backward: bool) {
-        self.isearch_follow_text();
+        self.follow_text();
         let cursor = self.primary_cursor();
         let Some(state) = &self.isearch else {
             return;
@@ -149,7 +149,7 @@ impl Editor {
     /// [`Editor::isearch_add`], with the key's time to search counted from `started` if given,
     /// when a key that did more first began, as `M-y` does.
     fn isearch_add_since(&mut self, text: &str, started: Option<Instant>) {
-        self.isearch_follow_text();
+        self.follow_text();
         let cursor = self.primary_cursor();
         let Some(state) = &mut self.isearch else {
             return;
@@ -205,7 +205,7 @@ impl Editor {
     /// `M-p` (`older`) and `M-n`: the string becomes an older or newer one of the history,
     /// and is searched for from the match.
     pub fn isearch_history(&mut self, older: bool) {
-        self.isearch_follow_text();
+        self.follow_text();
         let cursor = self.primary_cursor();
         let Some(state) = &self.isearch else {
             return;
@@ -235,7 +235,7 @@ impl Editor {
 
     /// `M-c`: turns smart case around for the rest of this search.
     pub fn isearch_toggle_case(&mut self) {
-        self.isearch_follow_text();
+        self.follow_text();
         let cursor = self.primary_cursor();
         let Some(state) = &mut self.isearch else {
             return;
@@ -249,7 +249,7 @@ impl Editor {
     /// `M-r`: turns the string from literal to a regexp or back, for the rest of this search,
     /// and searches again from the match. `M-p` and `M-n` then go through the other history.
     pub fn isearch_toggle_regexp(&mut self) {
-        self.isearch_follow_text();
+        self.follow_text();
         let cursor = self.primary_cursor();
         let Some(state) = &mut self.isearch else {
             return;
@@ -265,7 +265,7 @@ impl Editor {
     /// the match (ADR 0116). In a regexp's search it shows once `M-r` makes the string
     /// literal.
     pub fn isearch_toggle_migemo(&mut self) {
-        self.isearch_follow_text();
+        self.follow_text();
         let cursor = self.primary_cursor();
         let Some(state) = &mut self.isearch else {
             return;
@@ -291,7 +291,7 @@ impl Editor {
     /// `DEL`: goes back one step, the string and the place together. Returns false with no
     /// step to go back to.
     pub fn isearch_delete(&mut self) -> bool {
-        self.isearch_follow_text();
+        self.follow_text();
         let Some(step) = self
             .isearch
             .as_mut()
@@ -367,7 +367,7 @@ impl Editor {
     /// otherwise ends the search and puts the cursors and the view back as they were. `None`
     /// with no isearch.
     pub(super) fn isearch_quit(&mut self) -> Option<super::Quit> {
-        self.isearch_follow_text();
+        self.follow_text();
         let state = self.isearch.as_mut()?;
         let bad = matches!(state.pattern, state::Pattern::Bad(_));
         if state.failing || state.searching.is_some() || bad {

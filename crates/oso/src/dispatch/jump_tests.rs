@@ -136,7 +136,7 @@ fn a_key_after_a_change_ended_the_labels_types_nothing_and_says_why() {
         text: "y",
     };
     editor.apply_edits(id, &[edit]).unwrap();
-    assert!(editor.isearch_follow_text());
+    assert!(editor.follow_text());
     send(&mut d, &mut editor, "s");
     assert!(editor.jump().is_none());
     assert_eq!(text(&editor), "ab abxy\n", "the label's key typed nothing");
