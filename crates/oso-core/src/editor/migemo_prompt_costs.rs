@@ -20,17 +20,17 @@ use super::edit_tests::edit;
 use super::migemo_dictionary_costs::{WORDS, strings};
 use crate::buffer::Buffer;
 use crate::complete::{Candidate, WORKER_PAST};
-use crate::migemo::Held;
+use crate::migemo::Table;
 use crate::migemo::{Budget, Dictionary, MAX_LOOKUP_STEPS, Romaji, word_cost};
 use crate::project::LineQuery;
 
 /// Milliseconds since `started`.
-fn ms(started: Instant) -> f64 {
+pub(super) fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.0
 }
 
 /// The median, the 99th percentile and the largest of `times`, sorted.
-fn spread(times: &mut [f64]) -> (f64, f64, f64) {
+pub(super) fn spread(times: &mut [f64]) -> (f64, f64, f64) {
     times.sort_by(f64::total_cmp);
     let at = |share: f64| times[((times.len() - 1) as f64 * share) as usize];
     (at(0.5), at(0.99), at(1.0))
@@ -45,7 +45,7 @@ fn dictionary() -> Arc<Dictionary> {
 }
 
 /// Types `text` at the end of the prompt's answer and gives how long matching it took.
-fn key(editor: &mut Editor, text: &str) -> f64 {
+pub(super) fn key(editor: &mut Editor, text: &str) -> f64 {
     let id = editor.prompt().unwrap().buffer();
     let end = editor.buffer(id).unwrap().text().len();
     editor.apply_edits(id, &[edit(end..end, text)]).unwrap();
@@ -55,7 +55,7 @@ fn key(editor: &mut Editor, text: &str) -> f64 {
 }
 
 /// Clears the prompt's answer, untimed.
-fn clear(editor: &mut Editor) {
+pub(super) fn clear(editor: &mut Editor) {
     let id = editor.prompt().unwrap().buffer();
     let end = editor.buffer(id).unwrap().text().len();
     editor.apply_edits(id, &[edit(0..end, "")]).unwrap();
@@ -64,7 +64,7 @@ fn clear(editor: &mut Editor) {
 }
 
 /// A project's search with the dictionary.
-fn searching(dictionary: &Arc<Dictionary>) -> Editor {
+pub(super) fn searching(dictionary: &Arc<Dictionary>) -> Editor {
     let mut editor = Editor::with_buffer(Buffer::from_text("t", ""));
     editor.set_migemo_dictionary(Some(Arc::clone(dictionary)));
     editor
@@ -75,7 +75,7 @@ fn searching(dictionary: &Arc<Dictionary>) -> Editor {
 
 /// A completion of [`WORKER_PAST`] names, the most matched on the UI thread, with the
 /// dictionary.
-fn completing(dictionary: &Arc<Dictionary>) -> Editor {
+pub(super) fn completing(dictionary: &Arc<Dictionary>) -> Editor {
     let mut editor = Editor::with_buffer(Buffer::from_text("t", ""));
     editor.set_migemo_dictionary(Some(Arc::clone(dictionary)));
     let items: Arc<[Candidate]> = (0..WORKER_PAST)
@@ -125,7 +125,7 @@ fn pasted(editor: &mut Editor, prefix: &str, count: usize) -> Vec<f64> {
 fn steps(dictionary: &Dictionary, string: &str) -> usize {
     let romaji = Romaji::new(string).expect("romaji");
     let (_, spent) = dictionary.pattern_words_with_budget(&romaji, Budget::PATTERN);
-    spent.used.lookups
+    spent.used.steps
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn typed_ending(editor: &mut Editor) -> (Vec<f64>, usize, usize) {
 
 /// How long `new` narrowing `old` takes to tell, each parsed with `table` and `new` after
 /// `old`, over `rounds`, and whether it narrows.
-fn narrowing(old: &str, new: &str, table: &Held, rounds: usize) -> (Vec<f64>, bool) {
+fn narrowing(old: &str, new: &str, table: &Table, rounds: usize) -> (Vec<f64>, bool) {
     let before = LineQuery::parse_after(old, &LineQuery::parse(""), true, Some(table));
     let query = LineQuery::parse_after(new, &before, true, Some(table));
     let mut times = Vec::new();
@@ -298,7 +298,7 @@ fn migemo_prompt_costs_of_heavy_input_and_narrowing() {
     report("completion of 5000, a paste of the 32 heaviest", pastes);
     report("completion of 5000, an upper-case key after them", uppers);
 
-    let table = Held {
+    let table = Table {
         generation: 1,
         dictionary: Arc::clone(&dictionary),
     };
@@ -357,93 +357,6 @@ fn migemo_prompt_costs_of_heavy_input_and_narrowing() {
         &format!("narrowing, the 32 heaviest and a letter (narrows {narrows})"),
         taken,
     );
-}
-
-/// A dictionary built to make a lookup slow, and the components a paste of it takes: every
-/// reading is `bits` of either of two kana (`ず` or `づ`), `kept` × `あ` and two kana that
-/// tell its `each` entries apart, so a lookup keeps the most ranges, each of `each`
-/// entries, through every kana; each component then ends with a kana no reading has there,
-/// so it finds no word and spends nothing. Built at run time, of no person's file.
-fn slow_lookups(bits: usize, each: usize, kept: usize) -> (Dictionary, Vec<String>) {
-    let apart: Vec<char> = "かきくけこさしすせそたちつてと".chars().collect();
-    let mut text = String::new();
-    for group in 0..1usize << bits {
-        for entry in 0..each {
-            (0..bits).for_each(|bit| text.push(if group >> bit & 1 == 0 { 'ず' } else { 'づ' }));
-            (0..kept).for_each(|_| text.push('あ'));
-            text.push(apart[entry / apart.len() % apart.len()]);
-            text.push(apart[entry % apart.len()]);
-            text.push_str("\t字\n");
-        }
-    }
-    let ends = [
-        "na", "ni", "nu", "ne", "no", "ha", "hi", "fu", "he", "ho", "ma", "mi", "mu", "me", "mo",
-        "ya", "yu", "yo", "ra", "ri", "ru", "re", "ro", "wa",
-    ];
-    let stem = format!("{}{}", "zu".repeat(bits), "a".repeat(kept));
-    let mut components = Vec::new();
-    let mut bytes = 0;
-    for end in ends {
-        let component = format!("{stem}{end}");
-        if bytes + component.len() + 1 > crate::complete::MAX_INPUT_BYTES || components.len() == 32
-        {
-            break;
-        }
-        bytes += component.len() + 1;
-        components.push(component);
-    }
-    (Dictionary::new(text), components)
-}
-
-#[test]
-#[ignore = "a measure, in a release build"]
-fn migemo_prompt_costs_of_slow_lookups() {
-    let report = |what: &str, mut times: Vec<f64>| {
-        let (p50, p99, max) = spread(&mut times);
-        println!(
-            "{what}: {p50:.3} ms p50, {p99:.3} ms p99, {max:.3} ms most, {} times",
-            times.len()
-        );
-    };
-    for (bits, each, kept) in [(11, 1, 53), (11, 16, 40), (11, 128, 25), (10, 256, 25)] {
-        let (dictionary, components) = slow_lookups(bits, each, kept);
-        let shape = format!(
-            "{bits} bits × {each} × {kept}: {} readings, {} skipped, {} components",
-            dictionary.readings(),
-            dictionary.skipped(),
-            components.len()
-        );
-        let romaji = Romaji::new(&components[0]).expect("romaji");
-        let mut times = Vec::new();
-        for _ in 0..20 {
-            let started = Instant::now();
-            assert!(std::hint::black_box(dictionary.pattern_words(&romaji)).is_empty());
-            times.push(ms(started));
-        }
-        report(&format!("one lookup, {shape}"), times);
-        let dictionary = Arc::new(dictionary);
-        let input = components.join(" ");
-        for (what, mut editor, prefix) in [
-            ("project search", searching(&dictionary), ""),
-            ("completion of 5000", completing(&dictionary), "%"),
-        ] {
-            let input = if prefix.is_empty() {
-                input.clone()
-            } else {
-                (components.iter())
-                    .map(|component| format!("{prefix}{component}"))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            };
-            let mut times = Vec::new();
-            for _ in 0..10 {
-                clear(&mut editor);
-                times.push(key(&mut editor, &input));
-                editor.take_search_request();
-            }
-            report(&format!("{what}, a paste, {shape}"), times);
-        }
-    }
 }
 
 /// Pastes `input` in a project's search, ends the search it starts, as a walk that ran to

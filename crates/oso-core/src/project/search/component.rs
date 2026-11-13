@@ -9,7 +9,7 @@ use std::sync::Arc;
 use regex::bytes::{Regex, RegexBuilder};
 
 use super::LineQuery;
-use crate::migemo::{self, Budget, Dictionary, Held, Spent};
+use crate::migemo::{self, Budget, Dictionary, Spent, Table};
 
 /// The most memory a component's expression may take once compiled, as in completion.
 const REGEX_SIZE_LIMIT: usize = 1 << 20;
@@ -150,7 +150,7 @@ impl Component {
         raw: &str,
         ignore_case: bool,
         (before, built): (&LineQuery, &[Self]),
-        (migemo, table): (bool, Option<&Held>),
+        (migemo, table): (bool, Option<&Table>),
         budget: &mut Budget,
     ) -> Option<Self> {
         let (not, literal, rest) = match raw.chars().next() {

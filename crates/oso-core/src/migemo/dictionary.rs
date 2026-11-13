@@ -2,8 +2,8 @@
 //! file's text in C/Migemo's `migemo-dict` format or SKK's, and the words of the readings a
 //! romaji string's kana start.
 //!
-//! Must not depend on: any module of this crate but its parent's, I/O or a log. `Debug` prints only its
-//! counts, as the file is the person's own.
+//! Must not depend on: any module of this crate but its parent's, I/O or a log. `Debug`
+//! prints only its counts, as the file is the person's own.
 //!
 //! - Each line is read on its own, by its shape: a reading, a tab and words between tabs
 //!   (`migemo-dict`), or a reading, ` /` and words each ended by `/` (SKK). A `;` line is a
@@ -18,11 +18,14 @@
 //!   reading, one a reading, and their words, so the entries a prefix starts are found by
 //!   binary search. It takes the text's size, 16 bytes an entry and 8 bytes a word; while it
 //!   is built, a word of a reading that several lines give takes 8 bytes more.
+//! - A lookup spends a [`Budget`]: its steps as it narrows and orders the entries, then its
+//!   words, so one input's lookups stay bounded whatever the file holds.
 
 use std::cmp::Reverse;
 use std::fmt;
 use std::ops::Range;
 
+use super::budget::word_cost;
 use super::{Budget, Romaji, Spent};
 
 /// The most bytes of a file's text read: past it, the rest is left out.
@@ -47,43 +50,6 @@ pub const MAX_WORDS: usize = 1 << 22;
 /// it, only the readings that are the kana themselves give theirs (ADR 0116, Q7). It also
 /// bounds the ranges either of two kana (`ず` or `づ`) splits the table into.
 pub const MAX_PREFIX_ENTRIES: usize = 2048;
-
-/// The most steps a pattern's lookup may take, which one input's components share (ADR 0116,
-/// Q7): narrowing a range of entries by a kana takes one step and one more for each time its
-/// length halves, as its binary search does. Past them, a lookup stops and gives no words.
-/// The most a common dictionary takes for one input is a small share of them, and a crafted
-/// one cannot make a key's lookups slow.
-pub(crate) const MAX_LOOKUP_STEPS: usize = 64 * 1024;
-
-/// The most words of a pattern: the exact readings' first, then the shorter readings'.
-pub(crate) const MAX_PATTERN_WORDS: usize = 4096;
-
-/// The most bytes of a pattern's words, by [`word_cost`], about twice those of the largest
-/// pattern a common dictionary gives, so a pattern compiles within a key's time whatever the
-/// file holds.
-pub(crate) const MAX_PATTERN_WORD_BYTES: usize = 32 * 1024;
-
-/// How many times its bytes a character with a case counts against
-/// [`MAX_PATTERN_WORD_BYTES`]: a search that ignores case compiles it as a class of every
-/// character it folds to, which costs that many times a character with none.
-const CASE_WEIGHT: usize = 4;
-
-/// What `word` counts against [`MAX_PATTERN_WORD_BYTES`]: its bytes, each character with a
-/// case [`CASE_WEIGHT`] times over.
-pub(crate) fn word_cost(word: &str) -> usize {
-    word.chars()
-        .map(|c| c.len_utf8() * if has_case(c) { CASE_WEIGHT } else { 1 })
-        .sum()
-}
-
-/// Whether `c` has another case a search that ignores case also matches: a letter that is
-/// lowercase or uppercase, or that a case mapping changes, as a titlecase one.
-fn has_case(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_alphabetic();
-    }
-    c.is_lowercase() || c.is_uppercase() || !c.to_lowercase().eq([c]) || !c.to_uppercase().eq([c])
-}
 
 /// A range of bytes of the text, or of indices into the words.
 #[derive(Clone, Copy)]
@@ -179,8 +145,8 @@ impl Dictionary {
         &self.text[entry.reading.range()]
     }
 
-    /// The words to put in `romaji`'s pattern, at most [`MAX_PATTERN_WORDS`] and
-    /// [`MAX_PATTERN_WORD_BYTES`] by [`word_cost`]: those of
+    /// The words to put in `romaji`'s pattern, at most a pattern's words and bytes of them
+    /// by [`word_cost`] ([`Budget::PATTERN`]): those of
     /// every reading its kana and an unfinished end start, while at most
     /// [`MAX_PREFIX_ENTRIES`] do, else of the readings that are its kana and an end exactly,
     /// none if it is only an unfinished end. The exact readings' come first, then the
@@ -199,34 +165,38 @@ impl Dictionary {
         budget: Budget,
     ) -> (Vec<&str>, Spent) {
         let budget = budget.within(Budget::PATTERN);
-        let mut steps = budget.lookups;
+        let mut steps = budget.steps;
         let found = self.found(romaji, &mut steps);
-        let looked = budget.lookups - steps;
+        let looked = budget.steps - steps;
+        // Stopped short: a budget with the steps it lacked goes on.
+        let short = |cost: usize| {
+            let used = Budget {
+                steps: looked,
+                ..Budget::default()
+            };
+            let next = Budget {
+                steps: looked + cost,
+                ..Budget::default()
+            };
+            let next = Some(next);
+            (Vec::new(), Spent { used, next })
+        };
         let found = match found {
             Ok(Some(found)) => found,
             Ok(None) => Vec::new(),
-            // Stopped short: a budget with the step it lacked goes on.
-            Err(Short(cost)) => {
-                let used = Budget {
-                    lookups: looked,
-                    ..Budget::default()
-                };
-                let next = Budget {
-                    lookups: looked + cost,
-                    ..Budget::default()
-                };
-                return (
-                    Vec::new(),
-                    Spent {
-                        used,
-                        next: Some(next),
-                    },
-                );
-            }
+            Err(Short(cost)) => return short(cost),
         };
         let count: usize = found.iter().map(|(range, _)| range.len()).sum();
+        let all = count <= MAX_PREFIX_ENTRIES;
+        // Choosing and ordering the entries takes a step for each looked at, so a lookup's
+        // whole work is bounded.
+        let choose = if all { count } else { found.len() };
+        if choose > steps {
+            return short(choose);
+        }
+        let looked = looked + choose;
         let mut chosen: Vec<(usize, bool)> = Vec::new();
-        if count <= MAX_PREFIX_ENTRIES {
+        if all {
             for (range, depth) in &found {
                 let exact = |at: usize| self.entries[at].reading.range().len() == *depth;
                 chosen.extend(range.clone().map(|at| (at, exact(at))));
@@ -241,7 +211,7 @@ impl Dictionary {
             }
         }
         chosen.sort_by_key(|&(at, exact)| {
-            let length = self.reading(self.entries[at]).len();
+            let length = self.entries[at].reading.range().len();
             (Reverse(exact), length, at)
         });
         let words = chosen
@@ -249,7 +219,7 @@ impl Dictionary {
             .flat_map(|(at, _)| self.words[self.entries[at].words.range()].iter());
         let mut spent = Spent {
             used: Budget {
-                lookups: looked,
+                steps: looked,
                 ..Budget::default()
             },
             next: None,
@@ -259,7 +229,7 @@ impl Dictionary {
             let with = Budget {
                 words: spent.used.words + 1,
                 bytes: spent.used.bytes + word_cost(word),
-                lookups: looked,
+                steps: looked,
             };
             if !budget.holds(with) {
                 spent.next = Some(with);
@@ -275,7 +245,7 @@ impl Dictionary {
     /// ends, apart, each with the bytes that prefix takes. Either of two kana (`ず` or `づ`) splits a
     /// range in two, and a split that starts no reading goes; `None` if more ranges than
     /// [`MAX_PREFIX_ENTRIES`] are left, as then more entries are too. Each narrowing takes
-    /// its steps (see [`MAX_LOOKUP_STEPS`]) from `steps`, and [`Short`] if too few are left.
+    /// its steps (see [`Budget::PATTERN`]) from `steps`, and [`Short`] if too few are left.
     fn found(&self, romaji: &Romaji, steps: &mut usize) -> Result<Option<Ranges>, Short> {
         let mut live = vec![(0..self.entries.len(), 0)];
         let mut next = Vec::new();

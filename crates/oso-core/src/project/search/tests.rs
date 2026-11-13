@@ -5,10 +5,8 @@
 
 use std::sync::Arc;
 
-use proptest::prelude::*;
-
 use super::{LineHit, LineQuery, MAX_ROW_BYTES, compile, row_text};
-use crate::migemo::{Dictionary, Held};
+use crate::migemo::{Dictionary, Table};
 
 fn hits(input: &str, block: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
@@ -285,8 +283,8 @@ fn a_match_that_crosses_lines_is_not_looked_through_again_from_each_of_them() {
 }
 
 /// A dictionary of `text`, in `migemo-dict`'s format, as the editor's first.
-fn dictionary(text: &str) -> Held {
-    Held {
+pub(super) fn dictionary(text: &str) -> Table {
+    Table {
         generation: 1,
         dictionary: Arc::new(Dictionary::new(text.to_owned())),
     }
@@ -346,7 +344,7 @@ fn a_romaji_exclusion_leaves_out_its_kana_too() {
 #[test]
 fn a_romaji_component_narrows_where_the_old_one_matches_each_of_its_strings() {
     let words = dictionary("かんじ\t漢字\nかなだ\t加奈陀\n");
-    let parse = |input: &str, words: Option<&Held>| {
+    let parse = |input: &str, words: Option<&Table>| {
         LineQuery::parse_after(input, &LineQuery::empty(), true, words)
     };
     // Typed a letter at a time, each string holds the one before's.
@@ -394,7 +392,7 @@ fn a_pattern_of_too_many_strings_never_narrows() {
 #[test]
 fn a_component_the_input_before_had_keeps_what_it_compiled() {
     let words = dictionary("かんじ\t漢字\n");
-    let parse = |input: &str, before: &LineQuery, words: Option<&Held>| {
+    let parse = |input: &str, before: &LineQuery, words: Option<&Table>| {
         LineQuery::parse_after(input, before, true, words)
     };
     let first = parse("kan a.*b f00", &LineQuery::empty(), None);
@@ -439,152 +437,4 @@ fn a_romaji_component_highlights_where_its_kana_match() {
     let mut out = Vec::new();
     query.highlights("x かんじ KAN", &mut out);
     assert_eq!(out, [2..8, 12..15]);
-}
-
-/// The word of `family` (`漢`, `桜` or `田`) numbered `n` in [`heavy`].
-fn heavy_word(family: char, n: usize) -> String {
-    format!("{}{n:04}", family.to_string().repeat(18))
-}
-
-/// A dictionary in which the readings `ka`, `sa` and `ta` start give 250 words of 58 bytes
-/// each, numbered in the order a pattern takes them: two of them spend most of one pattern's
-/// budget of words.
-fn heavy() -> Held {
-    let kana: Vec<char> = ('ぁ'..='ゖ').collect();
-    let mut text = String::new();
-    for (first, family) in [('か', '漢'), ('さ', '桜'), ('た', '田')] {
-        for n in 0..250 {
-            let reading = format!("{first}{}{}", kana[n / 86], kana[n % 86]);
-            text.push_str(&format!("{reading}\t{}\n", heavy_word(family, n)));
-        }
-    }
-    dictionary(&text)
-}
-
-#[test]
-fn an_inputs_migemo_components_share_one_patterns_words() {
-    let table = heavy();
-    let parse =
-        |input: &str, before: &LineQuery| LineQuery::parse_after(input, before, true, Some(&table));
-    let matches = |query: &LineQuery, line: &str| query.matches_line(line.as_bytes()).is_some();
-    let line = |n: usize| {
-        let (ka, sa) = (heavy_word('漢', 0), heavy_word('桜', 0));
-        format!("{ka} {sa} {}", heavy_word('田', n))
-    };
-    let three = parse("ka sa ta", &LineQuery::empty());
-    assert!(matches(&three, &line(0)));
-    // The third has what the first two left: its first words, and its kana all the same.
-    assert!(!matches(&three, &line(249)));
-    let kana = format!("{} {} たぁ", heavy_word('漢', 0), heavy_word('桜', 0));
-    assert!(matches(&three, &kana));
-    // Alone, or first, it has them all.
-    assert!(matches(
-        &parse("ta", &LineQuery::empty()),
-        &heavy_word('田', 249)
-    ));
-    assert!(matches(&parse("ta ka sa", &LineQuery::empty()), &line(249)));
-    // A component kept spends what it did; one given more by a change before it compiles
-    // again, and then has them.
-    let more = parse("ka sa ta =x", &three);
-    assert_eq!(more.fresh(), [false, false, false, true]);
-    let two = parse("sa ta", &three);
-    assert_eq!(two.fresh(), [false, true]);
-    let pair = format!("{} {}", heavy_word('桜', 0), heavy_word('田', 249));
-    assert!(matches(&two, &pair));
-    // Back again, the third is given what it was given before, but by none kept from `two`.
-    let again = parse("ka sa ta", &two);
-    assert_eq!(again.fresh(), [true, false, true]);
-    assert!(!matches(&again, &line(249)));
-}
-
-/// Lines that hold [`heavy`]'s words, early and late, and their kana.
-fn heavy_lines() -> Vec<String> {
-    let mut lines = Vec::new();
-    for family in ['漢', '桜', '田'] {
-        for n in [0, 63, 64, 120, 249] {
-            lines.push(heavy_word(family, n));
-        }
-    }
-    lines.extend(["かぁ", "さぁ", "たぁ", "ka", "KA", "x1"].map(String::from));
-    lines
-}
-
-/// A small dictionary for the narrowing property: words in kanji, kana and letters.
-fn small() -> Held {
-    dictionary("かんじ\t漢字\nかな\t仮名\tカナ\nずつう\t頭痛\nつづき\t続き\nなまえ\t名前\tName\n")
-}
-
-/// Pieces a line for the narrowing property is made of.
-const PIECES: &[&str] = &[
-    "か", "ん", "な", "じ", "ず", "づ", "ま", "え", "カ", "ン", "ナ", "ズ", "ｶ", "ﾝ", "ｽﾞ", "ﾂﾞ",
-    "漢字", "仮名", "頭痛", "名前", "k", "a", "n", "z", "u", "j", "i", "m", "e", "N", "ｋ", " ",
-    "Ｋ", "\u{212a}", "ſ", "İ", "i\u{307}",
-];
-
-proptest! {
-    /// A component kept from the input before, or from earlier in the same input, matches as
-    /// one compiled for this input alone (ADR 0116, Q7).
-    #[test]
-    fn a_kept_component_matches_as_one_compiled_afresh(
-        first in prop::collection::vec(0usize..9, 0..5),
-        second in prop::collection::vec(0usize..9, 0..5),
-    ) {
-        const TOKENS: [&str; 9] = ["ka", "sa", "ta", "kan", "t", "=ka", "!sa", "x1", "Ta"];
-        let table = heavy();
-        let input = |picks: &[usize]| picks.iter().map(|&at| TOKENS[at]).collect::<Vec<_>>().join(" ");
-        let before = LineQuery::parse_after(&input(&first), &LineQuery::empty(), true, Some(&table));
-        let kept = LineQuery::parse_after(&input(&second), &before, true, Some(&table));
-        let fresh = LineQuery::parse_after(&input(&second), &LineQuery::empty(), true, Some(&table));
-        prop_assert_eq!(kept.components.len(), fresh.components.len());
-        for (kept, fresh) in kept.components.iter().zip(&fresh.components) {
-            prop_assert!(kept.spent == fresh.spent && kept.kind == fresh.kind);
-            for line in heavy_lines() {
-                prop_assert_eq!(
-                    kept.regex.is_match(line.as_bytes()),
-                    fresh.regex.is_match(line.as_bytes()),
-                    "{:?} {:?}", input(&second), line
-                );
-            }
-        }
-    }
-
-    /// Whenever a query narrows the one before, a search that ran, every line it matches is
-    /// one that one matched, with and without a dictionary (ADR 0116, Q8).
-    #[test]
-    fn a_query_that_narrows_matches_no_line_the_one_before_did_not(
-        old in "[kanszujimetKN' -]{1,6}",
-        added in "[kanszujimeNKİſ\u{212a} ]{0,3}",
-        prefix in "[kanszujime ]{0,3}",
-        other in "[kanszujimeKİ\u{212a}ſ ]{0,6}",
-        lines in prop::collection::vec(prop::collection::vec(0usize..PIECES.len(), 0..6), 1..24),
-        with_words: bool,
-    ) {
-        let table = small();
-        let table = with_words.then_some(&table);
-        let lines: Vec<String> = (lines.iter())
-            .map(|pieces| pieces.iter().map(|&at| PIECES[at]).collect())
-            .collect();
-        let before = LineQuery::parse_after(&old, &LineQuery::empty(), true, table);
-        if !before.starts() {
-            return Ok(());
-        }
-        for new in [format!("{old}{added}"), format!("{prefix}{old}{added}"), other] {
-            for query in [
-                LineQuery::parse_after(&new, &before, true, table),
-                LineQuery::parse_after(&new, &LineQuery::empty(), true, table),
-            ] {
-                if !query.narrows(&before) {
-                    continue;
-                }
-                for line in &lines {
-                    if query.matches_line(line.as_bytes()).is_some() {
-                        prop_assert!(
-                            before.matches_line(line.as_bytes()).is_some(),
-                            "{:?} narrows {:?} but matches {:?}", new, old, line
-                        );
-                    }
-                }
-            }
-        }
-    }
 }

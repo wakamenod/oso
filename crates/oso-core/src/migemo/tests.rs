@@ -7,7 +7,7 @@
 use proptest::prelude::*;
 use regex::{Regex, RegexBuilder};
 
-use super::{Romaji, is_romaji, pattern, table};
+use super::{Romaji, is_romaji, pattern, spellings};
 
 /// The pattern for `string`, compiled as isearch compiles it on a key.
 fn compiled(string: &str) -> Regex {
@@ -45,8 +45,8 @@ fn hiragana(string: &str) -> Option<String> {
 
 #[test]
 fn no_spelling_starts_another_and_each_is_its_row() {
-    for (spelling, kana) in table::ROWS {
-        for (other, _) in table::ROWS {
+    for (spelling, kana) in spellings::ROWS {
+        for (other, _) in spellings::ROWS {
             assert!(
                 spelling == other || !other.starts_with(spelling),
                 "{spelling:?} starts {other:?}"
@@ -62,8 +62,8 @@ fn no_spelling_starts_another_and_each_is_its_row() {
 
 #[test]
 fn a_spelling_that_gives_two_kana_finds_both_in_every_form() {
-    for (spelling, other) in table::ALSO {
-        let row = table::ROWS.iter().find(|(row, _)| row == spelling);
+    for (spelling, other) in spellings::ALSO {
+        let row = spellings::ROWS.iter().find(|(row, _)| row == spelling);
         let (_, kana) = row.unwrap_or_else(|| panic!("{spelling:?} has no row"));
         assert_eq!((kana.chars().count(), other.chars().count()), (1, 1));
         assert_eq!(hiragana(spelling), Some(format!("{kana}|{other}")));

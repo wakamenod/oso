@@ -1,6 +1,10 @@
 //! A completion input read as components, and how each matches a candidate (ADR 0076).
 //!
 //! Must not depend on: `editor`, `minibuffer` or `display_map`; it works on strings alone.
+//!
+//! A `%` component is migemo's pattern for its romaji (ADR 0116): the input's migemo
+//! components share one word [`Budget`], and one is kept from the input before while that
+//! budget gives it the same words.
 
 use std::fmt;
 use std::ops::Range;
@@ -8,8 +12,9 @@ use std::ops::Range;
 use regex::{Regex, RegexBuilder};
 
 use super::{AFFIXES, Candidate};
-use crate::migemo::{Budget, Held, Spent};
+use crate::migemo::{Budget, Spent, Table};
 
+mod narrow;
 mod romaji;
 
 /// The most memory a component's expression may take once compiled, so that one pasted in
@@ -131,7 +136,7 @@ impl Component {
         raw: &str,
         ignore_case: bool,
         (before, built): (&Query, &[Self]),
-        table: Option<&Held>,
+        table: Option<&Table>,
         budget: &mut Budget,
     ) -> Option<Self> {
         let first = raw.chars().next()?;
@@ -398,7 +403,7 @@ impl Query {
 
     /// [`Query::parse`], reusing what `before`, or an earlier component of the same input,
     /// compiled for a component that is the same, a migemo one taking `table`'s words.
-    pub(crate) fn parse_after(input: &str, before: &Query, table: Option<&Held>) -> Self {
+    pub(crate) fn parse_after(input: &str, before: &Query, table: Option<&Table>) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
         }
@@ -538,51 +543,6 @@ impl Query {
             }
         }
         out.truncate(kept);
-    }
-
-    /// Whether every candidate this query matches is one `before` matched, so that it
-    /// needs to look only at those: each of `before`'s components is one of this query's,
-    /// in its place, at most longer at its end, and none says what must not match unless
-    /// it is the same. Case may stop being ignored, and never start.
-    pub(crate) fn narrows(&self, before: &Query) -> bool {
-        if before.too_long {
-            return false;
-        }
-        if self.too_long {
-            return true;
-        }
-        if self.ignore_case && !before.ignore_case {
-            return false;
-        }
-        if self.components.len() < before.components.len() {
-            return false;
-        }
-        self.components
-            .iter()
-            .zip(&before.components)
-            .all(|(new, old)| {
-                if new.style != old.style || new.not != old.not || new.annotation != old.annotation
-                {
-                    return false;
-                }
-                // A negation that matches less, or with case, keeps more candidates, and a
-                // longer expression may match more, as may longer romaji, whose words differ.
-                if new.style == Style::Migemo {
-                    return new == old && self.ignore_case == before.ignore_case;
-                }
-                if new.not || new.tried || old.tried {
-                    // A literal read as an expression too matches more, and the other way less.
-                    return new.tried == old.tried
-                        && new.pattern == old.pattern
-                        && self.ignore_case == before.ignore_case;
-                }
-                if self.ignore_case == before.ignore_case {
-                    new.pattern.starts_with(&*old.pattern)
-                } else {
-                    // Lower case keeps a prefix only in ASCII: `İ` lowers to `i` and U+0307.
-                    new.pattern.is_ascii() && new.pattern.to_lowercase().starts_with(&*old.pattern)
-                }
-            })
     }
 }
 

@@ -29,7 +29,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use crate::migemo::{Budget, Held};
+use crate::migemo::{Budget, Table};
 #[cfg(test)]
 use component::compile;
 use component::{Asked, Component, Kind};
@@ -107,7 +107,7 @@ impl LineQuery {
     }
 
     /// The query of no input, which has no component.
-    fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             components: Vec::new(),
             ignore_case: true,
@@ -122,7 +122,7 @@ impl LineQuery {
         input: &str,
         before: &Self,
         migemo: bool,
-        table: Option<&Held>,
+        table: Option<&Table>,
     ) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
@@ -515,5 +515,7 @@ pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
     (text.into(), column)
 }
 
+#[cfg(test)]
+mod migemo_tests;
 #[cfg(test)]
 mod tests;

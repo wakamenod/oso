@@ -328,7 +328,8 @@ fn a_job_dropped_before_the_host_took_it_is_freed_on_the_worker() {
         "the dropped job is not freed here"
     );
     let jobs: Vec<_> = std::iter::from_fn(|| editor.take_completion_job()).collect();
-    assert!(jobs[0].frees_only());
+    // The new match first, so it waits for no drop.
+    assert!(!jobs[0].frees_only() && jobs[1].frees_only());
     jobs.into_iter().for_each(|job| drop(job.run()));
     assert!(kept.upgrade().is_none());
 }

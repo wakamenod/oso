@@ -32,10 +32,11 @@ pub(in crate::editor) struct CompletionWork {
 }
 
 impl CompletionWork {
-    /// Drops the jobs the host has not taken, but those that only free. They go to one job
-    /// that frees them on the worker, as the last copy of a list or of a dictionary that was
-    /// replaced may be theirs, and dropping it here would hold the UI thread.
-    fn drop_jobs(&mut self) {
+    /// Takes back the jobs the host has not taken, but those that only free, and queues
+    /// `next`, if any, in their place. They go to one job after it that frees them on the
+    /// worker, as the last copy of a list or of a dictionary that was replaced may be theirs,
+    /// and dropping it here would hold the UI thread; after it, so `next` waits for no drop.
+    fn free_untaken_jobs(&mut self, next: Option<CompletionJob>) {
         let mut dropped = Vec::new();
         for job in std::mem::take(&mut self.jobs) {
             if job.frees_only() {
@@ -44,6 +45,7 @@ impl CompletionWork {
                 dropped.push(job);
             }
         }
+        self.jobs.extend(next);
         if !dropped.is_empty() {
             self.jobs.push_back(CompletionJob::free(Box::new(dropped)));
         }
@@ -169,8 +171,8 @@ impl Editor {
         let work = &mut self.completion_work;
         // The job before stops at its next look, and one the host has not taken yet goes.
         let generation = work.live.fetch_add(1, Ordering::Relaxed) + 1;
-        work.drop_jobs();
-        work.jobs.push_back(job(generation, Arc::clone(&work.live)));
+        let next = job(generation, Arc::clone(&work.live));
+        work.free_untaken_jobs(Some(next));
         work.waiting = Some(Waiting {
             generation,
             prompt,
@@ -207,7 +209,7 @@ impl Editor {
     pub(in crate::editor) fn stop_completion_job(&mut self) {
         let work = &mut self.completion_work;
         if work.waiting.take().is_some() {
-            work.drop_jobs();
+            work.free_untaken_jobs(None);
             work.live.fetch_add(1, Ordering::Relaxed);
         }
         if let Some((candidates, _)) = self.completion_mut() {
@@ -331,7 +333,7 @@ impl Editor {
         if waits {
             let work = &mut self.completion_work;
             work.waiting = None;
-            work.drop_jobs();
+            work.free_untaken_jobs(None);
             work.live.fetch_add(1, Ordering::Relaxed);
         }
     }

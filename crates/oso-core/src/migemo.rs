@@ -23,23 +23,23 @@
 //! - The components of one prompt's input share one pattern's words, a [`Budget`] each spends
 //!   in turn, and [`alternatives`] lists every string a pattern matches, for a project's
 //!   search to tell whether a longer one narrows it (ADR 0116, Q7 and Q8).
-//! - [`Held`] is a dictionary the editor holds, told from others by its generation.
+//! - [`Table`] is a dictionary the editor holds, told from others by its generation.
 
 use std::sync::Arc;
 
 mod budget;
 mod dictionary;
 mod forms;
-mod table;
+mod spellings;
 mod trie;
 
 pub(crate) use budget::{Budget, Spent};
+#[cfg(test)]
+pub(crate) use budget::{MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES, word_cost};
 pub use dictionary::{
     Dictionary, MAX_BYTES, MAX_ENTRIES, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS,
     MAX_WORDS_A_READING,
 };
-#[cfg(test)]
-pub(crate) use dictionary::{MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES, word_cost};
 use trie::{Key, Trie};
 
 /// The most memory a pattern with a dictionary's words may take once compiled (ADR 0116, Q7):
@@ -127,7 +127,7 @@ impl Romaji {
 /// The spelling `rest` starts with, and its hiragana: as no spelling starts another, there
 /// is at most one.
 fn longest(rest: &str) -> Option<(&'static str, &'static str)> {
-    table::ROWS
+    spellings::ROWS
         .iter()
         .find(|(spelling, _)| rest.starts_with(spelling))
         .copied()
@@ -135,13 +135,13 @@ fn longest(rest: &str) -> Option<(&'static str, &'static str)> {
 
 /// The second kana `spelling` gives besides its row's, if it gives one.
 fn also(spelling: &str) -> Option<&'static str> {
-    table::ALSO
+    spellings::ALSO
         .iter()
         .find(|(also, _)| *also == spelling)
         .map(|(_, kana)| *kana)
 }
 
-/// The one character of `kana`, a kana of [`table::ALSO`] or its row's.
+/// The one character of `kana`, a kana of [`spellings::ALSO`] or its row's.
 fn one(kana: &str) -> char {
     kana.chars().next().unwrap_or_default()
 }
@@ -167,9 +167,9 @@ fn doubles(letter: u8, after: &[u8]) -> bool {
 /// consonant that doubles.
 fn ends(rest: &str) -> Vec<&'static str> {
     let started = |spelling: &str| spelling.len() > rest.len() && spelling.starts_with(rest);
-    let mut ends: Vec<&'static str> = table::ROWS
+    let mut ends: Vec<&'static str> = spellings::ROWS
         .iter()
-        .chain(table::ALSO)
+        .chain(spellings::ALSO)
         .filter(|(spelling, _)| started(spelling))
         .map(|(_, kana)| *kana)
         .collect();
@@ -406,13 +406,13 @@ pub(crate) const SOUND_MARKS: [char; 2] = ['\u{3099}', '\u{309A}'];
 /// A compiled query keeps only the generation, so it never keeps a table alive, and only a
 /// job holds the table, while it runs.
 #[derive(Clone)]
-pub(crate) struct Held {
+pub(crate) struct Table {
     pub(crate) generation: u64,
     pub(crate) dictionary: Arc<Dictionary>,
 }
 
 /// The generation of `table`, `None` for none: what a migemo component compiled with it keeps.
-pub(crate) fn generation(table: Option<&Held>) -> Option<u64> {
+pub(crate) fn generation(table: Option<&Table>) -> Option<u64> {
     table.map(|table| table.generation)
 }
 
@@ -430,7 +430,7 @@ pub(crate) fn composed(base: char, mark: char) -> Option<char> {
 /// Every spelling of the table, for tests that build romaji strings from them.
 #[cfg(test)]
 pub(crate) fn spellings() -> impl Iterator<Item = &'static str> {
-    table::ROWS.iter().map(|(spelling, _)| *spelling)
+    spellings::ROWS.iter().map(|(spelling, _)| *spelling)
 }
 
 #[cfg(test)]

@@ -6,9 +6,11 @@
 use proptest::prelude::*;
 
 use super::{
-    Dictionary, Entry, MAX_BYTES, MAX_ENTRIES, MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES,
-    MAX_PATTERN_WORDS, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS, MAX_WORDS_A_READING,
-    Span, word_cost,
+    Dictionary, Entry, MAX_BYTES, MAX_ENTRIES, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD,
+    MAX_WORDS, MAX_WORDS_A_READING, Span,
+};
+use crate::migemo::budget::{
+    MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS, word_cost,
 };
 use crate::migemo::{Budget, Romaji};
 
@@ -314,16 +316,33 @@ fn a_lookup_past_its_steps_stops_short_and_gives_no_words() {
     };
     let (found, spent) = given(4);
     assert_eq!(found, MAX_PREFIX_ENTRIES);
-    assert!(spent.used.lookups > MAX_LOOKUP_STEPS / 4);
-    assert!(spent.used.lookups <= MAX_LOOKUP_STEPS);
+    assert!(spent.used.steps > MAX_LOOKUP_STEPS / 4);
+    assert!(spent.used.steps <= MAX_LOOKUP_STEPS);
     let (found, spent) = given(40);
     assert_eq!(found, 0);
-    assert!(spent.used.lookups <= MAX_LOOKUP_STEPS);
-    assert!(
-        spent
-            .next
-            .is_some_and(|next| next.lookups > MAX_LOOKUP_STEPS)
-    );
+    assert!(spent.used.steps <= MAX_LOOKUP_STEPS);
+    assert!(spent.next.is_some_and(|next| next.steps > MAX_LOOKUP_STEPS));
+}
+
+#[test]
+fn ordering_the_entries_found_takes_a_step_each() {
+    // `か` and 2048 readings after it: two narrowings find them all.
+    let mut text = String::new();
+    for n in 0..MAX_PREFIX_ENTRIES {
+        text.push_str(&format!("か{}\tw{n}\n", hiragana(n)));
+    }
+    let dictionary = Dictionary::new(text);
+    let romaji = Romaji::new("ka").expect("romaji");
+    let (words, spent) = dictionary.pattern_words_with_budget(&romaji, Budget::PATTERN);
+    assert_eq!(words.len(), MAX_PREFIX_ENTRIES);
+    assert!(spent.used.steps > MAX_PREFIX_ENTRIES && spent.used.steps < 2 * MAX_PREFIX_ENTRIES);
+    let budget = Budget {
+        steps: spent.used.steps - 1,
+        ..Budget::PATTERN
+    };
+    let (words, short) = dictionary.pattern_words_with_budget(&romaji, budget);
+    assert!(words.is_empty());
+    assert_eq!(short.next.map(|next| next.steps), Some(spent.used.steps));
 }
 
 #[test]
@@ -349,7 +368,7 @@ fn one_inputs_components_share_the_lookup_steps() {
     let mut budget = Budget::PATTERN;
     let first = compile(&format!("{stem}ni"), &mut budget);
     assert!(first.words.is_empty() && first.spent.next.is_none());
-    assert_eq!(budget.lookups, MAX_LOOKUP_STEPS - first.spent.used.lookups);
+    assert_eq!(budget.steps, MAX_LOOKUP_STEPS - first.spent.used.steps);
     let second = compile(&format!("{stem}ka"), &mut budget);
     assert!(second.words.is_empty() && second.compiled.is_some());
     assert!(second.spent.next.is_some());
@@ -485,8 +504,8 @@ proptest! {
             return Ok(());
         };
         let given: Vec<_> = (budgets.iter())
-            .map(|&(words, bytes, lookups)| {
-                let budget = Budget { words, bytes, lookups };
+            .map(|&(words, bytes, steps)| {
+                let budget = Budget { words, bytes, steps };
                 (budget, dictionary.pattern_words_with_budget(&romaji, budget))
             })
             .collect();
@@ -507,7 +526,7 @@ proptest! {
     fn a_lookup_takes_at_most_its_steps(
         readings in 1usize..400,
         string in "[a-z]{1,8}",
-        lookups in 0usize..80,
+        steps in 0usize..80,
     ) {
         let mut text = String::new();
         for n in 0..readings {
@@ -517,11 +536,11 @@ proptest! {
         let Some(romaji) = Romaji::new(&string) else {
             return Ok(());
         };
-        let budget = Budget { lookups, ..Budget::PATTERN };
+        let budget = Budget { steps, ..Budget::PATTERN };
         let (_, spent) = dictionary.pattern_words_with_budget(&romaji, budget);
-        prop_assert!(spent.used.lookups <= lookups);
+        prop_assert!(spent.used.steps <= steps);
         let (_, all) = dictionary.pattern_words_with_budget(&romaji, Budget::PATTERN);
-        prop_assert!(all.used.lookups < MAX_LOOKUP_STEPS / 16, "{:?}", all);
-        prop_assert!(all.next.is_none_or(|next| next.lookups == all.used.lookups));
+        prop_assert!(all.used.steps < MAX_LOOKUP_STEPS / 16, "{:?}", all);
+        prop_assert!(all.next.is_none_or(|next| next.steps == all.used.steps));
     }
 }

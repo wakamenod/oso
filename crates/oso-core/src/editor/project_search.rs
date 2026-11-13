@@ -296,7 +296,7 @@ impl Editor {
         // Each component the input before had keeps what it compiled (ADR 0076).
         let query = Arc::new(match text.as_deref() {
             Some(text) => {
-                let none = LineQuery::too_long();
+                let none = LineQuery::empty();
                 let before = search.query.as_deref().unwrap_or(&none);
                 LineQuery::parse_after(text, before, migemo, table.as_ref())
             }

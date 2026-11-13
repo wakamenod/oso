@@ -403,7 +403,8 @@ then chosen points at, as avy's `avy-dispatch-alist` does, and none of them is a
 - **`oso_core::migemo`, public (Q9):** `Dictionary` (from bytes, with its limits), `Romaji` (the
   kana a string gives) and `pattern`, which gives a pattern's text for a string and a dictionary.
   It does no I/O and uses only `regex::escape`. It sits on the lowest line of
-  `guardrails/layers.txt`, beside `sum_tree`, so `search` and `complete` can use it.
+  `guardrails/layers.txt`, beside `sum_tree`, so `search` and `complete` can use it. (As
+  built, steps 3–4: only `Dictionary` and its limits are public, and `project` uses it too.)
 - **`oso_core::jump`,** public: `Jump`, the session's state (read-only), and the label tree. It
   sits beside `minibuffer`, below `editor` and above `frame`.
 - **In `oso-core`'s editor:** `Editor::jump*` methods and `Quit::Jump`. In `oso-render`:
@@ -533,7 +534,7 @@ editor.
 
 - **The module.** `oso_core::migemo` is private to the crate until step 4, when the tip crate's
   project search needs it, so its public shape is settled once, with the dictionary. It holds
-  the romaji table (`migemo/table.rs`, one row a spelling, tested row by row), the other forms
+  the romaji table (`migemo/spellings.rs`, one row a spelling, tested row by row), the other forms
   (`migemo/forms.rs`) and the trie (`migemo/trie.rs`), and uses only `regex::escape`. It sits on
   the lowest line of `guardrails/layers.txt`, beside `sum_tree`.
 - **One reading.** The longest spelling wins, and no spelling starts another, so a string has
@@ -726,13 +727,15 @@ built.
 
 - **The API.** No public signature changes. `LineQuery::parse` reads a romaji component as
   migemo's, with no dictionary: its kana. The editor parses with `LineQuery::parse_after`
-  (private to the crate), which takes the query before, the setting and the dictionary. Both
-  sit below `search`, so `oso_core::migemo` builds the pattern with words within 4 MiB, or
+  (private to the crate), which takes the query before, the setting and the dictionary.
+  `project` and `complete` sit below `search`, so neither uses its needle: `oso_core::migemo`
+  builds the pattern with words within 4 MiB, or
   the kana alone within 256 KiB: `compile_with_budget` for a prompt's components, which spend
   one `Budget` (Q7), and `compile`, with one pattern's, for isearch's needle. Each caller
   compiles with its own builder, of bytes for a project's lines and of text for completion.
   The romaji, the forms, the pattern and its strings (`alternatives`, Q8) stay private to the
-  crate.
+  crate, as the project search is in `oso-core`. Only the comment on `migemo`'s line in
+  `guardrails/layers.txt` changes, to name `project`.
 - **A project's search (Q2, Q6).** After `!` or `=`: `=` gives a literal. Romaji by isearch's
   rule (lowercase ASCII letters, `'` and `-`, at most 256 characters) gives migemo's pattern,
   which holds the literal too. A component with a character an expression reads is a literal
@@ -744,7 +747,8 @@ built.
   literal, as isearch does. Completion's `%` is asked for explicitly, so it applies either way.
 - **Kept components.** A project's search now keeps what a component compiled while the input
   before had it with the same affix, text and case, as completion does (ADR 0076). A migemo
-  component is kept only for the dictionary it was compiled with, which it holds. So a key
+  component is kept only for the dictionary it was compiled with, whose generation it keeps,
+  never the table. So a key
   compiles only the component it changed, and a paste compiles each new component once (Q3).
   A case change anywhere in the input compiles every component again. A migemo component is
   kept only while the input's budget (Q7) gives it the same words.
@@ -760,13 +764,15 @@ built.
   matches as one compiled afresh. Otherwise it compiles again.
 - **Lookup steps (Q7).** The lookup that finds a component's words takes steps from the same
   budget: narrowing a range of the dictionary's entries by a kana takes one step, and one more
-  for each time the range's length halves, as its binary search does. An input has 65,536
+  for each time the range's length halves, as its binary search does, and choosing and
+  ordering the entries found takes one for each entry looked at. An input has 65,536
   (`MAX_LOOKUP_STEPS`). A lookup that runs out stops, gives no words and spends what it took,
   and its component compiles its kana alone; it is kept only while the steps left stop it at
   the same place. A lookup runs even once the words are spent, as it spends steps of its own,
   so a file's shape cannot make the lookups of a paste slow. With the author's dictionary, one
-  string takes at most 298 steps, a paste of 32 common words 1,743, and a word repeated to 255
-  letters 103. isearch's one pattern has the 65,536 to itself.
+  string takes at most 2,143 steps, a paste of 32 common words 6,217, and a word repeated to
+  255 letters 103; a paste of the 32 heaviest prefixes nearly runs out, but its words ran out
+  after the first two. isearch's one pattern has the 65,536 to itself.
 - **Narrowing (Q8).** A project's search narrows when each of the old query's components
   matches every line the new one's does. Where either is migemo's, the old one must be a
   literal or migemo's pattern, which match a line holding one of their strings, and it must
