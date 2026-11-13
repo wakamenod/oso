@@ -6,7 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use super::{Cache, HEAD, MAX_LISTED, RECENT, TAIL, list, title, top_level_string, whole_lines};
+use super::{
+    Cache, HEAD, MAX_LISTED, MAX_READS, RECENT, TAIL, list, title, top_level_string, whole_lines,
+};
 use crate::sessions::identity::SessionId;
 
 /// A directory of its own under the system's temporary one, removed when dropped.
@@ -219,4 +221,25 @@ fn an_unchanged_file_is_not_read_again() {
         listed(&scratch.0, &mut cache)[0].1,
         PathBuf::from("/p/other")
     );
+}
+
+#[test]
+fn at_most_so_many_files_are_read_in_one_list() {
+    let scratch = Scratch::new("reads");
+    // The oldest has a directory; every newer one has none, so each is read but not listed.
+    let oldest = scratch.write("-p-oso", &format!("{}.jsonl", id(0)), &user_line("/p/oso"));
+    let file = std::fs::File::options().write(true).open(&oldest).unwrap();
+    file.set_modified(SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    for n in 1..=(MAX_READS as u8) {
+        scratch.write(
+            "-p-oso",
+            &format!("{}.jsonl", id(n)),
+            "{\"type\":\"user\"}\n",
+        );
+    }
+    let mut cache = Cache::default();
+    assert!(listed(&scratch.0, &mut cache).is_empty(), "past the cap");
+    // Those read are kept as read, so the next list reads past them.
+    assert_eq!(listed(&scratch.0, &mut cache).len(), 1);
 }

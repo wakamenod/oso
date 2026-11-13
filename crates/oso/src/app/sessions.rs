@@ -122,6 +122,7 @@ impl App {
                 self.sessions_recalled(remembered);
                 self.sessions_touched();
                 // Once oso knows its own, the others it may adopt.
+                self.hosting.adopting.recalled = true;
                 self.list_adoptable();
             }
             Out::Changed(key, change) => {

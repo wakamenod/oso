@@ -38,6 +38,10 @@ pub const MAX_NAMES: usize = 4096;
 /// The most conversations listed, the newest.
 pub const MAX_LISTED: usize = 100;
 
+/// The most transcripts read in one list, as one with no directory found is read but not
+/// listed.
+pub const MAX_READS: usize = 2 * MAX_LISTED;
+
 /// How long ago a conversation may have changed and still be listed.
 pub const RECENT: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
@@ -109,7 +113,7 @@ pub fn list(
     let Ok(dirs) = std::fs::read_dir(projects) else {
         return Vec::new();
     };
-    for dir in dirs.take(MAX_PROJECTS).filter_map(Result::ok) {
+    'dirs: for dir in dirs.take(MAX_PROJECTS).filter_map(Result::ok) {
         if !dir.file_type().is_ok_and(|kind| kind.is_dir()) {
             continue;
         }
@@ -119,7 +123,7 @@ pub fn list(
         for file in files.filter_map(Result::ok) {
             names += 1;
             if names > MAX_NAMES {
-                break;
+                break 'dirs;
             }
             let Some(id) = id_of(&file.file_name()) else {
                 continue;
@@ -144,17 +148,26 @@ pub fn list(
     found.sort_by_key(|found| std::cmp::Reverse(found.0));
     let mut kept: HashMap<PathBuf, (u64, SystemTime, Read)> = HashMap::new();
     let mut listed = Vec::new();
+    let mut reads = 0;
     for (changed, len, id, path) in found {
         if listed.len() == MAX_LISTED {
             break;
         }
         let read = match cache.read.remove(&path) {
-            Some((was_len, was_changed, read)) if was_len == len && was_changed == changed => {
-                Some(read)
+            Some((was_len, was_changed, read)) if was_len == len && was_changed == changed => read,
+            _ => {
+                reads += 1;
+                if reads > MAX_READS {
+                    break;
+                }
+                // One that cannot be read is kept as read too, so that it is not opened again
+                // until it changes.
+                read_transcript(&path).ok().flatten().unwrap_or(Read {
+                    directory: None,
+                    title: None,
+                })
             }
-            _ => read_transcript(&path).ok().flatten(),
         };
-        let Some(read) = read else { continue };
         if let Some(directory) = read.directory.clone() {
             listed.push(Conversation {
                 id,
@@ -207,7 +220,7 @@ fn read_transcript(path: &Path) -> io::Result<Option<Read>> {
 /// `len` bytes of `file` from `start`.
 fn read_at(file: &mut File, start: u64, len: u64) -> io::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(start))?;
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
     file.take(len).read_to_end(&mut bytes)?;
     Ok(bytes)
 }

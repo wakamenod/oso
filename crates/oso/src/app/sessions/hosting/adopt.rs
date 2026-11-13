@@ -33,6 +33,9 @@ pub(in crate::app) struct Adopting {
     again: bool,
     /// When a list was last asked for because a window came to the front.
     focused: Option<Instant>,
+    /// The record of oso's own sessions was read, or there is none: a list made before would
+    /// read their transcripts for nothing.
+    pub(in crate::app) recalled: bool,
     /// The registry's names this oso saw.
     seen: Seen,
     /// What each candidate of the last list stands for, by its text.
@@ -49,6 +52,7 @@ impl Default for Adopting {
             cache: Some(Cache::default()),
             again: false,
             focused: None,
+            recalled: false,
             seen: Seen::default(),
             picks: HashMap::new(),
             pending: HashMap::new(),
@@ -101,7 +105,11 @@ impl App {
     /// An oso window came to the front: the person may have stopped a session elsewhere.
     pub(in crate::app) fn list_adoptable_on_focus(&mut self) {
         let now = Instant::now();
+        let recalled = self.hosting.adopting.recalled || self.hosting.state_directory().is_none();
         let adopting = &mut self.hosting.adopting;
+        if !recalled {
+            return;
+        }
         if adopting
             .focused
             .is_some_and(|last| now.duration_since(last) < FOCUS_EVERY)
