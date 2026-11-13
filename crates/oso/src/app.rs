@@ -296,14 +296,10 @@ impl Freer {
     }
 }
 
-/// The home directory as the environment names it: `HOME`, and `USERPROFILE` on Windows. It is
-/// what `~` stands for, and never a project (ADR 0114).
+/// The home directory as the environment names it, if absolute (`oso_platform::privacy::home`).
+/// It is what `~` stands for, and never a project (ADR 0114).
 fn home() -> Option<std::path::PathBuf> {
-    #[cfg(windows)]
-    let name = "USERPROFILE";
-    #[cfg(not(windows))]
-    let name = "HOME";
-    std::env::var_os(name).map(std::path::PathBuf::from)
+    oso_platform::privacy::home()
 }
 
 impl App {

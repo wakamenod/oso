@@ -62,36 +62,34 @@ pub(super) fn is_this_users(metadata: &fs::Metadata) -> bool {
 /// `$XDG_STATE_HOME` or `~/.local/state`. The XDG specification and common sense say a
 /// relative path means nothing here.
 pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let absolute = |name: &str| {
-        var(name)
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-    };
     if cfg!(target_os = "macos") {
-        return Some(
-            absolute("HOME")?
-                .join("Library")
-                .join("Application Support"),
-        );
+        return Some(home_from(var)?.join("Library").join("Application Support"));
     }
-    match absolute("XDG_STATE_HOME") {
+    match absolute(var, "XDG_STATE_HOME") {
         Some(base) => Some(base),
-        None => Some(absolute("HOME")?.join(".local").join("state")),
+        None => Some(home_from(var)?.join(".local").join("state")),
     }
 }
 
 /// oso's configuration directory: `$XDG_CONFIG_HOME/oso` or `~/.config/oso`, on macOS too, as
 /// most dotfile setups and cross-platform tools have it (ADR 0108). Only an absolute value counts.
 pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let absolute = |name: &str| {
-        var(name)
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-    };
-    match absolute("XDG_CONFIG_HOME") {
+    match absolute(var, "XDG_CONFIG_HOME") {
         Some(base) => Some(base.join("oso")),
-        None => Some(absolute("HOME")?.join(".config").join("oso")),
+        None => Some(home_from(var)?.join(".config").join("oso")),
     }
+}
+
+/// `$HOME`, if it is an absolute path.
+pub(super) fn home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    absolute(var, "HOME")
+}
+
+/// The variable `name`, if it is an absolute path.
+fn absolute(var: &dyn Fn(&str) -> Option<OsString>, name: &str) -> Option<PathBuf> {
+    var(name)
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
 }
 
 /// Who besides this user and root can change the file at `path` and the way to it: each entry
