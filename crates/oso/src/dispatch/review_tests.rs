@@ -26,6 +26,24 @@ fn note(notes: &Notes, head: usize) -> (&str, Option<&str>) {
 
 #[test]
 fn the_menu_says_each_count_in_one_width_and_why_a_head_cannot_run() {
+    let (editor, _) = in_project(false);
+    let shown = notes(&editor);
+    for head in 0..8 {
+        assert_eq!(
+            note(&shown, head).1,
+            Some("reviewing runs git, which this project is not trusted to run: M-x trust-project"),
+            "{head}"
+        );
+    }
+    let editor = Editor::default();
+    let shown = notes(&editor);
+    assert_eq!(note(&shown, 1).1, Some("not in a git repository"));
+    assert_eq!(shown.line, None);
+    // Unix only from here, as the trust tests elsewhere are: without a drive, the path is not
+    // absolute on Windows, and a record of it trusts nothing there.
+    if cfg!(not(unix)) {
+        return;
+    }
     let (mut editor, project) = in_project(true);
     let generation = editor.start_scope_counts(
         project,
@@ -61,22 +79,11 @@ fn the_menu_says_each_count_in_one_width_and_why_a_head_cannot_run() {
         "{line}"
     );
     assert!(line.ends_with("comments go to the kill ring until sending exists"));
-
-    let (editor, _) = in_project(false);
-    let shown = notes(&editor);
-    for head in 0..8 {
-        assert_eq!(
-            note(&shown, head).1,
-            Some("reviewing runs git, which this project is not trusted to run: M-x trust-project"),
-            "{head}"
-        );
-    }
-    let editor = Editor::default();
-    let shown = notes(&editor);
-    assert_eq!(note(&shown, 1).1, Some("not in a git repository"));
-    assert_eq!(shown.line, None);
 }
 
+// Unix only, as the trust tests elsewhere are: without a drive, the path is not absolute on
+// Windows, and a record of it trusts nothing there.
+#[cfg(unix)]
 #[test]
 fn in_a_review_buffer_the_menu_is_the_reviews_projects() {
     let (mut editor, project) = in_project(true);

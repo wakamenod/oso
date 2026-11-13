@@ -168,6 +168,11 @@ fn opening_asks_the_host_only_in_a_trusted_project() {
     let (result, _) = run(&mut editor, "review-uncommitted", Args::NONE);
     assert_eq!(result, Err(super::RESTRICTED.into()));
     assert!(editor.take_review_requests().is_empty());
+    // Unix only from here, as the trust tests elsewhere are: without a drive, the path is not
+    // absolute on Windows, and a record of it trusts nothing there.
+    if cfg!(not(unix)) {
+        return;
+    }
     let (mut editor, project_trusted) = in_project(true);
     assert_eq!(run(&mut editor, "review-staged", Args::NONE).0, Ok(()));
     assert_eq!(
@@ -277,6 +282,9 @@ fn the_question_about_a_review_not_shown_shows_it_so_that_y_kills_that_one() {
     assert!(editor.review(shown).is_some());
 }
 
+// Unix only, as the trust tests elsewhere are: without a drive, the path is not absolute on
+// Windows, and a record of it trusts nothing there.
+#[cfg(unix)]
 #[test]
 fn reviews_start_from_the_shown_buffers_project_or_the_shown_reviews() {
     let (mut editor, project) = in_project(true);
