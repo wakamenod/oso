@@ -34,6 +34,7 @@ impl App {
         self.sync_ime_after_event(event_loop);
         self.sync_agent();
         self.sync_sessions();
+        self.sync_reviews();
         self.sync_terminals();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
@@ -77,6 +78,7 @@ impl App {
             UserEvent::Agent(request) => self.handle_agent(event_loop, request),
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
+            UserEvent::Review(event) => self.review_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
             UserEvent::TerminalStarted(started) => self.terminal_started(*started),
             // `after_event` looks at the deadlines.

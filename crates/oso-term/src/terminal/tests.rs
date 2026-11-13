@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use oso_platform::process::Executable;
 
-use super::{QueueFull, Start, Terminal};
+use super::{Input, QueueFull, Request, Start, Terminal};
 use crate::engine::ghostty::tests::{palette, size};
 use crate::event::{End, Event};
 use crate::limits;
@@ -158,6 +158,17 @@ fn clusters_keep_their_text_across_recycled_snapshots() {
     seen.until(|s| s.shows("two"));
     assert!(seen.shows("u\u{308} two"), "{:?}", seen.screen);
     assert!(seen.shows("e\u{301} one"), "{:?}", seen.screen);
+}
+
+#[test]
+fn empty_input_is_skipped_and_what_follows_still_arrives() {
+    let mut seen = Seen::start(sh("read line; printf 'got %s\\n' \"$line\""));
+    seen.terminal.send(Vec::new()).expect("nothing to queue");
+    // An empty chunk that reaches the thread anyway is passed over, not waited on.
+    seen.terminal
+        .request(Request::Input(Input::Bytes(Vec::new())));
+    seen.terminal.send(b"abc\r".to_vec()).expect("queued");
+    seen.until(|s| s.shows("got abc"));
 }
 
 #[test]

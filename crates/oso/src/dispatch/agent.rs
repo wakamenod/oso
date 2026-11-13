@@ -262,7 +262,7 @@ pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
 fn has_own_keys(mode: Mode) -> bool {
     match mode {
         // A terminal's keys go to its program (ADR 0120).
-        Mode::CopyList | Mode::CopyView | Mode::Terminal => true,
+        Mode::CopyList | Mode::CopyView | Mode::Review | Mode::Terminal => true,
         Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }
 }

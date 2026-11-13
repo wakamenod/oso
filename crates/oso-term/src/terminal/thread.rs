@@ -439,6 +439,11 @@ impl<'a> Running<'a> {
             let Some(chunk) = self.input.front() else {
                 return Ok(());
             };
+            // A write of nothing returns 0, which `written` reads as "would block".
+            if chunk.is_empty() {
+                self.input.pop_front();
+                continue;
+            }
             let Some(n) = written(self.master.write(&chunk[self.written..]))? else {
                 return Ok(());
             };

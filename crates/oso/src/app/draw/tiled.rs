@@ -10,7 +10,7 @@
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
 use oso_core::buffer::BufferId;
-use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, Status};
+use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, ReviewCells, Status};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
@@ -47,8 +47,8 @@ pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
 /// What a window's text fills and draws besides its rows, kept from frame to frame so that
 /// none of it is allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), the
 /// current line's band and trailing whitespace (ADR 0097), the other cursors' boxes
-/// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097) and a jump's
-/// matches and labels (ADR 0116).
+/// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097), a jump's
+/// matches and labels (ADR 0116) and a review's bands (ADR 0122).
 #[derive(Default)]
 pub(super) struct WindowCells {
     region: Vec<CellRect>,
@@ -57,6 +57,7 @@ pub(super) struct WindowCells {
     jump: JumpCells,
     band: Vec<CellRect>,
     trailing: Vec<CellRect>,
+    review: ReviewCells,
     screen: Screen,
     gutter: Gutter,
 }
@@ -73,6 +74,7 @@ impl WindowCells {
         editor.replace_cells(id, screen, &mut self.matches);
         editor.jump_cells(id, screen, &mut self.jump);
         editor.trailing_cells(id, screen, &mut self.trailing);
+        editor.review_cells(id, screen, &mut self.review);
         editor.gutter_into(id, screen, &mut self.gutter);
         self.band.clear();
         self.band.extend(editor.current_line_cells(id, screen));
@@ -143,12 +145,19 @@ fn modeline_face(status: &Status) -> Face {
     }
 }
 
-/// The fills behind a window's text, from the back: the current line's band, trailing
+/// The fills behind a window's text, from the back: the current line's band, a review's bands
+/// (added and removed lines, their refined words, file headers and comment cards), trailing
 /// whitespace, then the current match first, so that it always has room, a jump's matches as
 /// isearch's others (ADR 0116), and the regions over the matches.
 fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
     [
         (Face::CurrentLine, &cells.band[..]),
+        (Face::DiffAdded, &cells.review.added[..]),
+        (Face::DiffRemoved, &cells.review.removed[..]),
+        (Face::DiffRefineAdded, &cells.review.refine_added[..]),
+        (Face::DiffRefineRemoved, &cells.review.refine_removed[..]),
+        (Face::DiffFileHeader, &cells.review.headers[..]),
+        (Face::ReviewCommentPerson, &cells.review.cards[..]),
         (Face::TrailingWhitespace, &cells.trailing[..]),
         (Face::SearchCurrent, &cells.matches.current[..]),
         (Face::SearchMatch, &cells.matches.others[..]),
@@ -158,7 +167,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 6;
+const FILLS: usize = 12;
 
 /// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
 /// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by

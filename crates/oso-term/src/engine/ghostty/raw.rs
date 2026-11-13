@@ -21,10 +21,6 @@ use crate::limits;
 pub(super) use callbacks::Sink;
 #[cfg(test)]
 use callbacks::bytes;
-use callbacks::{
-    on_bell, on_clipboard_write, on_notification, on_progress, on_prompt, on_pwd, on_render_hold,
-    on_size, on_title, on_unknown, on_write_pty, on_xtversion,
-};
 
 /// One key as the encoder takes it, made from a `KeyPress` by `keys`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +52,18 @@ pub(super) struct Frame {
     pub cursor: ffi::RenderCursor,
 }
 
+/// Where the row iterator and the row cells stand. The library's row reads are valid only
+/// in this order, so each read checks it: `frame` starts the rows, `next_row` moves onto one,
+/// `row` points the cells at it; anything that changes the terminal or the render state
+/// ends it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Rows {
+    Unset,
+    Started,
+    OnRow,
+    Cells,
+}
+
 /// One libghostty-vt terminal with its render state, row iterator and row cells.
 pub(super) struct Vt {
     terminal: ffi::Terminal,
@@ -67,6 +75,7 @@ pub(super) struct Vt {
     /// The event's text, which it borrows: boxed, so that it stays put until the event is
     /// freed.
     text: Box<[u8; 4]>,
+    at: Rows,
     sink: NonNull<Sink>,
     /// Neither `Send` nor `Sync`.
     _thread: PhantomData<*mut ()>,
@@ -90,6 +99,7 @@ impl Vt {
             encoder: ptr::null_mut(),
             event: ptr::null_mut(),
             text: Box::new([0; 4]),
+            at: Rows::Unset,
             sink: NonNull::from(Box::leak(sink)),
             _thread: PhantomData,
         };
@@ -131,7 +141,7 @@ impl Vt {
 
     /// oso's settings (ADR 0120's table and step 1's conditions) and its callbacks.
     fn configure(&mut self, scrollback_lines: usize) -> bool {
-        let unlimited = usize::MAX;
+        let scrollback_bytes = limits::SCROLLBACK_BYTES_MAX;
         let off = false;
         let no_images = 0u64;
         let unknown = limits::UNKNOWN_SEQUENCE_MAX;
@@ -145,7 +155,10 @@ impl Vt {
         let settings: [(c_int, *const c_void); 13] = [
             (ffi::OPT_USERDATA, self.sink.as_ptr().cast_const().cast()),
             // The byte limit first: NULL would restore a small default (step 1's condition 4).
-            (ffi::OPT_SCROLLBACK_MAX_BYTES, (&raw const unlimited).cast()),
+            (
+                ffi::OPT_SCROLLBACK_MAX_BYTES,
+                (&raw const scrollback_bytes).cast(),
+            ),
             (
                 ffi::OPT_SCROLLBACK_MAX_LINES,
                 (&raw const scrollback_lines).cast(),
@@ -173,7 +186,7 @@ impl Vt {
         ];
         settings
             .into_iter()
-            .chain(callbacks())
+            .chain(callbacks::table())
             .all(|(option, value)| {
                 // SAFETY: the terminal is live. Each value is what terminal.h gives as the
                 // option's input type: the userdata pointer itself, a pointer to a live local of
@@ -194,6 +207,7 @@ impl Vt {
         cursor: Option<ffi::ColorRgb>,
         palette: &[ffi::ColorRgb; 256],
     ) -> bool {
+        self.at = Rows::Unset;
         let cursor_ptr = cursor
             .as_ref()
             .map_or(ptr::null(), |c| ptr::from_ref(c).cast());
@@ -213,6 +227,7 @@ impl Vt {
 
     /// Parses `bytes`; the callbacks run meanwhile.
     pub fn write(&mut self, bytes: &[u8]) {
+        self.at = Rows::Unset;
         // SAFETY: the terminal is live and `bytes` is a readable slice for the call. The
         // callbacks' sink is reached only through the userdata while this runs: `self` is
         // borrowed mutably, so no `&Sink` of ours is alive.
@@ -221,6 +236,7 @@ impl Vt {
 
     /// Resizes the grid, and what size reports answer.
     pub fn resize(&mut self, columns: u16, rows: u16, cell_width: u32, cell_height: u32) {
+        self.at = Rows::Unset;
         self.sink().size = ffi::SizeReportSize {
             rows,
             columns,
@@ -354,6 +370,7 @@ impl Vt {
 
     /// Brings the render state up to the terminal.
     pub fn update(&mut self) {
+        self.at = Rows::Unset;
         // SAFETY: both handles are live and this thread's alone.
         let updated = unsafe { ffi::ghostty_render_state_update(self.render, self.terminal) };
         debug_assert_eq!(updated, ffi::SUCCESS);
@@ -361,6 +378,7 @@ impl Vt {
 
     /// Marks every row clean, after a snapshot took them.
     pub fn clean(&mut self) {
+        self.at = Rows::Unset;
         // SAFETY: the render state is live.
         unsafe { ffi::ghostty_render_state_clean(self.render) };
     }
@@ -389,19 +407,33 @@ impl Vt {
             // the library points at the first row.
             unsafe { ffi::ghostty_render_state_get(self.render, data, out) };
         }
+        self.at = Rows::Started;
         frame
     }
 
-    /// Moves the row iterator to the next row; false past the last.
+    /// Moves the row iterator to the next row; false past the last, or before `frame`.
     pub fn next_row(&mut self) -> bool {
-        // SAFETY: the iterator is live and was set by `frame`.
-        unsafe { ffi::ghostty_render_state_row_iterator_next(self.rows) }
+        if self.at == Rows::Unset {
+            return false;
+        }
+        // SAFETY: the iterator is live and `frame` set it on this render state, unchanged
+        // since (`at` is not `Unset`).
+        let moved = unsafe { ffi::ghostty_render_state_row_iterator_next(self.rows) };
+        self.at = if moved { Rows::OnRow } else { Rows::Unset };
+        moved
+    }
+
+    fn on_row(&self) -> bool {
+        matches!(self.at, Rows::OnRow | Rows::Cells)
     }
 
     /// Whether the current row changed since the last `clean`.
     pub fn row_dirty(&mut self) -> bool {
         let mut dirty = false;
-        // SAFETY: the iterator is on a row (`next_row` returned true); `ROW_DATA_DIRTY`
+        if !self.on_row() {
+            return false;
+        }
+        // SAFETY: the iterator is on a row (`at`, set by `next_row`); `ROW_DATA_DIRTY`
         // writes a `bool`.
         unsafe {
             ffi::ghostty_render_state_row_get(
@@ -416,6 +448,10 @@ impl Vt {
     /// The current row's packed cells, copied into `raw`, with the row cells handle pointed
     /// at it. Returns whether the row soft-wraps into the next.
     pub fn row(&mut self, raw: &mut Vec<ffi::Cell>) -> bool {
+        raw.clear();
+        if !self.on_row() {
+            return false;
+        }
         let mut row: ffi::Row = 0;
         let mut view = ffi::CellsView {
             ptr: ptr::null(),
@@ -428,12 +464,12 @@ impl Vt {
             (ffi::ROW_DATA_CELLS, (&raw mut cells).cast()),
         ];
         for (data, out) in reads {
-            // SAFETY: the iterator is on a row (`next_row` returned true), and each `out`
+            // SAFETY: the iterator is on a row (`at`, set by `next_row`), and each `out`
             // points to a live value of the data's output type in render.h: `GhosttyRow`,
             // `GhosttyCellsView`, and the row cells handle `new` made.
             unsafe { ffi::ghostty_render_state_row_get(self.rows, data, out) };
         }
-        raw.clear();
+        self.at = Rows::Cells;
         if !view.ptr.is_null() {
             // SAFETY: the library points `view` at `len` packed cells it owns, valid until the
             // render state changes; they are copied out at once.
@@ -462,11 +498,11 @@ impl Vt {
         style
     }
 
-    /// The UTF-8 text of the current row's cell at `column`, into `buf`; returns its length.
-    /// A cluster longer than `buf` is cut: no grid draws more of one cell.
-    pub fn grapheme(&mut self, column: u16, buf: &mut [u8; limits::GRAPHEME_MAX]) -> usize {
+    /// The UTF-8 text of the current row's cell at `column`, into `buf`; returns its length,
+    /// or `None` if the library could not give it (`buf` holds the longest cluster it keeps).
+    pub fn grapheme(&mut self, column: u16, buf: &mut [u8; limits::GRAPHEME_MAX]) -> Option<usize> {
         if !self.select(column) {
-            return 0;
+            return None;
         }
         let mut out = ffi::GBuffer {
             ptr: buf.as_mut_ptr(),
@@ -482,15 +518,14 @@ impl Vt {
                 (&raw mut out).cast(),
             )
         };
-        if read == ffi::SUCCESS {
-            out.len.min(buf.len())
-        } else {
-            0
-        }
+        (read == ffi::SUCCESS).then(|| out.len.min(buf.len()))
     }
 
     fn select(&mut self, column: u16) -> bool {
-        // SAFETY: the row cells handle is on the current row, set by `row`.
+        if self.at != Rows::Cells {
+            return false;
+        }
+        // SAFETY: the row cells handle is on the current row, set by `row` (`at`).
         unsafe { ffi::ghostty_render_state_row_cells_select(self.cells, column) == ffi::SUCCESS }
     }
 }
@@ -527,61 +562,13 @@ impl Drop for Vt {
     }
 }
 
-/// The callbacks oso installs, as the options that take them. The library never gets a
-/// clipboard-read, enquiry or window-resize callback.
-fn callbacks() -> [(c_int, *const c_void); 12] {
-    [
-        (
-            ffi::OPT_WRITE_PTY,
-            on_write_pty as ffi::WritePtyFn as *const c_void,
-        ),
-        (ffi::OPT_BELL, on_bell as ffi::BellFn as *const c_void),
-        (
-            ffi::OPT_RENDER_HOLD,
-            on_render_hold as ffi::RenderHoldFn as *const c_void,
-        ),
-        (
-            ffi::OPT_XTVERSION,
-            on_xtversion as ffi::XtversionFn as *const c_void,
-        ),
-        (
-            ffi::OPT_TITLE_CHANGED,
-            on_title as ffi::ChangedFn as *const c_void,
-        ),
-        (
-            ffi::OPT_PWD_CHANGED,
-            on_pwd as ffi::ChangedFn as *const c_void,
-        ),
-        (ffi::OPT_SIZE, on_size as ffi::SizeFn as *const c_void),
-        (
-            ffi::OPT_CLIPBOARD_WRITE,
-            on_clipboard_write as ffi::ClipboardWriteFn as *const c_void,
-        ),
-        (
-            ffi::OPT_DESKTOP_NOTIFICATION,
-            on_notification as ffi::DesktopNotificationFn as *const c_void,
-        ),
-        (
-            ffi::OPT_PROGRESS_REPORT,
-            on_progress as ffi::ProgressReportFn as *const c_void,
-        ),
-        (
-            ffi::OPT_SEMANTIC_PROMPT,
-            on_prompt as ffi::SemanticPromptFn as *const c_void,
-        ),
-        (
-            ffi::OPT_UNKNOWN_SEQUENCE,
-            on_unknown as ffi::UnknownSequenceFn as *const c_void,
-        ),
-    ]
-}
-
-/// The Kitty graphics settings, read back for the policy's tests: the image store's limit,
-/// and whether the file and shared-memory mediums are on.
+/// The settings bounding memory, read back for the tests: the scrollback's byte limit, the
+/// Kitty image store's limit, and whether the file and shared-memory mediums are on.
 #[cfg(test)]
-pub(super) fn kitty_settings(vt: &Vt) -> (u64, bool, bool) {
-    let (mut limit, mut file, mut shm) = (u64::MAX, true, true);
-    let reads: [(c_int, *mut c_void); 3] = [
+pub(super) fn memory_settings(vt: &Vt) -> (usize, u64, bool, bool) {
+    let (mut scrollback, mut limit, mut file, mut shm) = (0usize, u64::MAX, true, true);
+    let reads: [(c_int, *mut c_void); 4] = [
+        (ffi::DATA_SCROLLBACK_MAX_BYTES, (&raw mut scrollback).cast()),
         (ffi::DATA_KITTY_IMAGE_STORAGE_LIMIT, (&raw mut limit).cast()),
         (ffi::DATA_KITTY_IMAGE_MEDIUM_FILE, (&raw mut file).cast()),
         (
@@ -591,10 +578,10 @@ pub(super) fn kitty_settings(vt: &Vt) -> (u64, bool, bool) {
     ];
     for (data, out) in reads {
         // SAFETY: the terminal is live, and each `out` points to a live value of the data's
-        // output type in terminal.h: `uint64_t`, `bool`, `bool`.
+        // output type in terminal.h: `size_t`, `uint64_t`, `bool`, `bool`.
         unsafe { ffi::ghostty_terminal_get(vt.terminal, data, out) };
     }
-    (limit, file, shm)
+    (scrollback, limit, file, shm)
 }
 
 /// The library's version, as it reports it, for `manifest_tests`.
@@ -603,7 +590,8 @@ pub(super) fn version() -> String {
     let mut version = ffi::GString::EMPTY;
     // SAFETY: `BUILD_INFO_VERSION_STRING` writes a `GhosttyString` to static data.
     unsafe { ffi::ghostty_build_info(ffi::BUILD_INFO_VERSION_STRING, (&raw mut version).cast()) };
-    String::from_utf8_lossy(bytes(&version)).into_owned()
+    // SAFETY: the build info's string is static data.
+    String::from_utf8_lossy(unsafe { bytes(&version) }).into_owned()
 }
 
 /// The linked library's type manifest (types.h), for `manifest_tests`.

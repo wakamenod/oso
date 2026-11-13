@@ -241,10 +241,20 @@ impl Theme {
 /// The fills a syntax face is drawn on, besides the background. On every other fill, and
 /// under the flash, highlighted text keeps [`Face::Text`]'s colour, so a syntax face is checked
 /// on these only (ADR 0111).
-pub(crate) const SYNTAX_FILLS: [Face; 1] = [Face::CurrentLine];
+///
+/// A review's bands (ADR 0122) follow: behind its rows only its own faces are drawn until step 9
+/// of ADR 0122 highlights the sides, which checks the syntax faces on them too. Its refined
+/// words' bands are not here, so text on them is drawn in [`Face::Text`]'s colour.
+pub(crate) const SYNTAX_FILLS: [Face; 5] = [
+    Face::CurrentLine,
+    Face::DiffAdded,
+    Face::DiffRemoved,
+    Face::DiffFileHeader,
+    Face::ReviewCommentPerson,
+];
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 65] = [
+const FACES: [Face; 74] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -294,6 +304,15 @@ const FACES: [Face; 65] = [
     Face::MenuKeySwitch,
     Face::MenuTitle,
     Face::MenuNote,
+    Face::DiffAdded,
+    Face::DiffRemoved,
+    Face::DiffRefineAdded,
+    Face::DiffRefineRemoved,
+    Face::DiffHunkHeader,
+    Face::DiffFileHeader,
+    Face::ReviewCommentPerson,
+    Face::ReviewCommentAgent,
+    Face::ReviewOutdated,
     Face::TerminalColor0,
     Face::TerminalColor1,
     Face::TerminalColor2,
@@ -365,22 +384,31 @@ const fn index(face: Face) -> usize {
         Face::MenuKeySwitch => 46,
         Face::MenuTitle => 47,
         Face::MenuNote => 48,
-        Face::TerminalColor0 => 49,
-        Face::TerminalColor1 => 50,
-        Face::TerminalColor2 => 51,
-        Face::TerminalColor3 => 52,
-        Face::TerminalColor4 => 53,
-        Face::TerminalColor5 => 54,
-        Face::TerminalColor6 => 55,
-        Face::TerminalColor7 => 56,
-        Face::TerminalColor8 => 57,
-        Face::TerminalColor9 => 58,
-        Face::TerminalColor10 => 59,
-        Face::TerminalColor11 => 60,
-        Face::TerminalColor12 => 61,
-        Face::TerminalColor13 => 62,
-        Face::TerminalColor14 => 63,
-        Face::TerminalColor15 => 64,
+        Face::DiffAdded => 49,
+        Face::DiffRemoved => 50,
+        Face::DiffRefineAdded => 51,
+        Face::DiffRefineRemoved => 52,
+        Face::DiffHunkHeader => 53,
+        Face::DiffFileHeader => 54,
+        Face::ReviewCommentPerson => 55,
+        Face::ReviewCommentAgent => 56,
+        Face::ReviewOutdated => 57,
+        Face::TerminalColor0 => 58,
+        Face::TerminalColor1 => 59,
+        Face::TerminalColor2 => 60,
+        Face::TerminalColor3 => 61,
+        Face::TerminalColor4 => 62,
+        Face::TerminalColor5 => 63,
+        Face::TerminalColor6 => 64,
+        Face::TerminalColor7 => 65,
+        Face::TerminalColor8 => 66,
+        Face::TerminalColor9 => 67,
+        Face::TerminalColor10 => 68,
+        Face::TerminalColor11 => 69,
+        Face::TerminalColor12 => 70,
+        Face::TerminalColor13 => 71,
+        Face::TerminalColor14 => 72,
+        Face::TerminalColor15 => 73,
     }
 }
 
@@ -445,6 +473,17 @@ fn faces(face: Face) -> (Name, Name) {
         Face::MenuKeySwitch => (FgMenuKey, BgMenuSwitch),
         Face::MenuTitle => (Azure, BgMain),
         Face::MenuNote => (Slate, BgMain),
+        // A review's rows (ADR 0122): each text face on its band, which the window fills behind
+        // the rows in view. The refined words' bands are fills only, behind their line's text.
+        Face::DiffAdded => (FgAdded, BgAdded),
+        Face::DiffRemoved => (FgRemoved, BgRemoved),
+        Face::DiffRefineAdded => (FgAdded, BgRefineAdded),
+        Face::DiffRefineRemoved => (FgRemoved, BgRefineRemoved),
+        Face::DiffHunkHeader => (FgHunkHeader, BgHeader),
+        Face::DiffFileHeader => (FgFileHeader, BgHeader),
+        Face::ReviewCommentPerson => (FgCommentPerson, BgCard),
+        Face::ReviewCommentAgent => (FgCommentAgent, BgCard),
+        Face::ReviewOutdated => (Slate, BgCard),
         // One colour each, on the text's background (ADR 0120).
         Face::TerminalColor0 => (Terminal(0), BgMain),
         Face::TerminalColor1 => (Terminal(1), BgMain),
@@ -561,8 +600,12 @@ pub(crate) mod tests {
     }
 
     /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
-    const TEXT: [(Face, f32); 7] = [
+    const TEXT: [(Face, f32); 10] = [
         (Face::Text, 7.0),
+        // A refined word's band, and a comment's text on its card (ADR 0122).
+        (Face::DiffRefineAdded, 7.0),
+        (Face::DiffRefineRemoved, 7.0),
+        (Face::ReviewCommentPerson, 7.0),
         (Face::CurrentLine, 7.0),
         (Face::Flash, 7.0),
         (Face::Region, 7.0),
@@ -577,6 +620,44 @@ pub(crate) mod tests {
         (Face::Text, 7.0),
         (SYNTAX_FILLS[0], 7.0),
         (Face::Float, 7.0),
+    ];
+
+    /// An escape's label sits wherever text can: on every fill behind buffer text, a review's
+    /// bands among them, in a modeline's name and on a float.
+    const ESCAPE_PAIRS: [(Face, f32); 16] = [
+        (Face::Text, 4.5),
+        (Face::CurrentLine, 4.5),
+        (Face::Flash, 4.5),
+        (Face::Region, 4.5),
+        (Face::SearchMatch, 4.5),
+        (Face::SearchCurrent, 4.5),
+        (Face::CompletionSelected, 4.5),
+        (Face::Modeline, 4.5),
+        (Face::ModelineInactive, 4.5),
+        (Face::Float, 4.5),
+        (Face::DiffAdded, 4.5),
+        (Face::DiffRemoved, 4.5),
+        (Face::DiffRefineAdded, 4.5),
+        (Face::DiffRefineRemoved, 4.5),
+        (Face::DiffFileHeader, 4.5),
+        (Face::ReviewCommentPerson, 4.5),
+    ];
+
+    /// A whitespace or wrap mark sits on everything behind buffer text (ADR 0097).
+    const MARK_PAIRS: [(Face, f32); 13] = [
+        (Face::Text, 3.0),
+        (Face::CurrentLine, 3.0),
+        (Face::TrailingWhitespace, 3.0),
+        (Face::Flash, 3.0),
+        (Face::Region, 3.0),
+        (Face::SearchMatch, 3.0),
+        (Face::SearchCurrent, 3.0),
+        (Face::DiffAdded, 3.0),
+        (Face::DiffRemoved, 3.0),
+        (Face::DiffRefineAdded, 3.0),
+        (Face::DiffRefineRemoved, 3.0),
+        (Face::DiffFileHeader, 3.0),
+        (Face::ReviewCommentPerson, 3.0),
     ];
 
     /// What each face's foreground must reach on which background (ADR 0089). A match with no
@@ -603,20 +684,7 @@ pub(crate) mod tests {
                 (Face::ModelineInactive, LABEL),
             ],
             Face::CompletionMatch => &[(LIST[0], READ), (LIST[1], READ)],
-            // An escape's label sits wherever text can: on every fill behind buffer text, in a
-            // modeline's name and on a float.
-            Face::Escape => &[
-                (Face::Text, LABEL),
-                (Face::CurrentLine, LABEL),
-                (Face::Flash, LABEL),
-                (Face::Region, LABEL),
-                (Face::SearchMatch, LABEL),
-                (Face::SearchCurrent, LABEL),
-                (Face::CompletionSelected, LABEL),
-                (Face::Modeline, LABEL),
-                (Face::ModelineInactive, LABEL),
-                (Face::Float, LABEL),
-            ],
+            Face::Escape => &ESCAPE_PAIRS,
             Face::Boxed => &[(Face::Boxed, LABEL)],
             // A prompt's label, and the dim `Agent` on a modeline (ADR 0085, ADR 0112).
             Face::Prompt => &[
@@ -632,16 +700,7 @@ pub(crate) mod tests {
             // The gutter has no band and no fill, and a menu's titles are on the text's background.
             Face::LineNumber | Face::MenuTitle => &[(Face::Text, LABEL)],
             Face::LineNumberCurrent => &[(Face::Text, READ)],
-            // A mark sits on everything behind buffer text.
-            Face::Whitespace | Face::WrapMark => &[
-                (Face::Text, MARK),
-                (Face::CurrentLine, MARK),
-                (Face::TrailingWhitespace, MARK),
-                (Face::Flash, MARK),
-                (Face::Region, MARK),
-                (Face::SearchMatch, MARK),
-                (Face::SearchCurrent, MARK),
-            ],
+            Face::Whitespace | Face::WrapMark => &MARK_PAIRS,
             // Text that is read, on what is behind a line. Under the fills and the flash it is
             // drawn in `Text`'s colour (ADR 0111, the author's choice).
             Face::SyntaxComment
@@ -663,6 +722,15 @@ pub(crate) mod tests {
             Face::MenuKey => &[(Face::MenuKey, LABEL)],
             Face::MenuKeyStay => &[(Face::MenuKeyStay, LABEL)],
             Face::MenuKeySwitch => &[(Face::MenuKeySwitch, LABEL)],
+            // A review's text on its bands (ADR 0122): the headers share one band, and the
+            // comments another.
+            Face::DiffAdded => &[(Face::DiffAdded, READ)],
+            Face::DiffRemoved => &[(Face::DiffRemoved, READ)],
+            Face::DiffHunkHeader | Face::DiffFileHeader => &[(Face::DiffFileHeader, READ)],
+            Face::ReviewCommentPerson | Face::ReviewCommentAgent => {
+                &[(Face::ReviewCommentPerson, READ)]
+            }
+            Face::ReviewOutdated => &[(Face::ReviewCommentPerson, LABEL), (Face::Text, LABEL)],
             // A terminal's colours are read on the text's background, as highlighted text is,
             // but its blacks, greys and whites, which programs draw on one another (ADR 0120).
             Face::TerminalColor1
@@ -692,7 +760,9 @@ pub(crate) mod tests {
             | Face::SecondaryCursor
             | Face::TrailingWhitespace
             | Face::CurrentLine
-            | Face::Flash => &[],
+            | Face::Flash
+            | Face::DiffRefineAdded
+            | Face::DiffRefineRemoved => &[],
         }
     }
 
@@ -839,6 +909,12 @@ pub(crate) mod tests {
                 (Face::Flash, behind_text),
                 (Face::JumpLabel, behind_text),
                 (Face::JumpLabelNext, behind_text),
+                (Face::DiffAdded, behind_text),
+                (Face::DiffRemoved, behind_text),
+                (Face::DiffFileHeader, behind_text),
+                (Face::ReviewCommentPerson, behind_text),
+                (Face::DiffRefineAdded, theme.background(Face::DiffAdded)),
+                (Face::DiffRefineRemoved, theme.background(Face::DiffRemoved)),
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
@@ -1134,6 +1210,25 @@ pub(crate) mod tests {
                     assert!(apart >= 0.09, "{name}: {label:?} and {what} {apart:.3}");
                 }
             }
+        }
+    }
+
+    /// A review's person's and agent's labels are told apart by their colour, besides their
+    /// words, and the added and removed bands by theirs (ADR 0122).
+    #[test]
+    fn a_reviews_authors_and_sides_are_told_apart() {
+        for theme in &themes() {
+            let name = theme.name();
+            let labels = distance(
+                theme.foreground(Face::ReviewCommentPerson),
+                theme.foreground(Face::ReviewCommentAgent),
+            );
+            assert!(labels >= 0.09, "{name}: the labels {labels:.3}");
+            let bands = distance(
+                theme.background(Face::DiffAdded),
+                theme.background(Face::DiffRemoved),
+            );
+            assert!(bands >= 0.05, "{name}: the bands {bands:.3}");
         }
     }
 

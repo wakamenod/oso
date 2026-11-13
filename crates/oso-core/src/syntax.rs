@@ -55,4 +55,19 @@ pub enum Highlight {
     /// Emphasis and strong text in Markdown, and its markers: of headings, lists and quotes,
     /// and thematic breaks.
     Markup,
+    /// A line a review's diff puts in, with its `+` (ADR 0122). Only the host's review view
+    /// gives these and the review faces below; no parser does.
+    DiffAdded,
+    /// A line a review's diff takes out, with its `-`.
+    DiffRemoved,
+    /// A file's header in a review.
+    DiffFileHeader,
+    /// A hunk's header in a review, `@@ -40,3 +40,7 @@`.
+    DiffHunkHeader,
+    /// The label of the person's comment in a review.
+    CommentPerson,
+    /// The label of an agent's comment in a review.
+    CommentAgent,
+    /// A comment whose line went, or what says so.
+    Outdated,
 }

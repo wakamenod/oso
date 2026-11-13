@@ -28,6 +28,14 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// Text as [`ArgSpec::Text`] reads it, but only with a prefix argument, such as `C-u`; with
+    /// none, the command runs at once with no answer. The agent channel gives the text with the
+    /// command, or nothing. The command reads it with [`Ctx::answer`](super::Ctx::answer), and
+    /// the prefix with its arguments.
+    TextOnPrefix {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A passphrase, read in a prompt that says `prompt` and shows one `*` per character.
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`](super::Ctx::answer), and must not keep it.

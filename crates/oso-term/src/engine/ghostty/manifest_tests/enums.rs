@@ -80,6 +80,7 @@ fn options_and_data_match_the_manifest() {
                 "KITTY_IMAGE_MEDIUM_SHARED_MEM",
                 ffi::DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM,
             ),
+            ("SCROLLBACK_MAX_BYTES", ffi::DATA_SCROLLBACK_MAX_BYTES),
             ("MODE", ffi::DATA_MODE),
             (
                 "CLIPBOARD_WRITE_MAX_BYTES",

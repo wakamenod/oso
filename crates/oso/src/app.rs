@@ -36,6 +36,7 @@ mod log_gate;
 mod migemo;
 mod projects;
 mod reloads;
+mod reviews;
 mod saves;
 mod searches;
 mod sessions;
@@ -127,6 +128,8 @@ pub enum UserEvent {
     Sessions(crate::sessions::worker::Out),
     /// The thread that reads migemo's dictionary read it, or could not (ADR 0116).
     Migemo(Box<migemo::DictionaryRead>),
+    /// A review's threads, or the review menu's counts, reported (ADR 0122).
+    Review(reviews::ReviewEvent),
     /// A terminal's thread has a snapshot ready (ADR 0120).
     Terminal(oso_core::buffer::BufferId),
     /// A terminal's start thread found the shell and started it, or could not.
@@ -225,6 +228,8 @@ pub struct App {
     trust_file: Option<crate::config::TrustFile>,
     /// The sessions worker, which judges hosted sessions' screens (ADR 0121).
     sessions: Option<crate::sessions::worker::Worker>,
+    /// The open reviews' threads and the review menu's counts (ADR 0122).
+    reviews: reviews::Reviews,
     /// The internal `*Session explain*` buffer, once there is one (ADR 0121). Kept by its id,
     /// never found by its name, which anyone may give a buffer of their own.
     explain: Option<oso_core::buffer::BufferId>,
@@ -309,7 +314,6 @@ impl App {
     ) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
-        let offer = emergency.offer();
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
         let lister = files::lister(&waker);
@@ -338,8 +342,8 @@ impl App {
             configuration,
             freer: Freer::start(),
             leaving: Leaving::with_cell(emergency.agreement_cell()),
+            offer: emergency.offer(),
             emergency,
-            offer,
             answering: None,
             scan_for_copies: false,
             started: Some(started),
@@ -369,6 +373,7 @@ impl App {
             previewer,
             trust_file: None,
             sessions,
+            reviews: reviews::Reviews::default(),
             explain: None,
             log_gate,
             agent: agent::Agent::default(),
@@ -456,6 +461,7 @@ impl App {
         self.start_trims();
         self.start_searches();
         self.start_reverts();
+        self.sync_reviews();
         self.answer_about_copies();
         self.remember_theme();
         if effects.redraw {

@@ -173,5 +173,5 @@ pub(super) fn check_paste(bytes: &[u8]) {
 /// A script of the smoke run's inputs runs as they did.
 #[test]
 fn a_script_replays_its_inputs() {
-    super::run_script(&super::script_of(0x5eed, 40, true));
+    super::script::run_script(&super::script::script_of(0x5eed, 40, true));
 }

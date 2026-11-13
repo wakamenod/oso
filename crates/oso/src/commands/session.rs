@@ -51,37 +51,40 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    // Programs in terminals end with oso, so an exit asks about them too, once, in the same
-    // question as unsaved text (ADR 0120).
-    let running = ctx.editor.running_terminals().count();
-    let terminals = match running {
-        1 => "1 terminal runs a program".to_owned(),
-        n => format!("{n} terminals run programs"),
-    };
-    let confirmed = ctx.confirmed();
-    match ctx.editor.confirm_exit(confirmed) {
-        Ok(()) if running == 0 || confirmed => ctx.request_exit(),
-        Ok(()) => ask(
-            ctx,
-            format!("{terminals}; exit anyway?"),
-            "save-buffers-kill-terminal",
-            ["exit", "stay"],
-        )?,
-        Err(refused) => {
-            let question = if running == 0 {
-                format!("{refused}; exit without saving?")
-            } else {
-                format!("{refused}, and {terminals}; exit without saving?")
-            };
-            ask(
-                ctx,
-                question,
-                "save-buffers-kill-terminal",
-                ["exit", "stay"],
-            )?;
-        }
+    // Comments of the person's not sent yet are lost with the editor until reviews are saved
+    // (ADR 0122, step 6), and programs in terminals end with it (ADR 0120): one question says
+    // all of it.
+    let mut lost = Vec::new();
+    match super::review::unsent_everywhere(ctx.editor) {
+        0 => {}
+        1 => lost.push("1 comment of yours will be lost".to_owned()),
+        n => lost.push(format!("{n} comments of yours will be lost")),
     }
-    Ok(())
+    match ctx.editor.running_terminals().count() {
+        0 => {}
+        1 => lost.push("1 terminal runs a program".to_owned()),
+        n => lost.push(format!("{n} terminals run programs")),
+    }
+    let lost = (!lost.is_empty()).then(|| lost.join(", and "));
+    let question = match (ctx.editor.confirm_exit(ctx.confirmed()), lost) {
+        (Ok(()), None) => {
+            ctx.request_exit();
+            return Ok(());
+        }
+        (Ok(()), Some(_)) if ctx.confirmed() => {
+            ctx.request_exit();
+            return Ok(());
+        }
+        (Ok(()), Some(lost)) => format!("{lost}; exit anyway?"),
+        (Err(refused), None) => format!("{refused}; exit without saving?"),
+        (Err(refused), Some(lost)) => format!("{lost}, and {refused}; exit without saving?"),
+    };
+    ask(
+        ctx,
+        question,
+        "save-buffers-kill-terminal",
+        ["exit", "stay"],
+    )
 }
 
 /// Asks `question`, whose `y` runs `command`, and shows it, with `verbs` saying what `y`
@@ -147,7 +150,7 @@ mod tests {
         assert!(!effects.exit);
         assert_eq!(
             editor.prompt().expect("a question").label(),
-            "1 modified buffer, and 1 terminal runs a program; exit without saving? (y or n)"
+            "1 terminal runs a program, and 1 modified buffer; exit without saving? (y or n)"
         );
     }
 

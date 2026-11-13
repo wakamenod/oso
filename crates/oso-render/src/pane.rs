@@ -125,6 +125,24 @@ pub enum Face {
     /// A menu's notes, rules, `… N more`, the prefix argument and an unavailable head, dim on
     /// the panel.
     MenuNote,
+    /// A line a review's diff puts in (ADR 0122): its text, and the band behind its row.
+    DiffAdded,
+    /// A line a review's diff takes out, and its band.
+    DiffRemoved,
+    /// The words that changed within an added line: a stronger band, behind the text.
+    DiffRefineAdded,
+    /// The words that changed within a removed line.
+    DiffRefineRemoved,
+    /// A hunk's header, on the headers' band.
+    DiffHunkHeader,
+    /// A file's header, and the band behind every header row.
+    DiffFileHeader,
+    /// The label of the person's comment, and the band behind every comment's rows.
+    ReviewCommentPerson,
+    /// The label of an agent's comment, in a hue of its own, on the comments' band.
+    ReviewCommentAgent,
+    /// What says a comment is outdated, dim.
+    ReviewOutdated,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -175,6 +193,13 @@ impl Face {
             Highlight::Heading => Self::SyntaxHeading,
             Highlight::Link => Self::SyntaxLink,
             Highlight::Markup => Self::SyntaxMarkup,
+            Highlight::DiffAdded => Self::DiffAdded,
+            Highlight::DiffRemoved => Self::DiffRemoved,
+            Highlight::DiffFileHeader => Self::DiffFileHeader,
+            Highlight::DiffHunkHeader => Self::DiffHunkHeader,
+            Highlight::CommentPerson => Self::ReviewCommentPerson,
+            Highlight::CommentAgent => Self::ReviewCommentAgent,
+            Highlight::Outdated => Self::ReviewOutdated,
         }
     }
 

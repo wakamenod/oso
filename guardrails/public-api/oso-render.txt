@@ -71,6 +71,12 @@ pub oso_render::Face::CompletionPrompt
 pub oso_render::Face::CompletionSelected
 pub oso_render::Face::CurrentLine
 pub oso_render::Face::Cursor
+pub oso_render::Face::DiffAdded
+pub oso_render::Face::DiffFileHeader
+pub oso_render::Face::DiffHunkHeader
+pub oso_render::Face::DiffRefineAdded
+pub oso_render::Face::DiffRefineRemoved
+pub oso_render::Face::DiffRemoved
 pub oso_render::Face::Divider
 pub oso_render::Face::Escape
 pub oso_render::Face::Field
@@ -93,6 +99,9 @@ pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
 pub oso_render::Face::Question
 pub oso_render::Face::Region
+pub oso_render::Face::ReviewCommentAgent
+pub oso_render::Face::ReviewCommentPerson
+pub oso_render::Face::ReviewOutdated
 pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
 pub oso_render::Face::SecondaryCursor

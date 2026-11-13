@@ -244,6 +244,7 @@ impl Editor {
         }
         status.state.clear();
         push_state(&mut status.state, window, buffer);
+        self.review_status_into(window.buffer(), &mut status.state);
         // `Def` while a keyboard macro is recorded, as Emacs's (ADR 0113).
         if id == tiled && self.macro_recording() {
             status.state.push_str(DEFINING);

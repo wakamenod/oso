@@ -147,7 +147,12 @@ impl Editor {
     /// window was.
     pub fn copies_back(&mut self) {
         match self.current().1.mode() {
-            Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml | Mode::Terminal => {}
+            Mode::Fundamental
+            | Mode::Rust
+            | Mode::Markdown
+            | Mode::Toml
+            | Mode::Review
+            | Mode::Terminal => {}
             Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {
                 let list = self.copies_buffer();

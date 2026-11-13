@@ -4,7 +4,8 @@
 //! parameters, private modes, SGR's colon forms, OSC numbers with fixed payloads, DCS heads,
 //! Kitty APC keys, ESC forms, REP and margins, synchronized updates set and reset, invalid
 //! UTF-8, and resizes; between them, the UI's keys, pastes, scrolls and focus changes
-//! (`requests`), served as the thread serves them, on a clock each input moves on.
+//! (`requests`), served as the thread serves them, on a clock each input moves on. The long
+//! run also makes long clusters, a link on each of many cells, and the largest grid.
 //!
 //! Must not depend on: the thread or a PTY; it drives the engine directly.
 //!
@@ -13,18 +14,17 @@
 //! restarts it after the input and records the stop. `smoke` runs a few hundred in `just test`.
 //!
 //! Settings of `long`, through the environment: `OSO_TERM_FUZZ_SECONDS`, `_SEED`, `_FIRST`
-//! (the first iteration), `_STATE` and `_REPORT` (files), `_NO_RESIZE`, `_SCROLLBACK`; and
-//! `_INPUT=<iteration>`, which writes that input as a script (`new`, `resize`, `write HEX`)
-//! (and `key`, `paste`, `scroll`, `focus` and `tick` lines) to the report instead of running,
-//! for reducing a finding outside the repository, or
-//! `_SCRIPT=<file>`, which runs one.
+//! (the first iteration), `_STATE` and `_REPORT` (files), `_NO_RESIZE`, `_SCROLLBACK`;
+//! `_INPUT=<iteration>` writes that input as a script (`script`) and `_SCRIPT=<file>` runs one.
 
 #![cfg(unix)]
 
 mod requests;
+mod script;
+
+use script::sized;
 
 use std::env;
-use std::fmt::Write as _;
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::time::{Duration, Instant};
@@ -78,6 +78,25 @@ const SIZES: &[(u16, u16)] = &[
     (500, 300),
     (13, 7),
 ];
+/// The long run's sizes: also the largest grid.
+const ALL_SIZES: &[(u16, u16)] = &[
+    (1, 1),
+    (2, 1),
+    (1, 2),
+    (80, 24),
+    (300, 100),
+    (500, 300),
+    (1000, 500),
+    (13, 7),
+];
+
+/// Which inputs a run makes: the smoke run in `just test` keeps to the basic grammar; the
+/// long run adds the largest grid, long clusters and a link on each of many cells.
+#[derive(Clone, Copy)]
+enum Grammar {
+    Basic,
+    Full,
+}
 
 /// xorshift64*, enough for a generator.
 struct Rng(u64);
@@ -152,7 +171,7 @@ fn terminator(rng: &mut Rng, out: &mut Vec<u8>) {
     }
 }
 
-fn text(rng: &mut Rng, out: &mut Vec<u8>) {
+fn text(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
     const CLUSTERS: &[&str] = &[
         "日本",
         "👍",
@@ -165,10 +184,45 @@ fn text(rng: &mut Rng, out: &mut Vec<u8>) {
         "ｱ",
         "\u{10ffff}",
     ];
-    match rng.below(4) {
-        0 | 1 => (0..rng.below(40)).for_each(|_| out.push(b' ' + rng.below(95) as u8)),
-        2 => (0..rng.below(20)).for_each(|_| out.extend_from_slice(rng.pick(CLUSTERS).as_bytes())),
+    let kinds = match grammar {
+        Grammar::Basic => 4,
+        Grammar::Full => 6,
+    };
+    match (rng.below(kinds), kinds) {
+        (0 | 1, _) => (0..rng.below(40)).for_each(|_| out.push(b' ' + rng.below(95) as u8)),
+        (2, _) => {
+            (0..rng.below(20)).for_each(|_| out.extend_from_slice(rng.pick(CLUSTERS).as_bytes()))
+        }
+        (3, 6) => long_clusters(rng, out),
+        (4, 6) => linked_cells(rng, out),
         _ => (0..rng.below(8)).for_each(|_| out.push(0x80 + rng.below(0x80) as u8)),
+    }
+}
+
+/// Cells of a base and up to 80 marks, past the most the library keeps of one cluster.
+fn long_clusters(rng: &mut Rng, out: &mut Vec<u8>) {
+    const BASES: &[&str] = &["a", "\u{1F600}", "日", "\u{10ffff}"];
+    const MARKS: &[&str] = &["\u{301}", "\u{E0100}", "\u{FE0F}", "\u{200D}", "\u{1F3FB}"];
+    for _ in 0..1 + rng.below(8) {
+        out.extend_from_slice(rng.pick(BASES).as_bytes());
+        for _ in 0..rng.below(81) {
+            out.extend_from_slice(rng.pick(MARKS).as_bytes());
+        }
+    }
+}
+
+/// A new OSC 8 link on each of many cells, some with ids, some ended.
+fn linked_cells(rng: &mut Rng, out: &mut Vec<u8>) {
+    for cell in 0..rng.below(300) {
+        let id = if rng.chance(50) {
+            format!("id={}", rng.below(1000))
+        } else {
+            String::new()
+        };
+        out.extend_from_slice(format!("\x1b]8;{id};http://e/{cell}\x1b\\x").as_bytes());
+        if rng.chance(10) {
+            out.extend_from_slice(b"\x1b]8;;\x1b\\");
+        }
     }
 }
 
@@ -313,11 +367,11 @@ fn esc(rng: &mut Rng, out: &mut Vec<u8>) {
     out.extend_from_slice(rng.pick(ESCS));
 }
 
-fn piece(rng: &mut Rng, out: &mut Vec<u8>) {
+fn piece(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
     match rng.below(21) {
         20 if rng.chance(50) => out.extend_from_slice(b"\x1b[?2026h"),
         20 => out.extend_from_slice(b"\x1b[?2026l"),
-        0..=5 => text(rng, out),
+        0..=5 => text(rng, out, grammar),
         6 => out.push(rng.below(32) as u8),
         7..=12 => csi(rng, out),
         13 | 14 => osc(rng, out),
@@ -337,19 +391,23 @@ struct Case {
 }
 
 /// The input of `iteration` under `seed`.
-fn input(seed: u64, iteration: u64, resizes: bool) -> Case {
+fn input(seed: u64, iteration: u64, resizes: bool, grammar: Grammar) -> Case {
     let mut rng = Rng::new(seed, iteration);
     let requests = requests::requests(&mut rng);
     let tick = Duration::from_millis(rng.below(1500));
     let mut out = Vec::new();
     for _ in 0..1 + rng.below(200) {
-        piece(&mut rng, &mut out);
+        piece(&mut rng, &mut out, grammar);
         if out.len() > 128 * 1024 {
             break;
         }
     }
     let resize = (resizes && rng.chance(5)).then(|| {
-        let &(columns, rows) = rng.pick(SIZES);
+        let sizes = match grammar {
+            Grammar::Basic => SIZES,
+            Grammar::Full => ALL_SIZES,
+        };
+        let &(columns, rows) = rng.pick(sizes);
         sized(columns, rows)
     });
     Case {
@@ -358,16 +416,6 @@ fn input(seed: u64, iteration: u64, resizes: bool) -> Case {
         data: out,
         resize,
     }
-}
-
-fn sized(columns: u16, rows: u16) -> Size {
-    // As a terminal's thread clamps every size.
-    limits::clamp(Size {
-        columns,
-        rows,
-        width: columns.saturating_mul(8),
-        height: rows.saturating_mul(16),
-    })
 }
 
 /// The scrollback of `iteration`'s block, rotating 100, 1,000 and 10,000 lines.
@@ -478,7 +526,7 @@ fn smoke() {
         if iteration.is_multiple_of(BLOCK) {
             driver = Driver::new(scrollback(iteration));
         }
-        driver.run(input(0x5eed, iteration, true));
+        driver.run(input(0x5eed, iteration, true, Grammar::Basic));
     }
 }
 
@@ -501,12 +549,12 @@ fn long() {
     let seed = setting("SEED").unwrap_or(1);
     let resizes = env::var_os("OSO_TERM_FUZZ_NO_RESIZE").is_none();
     if let Some(iteration) = setting("INPUT") {
-        let script = script_of(seed, iteration, resizes);
+        let script = script::script_of(seed, iteration, resizes);
         report.write_all(script.as_bytes()).expect("the report");
         return;
     }
     if let Ok(path) = env::var("OSO_TERM_FUZZ_SCRIPT") {
-        run_script(&fs::read_to_string(path).expect("the script"));
+        script::run_script(&fs::read_to_string(path).expect("the script"));
         return;
     }
     let seconds = setting("SECONDS").unwrap_or(60);
@@ -524,7 +572,7 @@ fn long() {
         state
             .write_all(format!("{iteration:020}\n").as_bytes())
             .expect("the state file");
-        let case = input(seed, iteration, resizes);
+        let case = input(seed, iteration, resizes, Grammar::Full);
         let len = case.data.len();
         let started = Instant::now();
         driver.run(case);
@@ -543,55 +591,4 @@ fn long() {
         bytes / 1_000_000
     );
     report.write_all(done.as_bytes()).expect("the report");
-}
-
-/// The script that rebuilds `iteration`'s terminal: its block's inputs up to it.
-fn script_of(seed: u64, iteration: u64, resizes: bool) -> String {
-    let mut script = format!("new 80 24 {}\n", scrollback(iteration));
-    for i in iteration - iteration % BLOCK..=iteration {
-        let case = input(seed, i, resizes);
-        for request in &case.requests {
-            script.push_str(&requests::line(request));
-            script.push('\n');
-        }
-        let _ = write!(script, "tick {}\nwrite ", case.tick.as_millis());
-        for byte in case.data {
-            let _ = write!(script, "{byte:02x}");
-        }
-        script.push('\n');
-        if let Some(size) = case.resize {
-            let _ = writeln!(script, "resize {} {}", size.columns, size.rows);
-        }
-    }
-    script
-}
-
-fn run_script(script: &str) {
-    let mut driver = Driver::new(scrollback(0));
-    let mut tick = Duration::ZERO;
-    for line in script.lines() {
-        let words: Vec<&str> = line.split_whitespace().collect();
-        if let Some(request) = requests::parse(&words) {
-            driver.serve(request);
-            continue;
-        }
-        match words.as_slice() {
-            ["tick", ms] => tick = Duration::from_millis(ms.parse().expect("ms")),
-            ["new", _, _, lines] => driver = Driver::new(lines.parse().expect("lines")),
-            ["resize", columns, rows] => {
-                let size = sized(
-                    columns.parse().expect("columns"),
-                    rows.parse().expect("rows"),
-                );
-                driver.feed(&[], Some(size), Duration::ZERO);
-            }
-            ["write", hex] => {
-                let data: Vec<u8> = (0..hex.len() / 2)
-                    .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex"))
-                    .collect();
-                driver.feed(&data, None, std::mem::take(&mut tick));
-            }
-            _ => panic!("unknown script line {line:?}"),
-        }
-    }
 }
