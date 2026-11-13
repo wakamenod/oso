@@ -1,6 +1,6 @@
 //! Agent sessions in the app (ADR 0121): the sessions worker, what commands ask of it, the
-//! rules the configuration's thread compiled, and what the worker found, carried out on the UI
-//! thread. Nothing here reads a file or judges a screen.
+//! hosted sessions (`hosting`), the rules the configuration's thread compiled, and what the
+//! worker found, carried out on the UI thread. Nothing here reads a file or judges a screen.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -9,22 +9,30 @@ use std::sync::{Arc, Mutex, PoisonError};
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, SessionRequest};
 
+mod hosting;
+pub(super) use hosting::Hosting;
+
 use super::{App, UserEvent, Waker};
 use crate::config::RulesReport;
 use crate::sessions::explain::BUFFER;
 use crate::sessions::rules::RuleSet;
 use crate::sessions::worker::{Job, Out, Worker};
 
-/// The sessions worker for the app, waking the event loop with [`UserEvent::Sessions`]. `None`
-/// if it cannot start, which it logs: sessions then have no states.
-pub(super) fn worker(waker: &Waker) -> Option<Worker> {
+/// The sessions worker for the app, waking the event loop with [`UserEvent::Sessions`], asked
+/// first for the sessions an earlier oso remembered in `state`, oso's state directory, which
+/// come back stopped. `None` if it cannot start, which it logs: sessions then have no states.
+pub(super) fn worker(waker: &Waker, state: Option<&std::path::Path>) -> Option<Worker> {
     let waker = Mutex::new(waker.clone());
-    Worker::start(move |out| {
+    let worker = Worker::start(move |out| {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .send(UserEvent::Sessions(out));
-    })
+    })?;
+    if let Some(state) = state {
+        worker.send(Job::Recall(state.to_path_buf()));
+    }
+    Some(worker)
 }
 
 impl App {
@@ -33,6 +41,18 @@ impl App {
         for request in self.editor.take_session_requests() {
             let job = match request {
                 SessionRequest::ExplainFile(path) => Job::ExplainFile(path),
+                SessionRequest::Start { name, directory } => {
+                    self.start_session(name, directory);
+                    continue;
+                }
+                SessionRequest::Resume(buffer) => {
+                    self.resume_session(buffer);
+                    continue;
+                }
+                SessionRequest::Fork(buffer) => {
+                    self.fork_session(buffer);
+                    continue;
+                }
             };
             match &self.sessions {
                 Some(worker) => worker.send(job),
@@ -72,6 +92,7 @@ impl App {
                  until the rules reload. See agent-rules/claude.toml",
                 crate::sessions::worker::DROP_AFTER
             )),
+            Out::Recalled(remembered) => self.sessions_recalled(remembered),
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
             }
@@ -81,7 +102,7 @@ impl App {
     /// Shows `text` in `*Session explain*`, which the agent channel cannot read: it holds a
     /// session's screen.
     fn show_explanation(&mut self, text: &str) {
-        if show_explanation(&mut self.editor, &mut self.explain, text) {
+        if show_explanation(&mut self.editor, &mut self.hosting.explain, text) {
             self.request_redraw();
         }
     }

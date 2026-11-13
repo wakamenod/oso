@@ -3,7 +3,8 @@
 //!
 //! Must not depend on: sockets, threads or editor state; it only parses requests.
 //!
-//! - `version`: the channel's protocol, which a client asks first.
+//! - `version`: the channel's protocol, which a client asks first. `{"session": ID}` names the
+//!   hosted session whose bridge asks, which the channel believes only as ADR 0121 has it.
 //! - `state`: what the editor may show an agent; `{"buffer_offset": 100}` lists the buffers
 //!   from the 101st.
 //! - `commands`: the commands an agent may run, with their reach.
@@ -36,6 +37,9 @@ pub const MAX_TEXT_ARG: usize = 64 * 1024;
 /// The longest path `open` takes, in bytes.
 pub const MAX_PATH: usize = 4096;
 
+/// The longest session id `version` takes, in bytes: a UUID's text is 36.
+pub const MAX_SESSION: usize = 64;
+
 /// The rows `text` gives when not asked for a number, and the most it gives.
 pub const DEFAULT_ROWS: usize = 200;
 pub const MAX_ROWS: usize = 2000;
@@ -58,8 +62,9 @@ pub struct Request {
 /// What a request asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
-    /// The protocol version, which needs no UI.
-    Version,
+    /// The protocol version, which needs no UI, and the session a hosted session's bridge
+    /// claims, as the bridge gave it (ADR 0121).
+    Version { session: Option<String> },
     /// Work for the UI thread.
     Ui(Op),
 }
@@ -127,10 +132,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         None => Ok(()),
     };
     let method = match parts.method.as_str() {
-        "version" => {
-            none(&parts.params)?;
-            Method::Version
-        }
+        "version" => Method::Version {
+            session: parse_version(&parts.params).map_err(bad)?,
+        },
         "state" => Method::Ui(parse_state(&parts.params).map_err(bad)?),
         "commands" => none(&parts.params).map(|()| Method::Ui(Op::Commands))?,
         "cancel" => none(&parts.params).map(|()| Method::Ui(Op::Cancel))?,
@@ -140,6 +144,20 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         _ => return Err(parts.unknown()),
     };
     Ok(Request { id, method })
+}
+
+/// The parameters of `version`: the session a bridge claims, if it claims one.
+fn parse_version(params: &Map<String, Value>) -> Result<Option<String>, String> {
+    if let Some(other) = params.keys().find(|name| name.as_str() != "session") {
+        return Err(format!("version takes no parameter {:?}", short(other)));
+    }
+    match params.get("session") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(id)) if id.len() <= MAX_SESSION => Ok(Some(id.clone())),
+        Some(_) => Err(format!(
+            "version's \"session\" is a session's id of at most {MAX_SESSION} bytes"
+        )),
+    }
 }
 
 /// The parameters of `state`: where its list of buffers starts.
@@ -279,7 +297,7 @@ mod tests {
     fn op(line: &str) -> Op {
         match parse(line).unwrap().method {
             Method::Ui(op) => op,
-            Method::Version => panic!("version"),
+            Method::Version { .. } => panic!("version"),
         }
     }
 
@@ -291,8 +309,21 @@ mod tests {
     fn parses_each_method() {
         assert_eq!(
             parse(r#"{"id": 1, "method": "version"}"#).unwrap().method,
-            Method::Version
+            Method::Version { session: None }
         );
+        assert_eq!(
+            parse(r#"{"method": "version", "params": {"session": "abc"}}"#)
+                .unwrap()
+                .method,
+            Method::Version {
+                session: Some("abc".into())
+            }
+        );
+        let long = "a".repeat(super::MAX_SESSION + 1);
+        let line = format!(r#"{{"method": "version", "params": {{"session": "{long}"}}}}"#);
+        assert!(error(&line).contains("at most"));
+        assert!(error(r#"{"method": "version", "params": {"session": 3}}"#).contains("session"));
+        assert!(error(r#"{"method": "version", "params": {"x": 3}}"#).contains("no parameter"));
         assert_eq!(
             parse(r#"{"id": 1, "method": "version"}"#).unwrap().id,
             json!(1)

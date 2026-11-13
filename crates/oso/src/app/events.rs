@@ -73,6 +73,7 @@ impl App {
             UserEvent::Agent(request) => self.handle_agent(event_loop, request),
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
+            UserEvent::SessionStart(report) => self.session_start_reported(report),
             // `after_event` looks at the deadlines.
             UserEvent::AgentDeadline => {}
         }

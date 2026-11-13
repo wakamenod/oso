@@ -21,6 +21,8 @@ struct Asked {
     breaks: bool,
     /// The protocol its `version` says.
     protocol: u32,
+    /// What each `version` was given.
+    versions: Vec<Value>,
 }
 
 impl Default for Asked {
@@ -30,6 +32,7 @@ impl Default for Asked {
             connects: 0,
             breaks: false,
             protocol: PROTOCOL_VERSION,
+            versions: Vec::new(),
         }
     }
 }
@@ -40,6 +43,7 @@ impl Link for StandIn {
     fn call(&mut self, method: &str, params: Value) -> Result<Value, Failed> {
         let mut asked = self.0.borrow_mut();
         if method == "version" {
+            asked.versions.push(params);
             return Ok(json!({ "protocol": asked.protocol }));
         }
         asked.calls.push((method.to_owned(), params.clone()));
@@ -418,3 +422,16 @@ fn a_call_that_waits_ends_when_the_agents_stdin_does() {
 
 mod cancel;
 mod target;
+
+#[test]
+fn a_hosted_sessions_bridge_names_its_session_when_it_connects() {
+    let asked = Rc::default();
+    let mut bridge = bridge(&asked).for_session(Some("id-1".into()));
+    response(&mut bridge, &call("state", &json!({})));
+    let mut plain = self::bridge(&asked);
+    response(&mut plain, &call("state", &json!({})));
+    assert_eq!(
+        asked.borrow().versions,
+        [json!({ "session": "id-1" }), json!({})]
+    );
+}

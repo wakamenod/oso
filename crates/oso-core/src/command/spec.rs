@@ -28,6 +28,19 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// Nothing with no prefix argument: the command runs at once with no answer. With one,
+    /// such as `C-u`, a directory is read first, as [`ArgSpec::File`] reads a path, in a prompt
+    /// that says `directory` and kept in the history `directory_history`, then text as
+    /// [`ArgSpec::Text`] reads it, in a prompt that says `prompt` and kept in the history
+    /// `history` (ADR 0121). An empty answer to either stands for the command's own default.
+    /// Only keys give them: the agent channel runs such a command with neither. The command
+    /// reads both with [`Ctx::directory_and_text`](super::Ctx::directory_and_text).
+    DirectoryAndTextOnPrefix {
+        directory: &'static str,
+        directory_history: &'static str,
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A passphrase, read in a prompt that says `prompt` and shows one `*` per character.
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`](super::Ctx::answer), and must not keep it.

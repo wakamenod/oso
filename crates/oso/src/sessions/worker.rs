@@ -1,6 +1,7 @@
 //! The `oso-sessions` thread (ADR 0121): it holds the rules in force and each hosted session's
 //! tracker, judges a session's screen when it changed, and tells the UI thread only of changes.
-//! It also reads and explains a saved screen for `session-explain-file`.
+//! It also reads and explains a saved screen for `session-explain-file`, and reads and writes
+//! the record of the sessions oso remembers.
 //!
 //! Must not depend on: `app`, `commands` or `dispatch`; the app sends jobs and carries out what
 //! comes back through the function it gives.
@@ -94,6 +95,15 @@ pub enum Job {
     Forget(SessionKey),
     /// Explain the saved screen in this file.
     ExplainFile(PathBuf),
+    /// Read the sessions an earlier oso remembered in this state directory (ADR 0121).
+    Recall(PathBuf),
+    /// Remember these sessions in this state directory, keeping those of another instance:
+    /// the ids not in `known`.
+    Remember {
+        directory: PathBuf,
+        sessions: Vec<super::record::Remembered>,
+        known: std::collections::HashSet<super::identity::SessionId>,
+    },
 }
 
 /// What the worker tells the app.
@@ -109,6 +119,8 @@ pub enum Out {
     /// The rules took longer than their budget on [`SLOW_AFTER`] looks in a row at a screen,
     /// this rule the longest: said once for each set of rules.
     Slow(String),
+    /// The sessions an earlier oso remembered, as read.
+    Recalled(Vec<super::record::Remembered>),
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.
     Dropped(String),

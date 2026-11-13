@@ -254,7 +254,8 @@ pub struct Invocation<'a> {
     pub repeats: usize,
     /// What a prompt read for the command, as its [`ArgSpec`] asked (ADR 0072).
     pub answer: Option<&'a str>,
-    /// What a second prompt read, for [`ArgSpec::Replace`] (ADR 0113).
+    /// What a second prompt read, for [`ArgSpec::Replace`] (ADR 0113) and
+    /// [`ArgSpec::DirectoryAndTextOnPrefix`] (ADR 0121).
     pub second: Option<&'a str>,
     /// It runs because the person answered `y` to a question it asked.
     pub confirmed: bool,
@@ -332,6 +333,13 @@ impl<'a> Ctx<'a> {
     /// The string to replace and its replacement, read for a command whose [`ArgSpec`] is
     /// `Replace`: both empty for an empty first answer, which takes the last pair.
     pub fn replace_pair(&self) -> Option<(&'a str, &'a str)> {
+        Some((self.answer()?, self.invocation.second.unwrap_or_default()))
+    }
+
+    /// The directory and the text two prompts read for a command whose [`ArgSpec`] is
+    /// `DirectoryAndTextOnPrefix`, each empty if the person gave none (ADR 0121). `None` when
+    /// no prompt read them: with no prefix argument.
+    pub fn directory_and_text(&self) -> Option<(&'a str, &'a str)> {
         Some((self.answer()?, self.invocation.second.unwrap_or_default()))
     }
 

@@ -124,6 +124,8 @@ pub enum UserEvent {
     AgentStarted(std::io::Result<crate::channel::Channel>),
     /// The sessions worker found something (ADR 0121).
     Sessions(crate::sessions::worker::Out),
+    /// A hosted session's start thread found something (ADR 0121).
+    SessionStart(crate::sessions::start::Report),
     /// The thread that reads migemo's dictionary read it, or could not (ADR 0116).
     Migemo(Box<migemo::DictionaryRead>),
 }
@@ -220,9 +222,9 @@ pub struct App {
     trust_file: Option<crate::config::TrustFile>,
     /// The sessions worker, which judges hosted sessions' screens (ADR 0121).
     sessions: Option<crate::sessions::worker::Worker>,
-    /// The internal `*Session explain*` buffer, once there is one (ADR 0121). Kept by its id,
-    /// never found by its name, which anyone may give a buffer of their own.
-    explain: Option<oso_core::buffer::BufferId>,
+    /// The sessions oso hosts and remembers, and the internal `*Session explain*` buffer
+    /// (ADR 0121).
+    hosting: sessions::Hosting,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -311,7 +313,7 @@ impl App {
         let walker = walks::walker(&waker);
         let grep = greps::grep(&waker);
         let previewer = greps::previewer(&waker);
-        let sessions = sessions::worker(&waker);
+        let sessions = sessions::worker(&waker, theme_directory.as_deref());
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
         editor.set_home(home());
@@ -356,6 +358,7 @@ impl App {
             syntax: syntax::Syntax::default(),
             completer: completions::Completer::default(),
             theme_read: Some(theme_read),
+            hosting: sessions::Hosting::new(theme_directory.clone()),
             theme_writer: theme_file::Writer::start(theme_directory),
             themes,
             remembered_theme,
@@ -367,7 +370,6 @@ impl App {
             previewer,
             trust_file: None,
             sessions,
-            explain: None,
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),
