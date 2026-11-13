@@ -69,7 +69,7 @@ pub enum Chose {
 /// as they were. The jump ended all the same, and `avy-isearch`'s search with it, as `RET`
 /// ends it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ActionError {
+pub enum JumpActionError {
     /// A buffer it would change refused, as a read-only one does.
     Edit(EditError),
     /// The line, at every cursor, is more than a yank may insert.
@@ -78,7 +78,7 @@ pub enum ActionError {
     Cursor(CursorError),
 }
 
-impl fmt::Display for ActionError {
+impl fmt::Display for JumpActionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Edit(error) => error.fmt(f),
@@ -88,7 +88,7 @@ impl fmt::Display for ActionError {
     }
 }
 
-impl std::error::Error for ActionError {}
+impl std::error::Error for JumpActionError {}
 
 /// A candidate found, before the nearest are picked.
 #[derive(Debug)]
@@ -219,9 +219,9 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// An [`ActionError`] when the action armed could not act, which left the text, the
+    /// An [`JumpActionError`] when the action armed could not act, which left the text, the
     /// cursors and the kill ring as they were. The jump ended.
-    pub fn jump_choose(&mut self, key: char) -> Result<Chose, ActionError> {
+    pub fn jump_choose(&mut self, key: char) -> Result<Chose, JumpActionError> {
         if self.jump_follow_text() && self.jump.is_none() {
             return Ok(Chose::NoSuch);
         }

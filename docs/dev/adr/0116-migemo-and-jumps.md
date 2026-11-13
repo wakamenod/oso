@@ -794,11 +794,13 @@ at most 1 MiB in all (Q5).
 
 #### As built (step 6, 2026-11-13)
 
-The author answered eight questions on 2026-11-13, through the coordinator, each as
-recommended. None departs from the text above; these notes say what it left open.
+The author answered nine questions on 2026-11-13, through the coordinator, each as
+recommended. None departs from the text above; these notes say what it left open. The ninth,
+after review, named the error `JumpActionError`, so that it reads as a jump's beside
+`RecoveryAction`.
 
-- **The API,** as the snapshots show: `Chose::Armed`, `ActionError` (`Edit`, `Yank`,
-  `Cursor`), and `Editor::jump_choose`, which now gives `Result<Chose, ActionError>`. The
+- **The API,** as the snapshots show: `Chose::Armed`, `JumpActionError` (`Edit`, `Yank`,
+  `Cursor`), and `Editor::jump_choose`, which now gives `Result<Chose, JumpActionError>`. The
   actions themselves are crate-private (`jump::Action`, `editor/jump/actions.rs`), and run
   inside `avy-printing-char`, so they need no command of their own and are `Person` as it is.
 - **The keys and the labels:** `[jump] keys` refuses `W`, `K`, `Y`, `T` and `c` as before, and a

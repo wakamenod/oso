@@ -18,7 +18,7 @@
 use std::ops::Range;
 
 use super::super::kill::yank_fits;
-use super::ActionError;
+use super::JumpActionError;
 use crate::buffer::EditError;
 use crate::editor::{Editor, YankError};
 use crate::jump::{Action, Candidate, Kind};
@@ -36,7 +36,7 @@ impl Editor {
         kind: Kind,
         action: Action,
         candidate: &Candidate,
-    ) -> Result<(), ActionError> {
+    ) -> Result<(), JumpActionError> {
         if kind == Kind::Isearch {
             self.isearch_exit();
         }
@@ -68,12 +68,12 @@ impl Editor {
 
     /// `c`: adds a cursor at the target, with no mark, and the primary stays. In another
     /// window, to that window's cursors.
-    fn jump_add_cursor(&mut self, candidate: &Candidate) -> Result<(), ActionError> {
+    fn jump_add_cursor(&mut self, candidate: &Candidate) -> Result<(), JumpActionError> {
         let Some((index, offset)) = self.target_in(candidate) else {
             return Ok(());
         };
         self.add_cursor_in(index, offset)
-            .map_err(ActionError::Cursor)?;
+            .map_err(JumpActionError::Cursor)?;
         if candidate.window != self.tiled_id() {
             self.select_window(candidate.window);
         }
@@ -83,14 +83,14 @@ impl Editor {
     /// `W`, `K`, `Y` and `T`: copies or kills the target's whole line, in its own window's
     /// buffer, and for `Y` and `T` yanks it at every cursor of the selected window as
     /// `C-u C-y` does. The selected window and its cursors stay, but for what the edits move.
-    fn jump_line(&mut self, action: Action, candidate: &Candidate) -> Result<(), ActionError> {
+    fn jump_line(&mut self, action: Action, candidate: &Candidate) -> Result<(), JumpActionError> {
         let Some(source) = self.window_by_id(candidate.window).map(|w| w.buffer()) else {
             return Ok(());
         };
         let Some(buffer) = self.buffer(source) else {
             return Ok(());
         };
-        let read_only = |reason| ActionError::Edit(EditError::ReadOnly(reason));
+        let read_only = |reason| JumpActionError::Edit(EditError::ReadOnly(reason));
         if action.kills()
             && let Some(reason) = buffer.read_only()
         {
@@ -107,7 +107,7 @@ impl Editor {
                 return Err(read_only(reason));
             }
             if !yank_fits(&line, window.selections.len()) {
-                return Err(ActionError::Yank(YankError::TooMuch));
+                return Err(JumpActionError::Yank(YankError::TooMuch));
             }
         }
         let newest = self.kill_ring().get(0).map(KillEntry::id);
@@ -119,10 +119,10 @@ impl Editor {
             Direction::Forward,
             !action.kills(),
         )
-        .map_err(ActionError::Edit)?;
+        .map_err(JumpActionError::Edit)?;
         // An empty line's end gives nothing to yank, and an older entry must not go in.
         if action.yanks() && self.kill_ring().get(0).map(KillEntry::id) != newest {
-            self.yank(0, true).map_err(ActionError::Yank)?;
+            self.yank(0, true).map_err(JumpActionError::Yank)?;
         }
         Ok(())
     }

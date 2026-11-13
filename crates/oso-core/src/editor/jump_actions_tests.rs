@@ -5,7 +5,7 @@
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
 use super::test_buffers::secret_buffer;
-use super::{ActionError, Chose, CursorError, Editor, Status, YankError};
+use super::{Chose, CursorError, Editor, JumpActionError, Status, YankError};
 use crate::buffer::{Buffer, BufferId, EditError, Mode, ReadOnly};
 use crate::display_map::TabWidth;
 use crate::frame::{FrameSize, Way};
@@ -57,7 +57,7 @@ fn choose(
     editor: &mut Editor,
     start: usize,
     window: Option<WindowId>,
-) -> Result<Chose, ActionError> {
+) -> Result<Chose, JumpActionError> {
     let window = window.unwrap_or_else(|| editor.window().id());
     let jump = editor.jump().unwrap();
     let at = jump
@@ -80,7 +80,7 @@ fn choose(
 }
 
 /// Starts a line jump, arms `action`, and types the label of the line starting at `start`.
-fn act(editor: &mut Editor, action: char, start: usize) -> Result<Chose, ActionError> {
+fn act(editor: &mut Editor, action: char, start: usize) -> Result<Chose, JumpActionError> {
     assert!(editor.jump_begin(Kind::LineStart, false));
     assert_eq!(editor.jump_choose(action), Ok(Chose::Armed));
     choose(editor, start, None)
@@ -246,7 +246,7 @@ fn c_adds_a_cursor_at_the_target_and_the_primary_stays() {
     assert_eq!(full.jump_choose('c'), Ok(Chose::Armed));
     assert_eq!(
         choose(&mut full, 0, None),
-        Err(ActionError::Cursor(CursorError::TooMany))
+        Err(JumpActionError::Cursor(CursorError::TooMany))
     );
     assert!(full.jump().is_none());
     assert_eq!(full.window().selections.len(), MAX_CURSORS);
@@ -375,7 +375,9 @@ fn a_read_only_buffer_refuses_k_t_and_y_with_nothing_changed() {
     let id = editor.add_internal_buffer("*Report*", Mode::Fundamental);
     editor.set_internal_text(id, "one\ntwo\n");
     editor.show(id);
-    let refused = Err(ActionError::Edit(EditError::ReadOnly(ReadOnly::Internal)));
+    let refused = Err(JumpActionError::Edit(EditError::ReadOnly(
+        ReadOnly::Internal,
+    )));
     for key in ['K', 'T', 'Y'] {
         assert_eq!(act(&mut editor, key, 4), refused, "{key}");
         assert!(editor.jump().is_none());
@@ -389,7 +391,7 @@ fn a_read_only_buffer_refuses_k_t_and_y_with_nothing_changed() {
     );
     assert_eq!(newest(&editor).as_deref(), Some("two\n"));
     assert_eq!(
-        ActionError::Yank(YankError::TooMuch).to_string(),
+        JumpActionError::Yank(YankError::TooMuch).to_string(),
         "Too much text to yank"
     );
 }
@@ -432,7 +434,11 @@ fn y_and_t_past_what_a_yank_may_insert_at_every_cursor_change_nothing() {
                 assert_eq!(chose, Ok(Chose::Jumped), "{key} at the limit");
                 break;
             }
-            assert_eq!(chose, Err(ActionError::Yank(YankError::TooMuch)), "{key}");
+            assert_eq!(
+                chose,
+                Err(JumpActionError::Yank(YankError::TooMuch)),
+                "{key}"
+            );
             assert_eq!(text_of(&editor, editor.window().buffer()), text, "{key}");
             assert!(editor.kill_ring().is_empty(), "{key}");
         }
@@ -449,7 +455,9 @@ fn t_into_a_read_only_buffer_kills_nothing_in_the_other_window() {
     editor.jump_choose('T').unwrap();
     assert_eq!(
         choose(&mut editor, 2, Some(other)),
-        Err(ActionError::Edit(EditError::ReadOnly(ReadOnly::Internal)))
+        Err(JumpActionError::Edit(EditError::ReadOnly(
+            ReadOnly::Internal
+        )))
     );
     assert_eq!(text_of(&editor, id), "x\ny\n", "the source kept its line");
     assert!(editor.kill_ring().is_empty());
@@ -466,7 +474,9 @@ fn k_in_a_buffer_still_loading_is_refused() {
     editor.jump_choose('K').unwrap();
     assert_eq!(
         choose(&mut editor, 0, Some(other)),
-        Err(ActionError::Edit(EditError::ReadOnly(ReadOnly::Loading)))
+        Err(JumpActionError::Edit(EditError::ReadOnly(
+            ReadOnly::Loading
+        )))
     );
     assert!(editor.kill_ring().is_empty());
 }
