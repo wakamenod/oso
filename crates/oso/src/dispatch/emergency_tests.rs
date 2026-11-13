@@ -47,6 +47,7 @@ fn dispatcher(emergency: &Emergency) -> Dispatcher {
             args: ArgSpec::None,
             reach: oso_core::command::Reach::Look,
             run: edit_then_panic,
+            state: None,
         })
         .unwrap();
     registry
@@ -56,6 +57,7 @@ fn dispatcher(emergency: &Emergency) -> Dispatcher {
             args: ArgSpec::None,
             reach: oso_core::command::Reach::Look,
             run: save_then_panic,
+            state: None,
         })
         .unwrap();
     let global = Keymap::from_table(

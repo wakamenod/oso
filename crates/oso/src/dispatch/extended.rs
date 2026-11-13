@@ -193,6 +193,7 @@ mod tests {
                 args: ArgSpec::None,
                 reach: Reach::Look,
                 run: noop,
+                state: None,
             };
             registry.register(command).unwrap();
         }

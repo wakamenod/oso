@@ -20,6 +20,7 @@ pub const COMMANDS: &[Command] = &[Command {
     },
     reach: Reach::Person,
     run: session_explain_file,
+    state: None,
 }];
 
 fn session_explain_file(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

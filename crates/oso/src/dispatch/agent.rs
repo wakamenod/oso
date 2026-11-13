@@ -553,6 +553,7 @@ mod tests {
                 args: ArgSpec::None,
                 reach: Reach::Look,
                 run: ask_again,
+                state: None,
             })
             .unwrap();
         let mut dispatcher = Dispatcher::with(registry, oso_core::keymap::Keymap::default());

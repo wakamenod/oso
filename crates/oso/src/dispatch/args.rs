@@ -52,6 +52,10 @@ pub fn map(
         (ArgSpec::Theme { .. }, _) => Err(format!(
             "{name} reads a theme's name, which only its prompt takes, from keys"
         )),
+        // A menu reads keys, and no channel opens one (ADR 0117).
+        (ArgSpec::Menu { .. }, _) => Err(format!(
+            "{name} reads a menu's name, which only its prompt takes, from keys"
+        )),
         // Only its prompt reads a buffer's name. The agent channel's switch to a buffer by name
         // never comes here: `Dispatcher::run_for_agent` resolves the name to a buffer it may
         // show, and shows it (ADR 0094, ADR 0095).

@@ -14,6 +14,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: start,
+        state: None,
     },
     Command {
         name: "agent-channel-stop",
@@ -21,6 +22,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: stop,
+        state: None,
     },
     Command {
         name: "agent-channel-allow",
@@ -28,6 +30,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: allow,
+        state: None,
     },
 ];
 

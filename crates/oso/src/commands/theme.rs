@@ -17,6 +17,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: load_theme,
+        state: None,
     },
     Command {
         name: "toggle-theme",
@@ -24,6 +25,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: toggle_theme,
+        state: None,
     },
 ];
 

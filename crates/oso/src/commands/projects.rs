@@ -24,6 +24,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: project_find_file,
+        state: None,
     },
     Command {
         name: "project-search",
@@ -33,6 +34,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: project_search,
+        state: None,
     },
     Command {
         name: "trust-project",
@@ -40,6 +42,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: trust_project,
+        state: None,
     },
     Command {
         name: "untrust-project",
@@ -47,6 +50,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: untrust_project,
+        state: None,
     },
 ];
 

@@ -292,6 +292,7 @@ fn what_is_left_past_the_bound_on_follow_ups_does_not_run_later() {
             args: ArgSpec::None,
             reach: oso_core::command::Reach::Look,
             run: ask_and_answer,
+            state: None,
         })
         .unwrap();
     let mut d = Dispatcher::with(registry, oso_core::keymap::Keymap::default());
