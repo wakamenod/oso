@@ -1,6 +1,6 @@
 # 0126. Sessions and worktrees in depth
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-13
 
 ## Context
@@ -235,14 +235,24 @@ gets a fuzz target.
 
 One pull request each, after ADR 0121's steps they build on.
 
-1. **The board and grouping by worktree** (after 0121 step 3).
+**How this lands beside ADR 0121.** ADR 0121's steps are built as that ADR decides, and nothing in
+this ADR goes into them or waits on it: step 3 builds `*Sessions*`, spaces and their window trees,
+`C-x a j` as `space-switch`; step 4 builds `session-worktree` with its question, the 10 s limit and
+`worktree-remove` without `--force`. Every change below comes after, in this ADR's own pull
+requests, and replaces or extends what those steps built: `C-x a j` and `C-x a w` are rebound, the
+limit is lifted for creating, `--force` and branch deletion are added for the person. The only
+thing to keep in mind while building ADR 0121 is that its window trees and `session-worktree` are
+extended later, not thrown away.
+
+1. **The board and grouping by worktree** (after 0121 steps 3 and 4: the rows need `worktree-list`).
 2. **The jump** (after 0121 step 3).
-3. **Usage:** `oso statusline`, the usage files, the modeline segment.
+3. **Usage:** `oso statusline`, the usage files, the modeline segment (after 0121 step 1, which
+   passes `--settings`).
 4. **Creating worktrees:** the menu, bases, pull requests and issues (with ADR 0127 step 6), the
    background job and retry, `after_create`, linked directories and clones (after 0121 step 4).
 5. **Removing and cleaning up:** `worktree-cleanup`, sizes, forced removal with its copies, kept
-   branches.
-6. **Layout restore and the grid.**
+   branches (after 0121 step 4).
+6. **Layout restore and the grid** (after 0121 step 3).
 
 ## Questions
 
@@ -306,21 +316,73 @@ For the author, the recommended option first.
 
 None. `clonefile` is a libc call on macOS through the `libc` crate oso already uses.
 
+## The author's choices
+
+The author answered every question on 2026-11-13, through the coordinator: (a) for each.
+
+- The board: four columns, cards of 3 rows, the same buffer as `*Sessions*` toggled with `B`, and
+  `C-x a B` (Q1).
+- `C-x a j` is `jump-anywhere`, with `space-switch` as its spaces-only filter; with no input the 6
+  recent sessions on `M-1`…`M-6`; `C-RET` in a split; no match offers "create worktree NAME" (Q2).
+- Usage by opt-in `[sessions] usage = true`: oso's status line passed with `--settings`, which
+  records the numbers and then runs the person's own status line command; nothing written into
+  Claude Code's settings files (Q3).
+- `*Sessions*` grouped by worktree, and `session-grid` (`C-x a g`, up to 6, needs input first) with
+  `C-x a z` to zoom (Q4).
+- Every base, pull requests and issues too: a same-repository pull request as a tracking branch, a
+  fork's as `pr-123`; an issue as `issue-45-<slug>` with the brief prefilled (Q5).
+- The create menu offers `claude` with a brief, `claude` without one, a plain terminal, or nothing
+  (Q6).
+- Creating is a background job in steps: `r` retries from the failed step, `k` cancels and removes
+  only what the job made; fetch and `git worktree add` have no 10 s limit (Q7).
+- Linked directories are named in the person's `config.toml`, for all repositories or per
+  repository, and only existing ignored directories are linked; `.worktreeinclude` copies are APFS
+  clones where the volume allows (Q8).
+- Each space's window tree is restored when the space is first entered; sessions come back stopped
+  (Q9).
+- A dirty or unmerged worktree is removed only by the person, with `C-u x` in `worktree-cleanup` (or
+  `C-u M-x worktree-remove`) after typing `yes`; the uncommitted state is kept as unreachable objects
+  for git's two weeks; agents and the plain command still refuse (Q10).
+- The removal question offers `git branch -d`; an unmerged branch is kept and listed, and `-D` runs
+  only from `worktree-cleanup` after naming its commits; agents never delete a branch (Q11).
+
 ## Changes to accepted ADRs
 
-To be filled when the author has answered; expected, for ADR 0121:
+Each passage stays in its ADR as written; what holds now follows it. All of it is for [ADR
+0121](0121-agent-sessions-and-spaces.md), and none of it changes what ADR 0121's own steps build
+(see Steps).
 
-- "Every `git` and `gh` call runs … a time limit of 10 s each, and nothing fetched": creating a
-  worktree may fetch its base, and its fetch and `git worktree add` have no time limit, with cancel.
-- "`session-worktree` … asks for a branch … and a brief": it is `worktree-create`'s menu with its
-  defaults.
-- "runs `git worktree remove PATH`, never `--force`. It never deletes the branch": the person's
-  `C-u` removal passes `--force` after typing `yes`; the person may delete the branch (`-d`, and `-D`
-  from `worktree-cleanup`). Agents keep the old rule.
-- "`--settings`" carries the `statusLine` as well as the steering hook, each only when the person
-  turned it on.
-- "Preset layouts wait": the grid is one.
-- "Each space keeps its own window tree": it is saved across restarts too.
+- "Every `git` and `gh` call runs on a worker, through `oso-platform::process`, with
+  `GIT_TERMINAL_PROMPT=0`, a time limit of 10 s each, and nothing fetched": `worktree-create` may
+  fetch its base (a remote branch, a pull request, a revision not yet local), and its fetch and `git
+  worktree add` have no time limit; they show the elapsed time and `k` cancels them. Every other
+  call keeps the rule.
+- "`session-worktree` (`Person`, `C-x a w`) asks for a branch (completing local branches; a new one
+  starts at `HEAD`, or at a base given with a prefix argument) and a brief": `C-x a w` is
+  `worktree-create`, a menu whose defaults make the same worktree with `RET`; `session-worktree` is
+  that menu with its defaults. Creating runs as a background job with retry and cancel.
+- "Then it stops the idle sessions in it, closes its space, and runs `git worktree remove PATH`,
+  never `--force`. **It never deletes the branch.**": still so for agents and for the plain
+  `worktree-remove`. The person's `C-u x` in `worktree-cleanup`, or `C-u M-x worktree-remove`, may
+  remove a worktree that fails check 2 or 5, after typing `yes`, with `git worktree remove --force
+  PATH`, the uncommitted state kept as unreachable objects first. The removal question offers `git
+  branch -d`; `git branch -D` runs only from `worktree-cleanup` after naming the commits it loses.
+- "`C-x a j` `space-switch`": `C-x a j` is `jump-anywhere`; `space-switch` stays as a command, the
+  jump filtered to spaces. New keys: `C-x a B` the board, `C-x a g` the grid, `C-x a k`
+  `worktree-cleanup`.
+- "gets, through `--settings`, a `PreToolUse` hook for `EnterWorktree` and `Bash`": the same
+  `--settings` also carries a `statusLine` whose command is `oso statusline`, when the person sets
+  `[sessions] usage = true`. Each is off until the person turns it on; nothing is written into Claude
+  Code's settings files.
+- "Preset layouts wait": `session-grid` is one preset; others still wait.
+- "`space-switch` saves the frame's window tree in the space it leaves and shows the one it enters,
+  as a tab would. A space entered for the first time shows its last session beside the last file
+  buffer of that project": each space's window tree is also saved in the `sessions` file (buffers by
+  path, sessions by id, no text), and a space entered for the first time after a start of oso shows
+  its saved tree; one with no saved tree shows as before. Nothing starts by itself.
+- "for each, the id, name, directory, space, parent, pin and archive marks, and when it last changed
+  state. No screen text and no transcript text": the file also holds each space's window tree as
+  above, and still no screen or transcript text.
 
 ## Consequences
 

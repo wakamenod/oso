@@ -1,6 +1,6 @@
 # 0121. Agent sessions and spaces
 
-- Status: Accepted
+- Status: Accepted, amended by 0126
 - Date: 2026-11-12
 
 ## Context
