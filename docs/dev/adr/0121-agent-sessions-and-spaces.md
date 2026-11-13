@@ -920,6 +920,82 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
 
   The tracker already takes seen and the call's answer.
 
+## Step 4, as built
+
+Step 4 was built on 2026-11-13, on step 1's code and before step 3. The author answered its
+questions through the coordinator, (a) for each, and the coordinator approved these points:
+
+- **No hook of the repository runs, `git worktree add` included (the author's choice).** Every
+  git run for worktrees is ADR 0122's runner: `core.hooksPath` an empty private directory,
+  `core.fsmonitor=false`, `GIT_TERMINAL_PROMPT=0`, output bounded, 10 s. This differs from
+  "`git worktree add` runs the repository's hooks" above. An agent that can write files could
+  plant a hook that runs outside its sandbox. Clean and smudge filters still run. A setup the
+  repository does in `post-checkout` is the person's to run in the worktree's terminal. Worktrees
+  still need a trusted project: git writes there, and runs the filters the repository's
+  configuration names (ADR 0011).
+- **`worktree-list` is `Person`, not `Look` (the author's choice):** it runs git and `gh`. Step
+  6's `worktree_list` tool stays a read-only channel method, as decided above.
+- **The shared-directory warning is the y/n question** "Another session runs in this directory.
+  A worktree keeps their changes apart (C-x a w). Start here anyway?", not `w` and `RET`. `y`
+  runs `session-start-shared`. The hosted table is checked on the UI thread, and the registry on
+  the start thread. A resume is not checked, as it is the same session.
+- **A branch with no commit of its own is not merged** (the author's choice), so a fresh,
+  clean worktree is refused by check 5. ADR 0126's `C-u` removal is for that case.
+- **"Busy" in check 4:** a hosted session in the worktree counts as busy unless its state is
+  idle or done *and* the registry's `status` is `idle`. A rule for the TUI's background-task
+  footer comes when a screen showing it is saved for `session-explain-file`. Until step 3 gives
+  hosted sessions their states, every running hosted session counts as busy.
+- **The squash test.** "A merged pull request whose merge commit contains the tip" is read as
+  "whose head commit is the tip, or a commit here that the tip leads to". With nothing fetched,
+  a squash's merge commit never contains the tip.
+  - `gh pr list --repo HOST/OWNER/REPO --head B --state merged --json number,headRefOid,baseRefName`
+    names the repository from the first remote whose address is a GitHub one, `origin` first.
+  - The base must be `main`, `master`, `develop` or the branch the remote's `HEAD` points to.
+- **`gh` runs in the empty private directory,** so it never runs git in the repository. It
+  takes `GH_TOKEN`, `GITHUB_TOKEN`, `GH_HOST`, `GH_CONFIG_DIR`, the enterprise tokens,
+  `XDG_CONFIG_HOME`, the proxy variables and `SSL_CERT_FILE`/`SSL_CERT_DIR` by name. It is told
+  `GH_PROMPT_DISABLED=1`, the two update notifiers off, no spinner and `NO_COLOR`. It has 10 s
+  and 256 KiB.
+- **A linked worktree is run in only after its claim is checked,** as ADR 0114's detection
+  checks one (`project::linked_worktree`). Git then gets `GIT_DIR` and `GIT_WORK_TREE`, so it
+  looks for no repository. A worktree whose claim fails is listed, but nothing runs in it.
+- **`.worktreeinclude`:**
+  - The patterns are read without following a link, at most 64 KiB and 1,000 patterns, and
+    compiled with the `ignore` crate.
+  - "Ignored by git" is `git ls-files --others --ignored --exclude-standard --directory`. An
+    ignored directory listed whole is copied when it matches. Otherwise it is searched, after
+    the listed files, at most 100,000 entries and 64 levels deep, skipping nested repositories.
+  - Each file is created new in the worktree, and the directories leading to it are made or
+    opened, all without following a link. So a link the checkout holds never takes a copy
+    outside it.
+  - The caps are 1,000 files and 256 MiB, counted as copied. Setuid, setgid and sticky bits
+    are dropped.
+- **`oso-platform` gained `Directory::create_directory(&self, name: &OsStr) ->
+  io::Result<Option<Directory>>` and `Directory::create_file(&self, name: &OsStr, mode: u32) ->
+  io::Result<File>`,** with 2 `unsafe` blocks on Unix (`mkdirat`, `openat` with
+  `O_CREAT|O_EXCL|O_NOFOLLOW`), each with its `// SAFETY:` comment.
+- **`.claude/worktrees` is made or opened without following a link, and must be the person's,**
+  so a repository cannot send a worktree outside itself through a link there.
+- **The jobs** run on `oso-sessions-git`, at most 2 threads, started when a job waits and ended
+  after 30 s with none. The app hands jobs to this pool directly, beside the sessions worker,
+  not through it: the worker's rules never wait on git.
+- **`*Brief*` is withheld from agents** (the author's choice), as `*Session explain*` is. An
+  agent cannot read or rewrite the person's brief before `C-c C-c` sends it.
+- **The steering hook's reason** names `session-worktree (C-x a w)` until step 6 gives agents
+  `start_worktree_session`. `[sessions] steer_worktrees` puts it into the session's
+  `--settings`, which is built from parts, so ADR 0126's `statusLine` can join it. `oso hook
+  deny-worktree` reads at most 64 KiB of standard input and always exits 0. It allows what it
+  cannot read: it steers, and is no boundary.
+- **`oso-core` gained** `SessionRequest::{Worktree { branch, base }, SendBrief(BufferId),
+  CancelBrief(BufferId), WorktreeList, WorktreeRemove(Option<PathBuf>), WorktreeRemoveConfirmed,
+  StartShared}`, `ArgSpec::BranchAndBaseOnPrefix { prompt, base_prompt, history }`,
+  `Ctx::branch_and_base(&self) -> Option<(&str, Option<&str>)>` and `Mode::{Brief, Worktrees}`.
+  The dispatcher waits for the project's branches, which the pool lists, before the branch
+  prompt opens, as it waits for the clipboard.
+- **Left to step 3 and ADR 0120's terminal:** the space a worktree session opens and its
+  removal closes, the list's space column, live states in check 4 and the list, stopping a
+  worktree's idle sessions before it is removed, and the end-to-end flows.
+
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

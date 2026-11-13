@@ -1,7 +1,7 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
 //! argument's, the layer `C-x TAB` opens, a prompt's, a completion's or a question's, a jump's,
 //! isearch's, a mode's, the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082,
-//! ADR 0108, ADR 0115, ADR 0116).
+//! ADR 0108, ADR 0115, ADR 0116, ADR 0121).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
@@ -48,6 +48,9 @@ pub(super) struct Keymaps {
     pub(super) rigid_commands: Vec<CommandId>,
     /// Markdown's own keys, above the global ones in a Markdown buffer.
     pub(super) markdown: Keymap,
+    /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
+    /// (ADR 0121).
+    pub(super) worktrees: [Keymap; 2],
 }
 
 impl Keymaps {
@@ -71,12 +74,13 @@ impl Keymaps {
             rigid: bindings::rigid_keymap(registry),
             rigid_commands: bindings::rigid_commands(registry),
             markdown: bindings::markdown_keymap(registry),
+            worktrees: bindings::worktree_keymaps(registry),
         }
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 14] {
+    pub(super) fn all(&self) -> [&Keymap; 16] {
         let Self {
             global,
             user,
@@ -91,10 +95,11 @@ impl Keymaps {
             rigid,
             rigid_commands: _,
             markdown,
+            worktrees: [brief, worktrees],
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            jump, replace, rigid, markdown,
+            jump, replace, rigid, markdown, brief, worktrees,
         ]
     }
 
@@ -146,6 +151,8 @@ impl Keymaps {
             match editor.current().1.mode() {
                 Mode::Fundamental | Mode::Rust | Mode::Toml => None,
                 Mode::Markdown => Some(&self.markdown),
+                Mode::Brief => Some(&self.worktrees[0]),
+                Mode::Worktrees => Some(&self.worktrees[1]),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
             }

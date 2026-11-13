@@ -196,6 +196,21 @@ impl Table {
         self.sessions.iter_mut().find(|session| session.key == key)
     }
 
+    /// Whether a session oso hosts runs, or is being started, in `directory`.
+    pub fn runs_in(&self, directory: &Path) -> bool {
+        self.sessions.iter().any(|session| {
+            session.runs() && oso_core::project::same_place(&session.directory, directory)
+        }) || self
+            .pending
+            .iter()
+            .any(|(_, pending, _)| oso_core::project::same_place(pending, directory))
+    }
+
+    /// The sessions, in the order they came.
+    pub fn all(&self) -> &[Hosted] {
+        &self.sessions
+    }
+
     /// The session whose terminal is `buffer`.
     pub fn by_buffer(&self, buffer: BufferId) -> Option<&Hosted> {
         self.sessions

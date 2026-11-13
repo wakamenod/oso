@@ -632,6 +632,18 @@ The UI thread never blocks on I/O or parsing:
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
   judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
   asks (`Event::Claims`).
+- Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`,
+  [ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 4) run as jobs on `oso-sessions-git`,
+  at most 2 threads, beside the sessions worker so that its rules never wait on git.
+  - The jobs list branches, make a worktree (`create.rs`: brief and hand-off facts, `git
+    worktree add`, `.worktreeinclude`'s copies), list worktrees row by row (`checks::look`,
+    rendered by `list.rs`), and check and remove one (`checks.rs`, `merged.rs`).
+  - Every git run is ADR 0122's runner (`review::git`); `gh` runs through its bounded
+    collector.
+  - What only the UI thread knows (unsaved buffers, unsent briefs, hosted sessions) goes with
+    each job as a `Snapshot`, and is checked again before the removal's question and its `y`.
+  - The dispatcher waits for the branches before `session-worktree`'s prompt opens, as it
+    waits for the clipboard (`dispatch/branches.rs`).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -687,7 +699,8 @@ read. See [ADR 0019](adr/0019-configuration.md).
 - `[sessions]` says how a hosted session's `claude` starts: `claude`, its absolute path, and
   `env`, the names of more variables a session takes from oso's environment; the start thread
   reads them as they are in force when the session starts
-  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 1).
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 1). `steer_worktrees` puts the
+  steering hook into a session's `--settings` (step 4).
 - Indentation ([ADR 0115](adr/0115-indentation.md)): each buffer has an indentation setting,
   property by property from the EditorConfig files that apply to it, then the configuration's
   `[modes.<mode>]`, then the defaults, and knows where each came from (`describe-indentation`).

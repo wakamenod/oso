@@ -126,6 +126,8 @@ pub enum UserEvent {
     Sessions(crate::sessions::worker::Out),
     /// A hosted session's start thread found something (ADR 0121).
     SessionStart(crate::sessions::start::Report),
+    /// A worktree job found something (ADR 0121 step 4).
+    Worktree(Box<crate::sessions::worktree::jobs::Report>),
     /// The thread that reads migemo's dictionary read it, or could not (ADR 0116).
     Migemo(Box<migemo::DictionaryRead>),
 }

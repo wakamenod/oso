@@ -42,6 +42,14 @@ use emergency::Emergency;
 
 const USAGE: &str = "usage: oso [--no-config] [FILE]";
 
+/// Runs `oso mcp`, the agent channel's bridge (ADR 0085), or `oso hook`, the hook a hosted
+/// session runs to steer Claude away from its own worktree tools (ADR 0121, Q15), when oso was
+/// started as one: its exit status. Neither opens a window.
+fn helper_if_requested(core_dumps_failed: Option<String>) -> Option<i32> {
+    channel::mcp::main_if_requested(core_dumps_failed)
+        .or_else(sessions::worktree::steer::main_if_requested)
+}
+
 fn main() {
     let started = std::time::Instant::now();
     // First of all, before any text can be here, also in `oso ctl`. A dump would hold every
@@ -49,7 +57,7 @@ fn main() {
     let core_dumps = oso_platform::privacy::disable_core_dumps();
     // The agent channel's bridge, in every build; it opens no window (ADR 0085).
     let core_dumps_failed = core_dumps.as_ref().err().map(ToString::to_string);
-    if let Some(status) = channel::mcp::main_if_requested(core_dumps_failed) {
+    if let Some(status) = helper_if_requested(core_dumps_failed) {
         std::process::exit(status);
     }
     #[cfg(feature = "dev")]

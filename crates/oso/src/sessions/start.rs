@@ -27,6 +27,7 @@ use super::command::{self, Line, SESSION_VARIABLE, Start};
 use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
 use super::registry;
+use super::worktree::steer;
 use crate::review::{self, Reviewer, TrustedRoot};
 
 /// The longest a session waits for its baseline before it starts (ADR 0122).
@@ -64,6 +65,13 @@ pub struct Order {
     pub claude: Option<PathBuf>,
     /// The shell `[terminal] shell` names, else the one found as ADR 0120 has it.
     pub shell: Option<PathBuf>,
+    /// The first prompt: a worktree session's brief with its header (ADR 0121 step 4).
+    pub brief: Option<String>,
+    /// `[sessions] steer_worktrees`: the session gets the hook that steers Claude away from
+    /// its own worktree tools.
+    pub steer_worktrees: bool,
+    /// Whether to ask first when another live session runs in the directory.
+    pub check_shared: bool,
 }
 
 /// What a session's terminal runs.
@@ -102,6 +110,8 @@ pub enum Report {
     Baseline { token: u64, tree: String },
     /// Two live processes have the id of the session started with `token`.
     Twice { token: u64 },
+    /// Another live session runs in the directory: nothing started, and the person is asked.
+    Shared { token: u64 },
 }
 
 /// Starts the thread for `order`; it calls `send` with each report. Refused at once if no
@@ -133,6 +143,9 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         Kind::Resume(id) => Some(id.clone()),
         Kind::New | Kind::Fork(_) => None,
     };
+    if order.check_shared && resumed.is_none() && runs_in(&order.directory) {
+        return send(Report::Shared { token });
+    }
     if let Some(id) = &resumed
         && let Some((pid, directory)) = live(id)
     {
@@ -195,13 +208,21 @@ fn launch_of(order: &Order, id: &SessionId) -> Result<Launch, String> {
         Kind::Resume(_) => Start::Resume { id },
         Kind::Fork(from) => Start::Fork { from, id },
     };
+    let settings = steer::settings(
+        &oso,
+        &steer::Parts {
+            steer_worktrees: order.steer_worktrees,
+        },
+    )
+    .map_err(|e| format!("The session did not start: {e}"))?;
     let line = Line {
         start,
         name: &order.name,
         oso: &oso,
         oso_pid: std::process::id(),
         system_prompt: None,
-        brief: None,
+        brief: order.brief.as_deref(),
+        settings: settings.as_deref(),
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
     let shell = shell(order.shell.as_deref())
@@ -228,6 +249,20 @@ fn live(id: &SessionId) -> Option<(u32, Option<PathBuf>)> {
     let entries = registry::read(&registry::directory()?);
     let live = registry::live_with(&entries, id, process::start_time);
     live.first().map(|entry| (entry.pid, entry.cwd.clone()))
+}
+
+/// Whether the registry has a live session whose directory is `directory`.
+fn runs_in(directory: &Path) -> bool {
+    let Some(dir) = registry::directory() else {
+        return false;
+    };
+    registry::read(&dir).iter().any(|entry| {
+        entry
+            .cwd
+            .as_deref()
+            .is_some_and(|cwd| oso_core::project::same_place(cwd, directory))
+            && registry::liveness(entry, process::start_time) != registry::Live::No
+    })
 }
 
 /// How many live processes the registry has for `id`.

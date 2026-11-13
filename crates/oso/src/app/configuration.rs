@@ -66,6 +66,12 @@ impl Configuration {
         self.in_force.sessions.claude.as_deref()
     }
 
+    /// `[sessions] steer_worktrees` in force: whether a session oso starts gets the hook that
+    /// steers Claude away from its own worktree tools (ADR 0121, Q15).
+    pub(super) fn steer_worktrees(&self) -> bool {
+        self.in_force.sessions.steer_worktrees
+    }
+
     /// `[sessions] env` in force: the variables a hosted session takes from oso's environment.
     #[expect(
         dead_code,

@@ -95,9 +95,10 @@ fn is_memory(_: &Clipboard) -> bool {
 }
 
 impl App {
-    /// Hands the clipboard what a command killed, and starts a read a yank waits for.
-    /// Returns what a yank did that was answered at once: with no clipboard, or for input
-    /// from the dev socket, which never reads the system's.
+    /// Hands the clipboard what a command killed, and starts a read a yank waits for, and the
+    /// listing of branches a command waits for. Returns what a yank did that was answered at
+    /// once: with no clipboard, or for input from the dev socket, which never reads the
+    /// system's, and what an answer to the branches did.
     pub(super) fn sync_clipboard(&mut self) -> Effects {
         self.write_clipboard();
         let mut effects = Effects::default();
@@ -115,6 +116,10 @@ impl App {
                     self.write_clipboard();
                 }
             }
+        }
+        // A command that reads a branch waits for them as a yank does (ADR 0121).
+        if self.dispatcher.take_branches_request() {
+            effects = effects.union(self.list_branches_for_prompt());
         }
         effects
     }

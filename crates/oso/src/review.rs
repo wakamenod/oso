@@ -30,7 +30,7 @@
 
 mod batch;
 mod diff;
-mod git;
+pub(crate) mod git;
 mod id;
 mod index;
 mod list;
@@ -92,6 +92,18 @@ impl TrustedRoot {
             path,
             identity,
             revoked: Arc::default(),
+        }
+    }
+
+    /// The same trust for `path`, a linked worktree a worktree job just made in this root's
+    /// repository, which belongs with it as ADR 0114 has it (ADR 0121). Its revocation is this
+    /// root's.
+    pub(crate) fn for_worktree(&self, path: PathBuf) -> TrustedRoot {
+        let identity = side::identity_of(&path);
+        TrustedRoot {
+            path,
+            identity,
+            revoked: Arc::clone(&self.revoked),
         }
     }
 

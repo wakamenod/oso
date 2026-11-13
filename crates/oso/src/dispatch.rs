@@ -23,6 +23,7 @@ use crate::{bindings, commands};
 
 mod agent;
 mod args;
+mod branches;
 mod buffers;
 pub use agent::{Unshowable, unshowable};
 pub use args::Given;
@@ -90,6 +91,8 @@ pub struct Dispatcher {
     publisher: Option<Publisher>,
     /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
     waiting: Option<clipboard::Waiting>,
+    /// A command waiting for the host to list the project's branches (ADR 0121).
+    branch_wait: Option<branches::BranchWait>,
     /// Keyboard macros: what a recording takes, and a replay's state here (ADR 0113).
     macros: macros::MacroInput,
     /// Input held while query-replace's `!` runs (ADR 0113), or an undo or a redo of a large
@@ -148,6 +151,7 @@ impl Dispatcher {
             last: None,
             publisher: None,
             waiting: None,
+            branch_wait: None,
             macros,
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
@@ -594,6 +598,8 @@ impl Dispatcher {
 }
 
 #[cfg(test)]
+mod branch_tests;
+#[cfg(test)]
 mod buffer_tests;
 #[cfg(test)]
 mod complete_tests;
@@ -653,6 +659,8 @@ mod status_tests;
 mod undo_tests;
 #[cfg(test)]
 mod user_tests;
+#[cfg(test)]
+mod worktree_tests;
 #[cfg(test)]
 mod wrap_tests;
 #[cfg(test)]

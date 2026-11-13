@@ -25,6 +25,10 @@ pub enum Mode {
     Markdown,
     /// TOML.
     Toml,
+    /// `*Brief*`, a worktree session's brief being written (ADR 0121).
+    Brief,
+    /// `*Worktrees*`, a repository's linked worktrees (ADR 0121).
+    Worktrees,
 }
 
 impl Mode {
@@ -61,6 +65,8 @@ impl Mode {
             Self::Rust => "Rust",
             Self::Markdown => "Markdown",
             Self::Toml => "TOML",
+            Self::Brief => "Brief",
+            Self::Worktrees => "Worktrees",
         }
     }
 
@@ -69,8 +75,8 @@ impl Mode {
         matches!(self, Self::CopyList | Self::CopyView)
     }
 
-    /// The rules its lines are indented by (ADR 0115), or none for the emergency copies'
-    /// buffers, whose text is not the person's to indent.
+    /// The rules its lines are indented by (ADR 0115), or none for the emergency copies' and
+    /// the worktrees' buffers, whose text is not the person's to indent. A brief is prose.
     #[expect(
         clippy::type_complexity,
         reason = "the rules' own signature, which naming would make a public item of its own"
@@ -80,8 +86,8 @@ impl Mode {
             Self::Rust => Some(indent::rust),
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
-            Self::Fundamental => Some(indent::fundamental),
-            Self::CopyList | Self::CopyView => None,
+            Self::Fundamental | Self::Brief => Some(indent::fundamental),
+            Self::CopyList | Self::CopyView | Self::Worktrees => None,
         }
     }
 }
@@ -104,11 +110,18 @@ mod tests {
     }
 
     #[test]
-    fn each_mode_but_the_copies_has_indentation_rules() {
-        let modes = [Mode::Rust, Mode::Toml, Mode::Markdown, Mode::Fundamental];
+    fn each_mode_but_the_listings_has_indentation_rules() {
+        let modes = [
+            Mode::Rust,
+            Mode::Toml,
+            Mode::Markdown,
+            Mode::Fundamental,
+            Mode::Brief,
+        ];
         assert!(modes.iter().all(|mode| mode.indent_rules().is_some()));
         assert!(Mode::CopyList.indent_rules().is_none());
         assert!(Mode::CopyView.indent_rules().is_none());
+        assert!(Mode::Worktrees.indent_rules().is_none());
     }
 
     #[test]

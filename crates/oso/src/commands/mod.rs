@@ -40,6 +40,7 @@ mod theme;
 mod view;
 mod whitespace;
 mod windows;
+mod worktrees;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;
@@ -104,6 +105,7 @@ const TABLES: &[&[Command]] = &[
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
+    worktrees::COMMANDS,
 ];
 
 /// Refuses a command that would change which buffer a window shows, while a prompt is
@@ -271,6 +273,14 @@ mod tests {
         "claude",
         "session-fork",
         "session-resume",
+        // Worktree sessions, which run git, gh and a session (ADR 0121).
+        "brief-cancel",
+        "brief-send",
+        "session-start-shared",
+        "session-worktree",
+        "worktree-list",
+        "worktree-remove",
+        "worktree-remove-confirmed",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

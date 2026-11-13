@@ -10,6 +10,7 @@ use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, SessionRequest};
 
 mod hosting;
+mod worktrees;
 pub(super) use hosting::Hosting;
 
 use super::{App, UserEvent, Waker};
@@ -51,6 +52,16 @@ impl App {
                 }
                 SessionRequest::Fork(buffer) => {
                     self.fork_session(buffer);
+                    continue;
+                }
+                SessionRequest::Worktree { .. }
+                | SessionRequest::SendBrief(_)
+                | SessionRequest::CancelBrief(_)
+                | SessionRequest::WorktreeList
+                | SessionRequest::WorktreeRemove(_)
+                | SessionRequest::WorktreeRemoveConfirmed
+                | SessionRequest::StartShared => {
+                    self.worktree_request(request);
                     continue;
                 }
             };

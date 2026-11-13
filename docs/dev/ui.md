@@ -696,16 +696,44 @@ a switch made with its command stands until that setting changes in the file
   its directory, and asks whether to fork instead. `session-fork` copies the conversation into a
   new session and buffer.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
+- `C-x a w` (`session-worktree`), in a trusted project, starts a session in a new git worktree.
+  - It reads a branch, completing the project's local branches; a new name is a new branch from
+    `HEAD`, or from a base that `C-u C-x a w` reads after it.
+  - The brief is written in `*Brief*`: `C-c C-c` sends it, `C-c C-k` drops it.
+  - The worktree goes in `.claude/worktrees/<branch's slug>`. The files that `.worktreeinclude`
+    names and git ignores, such as `.env`, are copied in.
+  - The session gets the brief as its first prompt, after a header that says where it is. From
+    a session's buffer, the brief also names that session to report back to, with its
+    transcript, plan files, uncommitted changes and the files it touched.
+- Starting a session where another one runs asks first: a worktree keeps their changes apart.
+- `M-x worktree-list` shows `*Worktrees*`: each linked worktree with its branch, uncommitted
+  and untracked files, whether its branch is merged and how that was found, its sessions and
+  unsaved buffers, and whether it can be removed. `g` lists again, and `D` removes the one at
+  point.
+- `M-x worktree-remove` removes the worktree of the selected buffer, or of the row at point,
+  only when nothing would be lost. Each of these must hold, checked in this order:
+  - it is a linked worktree of this repository;
+  - it has nothing uncommitted or untracked;
+  - no buffer in it is unsaved and no brief for it is unsent;
+  - no session in it is busy;
+  - its branch is merged, into a remote's main branch or through a merged pull request that
+    `gh` knows of.
+
+  It then asks, naming what git ignores there and will delete with it, such as `target/`. It
+  never uses `--force`, and the branch is kept.
 - `config.toml`:
 
   ```toml
   [sessions]
   claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
+  steer_worktrees = true             # sessions oso starts are steered to C-x a w
   ```
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
   `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
-  Code's own settings give it.
+  Code's own settings give it. With `steer_worktrees`, a session oso starts gets a hook that
+  denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-x a w`; nothing
+  is written into Claude Code's settings files.

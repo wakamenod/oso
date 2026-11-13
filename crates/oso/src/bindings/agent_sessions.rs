@@ -4,4 +4,8 @@
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 /// Key sequences and the commands they run.
-pub const BINDINGS: &[(&str, &str)] = &[("C-x a c", "claude"), ("C-x a r", "session-resume")];
+pub const BINDINGS: &[(&str, &str)] = &[
+    ("C-x a c", "claude"),
+    ("C-x a r", "session-resume"),
+    ("C-x a w", "session-worktree"),
+];

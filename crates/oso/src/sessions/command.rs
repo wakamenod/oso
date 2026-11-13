@@ -59,6 +59,9 @@ pub struct Line<'a> {
     pub system_prompt: Option<&'a str>,
     /// The first prompt, after `--` (ADR 0121 steps 4 and 6).
     pub brief: Option<&'a str>,
+    /// `--settings`, the JSON of a session's own settings: the hook that steers Claude away
+    /// from its worktree tools (ADR 0121, Q15), when the person turns it on.
+    pub settings: Option<&'a str>,
 }
 
 /// Why a command line cannot be built.
@@ -114,6 +117,9 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
     let config = mcp_config(line.oso, line.oso_pid, line.start.id())?;
     args.push(format!("--name={}", line.name).into());
     args.push(format!("--mcp-config={config}").into());
+    if let Some(settings) = line.settings {
+        args.push(format!("--settings={settings}").into());
+    }
     if let Some(prompt) = line.system_prompt {
         args.push(format!("--append-system-prompt={prompt}").into());
     }
@@ -129,7 +135,7 @@ mod tests {
     use std::ffi::OsString;
     use std::path::Path;
 
-    use super::{Line, SESSION_VARIABLE, Start, arguments, mcp_config};
+    use super::{Line, SESSION_VARIABLE, Start, arguments};
     use crate::sessions::identity::SessionId;
 
     fn id(n: u8) -> SessionId {
@@ -144,6 +150,7 @@ mod tests {
             oso_pid: 4242,
             system_prompt: None,
             brief: None,
+            settings: None,
         }
     }
 
@@ -208,6 +215,20 @@ mod tests {
     }
 
     #[test]
+    fn settings_go_before_the_end_of_the_options() {
+        let a = id(1);
+        let mut l = line(Start::New { id: &a });
+        l.settings = Some(r#"{"hooks":{}}"#);
+        l.brief = Some("go");
+        let args = strings(&arguments(&l).unwrap());
+        let settings = args
+            .iter()
+            .position(|arg| arg == r#"--settings={"hooks":{}}"#);
+        let end = args.iter().position(|arg| arg == "--").unwrap();
+        assert!(settings.is_some_and(|at| at < end));
+    }
+
+    #[test]
     fn only_these_options_are_ever_given() {
         let (old, new) = (id(1), id(2));
         let allowed = [
@@ -217,6 +238,7 @@ mod tests {
             "--name=",
             "--mcp-config=",
             "--append-system-prompt=",
+            "--settings=",
         ];
         for start in [
             Start::New { id: &new },
@@ -228,6 +250,7 @@ mod tests {
         ] {
             let mut l = line(start);
             l.system_prompt = Some("p");
+            l.settings = Some("{}");
             let args = strings(&arguments(&l).unwrap());
             for arg in &args {
                 assert!(
@@ -243,6 +266,6 @@ mod tests {
     fn a_path_that_is_not_utf8_is_refused() {
         use std::os::unix::ffi::OsStrExt;
         let path = Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/oso"));
-        assert!(mcp_config(path, 1, &id(1)).is_err());
+        assert!(super::mcp_config(path, 1, &id(1)).is_err());
     }
 }

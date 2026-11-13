@@ -41,6 +41,18 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// A branch of the current project, read in a prompt that says `prompt` and completes over
+    /// the project's local branches, which the host lists off the UI thread before the prompt
+    /// opens; a name that is none of them is taken as typed, a new branch. With a prefix
+    /// argument, a base is read after it, in a prompt that says `base_prompt`, completing over
+    /// the same branches and taking any revision. Both are kept in the history `history`. Only
+    /// keys give them: the agent channel runs such a command with neither. The command reads
+    /// them with [`Ctx::branch_and_base`](super::Ctx::branch_and_base).
+    BranchAndBaseOnPrefix {
+        prompt: &'static str,
+        base_prompt: &'static str,
+        history: &'static str,
+    },
     /// A passphrase, read in a prompt that says `prompt` and shows one `*` per character.
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`](super::Ctx::answer), and must not keep it.

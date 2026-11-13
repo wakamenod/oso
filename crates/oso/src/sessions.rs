@@ -19,6 +19,7 @@
 //! - `hosted`: the table of the sessions oso hosts.
 //! - `bridge`: whether a connection is a hosted session's bridge.
 //! - `start`: getting a session ready on a thread of its own.
+//! - `worktree`: worktree sessions, their briefs, the list and safe removal.
 
 pub mod bridge;
 pub mod command;
@@ -34,6 +35,7 @@ pub mod screen;
 pub mod start;
 pub mod state;
 pub mod worker;
+pub mod worktree;
 
 #[cfg(test)]
 mod fuzz_tests;

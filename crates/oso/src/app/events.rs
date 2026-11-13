@@ -74,6 +74,7 @@ impl App {
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
+            UserEvent::Worktree(report) => self.worktree_reported(event_loop, *report),
             // `after_event` looks at the deadlines.
             UserEvent::AgentDeadline => {}
         }

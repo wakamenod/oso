@@ -92,6 +92,30 @@ impl Directory {
         backend::open_directory(&self.inner, name).map(|inner| inner.map(|inner| Self { inner }))
     }
 
+    /// The directory `name` in this one, made if missing (mode 0o777 before the umask), and
+    /// opened from this one without following a link: `None` if `name` is something else (a
+    /// link, a file, a device). It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If `name` is not one entry's name, or it cannot be made or opened.
+    pub fn create_directory(&self, name: &OsStr) -> io::Result<Option<Self>> {
+        backend::create_directory(&self.inner, name).map(|inner| inner.map(|inner| Self { inner }))
+    }
+
+    /// A new regular file `name` in this one, created only if nothing is there (not even a
+    /// dangling link), never through a link, with `mode`'s permission bits (`mode & 0o777` on
+    /// Unix; ignored elsewhere), opened for writing. It touches the disk, so it belongs off the
+    /// UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If `name` is not one entry's name, something is there already (`AlreadyExists`), or it
+    /// cannot be created.
+    pub fn create_file(&self, name: &OsStr, mode: u32) -> io::Result<File> {
+        backend::create_file(&self.inner, name, mode)
+    }
+
     /// Its entries, `.` and `..` left out, each with what it is, not following it. A listing
     /// that fails once ends there. It touches the disk, so it belongs off the UI thread.
     ///

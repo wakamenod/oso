@@ -133,6 +133,37 @@ pub(super) fn open_directory(inner: &Inner, name: &OsStr) -> io::Result<Option<I
     open_at(inner.as_raw_fd(), &name, flags, &[libc::ENOTDIR])
 }
 
+pub(super) fn create_directory(inner: &Inner, name: &OsStr) -> io::Result<Option<Inner>> {
+    let c_name = c_name(name)?;
+    // SAFETY: `inner`'s descriptor is open for the call, and `c_name` is NUL-terminated and
+    // outlives it; nothing is written through either.
+    let made = unsafe { libc::mkdirat(inner.as_raw_fd(), c_name.as_ptr(), 0o777) };
+    if made != 0 {
+        let error = io::Error::last_os_error();
+        // Something is there already: it is opened below if it is a directory, not a link.
+        if error.raw_os_error() != Some(libc::EEXIST) {
+            return Err(error);
+        }
+    }
+    open_directory(inner, name)
+}
+
+pub(super) fn create_file(inner: &Inner, name: &OsStr, mode: u32) -> io::Result<File> {
+    let name = c_name(name)?;
+    // `O_EXCL` with `O_CREAT` refuses anything there, a dangling link too, and follows none.
+    let flags = libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let mode: libc::c_uint = mode & 0o777;
+    // SAFETY: `inner`'s descriptor is open for the call, `name` is NUL-terminated and outlives
+    // it, and `mode` is passed as the `unsigned int` the variadic argument is read as. The
+    // descriptor it returns, if it is one, is just opened and nothing else owns it, so the
+    // `File` made from it at once owns it.
+    let file = unsafe {
+        let opened = libc::openat(inner.as_raw_fd(), name.as_ptr(), flags, mode);
+        (opened >= 0).then(|| File::from_raw_fd(opened))
+    };
+    file.ok_or_else(io::Error::last_os_error)
+}
+
 pub(super) fn kind_of(inner: &Inner, name: &OsStr) -> io::Result<EntryKind> {
     let stat = stat_at(inner.as_raw_fd(), &c_name(name)?)?;
     Ok(kind_of_mode(stat.st_mode))

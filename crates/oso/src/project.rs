@@ -270,6 +270,26 @@ fn check_main(
     Some(found(main, &after, None).root)
 }
 
+/// The worktree's own directory in `main`'s repository, `<main>/.git/worktrees/<name>`, if the
+/// directory at `root` is a linked worktree of `main` as [`detect`] checks one: its `.git` is a
+/// file, not a link, whose words name `main`, and `main` records this worktree back. `main` is
+/// a trusted root, so only paths under it are looked up (ADR 0121, `worktree-list`). It touches
+/// the disk, so it belongs off the UI thread.
+pub(crate) fn linked_worktree(main: &Path, root: &Path) -> Option<PathBuf> {
+    let git = fs::symlink_metadata(root.join(".git")).ok()?;
+    if !git.is_file() {
+        return None;
+    }
+    let git_file = read_short(&root.join(".git")).ok()?;
+    let claim = worktree_claim(root, &git_file)?;
+    if !same_place(main, &claim) {
+        return None;
+    }
+    check_main(root, &git_file, &claim, &[main.to_owned()])?;
+    let name = worktree_entry(root, &git_file)?.file_name()?.to_owned();
+    Some(main.join(".git").join("worktrees").join(name))
+}
+
 /// At most one byte more than [`MAX_GIT_FILE`] of a short file git writes, so that a longer one
 /// is refused by its parser, never waiting on a pipe or a device. The file read must be the
 /// one at `path` after the read, and no link.

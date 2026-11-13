@@ -48,6 +48,9 @@ pub struct Sessions {
     pub claude: Option<std::path::PathBuf>,
     /// `env`: the names of more variables a session takes from oso's environment.
     pub env: Vec<String>,
+    /// `steer_worktrees`: a session oso starts gets a hook that denies Claude's own worktree
+    /// tools and points it to `session-worktree` (ADR 0121, Q15). Off unless set.
+    pub steer_worktrees: bool,
 }
 
 /// The most names `[sessions] env` takes.
@@ -283,6 +286,11 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
         match name.get_ref().as_ref() {
             "claude" => sessions.claude = claude_path(value, found),
             "env" => sessions.env = env_names(value, found),
+            "steer_worktrees" => {
+                if let Some(on) = switch(value, "[sessions]", "steer_worktrees", found) {
+                    sessions.steer_worktrees = on;
+                }
+            }
             other => unknown(found, name.span().start, other, "[sessions]"),
         }
     }

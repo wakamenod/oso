@@ -25,6 +25,26 @@ pub enum SessionRequest {
     /// Copy the conversation of the session whose terminal is this buffer under a new id, in a
     /// new buffer (`session-fork`).
     Fork(BufferId),
+    /// Open `*Brief*` for a new worktree session on `branch`, a new one starting at `base`
+    /// (`session-worktree`).
+    Worktree {
+        branch: String,
+        base: Option<String>,
+    },
+    /// Send the brief in this `*Brief*` buffer: make the worktree and start its session
+    /// (`brief-send`, `C-c C-c`).
+    SendBrief(BufferId),
+    /// Drop this `*Brief*` buffer unsent (`brief-cancel`, `C-c C-k`).
+    CancelBrief(BufferId),
+    /// List the selected project's linked worktrees in `*Worktrees*` (`worktree-list`).
+    WorktreeList,
+    /// Remove a linked worktree once every check holds: this directory, else the row at point
+    /// in `*Worktrees*`, else the selected buffer's worktree (`worktree-remove`).
+    WorktreeRemove(Option<PathBuf>),
+    /// The person's `y` to the removal's question (`worktree-remove-confirmed`).
+    WorktreeRemoveConfirmed,
+    /// The person's `y` to "another session runs in this directory" (`session-start-shared`).
+    StartShared,
 }
 
 impl Editor {
