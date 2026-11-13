@@ -2,7 +2,7 @@
 //! first, whose test holds over its region gives the verdict, and what matched is kept for
 //! `session-explain`.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; plain functions over text, run on the
+//! Must not depend on: `app` or `dispatch`; plain functions over text, run on the
 //! sessions worker and never on the UI thread.
 //!
 //! Each region's text is built once per evaluation, with its lower-case copy for `contains`.

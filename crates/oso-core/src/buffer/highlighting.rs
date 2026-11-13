@@ -209,7 +209,9 @@ impl Buffer {
     fn may_highlight(&self) -> bool {
         let language = match self.mode {
             Mode::Rust | Mode::Markdown | Mode::Toml => true,
-            Mode::Fundamental | Mode::CopyList | Mode::CopyView | Mode::Review => false,
+            Mode::Fundamental | Mode::CopyList | Mode::CopyView | Mode::Review | Mode::Terminal => {
+                false
+            }
         };
         language && !self.internal && !self.is_secret()
     }

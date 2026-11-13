@@ -12,10 +12,25 @@ impl core::fmt::Debug for oso_render::theme::Kind
 pub fn oso_render::theme::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_render::theme::Kind
 impl core::marker::StructuralPartialEq for oso_render::theme::Kind
+pub struct oso_render::theme::TerminalPalette
+pub oso_render::theme::TerminalPalette::ansi: [[u8; 3]; 16]
+pub oso_render::theme::TerminalPalette::background: [u8; 3]
+pub oso_render::theme::TerminalPalette::cursor: [u8; 3]
+pub oso_render::theme::TerminalPalette::foreground: [u8; 3]
+impl core::clone::Clone for oso_render::theme::TerminalPalette
+pub fn oso_render::theme::TerminalPalette::clone(&self) -> oso_render::theme::TerminalPalette
+impl core::cmp::Eq for oso_render::theme::TerminalPalette
+impl core::cmp::PartialEq for oso_render::theme::TerminalPalette
+pub fn oso_render::theme::TerminalPalette::eq(&self, &oso_render::theme::TerminalPalette) -> bool
+impl core::fmt::Debug for oso_render::theme::TerminalPalette
+pub fn oso_render::theme::TerminalPalette::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::theme::TerminalPalette
+impl core::marker::StructuralPartialEq for oso_render::theme::TerminalPalette
 pub struct oso_render::theme::Theme
 impl oso_render::theme::Theme
 pub fn oso_render::theme::Theme::kind(&self) -> oso_render::theme::Kind
 pub fn oso_render::theme::Theme::name(&self) -> &'static str
+pub fn oso_render::theme::Theme::terminal_palette(&self) -> oso_render::theme::TerminalPalette
 impl core::clone::Clone for oso_render::theme::Theme
 pub fn oso_render::theme::Theme::clone(&self) -> oso_render::theme::Theme
 impl core::cmp::PartialEq for oso_render::theme::Theme
@@ -101,6 +116,22 @@ pub oso_render::Face::SyntaxMarkup
 pub oso_render::Face::SyntaxProperty
 pub oso_render::Face::SyntaxString
 pub oso_render::Face::SyntaxType
+pub oso_render::Face::TerminalColor0
+pub oso_render::Face::TerminalColor1
+pub oso_render::Face::TerminalColor10
+pub oso_render::Face::TerminalColor11
+pub oso_render::Face::TerminalColor12
+pub oso_render::Face::TerminalColor13
+pub oso_render::Face::TerminalColor14
+pub oso_render::Face::TerminalColor15
+pub oso_render::Face::TerminalColor2
+pub oso_render::Face::TerminalColor3
+pub oso_render::Face::TerminalColor4
+pub oso_render::Face::TerminalColor5
+pub oso_render::Face::TerminalColor6
+pub oso_render::Face::TerminalColor7
+pub oso_render::Face::TerminalColor8
+pub oso_render::Face::TerminalColor9
 pub oso_render::Face::Text
 pub oso_render::Face::TrailingWhitespace
 pub oso_render::Face::Warning
@@ -117,8 +148,35 @@ impl core::fmt::Debug for oso_render::Face
 pub fn oso_render::Face::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_render::Face
 impl core::marker::StructuralPartialEq for oso_render::Face
+pub enum oso_render::GridColor
+pub oso_render::GridColor::Default
+pub oso_render::GridColor::Face(oso_render::Face)
+pub oso_render::GridColor::Rgb([u8; 3])
+impl core::clone::Clone for oso_render::GridColor
+pub fn oso_render::GridColor::clone(&self) -> oso_render::GridColor
+impl core::cmp::Eq for oso_render::GridColor
+impl core::cmp::PartialEq for oso_render::GridColor
+pub fn oso_render::GridColor::eq(&self, &oso_render::GridColor) -> bool
+impl core::fmt::Debug for oso_render::GridColor
+pub fn oso_render::GridColor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::GridColor
+impl core::marker::StructuralPartialEq for oso_render::GridColor
+pub enum oso_render::GridCursorShape
+pub oso_render::GridCursorShape::Bar
+pub oso_render::GridCursorShape::Block
+pub oso_render::GridCursorShape::Underline
+impl core::clone::Clone for oso_render::GridCursorShape
+pub fn oso_render::GridCursorShape::clone(&self) -> oso_render::GridCursorShape
+impl core::cmp::Eq for oso_render::GridCursorShape
+impl core::cmp::PartialEq for oso_render::GridCursorShape
+pub fn oso_render::GridCursorShape::eq(&self, &oso_render::GridCursorShape) -> bool
+impl core::fmt::Debug for oso_render::GridCursorShape
+pub fn oso_render::GridCursorShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::GridCursorShape
+impl core::marker::StructuralPartialEq for oso_render::GridCursorShape
 pub enum oso_render::PaneContent<'a>
 pub oso_render::PaneContent::Divider
+pub oso_render::PaneContent::Grid(oso_render::GridView<'a>)
 pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
 pub oso_render::PaneContent::Masked(oso_render::Masked<'a>)
 pub oso_render::PaneContent::Text(oso_render::TextView<'a>)
@@ -200,6 +258,74 @@ pub fn oso_render::GpuInfo::eq(&self, &oso_render::GpuInfo) -> bool
 impl core::fmt::Debug for oso_render::GpuInfo
 pub fn oso_render::GpuInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_render::GpuInfo
+pub struct oso_render::GridCell
+pub oso_render::GridCell::bg: oso_render::GridColor
+pub oso_render::GridCell::ch: char
+pub oso_render::GridCell::fg: oso_render::GridColor
+pub oso_render::GridCell::style: oso_render::GridStyle
+pub oso_render::GridCell::underline_color: oso_render::GridColor
+impl core::clone::Clone for oso_render::GridCell
+pub fn oso_render::GridCell::clone(&self) -> oso_render::GridCell
+impl core::cmp::Eq for oso_render::GridCell
+impl core::cmp::PartialEq for oso_render::GridCell
+pub fn oso_render::GridCell::eq(&self, &oso_render::GridCell) -> bool
+impl core::fmt::Debug for oso_render::GridCell
+pub fn oso_render::GridCell::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::GridCell
+impl core::marker::StructuralPartialEq for oso_render::GridCell
+pub struct oso_render::GridCursor
+pub oso_render::GridCursor::column: u16
+pub oso_render::GridCursor::hollow: bool
+pub oso_render::GridCursor::row: u16
+pub oso_render::GridCursor::shape: oso_render::GridCursorShape
+impl core::clone::Clone for oso_render::GridCursor
+pub fn oso_render::GridCursor::clone(&self) -> oso_render::GridCursor
+impl core::cmp::Eq for oso_render::GridCursor
+impl core::cmp::PartialEq for oso_render::GridCursor
+pub fn oso_render::GridCursor::eq(&self, &oso_render::GridCursor) -> bool
+impl core::fmt::Debug for oso_render::GridCursor
+pub fn oso_render::GridCursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::GridCursor
+impl core::marker::StructuralPartialEq for oso_render::GridCursor
+pub struct oso_render::GridRow<'a>
+pub oso_render::GridRow::cells: &'a [oso_render::GridCell]
+pub oso_render::GridRow::generation: u64
+pub oso_render::GridRow::graphemes: &'a [(u16, core::ops::range::Range<u32>)]
+pub oso_render::GridRow::text: &'a str
+pub struct oso_render::GridStyle(_)
+impl oso_render::GridStyle
+pub const oso_render::GridStyle::BOLD: Self
+pub const oso_render::GridStyle::DIM: Self
+pub const oso_render::GridStyle::DOUBLE_UNDERLINE: Self
+pub const oso_render::GridStyle::GRAPHEME: Self
+pub const oso_render::GridStyle::HIDDEN: Self
+pub const oso_render::GridStyle::INVERSE: Self
+pub const oso_render::GridStyle::ITALIC: Self
+pub const oso_render::GridStyle::STRIKE: Self
+pub const oso_render::GridStyle::UNDERLINE: Self
+pub const oso_render::GridStyle::WIDE: Self
+pub const oso_render::GridStyle::WIDE_SPACER: Self
+pub const fn oso_render::GridStyle::contains(self, Self) -> bool
+pub const fn oso_render::GridStyle::with(self, Self) -> Self
+impl core::clone::Clone for oso_render::GridStyle
+pub fn oso_render::GridStyle::clone(&self) -> oso_render::GridStyle
+impl core::cmp::Eq for oso_render::GridStyle
+impl core::cmp::PartialEq for oso_render::GridStyle
+pub fn oso_render::GridStyle::eq(&self, &oso_render::GridStyle) -> bool
+impl core::default::Default for oso_render::GridStyle
+pub fn oso_render::GridStyle::default() -> oso_render::GridStyle
+impl core::fmt::Debug for oso_render::GridStyle
+pub fn oso_render::GridStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_render::GridStyle
+pub fn oso_render::GridStyle::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_render::GridStyle
+impl core::marker::StructuralPartialEq for oso_render::GridStyle
+pub struct oso_render::GridView<'a>
+pub oso_render::GridView::cursor: core::option::Option<oso_render::GridCursor>
+pub oso_render::GridView::id: u64
+pub oso_render::GridView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
+pub oso_render::GridView::preedit_at: (u16, u16)
+pub oso_render::GridView::rows: &'a [oso_render::GridRow<'a>]
 pub struct oso_render::Image
 pub oso_render::Image::height: u32
 pub oso_render::Image::rgba: alloc::vec::Vec<u8>

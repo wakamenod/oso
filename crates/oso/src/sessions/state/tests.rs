@@ -1,6 +1,6 @@
 //! The tracker's transitions, with instants made up for each step.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 
 use std::time::{Duration, Instant};

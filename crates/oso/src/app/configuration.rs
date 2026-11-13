@@ -54,6 +54,11 @@ impl Configuration {
         }
     }
 
+    /// `[terminal]` in force, for the next terminal started (ADR 0120).
+    pub(super) fn terminal(&self) -> &crate::config::Terminal {
+        &self.in_force.terminal
+    }
+
     /// The configuration's default theme in force: the one remembered with the theme shown
     /// last, until a look applies the file's.
     pub(super) fn default_theme(&self) -> &str {

@@ -44,7 +44,7 @@ mod table {
             match judge(effect) {
                 Verdict::Reply(bytes) => replies.extend(bytes),
                 Verdict::Event(event) => events.push(event),
-                Verdict::Drop => {}
+                Verdict::Hold(_) | Verdict::Drop => {}
             }
         }
         (replies, events)
@@ -430,6 +430,43 @@ mod table {
         ] {
             assert!(!super::super::allowed_reply(bad), "{bad:?}");
         }
+    }
+
+    /// Synchronized updates (2026) are allowed: their beginning and end reach the thread,
+    /// which holds snapshots meanwhile, and DECRQM still reports the mode.
+    #[test]
+    fn synchronized_updates_are_allowed() {
+        let mut e = engine(80, 24);
+        let judged = |e: &mut Ghostty, bytes: &[u8]| {
+            e.feed(bytes);
+            let mut effects = Vec::new();
+            e.take_effects(&mut effects);
+            effects.into_iter().map(judge).collect::<Vec<_>>()
+        };
+        let verdicts = judged(&mut e, b"\x1b[?2026h\x1b[?2026$p");
+        assert!(
+            matches!(&verdicts[..], [Verdict::Reply(r), Verdict::Hold(true)] if r == b"\x1b[?2026;1$y"),
+            "{verdicts:?}"
+        );
+        let verdicts = judged(&mut e, b"\x1b[?2026l\x1b[?2026$p");
+        assert!(
+            matches!(&verdicts[..], [Verdict::Reply(r), Verdict::Hold(false)] if r == b"\x1b[?2026;2$y"),
+            "{verdicts:?}"
+        );
+        // Toggled many times, a hold costs at most an end and a beginning per take.
+        let toggles = b"\x1b[?2026h\x1b[?2026l".repeat(10_000);
+        let verdicts = judged(&mut e, &[&toggles[..], b"\x1b[?2026h"].concat());
+        assert!(
+            matches!(&verdicts[..], [Verdict::Hold(false), Verdict::Hold(true)]),
+            "{verdicts:?}"
+        );
+        // A resize ends a hold.
+        e.resize(size(40, 10));
+        let verdicts = judged(&mut e, b"");
+        assert!(
+            matches!(&verdicts[..], [Verdict::Hold(false)]),
+            "{verdicts:?}"
+        );
     }
 
     #[test]

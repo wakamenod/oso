@@ -175,6 +175,49 @@ fn structs_match_the_manifest() {
 }
 
 #[test]
+fn scroll_and_key_structs_match_the_manifest() {
+    let t = types();
+    check_struct::<ffi::Scrollbar>(
+        &t,
+        "GhosttyTerminalScrollbar",
+        &[
+            ("total", offset_of!(ffi::Scrollbar, total)),
+            ("offset", offset_of!(ffi::Scrollbar, offset)),
+            ("len", offset_of!(ffi::Scrollbar, len)),
+        ],
+    );
+    check_struct::<ffi::ScrollViewport>(
+        &t,
+        "GhosttyTerminalScrollViewport",
+        &[
+            ("tag", offset_of!(ffi::ScrollViewport, tag)),
+            ("value", offset_of!(ffi::ScrollViewport, value)),
+        ],
+    );
+    let value = &t["GhosttyTerminalScrollViewportValue"];
+    assert_eq!(
+        number(&value["size"]),
+        size_of::<ffi::ScrollViewportValue>() as u64
+    );
+    assert_eq!(
+        number(&value["align"]),
+        align_of::<ffi::ScrollViewportValue>() as u64
+    );
+    // The key event's text is a `GhosttyString` under a type of oso's own.
+    check_struct::<ffi::KeyText>(
+        &t,
+        "GhosttyString",
+        &[
+            ("ptr", offset_of!(ffi::KeyText, ptr)),
+            ("len", offset_of!(ffi::KeyText, len)),
+        ],
+    );
+    assert_eq!(t["GhosttyMods"]["size"], 2, "GhosttyMods is a uint16_t");
+    assert_eq!(t["GhosttyKeyEncoder"]["kind"], "opaque");
+    assert_eq!(t["GhosttyKeyEvent"]["kind"], "opaque");
+}
+
+#[test]
 #[expect(clippy::too_many_lines, reason = "one line per declaration checked")]
 fn callback_structs_match_the_manifest() {
     let t = types();
@@ -288,7 +331,7 @@ fn callback_structs_match_the_manifest() {
 #[test]
 fn callbacks_match_the_manifest() {
     let t = types();
-    let callbacks: [(&str, usize, &str); 11] = [
+    let callbacks: [(&str, usize, &str); 12] = [
         ("GhosttyTerminalWritePtyFn", 4, "void"),
         ("GhosttyTerminalBellFn", 2, "void"),
         ("GhosttyTerminalXtversionFn", 2, "GhosttyString"),
@@ -300,6 +343,7 @@ fn callbacks_match_the_manifest() {
         ("GhosttyTerminalProgressReportFn", 3, "void"),
         ("GhosttyTerminalSemanticPromptFn", 3, "void"),
         ("GhosttyTerminalUnknownSequenceFn", 3, "void"),
+        ("GhosttyTerminalRenderHoldFn", 3, "void"),
     ];
     for (name, params, result) in callbacks {
         let ty = &t[name];

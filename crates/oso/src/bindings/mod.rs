@@ -29,6 +29,7 @@ mod review;
 mod save;
 mod scroll;
 mod session;
+mod terminal;
 mod theme;
 mod view;
 mod windows;
@@ -202,6 +203,12 @@ pub fn markdown_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, markdown::MARKDOWN).unwrap_or_default()
 }
 
+/// A terminal's own keymap, above the global one in a terminal's buffer (ADR 0120). Empty for
+/// a registry without its commands, as in tests that bring their own.
+pub fn terminal_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, terminal::TERMINAL).unwrap_or_default()
+}
+
 /// The commands the layer of `C-x TAB` runs rather than closes for.
 pub fn rigid_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
     indent::RIGID
@@ -223,7 +230,7 @@ mod tests {
     use super::{
         TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
         jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
-        recovery, recovery_keymaps, rigid_commands, rigid_keymap,
+        recovery, recovery_keymaps, rigid_commands, rigid_keymap, terminal, terminal_keymap,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -263,6 +270,19 @@ mod tests {
         assert_eq!(rigid_keymap(&registry).len(), indent::RIGID.len());
         assert_eq!(markdown_keymap(&registry).len(), markdown::MARKDOWN.len());
         assert_eq!(rigid_commands(&registry).len(), indent::RIGID.len());
+    }
+
+    #[test]
+    fn the_terminal_keymap_binds_all_its_rows() {
+        let registry = commands::registry();
+        let keymap = terminal_keymap(&registry);
+        for (keys, name) in terminal::TERMINAL {
+            let keys: KeySequence = keys.parse().unwrap();
+            let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
+                panic!("{keys} is not bound to a command");
+            };
+            assert_eq!(registry.get(id).unwrap().name, *name);
+        }
     }
 
     #[test]

@@ -95,9 +95,10 @@ pub fn export(
     let mut buffers = Vec::new();
     // A file the agent channel is still opening goes with its open: the next instance would
     // hold it as an ordinary buffer, unchecked (ADR 0094).
+    // An ended terminal's buffer holds no text: it is not handed over (ADR 0120).
     for (id, buffer) in editor
         .buffers()
-        .filter(|(_, buffer)| !buffer.agent_pending())
+        .filter(|(_, buffer)| !buffer.agent_pending() && !buffer.is_terminal())
     {
         buffers.push(buffer_state(id, buffer, &mut items)?);
     }
@@ -107,8 +108,10 @@ pub fn export(
     let mut stand_ins = Vec::new();
     for window in editor.windows() {
         let id = window.buffer();
-        if editor.shown(window).is_internal()
-            && behind_internal(editor, window).is_none()
+        let shown = editor.shown(window);
+        // So does a window on an ended terminal, which is not handed over.
+        if (shown.is_terminal()
+            || (shown.is_internal() && behind_internal(editor, window).is_none()))
             && !stand_ins.contains(&id)
         {
             stand_ins.push(id);
@@ -268,6 +271,10 @@ enum Handed<'a> {
 /// How `buffer` is handed over, or an error naming it and quoting none of its text if the
 /// new instance would not end up with the same text.
 fn handed(buffer: &Buffer) -> Result<Handed<'_>, String> {
+    // An ended terminal holds no text; a running one holds the restart in `held`.
+    if buffer.is_terminal() {
+        return Ok(Handed::Nothing);
+    }
     let path = buffer.path().map(|path| {
         path.to_str().ok_or_else(|| {
             format!(
@@ -435,6 +442,13 @@ fn held(editor: &Editor) -> Result<(), String> {
     }
     if let Some(why) = under_way(editor) {
         return Err(format!("cannot hand over: {why}"));
+    }
+    // A running terminal holds the restart until terminals are handed over (ADR 0120).
+    if let Some(buffer) = editor.running_terminals().find_map(|id| editor.buffer(id)) {
+        return Err(format!(
+            "cannot hand over {}: a program runs in it",
+            buffer.name()
+        ));
     }
     let tiling = editor.tiling();
     if tiling.depth() > Tiling::MAX_DEPTH {

@@ -3,7 +3,7 @@
 //! rules that read a session's state from its screen, the tracker that turns their verdicts into
 //! the taxonomy, and the `oso-sessions` worker that runs them off the UI thread.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or `config`; the app feeds the worker and
+//! Must not depend on: `app`, `dispatch` or `config`; the app feeds the worker and
 //! carries out what it says, and `config`'s thread compiles the local rules with `rules`.
 //!
 //! - `screen`: what a look at a terminal found, and the regions rules read.

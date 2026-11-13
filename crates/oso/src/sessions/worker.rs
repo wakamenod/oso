@@ -3,7 +3,7 @@
 //! It also reads and explains a saved screen for `session-explain-file`, and reads and writes
 //! the record of the sessions oso remembers.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; the app sends jobs and carries out what
+//! Must not depend on: `app` or `dispatch`; the app sends jobs and carries out what
 //! comes back through the function it gives.
 //!
 //! Nothing runs while nothing changes: the thread waits for a job, and wakes on its own only

@@ -1,7 +1,7 @@
 //! What a hosted session's state is read from (ADR 0121): the bottom of its live screen, its
 //! title and its OSC 9;4 progress, cut to fixed sizes, and the regions rules look at.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; this is plain data over text, which
+//! Must not depend on: `app` or `dispatch`; this is plain data over text, which
 //! the terminal's host API (ADR 0120) fills.
 //!
 //! Everything here is untrusted: a model wrote it, steered by whatever it read. So each row and
