@@ -25,7 +25,9 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// Whether it waits on the person, so the request goes on until oso is in front.
+    /// Whether it waits on the person, so the request goes on until oso is in front. Only
+    /// macOS asks in two ways.
+    #[cfg(any(target_os = "macos", test))]
     pub(crate) fn waits(self) -> bool {
         matches!(self, Self::NeedsInput | Self::Failed)
     }
