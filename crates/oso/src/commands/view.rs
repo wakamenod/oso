@@ -39,8 +39,7 @@ fn toggle_truncate_lines(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErr
 /// Whether the selected window's buffer truncates long lines, the one the command changes, for a
 /// menu's `[x]` (ADR 0117).
 fn truncated(editor: &Editor) -> bool {
-    let id = editor.tiled().0.buffer();
-    editor.buffer(id).is_some_and(|buffer| !buffer.wraps())
+    !editor.tiled().1.wraps()
 }
 
 #[cfg(test)]

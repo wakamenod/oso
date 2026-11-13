@@ -81,4 +81,10 @@ fn a_removed_menus_default_key_is_undefined() {
     send(&mut d, &mut editor, "C-c t");
     assert_eq!(d.menu_name(), None);
     assert_eq!(echo(&editor), "C-c t is undefined");
+    // Shift does not find the removed menu's key, and the rest of `C-c` is the defaults'.
+    send(&mut d, &mut editor, "C-c T");
+    assert_eq!(d.menu_name(), None);
+    assert_eq!(echo(&editor), "C-c T is undefined");
+    send(&mut d, &mut editor, "C-c C-<");
+    assert_ne!(echo(&editor), "C-c C-< is undefined");
 }

@@ -834,11 +834,16 @@ through the coordinator.
   author's heads with no command yet stay out, and their keys stay free for them. Where the
   author's menus have no head, the new ones take `S` (highlighting) and `T` (the theme pair) in
   `toggles`, and `=` (balance), `0` (delete the window) and `F` (find a file) in `windows`.
-- **`toggles`** heads all close the menu, as the author's do. Six commands gained
+- **`toggles`** heads all close the menu, as the author's do. Seven commands gained
   `Command::state`: the four visual aids, `toggle-truncate-lines` (on while the selected window's
-  buffer truncates) and `global-font-lock-mode`. `toggle-theme` is not on or off: the menu's
-  describe function gives its head a note naming the theme drawn now, padded to the longest
-  built-in theme's name, so switching never lays the menu out again.
+  buffer truncates), `global-font-lock-mode`, and `electric-indent-mode`, which no built-in menu
+  has but a configured one may. `toggle-theme` is not on or off: its head is labelled `theme`,
+  as it switches the pair `[theme] pair` names, and the menu's describe function gives it a
+  note naming the theme drawn now, padded to the longest built-in theme's name, so a theme a
+  reload of `config.toml` changes while the menu is open keeps the note's width.
+- The describe function sits with the built-in tables in `bindings/menus.rs`, as it is small and
+  reads only the theme's name. A larger one, as the review's, belongs with its feature's
+  commands, which `bindings` names.
 - **`windows`:** `d` runs `kill-buffer`, whose prompt offers the current buffer first; the
   arrows resize by a fixed count of 3 and stay. No head selects another window, as the author's
   menu has none. **`jumps`** keeps both `l` and `h` on `avy-goto-line`, as the author's does.

@@ -1,6 +1,7 @@
 //! The menus from the file's `[menus]` table (ADR 0117): each `[menus.<name>]` adds a menu, or
 //! replaces a built-in one of that name whole, and `[menus.<name>] = false` removes a built-in
 //! one. Each head that breaks a rule is skipped with its line, and the rest of its menu loads.
+//! A removed built-in menu's default key is left undefined in the user keymap.
 //!
 //! Must not depend on: `app` or `dispatch`; it builds a [`Menus`] for the dispatcher to take,
 //! from the registry and built-in menus it is given. Nothing in a menu runs: a head names a
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 
 use oso_core::command::Registry;
 use oso_core::key::{KeyPress, KeySequence};
+use oso_core::keymap::Keymap;
 use oso_core::menu::{
     Definition, ForeignKeys, Head, HeadAction, MAX_HEADS, MAX_KEYS, MenuError, MenuId, Menus, Stay,
 };
@@ -518,4 +520,17 @@ impl std::fmt::Display for Choices<'_> {
         }
         Ok(())
     }
+}
+
+/// Unbinds, in the user's keymap `user`, each default key whose built-in menu `menus` no longer
+/// has, so that the key is undefined as any unbound key is, and `open-menu` and the key list do
+/// not show it (ADR 0117, step 1's Q7). A key the file binds or unbinds itself is the file's.
+pub(super) fn unbind_removed_menus(user: &mut Keymap, menus: &Menus, defaults: &Keymap) {
+    defaults.menu_bindings(|keys, id| {
+        if menus.get(id).is_none() && user.lookup(keys).is_none() {
+            // Fails only under a key the file binds to a command or a menu, which the default
+            // key cannot reach then anyway.
+            let _ = user.unbind(keys);
+        }
+    });
 }

@@ -68,14 +68,15 @@ const TABLES: &[&[(&str, &str)]] = &[
     windows::BINDINGS,
 ];
 
-/// The default global keymap, over the commands in `registry`.
+pub use menus::built_in_menus;
+
+/// The default global keymap, over the commands in `registry`, with the built-in menus' keys.
 ///
 /// # Panics
 ///
-/// If a row of [`TABLES`] does not bind, or `registry` lacks the command that
-pub use menus::menus;
-
-/// typing runs. The tests build this keymap, so such a mistake cannot ship.
+/// If a row of [`TABLES`] does not bind, if `registry` lacks the command that typing runs, or
+/// if a row of the menus' keys does not parse or names no built-in menu. The tests build this
+/// keymap, so such a mistake cannot ship.
 pub fn global_keymap(registry: &Registry) -> Keymap {
     let mut keymap =
         Keymap::from_table(registry, &TABLES.concat()).unwrap_or_else(|e| panic!("{e}"));
@@ -83,11 +84,12 @@ pub fn global_keymap(registry: &Registry) -> Keymap {
         panic!("no command named {}", edit::TEXT_COMMAND);
     };
     keymap.set_text_command(typing);
-    // The built-in menus' keys, by the ids `menus` gives them, which every set built from them
-    // keeps (ADR 0117).
-    let built_in = menus(registry);
+    // The built-in menus' keys, by the ids `built_in_menus` gives them, which every set built
+    // from them keeps (ADR 0117).
+    let built_in = built_in_menus(registry);
     for (keys, name) in menus::MENU_KEYS {
-        let (Ok(sequence), Some(id)) = (keys.parse::<KeySequence>(), built_in.lookup(name)) else {
+        let sequence: KeySequence = keys.parse().unwrap_or_else(|e| panic!("{keys}: {e}"));
+        let Some(id) = built_in.lookup(name) else {
             panic!("no built-in menu {name} for {keys}");
         };
         keymap

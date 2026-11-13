@@ -3,7 +3,8 @@
 //! Each head names a command oso has; the author's heads whose commands do not exist yet stay
 //! out, and their keys stay free for them.
 //!
-//! Must not depend on: `dispatch`, `app` or winit; menus are data.
+//! Must not depend on: `dispatch`, `app` or winit; menus are data, and a describe function reads
+//! only the editor.
 
 use oso_core::command::Registry;
 use oso_core::editor::Editor;
@@ -12,12 +13,12 @@ use oso_core::menu::{Definition, Head, HeadAction, Note, Notes, Open, Stay};
 use oso_core::menu::{Describe, Menus};
 
 /// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`. Only the
-/// toggles have one (ADR 0117, Q25); the rest are reached with `M-x open-menu` or a key in
+/// toggles have one (ADR 0117, Q25); the rest are reached with `BuiltInMenu-x open-menu` or a key in
 /// `config.toml`.
 pub const MENU_KEYS: &[(&str, &str)] = &[("C-c t", "toggles")];
 
 /// One head of a built-in menu: its keys, command, label, whether it stays, and a fixed count.
-struct H {
+struct BuiltInHead {
     keys: &'static str,
     command: &'static str,
     label: &'static str,
@@ -26,8 +27,8 @@ struct H {
 }
 
 /// A head that closes the menu.
-const fn exit(keys: &'static str, command: &'static str, label: &'static str) -> H {
-    H {
+const fn exit(keys: &'static str, command: &'static str, label: &'static str) -> BuiltInHead {
+    BuiltInHead {
         keys,
         command,
         label,
@@ -37,16 +38,21 @@ const fn exit(keys: &'static str, command: &'static str, label: &'static str) ->
 }
 
 /// A head that keeps the menu open.
-const fn stay(keys: &'static str, command: &'static str, label: &'static str) -> H {
-    H {
+const fn stay(keys: &'static str, command: &'static str, label: &'static str) -> BuiltInHead {
+    BuiltInHead {
         stay: true,
         ..exit(keys, command, label)
     }
 }
 
 /// A head that keeps the menu open and runs with a fixed count, as `C-u 3` would.
-const fn stay_by(keys: &'static str, command: &'static str, label: &'static str, count: i16) -> H {
-    H {
+const fn stay_by(
+    keys: &'static str,
+    command: &'static str,
+    label: &'static str,
+    count: i16,
+) -> BuiltInHead {
+    BuiltInHead {
         count: Some(count),
         ..stay(keys, command, label)
     }
@@ -54,24 +60,26 @@ const fn stay_by(keys: &'static str, command: &'static str, label: &'static str,
 
 /// A built-in menu: its name, title, groups of heads (each in the first row), and its describe
 /// function.
-struct M {
+struct BuiltInMenu {
     name: &'static str,
     title: &'static str,
-    groups: &'static [(&'static str, &'static [H])],
+    groups: &'static [(&'static str, &'static [BuiltInHead])],
     describe: Option<Describe>,
 }
 
-/// The label of the toggles' theme head, which its describe function finds it by.
-const THEME_LABEL: &str = "dark/light";
+/// The label of the toggles' theme head, which its describe function finds it by. `toggle-theme`
+/// switches the pair `[theme] pair` names, so the label names no theme; the note does.
+const THEME_LABEL: &str = "theme";
 
 /// The cells of the longest built-in theme's name, which the theme head's note is padded to, so
-/// that switching themes keeps the note's width and does not lay the menu out again (ADR 0117,
-/// step 2). A test keeps it in step with the renderer's themes.
+/// that a theme changed while the menu is open, as a reload of `config.toml` may, keeps the
+/// note's width and does not lay the menu out again (ADR 0117, step 2); the theme head itself
+/// closes the menu. A test keeps it in step with the renderer's themes.
 const THEME_NOTE_CELLS: usize = 5;
 
 /// The toggles: the visual aids, line numbers, truncation, highlighting, the theme pair, and
 /// whitespace cleanup. Each toggling command has a `state`, so its head shows `[x]` or `[ ]`.
-const TOGGLES: M = M {
+const TOGGLES: BuiltInMenu = BuiltInMenu {
     name: "toggles",
     title: "Toggles",
     groups: &[
@@ -104,7 +112,7 @@ const TOGGLES: M = M {
 
 /// Windows and buffers: resizing by 3, balancing, splitting and deleting windows, buffers, and
 /// finding files.
-const WINDOWS: M = M {
+const WINDOWS: BuiltInMenu = BuiltInMenu {
     name: "windows",
     title: "Windows",
     groups: &[
@@ -148,7 +156,7 @@ const WINDOWS: M = M {
 };
 
 /// Jumps: the avy jumps and `goto-line`.
-const JUMPS: M = M {
+const JUMPS: BuiltInMenu = BuiltInMenu {
     name: "jumps",
     title: "Jumps",
     groups: &[
@@ -172,7 +180,7 @@ const JUMPS: M = M {
 };
 
 /// Search: the project's files and their lines; the rest join as their commands come.
-const SEARCH: M = M {
+const SEARCH: BuiltInMenu = BuiltInMenu {
     name: "search",
     title: "Search",
     groups: &[(
@@ -186,7 +194,7 @@ const SEARCH: M = M {
 };
 
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&M; 4] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH];
+const BUILT_IN: [&BuiltInMenu; 4] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is
 /// left out, as in tests that bring their own commands; with the default commands every head is
@@ -196,7 +204,7 @@ const BUILT_IN: [&M; 4] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH];
 ///
 /// If a built-in table breaks a menu's rules. The tests build these menus, so such a mistake
 /// cannot ship.
-pub fn menus(registry: &Registry) -> Menus {
+pub fn built_in_menus(registry: &Registry) -> Menus {
     let mut menus = Menus::new();
     for menu in BUILT_IN {
         let id = menus
@@ -211,7 +219,7 @@ pub fn menus(registry: &Registry) -> Menus {
 }
 
 /// The definition of `menu`, with the heads whose commands `registry` has.
-fn definition(menu: &M, registry: &Registry) -> Definition {
+fn definition(menu: &BuiltInMenu, registry: &Registry) -> Definition {
     let fail = |e: &dyn std::fmt::Display| -> ! { panic!("menu {}: {e}", menu.name) };
     let mut definition = Definition::new(menu.name, menu.title).unwrap_or_else(|e| fail(&e));
     if let Some(describe) = menu.describe {

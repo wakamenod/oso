@@ -288,7 +288,7 @@ fn the_toggles_float_shows_each_toggles_state_and_the_theme() {
         rows: 30,
         columns: 100,
     });
-    editor.set_themes(vec![("dark", "dark"), ("light", "light")], 1);
+    editor.set_themes(vec![("dusk", "dark"), ("light", "light")], 0);
     d.handle_keys(&mut editor, "C-c t".parse::<KeySequence>().unwrap().0);
     let (floats, ..) = drawn(&d, &editor);
     // Each column's rows as text.
@@ -313,5 +313,6 @@ fn the_toggles_float_shows_each_toggles_state_and_the_theme() {
         assert!(row(label).contains(check), "{label}: {:?}", row(label));
     }
     assert!(!row("whitespace cleanup").contains('['));
-    assert!(row("dark/light").contains("light"));
+    // The theme's note, in a column of its own, names the theme drawn now, padded.
+    assert!(rows.iter().any(|row| row.contains("dusk ")), "{rows:?}");
 }

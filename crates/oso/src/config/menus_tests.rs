@@ -484,6 +484,10 @@ fn a_removed_menus_key_the_file_binds_is_the_files() {
         let loaded = f.parse(&text);
         assert_eq!(f.bound(keys(&loaded), "C-c t"), Some(bound));
     }
+    // One beside it under the same prefix keeps both.
+    let loaded = f.parse("[menus]\ntoggles = false\n[keys.global]\n\"C-c a\" = \"goto-line\"\n");
+    assert_eq!(f.bound(keys(&loaded), "C-c a"), Some("goto-line"));
+    assert_eq!(f.bound(keys(&loaded), "C-c t"), Some("undefined"));
     // One the file binds to a command over its prefix leaves the default key unreachable.
     let loaded = f.parse("[menus]\ntoggles = false\n[keys.global]\n\"C-c\" = \"goto-line\"\n");
     assert_eq!(f.bound(keys(&loaded), "C-c"), Some("goto-line"));

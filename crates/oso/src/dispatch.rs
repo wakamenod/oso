@@ -122,7 +122,7 @@ impl Dispatcher {
     pub fn with(registry: Registry, global: Keymap) -> Self {
         let keymaps = Keymaps::new(&registry, global);
         let macros = macros::MacroInput::new(&registry);
-        let menus = menus::MenuSet::new(bindings::menus(&registry));
+        let menus = menus::MenuSet::new(bindings::built_in_menus(&registry));
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]

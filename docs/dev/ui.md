@@ -321,7 +321,8 @@ planned.
   The review menu on `C-x v r` comes with ADR 0122. `windows`, `jumps` and `search` have no
   key: `M-x open-menu` opens them, or a key in `config.toml`.
 - `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
-  or removes it with `false`. A removed menu's default key is then undefined. For example:
+  or removes it with `false`. A removed menu's default key is then undefined. For example
+  (`config/menus_tests.rs` loads this sample, and changes with it):
 
   ```toml
   [menus]
@@ -620,7 +621,7 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 
 On by default, each toggled by an `M-x` command for every buffer, which a prefix argument
 turns on (positive) or off (zero or negative) as Emacs's minor modes do, and from the
-toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
+toggles menu on `C-c t` ([ADR 0097](adr/0097-visual-aids.md), [ADR 0117](adr/0117-menus.md)):
 
 - **Whitespace** (`global-whitespace-mode`):
   - a full-width space shows as `□`, a tab as a dim `»` in its first cell, and the other
