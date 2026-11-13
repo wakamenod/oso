@@ -625,9 +625,21 @@ The UI thread never blocks on I/O or parsing:
   the 3 s grace period, from instants it is given, so its tests need no clock. The thread judges
   a session's screen only after it changed, at most 10 times a second, and wakes on its own only
   while a debounce or grace period waits. It sends the UI thread only changes
-  (`UserEvent::Sessions`). The terminal's host API (ADR 0120) feeds it from that ADR's step 4; step 2 built
+  (`UserEvent::Sessions`). Step 3's screen feed (`app/sessions/feed.rs`) hands it a session's
+  screen from ADR 0120's kept grid after a snapshot is merged, at most every 100 ms and only
+  on a change, into a slot of one screen per session; step 2 built
   it against recorded screens, and `session-explain-file` explains a saved one in
   `*Session explain*`, a buffer the agent channel cannot read.
+- What follows a session's change is made once after the event that brought it
+  (`app/sessions/watch.rs`, ADR 0121 step 3): `*Sessions*` (`sessions/list.rs`, rendered only
+  while shown) in the side window, which oso-core keeps outside the window tree
+  (`editor/sessions/side.rs`); the modeline's `SessionMarks`; the lists `ArgSpec::Listed`
+  completes over (`Editor::set_listed`); the session buffers' modeline notes; and the
+  notices (`sessions/attention.rs`, pure), which ask for attention through
+  `oso_platform::notify` on macOS and the window's urgency elsewhere. Spaces
+  (`sessions/spaces.rs`) swap oso-core's opaque `WindowTree` whole. A turn's end takes a
+  fresh tree on a review's thread (ADR 0122) to find changes. The worker looks at Claude
+  Code's registry once a second for other programs' sessions (`sessions/worker/externals.rs`).
 - A hosted session (`claude`, ADR 0121 step 1) gets ready on a short `oso-session-start`
   thread of its own (`sessions/start.rs`): the id from `/dev/urandom`, the directory and
   `[sessions] claude` checked, Claude Code's registry read before a resume and again 5 s after

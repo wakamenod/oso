@@ -6,7 +6,8 @@
 //! Must not depend on: `app` or `dispatch`. The instants come from the caller.
 //!
 //! Only names the reader opens are looked at: `<digits>.json`, never `*.key`, at most
-//! [`registry::MAX_FILES`] of them. A look is one listing and a `stat` of each.
+//! [`registry::MAX_FILES`] of them. A look is one listing, a `stat` of each, and the start
+//! time of each process read, as a process that ends leaves its file behind.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -36,6 +37,8 @@ pub struct Poll {
     next: Option<Instant>,
     /// Each `<pid>.json` file's name and change time at the last look.
     stamps: Vec<(std::ffi::OsString, Option<SystemTime>)>,
+    /// The entries read at the last change: whether each process lives is asked each look.
+    entries: Vec<registry::Entry>,
     /// What went to the app last.
     told: Option<Vec<External>>,
 }
@@ -62,11 +65,11 @@ impl Poll {
         }
         self.next = Some(now + POLL_EVERY);
         let stamps = stamps(dir);
-        if stamps == self.stamps && self.told.is_some() {
-            return None;
+        if stamps != self.stamps || self.told.is_none() {
+            self.stamps = stamps;
+            self.entries = registry::read(dir);
         }
-        self.stamps = stamps;
-        let live = live(dir);
+        let live = live(&self.entries);
         if self.told.as_ref() == Some(&live) {
             return None;
         }
@@ -93,11 +96,11 @@ fn stamps(dir: &Path) -> Vec<(std::ffi::OsString, Option<SystemTime>)> {
     stamps
 }
 
-/// The live entries of the registry at `dir`, by process id.
-fn live(dir: &Path) -> Vec<External> {
+/// The entries whose process still runs, by process id.
+fn live(entries: &[registry::Entry]) -> Vec<External> {
     let started = oso_platform::process::start_time;
-    let mut live: Vec<External> = registry::read(dir)
-        .into_iter()
+    let mut live: Vec<External> = entries
+        .iter()
         .filter(|entry| registry::liveness(entry, started) == Live::Yes)
         .map(|entry| External {
             pid: entry.pid,
@@ -107,7 +110,7 @@ fn live(dir: &Path) -> Vec<External> {
                 .unwrap_or_else(|| format!("claude {}", entry.pid)),
             directory: entry.cwd.clone(),
             working: entry.status.as_deref() == Some("busy"),
-            session_id: entry.session_id,
+            session_id: entry.session_id.clone(),
         })
         .collect();
     live.sort_by_key(|external| external.pid);
