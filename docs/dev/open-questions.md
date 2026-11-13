@@ -311,9 +311,9 @@ item notes when it must be settled.
   0.7 ms for 100 MB of prose at 40 columns and 5.5 ms the first time. Hand old trees to a
   thread, as a reload's leftovers are ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
-  modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
-  every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start
-  from the configuration's `[aids]`
+  modes are. They toggle for every buffer by `M-x` (`global-…` names, leaving the buffer-local
+  ones for then) and the toggles menu on `C-c t` (ADR 0117), and start from the
+  configuration's `[aids]`
   ([ADR 0097](adr/0097-visual-aids.md), [ADR 0108](adr/0108-the-user-configuration-file.md)).
 
 - After query-replace, keyboard macros and whitespace cleanup: the kmacro ring, counters, naming

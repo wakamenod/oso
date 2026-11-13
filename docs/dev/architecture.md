@@ -659,8 +659,10 @@ read. See [ADR 0019](adr/0019-configuration.md).
   then, through a part file renamed over it, and reads it back. The editor holds the record
   (`Editor::set_trust_list`) and asks it in `Editor::project_trusted`
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
-- `config::parse` is a pure function from the file's text to the user keymap, the settings
-  and the problems, with their lines. A syntax error rejects the file; a bad entry is skipped
+- `config::parse` is a pure function from the file's text to the user keymap, the menus
+  in force, the settings and the problems, with their lines. The user keymap also leaves
+  undefined each default key of a built-in menu the file removes
+  ([ADR 0117](adr/0117-menus.md)). A syntax error rejects the file; a bad entry is skipped
   and the rest applies. See [ADR 0110](adr/0110-adr-0108-as-built.md).
 - User keys are a keymap directly above the global one, which can also leave a
   key undefined. A setting applies at start and when its value in the file
