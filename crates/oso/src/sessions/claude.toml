@@ -5,6 +5,9 @@
 #
 # Needs input is strict: only a rule that knows a dialog sets it. An unknown prompt is idle.
 # Every hold rule ranks below every needs-input rule, so that no view hides a dialog.
+#
+# A `recap` finds the line `*Sessions*` shows under a session: the dialog's question, or what a
+# turn is doing. It reads the rule's region, or `recap_region`, from the bottom up.
 
 version = 1
 
@@ -19,6 +22,8 @@ region = "after_last_rule"
 contains = ["would you like to proceed?"]
 line_regex = ['^\s*(?:❯\s*)?1\.\s+Yes\b']
 any = [{ contains = ["plan"] }]
+recap = '^\s*(Plan:\s*\S.*)$'
+recap_region = "bottom(40)"
 
 [[rule]]
 name = "permission"
@@ -28,6 +33,7 @@ priority = 940
 region = "after_last_rule"
 contains = ["esc to cancel"]
 line_regex = ['(?i)^\s*do you want to\b.*\?\s*$', '^\s*(?:❯\s*)?1\.\s+Yes\b']
+recap = '(?i)^\s*(do you want to\b.*\?)\s*$'
 
 [[rule]]
 name = "mcp-elicitation"
@@ -38,6 +44,7 @@ region = "after_last_rule"
 contains = ["esc to cancel"]
 line_regex = ['(?i)^\s*MCP server .+ requests your input\s*$']
 any = [{ line_regex = ['^\s*(?:❯\s*)?Accept\b'] }, { line_regex = ['^\s*(?:❯\s*)?Decline\b'] }]
+recap = '(?i)^\s*(MCP server .+ requests your input)\s*$'
 
 [[rule]]
 name = "question"
@@ -47,6 +54,8 @@ priority = 920
 region = "after_last_rule"
 contains = ["chat about this"]
 line_regex = ['(?i)^\s*enter to select\b.*\besc to cancel\s*$']
+recap = '^\s*([^❯\s].*\?)\s*$'
+recap_region = "prompt_box"
 
 [[rule]]
 name = "select-dialog"
@@ -55,6 +64,7 @@ reason = "dialog"
 priority = 910
 region = "after_last_rule"
 line_regex = ['(?i)^\s*enter to select\s+·\s+\S.*\bto navigate\s+·\s+esc to cancel\s*$']
+recap = '^\s*([^❯\s].*\?)\s*$'
 
 [[rule]]
 name = "confirm-dialog"
@@ -63,6 +73,7 @@ reason = "dialog"
 priority = 900
 region = "after_last_rule"
 line_regex = ['(?i)^\s*enter to confirm\s+·\s+esc to cancel\s*$', '^\s*❯\s+\S']
+recap = '^\s*([^❯\s].*\?)\s*$'
 
 # The transcript viewer (ctrl+o) hides a dialog that waits behind it, and says so in its footer,
 # the screen's last row. It does not say which dialog.
@@ -100,6 +111,7 @@ state = "working"
 priority = 790
 region = "bottom(8)"
 line_regex = ['^[·✢✳✶✻✽*]\s+\S[^…]*…']
+recap = '^[·✢✳✶✻✽*]\s+(\S[^…]*…)'
 
 [[rule]]
 name = "title-spinner"

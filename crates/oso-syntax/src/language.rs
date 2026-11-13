@@ -32,7 +32,8 @@ impl Language {
             | Mode::Brief
             | Mode::Worktrees
             | Mode::Review
-            | Mode::Terminal => None,
+            | Mode::Terminal
+            | Mode::Sessions => None,
         }
     }
 

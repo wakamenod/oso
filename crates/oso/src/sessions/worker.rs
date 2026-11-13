@@ -111,6 +111,8 @@ pub enum Job {
 pub enum Out {
     /// A session's state changed.
     Changed(SessionKey, Change),
+    /// A session's recap changed (ADR 0121, step 3): cleaned and cut, the screen's text.
+    Recap(SessionKey, String),
     /// The explanation of a saved screen, for `*Session explain*`.
     Explained(String),
     /// A saved screen could not be read, and why, for the echo area. It names no path: what

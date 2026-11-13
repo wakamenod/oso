@@ -48,6 +48,7 @@ pub oso_core::buffer::Mode::Fundamental
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::Rust
+pub oso_core::buffer::Mode::Sessions
 pub oso_core::buffer::Mode::Terminal
 pub oso_core::buffer::Mode::Toml
 pub oso_core::buffer::Mode::Worktrees
@@ -284,6 +285,10 @@ pub oso_core::command::ArgSpec::File::prompt: &'static str
 pub oso_core::command::ArgSpec::Key
 pub oso_core::command::ArgSpec::KillEntry
 pub oso_core::command::ArgSpec::KillEntry::prompt: &'static str
+pub oso_core::command::ArgSpec::Listed
+pub oso_core::command::ArgSpec::Listed::history: &'static str
+pub oso_core::command::ArgSpec::Listed::list: &'static str
+pub oso_core::command::ArgSpec::Listed::prompt: &'static str
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::Menu
@@ -1396,6 +1401,23 @@ pub fn oso_core::editor::ReviewRequest::eq(&self, &oso_core::editor::ReviewReque
 impl core::fmt::Debug for oso_core::editor::ReviewRequest
 pub fn oso_core::editor::ReviewRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::ReviewRequest
+pub enum oso_core::editor::RowAction
+pub oso_core::editor::RowAction::Archive
+pub oso_core::editor::RowAction::Explain
+pub oso_core::editor::RowAction::Fold
+pub oso_core::editor::RowAction::Pin
+pub oso_core::editor::RowAction::Resume
+pub oso_core::editor::RowAction::Show
+pub oso_core::editor::RowAction::Stop
+impl core::clone::Clone for oso_core::editor::RowAction
+pub fn oso_core::editor::RowAction::clone(&self) -> oso_core::editor::RowAction
+impl core::cmp::Eq for oso_core::editor::RowAction
+impl core::cmp::PartialEq for oso_core::editor::RowAction
+pub fn oso_core::editor::RowAction::eq(&self, &oso_core::editor::RowAction) -> bool
+impl core::fmt::Debug for oso_core::editor::RowAction
+pub fn oso_core::editor::RowAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::RowAction
+impl core::marker::StructuralPartialEq for oso_core::editor::RowAction
 pub enum oso_core::editor::SaveRefused
 pub oso_core::editor::SaveRefused::AlreadySaving
 pub oso_core::editor::SaveRefused::ChangedOnDisk
@@ -1437,20 +1459,32 @@ impl core::marker::Copy for oso_core::editor::ScopeKind
 impl core::marker::StructuralPartialEq for oso_core::editor::ScopeKind
 pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::NextDone
+pub oso_core::editor::SessionRequest::NextWaiting
+pub oso_core::editor::SessionRequest::Refresh
+pub oso_core::editor::SessionRequest::Regroup
 pub oso_core::editor::SessionRequest::Resume(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::Row
+pub oso_core::editor::SessionRequest::Row::action: oso_core::editor::RowAction
+pub oso_core::editor::SessionRequest::Row::line: usize
 pub oso_core::editor::SessionRequest::SendBrief(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::ShowList
+pub oso_core::editor::SessionRequest::Space(alloc::string::String)
 pub oso_core::editor::SessionRequest::Start
 pub oso_core::editor::SessionRequest::Start::directory: core::option::Option<std::path::PathBuf>
 pub oso_core::editor::SessionRequest::Start::name: core::option::Option<alloc::string::String>
 pub oso_core::editor::SessionRequest::StartShared
+pub oso_core::editor::SessionRequest::Switch(alloc::string::String)
 pub oso_core::editor::SessionRequest::Worktree
 pub oso_core::editor::SessionRequest::Worktree::base: core::option::Option<alloc::string::String>
 pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String
 pub oso_core::editor::SessionRequest::WorktreeList
 pub oso_core::editor::SessionRequest::WorktreeRemove(core::option::Option<std::path::PathBuf>)
 pub oso_core::editor::SessionRequest::WorktreeRemoveConfirmed
+pub oso_core::editor::SessionRequest::Zoom
 impl core::clone::Clone for oso_core::editor::SessionRequest
 pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest
 impl core::cmp::Eq for oso_core::editor::SessionRequest
@@ -1872,6 +1906,10 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::hide_side_window(&mut self) -> bool
+pub fn oso_core::editor::Editor::show_side_window(&mut self, oso_core::buffer::BufferId, usize) -> oso_core::window::WindowId
+pub fn oso_core::editor::Editor::side_window(&self) -> core::option::Option<oso_core::window::WindowId>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::indent_region(&mut self, core::option::Option<usize>, usize) -> core::result::Result<(), oso_core::editor::IndentError>
 pub fn oso_core::editor::Editor::indent_rigidly(&mut self, isize, usize) -> core::result::Result<(), oso_core::editor::IndentError>
 pub fn oso_core::editor::Editor::indent_rigidly_layer(&self) -> bool
@@ -1930,6 +1968,12 @@ pub fn oso_core::editor::Editor::replace_cells(&self, oso_core::window::WindowId
 pub fn oso_core::editor::Editor::replace_exit(&mut self) -> bool
 pub fn oso_core::editor::Editor::replace_may_begin(&self) -> core::result::Result<(), oso_core::editor::ReplaceError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::listed_candidates(&self, &str) -> alloc::sync::Arc<[oso_core::complete::Candidate]>
+pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::SessionRequest)
+pub fn oso_core::editor::Editor::set_listed(&mut self, &'static str, alloc::sync::Arc<[oso_core::complete::Candidate]>)
+pub fn oso_core::editor::Editor::set_session_marks(&mut self, oso_core::editor::SessionMarks)
+pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::load_theme(&mut self, &str) -> core::result::Result<(), oso_core::editor::NoSuchTheme>
 pub fn oso_core::editor::Editor::set_theme_pair(&mut self, [usize; 2])
 pub fn oso_core::editor::Editor::set_themes(&mut self, alloc::vec::Vec<(&'static str, &'static str)>, usize)
@@ -1943,6 +1987,10 @@ pub fn oso_core::editor::Editor::refill_wraps(&mut self)
 pub fn oso_core::editor::Editor::set_wraps(&mut self, oso_core::buffer::BufferId, bool) -> bool
 pub fn oso_core::editor::Editor::take_wrap_jobs(&mut self) -> alloc::vec::Vec<oso_core::display_map::wrap_map::WrapJob>
 pub fn oso_core::editor::Editor::take_wrap_report(&mut self, oso_core::display_map::wrap_map::WrapReport) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::lone_window_tree(&mut self) -> oso_core::editor::WindowTree
+pub fn oso_core::editor::Editor::swap_window_tree(&mut self, oso_core::editor::WindowTree) -> core::result::Result<oso_core::editor::WindowTree, oso_core::editor::WindowTree>
+pub fn oso_core::editor::Editor::window_tree_showing(&mut self, &[oso_core::buffer::BufferId]) -> oso_core::editor::WindowTree
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::macro_call(&mut self, core::option::Option<usize>) -> core::result::Result<(), oso_core::editor::MacroError>
 pub fn oso_core::editor::Editor::macro_cancel(&mut self, &str)
@@ -2003,9 +2051,6 @@ pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::Rep
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::SessionRequest)
-pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::review_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::ReviewCells)
 impl oso_core::editor::Editor
@@ -2308,6 +2353,21 @@ pub fn oso_core::editor::SearchReport::eq(&self, &oso_core::editor::SearchReport
 impl core::fmt::Debug for oso_core::editor::SearchReport
 pub fn oso_core::editor::SearchReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::SearchReport
+pub struct oso_core::editor::SessionMarks
+pub oso_core::editor::SessionMarks::dark: bool
+pub oso_core::editor::SessionMarks::done: u16
+pub oso_core::editor::SessionMarks::needs_input: u16
+impl core::clone::Clone for oso_core::editor::SessionMarks
+pub fn oso_core::editor::SessionMarks::clone(&self) -> oso_core::editor::SessionMarks
+impl core::cmp::Eq for oso_core::editor::SessionMarks
+impl core::cmp::PartialEq for oso_core::editor::SessionMarks
+pub fn oso_core::editor::SessionMarks::eq(&self, &oso_core::editor::SessionMarks) -> bool
+impl core::default::Default for oso_core::editor::SessionMarks
+pub fn oso_core::editor::SessionMarks::default() -> oso_core::editor::SessionMarks
+impl core::fmt::Debug for oso_core::editor::SessionMarks
+pub fn oso_core::editor::SessionMarks::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::SessionMarks
+impl core::marker::StructuralPartialEq for oso_core::editor::SessionMarks
 pub struct oso_core::editor::SoleWindow
 impl core::clone::Clone for oso_core::editor::SoleWindow
 pub fn oso_core::editor::SoleWindow::clone(&self) -> oso_core::editor::SoleWindow
@@ -2329,6 +2389,7 @@ pub oso_core::editor::Status::name: alloc::string::String
 pub oso_core::editor::Status::project: alloc::string::String
 pub oso_core::editor::Status::restricted: &'static str
 pub oso_core::editor::Status::selected: bool
+pub oso_core::editor::Status::sessions: alloc::string::String
 pub oso_core::editor::Status::state: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String
 impl oso_core::editor::Status
@@ -2422,6 +2483,12 @@ impl core::clone::Clone for oso_core::editor::WalkRequest
 pub fn oso_core::editor::WalkRequest::clone(&self) -> oso_core::editor::WalkRequest
 impl core::fmt::Debug for oso_core::editor::WalkRequest
 pub fn oso_core::editor::WalkRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::WindowTree
+impl oso_core::editor::WindowTree
+pub fn oso_core::editor::WindowTree::buffers(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
+pub fn oso_core::editor::WindowTree::tiling(&self) -> oso_core::frame::Tiling
+impl core::fmt::Debug for oso_core::editor::WindowTree
+pub fn oso_core::editor::WindowTree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_core::editor::MAX_MACRO_EVENTS: usize
 pub const oso_core::editor::MAX_MACRO_TEXT: usize
 pub const oso_core::editor::SCRATCH: &str

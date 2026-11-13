@@ -204,6 +204,9 @@ impl Dispatcher {
             Some(ArgSpec::Command { prompt, history } | ArgSpec::Theme { prompt, history }) => {
                 (prompt, Kind::Complete { history })
             }
+            Some(ArgSpec::Listed {
+                prompt, history, ..
+            }) => (prompt, Kind::Complete { history }),
             Some(ArgSpec::Menu { prompt, history }) => (prompt, Kind::Complete { history }),
             Some(ArgSpec::Buffer {
                 prompt,
@@ -244,6 +247,10 @@ impl Dispatcher {
             // `load-theme` completes over the themes the host draws with (ADR 0089).
             Kind::Complete { history } if matches!(spec, Some(ArgSpec::Theme { .. })) => {
                 editor.open_completion(prompt, history, editor.theme_candidates())
+            }
+            // Sessions and spaces complete over what the host last listed (ADR 0121).
+            Kind::Complete { history } if let Some(ArgSpec::Listed { list, .. }) = spec => {
+                editor.open_completion(prompt, history, editor.listed_candidates(list))
             }
             _ => editor.open_prompt(prompt, kind),
         };

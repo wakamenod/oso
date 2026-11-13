@@ -52,6 +52,10 @@ pub fn map(
         (ArgSpec::Theme { .. }, _) => Err(format!(
             "{name} reads a theme's name, which only its prompt takes, from keys"
         )),
+        // The host's lists, of sessions and spaces, are read only in their prompt (ADR 0121).
+        (ArgSpec::Listed { .. }, _) => Err(format!(
+            "{name} reads one of a list, which only its prompt takes, from keys"
+        )),
         // A menu reads keys, and no channel opens one (ADR 0117).
         (ArgSpec::Menu { .. }, _) => Err(format!(
             "{name} reads a menu's name, which only its prompt takes, from keys"

@@ -398,6 +398,6 @@ fn top_start(window: &Window, display: &DisplaySnapshot, line: usize) -> usize {
 #[cfg(test)]
 mod prop_tests;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 #[cfg(test)]
 mod timing_tests;

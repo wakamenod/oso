@@ -287,6 +287,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::CountAndClipboard
                     | ArgSpec::Command { .. }
                     | ArgSpec::Theme { .. }
+                    | ArgSpec::Listed { .. }
                     | ArgSpec::Menu { .. }
                     | ArgSpec::Buffer { .. }
                     | ArgSpec::Mark { .. }

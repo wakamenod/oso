@@ -53,6 +53,8 @@ pub struct Sessions {
     /// `steer_worktrees`: a session oso starts gets a hook that denies Claude's own worktree
     /// tools and points it to `session-worktree` (ADR 0121, Q15). Off unless set.
     pub steer_worktrees: bool,
+    /// `[sessions.notify]`: which states ask for the person's attention (ADR 0121, step 3).
+    pub notify: crate::sessions::attention::Toggles,
 }
 
 /// The most names `[sessions] env` takes.
@@ -293,10 +295,39 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
                     sessions.steer_worktrees = on;
                 }
             }
+            "notify" => notify(value, &mut sessions.notify, found),
             other => unknown(found, name.span().start, other, "[sessions]"),
         }
     }
     sessions
+}
+
+/// `[sessions.notify]`: a switch for each kind; one left out or wrong keeps its default.
+fn notify(
+    value: &Spanned<DeValue<'_>>,
+    toggles: &mut crate::sessions::attention::Toggles,
+    found: &mut Found,
+) {
+    const TABLE: &str = "[sessions.notify]";
+    let Some(entries) = table(value, TABLE, found) else {
+        return;
+    };
+    for (name, value) in entries {
+        let key = name.get_ref().as_ref();
+        let toggle = match key {
+            "needs_input" => &mut toggles.needs_input,
+            "done" => &mut toggles.done,
+            "failed" => &mut toggles.failed,
+            "ready_for_review" => &mut toggles.ready_for_review,
+            other => {
+                unknown(found, name.span().start, other, TABLE);
+                continue;
+            }
+        };
+        if let Some(on) = switch(value, TABLE, key, found) {
+            *toggle = on;
+        }
+    }
 }
 
 /// `[sessions] claude`: an absolute path on this computer, of at most [`MAX_CLAUDE_PATH`]

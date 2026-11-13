@@ -105,6 +105,7 @@ const TABLES: &[&[Command]] = &[
     session::COMMANDS,
     agent_sessions::COMMANDS,
     terminal::COMMANDS,
+    agent_sessions::LIST_COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -303,6 +304,8 @@ mod tests {
         "terminal-send-interrupt",
         "terminal-send-next-key",
         "terminal-yank",
+        "session-stop",
+        "sessions-resume",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

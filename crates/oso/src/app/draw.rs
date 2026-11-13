@@ -626,12 +626,48 @@ mod tests {
         let modeline = &panes[1].2;
         // `Agent` comes first while the agent channel is on, and is empty here (ADR 0085).
         assert_eq!(modeline[0], (String::new(), Face::Prompt));
-        assert_eq!(modeline[1], ("[bidi controls] ".to_owned(), Face::Warning));
-        assert_eq!(modeline[2], ("-- a.txt  ".to_owned(), Face::Modeline));
-        assert_eq!(modeline[3].1, Face::Modeline);
+        // Then the sessions' marks, none here (ADR 0121).
+        assert_eq!(modeline[1], (String::new(), Face::Warning));
+        assert_eq!(modeline[2], (String::new(), Face::Modeline));
+        assert_eq!(modeline[3], ("[bidi controls] ".to_owned(), Face::Warning));
+        assert_eq!(modeline[4], ("-- a.txt  ".to_owned(), Face::Modeline));
+        assert_eq!(modeline[5].1, Face::Modeline);
         let echo = &panes[2].2;
         assert_eq!(echo[0], (String::new(), Face::Warning), "not said twice");
         assert_eq!(echo[1], ("Saved".to_owned(), Face::Text));
+    }
+
+    #[test]
+    fn the_sessions_marks_draw_waiting_as_a_warning_and_done_as_the_modeline() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", ""));
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 80,
+        });
+        editor.set_session_marks(oso_core::editor::SessionMarks {
+            needs_input: 2,
+            done: 3,
+            dark: false,
+        });
+        let modeline = with_panes(
+            &editor,
+            &statuses(&editor),
+            &mut Cells::default(),
+            |panes| {
+                let modeline = panes
+                    .iter()
+                    .find(|pane| pane.background == Some(Face::Modeline));
+                match modeline.map(|pane| &pane.content) {
+                    Some(PaneContent::Lines(lines)) => lines[0]
+                        .iter()
+                        .map(|span| (span.text.to_owned(), span.face))
+                        .collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                }
+            },
+        );
+        assert_eq!(modeline[1], ("⚠ 2  ".to_owned(), Face::Warning));
+        assert_eq!(modeline[2], ("● 3  ".to_owned(), Face::Modeline));
     }
 
     #[test]

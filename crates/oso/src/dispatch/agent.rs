@@ -267,7 +267,8 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::Brief
         | Mode::Worktrees
         | Mode::Review
-        | Mode::Terminal => true,
+        | Mode::Terminal
+        | Mode::Sessions => true,
         Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }
 }
