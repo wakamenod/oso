@@ -46,6 +46,7 @@ pub oso_core::buffer::Mode::CopyView
 pub oso_core::buffer::Mode::Fundamental
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::Rust
+pub oso_core::buffer::Mode::Terminal
 pub oso_core::buffer::Mode::Toml
 impl oso_core::buffer::Mode
 pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
@@ -70,6 +71,7 @@ pub oso_core::buffer::ReadOnly::Binary
 pub oso_core::buffer::ReadOnly::Internal
 pub oso_core::buffer::ReadOnly::InvalidUtf8
 pub oso_core::buffer::ReadOnly::Loading
+pub oso_core::buffer::ReadOnly::Terminal
 impl oso_core::buffer::ReadOnly
 pub fn oso_core::buffer::ReadOnly::as_str(self) -> &'static str
 impl core::clone::Clone for oso_core::buffer::ReadOnly
@@ -178,6 +180,10 @@ pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Opti
 pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::is_running(&self) -> bool
+pub fn oso_core::buffer::Buffer::is_terminal(&self) -> bool
+pub fn oso_core::buffer::Buffer::mode_note(&self) -> &str
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
@@ -1164,6 +1170,7 @@ pub enum oso_core::editor::KillRefused
 pub oso_core::editor::KillRefused::Gone
 pub oso_core::editor::KillRefused::Internal
 pub oso_core::editor::KillRefused::Modified
+pub oso_core::editor::KillRefused::Running
 pub oso_core::editor::KillRefused::Saving
 impl core::clone::Clone for oso_core::editor::KillRefused
 pub fn oso_core::editor::KillRefused::clone(&self) -> oso_core::editor::KillRefused
@@ -1373,6 +1380,23 @@ impl core::fmt::Debug for oso_core::editor::Shift
 pub fn oso_core::editor::Shift::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::Shift
 impl core::marker::StructuralPartialEq for oso_core::editor::Shift
+pub enum oso_core::editor::TerminalRequest
+pub oso_core::editor::TerminalRequest::Keys(alloc::vec::Vec<oso_core::key::KeyPress>)
+pub oso_core::editor::TerminalRequest::Open
+pub oso_core::editor::TerminalRequest::Open::new: bool
+pub oso_core::editor::TerminalRequest::Paste
+pub oso_core::editor::TerminalRequest::Paste::text: alloc::string::String
+pub oso_core::editor::TerminalRequest::PasteLines
+pub oso_core::editor::TerminalRequest::QuoteNext
+pub oso_core::editor::TerminalRequest::ToggleCharMode
+impl core::clone::Clone for oso_core::editor::TerminalRequest
+pub fn oso_core::editor::TerminalRequest::clone(&self) -> oso_core::editor::TerminalRequest
+impl core::cmp::Eq for oso_core::editor::TerminalRequest
+impl core::cmp::PartialEq for oso_core::editor::TerminalRequest
+pub fn oso_core::editor::TerminalRequest::eq(&self, &oso_core::editor::TerminalRequest) -> bool
+impl core::fmt::Debug for oso_core::editor::TerminalRequest
+pub fn oso_core::editor::TerminalRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::TerminalRequest
 pub enum oso_core::editor::Toward
 pub oso_core::editor::Toward::Next
 pub oso_core::editor::Toward::Previous
@@ -1497,6 +1521,13 @@ pub fn oso_core::editor::Editor::set_copies_text(&mut self, oso_core::load::Load
 pub fn oso_core::editor::Editor::set_internal_text(&mut self, oso_core::buffer::BufferId, &str)
 pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec::Vec<oso_core::editor::RecoveryAction>
 pub fn oso_core::editor::Editor::toggle_copies(&mut self)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::add_terminal_buffer(&mut self, &str) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::request_terminal(&mut self, oso_core::editor::TerminalRequest)
+pub fn oso_core::editor::Editor::running_terminals(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
+pub fn oso_core::editor::Editor::set_mode_note(&mut self, oso_core::buffer::BufferId, alloc::string::String)
+pub fn oso_core::editor::Editor::set_running(&mut self, oso_core::buffer::BufferId, bool)
+pub fn oso_core::editor::Editor::take_terminal_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::TerminalRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::agent_channel(&self) -> oso_core::editor::AgentChannel
 pub fn oso_core::editor::Editor::agent_log(&mut self, &str)
