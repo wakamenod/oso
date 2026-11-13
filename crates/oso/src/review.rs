@@ -29,6 +29,7 @@
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
 
 mod batch;
+pub(crate) mod count;
 mod diff;
 mod git;
 mod id;
@@ -38,7 +39,8 @@ mod read;
 mod scope;
 mod side;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+pub(crate) mod view;
 mod work;
 
 use std::fmt;

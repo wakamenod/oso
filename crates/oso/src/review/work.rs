@@ -20,7 +20,6 @@ use super::batch::{Batch, Blob};
 use super::diff;
 use super::git::{Git, GitError, MAX_SHORT};
 use super::id::Id;
-#[cfg(not(unix))]
 use super::id::trim_line;
 use super::index::Scratch;
 use super::read::{self, Context, Kept};
@@ -98,6 +97,56 @@ impl Reader {
                 },
             });
         }
+    }
+
+    /// How many files `scope` differs in, listed as a review lists them with no file read, and
+    /// how many more it left out.
+    pub(super) fn count(&mut self, scope: &Scope) -> Result<(usize, usize), ScopeError> {
+        let (git, index) = {
+            let repository = self.repository()?;
+            (repository.git.clone(), repository.index.clone())
+        };
+        let sides = scope::resolve(&git, scope)?;
+        let listing = scope::list(&git, &sides, &index, self.scratch.as_mut())?;
+        Ok((
+            listing.entries.len(),
+            listing.more + usize::from(listing.cut),
+        ))
+    }
+
+    /// The base the branch scope compares with: the branch's upstream, else the branch
+    /// `origin/HEAD` names, else `main` or `master` where there is one.
+    pub(super) fn branch_base(&mut self) -> Result<Option<String>, ScopeError> {
+        let git = self.repository()?.git.clone();
+        let named = |args: &[&str]| -> Option<String> {
+            let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+            let out = git.run(&args, &[], MAX_SHORT).ok()?;
+            let name = std::str::from_utf8(trim_line(&out)).ok()?.to_owned();
+            super::git::check_revision(&name).ok()?;
+            Some(name)
+        };
+        let upstream = [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "--end-of-options",
+            "@{upstream}",
+        ];
+        let origin = [
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ];
+        if let Some(name) = named(&upstream).or_else(|| named(&origin)) {
+            return Ok(Some(name));
+        }
+        for name in ["main", "master"] {
+            if git.resolve(name, "commit")?.is_some() {
+                return Ok(Some(name.to_owned()));
+            }
+        }
+        Ok(None)
     }
 
     #[cfg(test)]

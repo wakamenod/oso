@@ -21,7 +21,7 @@ use crate::buffer::{BufferId, Mode, Rewrap};
 use crate::frame::{self, CellRect};
 use crate::load::{Change, Reloaded};
 use crate::project::ProjectId;
-use crate::review::{Review, RowKind, Rows, Side};
+use crate::review::{Author, Review, RowKind, Rows, Side};
 use crate::sum_tree::Bias;
 use crate::syntax::Highlights;
 use crate::window::{Screen, WindowId};
@@ -170,6 +170,8 @@ struct Open {
     review: Review,
     rows: Rows,
     agents_folded: bool,
+    /// The files read and listed while a request reads them.
+    reading: Option<(usize, usize)>,
 }
 
 /// Every open review, what commands asked of the host, and the menu's state per project.
@@ -253,6 +255,7 @@ impl Editor {
             review: Review::new(),
             rows: Rows::default(),
             agents_folded: false,
+            reading: None,
         });
         (id, buffer)
     }
@@ -499,6 +502,35 @@ impl Editor {
             for span in &spans {
                 frame::match_cells_on_row(area, (screen, index), &display, span, list);
             }
+        }
+    }
+
+    /// Says how many of the files listed the review `id`'s running request has read, for its
+    /// modeline, or `None` once it read them all.
+    pub fn set_review_reading(&mut self, id: ReviewId, reading: Option<(usize, usize)>) {
+        if let Some(open) = self.reviews.get_mut(id) {
+            open.reading = reading;
+        }
+    }
+
+    /// What a review buffer's modeline says after its mode, `Review`, into `out`: how many agent
+    /// comments are unread and how far a reading is. Nothing for another buffer. Costs a look at
+    /// each comment.
+    pub(super) fn review_status_into(&self, buffer: BufferId, out: &mut String) {
+        use std::fmt::Write as _;
+        let Some(open) = self.reviews.open.iter().find(|open| open.buffer == buffer) else {
+            return;
+        };
+        let unread = open
+            .review
+            .comments()
+            .filter(|comment| comment.author() != Author::Person && !comment.is_read())
+            .count();
+        if unread > 0 {
+            let _ = write!(out, "{unread} unread  ");
+        }
+        if let Some((read, listed)) = open.reading {
+            let _ = write!(out, "reading {read}/{listed}  ");
         }
     }
 

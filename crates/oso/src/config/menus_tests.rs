@@ -336,7 +336,9 @@ fn menus_that_are_not_tables_or_break_a_limit_are_skipped() {
         .iter()
         .filter(|s| s.contains("there are at most 256 menus; skipped"))
         .collect();
-    assert_eq!(past.len(), 1, "{said:?}");
+    // The built-in menus take their room first.
+    let builtin = f.menus.len();
+    assert_eq!(past.len(), 1 + builtin, "{said:?}");
     assert_eq!(menus(&loaded).len(), 256);
 }
 

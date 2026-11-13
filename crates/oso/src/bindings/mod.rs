@@ -24,6 +24,7 @@ mod prefix;
 mod projects;
 mod recovery;
 mod replace;
+mod review;
 mod save;
 mod scroll;
 mod session;
@@ -82,6 +83,15 @@ pub fn global_keymap(registry: &Registry) -> Keymap {
         panic!("no command named {}", edit::TEXT_COMMAND);
     };
     keymap.set_text_command(typing);
+    // The built-in menus come first in every set, so the review menu's id is the same in the
+    // user's set as here (ADR 0117).
+    if let Some(review) = menus(registry).lookup("review") {
+        let keys: oso_core::key::KeySequence =
+            review::MENU_KEYS.parse().unwrap_or_else(|e| panic!("{e}"));
+        keymap
+            .bind_menu(&keys.0, review)
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
     keymap
 }
 
@@ -171,6 +181,12 @@ pub fn isearch_commands(registry: &Registry) -> Vec<oso_core::command::CommandId
 /// commands, as in tests that bring their own.
 pub fn rigid_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, indent::RIGID).unwrap_or_default()
+}
+
+/// A review buffer's own keymap, above the global one (ADR 0122). Empty for a registry without
+/// its commands, as in tests that bring their own.
+pub fn review_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, review::REVIEW).unwrap_or_default()
 }
 
 /// Markdown's own keymap, above the global one in a Markdown buffer (ADR 0115). Empty for a

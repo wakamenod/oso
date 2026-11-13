@@ -287,6 +287,9 @@ pub oso_core::command::ArgSpec::Replace::regexp: bool
 pub oso_core::command::ArgSpec::Text
 pub oso_core::command::ArgSpec::Text::history: &'static str
 pub oso_core::command::ArgSpec::Text::prompt: &'static str
+pub oso_core::command::ArgSpec::TextOnPrefix
+pub oso_core::command::ArgSpec::TextOnPrefix::history: &'static str
+pub oso_core::command::ArgSpec::TextOnPrefix::prompt: &'static str
 pub oso_core::command::ArgSpec::Theme
 pub oso_core::command::ArgSpec::Theme::history: &'static str
 pub oso_core::command::ArgSpec::Theme::prompt: &'static str
@@ -1560,6 +1563,7 @@ pub fn oso_core::editor::Editor::set_baseline_taken(&mut self, oso_core::project
 pub fn oso_core::editor::Editor::set_branch_base(&mut self, oso_core::project::ProjectId, u64, core::option::Option<alloc::string::String>)
 pub fn oso_core::editor::Editor::set_last_scope(&mut self, oso_core::project::ProjectId, oso_core::editor::ScopeKind)
 pub fn oso_core::editor::Editor::set_review_paint(&mut self, oso_core::editor::ReviewId, oso_core::review::Rows, oso_core::syntax::Highlights) -> bool
+pub fn oso_core::editor::Editor::set_review_reading(&mut self, oso_core::editor::ReviewId, core::option::Option<(usize, usize)>)
 pub fn oso_core::editor::Editor::set_review_text(&mut self, oso_core::editor::ReviewId, oso_core::load::Reloaded, oso_core::review::Rows, oso_core::syntax::Highlights)
 pub fn oso_core::editor::Editor::set_scope_count(&mut self, oso_core::project::ProjectId, u64, oso_core::editor::ScopeKind, oso_core::editor::Count) -> bool
 pub fn oso_core::editor::Editor::shown_review_files(&self, oso_core::editor::ReviewId, &mut alloc::vec::Vec<alloc::boxed::Box<[u8]>>)
@@ -4500,13 +4504,20 @@ pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub mod oso_core::syntax
 pub enum oso_core::syntax::Highlight
 pub oso_core::syntax::Highlight::Comment
+pub oso_core::syntax::Highlight::CommentAgent
+pub oso_core::syntax::Highlight::CommentPerson
 pub oso_core::syntax::Highlight::Constant
+pub oso_core::syntax::Highlight::DiffAdded
+pub oso_core::syntax::Highlight::DiffFileHeader
+pub oso_core::syntax::Highlight::DiffHunkHeader
+pub oso_core::syntax::Highlight::DiffRemoved
 pub oso_core::syntax::Highlight::Function
 pub oso_core::syntax::Highlight::Heading
 pub oso_core::syntax::Highlight::Keyword
 pub oso_core::syntax::Highlight::Link
 pub oso_core::syntax::Highlight::Macro
 pub oso_core::syntax::Highlight::Markup
+pub oso_core::syntax::Highlight::Outdated
 pub oso_core::syntax::Highlight::Property
 pub oso_core::syntax::Highlight::String
 pub oso_core::syntax::Highlight::Type
