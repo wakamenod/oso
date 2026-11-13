@@ -99,8 +99,7 @@ fn boot_seconds(stat: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{boot_seconds, of, start_ticks};
-    use std::time::{Duration, SystemTime};
+    use super::{boot_seconds, start_ticks};
 
     #[test]
     fn reads_the_start_after_the_name_whatever_the_name_holds() {
@@ -123,6 +122,9 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn this_process_and_its_parent_started_in_the_past_and_no_process_did_not() {
+        use super::of;
+        use std::time::{Duration, SystemTime};
+
         let now = SystemTime::now();
         let ours = of(std::process::id()).unwrap();
         assert!(

@@ -129,7 +129,7 @@ mod tests {
     use std::ffi::OsString;
     use std::path::Path;
 
-    use super::{Line, SESSION_VARIABLE, Start, arguments, mcp_config};
+    use super::{Line, SESSION_VARIABLE, Start, arguments};
     use crate::sessions::identity::SessionId;
 
     fn id(n: u8) -> SessionId {
@@ -243,6 +243,6 @@ mod tests {
     fn a_path_that_is_not_utf8_is_refused() {
         use std::os::unix::ffi::OsStrExt;
         let path = Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/oso"));
-        assert!(mcp_config(path, 1, &id(1)).is_err());
+        assert!(super::mcp_config(path, 1, &id(1)).is_err());
     }
 }
