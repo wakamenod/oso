@@ -119,10 +119,11 @@ fn a_newer_input_drops_the_rows_and_a_stale_searchs_rows_are_dropped() {
 #[test]
 fn an_input_that_narrows_a_whole_search_looks_through_its_lines() {
     let mut editor = searching();
-    let first = search_for(&mut editor, "foo");
+    // Not romaji, so a literal, which a longer one narrows.
+    let first = search_for(&mut editor, "f00");
     editor.rows_found(
         first,
-        vec![row("a.rs", 1, "foo")],
+        vec![row("a.rs", 1, "f00")],
         Some(WalkEnd { cut: false }),
     );
     typing(&mut editor, "b");

@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::migemo::Cache;
 use super::{CompletionStyle, Editor, WalkEnd};
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
 use crate::minibuffer::{PromptError, PromptId};
@@ -281,14 +282,30 @@ impl Editor {
             .map(|buffer| buffer.text())
             .filter(|text| text.len() <= MAX_INPUT_BYTES)
             .map(|text| text.to_string());
-        let search = &mut self.project_search;
-        if search.input.as_ref() == Some(&text) {
+        if self.project_search.input.as_ref() == Some(&text) {
             return;
         }
-        let query = Arc::new(
-            text.as_deref()
-                .map_or_else(LineQuery::too_long, LineQuery::parse),
-        );
+        let migemo = self.migemo_starts_on();
+        let around = self
+            .prompts
+            .last()
+            .is_some_and(|prompt| prompt.around_secret);
+        let cache = Cache::unless(around || self.shows_secret());
+        let table = self.migemo.table();
+        let search = &mut self.project_search;
+        // Each component the input before had keeps what it compiled (ADR 0076).
+        let query = Arc::new(match text.as_deref() {
+            Some(text) => {
+                let none = LineQuery::empty();
+                let before = search.query.as_deref().unwrap_or(&none);
+                LineQuery::parse_after(text, before, migemo, table.as_ref())
+            }
+            None => LineQuery::too_long(),
+        });
+        if query.wants_dictionary() {
+            self.migemo.wanted_without(cache);
+        }
+        let search = &mut self.project_search;
         search.input = Some(text);
         search.generation = search.live.fetch_add(1, Ordering::Relaxed) + 1;
         search.preview.reset();
@@ -318,6 +335,21 @@ impl Editor {
             let rows = std::mem::replace(candidates, empty);
             self.free_candidates(rows);
         }
+    }
+
+    /// Searches again if the innermost prompt searches a project for a migemo component that
+    /// took its words from another dictionary than the one migemo has now, as one came or
+    /// went (ADR 0116): its words change what it matches.
+    pub(super) fn project_search_look_again(&mut self) {
+        let generation = crate::migemo::generation(self.migemo.table().as_ref());
+        let stale = (self.project_search.query.as_ref())
+            .is_some_and(|query| query.compiled_for_another(generation));
+        if !self.searches_project() || !stale {
+            return;
+        }
+        self.project_search.input = None;
+        self.search_input_changed();
+        self.relayout_prompt();
     }
 
     /// The whole path of the innermost prompt's selected row, if it searches a project, and the

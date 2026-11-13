@@ -177,12 +177,17 @@ Listing and searching walk the same files, in-process, with the `ignore` crate (
 - **The input is ADR 0076's orderless components, matched against each line (Q12):** a line
   matches when every component does, in any order. A component is a literal or a regular
   expression as in completion, `!` excludes lines, and smart case holds over the whole input as
-  in isearch. A search starts once a component that is not excluded has 2 characters.
+  in isearch. A search starts once a component that is not excluded has 2 characters. Changed
+  by [ADR 0116](0116-migemo-and-jumps.md): a component that is romaji matches as its migemo
+  pattern, and `=` keeps it literal.
 - **It runs in-process (Q1), on a thread of its own, `oso-grep`,** which walks and hands files to
   `min(cores - 1, 8)` searching threads, at least one. Each key starts a new search with a new
   generation, which every thread reads before each file and each block; a superseded search
   stops there and reports nothing. An input that only narrows the last one, by ADR 0076's rule,
   filters that search's results instead of walking again, if that search ended without a limit.
+  Changed by [ADR 0116](0116-migemo-and-jumps.md) (step 4, Q8): a migemo component narrows by a
+  rule of the project search's own, when the old component matches every string of the new
+  one's pattern; completion keeps 0076's.
 - **A file is read in blocks of 256 KiB cut at a line's end.** A line longer than that grows the
   block up to 16 MiB; past that the rest of the file is skipped. A NUL byte stops the file, as
   `rg` stops at a binary one, keeping the rows found before it. Text is read as UTF-8, with
@@ -537,7 +542,8 @@ accepted, the status of ADR 0009 becomes `Accepted, amended by 0114`, and of ADR
   most 16 MiB of them with their paths, counted as they are found so that no file copies more,
   secret ones too, which never leave it but as rows. They go once no search came for 30 s. The
   editor keeps the generation and the query of the last such search, and a request whose input
-  narrows that one, by ADR 0076's rule, names it; `oso-grep` then matches only those lines, if
+  narrows that one, by ADR 0076's rule (changed by ADR 0116 for migemo components, as above),
+  names it; `oso-grep` then matches only those lines, if
   they are the ones it kept, and walks otherwise. A narrowing search that is superseded leaves
   them kept. A component read as an expression never narrows one read as a literal, or the other
   way, which completion's rule now says too.

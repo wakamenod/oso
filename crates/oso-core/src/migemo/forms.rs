@@ -1,5 +1,6 @@
 //! The other forms of a romaji string's kana and letters (ADR 0116): katakana, half-width
-//! katakana and full-width letters.
+//! katakana and full-width letters, and the kana a base and a combining sound mark compose
+//! to, as text that names files on macOS may hold them.
 //!
 //! Must not depend on: any module of this crate.
 
@@ -72,4 +73,26 @@ pub(super) fn full_width(c: char) -> char {
         'a'..='z' | '\'' | '-' => char::from_u32(u32::from(c) - 0x20 + 0xFF00).unwrap_or(c),
         _ => c,
     }
+}
+
+/// The kana that compose with the combining voiced sound mark, U+3099, and what each composes
+/// to, in order, as Unicode's canonical composition has them.
+const VOICES: &str = "うかきくけこさしすせそたちつてとはひふへほゝウカキクケコサシスセソタチツテトハヒフヘホワヰヱヲヽ";
+const VOICED_KANA: &str = "ゔがぎぐげござじずぜぞだぢづでどばびぶべぼゞヴガギグゲゴザジズゼゾダヂヅデドバビブベボヷヸヹヺヾ";
+
+/// The kana that compose with the combining semi-voiced sound mark, U+309A, and what each
+/// composes to, in order.
+const SEMI_VOICES: &str = "はひふへほハヒフヘホ";
+const SEMI_VOICED_KANA: &str = "ぱぴぷぺぽパピプペポ";
+
+/// The kana `base` followed by `mark`, a combining sound mark, composes to: `か` and U+3099
+/// are `が`. `None` where they do not compose.
+pub(super) fn composed(base: char, mark: char) -> Option<char> {
+    let (bases, kana) = match mark {
+        '\u{3099}' => (VOICES, VOICED_KANA),
+        '\u{309A}' => (SEMI_VOICES, SEMI_VOICED_KANA),
+        _ => return None,
+    };
+    let at = bases.chars().position(|c| c == base)?;
+    kana.chars().nth(at)
 }

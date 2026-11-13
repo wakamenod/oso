@@ -1,6 +1,10 @@
 //! A completion input read as components, and how each matches a candidate (ADR 0076).
 //!
 //! Must not depend on: `editor`, `minibuffer` or `display_map`; it works on strings alone.
+//!
+//! A `%` component is migemo's pattern for its romaji (ADR 0116): the input's migemo
+//! components share one word [`Budget`], and one is kept from the input before while that
+//! budget gives it the same words.
 
 use std::fmt;
 use std::ops::Range;
@@ -8,6 +12,10 @@ use std::ops::Range;
 use regex::{Regex, RegexBuilder};
 
 use super::{AFFIXES, Candidate};
+use crate::migemo::{Budget, Spent, Table};
+
+mod narrow;
+mod romaji;
 
 /// The most memory a component's expression may take once compiled, so that one pasted in
 /// cannot take long to compile. A larger one matches as a literal. It admits ordinary Perl
@@ -43,6 +51,9 @@ enum Style {
     Initialism,
     /// Each character in order, anything between: `~fwc` is `forward-char`.
     Flex,
+    /// Migemo's pattern for romaji, which holds the literal too: `%kan` is `かんじ.md`, and
+    /// with a dictionary `漢字.md` (ADR 0116). It matches the text with its kana composed.
+    Migemo,
 }
 
 /// One component of a query.
@@ -71,11 +82,17 @@ struct Component {
     annotation: bool,
     /// What it matches, in lower case where case is ignored.
     pattern: Box<str>,
+    /// For a migemo one, the generation of the dictionary its pattern took words from, if
+    /// any: never the table, so a query keeps none alive.
+    generation: Option<u64>,
+    /// For a migemo one, what its words spent of the input's budget, which decides them.
+    spent: Spent,
 }
 
 impl PartialEq for Component {
     /// The expression and the searcher follow from the rest: whether it is tried as an
-    /// expression too, as `=` says it is not.
+    /// expression too, as `=` says it is not, and for a migemo one the dictionary's
+    /// generation and what its words spent.
     fn eq(&self, other: &Self) -> bool {
         (
             self.style,
@@ -89,7 +106,7 @@ impl PartialEq for Component {
             other.annotation,
             other.tried,
             &other.pattern,
-        )
+        ) && (self.generation, self.spent) == (other.generation, other.spent)
     }
 }
 
@@ -113,8 +130,15 @@ fn compile_within(pattern: &str, ignore_case: bool, size_limit: usize) -> Option
 
 impl Component {
     /// The component `raw` stands for, with its affix read, or `None` if nothing is left
-    /// to match once the affix is.
-    fn parse(raw: &str, ignore_case: bool, before: &Query) -> Option<Self> {
+    /// to match once the affix is. A migemo one takes `table`'s words, as many as `budget`
+    /// leaves, which the input's components share.
+    fn parse(
+        raw: &str,
+        ignore_case: bool,
+        (before, built): (&Query, &[Self]),
+        table: Option<&Table>,
+        budget: &mut Budget,
+    ) -> Option<Self> {
         let first = raw.chars().next()?;
         let last = raw.chars().next_back()?;
         let (affix, rest) = if AFFIXES.contains(&first) {
@@ -133,11 +157,22 @@ impl Component {
             Some('~') => Style::Flex,
             _ => Style::Literal,
         };
-        let pattern = if ignore_case {
+        let pattern: Box<str> = if ignore_case {
             rest.to_lowercase().into()
         } else {
             rest.into()
         };
+        // `%` and romaji that gives kana is migemo's; anything else after it is a literal.
+        if affix == Some('%')
+            && let Some(component) = Self::migemo(
+                (rest, &pattern),
+                ignore_case,
+                (before, built),
+                (table, budget),
+            )
+        {
+            return Some(component);
+        }
         // `=` and the other affixes but `!` and `&` take one style only.
         let wants_regex = matches!(affix, None | Some('!' | '&')) && rest.contains(REGEX_META);
         // What the query before compiled for the same component is reused, a failure too:
@@ -180,6 +215,8 @@ impl Component {
             not: affix == Some('!'),
             annotation: affix == Some('&'),
             pattern,
+            generation: None,
+            spent: Spent::default(),
         })
     }
 
@@ -203,7 +240,8 @@ impl Component {
         };
         let pattern = &*self.pattern;
         let Some(out) = out else {
-            return self.hits(text, haystack) != self.not;
+            let composed = candidate.composed.as_ref().and_then(|c| c.text.as_deref());
+            return self.hits(text, haystack, composed) != self.not;
         };
         let mut out = Some(out).filter(|_| !self.not && !self.annotation);
         let start = out.as_ref().map_or(0, |out| out.len());
@@ -215,8 +253,9 @@ impl Component {
         // An expression matches the original text, ignoring case itself, so where it matched
         // needs no mapping back.
         let mut original = false;
-        // A text of fewer bytes than the component has characters cannot hold it.
-        let literal = if self.chars > text.len() {
+        // A text of fewer bytes than the component has characters cannot hold it, and a
+        // migemo one looks for its own pattern.
+        let literal = if self.style == Style::Migemo || self.chars > text.len() {
             None
         } else if let Some(finder) = &self.finder {
             finder.find(text).map(|hit| {
@@ -250,6 +289,18 @@ impl Component {
             }
             Style::Flex => in_order(haystack, pattern, |_, _| true, push),
             Style::Initialism => in_order(haystack, pattern, starts_word, push),
+            Style::Migemo => {
+                // Its expression ignores case itself, and where it matched in the composed
+                // text maps back to the original.
+                original = true;
+                match self.migemo_find(candidate) {
+                    Some(range) => {
+                        push(range);
+                        true
+                    }
+                    None => false,
+                }
+            }
         };
         if let Some(out) = out {
             if !hit {
@@ -265,8 +316,9 @@ impl Component {
 
     /// Whether it is found in `text`, or in `haystack`, its folded form where case is ignored,
     /// as [`Component::matches`] finds it, without where: a search that need not report where
-    /// it matched stops at the first match it is sure of.
-    fn hits(&self, text: &str, haystack: &str) -> bool {
+    /// it matched stops at the first match it is sure of. `composed` is the text with its
+    /// kana composed, if it has such a form, which a migemo one matches.
+    fn hits(&self, text: &str, haystack: &str, composed: Option<&str>) -> bool {
         let pattern = &*self.pattern;
         match self.style {
             Style::Literal => {
@@ -287,6 +339,10 @@ impl Component {
             Style::Prefix => haystack.starts_with(pattern),
             Style::Flex => in_order(haystack, pattern, |_, _| true, |_| {}),
             Style::Initialism => in_order(haystack, pattern, starts_word, |_| {}),
+            Style::Migemo => self.regex.as_ref().is_some_and(|regex| match composed {
+                Some(composed) => regex.is_match(composed),
+                None => regex.is_match(text),
+            }),
         }
     }
 }
@@ -342,11 +398,12 @@ impl Query {
     /// holds an upper-case letter.
     #[cfg(test)]
     pub(crate) fn parse(input: &str) -> Self {
-        Self::parse_after(input, &Self::default())
+        Self::parse_after(input, &Self::default(), None)
     }
 
-    /// [`Query::parse`], reusing what `before` compiled for a component that is the same.
-    pub(crate) fn parse_after(input: &str, before: &Query) -> Self {
+    /// [`Query::parse`], reusing what `before`, or an earlier component of the same input,
+    /// compiled for a component that is the same, a migemo one taking `table`'s words.
+    pub(crate) fn parse_after(input: &str, before: &Query, table: Option<&Table>) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
         }
@@ -370,15 +427,42 @@ impl Query {
         if raw.len() > MAX_COMPONENTS {
             return Self::too_long();
         }
-        let components = raw
-            .iter()
-            .filter_map(|raw| Component::parse(raw, ignore_case, before))
-            .collect();
+        let mut components: Vec<Component> = Vec::with_capacity(raw.len());
+        // The input's migemo components share one pattern's words, in order (ADR 0116, Q7).
+        let mut budget = Budget::PATTERN;
+        for raw in &raw {
+            let built = (before, components.as_slice());
+            let parsed = Component::parse(raw, ignore_case, built, table, &mut budget);
+            components.extend(parsed);
+        }
         Self {
             components,
             ignore_case,
             too_long: false,
         }
+    }
+
+    /// Whether a component matches as migemo's pattern, for tests.
+    #[cfg(test)]
+    pub(crate) fn uses_migemo(&self) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.style == Style::Migemo)
+    }
+
+    /// Whether a migemo component took its words from another dictionary than that of
+    /// `generation`, or from none while there is one.
+    pub(crate) fn compiled_for_another(&self, generation: Option<u64>) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.style == Style::Migemo && component.generation != generation)
+    }
+
+    /// Whether a migemo component was compiled with no dictionary, so one would add words.
+    pub(crate) fn wants_dictionary(&self) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.style == Style::Migemo && component.generation.is_none())
     }
 
     /// The query of an input too long to match: nothing matches it.
@@ -406,7 +490,7 @@ impl Query {
     /// Whether `candidate` matches every component, each found with where it matched, as
     /// highlighting finds it, for tests that [`Query::matches`] agrees.
     #[cfg(test)]
-    fn matches_finding_where(&self, candidate: &Candidate) -> bool {
+    pub(crate) fn matches_finding_where(&self, candidate: &Candidate) -> bool {
         let mut out = Vec::new();
         !self.too_long
             && self
@@ -459,47 +543,6 @@ impl Query {
             }
         }
         out.truncate(kept);
-    }
-
-    /// Whether every candidate this query matches is one `before` matched, so that it
-    /// needs to look only at those: each of `before`'s components is one of this query's,
-    /// in its place, at most longer at its end, and none says what must not match unless
-    /// it is the same. Case may stop being ignored, and never start.
-    pub(crate) fn narrows(&self, before: &Query) -> bool {
-        if before.too_long {
-            return false;
-        }
-        if self.too_long {
-            return true;
-        }
-        if self.ignore_case && !before.ignore_case {
-            return false;
-        }
-        if self.components.len() < before.components.len() {
-            return false;
-        }
-        self.components
-            .iter()
-            .zip(&before.components)
-            .all(|(new, old)| {
-                if new.style != old.style || new.not != old.not || new.annotation != old.annotation
-                {
-                    return false;
-                }
-                // A negation that matches less, or with case, keeps more candidates, and a
-                // longer expression may match more.
-                if new.not || new.tried || old.tried {
-                    // A literal read as an expression too matches more, and the other way less.
-                    return new.tried == old.tried
-                        && new.pattern == old.pattern
-                        && self.ignore_case == before.ignore_case;
-                }
-                if self.ignore_case == before.ignore_case {
-                    new.pattern.starts_with(&*old.pattern)
-                } else {
-                    new.pattern.to_lowercase().starts_with(&*old.pattern)
-                }
-            })
     }
 }
 
