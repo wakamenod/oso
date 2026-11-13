@@ -13,11 +13,16 @@ CLI's control protocol, whose wire format is not published, and carried about 76
 workarounds. [ADR 0121](0121-agent-sessions-and-spaces.md) defines a session as a hosted `claude` in
 a terminal.
 
-A first draft of this ADR drove `claude -p` with stream-json directly, on documented flags only. The
-author chose instead (Q1 (b)) Anthropic's Agent SDK in a sidecar process, as interactive chat
-clients do: the raw `-p` route is little travelled, and the SDK is Anthropic's own client of the
-control protocol, so its upkeep is Anthropic's, not oso's. Q5–Q10 were restated for that route
-before they were answered, and Q11–Q16 are the questions it raises.
+Two routes exist, and **the author has not chosen between them (Q1, Q11):** they will decide
+after using Claude in oso's TUI (ADR 0121's steps). This ADR therefore records what holds on either
+route, describes both fairly, and stays Proposed.
+
+- **Route A, the Agent SDK in a sidecar,** as interactive chat clients do: Orca, an Electron app,
+  bundles the TypeScript SDK (Electron brings Node), and Zed reaches it through ACP. The SDK is
+  Anthropic's own client of the control protocol, so its upkeep is Anthropic's; oso would need a
+  Python or Node runtime.
+- **Route B, `claude -p` with stream-json,** on documented flags only. No runtime, but little used
+  for interactive chat, and some features exist only through the control protocol.
 
 ### What Anthropic documents
 
@@ -72,23 +77,45 @@ From Anthropic's documentation, read on 2026-11-13 (sources at the end).
 
 ## Decision
 
-### The route (Q1, Q11, Q16)
+### The route (Q1: open)
 
-- **A chat session is the person's own `claude`, driven by the Python Agent SDK in a sidecar**
-  (Q11): a small Python program of oso's own, `oso_chat.py`, which holds one `ClaudeSDKClient` and
-  speaks to oso over its standard input and output. One sidecar per chat session.
-- **The person's own CLI:** `cli_path` is the `claude` that ADR 0121 resolves through the login
-  shell, never the copy the SDK package carries; oso's session id goes as ADR 0121 passes it
-  (through `extra_args`); the session's `oso mcp` bridge is its MCP server, as for a TUI session.
-- **No login is touched (Q16).** The unmodified CLI uses the person's own sign-in. oso and the
-  sidecar read no token and pass no key. The feature is called "chat", never "Claude Code". The
-  manual quotes the terms above; publishing oso with chat waits for the terms check that is already
-  an open question.
-- **oso never speaks the control protocol itself.** The SDK does, inside the sidecar; oso speaks
-  only its own protocol with the sidecar (below). When the SDK changes, the sidecar adapts, not
-  oso's Rust code.
+On either route:
 
-### The sidecar (Q12, Q13)
+- **A chat session is the person's own `claude`,** resolved through the login shell as ADR 0121's
+  sessions are, with oso's session id and the session's `oso mcp` bridge as its MCP server.
+- **No login is touched (Q16, not asked yet).** The unmodified CLI uses the person's own sign-in;
+  oso reads no token and passes no key. The feature is called "chat", never "Claude Code".
+  Publishing oso with chat waits for the terms check that is already an open question.
+- **oso's Rust code never writes the control protocol.** On route A the SDK does, inside the
+  sidecar; on route B nobody does, and a `control_request` the CLI writes is ignored and logged
+  once.
+
+Where the routes differ:
+
+| | A: the SDK in a sidecar | B: `claude -p` with stream-json |
+|---|---|---|
+| Process | the person's `claude` under the SDK (`cli_path`), in a sidecar of oso's own | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages`, with pipes |
+| Runtime | Python 3.10+ and the SDK (or Node, Q11), through `chat-setup` | none |
+| Upkeep | the SDK follows the CLI; oso keeps the sidecar and the fields it reads | oso reads the documented stream; the schema is not promised stable |
+| Permission cards | the SDK's `can_use_tool` | `--permission-prompt-tool` naming a bridge tool; its input is undocumented |
+| `AskUserQuestion` | documented through `can_use_tool` | unverified through the prompt tool; else denied with "ask in plain text instead" |
+| Interrupt | `interrupt()`; the session stays | `SIGINT`; whether a long-lived process survives it is undocumented, else the next message resumes |
+| Model | `set_model` | `/model` sent as prompt text |
+| Permission mode | `set_permission_mode` | none during a session |
+| Context ring | `get_context_usage` | each result's `usage` |
+| Rewinding files | `rewind_files` | between turns, `claude -p --resume ID --rewind-files UUID` with checkpointing on (on the checkpointing page, not in `--help`) |
+| Stopping one background task | `stop_task` | none |
+| Who uses it | Orca (TypeScript, in Electron), Zed through ACP | opcode, one process per turn, no permissions; rare for interactive chat |
+| Terms | the SDK overview's sentence on claude.ai login names SDK agents | the same CLI and login; the legal page's carve-out for the unmodified binary |
+
+### Route A's sidecar (Q11: open; Q12; Q13 not asked yet)
+
+The rest of this section holds only on route A, written for Python; with TypeScript (Q11 (b)) the
+sidecar would be a Node script and `chat-setup` would install the SDK with the person's `npm`.
+
+- **The sidecar** is a small program of oso's own, `oso_chat.py`, which holds one
+  `ClaudeSDKClient` and speaks to oso over its standard input and output. One sidecar per chat
+  session. `cli_path` is the person's `claude`, never the copy the SDK package carries.
 
 - **Its code (Q13)** lives in oso's repository beside the `chat` module, is compiled into oso's
   executable, and runs as `PYTHON -I -c SCRIPT`: `-I` ignores `PYTHON*` variables and the user's
@@ -113,6 +140,9 @@ From Anthropic's documentation, read on 2026-11-13 (sources at the end).
   `hello` names another version warns once and runs. A newer oso may raise the pin; `chat-setup`
   installs it.
 - **No interpreter or no SDK:** a chat start says "run chat-setup" and offers the TUI.
+
+On route B there is no sidecar: oso runs the `claude -p` line above through `oso-platform::process`
+and reads its stream on the reader thread, with the same limits.
 
 ### Where it may run (Q2)
 
@@ -147,6 +177,8 @@ From Anthropic's documentation, read on 2026-11-13 (sources at the end).
 
 ### Interrupting, the model and the mode (Q10, Q14, Q15)
 
+The keys are the same on both routes; what each does on route B is in the table above.
+
 - **Interrupt (Q10):** `C-c C-k` calls `interrupt()`, which ends the turn and keeps the session.
   `C-c C-q` ends the sidecar (closing its input, then `SIGTERM` after 5 s); the next message starts
   it again with `resume`.
@@ -169,7 +201,8 @@ From Anthropic's documentation, read on 2026-11-13 (sources at the end).
 
 ### Permission prompts and questions (Q3, Q4)
 
-- **`can_use_tool` (Q3)** in the sidecar sends oso a `permission` line and waits. oso shows a card in
+- **`can_use_tool` (Q3)** in the sidecar sends oso a `permission` line and waits (on route B, the
+  bridge's prompt tool reaches oso instead). oso shows a card in
   the chat: the tool's name and its input (at most 64 KiB shown, the rest behind `RET`), and the keys
   `y` allow once, `n` deny, `N` deny with a note the person types. The card is answered from the
   keyboard only, after 500 ms with no key, as ADR 0085's questions; no agent can answer it, the
@@ -213,8 +246,10 @@ From Anthropic's documentation, read on 2026-11-13 (sources at the end).
 
 ### Left out
 
-What only the TypeScript SDK offers (the lists of commands and models, account information, flag
-settings at run time, reloading skills). Forking a chat from a message waits for a later decision.
+On route A with Python, what only the TypeScript SDK offers (the lists of commands and models,
+account information, flag settings at run time, reloading skills). On route B, what only the control
+protocol offers: changing the permission mode during a session, live context readings, stopping one
+background task, and hook callbacks. Forking a chat from a message waits for a later decision.
 
 ### Code
 
@@ -238,9 +273,9 @@ settings at run time, reloading skills). Forking a chat from a message waits for
 
 One pull request each, after ADR 0121 steps 1–3; nothing here goes into them or holds them up.
 
-1. **The sidecar and the stream:** `oso_chat.py`, its protocol, `chat-setup` and the requirements
-   file (through the `add-dependency` skill), the reader thread, the parser with its fuzz target and
-   fixtures, and the transcript rows, read-only.
+1. **The stream:** on route A, `oso_chat.py`, its protocol, `chat-setup` and the requirements file
+   (through the `add-dependency` skill); on route B, the command line; then the reader thread, the
+   parser with its fuzz target and fixtures, and the transcript rows, read-only. Waits for Q1.
 2. **The composer:** sending, queued messages, interrupt, slash commands, context forms.
 3. **Permission cards:** `can_use_tool`, the cards, `AskUserQuestion`, states from the SDK's
    messages.
@@ -251,8 +286,8 @@ One pull request each, after ADR 0121 steps 1–3; nothing here goes into them o
 
 ## Questions
 
-For the author, the recommended option first. Q1–Q4 were asked of the first draft; Q5–Q10 were
-restated for the SDK route before they were answered; Q11–Q16 are new.
+For the author, the recommended option first. Q1–Q10 were asked of the first draft; Q9 and Q10
+were restated for the SDK route; Q11–Q16 came from it. Q1 and Q11 are open, Q13–Q16 not asked yet.
 
 1. **The route.**
    (a) The person's own `claude -p` with stream-json in and out, documented flags only; no SDK, no
@@ -327,31 +362,40 @@ restated for the SDK route before they were answered; Q11–Q16 are new.
 
 ### Dependencies
 
-Proposed through the `add-dependency` skill in step 1, not decided here: a Python 3.10 or newer of
+None on route B. On route A, proposed through the `add-dependency` skill in step 1, not decided
+here: a Python 3.10 or newer of
 the person's, `uv` of the person's, and `claude-agent-sdk` at a pinned version with its
 dependencies in a hash-checked requirements file. Nothing in `Cargo.toml`: the sidecar's protocol is
 read with `serde_json`, already a dependency of the tip crate.
 
 ## The author's choices
 
-Asked of the first draft on 2026-11-13, through the coordinator:
+Answered on 2026-11-13, through the coordinator; the rest is open, so this ADR stays Proposed.
 
-- **Q1: (b),** the Agent SDK in a sidecar. The author noted that hardly anyone builds on raw `claude
-  -p`; interactive chat clients use the SDK.
+- **Q1 and Q11, open.** The author leaned first towards the SDK sidecar, then was unsure between it
+  and `claude -p`, and will decide the route and the SDK's language after using Claude in oso's
+  TUI.
 - **Q2: (a),** trusted projects only.
-- **Q3: (a),** keyboard-only cards with `y`, `n` and `N` and no "always allow", through the SDK's
-  permission callback in place of `--permission-prompt-tool`.
+- **Q3: (a),** keyboard-only cards with `y`, `n` and `N` and no "always allow", through whichever
+  hook the route has (`can_use_tool` or the prompt tool).
 - **Q4: (a),** `AskUserQuestion` as a card.
-
-Q5–Q16 are with the author.
+- **Q5–Q8: (a):** `C-c C-c` sends; queued messages; switching views only while stopped, idle or
+  done; the TUI by default.
+- **Q9 and Q10: (a)** for the SDK route: states from its messages; `interrupt()` with a separate key
+  to end the sidecar. On route B, states come from the stream and interrupt is `SIGINT`.
+- **Q12: (a)** if the SDK is Python: `chat-setup` with the person's `uv` and hash-checked pins.
+- **Q13–Q16, not asked yet.**
 
 ## Changes to accepted ADRs
 
 To be filled when the author has answered; expected:
 
 - [ADR 0031](0031-claude-code-integration.md), "Not used: the `-p` control protocol, the Agent SDK,
-  ACP, transcript parsing for the primary view": the Agent SDK is used, for chat sessions only, in
-  a sidecar of oso's own; oso's Rust code still speaks no control protocol and parses no transcript.
+  ACP, transcript parsing for the primary view": on route A the Agent SDK is used, for chat sessions
+  only, in a sidecar of oso's own; on route B `claude -p` is used with stream-json and documented
+  flags. Either way oso's Rust code writes no control protocol and parses no transcript. "`claude
+  -p` for one-shot features using only documented flags" (a later option): still open for one-shot
+  features.
 - [ADR 0121](0121-agent-sessions-and-spaces.md), "A session is a hosted `claude` in an oso terminal":
   or a chat session, the person's `claude` driven by the sidecar. "For a session oso hosts, the
   screen is the authority": for a TUI session; a chat session's state comes from the SDK's
@@ -360,12 +404,13 @@ To be filled when the author has answered; expected:
 
 ## Consequences
 
-- The person can read and drive a session as a buffer: search, fold, diffs, cards, interrupt,
-  rewind, and oso's own keys.
-- Chat needs a Python and the SDK, installed by the person's command; the TUI needs neither.
-- The SDK absorbs the control protocol's changes; oso's upkeep is the sidecar's few hundred lines
-  and the fields it reads. A pinned SDK can still lag a newer CLI, and the SDK's message schema is
-  not promised stable.
+- The person can read and drive a session as a buffer: search, fold, diffs, cards, interrupt, and
+  oso's own keys; rewind and live mode changes on route A.
+- Route A needs a Python (or Node) and the SDK, installed by the person's command; route B and the
+  TUI need neither.
+- On route A the SDK absorbs the control protocol's changes, and oso keeps the sidecar's few hundred
+  lines; on route B oso reads a stream whose schema is not promised stable. Either way oso reads few
+  fields and records fixtures per version.
 - Signing in with a subscription through an SDK client is a terms question for a published oso;
   until it is checked, chat is for the person's own use.
 - SDK use draws from the subscription today; a change of that policy would affect chat, not the TUI.
@@ -374,8 +419,6 @@ To be filled when the author has answered; expected:
 
 ## Alternatives considered
 
-- **`claude -p` with stream-json and documented flags only** (the first draft, Q1 (a)): no runtime,
-  but a little-travelled route, without interrupt, rewind, live mode changes or the context ring.
 - **Speaking the control protocol from Rust:** every feature, but it repeats the previous setup's
   churn.
 - **The TypeScript SDK, as Orca** (Q11 (b)): more features first, but Node and a licence that rules
