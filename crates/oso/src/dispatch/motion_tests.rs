@@ -30,6 +30,20 @@ pub(super) fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str)
     dispatcher.handle_keys(editor, keys.0)
 }
 
+/// Runs isearch's worker jobs in place, as the host's thread would, and takes in their
+/// reports. A key searches on its own for a few milliseconds, counted from before it builds
+/// the pattern, as a migemo one for a lowercase string: past them, the rest goes to the
+/// worker, so a test reads what a search found only after this.
+pub(super) fn drain(editor: &mut Editor) {
+    while let Some(job) = editor.take_isearch_job() {
+        let mut reports = Vec::new();
+        job.run(|report| reports.push(report));
+        for report in reports {
+            editor.isearch_reported(report);
+        }
+    }
+}
+
 /// A dispatcher and an editor showing `text`, with a cursor at each of `cursors`.
 pub(super) fn at(text: &str, cursors: &[usize]) -> (Dispatcher, Editor) {
     let mut editor = Editor::with_buffer(Buffer::from_bytes("test", text.as_bytes()));

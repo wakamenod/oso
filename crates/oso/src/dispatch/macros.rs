@@ -233,6 +233,11 @@ impl Dispatcher {
                 editor.macro_stop(None);
                 break;
             }
+            // A search the worker found failing stops it, as one that fails on its key does.
+            if editor.isearch().is_some_and(|search| search.failing()) {
+                editor.macro_stop(None);
+                break;
+            }
             let Some(event) = editor.macro_next() else {
                 break;
             };
