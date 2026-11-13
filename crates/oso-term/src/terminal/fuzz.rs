@@ -2,8 +2,8 @@
 //! sequences fed through the engine and the policy, as a terminal's thread feeds them.
 //! libFuzzer's coverage does not reach inside Zig, so inputs come from a grammar: CSI with huge
 //! parameters, private modes, SGR's colon forms, OSC numbers with fixed payloads, DCS heads,
-//! Kitty APC keys, ESC forms, REP and margins, invalid UTF-8, long clusters, a link on each
-//! of many cells, and resizes up to the largest grid.
+//! Kitty APC keys, ESC forms, REP and margins, invalid UTF-8 and resizes; the long run also
+//! makes long clusters, a link on each of many cells, and the largest grid.
 //!
 //! Must not depend on: the thread or a PTY; it drives the engine directly.
 //!
@@ -71,9 +71,27 @@ const SIZES: &[(u16, u16)] = &[
     (80, 24),
     (300, 100),
     (500, 300),
+    (13, 7),
+];
+/// The long run's sizes: also the largest grid.
+const ALL_SIZES: &[(u16, u16)] = &[
+    (1, 1),
+    (2, 1),
+    (1, 2),
+    (80, 24),
+    (300, 100),
+    (500, 300),
     (1000, 500),
     (13, 7),
 ];
+
+/// Which inputs a run makes: the smoke run in `just test` keeps to the basic grammar; the
+/// long run adds the largest grid, long clusters and a link on each of many cells.
+#[derive(Clone, Copy)]
+enum Grammar {
+    Basic,
+    Full,
+}
 
 /// xorshift64*, enough for a generator.
 struct Rng(u64);
@@ -148,7 +166,7 @@ fn terminator(rng: &mut Rng, out: &mut Vec<u8>) {
     }
 }
 
-fn text(rng: &mut Rng, out: &mut Vec<u8>) {
+fn text(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
     const CLUSTERS: &[&str] = &[
         "日本",
         "👍",
@@ -161,11 +179,17 @@ fn text(rng: &mut Rng, out: &mut Vec<u8>) {
         "ｱ",
         "\u{10ffff}",
     ];
-    match rng.below(6) {
-        0 | 1 => (0..rng.below(40)).for_each(|_| out.push(b' ' + rng.below(95) as u8)),
-        2 => (0..rng.below(20)).for_each(|_| out.extend_from_slice(rng.pick(CLUSTERS).as_bytes())),
-        3 => long_clusters(rng, out),
-        4 => linked_cells(rng, out),
+    let kinds = match grammar {
+        Grammar::Basic => 4,
+        Grammar::Full => 6,
+    };
+    match (rng.below(kinds), kinds) {
+        (0 | 1, _) => (0..rng.below(40)).for_each(|_| out.push(b' ' + rng.below(95) as u8)),
+        (2, _) => {
+            (0..rng.below(20)).for_each(|_| out.extend_from_slice(rng.pick(CLUSTERS).as_bytes()))
+        }
+        (3, 6) => long_clusters(rng, out),
+        (4, 6) => linked_cells(rng, out),
         _ => (0..rng.below(8)).for_each(|_| out.push(0x80 + rng.below(0x80) as u8)),
     }
 }
@@ -338,9 +362,9 @@ fn esc(rng: &mut Rng, out: &mut Vec<u8>) {
     out.extend_from_slice(rng.pick(ESCS));
 }
 
-fn piece(rng: &mut Rng, out: &mut Vec<u8>) {
+fn piece(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
     match rng.below(20) {
-        0..=5 => text(rng, out),
+        0..=5 => text(rng, out, grammar),
         6 => out.push(rng.below(32) as u8),
         7..=12 => csi(rng, out),
         13 | 14 => osc(rng, out),
@@ -351,17 +375,21 @@ fn piece(rng: &mut Rng, out: &mut Vec<u8>) {
 }
 
 /// The input of `iteration` under `seed`: bytes of output, and a resize after them.
-fn input(seed: u64, iteration: u64, resizes: bool) -> (Vec<u8>, Option<Size>) {
+fn input(seed: u64, iteration: u64, resizes: bool, grammar: Grammar) -> (Vec<u8>, Option<Size>) {
     let mut rng = Rng::new(seed, iteration);
     let mut out = Vec::new();
     for _ in 0..1 + rng.below(200) {
-        piece(&mut rng, &mut out);
+        piece(&mut rng, &mut out, grammar);
         if out.len() > 128 * 1024 {
             break;
         }
     }
     let resize = (resizes && rng.chance(5)).then(|| {
-        let &(columns, rows) = rng.pick(SIZES);
+        let sizes = match grammar {
+            Grammar::Basic => SIZES,
+            Grammar::Full => ALL_SIZES,
+        };
+        let &(columns, rows) = rng.pick(sizes);
         sized(columns, rows)
     });
     (out, resize)
@@ -443,7 +471,7 @@ fn smoke() {
         if iteration.is_multiple_of(BLOCK) {
             driver = Driver::new(scrollback(iteration));
         }
-        let (data, resize) = input(0x5eed, iteration, true);
+        let (data, resize) = input(0x5eed, iteration, true, Grammar::Basic);
         driver.feed(&data, resize);
     }
 }
@@ -490,7 +518,7 @@ fn long() {
         state
             .write_all(format!("{iteration:020}\n").as_bytes())
             .expect("the state file");
-        let (data, resize) = input(seed, iteration, resizes);
+        let (data, resize) = input(seed, iteration, resizes, Grammar::Full);
         let started = Instant::now();
         driver.feed(&data, resize);
         let took = started.elapsed();
@@ -517,7 +545,7 @@ fn long() {
 fn script_of(seed: u64, iteration: u64, resizes: bool) -> String {
     let mut script = format!("new 80 24 {}\n", scrollback(iteration));
     for i in iteration - iteration % BLOCK..=iteration {
-        let (data, resize) = input(seed, i, resizes);
+        let (data, resize) = input(seed, i, resizes, Grammar::Full);
         script.push_str("write ");
         for byte in data {
             let _ = write!(script, "{byte:02x}");

@@ -1044,7 +1044,8 @@ each of its sixteen questions.
   6,581,102. 991 and 1,134 inputs were slow (over 500 ms), all after resizes to large
   terminals, as in step 1, and none without resizes. After those runs the review added the
   largest grid (1000 × 500), clusters longer than the library keeps and a link on each of many
-  cells to the generator; the next bump's runs cover them.
+  cells to the long run's generator; the next bump's runs cover them. The 500 inputs in `just
+  test` keep to the basic grammar.
 - **The policy (Q11 to Q14):** besides the table, enquiry gets no answer and XTVERSION answers
   `oso <version>`; the checksum report (DECRQCRA) is off; DECRQSS's replies are dropped, as the
   library answers it through the same callback as the reports it may make: replies go back
