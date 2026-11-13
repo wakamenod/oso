@@ -1,6 +1,6 @@
 # 0128. Orchestration and automations
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-13
 
 ## Context
@@ -135,8 +135,9 @@ New `oso mcp` tools, channel methods under ADR 0085 and ADR 0121's rules:
   # enabled = false
   ```
 
-  The schedule is local time unless `timezone` names an IANA zone. At most 32 automations; a
-  prompt of at most 16 KiB, or `prompt_file`, an absolute path read when the run starts.
+  The schedule is in local time; named time zones wait (the author's choice). At most 32
+  automations; a prompt of at most 16 KiB, or `prompt_file`, an absolute path read when the run
+  starts.
 - **A run (Q7)** makes a worktree `auto-<name>-<YYYYMMDD-HHMM>` from the base, through ADR 0126's
   background job (linked directories and `.worktreeinclude` as any), and starts a session `auto:
   NAME` in it with the prompt as its brief, under a header: "This is a scheduled run of automation
@@ -163,9 +164,9 @@ New `oso mcp` tools, channel methods under ADR 0085 and ADR 0121's rules:
 
 In ADR 0121's `sessions` module: `run` (records, tools, the buffer) and `schedule` (parsing, the
 timer, history). The schedule parser and next-time computation are pure functions with property
-tests (a next time is always after now; daylight-saving gaps and folds in a named zone run once)
-and a fuzz target. Time zones read the system's zone files through the `time` handling oso has, or a
-proposed dependency (below).
+tests (a next time is always after now; a local time skipped or repeated by a daylight-saving change
+runs once) and a fuzz target. Local time comes from the operating system; no time-zone database is
+added.
 
 ### Cost
 
@@ -177,7 +178,7 @@ proposed dependency (below).
 
 ## Steps
 
-One pull request each.
+One pull request each, all after ADR 0121's steps; nothing here goes into them or holds them up.
 
 1. **Runs and their tools:** records, `workers_start` with its batch question, `worker_report`,
    `run_status`, `run_wait`, `merge_branches`, the worker brief, depth. After ADR 0121 step 6 and
@@ -230,20 +231,44 @@ For the author, the recommended option first.
    (b) One late run within a grace period (Orca's), even right after oso starts.
    (c) Skipped silently.
 
-### Dependencies (for the `add-dependency` skill, not decided here)
+### Dependencies
 
-- A time zone database for `timezone = "…"` (for example `jiff`, which reads the system's zone files).
-  Without it, schedules are local time only; step 3 proposes it if the author wants named zones.
+None. A time-zone crate for named zones (for example `jiff`) was offered; the author chose local time
+only, so none is proposed.
+
+## The author's choices
+
+The author answered every question on 2026-11-13, through the coordinator: (a) for each.
+
+- `orchestrate` (`C-x a O`) starts the coordinator in a new worktree on `orch/<slug>`; any session
+  may also coordinate with the tools (Q1).
+- `workers_start` asks one question for the whole batch; `max_workers` defaults to 4, at most 8
+  (Q2).
+- Results come back through `worker_report`, the worker's `SendMessage`, and `run_wait` (Q3).
+- `merge_branches` asks once for a list, merges only into the coordinator's worktree and stops at
+  the first conflict; the person pushes (Q4).
+- Workers cannot start workers; runs do not nest (Q5).
+- Automations are `[[automation]]` entries in the person's `config.toml` only (Q6), each run in a
+  new worktree (Q7), with no permission flag, so a run waits at a prompt (Q8). Missed runs are
+  recorded in `*Automations*` and run with `r`; nothing runs when oso starts (Q9).
+- Schedules are in local time only; no named time zones and no time-zone crate for now (asked
+  beside the questions).
 
 ## Changes to accepted ADRs
 
-To be filled when the author has answered; expected, for ADR 0121:
+Each passage stays in its ADR as written; what holds now follows it. All of it is for [ADR
+0121](0121-agent-sessions-and-spaces.md).
 
-- "Agent-requested sessions cost the person a question each … batching them is left for later":
-  `workers_start` asks once for a batch.
-- "A coordinator is just a session … Deferred: … scheduled sessions": coordinators get tools and a
-  buffer; scheduled sessions are this ADR's automations.
-- "`merge_branch`": `merge_branches` asks once for a list.
+- "**Agent-requested sessions cost the person a question each,** so twenty parallel threads are
+  twenty questions; batching them is left for later": `workers_start` asks one question for a batch
+  of up to `max_workers` tasks. `start_worktree_session` and `session_start` still ask once each.
+- "**A coordinator is just a session** that uses the tools above. Deferred: … scheduled sessions":
+  a coordinator is still a session, and gains the run tools (`workers_start`, `run_status`,
+  `run_wait`, `merge_branches`), workers gain `worker_report`, and `orchestrate` and `*run: NAME*`
+  exist. Scheduled sessions are this ADR's automations. The rest of the deferred list stays
+  deferred.
+- "`merge_branch` | Change, asks": stays; `merge_branches` merges a list after one question, into
+  the caller's own worktree only, stopping at the first conflict.
 
 ## Consequences
 
