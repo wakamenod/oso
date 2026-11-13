@@ -11,7 +11,7 @@ use super::follow::clip_selections;
 use crate::buffer::{self, Buffer, BufferId};
 use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{Place, Walk};
+use crate::window::{Place, Walk, WindowId};
 
 use super::SCRATCH;
 
@@ -110,11 +110,16 @@ impl Editor {
     /// `index`, is in it, or left it: its primary cursor with its mark and the ring, and its
     /// view, as a split copies them (ADR 0088, ADR 0112). `None` if no other window showed it.
     fn place_elsewhere(&self, index: usize, buffer: BufferId) -> Option<Place> {
-        let me = self.windows[index].id();
+        self.place_in_other(Some(self.windows[index].id()), buffer)
+    }
+
+    /// Where the tiled window selected most recently that showed `buffer`, other than `me`, is
+    /// in it, or left it, as [`Editor::place_elsewhere`] says.
+    pub(super) fn place_in_other(&self, me: Option<WindowId>, buffer: BufferId) -> Option<Place> {
         let window = self
             .recent
             .iter()
-            .filter(|id| **id != me)
+            .filter(|id| Some(**id) != me)
             .filter_map(|id| self.window_by_id(*id))
             .find(|window| window.has_shown(buffer))?;
         let (selections, scroll) = if window.buffer() == buffer {

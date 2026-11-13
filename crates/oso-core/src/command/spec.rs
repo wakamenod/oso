@@ -59,6 +59,17 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// One of a list the host keeps, read in a prompt that says `prompt` and completes over
+    /// the candidates the host last gave for `list` with
+    /// [`Editor::set_listed`](crate::editor::Editor::set_listed), kept in the history named
+    /// `history` (ADR 0121): agent sessions, and their spaces. Their annotations are searched
+    /// as completion searches any, so a word of one filters by it. The command reads the
+    /// candidate's text with [`Ctx::answer`](super::Ctx::answer).
+    Listed {
+        list: &'static str,
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A buffer's name, read in a prompt that says `prompt` and completes over the buffers,
     /// most recent first, kept in the history named `history` (ADR 0088). The command reads
     /// the name with [`Ctx::answer`](super::Ctx::answer).

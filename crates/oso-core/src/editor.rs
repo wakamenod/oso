@@ -64,10 +64,12 @@ mod replace;
 mod save;
 mod screen;
 mod sessions;
+mod side;
 mod status;
 mod switch;
 mod tab;
 mod themes;
+mod trees;
 mod trim;
 mod undo_group;
 mod view;
@@ -103,10 +105,11 @@ pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use sessions::SessionRequest;
+pub use sessions::{SessionMarks, SessionRequest};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
+pub use trees::WindowTree;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
 pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
@@ -245,8 +248,8 @@ pub struct Editor {
     kills: kill::Kills,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
-    /// What commands asked of the host about agent sessions (ADR 0121).
-    session_requests: Vec<SessionRequest>,
+    /// Agent sessions' requests, side window, marks and lists (ADR 0121).
+    sessions: sessions::Sessions,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// Migemo's setting, its dictionary, and the needles of the last romaji strings
@@ -351,7 +354,7 @@ impl Editor {
             save_over_asked: None,
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
-            session_requests: Vec::new(),
+            sessions: sessions::Sessions::default(),
             isearch: None,
             migemo: migemo::Migemo::default(),
             jump: None,
@@ -425,7 +428,8 @@ impl Editor {
     pub fn show(&mut self, buffer: BufferId) {
         if self.buffer(buffer).is_some() {
             self.window_moves_on();
-            let index = self.tiled_index();
+            let index = self.tree_index();
+            self.leave_side();
             self.window_shows(index, buffer);
         }
     }

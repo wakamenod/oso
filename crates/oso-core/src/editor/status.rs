@@ -58,6 +58,10 @@ pub struct Status {
     pub agent: &'static str,
     /// An agent is connected, so the host draws [`Self::agent`] bright.
     pub agent_connected: bool,
+    /// Agent sessions that need the person, after [`Self::agent`] (ADR 0121): `⚠ 2  ` while
+    /// two need input, then `● 3  ` while three are done or ready for review, or as many
+    /// blanks while their mark blinks off.
+    pub sessions: String,
     /// The warnings, each with a blank after it. They come first on the row, and on
     /// the echo row of a frame with no modeline.
     pub warnings: String,
@@ -87,8 +91,14 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}{}",
-            self.agent, self.warnings, self.name, self.project, self.restricted, self.state
+            "{}{}{}{}{}{}{}",
+            self.agent,
+            self.sessions,
+            self.warnings,
+            self.name,
+            self.project,
+            self.restricted,
+            self.state
         )
     }
 
@@ -217,6 +227,10 @@ impl Editor {
             AGENT
         };
         status.agent_connected = frame_segments && agent == super::AgentChannel::Connected;
+        status.sessions.clear();
+        if frame_segments {
+            self.session_marks().write(&mut status.sessions);
+        }
         status.warnings.clear();
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
@@ -250,6 +264,7 @@ impl Editor {
         let marker = marker(buffer);
         // These parts are ASCII, so their bytes are their cells.
         let others = status.agent.len()
+            + text_cells(&status.sessions)
             + status.warnings.len()
             + marker.len()
             + 1
