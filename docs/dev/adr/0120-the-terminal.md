@@ -1028,7 +1028,12 @@ each of its sixteen questions.
   run of 500 inputs is part of `just test`. `just fuzz-term <minutes> <ReleaseFast|ReleaseSafe>`
   runs the long one on the Mac mini, restarting after a stop and naming the input that caused
   it, with a watchdog for hangs and memory: an hour each, ReleaseFast, ReleaseSafe and 80 × 24
-  without resizes, for this step and at every bump.
+  without resizes, for this step and at every bump. The test binaries are built on the Mac
+  that has Zig and the tarballs and copied to the Mac mini, as `perf-remote` does, so the
+  Mac mini needs nothing installed. Step 3's runs, on 2026-11-13: ReleaseFast 1,380,942
+  inputs, ReleaseSafe 1,096,148, and 80 × 24 without resizes 4,104,012, with 0 stops in all
+  6,581,102. 991 and 1,134 inputs were slow (over 500 ms), all after resizes to large
+  terminals, as in step 1, and none without resizes.
 - **The policy (Q11 to Q14):** besides the table, enquiry gets no answer and XTVERSION answers
   `oso <version>`; the checksum report (DECRQCRA) is off; DECRQSS's replies are dropped, as the
   library answers it through the same callback as the reports it may make: replies go back
