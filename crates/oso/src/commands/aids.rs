@@ -4,7 +4,7 @@
 //! host-owned state and does not know its keys.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::VisualAids;
+use oso_core::editor::{Editor, VisualAids};
 
 /// The commands for the visual aids. They change only what is drawn, and nothing on disk.
 /// Whitespace's marks are the person's: they show lookalike spaces, so the agent channel may
@@ -16,7 +16,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: global_whitespace_mode,
-        state: None,
+        state: Some(whitespace_on),
     },
     Command {
         name: "global-hl-line-mode",
@@ -24,7 +24,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: global_hl_line_mode,
-        state: None,
+        state: Some(current_line_on),
     },
     Command {
         name: "beacon-mode",
@@ -32,7 +32,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: beacon_mode,
-        state: None,
+        state: Some(flash_on),
     },
     Command {
         name: "global-display-line-numbers-mode",
@@ -40,7 +40,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: global_display_line_numbers_mode,
-        state: None,
+        state: Some(line_numbers_on),
     },
 ];
 
@@ -80,6 +80,26 @@ fn switch(ctx: &mut Ctx<'_>, args: Args, mode: &str, field: fn(&mut VisualAids) 
     if now != was {
         ctx.request_redraw();
     }
+}
+
+/// Whether whitespace is marked, for a menu's `[x]` (ADR 0117).
+fn whitespace_on(editor: &Editor) -> bool {
+    editor.visual_aids().whitespace
+}
+
+/// Whether the current line has its band, for a menu's `[x]`.
+fn current_line_on(editor: &Editor) -> bool {
+    editor.visual_aids().current_line
+}
+
+/// Whether the cursor flashes after a jump, for a menu's `[x]`.
+fn flash_on(editor: &Editor) -> bool {
+    editor.visual_aids().flash
+}
+
+/// Whether line numbers show, for a menu's `[x]`.
+fn line_numbers_on(editor: &Editor) -> bool {
+    editor.visual_aids().line_numbers
 }
 
 #[cfg(test)]
@@ -143,5 +163,26 @@ mod tests {
         assert!(effects.redraw);
         assert_eq!(editor.tiled_regions().gutter.columns, 4);
         assert_eq!(editor.window().size().columns, columns - 4);
+    }
+
+    #[test]
+    fn each_aids_state_reads_what_its_command_sets() {
+        let registry = crate::commands::registry();
+        let mut editor = editor("abc");
+        for name in [
+            "global-whitespace-mode",
+            "global-hl-line-mode",
+            "beacon-mode",
+            "global-display-line-numbers-mode",
+        ] {
+            let state = registry.get(registry.lookup(name).unwrap()).unwrap().state;
+            let state = state.unwrap();
+            for (args, on) in [(Args::numeric(1), true), (Args::numeric(0), false)] {
+                let _ = run(&mut editor, name, args);
+                assert_eq!(state(&editor), on, "{name}");
+            }
+            let _ = run(&mut editor, name, Args::NONE);
+            assert!(state(&editor), "{name} toggled back on");
+        }
     }
 }

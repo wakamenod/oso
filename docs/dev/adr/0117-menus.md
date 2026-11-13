@@ -312,9 +312,10 @@ question under [Questions](#questions), but Q1 (d) and Q24, which the author cha
   prefix; the resolver returns `Resolution::Menu`, and the dispatcher opens it. `M-x open-menu`
   reads a menu's name with completion over every menu (`ArgSpec::Menu`). `where-is` and the
   completion's key column show a menu's key for `open-menu`'s candidates.
-- **Limits:** 256 menus, 128 heads per menu, 8 columns per row, 3 rows, keys of 3 key presses,
-  counts up to 1,000, labels and titles of 64 cells (and 512 bytes, see [As built](#as-built)),
-  menu and switch names of 64 bytes in kebab case. Past them an entry is refused with its line.
+- **Limits:** 256 menus (the built-in ones among them, see [As built](#as-built)), 128 heads
+  per menu, 8 columns per row, 3 rows, keys of 3 key presses, counts up to 1,000, labels and
+  titles of 64 cells (and 512 bytes, see [As built](#as-built)), menu and switch names of 64
+  bytes in kebab case. Past them an entry is refused with its line.
 
 ### The prefix argument (Q15)
 
@@ -824,6 +825,42 @@ asked through the coordinator). After review, the author added `Column::group` a
   default keys' count and step 3's unbinding of removed menus' keys will use it. `menu::builds_prefix`
   is public, so the dispatcher and a definition's checks share one rule.
 - The menu's panes take ids from `1 << 21`, as the preview's do from `1 << 20`.
+
+### Step 3: the built-in menus (2026-11-13)
+
+The author approved the plan and chose the recommended answer to each of its eight questions,
+through the coordinator.
+
+- **Heads only for commands oso has**, with the author's keys where the command matches. The
+  author's heads with no command yet stay out, and their keys stay free for them. Where the
+  author's menus have no head, the new ones take `S` (highlighting) and `T` (the theme pair) in
+  `toggles`, and `=` (balance), `0` (delete the window) and `F` (find a file) in `windows`.
+- **`toggles`** heads all close the menu, as the author's do. Seven commands gained
+  `Command::state`: the four visual aids, `toggle-truncate-lines` (on while the selected window's
+  buffer truncates), `global-font-lock-mode`, and `electric-indent-mode`, which no built-in menu
+  has but a configured one may. `toggle-theme` is not on or off: its head is labelled `theme`,
+  as it switches the pair `[theme] pair` names, and the menu's describe function gives it a
+  note naming the theme drawn now, padded to the longest built-in theme's name, so a theme a
+  reload of `config.toml` changes while the menu is open keeps the note's width.
+- The describe function sits with the built-in tables in `bindings/menus.rs`, as it is small and
+  reads only the theme's name. A larger one, as the review's, belongs with its feature's
+  commands, which `bindings` names.
+- **`windows`:** `d` runs `kill-buffer`, whose prompt offers the current buffer first; the
+  arrows resize by a fixed count of 3 and stay. No head selects another window, as the author's
+  menu has none. **`jumps`** keeps both `l` and `h` on `avy-goto-line`, as the author's does.
+- **Only `C-c t` has a default key.** A head whose command a registry lacks is left out, so the
+  built-in menus and their ids are the same over any registry. `bindings::global_keymap` still
+  takes only the registry, and builds the built-in menus itself to find the toggles' id, in
+  place of the plan's `&Menus` argument; the ids follow the tables' order, so its menus and the
+  dispatcher's agree.
+- **The built-in menus count toward the 256 menus,** a removed one too, as its id keeps its
+  slot: a file may add 252.
+- **A removed built-in menu's default key is unbound in the user's layer** as the file is read,
+  unless the file binds or unbinds that key itself, and the checks of `[keys.global]` take it
+  as unbound, so `"C-c t w"` may make it a prefix with no `"C-c t" = false`, so it is undefined as any unbound key is, and
+  `open-menu`'s key column and the key list do not show it. A replaced menu keeps its id, so its
+  default key opens the file's menu.
+- The sample `[menus]` is in [`ui.md`](../ui.md)'s Menus section.
 
 ## The author's choices
 

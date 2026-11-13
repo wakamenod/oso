@@ -11,7 +11,7 @@
 //! cursor as one edit (`oso_core::editor`).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{IndentError, Shift};
+use oso_core::editor::{Editor, IndentError, Shift};
 
 use super::MAX_INSERT;
 
@@ -57,7 +57,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: electric_indent_mode,
-        state: None,
+        state: Some(electric_indent_on),
     },
     Command {
         name: "indent-region",
@@ -296,4 +296,9 @@ fn electric_indent_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErro
     ctx.editor
         .message(super::minor_mode_said("Electric-Indent", now));
     Ok(())
+}
+
+/// Whether `RET` and a typed closer indent, for a menu's `[x]` (ADR 0117).
+fn electric_indent_on(editor: &Editor) -> bool {
+    editor.electric_indent()
 }

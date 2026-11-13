@@ -4,6 +4,7 @@
 //! host-owned state and does not know its keys.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
+use oso_core::editor::Editor;
 
 /// The commands that change how text is shown.
 pub const COMMANDS: &[Command] = &[Command {
@@ -13,7 +14,7 @@ pub const COMMANDS: &[Command] = &[Command {
     // It changes how text is shown, never the text, a file or the clipboard (ADR 0100).
     reach: Reach::Look,
     run: toggle_truncate_lines,
-    state: None,
+    state: Some(truncated),
 }];
 
 /// Emacs's argument: none toggles, a positive one truncates, zero or a negative one wraps.
@@ -33,6 +34,12 @@ fn toggle_truncate_lines(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErr
         "Truncate long lines enabled"
     });
     Ok(())
+}
+
+/// Whether the selected window's buffer truncates long lines, the one the command changes, for a
+/// menu's `[x]` (ADR 0117).
+fn truncated(editor: &Editor) -> bool {
+    !editor.tiled().1.wraps()
 }
 
 #[cfg(test)]
@@ -102,5 +109,19 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert!(!effects.redraw, "already truncated");
         assert_eq!(echo(&editor), "Truncate long lines enabled");
+    }
+
+    #[test]
+    fn its_state_is_on_while_the_selected_buffer_truncates() {
+        let registry = crate::commands::registry();
+        let id = registry.lookup("toggle-truncate-lines").unwrap();
+        let state = registry.get(id).unwrap().state.unwrap();
+        let mut editor = editor("text");
+        assert!(state(&editor), "lines are truncated by default");
+        let _ = run(&mut editor, "toggle-truncate-lines", Args::NONE);
+        assert!(!state(&editor));
+        assert!(wraps(&editor));
+        let _ = run(&mut editor, "toggle-truncate-lines", Args::numeric(1));
+        assert!(state(&editor));
     }
 }
