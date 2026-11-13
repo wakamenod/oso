@@ -219,7 +219,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   keymap. A key finds the candidates in every tiled window's rows in view, within 256 KiB a window
   and 1 MiB a jump, its matches within a key's 3 ms, nearest the window's primary cursor first, and labels them with avy's tree; a
   frame draws only those found. The tip crate runs the timer that shows the labels
-  (`app/jumps.rs`).
+  (`app/jumps.rs`). An action's key at the labels acts on the target instead
+  (`editor/jump/actions.rs`), through the kill ring's own kill and yank, so its kills reach the
+  clipboard as any kill does.
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through

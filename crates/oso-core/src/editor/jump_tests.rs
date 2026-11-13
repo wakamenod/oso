@@ -71,7 +71,7 @@ fn a_string_is_read_then_its_matches_are_labelled_nearest_first() {
     assert_eq!(editor.jump().unwrap().labelled(), 4);
     // The cursor's row first, then a row away either way by columns from the cursor's.
     assert_eq!(targets(&editor), [9, 3, 0, 12]);
-    assert_eq!(editor.jump_choose('s'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('s'), Ok(Chose::Jumped));
     assert!(editor.jump().is_none());
     assert_eq!(cursor(&editor), 3);
     let primary = editor.window().selections.primary();
@@ -103,11 +103,11 @@ fn a_label_of_two_keys_narrows_at_its_first() {
     assert_eq!(targets(&editor), [0, 2, 4]);
     assert!(editor.jump().unwrap().takes('y'));
     assert!(!editor.jump().unwrap().takes('z'));
-    assert_eq!(editor.jump_choose('y'), Chose::Narrowed);
+    assert_eq!(editor.jump_choose('y'), Ok(Chose::Narrowed));
     let shown = cells(&editor);
     assert_eq!(shown.labels.len(), 2, "only those that start with `y`");
     assert_eq!(shown.text, "xy", "what is left of each");
-    assert_eq!(editor.jump_choose('y'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('y'), Ok(Chose::Jumped));
     assert_eq!(cursor(&editor), 4);
 }
 
@@ -115,7 +115,7 @@ fn a_label_of_two_keys_narrows_at_its_first() {
 fn a_key_no_label_goes_on_with_ends_the_jump_with_nothing_moved() {
     let mut editor = editor("a a\n");
     jump_for(&mut editor, "a");
-    assert_eq!(editor.jump_choose('z'), Chose::NoSuch);
+    assert_eq!(editor.jump_choose('z'), Ok(Chose::NoSuch));
     assert!(editor.jump().is_none());
     assert_eq!(cursor(&editor), 0);
     assert_eq!(line(&editor), "No such candidate");
@@ -221,7 +221,7 @@ fn every_window_is_labelled_and_a_jump_into_another_selects_it() {
         [first, first, other, other],
         "the selected window first"
     );
-    assert_eq!(editor.jump_choose('d'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('d'), Ok(Chose::Jumped));
     assert_eq!(editor.window().id(), other);
     assert_eq!(cursor(&editor), 0);
     editor.select_window(first);
@@ -272,7 +272,7 @@ fn a_shown_region_is_extended_and_the_other_cursors_stay() {
     jump_for(&mut editor, "a");
     let label = targets(&editor).iter().position(|&at| at == 8).unwrap();
     let key = ['a', 's', 'd'][label];
-    assert_eq!(editor.jump_choose(key), Chose::Jumped);
+    assert_eq!(editor.jump_choose(key), Ok(Chose::Jumped));
     let selections = &editor.window().selections;
     assert_eq!(selections.primary().cursor, 8);
     assert_eq!(
@@ -310,7 +310,7 @@ fn a_change_under_the_labels_ends_the_jump_saying_so_and_takes_the_next_key() {
     assert!(!editor.follow_text(), "nothing more to follow");
     editor.clear_echo();
     let before = cursor(&editor);
-    assert_eq!(editor.jump_choose('a'), Chose::NoSuch);
+    assert_eq!(editor.jump_choose('a'), Ok(Chose::NoSuch));
     assert!(editor.jump().is_none());
     assert_eq!(cursor(&editor), before, "nothing moved");
     assert_eq!(line(&editor), "Jump ended: the text changed");
@@ -325,7 +325,7 @@ fn a_line_jumps_digits_go_to_goto_line_only_before_a_label_is_begun() {
     assert!(!jump.gives_goto_line('1'), "a label's key");
     assert!(jump.gives_goto_line('7'));
     assert!(!jump.gives_goto_line('x'));
-    assert_eq!(editor.jump_choose('1'), Chose::Narrowed);
+    assert_eq!(editor.jump_choose('1'), Ok(Chose::Narrowed));
     assert!(
         !editor.jump().unwrap().gives_goto_line('7'),
         "a label is begun"
@@ -351,7 +351,7 @@ fn a_scroll_finds_the_matches_again_while_reading_and_ends_the_labels() {
     assert!(editor.scroll_view(id, -5));
     assert!(editor.follow_text());
     assert_eq!(line(&editor), "Jump ended: the view changed");
-    assert_eq!(editor.jump_choose('a'), Chose::NoSuch);
+    assert_eq!(editor.jump_choose('a'), Ok(Chose::NoSuch));
     assert!(editor.jump().is_none());
 }
 
@@ -422,7 +422,7 @@ fn avy_isearch_ends_the_search_at_the_match_chosen() {
     editor.isearch_add("foo");
     assert!(editor.jump_begin(Kind::Isearch, false));
     assert_eq!(targets(&editor), [0, 8]);
-    assert_eq!(editor.jump_choose('s'), Chose::Jumped);
+    assert_eq!(editor.jump_choose('s'), Ok(Chose::Jumped));
     assert!(editor.isearch().is_none());
     assert_eq!(cursor(&editor), 8);
     assert_eq!(

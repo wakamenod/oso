@@ -1,7 +1,7 @@
 //! Jumps on the editor (ADR 0116): starting one, the string it reads, its candidates in every
 //! tiled window, its labels' keys, and where it goes. What it holds is `crate::jump`'s
-//! [`Jump`], the cells it draws are in [`cells`], and finding its candidates in a window
-//! in [`find`].
+//! [`Jump`], the cells it draws are in [`cells`], finding its candidates in a window
+//! in [`find`], and what an action's key does to a target in [`actions`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window, threads or clock: the host
 //! keeps the time a string is read for, and calls [`Editor::jump_show_labels`] when it passes.
@@ -15,18 +15,22 @@
 //! - The candidates nearest each window's primary cursor come first, by rows and then
 //!   columns on the screen, and at most [`MAX_LABELLED`] are labelled: the nearest rows' are
 //!   picked first, and only their columns are worked out.
-//! - Only the primary cursor moves: the place it left goes on its mark ring with no message,
-//!   unless a region shows, which the jump then extends.
+//! - With no action armed, only the primary cursor moves: the place it left goes on its mark
+//!   ring with no message, unless a region shows, which the jump then extends. What an action
+//!   does to the cursors is in [`actions`].
 //! - Nothing here logs the string, and `Debug` prints none of it (ADR 0044).
 
+use std::fmt;
 use std::ops::Range;
 
-use super::{Editor, Isearch};
+use super::{CursorError, Editor, Isearch, YankError};
+use crate::buffer::EditError;
 use crate::display_map::DisplayPoint;
-use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
+use crate::jump::{Action, Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
 use crate::search;
 use crate::window::{Screen, WindowId};
 
+mod actions;
 mod cells;
 mod find;
 
@@ -51,11 +55,40 @@ const MAX_FOUND: usize = 64 * 1024;
 pub enum Chose {
     /// It was a label's first keys: the labels that start with them stay.
     Narrowed,
-    /// It ended a label: the cursor went to its candidate, and the jump ended.
+    /// It was an action's key: the label typed next is acted on, not gone to. What is typed
+    /// of a label stays, and another action's key takes this one's place.
+    Armed,
+    /// It ended a label: the cursor went to its candidate, or the action armed acted on it,
+    /// and the jump ended.
     Jumped,
     /// No label goes on with it: the jump ended, and nothing moved.
     NoSuch,
 }
+
+/// Why an action on a jump's target did nothing: the text, the cursors and the kill ring are
+/// as they were. The jump ended all the same, and `avy-isearch`'s search with it, as `RET`
+/// ends it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JumpActionError {
+    /// A buffer it would change refused, as a read-only one does.
+    Edit(EditError),
+    /// The line, at every cursor, is more than a yank may insert.
+    Yank(YankError),
+    /// The window has as many cursors as it may have.
+    Cursor(CursorError),
+}
+
+impl fmt::Display for JumpActionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Edit(error) => error.fmt(f),
+            Self::Yank(error) => error.fmt(f),
+            Self::Cursor(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for JumpActionError {}
 
 /// A candidate found, before the nearest are picked.
 #[derive(Debug)]
@@ -179,19 +212,29 @@ impl Editor {
         jump.label();
     }
 
-    /// A key typed while labels show: narrows them to those that go on with it, or, at a
-    /// label's last key, goes to its candidate. A key no label goes on with ends the jump
-    /// saying `No such candidate`.
-    pub fn jump_choose(&mut self, key: char) -> Chose {
+    /// A key typed while labels show: narrows them to those that go on with it, arms an
+    /// action at an action's key (`SPC`, `W`, `K`, `Y`, `T` or `c`), or, at a label's last
+    /// key, goes to its candidate, or acts on it with the action armed. A key no label goes on
+    /// with ends the jump saying `No such candidate`.
+    ///
+    /// # Errors
+    ///
+    /// An [`JumpActionError`] when the action armed could not act, which left the text, the
+    /// cursors and the kill ring as they were. The jump ended.
+    pub fn jump_choose(&mut self, key: char) -> Result<Chose, JumpActionError> {
         if self.jump_follow_text() && self.jump.is_none() {
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
         }
         let Some(jump) = (self.jump.as_mut()).filter(|jump| jump.stage == Stage::Labels) else {
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
         };
         if jump.ended.is_some() {
             self.jump_refuse();
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
+        }
+        if let Some(action) = Action::of_key(key) {
+            jump.action = Some(action);
+            return Ok(Chose::Armed);
         }
         let chosen = jump.keys.index_of(key).and_then(|index| {
             let (at, label) = jump.labels_after(index).next()?;
@@ -199,17 +242,20 @@ impl Editor {
         });
         let Some((at, len, index)) = chosen else {
             self.jump_refuse();
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
         };
         if len > jump.typed.len() + 1 {
             jump.typed.push(index);
-            return Chose::Narrowed;
+            return Ok(Chose::Narrowed);
         }
         let candidate = jump.candidates[at].clone();
-        let kind = jump.kind;
+        let (kind, action) = (jump.kind, jump.action);
         self.jump = None;
-        self.jump_to(kind, &candidate);
-        Chose::Jumped
+        match action {
+            None => self.jump_to(kind, &candidate),
+            Some(action) => self.jump_act(kind, action, &candidate)?,
+        }
+        Ok(Chose::Jumped)
     }
 
     /// Ends a jump with nothing moved and nothing said, as a key it does not bind does.
@@ -325,15 +371,10 @@ impl Editor {
     /// Moves the primary cursor of `candidate`'s window to it, selecting that window first.
     /// `avy-isearch` then ends the search there, as `RET` does, which saves where it began.
     fn jump_to(&mut self, kind: Kind, candidate: &Candidate) {
-        if candidate.window != self.tiled_id() {
-            self.select_window(candidate.window);
-        }
-        let Some(index) = self.window_index(candidate.window) else {
+        let Some((index, offset)) = self.jump_target(candidate) else {
             return;
         };
-        let (window, buffer) = self.window_mut(index);
-        let offset = crate::motion::cluster_start(&buffer.display(), candidate.range.start);
-        let selections = &mut window.selections;
+        let selections = &mut self.windows[index].selections;
         let from = selections.primary().cursor;
         let region = selections.mark_active().is_active();
         if kind != Kind::Isearch && !region && from != offset {
@@ -344,6 +385,24 @@ impl Editor {
         if kind == Kind::Isearch {
             self.isearch_exit();
         }
+    }
+
+    /// Selects `candidate`'s window if it is another, and gives that window's index and where
+    /// the target is, as [`Editor::target_in`] does.
+    fn jump_target(&mut self, candidate: &Candidate) -> Option<(usize, usize)> {
+        if candidate.window != self.tiled_id() {
+            self.select_window(candidate.window);
+        }
+        self.target_in(candidate)
+    }
+
+    /// The index of `candidate`'s window and where its target is, on a display cluster's
+    /// start, where a cursor can be.
+    fn target_in(&mut self, candidate: &Candidate) -> Option<(usize, usize)> {
+        let index = self.window_index(candidate.window)?;
+        let (_, buffer) = self.window_mut(index);
+        let offset = crate::motion::cluster_start(&buffer.display(), candidate.range.start);
+        Some((index, offset))
     }
 
     /// Finds a jump's matches again while its string is read, as migemo's dictionary came or
