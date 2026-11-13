@@ -1,5 +1,6 @@
 //! Hand-written declarations of the parts of libghostty-vt's C API that oso-term calls, as the
-//! release pinned in `ghostty-vt.lock` declares them in `include/ghostty/vt/*.h` (ADR 0120).
+//! release pinned in `ghostty-vt.lock` declares them in `include/ghostty/vt/*.h` (ADR 0120),
+//! and the one data key oso's patch (`patches/`) adds.
 //! Every C enum is `GHOSTTY_ENUM_TYPED`, an `int` (types.h), so enum values and fields are
 //! `c_int` here, with the enumerators as constants. `manifest_tests` checks every struct and
 //! constant below against the linked library's own type manifest.
@@ -441,6 +442,9 @@ pub const DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM: c_int = 29;
 pub const DATA_SCROLLBACK_MAX_BYTES: c_int = 34;
 pub const DATA_MODE: c_int = 37;
 pub const DATA_CLIPBOARD_WRITE_MAX_BYTES: c_int = 40;
+/// oso's patch (`patches/`): the rows copied without their styles, hyperlinks or grapheme
+/// data because they did not fit their page, on both screens (`uint64_t`).
+pub const DATA_OSO_PLAIN_COPIES: c_int = 4096;
 
 // ---- render.h ----
 

@@ -1,10 +1,14 @@
 //! Checks every struct, constant and packed bit position `ffi` and `layout` declare against
 //! the linked library's own type manifest (`ghostty_type_json`), so a layout mistake or a
-//! renumbering in a new release fails here, not at run time (ADR 0120).
+//! renumbering in a new release fails here, not at run time (ADR 0120). It also tests
+//! `build.rs`'s check of oso's patches (`patches`).
 //!
-//! Must not depend on: anything but `ffi`, `raw` and `layout`.
+//! Must not depend on: anything but `ffi`, `raw`, `layout` and `build.rs`'s `patch_check`.
 
 mod enums;
+#[path = "../../../build/patch_check.rs"]
+mod patch_check;
+mod patches;
 
 use std::ffi::c_int;
 use std::mem::offset_of;
@@ -373,6 +377,14 @@ fn the_lock_and_the_licence_list_agree() {
         assert!(
             list.contains(&format!("`{package}`")),
             "{package} is not in third-party.md"
+        );
+    }
+    // Each of oso's patches is described there too.
+    for line in lock.lines().filter_map(|line| line.strip_prefix("patch ")) {
+        let name = line.split_whitespace().next().unwrap_or_default();
+        assert!(
+            list.contains(&format!("`patches/{name}`")),
+            "{name} is not in third-party.md"
         );
     }
 }

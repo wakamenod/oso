@@ -192,7 +192,7 @@ fn a_size_is_clamped_to_the_limits() {
     let mut start = sh("read x");
     start.size = size(1, 0);
     let mut seen = Seen::start(start);
-    seen.until(|s| s.size == (2, 1));
+    seen.until(|s| s.size == (4, 1));
     seen.terminal.resize(size(5000, 5000));
     seen.until(|s| s.size == (1000, 500));
 }
