@@ -25,6 +25,7 @@ dir='DIR'
 {
   for a in "$@"; do printf 'arg %s\n' "$a"; done
   printf 'session %s\n' "$OSO_SESSION"
+  printf 'cwd %s\n' "$PWD"
 } > "$dir/run.$$"
 id=''; name=''; cfg=''
 for a in "$@"; do
@@ -424,4 +425,5 @@ fn quit(app: &mut App) {
     assert!(status.success(), "{status:?}");
 }
 
+mod adopt;
 mod attention;
