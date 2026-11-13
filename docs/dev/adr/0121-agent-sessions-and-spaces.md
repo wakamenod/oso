@@ -814,7 +814,9 @@ points:
   `~` both take it, so a relative or empty `HOME` is no home for either. `random::fill` reads
   `/dev/urandom` on Unix and is `ErrorKind::Unsupported` elsewhere for now, where a session
   refuses to start with that error. `random` is on the lowest line of `[oso-platform]` in
-  `guardrails/layers.txt`.
+  `guardrails/layers.txt`. One exception is intentional: `oso-term`'s build script still reads
+  `HOME` for its vendor cache, as a build script cannot use `oso-platform` without a
+  build-dependency, which is not worth it there.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
