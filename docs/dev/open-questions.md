@@ -415,9 +415,10 @@ item notes when it must be settled.
 - Check on the current Claude Code CLI before ADR 0128 step 1: that a `SendMessage` wakes an idle
   session, how long an MCP tool call may block, and how its agent teams place teammates
   ([ADR 0128](adr/0128-orchestration-and-automations.md)).
-- Check on the current CLI before ADR 0130 step 3 that `AskUserQuestion` reaches the permission
-  prompt tool and takes `updatedInput.answers`, and whether a long-lived stream-json process
-  survives `SIGINT` ([ADR 0130](adr/0130-agent-chat.md)).
+- Before ADR 0130 step 1, measure the chat sidecar's start time and memory, and check that the
+  Python SDK's `cli_path` runs the person's own `claude` with oso's session id; before chat is
+  published, check that signing in with a subscription through an SDK client is allowed
+  ([ADR 0130](adr/0130-agent-chat.md)).
 - Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
   own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
 - Dictation: the author deferred it on 2026-11-13. [ADR 0129](adr/0129-dictation.md) stays
