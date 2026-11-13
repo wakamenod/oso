@@ -1,7 +1,7 @@
 //! The recaps of the bundled rules over the recorded screens, the title they fall back to, and
 //! how a recap is cleaned and cut.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 
 use std::collections::HashSet;

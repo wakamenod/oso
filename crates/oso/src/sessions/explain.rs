@@ -2,7 +2,7 @@
 //! source, the region text it matched, or why no rule did, so that the person can write a rule
 //! in the local file the same day the TUI changes.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; text in, text out.
+//! Must not depend on: `app` or `dispatch`; text in, text out.
 //!
 //! The text holds the session's screen, which is untrusted and may be secret, so the buffer is
 //! the person's only: the channel cannot read it. Its size is bounded by the evidence's, about

@@ -1,6 +1,6 @@
 //! The rules files' format, its limits and what each problem says.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 
 use std::fmt::Write as _;

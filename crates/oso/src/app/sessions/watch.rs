@@ -417,11 +417,16 @@ impl App {
             let Some(hosted) = self.terminals.map.get_mut(buffer) else {
                 continue;
             };
-            let note = format!(
-                "{} {}",
-                entry.state,
-                crate::sessions::list::age(entry.since, now)
-            );
+            // A stopped or failed session's modeline says how to go on already.
+            let note = if matches!(entry.state, State::Stopped | State::Failed) {
+                String::new()
+            } else {
+                format!(
+                    "{} {}",
+                    entry.state,
+                    crate::sessions::list::age(entry.since, now)
+                )
+            };
             if hosted.session != note {
                 hosted.session = note;
                 hosted.note_stale = true;

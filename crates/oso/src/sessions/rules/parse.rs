@@ -1,6 +1,6 @@
 //! A rules file's text to its rules (ADR 0121, Q4): every check of its format and its limits.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; text in, rules out, no I/O,
+//! Must not depend on: `app`, `dispatch` or `config`; text in, rules out, no I/O,
 //! so it runs on any thread and its tests need no files.
 //!
 //! - A syntax error or a missing or unknown `version` refuses the whole file.

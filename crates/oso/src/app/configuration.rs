@@ -72,10 +72,6 @@ impl Configuration {
     }
 
     /// `[sessions] env` in force: the variables a hosted session takes from oso's environment.
-    #[expect(
-        dead_code,
-        reason = "the session's terminal passes them (ADR 0120 step 4)"
-    )]
     pub(super) fn session_env(&self) -> &[String] {
         &self.in_force.sessions.env
     }

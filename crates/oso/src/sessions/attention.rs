@@ -3,7 +3,7 @@
 //! oso window is told about if it is still so 1 s later; several due within 2 s are told as
 //! one; and a session not shown that enters needs input or failed blinks the modeline's mark.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; this is pure, driven by the
+//! Must not depend on: `app`, `dispatch` or `config`; this is pure, driven by the
 //! instants its caller gives, as the tracker is, so its tests need no clock.
 //!
 //! `config` reads [`Toggles`] from `[sessions.notify]`, and the app asks the platform for

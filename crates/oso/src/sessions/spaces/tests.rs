@@ -1,7 +1,7 @@
 //! Spaces: names and nesting, each space's tree kept across switches, the first entry's tree,
 //! and zoom kept per space.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these drive an editor alone, with no
+//! Must not depend on: `app` or `dispatch`; these drive an editor alone, with no
 //! window.
 
 use std::path::Path;

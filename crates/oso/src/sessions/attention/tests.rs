@@ -1,7 +1,7 @@
 //! When a session's state is told about: the delay, what cancels it, the merge, the toggles
 //! and the blink, with made-up instants.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no clock.
 
 use std::time::{Duration, Instant};

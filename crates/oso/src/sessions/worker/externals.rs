@@ -3,7 +3,7 @@
 //! `<pid>.json` file changed. Live entries go to the app when the set changes; the app leaves
 //! out its own sessions.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`. The instants come from the caller.
+//! Must not depend on: `app` or `dispatch`. The instants come from the caller.
 //!
 //! Only names the reader opens are looked at: `<digits>.json`, never `*.key`, at most
 //! [`registry::MAX_FILES`] of them. A look is one listing and a `stat` of each.
