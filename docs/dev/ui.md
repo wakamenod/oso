@@ -118,8 +118,13 @@ are rounded.
 - **Matching is orderless's:** words separated by spaces match in any order, each as
   literal text or a regular expression. An affix at a word's start or end picks one style:
   `!` must not match, `,` initials (`,sbk` for `save-buffers-kill-terminal`), `=` literal
-  only, `^` at the start, `~` the letters in order, `&` the annotation. Case counts once the
-  input has an upper-case letter. What matched is highlighted.
+  only, `^` at the start, `~` the letters in order, `&` the annotation, `%` migemo: romaji
+  after it also matches its kana, and the words of a migemo dictionary, so `%kan` finds
+  `かんじ.md`, and `漢字.md` with a dictionary. Kana a file name holds decomposed, as macOS
+  writes them, match too ([ADR 0116](adr/0116-migemo-and-jumps.md)). The words of one
+  pattern are shared by every `%` word of an input, in order, so a third or later word whose
+  readings give many may match its kana alone. Case counts once the input has an upper-case
+  letter. What matched is highlighted.
 - **The order is vertico's:** the prompt's history first, then shorter, then alphabetical,
   with an exact match of the input on top. Typing never moves a candidate.
 - **Each row** has the candidate, its shortest key after it, and a summary at the right end:
@@ -224,13 +229,19 @@ are rounded.
   with the same outside-a-project rule, and `C-u` asks `Search in directory:` first.
 - What is typed is what to look for. It is split at spaces into parts, and a line matches when
   every part does, in any order. A part matches as typed and, if it holds a character an
-  expression reads, as that expression too, so `fn\s+main` and `^use` work. `=` before a part
-  keeps it as typed, and `!` before one leaves out the lines holding it. No other affix of `M-x`'s
+  expression reads, as that expression too, so `fn\s+main` and `^use` work. A part that is
+  romaji, as isearch reads it, also matches its kana and a migemo dictionary's words, unless
+  `[search] migemo = false` ([ADR 0116](adr/0116-migemo-and-jumps.md)). The words of one
+  pattern are shared by every such part, in order, so a third or later part whose readings
+  give many may match its kana alone. `=` before a part
+  keeps it as typed, and `!` before one leaves out the lines holding it, its kana too. No other affix of `M-x`'s
   means anything here, and an affix is read only at a part's start, so `x =` and `done!` are
   text. Case is ignored unless an upper-case letter is typed.
 - A search starts once a part that is not excluded has two characters, and each key starts a new
   one; the one before stops at its next file or block. A key that only narrows a search that
-  ended without a limit looks again through the lines it found, without reading the files again.
+  ended without a limit looks again through the lines it found, without reading the files again:
+  a part made longer at its end, a romaji one too while every kana form and word of the longer
+  part holds one of the shorter's, as when typing `n`, `na`, `nam`, `name`.
 - Rows come while the search runs, a file's together and in line order, at most every 30 ms, and
   never move once shown. Each is `path:line: text`, the path and line in the annotation's face and
   the matches in the match face. The text is at most 512 bytes of the line around its first
@@ -318,11 +329,13 @@ planned.
   - `jumps`: `t` the timed character jump, `l` and `h` a line, `e` a line's end, `n` a line by
     number.
   - `search`: `f` a project's file, `r` the project's lines.
-  The review menu on `C-x v r` comes with ADR 0122. `windows`, `jumps` and `search` have no
-  key: `M-x open-menu` opens them, or a key in `config.toml`.
+  - `review` on `C-x v r` (ADR 0122): a review of each scope and the session's baseline, with
+    each scope's count of files; see [Reviews](#reviews).
+  `windows`, `jumps` and `search` have no key: `M-x open-menu` opens them, or a key in
+  `config.toml`.
 - `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
   or removes it with `false`. A removed menu's default key is then undefined. There are at most
-  256 menus, the four built-in ones among them even when removed. For example
+  256 menus, the five built-in ones among them even when removed. For example
   (`config/menus_tests.rs` loads this sample, and changes with it):
 
   ```toml
@@ -354,6 +367,25 @@ planned.
   ```
 - Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
   the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
+
+## Reviews
+
+An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
+`*review: <scope> <project>*`, opened from the `review` menu on `C-x v r`: `D` since the session's
+baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
+names it), `c` a commit, `r` a range `FROM..TO`, and `B` takes a baseline, keeping the menu open.
+Each head's note counts the files it would show, as they come; the line under the title names the
+project and how long ago the baseline was taken. Only a trusted project runs git.
+
+- The buffer is one stream: a title, then each file's header (status, path, `+n −m`), its notes
+  and its hunks, `-` and `+` lines on bands of their own. Files read later show `reading…`, and
+  the modeline says `reading n/m` until every file is read.
+- `n`/`p` go to the next or previous hunk, `N`/`P` to the next or previous file, each with a
+  count; `g` reads the files again, those in view first; `q` goes back; `?` lists the keys.
+- `C-x k` closes the review, asking first while comments of yours that were not sent would be
+  lost; a review not shown is shown before the question.
+- In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
+  project is not trusted to run: M-x trust-project".
 
 ## Echo area
 
@@ -599,6 +631,57 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - A replay runs a few milliseconds at each turn, so frames keep coming. A command's error, an
   undefined key, a failing search, a question or a passphrase prompt stops it, and `C-g`
   does. What it changed in a buffer undoes as one step.
+- Keys a terminal sends to its program are not recorded ([ADR 0120](adr/0120-the-terminal.md)).
+
+## Terminals
+
+[ADR 0120](adr/0120-the-terminal.md); step 4a so far.
+
+- `M-x terminal` switches to the terminal still running that was selected last, or starts one;
+  with `C-u`, it always starts one. Buffers are `*terminal*`, `*terminal*<2>` and on. `char`
+  in char mode, `exited N` once the program ends, and then the program's title in quotes
+  follow `Terminal` in the modeline. An ended terminal keeps its last screen.
+- It starts `[terminal] shell` (an absolute path), else `$SHELL` if absolute, else the account's
+  shell, else `/bin/sh`, in the selected buffer's project root, else its file's directory, else
+  the home directory. A restricted project opens one too: what runs in it is the person's.
+  `*Messages*` says `Started <shell> in <dir>`.
+- `[terminal] login = true` (the default) starts it as a login shell (`-l`). With `false`, the
+  shell is interactive but not a login shell, and starts with oso's own environment: from the
+  Dock that is the GUI's short `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`) unless its startup files
+  set one. bash then reads `~/.bashrc` and not `~/.bash_profile` or `~/.profile`; zsh reads
+  `~/.zshenv` and `~/.zshrc` but not `~/.zprofile`; fish reads `config.fish` either way.
+- The environment is the process module's allowlist, `SHELL`, `TERM=xterm-256color`,
+  `COLORTERM=truecolor`, `TERM_PROGRAM=oso`, `TERM_PROGRAM_VERSION`, `SSH_AUTH_SOCK`, and the
+  names `[terminal] env` lists, passed on from oso's own environment. `PATH`, `LD_*`, `DYLD_*`
+  and the names a terminal sets itself are refused there, and reported.
+- `[terminal] scrollback` keeps 0 to 100,000 lines above the screen, 10,000 by default; the
+  library frees them a page at a time, so a few hundred fewer may be kept. The wheel scrolls
+  them; the next key sent to the program goes back to the bottom.
+- **Semi-char mode**, the default, sends every key to the program but `C-x` and `M-x`, the
+  `C-c` prefix, `C-q` and `C-y`, and every key while a prompt, a search or a key sequence of
+  oso's is open. `C-c C-c` sends `C-c`; `C-c C-k` switches to char mode; `C-c` and any other key
+  sends both, the global and the user's `C-c` bindings among them: in a terminal, `C-c` is the
+  terminal's. `C-q` sends the next key as it is, oso's own among them. Text the input method
+  commits goes as a key does.
+- **Char mode** sends every key but `C-c C-k`, which comes back to semi-char mode; `C-c C-c`
+  sends one `C-c` there too, and `C-c` with any other key sends both.
+- Keys are encoded on the terminal's thread against the program's modes, in xterm's forms, or
+  the kitty keyboard protocol's once the program pushes it, so `S-RET` reaches a program that
+  reads it. `M-` is sent as Alt, with an `ESC` before the key.
+- `C-y` pastes the newest kill, or what another app put on the clipboard; `C-u N C-y` the Nth.
+  Control characters but tab and new line are removed first, and line breaks of every kind
+  become new lines. With bracketed paste on, the text goes between its brackets. With it off,
+  each new line is sent as `RET`, and text of several lines asks `Paste N lines into a program
+  that may run them?` first; `keep` drops it.
+- The input method composes at the program's cursor, and its candidate window opens at that
+  cell even while the program hides the cursor; the committed text goes to the program.
+- The PTY takes the size of the window that last selected the terminal; other windows showing
+  it clip or pad the same grid.
+- `C-x k` on a terminal whose program still runs asks first, as `C-x C-c` does for every such
+  terminal. Under `oso dev`, a running terminal holds the restart, until terminals are handed
+  over: run long-lived programs in an oso that is not rebuilt.
+- The agent channel reads no terminal's text, types nothing into one, and never selects one:
+  switching to a terminal is the person's.
 
 ## Input method (IME)
 

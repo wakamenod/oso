@@ -107,8 +107,9 @@ fn drawn(d: &Dispatcher, editor: &Editor) -> Drawn {
     let mut statuses = Vec::new();
     statuses_into(editor, &mut statuses);
     let menu = d.menu();
+    let terminals = crate::terminal::hosted::Terminals::default();
     with_frame(
-        editor,
+        (editor, &terminals),
         menu.as_ref(),
         &statuses,
         &mut Cells::default(),

@@ -15,7 +15,7 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash` and `jumps` do the work, `control`
+  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews` and `terminals` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
@@ -27,6 +27,12 @@ often, so it must rebuild within 2 s.
   no I/O. Only it and `sessions::rules`, which
   parses the agent rules files (ADR 0121), use `toml`, which review keeps: no guard test checks
   it.
+- `src/terminal.rs` and `src/terminal/` host terminals (ADR 0120): which keys go to a program
+  (`route`), what a terminal starts (`shell`), the screen the UI keeps (`grid`, `colors`) and
+  the start thread (`hosted`). `oso-term` owns the PTY, the engine and the policy; the
+  dispatcher holds each terminal's key-reading state (`dispatch/terminal.rs`), and
+  `app/terminals.rs` carries out what commands and keys ask. Terminal text never reaches a
+  log, the disk or the agent channel.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
   hosted session's state from its screen, the tracker, the `oso-sessions` worker, and worktree
   sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the
@@ -34,7 +40,11 @@ often, so it must rebuild within 2 s.
   `app/sessions.rs` carries out what the worker and the jobs find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`. Its runner,
-  `review/git.rs`, is shared with the worktree jobs.
+  `review/git.rs`, is shared with the worktree jobs. `review/view.rs`
+  lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
+  `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
+  keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
+  `bindings/review.rs`.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it and
   `sessions/worktree/include.rs`, which matches `.worktreeinclude` (ADR 0121), use `ignore`,
   which review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same

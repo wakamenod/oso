@@ -29,6 +29,7 @@
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
 
 mod batch;
+pub(crate) mod count;
 mod diff;
 pub(crate) mod git;
 mod id;
@@ -38,7 +39,8 @@ mod read;
 mod scope;
 mod side;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+pub(crate) mod view;
 mod work;
 
 use std::fmt;
@@ -54,6 +56,8 @@ use oso_core::review::{Carried, Carry, Shape};
 
 pub(crate) use id::Id;
 pub(crate) use list::Entry;
+#[cfg(test)]
+pub(crate) use list::Status;
 pub(crate) use scope::Scope;
 
 /// The largest side read: a blob or a work tree file past it shows its size only.
@@ -113,7 +117,8 @@ impl TrustedRoot {
         self.revoked.store(true, Ordering::SeqCst);
     }
 
-    fn revoked(&self) -> bool {
+    /// Whether the trust was taken back.
+    pub(crate) fn revoked(&self) -> bool {
         self.revoked.load(Ordering::SeqCst)
     }
 
@@ -157,6 +162,13 @@ pub(crate) enum Request {
     /// Take a baseline of the work tree for the session scope.
     Baseline,
     /// Carry comments to a new reading (`oso_core::review::Review::carry`).
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "comments are carried here from ADR 0122's step 3b"
+        )
+    )]
     Carry(Carry),
 }
 
@@ -194,7 +206,17 @@ pub(crate) enum Report {
     BaselineGone,
     /// Comments carried; `cut_short` if matching lines ran out of time, so some may be outdated
     /// that would not have been.
-    Carried { carried: Carried, cut_short: bool },
+    Carried {
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "comments are carried here from ADR 0122's step 3b"
+            )
+        )]
+        carried: Carried,
+        cut_short: bool,
+    },
     /// A request failed; the message says why, with no file's text.
     Failed { asked: Asked, why: String },
 }
@@ -289,6 +311,13 @@ impl fmt::Debug for Reading {
 /// What a reading holds of a file.
 pub(crate) enum Content {
     /// Both sides, and the hunks between them.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the sides are refined and visited from ADR 0122's step 3c"
+        )
+    )]
     Text {
         shape: Arc<Shape>,
         old: Arc<[u8]>,

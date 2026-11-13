@@ -83,7 +83,53 @@ pub(super) enum Name {
     BgMenuKey,
     BgMenuStay,
     BgMenuSwitch,
+    /// A review's rows (ADR 0122): an added and a removed line's text and band, the stronger
+    /// bands of their refined words, the headers' text and band, and the comments' labels, the
+    /// person's and an agent's in hues apart, and their band.
+    FgAdded,
+    BgAdded,
+    BgRefineAdded,
+    FgRemoved,
+    BgRemoved,
+    BgRefineRemoved,
+    FgHunkHeader,
+    FgFileHeader,
+    BgHeader,
+    FgCommentPerson,
+    FgCommentAgent,
+    BgCard,
+    /// A terminal's colour 0 to 15 (ADR 0120), from the theme's table of them: 0 black, 1 red,
+    /// 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 light grey, and 8 to 15 their bright
+    /// forms. 1 to 6 and 9 to 14 are read at 7:1 on the background, as highlighted text is.
+    /// Provisional, until the author picks from screenshots.
+    Terminal(u8),
 }
+
+/// Colour `n` of a theme's terminal table, `n` modulo 16.
+fn terminal(table: &[u32; 16], n: u8) -> Color {
+    rgb(table[usize::from(n % 16)])
+}
+
+/// `dark`'s terminal colours. From its palette: 0 the key chip's fill, 1 the stay chip's
+/// coral, 3 the completion's gold, 8 the line numbers' grey and 15 the modeline's white.
+const DARK_TERMINAL: [u32; 16] = [
+    0x2b2e3b, 0xff8f87, 0x8fd17a, 0xf7c96e, 0x82a8ff, 0xd99af0, 0x4fd0e0, 0xc4c8d4, //
+    0x767c93, 0xffaaa4, 0xa8eb94, 0xffe08a, 0xa8c4ff, 0xebb4ff, 0x8ce8f0, 0xffffff,
+];
+
+/// `light`'s terminal colours. From its palette: 0 the text, 3 the warning's brown, 7 the
+/// border's grey, 8 the line numbers' and 15 the float's fill.
+const LIGHT_TERMINAL: [u32; 16] = [
+    0x15161b, 0x9c1c1c, 0x1a5c1a, 0x6e4600, 0x1a46ad, 0x8a1f8a, 0x005a5c, 0xc2c6d4, //
+    0x6e7385, 0xa31f1a, 0x205e18, 0x634800, 0x2848b8, 0x86259a, 0x005e66, 0xeff0f5,
+];
+
+/// `dusk`'s terminal colours, pale to reach 7:1 on its grey. From its palette: 3 the
+/// warning's yellow and 8 the divider's grey.
+const DUSK_TERMINAL: [u32; 16] = [
+    0x2a2a33, 0xffcac6, 0xa8f5a0, 0xffdd6f, 0xc4d4ff, 0xf9c8ff, 0x9ef0f5, 0xd8dbe6, //
+    0x8c8fa3, 0xffd6d3, 0xc4ffbc, 0xfff0b0, 0xd6e2ff, 0xfbd6ff, 0xbff8fb, 0xffffff,
+];
 
 /// Near-black, with a high-contrast foreground: the default.
 pub(super) fn dark(name: Name) -> Color {
@@ -145,6 +191,20 @@ pub(super) fn dark(name: Name) -> Color {
         BgMenuKey => rgb(0xa9b4d8),
         BgMenuStay => rgb(0xff8f87),
         BgMenuSwitch => rgb(0xf2c46a),
+        // Dim green and red bands, a little lighter than the background, under pale text.
+        FgAdded => rgb(0xa8e6b8),
+        BgAdded => rgb(0x13291c),
+        BgRefineAdded => rgb(0x24553a),
+        FgRemoved => rgb(0xf5b0b8),
+        BgRemoved => rgb(0x2f141a),
+        BgRefineRemoved => rgb(0x66283a),
+        FgHunkHeader => rgb(0x9ccfff),
+        FgFileHeader => rgb(0xffffff),
+        BgHeader => rgb(0x1b2236),
+        FgCommentPerson => rgb(0xa9d4ff),
+        FgCommentAgent => rgb(0xf2c2ff),
+        BgCard => rgb(0x1d1b2a),
+        Terminal(n) => terminal(&DARK_TERMINAL, n),
     }
 }
 
@@ -206,6 +266,19 @@ pub(super) fn light(name: Name) -> Color {
         BgMenuKey => rgb(0x46507a),
         BgMenuStay => rgb(0xb02a22),
         BgMenuSwitch => rgb(0x7a4a00),
+        FgAdded => rgb(0x0b5a26),
+        BgAdded => rgb(0xe3f5e6),
+        BgRefineAdded => rgb(0xb9e6c2),
+        FgRemoved => rgb(0x8a1424),
+        BgRemoved => rgb(0xfbe4e6),
+        BgRefineRemoved => rgb(0xf5c0c6),
+        FgHunkHeader => rgb(0x1d4a8f),
+        FgFileHeader => rgb(0x0b0c10),
+        BgHeader => rgb(0xe6ebf7),
+        FgCommentPerson => rgb(0x123f8a),
+        FgCommentAgent => rgb(0x6a1b84),
+        BgCard => rgb(0xf0eef8),
+        Terminal(n) => terminal(&LIGHT_TERMINAL, n),
     }
 }
 
@@ -268,5 +341,19 @@ pub(super) fn dusk(name: Name) -> Color {
         BgMenuKey => rgb(0xb4bee2),
         BgMenuStay => rgb(0xff9d95),
         BgMenuSwitch => rgb(0xffcf7e),
+        // Bands darker than the grey, so that its pale text keeps 7:1 on them.
+        FgAdded => rgb(0xbff5cc),
+        BgAdded => rgb(0x24392c),
+        BgRefineAdded => rgb(0x2d5540),
+        FgRemoved => rgb(0xffc4cb),
+        BgRemoved => rgb(0x452630),
+        BgRefineRemoved => rgb(0x6a2f3d),
+        FgHunkHeader => rgb(0xb4dcff),
+        FgFileHeader => rgb(0xffffff),
+        BgHeader => rgb(0x2e3247),
+        FgCommentPerson => rgb(0xbfe0ff),
+        FgCommentAgent => rgb(0xffbcf0),
+        BgCard => rgb(0x35303f),
+        Terminal(n) => terminal(&DUSK_TERMINAL, n),
     }
 }

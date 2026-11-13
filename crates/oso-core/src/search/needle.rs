@@ -12,7 +12,7 @@ use std::time::Instant;
 use super::regexp::{self, Line, LineRoom, LineTooLong, Regexp};
 use super::{Count, Found, Limits, Query, count, find_backward, find_forward, find_in, matches_in};
 use crate::decode::InvalidBytes;
-use crate::migemo::{Dictionary, Romaji};
+use crate::migemo::{self, Dictionary};
 use crate::rope::Rope;
 
 /// A literal query or a regexp.
@@ -47,7 +47,7 @@ impl Needle {
         case_sensitive: bool,
         dictionary: Option<&Dictionary>,
     ) -> Option<Self> {
-        Self::migemo_within(string, case_sensitive, dictionary, regexp::WORDS_SIZE_LIMIT)
+        Self::migemo_within(string, case_sensitive, dictionary, migemo::WORDS_SIZE_LIMIT)
     }
 
     /// [`Self::migemo`], its words compiled within `limit`.
@@ -57,16 +57,10 @@ impl Needle {
         dictionary: Option<&Dictionary>,
         limit: usize,
     ) -> Option<Self> {
-        let romaji = Romaji::new(string)?;
-        let words = dictionary.map(|dictionary| dictionary.pattern_words(&romaji));
-        if let Some(words) = words.filter(|words| !words.is_empty()) {
-            let pattern = romaji.pattern(string, &words);
-            if let Some(regexp) = regexp::compile_migemo(&pattern, !case_sensitive, limit) {
-                return Some(Self::Regexp(regexp));
-            }
-        }
-        let pattern = romaji.pattern(string, &[]);
-        regexp::compile_migemo(&pattern, !case_sensitive, regexp::KEY_SIZE_LIMIT).map(Self::Regexp)
+        migemo::compile(string, dictionary, limit, |pattern, limit| {
+            regexp::compile_migemo(pattern, !case_sensitive, limit)
+        })
+        .map(Self::Regexp)
     }
 
     /// A search through `ranges` of `snapshot` from `from`, an empty match there skipped if a

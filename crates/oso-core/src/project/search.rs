@@ -7,21 +7,36 @@
 //!
 //! - An input is split at spaces, a space after a backslash kept in a component, as completion
 //!   splits one. A line matches when every component does, in any order.
-//! - A component is a literal and, if it holds a character an expression reads, also that
-//!   expression: it matches where either does, as in completion. `=` at its start keeps it a
-//!   literal, and `!` at its start says what a line must not hold. Completion's other affixes
+//! - A component that is romaji by isearch's rule matches as migemo's pattern, which holds the
+//!   literal too (ADR 0116). Else it is a literal and, if it holds a character an expression
+//!   reads, also that expression: it matches where either does, as in completion. `=` at its
+//!   start keeps it a literal, and `!` at its start says what a line must not hold. Completion's other affixes
 //!   are plain text here, and `^` and `$` are an expression's line start and end; an affix is
 //!   read only at the start, as code often ends in `=` or `!`.
 //! - Case is ignored unless the input holds an upper-case letter, over the whole input.
 //! - Expressions are the `regex` crate's, compiled with limits, so a line costs time linear in
 //!   its length; one that does not compile alone matches as a literal.
+//! - A component the input before had too, with the same case, keeps what it compiled, so a
+//!   key compiles only what it changed, as in completion (ADR 0076). A migemo component is kept
+//!   only for the dictionary it was compiled with, and the words it was given.
+//! - The migemo components of an input share one pattern's words, taken in order, so one event
+//!   compiles at most that many on the UI thread; a component past them has its kana alone.
+//! - A query narrows the one before when every line it matches is one that one matched: for a
+//!   migemo component, when the old one matches each string the new one's pattern matches,
+//!   and has each of its words.
 //! - `Debug` gives how many components, never what they say, which may be about a file that
 //!   may hold secrets.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::ops::Range;
 
-use regex::bytes::{Regex, RegexBuilder};
+use crate::migemo::{Budget, Table};
+#[cfg(test)]
+use component::compile;
+use component::{Asked, Component, Kind};
+
+mod component;
 
 /// The most rows a search keeps; past them it stops, and the count says `10000+` (ADR 0114).
 pub const MAX_ROWS: usize = 10_000;
@@ -41,19 +56,14 @@ const MAX_INPUT_BYTES: usize = 1024;
 /// The most components an input is matched with; one with more searches for nothing.
 const MAX_COMPONENTS: usize = 32;
 
+/// The most letter and kana strings of migemo components, and bytes of them, one look at
+/// whether a query narrows another matches with the old one's components: past either, it
+/// does not narrow (ADR 0116, Q8). Their words are looked up among the old one's, which an
+/// input's budget of words bounds.
+const MAX_NARROWING: (usize, usize) = (1024, 64 * 1024);
+
 /// How many characters a component that is not excluded needs before a search starts.
 const STARTS_AT: usize = 2;
-
-/// The most memory a component's expression may take once compiled, as in completion.
-const REGEX_SIZE_LIMIT: usize = 1 << 20;
-
-/// The deepest an expression may nest, as in completion.
-const REGEX_NEST_LIMIT: u32 = 32;
-
-/// The characters that make a component an expression, as well as a literal, as in completion.
-const REGEX_META: &[char] = &[
-    '\\', '.', '+', '*', '?', '(', ')', '|', '[', ']', '{', '}', '^', '$',
-];
 
 /// How many bytes before its first match a row starts, when the match is past what a row from
 /// the line's start would show.
@@ -66,18 +76,6 @@ const FAR: usize = 4096;
 /// What a row or an excerpt shows where it leaves part of a line out.
 pub(crate) const CUT: char = '…';
 
-/// One component of a search.
-#[derive(Clone)]
-struct Component {
-    regex: Regex,
-    /// A line must not hold it.
-    not: bool,
-    /// It was read as an expression too, so a longer one may match more.
-    expression: bool,
-    /// What was typed, without its affix, in lower case where case is ignored.
-    pattern: Box<str>,
-}
-
 /// A search's input read as components, which a line matches when it matches all of them.
 #[derive(Clone)]
 pub struct LineQuery {
@@ -87,6 +85,20 @@ pub struct LineQuery {
     too_long: bool,
 }
 
+/// Whether each of `words` is one of the words `old`, a migemo component, has, which its
+/// pattern matches: a word is not matched with the pattern, as a pattern of many words reads
+/// a word's characters far slower than kana (ADR 0116, Q8). The words of either input are
+/// at most its budget's.
+fn old_has(old: &Component, words: &[Box<str>]) -> bool {
+    let Some(alternatives) = &old.alternatives else {
+        return false;
+    };
+    let has: HashSet<&str> = (alternatives.split().1.iter())
+        .map(|word| &**word)
+        .collect();
+    (words.iter()).all(|word| has.contains(&**word))
+}
+
 /// A line of a block that matched: which line it is, counted from the block's first, where it
 /// is in the block, without its line break, and where its first match is in it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,46 +106,6 @@ pub struct LineHit {
     pub line: usize,
     pub range: Range<usize>,
     pub first: Range<usize>,
-}
-
-/// `pattern` as an expression that matches where it does as an expression or as a literal, or as
-/// a literal alone, ignoring case if `ignore_case`, and whether it was read as an expression too.
-/// `None` if not even the literal compiles within the limits.
-///
-/// The expression must parse alone: joined to the literal, one that is no expression alone, as
-/// `a)|(b`, can compile and match what neither does. A `(?x)` comment would run past the
-/// expression's group, so the group is then ended by a line break, which `(?x)` ignores; the
-/// literal writes its own line breaks as escapes, so that no comment ends inside it.
-fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Option<(Regex, bool)> {
-    let build = |source: &str, size_limit: usize| {
-        RegexBuilder::new(source)
-            .case_insensitive(ignore_case)
-            .multi_line(true)
-            .crlf(true)
-            .size_limit(size_limit)
-            .nest_limit(REGEX_NEST_LIMIT)
-            .build()
-    };
-    let literal = regex::escape(pattern)
-        .replace('\n', "\\n")
-        .replace('\r', "\\r");
-    // With no room to compile in, a build stops once the expression has parsed.
-    let parses = || !matches!(build(pattern, 0), Err(regex::Error::Syntax(_)));
-    if expression && parses() {
-        let joined = build(&format!("(?:{pattern})|(?:{literal})"), REGEX_SIZE_LIMIT)
-            .ok()
-            .or_else(|| {
-                pattern.contains('#').then(|| {
-                    build(&format!("(?:{pattern}\n)|(?:{literal})"), REGEX_SIZE_LIMIT).ok()
-                })?
-            });
-        if let Some(regex) = joined {
-            return Some((regex, true));
-        }
-    }
-    build(&literal, REGEX_SIZE_LIMIT)
-        .ok()
-        .map(|regex| (regex, false))
 }
 
 impl LineQuery {
@@ -146,8 +118,30 @@ impl LineQuery {
         }
     }
 
-    /// `input` read as components, as the module says.
+    /// `input` read as components, as the module says, with migemo on and no dictionary: a
+    /// romaji component matches its kana.
     pub fn parse(input: &str) -> Self {
+        Self::parse_after(input, &Self::empty(), true, None)
+    }
+
+    /// The query of no input, which has no component.
+    pub(crate) fn empty() -> Self {
+        Self {
+            components: Vec::new(),
+            ignore_case: true,
+            too_long: false,
+        }
+    }
+
+    /// [`LineQuery::parse`], reusing what `before` compiled for a component that is the same,
+    /// or an earlier one of the same input, with romaji components migemo's if `migemo`,
+    /// with `table`'s words if one is given.
+    pub(crate) fn parse_after(
+        input: &str,
+        before: &Self,
+        migemo: bool,
+        table: Option<&Table>,
+    ) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
         }
@@ -170,37 +164,58 @@ impl LineQuery {
         if raw.len() > MAX_COMPONENTS {
             return Self::too_long();
         }
-        let components = raw
-            .iter()
-            .filter_map(|raw| {
-                let (not, literal, rest) = match raw.chars().next() {
-                    Some('!') => (true, false, &raw[1..]),
-                    Some('=') => (false, true, &raw[1..]),
-                    _ => (false, false, raw.as_str()),
-                };
-                if rest.is_empty() {
-                    return None;
-                }
-                let (regex, expression) =
-                    compile(rest, !literal && rest.contains(REGEX_META), ignore_case)?;
-                let pattern = if ignore_case {
-                    rest.to_lowercase().into()
-                } else {
-                    rest.into()
-                };
-                Some(Component {
-                    regex,
-                    not,
-                    expression,
-                    pattern,
-                })
-            })
-            .collect();
+        let mut components: Vec<Component> = Vec::with_capacity(raw.len());
+        // The input's migemo components share one pattern's words, in order (ADR 0116, Q7).
+        let mut budget = Budget::PATTERN;
+        for raw in &raw {
+            let request = (migemo, table);
+            let parsed = Component::parse(
+                raw,
+                ignore_case,
+                (before, &components),
+                request,
+                &mut budget,
+            );
+            components.extend(parsed);
+        }
         Self {
             components,
             ignore_case,
             too_long: false,
         }
+    }
+
+    /// Whether a component matches as migemo's pattern, so a dictionary that comes would
+    /// change what it matches, for tests.
+    #[cfg(test)]
+    pub(crate) fn uses_migemo(&self) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.kind == Kind::Migemo)
+    }
+
+    /// Whether a migemo component took its words from another dictionary than that of
+    /// `generation`, or from none while there is one.
+    pub(crate) fn compiled_for_another(&self, generation: Option<u64>) -> bool {
+        (self.components.iter()).any(|component| {
+            component.kind == Kind::Migemo && component.asked != Asked::Migemo(generation)
+        })
+    }
+
+    /// Whether a migemo component was compiled with no dictionary, so one would add words.
+    pub(crate) fn wants_dictionary(&self) -> bool {
+        (self.components.iter()).any(|component| {
+            component.kind == Kind::Migemo && component.asked == Asked::Migemo(None)
+        })
+    }
+
+    /// For each component, whether it was compiled for this query, for tests.
+    #[cfg(test)]
+    fn fresh(&self) -> Vec<bool> {
+        self.components
+            .iter()
+            .map(|component| component.fresh)
+            .collect()
     }
 
     /// Whether a search starts for it: a component that is not excluded has two characters.
@@ -214,8 +229,11 @@ impl LineQuery {
 
     /// Whether every line this query matches is one `before` matched, so that the lines found
     /// for `before` hold every one: each of `before`'s components is one of this query's, in its
-    /// place, a literal one at most longer at its end, and an expression or an exclusion the
-    /// same. Case may stop being ignored, and never start.
+    /// place, and an expression or an exclusion the same. A literal one may be longer at its
+    /// end. Where either is migemo's, the old one matches as a literal or migemo's pattern,
+    /// and so a line holding one of its strings: it narrows when it matches each string the new
+    /// one matches, which a migemo one keeps unless they are too many, a word only as one of
+    /// its own (ADR 0116, Q8). Case may stop being ignored, and never start.
     pub fn narrows(&self, before: &Self) -> bool {
         if before.too_long || self.too_long {
             return false;
@@ -226,6 +244,15 @@ impl LineQuery {
         if self.components.len() < before.components.len() {
             return false;
         }
+        let same_case = self.ignore_case == before.ignore_case;
+        // What one call looks through is bounded, past which it does not narrow.
+        let (mut strings, mut bytes) = MAX_NARROWING;
+        let mut room = |string: &str| {
+            let room = strings > 0 && bytes >= string.len();
+            strings = strings.saturating_sub(1);
+            bytes = bytes.saturating_sub(string.len());
+            room
+        };
         self.components
             .iter()
             .zip(&before.components)
@@ -233,16 +260,40 @@ impl LineQuery {
                 if new.not != old.not {
                     return false;
                 }
-                if new.not || new.expression || old.expression {
-                    // A literal read as an expression too matches more, and the other way less.
-                    return new.expression == old.expression
-                        && new.pattern == old.pattern
-                        && self.ignore_case == before.ignore_case;
+                let same_text = new.kind == old.kind
+                    && new.asked == old.asked
+                    && new.pattern == old.pattern
+                    && new.spent == old.spent;
+                // The same literal or pattern matches less once case counts; an excluded one
+                // then leaves out less.
+                if same_text && !new.not && new.kind != Kind::Expression {
+                    return true;
                 }
-                if self.ignore_case == before.ignore_case {
-                    new.pattern.starts_with(&*old.pattern)
-                } else {
-                    new.pattern.to_lowercase().starts_with(&*old.pattern)
+                let same = same_text && same_case;
+                // A literal read as an expression too matches more, and the other way less.
+                if same || new.not || new.kind == Kind::Expression || old.kind == Kind::Expression {
+                    return same;
+                }
+                match (new.kind, old.kind) {
+                    (Kind::Literal, Kind::Literal) if same_case => {
+                        new.pattern.starts_with(&*old.pattern)
+                    }
+                    // Lower case is the text as typed, character by character, only in ASCII.
+                    (Kind::Literal, Kind::Literal) => {
+                        new.pattern.is_ascii()
+                            && new.pattern.to_lowercase().starts_with(&*old.pattern)
+                    }
+                    // A literal kept in lower case is the text as typed only in ASCII.
+                    (Kind::Literal, _) => {
+                        (!self.ignore_case || new.pattern.is_ascii())
+                            && old.regex.is_match(new.pattern.as_bytes())
+                    }
+                    _ => new.alternatives.as_ref().is_some_and(|alternatives| {
+                        let (typed, words) = alternatives.split();
+                        (typed.iter())
+                            .all(|string| room(string) && old.regex.is_match(string.as_bytes()))
+                            && (words.is_empty() || old_has(old, words))
+                    }),
                 }
             })
     }
@@ -286,7 +337,13 @@ impl LineQuery {
             .components
             .iter()
             .filter(|component| !component.not)
-            .max_by_key(|component| (component.pattern.chars().count(), !component.expression));
+            .max_by_key(|component| {
+                // A literal or an expression has a prefilter, which a migemo pattern's words
+                // may not.
+                let chars = component.pattern.chars().count();
+                let quick = component.kind != Kind::Migemo && chars >= 3;
+                (quick, chars, component.kind == Kind::Literal)
+            });
         let Some(driver) = driver.filter(|_| !self.too_long) else {
             return newlines(block);
         };
@@ -489,5 +546,7 @@ pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
     (text.into(), column)
 }
 
+#[cfg(test)]
+mod migemo_tests;
 #[cfg(test)]
 mod tests;

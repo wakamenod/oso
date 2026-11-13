@@ -565,6 +565,7 @@ pub oso_platform::window::Event::Resized
 pub oso_platform::window::Event::Resized::height: u32
 pub oso_platform::window::Event::Resized::width: u32
 pub oso_platform::window::Event::ScaleFactorChanged(f64)
+pub oso_platform::window::Event::Unfocused
 pub oso_platform::window::Event::Wheel
 pub oso_platform::window::Event::Wheel::at: core::option::Option<oso_platform::window::Position>
 pub oso_platform::window::Event::Wheel::delta: oso_platform::window::Wheel

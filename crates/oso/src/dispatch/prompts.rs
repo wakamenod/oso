@@ -189,6 +189,12 @@ impl Dispatcher {
             Some(ArgSpec::BranchAndBaseOnPrefix { .. }) => {
                 return self.wait_for_branches(editor, id, args.raw());
             }
+            Some(ArgSpec::TextOnPrefix { prompt, history }) if args.raw().is_some() => (
+                prompt,
+                Kind::Text {
+                    history: Some(history),
+                },
+            ),
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {

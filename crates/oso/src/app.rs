@@ -36,11 +36,13 @@ mod log_gate;
 mod migemo;
 mod projects;
 mod reloads;
+mod reviews;
 mod saves;
 mod searches;
 mod sessions;
 mod slices;
 mod syntax;
+mod terminals;
 mod theme_file;
 mod trims;
 mod walks;
@@ -130,6 +132,12 @@ pub enum UserEvent {
     Worktree(Box<crate::sessions::worktree::jobs::Report>),
     /// The thread that reads migemo's dictionary read it, or could not (ADR 0116).
     Migemo(Box<migemo::DictionaryRead>),
+    /// A review's threads, or the review menu's counts, reported (ADR 0122).
+    Review(reviews::ReviewEvent),
+    /// A terminal's thread has a snapshot ready (ADR 0120).
+    Terminal(oso_core::buffer::BufferId),
+    /// A terminal's start thread found the shell and started it, or could not.
+    TerminalStarted(Box<crate::terminal::hosted::Started>),
 }
 
 /// Top-level application state.
@@ -227,6 +235,8 @@ pub struct App {
     /// The sessions oso hosts and remembers, and the internal `*Session explain*` buffer
     /// (ADR 0121).
     hosting: sessions::Hosting,
+    /// The open reviews' threads and the review menu's counts (ADR 0122).
+    reviews: reviews::Reviews,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -234,6 +244,8 @@ pub struct App {
     agent: agent::Agent,
     /// The cursor flash fading after a large jump (ADR 0097).
     flash: flash::Flash,
+    /// The terminals, by their buffers, and what they share (ADR 0120).
+    terminals: terminals::Host,
     /// When a jump reading its string shows its labels (ADR 0116).
     jump_timer: jumps::JumpTimer,
     #[cfg(feature = "dev")]
@@ -306,7 +318,6 @@ impl App {
     ) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
-        let offer = emergency.offer();
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
         let lister = files::lister(&waker);
@@ -316,12 +327,7 @@ impl App {
         let grep = greps::grep(&waker);
         let previewer = greps::previewer(&waker);
         let sessions = sessions::worker(&waker, theme_directory.as_deref());
-        let mut editor = Editor::default();
-        // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
-        editor.set_home(home());
-        if let Ok(directory) = std::env::current_dir() {
-            editor.set_start_directory(directory);
-        }
+        let mut editor = starting_editor();
         let themes = theme_names();
         let configuration = configuration::Configuration::new(&themes);
         let remembered_theme = ShownTheme {
@@ -340,8 +346,8 @@ impl App {
             configuration,
             freer: Freer::start(),
             leaving: Leaving::with_cell(emergency.agreement_cell()),
+            offer: emergency.offer(),
             emergency,
-            offer,
             answering: None,
             scan_for_copies: false,
             started: Some(started),
@@ -372,9 +378,11 @@ impl App {
             previewer,
             trust_file: None,
             sessions,
+            reviews: reviews::Reviews::default(),
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),
+            terminals: terminals::Host::new(),
             jump_timer: jumps::JumpTimer::default(),
             #[cfg(feature = "dev")]
             dev: None,
@@ -459,6 +467,7 @@ impl App {
         self.start_trims();
         self.start_searches();
         self.start_reverts();
+        self.sync_reviews();
         self.answer_about_copies();
         self.remember_theme();
         if effects.redraw {
@@ -486,6 +495,18 @@ impl App {
     fn note_logging(&self) {
         self.log_gate.note(self.editor.shows_secret());
     }
+}
+
+/// An editor showing `*scratch*`, which knows the home directory and where oso started. Each
+/// is read once: `~` stands for the home, and a path typed in a buffer with no file starts
+/// in the start directory.
+fn starting_editor() -> Editor {
+    let mut editor = Editor::default();
+    editor.set_home(home());
+    if let Ok(directory) = std::env::current_dir() {
+        editor.set_start_directory(directory);
+    }
+    editor
 }
 
 /// The renderer's themes, each a name and what it is, the default first (ADR 0089).

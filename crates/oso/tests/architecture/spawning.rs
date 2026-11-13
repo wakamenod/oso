@@ -1,7 +1,7 @@
 //! Lint attributes that would let code outside `oso-platform::process` spawn
 //! (ADR 0010, ADR 0047). Clippy bans `Command::new`, but a source attribute
-//! overrides the workspace lints, so this check keeps them honest. The
-//! benchmark harness is the one recorded exception (ADR 0046).
+//! overrides the workspace lints, so this check keeps them honest. `ALLOWED`
+//! lists the exceptions.
 //!
 //! Must not depend on: the file system or the other checks; it sees only
 //! tokens.
@@ -9,12 +9,14 @@
 use crate::lexer::{Token, tokenize};
 
 /// The files that may silence the ban: the process module, its terminals'
-/// child-side hook (ADR 0120), and the benchmark harness, which never ships
-/// (ADR 0046). Adding one needs an ADR.
-pub const ALLOWED: [&str; 3] = [
+/// child-side hook (ADR 0120), the benchmark harness (ADR 0046), and oso-term's
+/// build script, which runs Zig (ADR 0120); the last two never ship. Adding one
+/// needs an ADR.
+pub const ALLOWED: [&str; 4] = [
     "crates/oso-platform/src/process.rs",
     "crates/oso-platform/src/process/pty/unix.rs",
     "crates/oso/examples/perf/process.rs",
+    "crates/oso-term/build.rs",
 ];
 
 /// What is wrong with `files`, given as paths and sources. Any file outside

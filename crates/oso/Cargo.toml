@@ -12,6 +12,8 @@ oso-core.workspace = true
 oso-render.workspace = true
 oso-platform.workspace = true
 oso-syntax.workspace = true
+# The terminal model: its thread, snapshots and policy (ADR 0120).
+oso-term.workspace = true
 pollster.workspace = true
 log.workspace = true
 env_logger.workspace = true

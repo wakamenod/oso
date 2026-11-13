@@ -3,7 +3,10 @@
 //!
 //! Must not depend on: `editor`, threads or the file system.
 
+use std::sync::Arc;
+
 use super::{LineHit, LineQuery, MAX_ROW_BYTES, compile, row_text};
+use crate::migemo::{Dictionary, Table};
 
 fn hits(input: &str, block: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
@@ -146,13 +149,14 @@ fn a_search_starts_at_two_characters_of_a_component_not_excluded() {
 fn a_longer_literal_narrows_and_a_changed_expression_does_not() {
     let narrows =
         |after: &str, before: &str| LineQuery::parse(after).narrows(&LineQuery::parse(before));
-    assert!(narrows("foob", "foo"));
-    assert!(narrows("foo bar", "foo"));
-    assert!(narrows("Foo", "foo"), "case may stop being ignored");
-    assert!(!narrows("foo", "Foo"), "and never start");
-    assert!(!narrows("fo", "foo"));
+    // Literals with a digit, which are not romaji.
+    assert!(narrows("f00b", "f00"));
+    assert!(narrows("f00 b4r", "f00"));
+    assert!(narrows("F00", "f00"), "case may stop being ignored");
+    assert!(!narrows("f00", "F00"), "and never start");
+    assert!(!narrows("f0", "f00"));
     assert!(
-        !narrows("foo !b", "foo !ba"),
+        !narrows("f00 !b1", "f00 !b12"),
         "an exclusion that takes less keeps more"
     );
     assert!(!narrows("a.*bc", "a.*b"));
@@ -276,4 +280,161 @@ fn a_match_that_crosses_lines_is_not_looked_through_again_from_each_of_them() {
         "{:?}",
         started.elapsed()
     );
+}
+
+/// A dictionary of `text`, in `migemo-dict`'s format, as the editor's first.
+pub(super) fn dictionary(text: &str) -> Table {
+    Table {
+        generation: 1,
+        dictionary: Arc::new(Dictionary::new(text.to_owned())),
+    }
+}
+
+/// The lines of `block` that `query` matches.
+fn lines_of(query: &LineQuery, block: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    query.find_in_block(block.as_bytes(), |hit| {
+        found.push(block[hit.range].to_owned());
+    });
+    found
+}
+
+#[test]
+fn a_romaji_component_matches_its_kana_in_every_form_and_itself() {
+    let block = "かんじ\nカンジ\nｶﾝｼﾞ\nｋａｎｊｉ\nkanji\nKANJI\n漢字\nnothing\n";
+    let query = LineQuery::parse("kanji");
+    assert!(query.uses_migemo() && query.wants_dictionary());
+    assert_eq!(
+        lines_of(&query, block),
+        ["かんじ", "カンジ", "ｶﾝｼﾞ", "ｋａｎｊｉ", "kanji", "KANJI"]
+    );
+    // With a dictionary, its words too.
+    let words = dictionary("かんじ\t漢字\n");
+    let query = LineQuery::parse_after("kanji", &LineQuery::empty(), true, Some(&words));
+    assert!(query.uses_migemo() && !query.wants_dictionary());
+    assert!(lines_of(&query, block).contains(&"漢字".to_owned()));
+}
+
+#[test]
+fn equals_the_setting_case_and_letters_that_spell_nothing_keep_a_component_literal() {
+    let block = "かんじ\nkanji\n";
+    let literal = |query: &LineQuery| !query.uses_migemo() && lines_of(query, block) == ["kanji"];
+    assert!(literal(&LineQuery::parse("=kanji")));
+    assert!(literal(&LineQuery::parse_after(
+        "kanji",
+        &LineQuery::empty(),
+        false,
+        None
+    )));
+    // An upper-case letter is not romaji, and makes the case count over the whole input.
+    assert!(!LineQuery::parse("Kanji").uses_migemo());
+    // A letter that starts no spelling before the end.
+    assert!(!LineQuery::parse("struct").uses_migemo());
+    // A character an expression reads keeps it a literal and an expression.
+    assert!(!LineQuery::parse("kan.i").uses_migemo());
+    assert_eq!(lines_of(&LineQuery::parse("kan.i"), block), ["kanji"]);
+}
+
+#[test]
+fn a_romaji_exclusion_leaves_out_its_kana_too() {
+    let block = "a かんじ\na カンジ\na kanji\na other\n";
+    assert_eq!(lines_of(&LineQuery::parse("a !kanji"), block), ["a other"]);
+}
+
+#[test]
+fn a_romaji_component_narrows_where_the_old_one_matches_each_of_its_strings() {
+    let words = dictionary("かんじ\t漢字\nかなだ\t加奈陀\n");
+    let parse = |input: &str, words: Option<&Table>| {
+        LineQuery::parse_after(input, &LineQuery::empty(), true, words)
+    };
+    // Typed a letter at a time, each string holds the one before's.
+    for (old, new) in [("n", "na"), ("na", "nam"), ("nam", "name"), ("kan", "kanj")] {
+        assert!(parse(new, None).narrows(&parse(old, None)), "{old} {new}");
+        assert!(parse(new, Some(&words)).narrows(&parse(old, Some(&words))));
+    }
+    // A letter that spells no kana makes a literal, which the old pattern holds too.
+    assert!(parse("st", None).narrows(&parse("s", None)));
+    assert!(parse("kan x1", None).narrows(&parse("kan", None)));
+    // `kana`'s `加奈陀` is no string of `kan` without its words, nor `kanji`'s `かんじ` of `kana`.
+    assert!(!parse("kana", Some(&words)).narrows(&parse("kan", None)));
+    assert!(!parse("kanji", None).narrows(&parse("kana", None)));
+    // Every form of `kanji` holds `ji`'s, but `漢字` holds none.
+    assert!(parse("kanji", None).narrows(&parse("ji", None)));
+    assert!(!parse("kanji", Some(&words)).narrows(&parse("ji", Some(&words))));
+    // A dictionary that came adds words; one that went leaves the strings the old one had.
+    assert!(!parse("kan", Some(&words)).narrows(&parse("kan", None)));
+    assert!(parse("kan", None).narrows(&parse("kan", Some(&words))));
+    // Literal again, as the setting turned off: still within the pattern's strings.
+    let off = LineQuery::parse_after("kan", &LineQuery::empty(), false, None);
+    assert!(off.narrows(&parse("kan", None)));
+    assert!(
+        !parse("kan", None).narrows(&off),
+        "the literal holds no kana"
+    );
+    // Case may stop being ignored, never start.
+    assert!(parse("kanX", None).narrows(&parse("kan", None)));
+    assert!(!parse("kan", None).narrows(&parse("Kan", None)));
+    // An exclusion narrows only as it is.
+    assert!(!parse("a !kanj", None).narrows(&parse("a !kan", None)));
+    assert!(parse("a !kan", None).narrows(&parse("a !kan", None)));
+}
+
+#[test]
+fn a_pattern_of_too_many_strings_never_narrows() {
+    let parse = |input: &str| LineQuery::parse_after(input, &LineQuery::empty(), true, None);
+    // Each `zu` is `ず` or `づ`, so ten of them are 1024 strings in each form.
+    let many = "zu".repeat(10);
+    assert!(!parse(&format!("{many}z")).narrows(&parse(&many)));
+    let few = "zu".repeat(3);
+    assert!(parse(&format!("{few}z")).narrows(&parse(&few)));
+}
+
+#[test]
+fn a_component_the_input_before_had_keeps_what_it_compiled() {
+    let words = dictionary("かんじ\t漢字\n");
+    let parse = |input: &str, before: &LineQuery, words: Option<&Table>| {
+        LineQuery::parse_after(input, before, true, words)
+    };
+    let first = parse("kan a.*b f00", &LineQuery::empty(), None);
+    assert_eq!(first.fresh(), [true, true, true]);
+    let second = parse("kan a.*b f00 ji", &first, None);
+    assert_eq!(second.fresh(), [false, false, false, true]);
+    // A component repeated compiles once.
+    assert_eq!(
+        parse("kan kan !kan", &LineQuery::empty(), None).fresh(),
+        [true, false, false]
+    );
+    // A pasted input compiles each new component once, and the next key only what changed.
+    let pasted = parse("kan a.*b f00 ji zu do ma", &second, None);
+    assert_eq!(
+        pasted.fresh(),
+        [false, false, false, false, true, true, true]
+    );
+    // A dictionary that came compiles migemo's components again, and only them.
+    let third = parse("kan a.*b f00 ji", &second, Some(&words));
+    assert_eq!(third.fresh(), [true, false, false, true]);
+    // A case that changes compiles everything again, and `=` before one compiles it again;
+    // `!` keeps what it compiled.
+    assert_eq!(
+        parse("kan a.*b F00", &third, Some(&words)).fresh(),
+        [true; 3]
+    );
+    assert_eq!(
+        parse("=kan !a.*b f00", &third, Some(&words)).fresh(),
+        [true, false, false]
+    );
+    // What is kept matches as it did.
+    let block = "漢字\nかん\n";
+    assert_eq!(
+        lines_of(&parse("kan", &third, Some(&words)), block),
+        ["漢字", "かん"]
+    );
+}
+
+#[test]
+fn a_romaji_component_highlights_where_its_kana_match() {
+    let query = LineQuery::parse("kan");
+    let mut out = Vec::new();
+    query.highlights("x かんじ KAN", &mut out);
+    assert_eq!(out, [2..8, 12..15]);
 }

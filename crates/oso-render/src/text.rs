@@ -58,6 +58,16 @@ pub(crate) struct GlyphInstance {
 }
 
 impl GlyphInstance {
+    /// The same in `color`, on `paper`, as a terminal's cell is drawn (ADR 0120).
+    pub(crate) fn inked(self, color: [f32; 4], paper: [f32; 4]) -> Self {
+        let paper = luminance(paper);
+        Self {
+            color,
+            paper,
+            ..self
+        }
+    }
+
     /// What stays of the quad inside `rect`, or `None` if nothing does.
     pub(crate) fn cut_to(self, rect: PixelRect) -> Option<Self> {
         let [x, y] = self.position;

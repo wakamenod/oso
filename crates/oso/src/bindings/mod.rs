@@ -25,9 +25,11 @@ mod prefix;
 mod projects;
 mod recovery;
 mod replace;
+mod review;
 mod save;
 mod scroll;
 mod session;
+mod terminal;
 mod theme;
 mod view;
 mod windows;
@@ -190,6 +192,12 @@ pub fn rigid_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, indent::RIGID).unwrap_or_default()
 }
 
+/// A review buffer's own keymap, above the global one (ADR 0122). Empty for a registry without
+/// its commands, as in tests that bring their own.
+pub fn review_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, review::REVIEW).unwrap_or_default()
+}
+
 /// Markdown's own keymap, above the global one in a Markdown buffer (ADR 0115). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn markdown_keymap(registry: &Registry) -> Keymap {
@@ -201,6 +209,12 @@ pub fn markdown_keymap(registry: &Registry) -> Keymap {
 pub fn worktree_keymaps(registry: &Registry) -> [Keymap; 2] {
     let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
     [keymap(worktrees::BRIEF), keymap(worktrees::WORKTREES)]
+}
+
+/// A terminal's own keymap, above the global one in a terminal's buffer (ADR 0120). Empty for
+/// a registry without its commands, as in tests that bring their own.
+pub fn terminal_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, terminal::TERMINAL).unwrap_or_default()
 }
 
 /// The commands the layer of `C-x TAB` runs rather than closes for.
@@ -224,7 +238,8 @@ mod tests {
     use super::{
         TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
         jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
-        recovery, recovery_keymaps, rigid_commands, rigid_keymap, worktree_keymaps, worktrees,
+        recovery, recovery_keymaps, rigid_commands, rigid_keymap, terminal, terminal_keymap,
+        worktree_keymaps, worktrees,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -278,6 +293,19 @@ mod tests {
                 };
                 assert_eq!(registry.get(id).unwrap().name, *name);
             }
+        }
+    }
+
+    #[test]
+    fn the_terminal_keymap_binds_all_its_rows() {
+        let registry = commands::registry();
+        let keymap = terminal_keymap(&registry);
+        for (keys, name) in terminal::TERMINAL {
+            let keys: KeySequence = keys.parse().unwrap();
+            let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
+                panic!("{keys} is not bound to a command");
+            };
+            assert_eq!(registry.get(id).unwrap().name, *name);
         }
     }
 

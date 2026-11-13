@@ -16,7 +16,8 @@
 
 [workspace]
 oso
-oso-render oso-syntax
+# `oso-term` holds the terminal model (ADR 0120).
+oso-render oso-syntax oso-term
 oso-core oso-platform
 
 [oso-core]
@@ -33,7 +34,7 @@ undo kill indent
 load selection
 display_map syntax
 complete decode editorconfig key project review rope secret
-# `migemo` turns a romaji string into a pattern (ADR 0116), for `search` and `complete`.
+# `migemo` turns a romaji string into a pattern (ADR 0116), for `search`, `complete` and `project`.
 migemo sum_tree
 
 [oso-platform]
@@ -47,6 +48,8 @@ crate
 paint
 scene
 text
+# `cells` reads a terminal's grid rows into the shaping cache (ADR 0120).
+cells
 rows
 atlas grid shape theme
 pane
@@ -61,7 +64,8 @@ saver
 lister
 # `grep` searches a project's files over `walk`'s walk (ADR 0114).
 # `sessions` judges hosted agent sessions' screens on its own thread (ADR 0121, Q24).
-commands dev grep keys loader sessions text
+# `terminal` hosts the terminals: their keys, shells and kept grids (ADR 0120).
+commands dev grep keys loader sessions terminal text
 # `walk` lists a project's files (ADR 0114), beside `project`, which finds them, and
 # `review`, which runs git and diffs for a review (ADR 0122).
 channel project review walk
@@ -72,3 +76,11 @@ worker
 document
 queries paint pending
 edit language
+
+[oso-term]
+# A terminal's thread drives the engine and judges its effects (ADR 0120).
+terminal
+policy input
+engine
+snapshot
+event limits

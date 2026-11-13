@@ -152,7 +152,9 @@ impl Editor {
             | Mode::Markdown
             | Mode::Toml
             | Mode::Brief
-            | Mode::Worktrees => {}
+            | Mode::Worktrees
+            | Mode::Review
+            | Mode::Terminal => {}
             Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {
                 let list = self.copies_buffer();

@@ -325,9 +325,14 @@ item notes when it must be settled.
   thread, about 40 ms on a 60 MB line; regexp isearch leaves such a line to the worker, and
   query-replace could too, as a chore
   ([ADR 0116](adr/0116-migemo-and-jumps.md)).
-- Migemo matches precomposed kana only: text whose voiced kana are decomposed, as `か` and
-  U+3099 in file names macOS gives, is not found by `ga`. Settle it with step 4, where file
-  names meet migemo ([ADR 0116](adr/0116-migemo-and-jumps.md)). Two cases to settle with it:
+- A project's search and completion each read an input into components with code of their own:
+  the splitter, the limits, keeping what a component compiled and migemo's components. Sharing
+  it needs a module below both, a change to `guardrails/layers.txt` and an ADR; until then a
+  change to either is made to both ([ADR 0116](adr/0116-migemo-and-jumps.md), step 4).
+- Migemo in isearch and a project's search matches precomposed kana only: text whose voiced
+  kana are decomposed, as `か` and U+3099, is not found by `ga`. Completion's `%` composes a
+  candidate's kana first, so file names are found
+  ([ADR 0116](adr/0116-migemo-and-jumps.md), step 4). Two cases are left:
   - a half-width voiced mark: in `ｶﾞ`, `ka` matches the `ｶ`, so a search for `か` lands inside
     `ガ`'s half-width form;
   - decomposed kana: in `か` followed by U+3099, `ka` matches the `か`, and `ga` finds nothing.
@@ -404,10 +409,14 @@ item notes when it must be settled.
   step 8).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
-- libghostty-vt's release tarballs in the repository or fetched and checked by a `just` recipe,
-  and its key encoder or oso's own: ADR 0120's step 3 decides. Its Kitty images through its Wuffs
-  decoder or a pure-Rust one in oso: step 12 ([ADR 0120](adr/0120-the-terminal.md), step 1 as
-  built).
+- libghostty-vt's Kitty images through its Wuffs decoder or a pure-Rust one in oso: step 12
+  ([ADR 0120](adr/0120-the-terminal.md), step 1 as built).
+- Shipping the licence notices of libghostty-vt and what it bundles beside oso's binary, with
+  the two texts its tarballs leave out (simdutf's, uucode's Unicode-3.0), when oso is packaged
+  ([`crates/oso-term/third-party.md`](../../crates/oso-term/third-party.md)).
+- Reusing a terminal's shaped rows by what they hold, so that a scroll shapes only the rows
+  that came, and a path that places a simple cell's glyph without shaping, for a large
+  terminal printing without pause ([ADR 0120](adr/0120-the-terminal.md), step 4a as built).
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,
