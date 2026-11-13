@@ -8,7 +8,7 @@ use std::sync::Arc;
 use proptest::prelude::*;
 
 use super::{LineHit, LineQuery, MAX_ROW_BYTES, compile, row_text};
-use crate::migemo::{Dictionary, Table};
+use crate::migemo::{Dictionary, Held};
 
 fn hits(input: &str, block: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
@@ -285,8 +285,8 @@ fn a_match_that_crosses_lines_is_not_looked_through_again_from_each_of_them() {
 }
 
 /// A dictionary of `text`, in `migemo-dict`'s format, as the editor's first.
-fn dictionary(text: &str) -> Table {
-    Table {
+fn dictionary(text: &str) -> Held {
+    Held {
         generation: 1,
         dictionary: Arc::new(Dictionary::new(text.to_owned())),
     }
@@ -346,7 +346,7 @@ fn a_romaji_exclusion_leaves_out_its_kana_too() {
 #[test]
 fn a_romaji_component_narrows_where_the_old_one_matches_each_of_its_strings() {
     let words = dictionary("かんじ\t漢字\nかなだ\t加奈陀\n");
-    let parse = |input: &str, words: Option<&Table>| {
+    let parse = |input: &str, words: Option<&Held>| {
         LineQuery::parse_after(input, &LineQuery::empty(), true, words)
     };
     // Typed a letter at a time, each string holds the one before's.
@@ -394,7 +394,7 @@ fn a_pattern_of_too_many_strings_never_narrows() {
 #[test]
 fn a_component_the_input_before_had_keeps_what_it_compiled() {
     let words = dictionary("かんじ\t漢字\n");
-    let parse = |input: &str, before: &LineQuery, words: Option<&Table>| {
+    let parse = |input: &str, before: &LineQuery, words: Option<&Held>| {
         LineQuery::parse_after(input, before, true, words)
     };
     let first = parse("kan a.*b f00", &LineQuery::empty(), None);
@@ -449,7 +449,7 @@ fn heavy_word(family: char, n: usize) -> String {
 /// A dictionary in which the readings `ka`, `sa` and `ta` start give 250 words of 58 bytes
 /// each, numbered in the order a pattern takes them: two of them spend most of one pattern's
 /// budget of words.
-fn heavy() -> Table {
+fn heavy() -> Held {
     let kana: Vec<char> = ('ぁ'..='ゖ').collect();
     let mut text = String::new();
     for (first, family) in [('か', '漢'), ('さ', '桜'), ('た', '田')] {
@@ -510,7 +510,7 @@ fn heavy_lines() -> Vec<String> {
 }
 
 /// A small dictionary for the narrowing property: words in kanji, kana and letters.
-fn small() -> Table {
+fn small() -> Held {
     dictionary("かんじ\t漢字\nかな\t仮名\tカナ\nずつう\t頭痛\nつづき\t続き\nなまえ\t名前\tName\n")
 }
 
@@ -518,6 +518,7 @@ fn small() -> Table {
 const PIECES: &[&str] = &[
     "か", "ん", "な", "じ", "ず", "づ", "ま", "え", "カ", "ン", "ナ", "ズ", "ｶ", "ﾝ", "ｽﾞ", "ﾂﾞ",
     "漢字", "仮名", "頭痛", "名前", "k", "a", "n", "z", "u", "j", "i", "m", "e", "N", "ｋ", " ",
+    "Ｋ", "\u{212a}", "ſ", "İ", "i\u{307}",
 ];
 
 proptest! {
@@ -552,9 +553,9 @@ proptest! {
     #[test]
     fn a_query_that_narrows_matches_no_line_the_one_before_did_not(
         old in "[kanszujimetKN' -]{1,6}",
-        added in "[kanszujimeN ]{0,3}",
+        added in "[kanszujimeNKİſ\u{212a} ]{0,3}",
         prefix in "[kanszujime ]{0,3}",
-        other in "[kanszujime ]{0,6}",
+        other in "[kanszujimeKİ\u{212a}ſ ]{0,6}",
         lines in prop::collection::vec(prop::collection::vec(0usize..PIECES.len(), 0..6), 1..24),
         with_words: bool,
     ) {

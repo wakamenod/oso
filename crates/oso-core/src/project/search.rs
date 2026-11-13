@@ -29,7 +29,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use crate::migemo::{Budget, Table};
+use crate::migemo::{Budget, Held};
 #[cfg(test)]
 use component::compile;
 use component::{Asked, Component, Kind};
@@ -122,7 +122,7 @@ impl LineQuery {
         input: &str,
         before: &Self,
         migemo: bool,
-        table: Option<&Table>,
+        table: Option<&Held>,
     ) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();

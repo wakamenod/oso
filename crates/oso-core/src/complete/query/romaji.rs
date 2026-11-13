@@ -10,7 +10,7 @@ use std::ops::Range;
 use regex::{Regex, RegexBuilder};
 
 use super::{Candidate, Component, Query, Style};
-use crate::migemo::{self, Budget, Dictionary, Spent, Table};
+use crate::migemo::{self, Budget, Dictionary, Held, Spent};
 
 /// Migemo's pattern for `string`, ignoring case if `ignore_case`, with as many of
 /// `dictionary`'s words as `budget` leaves, which it spends, of text for a candidate's name,
@@ -42,7 +42,7 @@ impl Component {
         (rest, pattern): (&str, &str),
         ignore_case: bool,
         (before, built): (&Query, &[Self]),
-        (table, budget): (Option<&Table>, &mut Budget),
+        (table, budget): (Option<&Held>, &mut Budget),
     ) -> Option<Self> {
         if !migemo::gives_kana(rest) {
             return None;

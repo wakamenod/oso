@@ -33,7 +33,7 @@ undo kill indent
 load selection
 display_map syntax
 complete decode editorconfig key project review rope secret
-# `migemo` turns a romaji string into a pattern (ADR 0116), for `search` and `complete`.
+# `migemo` turns a romaji string into a pattern (ADR 0116), for `search`, `complete` and `project`.
 migemo sum_tree
 
 [oso-platform]

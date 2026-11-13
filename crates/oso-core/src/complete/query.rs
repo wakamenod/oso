@@ -8,7 +8,7 @@ use std::ops::Range;
 use regex::{Regex, RegexBuilder};
 
 use super::{AFFIXES, Candidate};
-use crate::migemo::{Budget, Spent, Table};
+use crate::migemo::{Budget, Held, Spent};
 
 mod romaji;
 
@@ -131,7 +131,7 @@ impl Component {
         raw: &str,
         ignore_case: bool,
         (before, built): (&Query, &[Self]),
-        table: Option<&Table>,
+        table: Option<&Held>,
         budget: &mut Budget,
     ) -> Option<Self> {
         let first = raw.chars().next()?;
@@ -398,7 +398,7 @@ impl Query {
 
     /// [`Query::parse`], reusing what `before`, or an earlier component of the same input,
     /// compiled for a component that is the same, a migemo one taking `table`'s words.
-    pub(crate) fn parse_after(input: &str, before: &Query, table: Option<&Table>) -> Self {
+    pub(crate) fn parse_after(input: &str, before: &Query, table: Option<&Held>) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
         }
@@ -579,7 +579,8 @@ impl Query {
                 if self.ignore_case == before.ignore_case {
                     new.pattern.starts_with(&*old.pattern)
                 } else {
-                    new.pattern.to_lowercase().starts_with(&*old.pattern)
+                    // Lower case keeps a prefix only in ASCII: `İ` lowers to `i` and U+0307.
+                    new.pattern.is_ascii() && new.pattern.to_lowercase().starts_with(&*old.pattern)
                 }
             })
     }

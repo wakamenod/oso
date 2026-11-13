@@ -21,7 +21,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::Editor;
-use crate::migemo::{self, Dictionary, Table};
+use crate::migemo::{self, Dictionary, Held};
 use crate::search::{self, Needle, Query};
 
 /// How many strings' needles the cache keeps.
@@ -168,9 +168,9 @@ impl Migemo {
 
     /// The dictionary the host gave, if any, with its generation, for project search and
     /// completion, which compile their own patterns.
-    pub(super) fn table(&self) -> Option<Table> {
+    pub(super) fn table(&self) -> Option<Held> {
         let dictionary = Arc::clone(self.dictionary.as_ref()?);
-        Some(Table {
+        Some(Held {
             generation: self.generation,
             dictionary,
         })

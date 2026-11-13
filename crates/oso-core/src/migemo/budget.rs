@@ -4,32 +4,37 @@
 //!
 //! Must not depend on: any module of this crate but its parent's.
 
-use super::dictionary::{MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS};
+use super::dictionary::{MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS};
 
-/// What a pattern's words may spend: how many, and how many bytes by their cost, which counts
-/// a character with a case several times (see [`super::Dictionary`]).
+/// What a pattern's words may spend: how many, how many bytes by their cost, which counts a
+/// character with a case several times (see [`super::Dictionary`]), and how many steps the
+/// lookup that finds them may take.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Budget {
     pub(crate) words: usize,
     pub(crate) bytes: usize,
+    pub(crate) lookups: usize,
 }
 
 impl Budget {
-    /// One pattern's: the most words and bytes of words it takes.
+    /// One pattern's: the most words and bytes of words it takes, and the most steps its
+    /// lookup does.
     pub(crate) const PATTERN: Self = Self {
         words: MAX_PATTERN_WORDS,
         bytes: MAX_PATTERN_WORD_BYTES,
+        lookups: MAX_LOOKUP_STEPS,
     };
 
     /// Whether `cost` fits within it.
     pub(crate) fn holds(self, cost: Self) -> bool {
-        cost.words <= self.words && cost.bytes <= self.bytes
+        cost.words <= self.words && cost.bytes <= self.bytes && cost.lookups <= self.lookups
     }
 
     /// What is left of it once `cost` is spent.
     pub(crate) fn spend(&mut self, cost: Self) {
         self.words = self.words.saturating_sub(cost.words);
         self.bytes = self.bytes.saturating_sub(cost.bytes);
+        self.lookups = self.lookups.saturating_sub(cost.lookups);
     }
 
     /// The smaller of it and `other` in each.
@@ -37,12 +42,13 @@ impl Budget {
         Self {
             words: self.words.min(other.words),
             bytes: self.bytes.min(other.bytes),
+            lookups: self.lookups.min(other.lookups),
         }
     }
 }
 
 /// What a pattern's words used of the budget they were given, and, if the budget left a word
-/// out, what they would have used with it. The words a budget gives depend on these alone,
+/// out or stopped the lookup short, what they would have used with it. The words a budget gives depend on these alone,
 /// so a pattern compiled with one budget is the one another gives when [`Spent::keep`] says
 /// so.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

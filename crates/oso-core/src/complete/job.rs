@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::merge::{exact_in, merge_in};
 use super::path::{self, Found, Name, Reached};
 use super::{Candidate, MAX_INPUT_BYTES, Query, offset_u32};
-use crate::migemo::Table;
+use crate::migemo::Held;
 
 /// The most candidates a list builds and matches on the UI thread; a longer one is a job for
 /// the worker (ADR 0076, ADR 0096).
@@ -61,7 +61,7 @@ pub(crate) fn match_over(
     items: &[Candidate],
     order: &[u32],
     before: Option<(&[u32], &Query)>,
-    (input, table): (Option<&str>, Option<&Table>),
+    (input, table): (Option<&str>, Option<&Held>),
     stop: &dyn Fn() -> bool,
 ) -> Option<Matched> {
     let Some(input) = input else {
@@ -186,7 +186,7 @@ pub(crate) struct Build {
     /// The part of what is typed that the list matches, or `None` for one too long.
     pub(crate) input: Option<String>,
     /// The dictionary a migemo component takes words from (ADR 0116), held while it runs.
-    pub(crate) table: Option<Table>,
+    pub(crate) table: Option<Held>,
 }
 
 /// A list built: the candidates, the path each stands for, their order, and the input matched.
@@ -262,7 +262,7 @@ pub(crate) struct Matching {
     pub(crate) before: Option<(Arc<[u32]>, Query)>,
     pub(crate) input: Option<String>,
     /// The dictionary a migemo component takes words from (ADR 0116), held while it runs.
-    pub(crate) table: Option<Table>,
+    pub(crate) table: Option<Held>,
 }
 
 /// Paths a walk found, to add to a list past [`WORKER_PAST`], and the input to match then
@@ -279,7 +279,7 @@ pub(crate) struct Merge {
     /// The part of what is typed that the list matches now, or `None` for one too long.
     pub(crate) input: Option<String>,
     /// The dictionary a migemo component takes words from (ADR 0116), held while it runs.
-    pub(crate) table: Option<Table>,
+    pub(crate) table: Option<Held>,
 }
 
 impl Merge {

@@ -325,7 +325,7 @@ impl Candidates {
     }
 
     /// [`Candidates::set_input`], a migemo component taking `table`'s words (ADR 0116).
-    pub(crate) fn set_input_with(&mut self, input: &str, table: Option<&migemo::Table>) {
+    pub(crate) fn set_input_with(&mut self, input: &str, table: Option<&migemo::Held>) {
         let Some(part) = matched_part(input, self.last_segment) else {
             self.set_too_long();
             return;
@@ -356,7 +356,7 @@ impl Candidates {
     pub(crate) fn matching_with(
         &self,
         input: &str,
-        table: Option<&migemo::Table>,
+        table: Option<&migemo::Held>,
     ) -> Option<Matching> {
         let part = matched_part(input, self.last_segment);
         if part.is_some() && self.input.as_deref() == part {

@@ -10,20 +10,20 @@ use std::sync::Arc;
 use proptest::prelude::*;
 
 use super::{Candidate, Candidates, Query};
-use crate::migemo::{Dictionary, Table};
+use crate::migemo::{Dictionary, Held};
 
 fn candidate(text: &str) -> Candidate {
     Candidate::new(text, "", "")
 }
 
-fn words() -> Table {
-    Table {
+fn words() -> Held {
+    Held {
         generation: 1,
         dictionary: Arc::new(Dictionary::new("かんじ\t漢字\n".to_owned())),
     }
 }
 
-fn query(input: &str, dictionary: Option<&Table>) -> Query {
+fn query(input: &str, dictionary: Option<&Held>) -> Query {
     Query::parse_after(input, &Query::default(), dictionary)
 }
 
@@ -184,7 +184,7 @@ fn heavy_word(family: char, n: usize) -> String {
 /// A dictionary in which the readings `ka`, `sa` and `ta` start give 250 words of 58 bytes
 /// each, numbered in the order a pattern takes them: two of them spend most of one pattern's
 /// budget of words.
-fn heavy() -> Table {
+fn heavy() -> Held {
     let kana: Vec<char> = ('ぁ'..='ゖ').collect();
     let mut text = String::new();
     for (first, family) in [('か', '漢'), ('さ', '桜'), ('た', '田')] {
@@ -193,7 +193,7 @@ fn heavy() -> Table {
             text.push_str(&format!("{reading}\t{}\n", heavy_word(family, n)));
         }
     }
-    Table {
+    Held {
         generation: 1,
         dictionary: Arc::new(Dictionary::new(text)),
     }

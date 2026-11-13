@@ -48,6 +48,13 @@ pub const MAX_WORDS: usize = 1 << 22;
 /// bounds the ranges either of two kana (`ず` or `づ`) splits the table into.
 pub const MAX_PREFIX_ENTRIES: usize = 2048;
 
+/// The most steps a pattern's lookup may take, which one input's components share (ADR 0116,
+/// Q7): narrowing a range of entries by a kana takes one step and one more for each time its
+/// length halves, as its binary search does. Past them, a lookup stops and gives no words.
+/// The most a common dictionary takes for one input is a small share of them, and a crafted
+/// one cannot make a key's lookups slow.
+pub(crate) const MAX_LOOKUP_STEPS: usize = 64 * 1024;
+
 /// The most words of a pattern: the exact readings' first, then the shorter readings'.
 pub(crate) const MAX_PATTERN_WORDS: usize = 4096;
 
@@ -184,25 +191,38 @@ impl Dictionary {
     }
 
     /// [`Self::pattern_words`], at most as many and as costly as `budget` leaves, and what
-    /// they spent of it.
+    /// they spent of it. The lookup takes at most the steps `budget` leaves, and spends what
+    /// it took; if it stopped short, it gives no words.
     pub(crate) fn pattern_words_with_budget(
         &self,
         romaji: &Romaji,
         budget: Budget,
     ) -> (Vec<&str>, Spent) {
-        // With no room left, no word fits, which a budget with none too would give.
-        if budget.words == 0 || budget.bytes == 0 {
-            let next = Some(Budget { words: 1, bytes: 1 });
-            return (
-                Vec::new(),
-                Spent {
-                    next,
-                    ..Spent::default()
-                },
-            );
-        }
-        let Some(found) = self.found(romaji) else {
-            return (Vec::new(), Spent::default());
+        let budget = budget.within(Budget::PATTERN);
+        let mut steps = budget.lookups;
+        let found = self.found(romaji, &mut steps);
+        let looked = budget.lookups - steps;
+        let found = match found {
+            Ok(Some(found)) => found,
+            Ok(None) => Vec::new(),
+            // Stopped short: a budget with the step it lacked goes on.
+            Err(Short(cost)) => {
+                let used = Budget {
+                    lookups: looked,
+                    ..Budget::default()
+                };
+                let next = Budget {
+                    lookups: looked + cost,
+                    ..Budget::default()
+                };
+                return (
+                    Vec::new(),
+                    Spent {
+                        used,
+                        next: Some(next),
+                    },
+                );
+            }
         };
         let count: usize = found.iter().map(|(range, _)| range.len()).sum();
         let mut chosen: Vec<(usize, bool)> = Vec::new();
@@ -227,13 +247,19 @@ impl Dictionary {
         let words = chosen
             .into_iter()
             .flat_map(|(at, _)| self.words[self.entries[at].words.range()].iter());
-        let budget = budget.within(Budget::PATTERN);
-        let mut spent = Spent::default();
+        let mut spent = Spent {
+            used: Budget {
+                lookups: looked,
+                ..Budget::default()
+            },
+            next: None,
+        };
         let mut given = Vec::new();
         for word in words.map(|span| &self.text[span.range()]) {
             let with = Budget {
                 words: spent.used.words + 1,
                 bytes: spent.used.bytes + word_cost(word),
+                lookups: looked,
             };
             if !budget.holds(with) {
                 spent.next = Some(with);
@@ -248,8 +274,9 @@ impl Dictionary {
     /// The ranges of entries whose reading starts with `romaji`'s kana and then one of its
     /// ends, apart, each with the bytes that prefix takes. Either of two kana (`ず` or `づ`) splits a
     /// range in two, and a split that starts no reading goes; `None` if more ranges than
-    /// [`MAX_PREFIX_ENTRIES`] are left, as then more entries are too.
-    fn found(&self, romaji: &Romaji) -> Option<Vec<(Range<usize>, usize)>> {
+    /// [`MAX_PREFIX_ENTRIES`] are left, as then more entries are too. Each narrowing takes
+    /// its steps (see [`MAX_LOOKUP_STEPS`]) from `steps`, and [`Short`] if too few are left.
+    fn found(&self, romaji: &Romaji, steps: &mut usize) -> Result<Option<Ranges>, Short> {
         let mut live = vec![(0..self.entries.len(), 0)];
         let mut next = Vec::new();
         let mut one = [0; 4];
@@ -257,22 +284,22 @@ impl Dictionary {
             for (range, depth) in live.drain(..) {
                 for c in std::iter::once(c).chain(other) {
                     let c = c.encode_utf8(&mut one).as_bytes();
-                    let narrowed = self.narrow(range.clone(), depth, c);
+                    let narrowed = self.narrow(range.clone(), depth, c, steps)?;
                     if !narrowed.is_empty() {
                         next.push((narrowed, depth + c.len()));
                     }
                 }
             }
             if next.len() > MAX_PREFIX_ENTRIES {
-                return None;
+                return Ok(None);
             }
             std::mem::swap(&mut live, &mut next);
             if live.is_empty() {
-                return Some(live);
+                return Ok(Some(live));
             }
         }
         if romaji.ends.is_empty() {
-            return Some(live);
+            return Ok(Some(live));
         }
         // An end another starts (`きゃ` after `き`) is in that one's range already.
         let ends = romaji.ends.iter().filter(|end| {
@@ -281,28 +308,44 @@ impl Dictionary {
         let ends: Vec<&str> = ends.copied().collect();
         for (range, depth) in &live {
             for end in &ends {
-                let narrowed = self.narrow(range.clone(), *depth, end.as_bytes());
+                let narrowed = self.narrow(range.clone(), *depth, end.as_bytes(), steps)?;
                 if !narrowed.is_empty() {
                     next.push((narrowed, depth + end.len()));
                 }
             }
             if next.len() > MAX_PREFIX_ENTRIES {
-                return None;
+                return Ok(None);
             }
         }
-        Some(next)
+        Ok(Some(next))
     }
 
     /// The entries of `range`, which share their first `depth` bytes, whose reading goes on
-    /// with `bytes`.
-    fn narrow(&self, range: Range<usize>, depth: usize, bytes: &[u8]) -> Range<usize> {
+    /// with `bytes`, taking one step from `steps` and one more for each time the range's
+    /// length halves, or [`Short`] if fewer are left.
+    fn narrow(
+        &self,
+        range: Range<usize>,
+        depth: usize,
+        bytes: &[u8],
+        steps: &mut usize,
+    ) -> Result<Range<usize>, Short> {
+        let cost = 1 + (usize::BITS - range.len().leading_zeros()) as usize;
+        *steps = steps.checked_sub(cost).ok_or(Short(cost))?;
         let entries = &self.entries[range.clone()];
         let rest = |entry: &Entry| &self.reading(*entry).as_bytes()[depth..];
         let start = entries.partition_point(|entry| rest(entry) < bytes);
         let len = entries[start..].partition_point(|entry| rest(entry).starts_with(bytes));
-        range.start + start..range.start + start + len
+        Ok(range.start + start..range.start + start + len)
     }
 }
+
+/// Ranges of entries, each with the bytes of the prefix they share.
+type Ranges = Vec<(Range<usize>, usize)>;
+
+/// A lookup ran out of its steps before a narrowing that takes these.
+#[derive(Debug)]
+struct Short(usize);
 
 /// A dictionary being read, line by line.
 #[derive(Default)]

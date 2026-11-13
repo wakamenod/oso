@@ -758,6 +758,15 @@ built.
   keeps what it spent and, if the budget left a word out, what that word would have made it;
   it is kept only while the budget it is given now gives the same words, so a kept component
   matches as one compiled afresh. Otherwise it compiles again.
+- **Lookup steps (Q7).** The lookup that finds a component's words takes steps from the same
+  budget: narrowing a range of the dictionary's entries by a kana takes one step, and one more
+  for each time the range's length halves, as its binary search does. An input has 65,536
+  (`MAX_LOOKUP_STEPS`). A lookup that runs out stops, gives no words and spends what it took,
+  and its component compiles its kana alone; it is kept only while the steps left stop it at
+  the same place. A lookup runs even once the words are spent, as it spends steps of its own,
+  so a file's shape cannot make the lookups of a paste slow. With the author's dictionary, one
+  string takes at most 298 steps, a paste of 32 common words 1,743, and a word repeated to 255
+  letters 103. isearch's one pattern has the 65,536 to itself.
 - **Narrowing (Q8).** A project's search narrows when each of the old query's components
   matches every line the new one's does. Where either is migemo's, the old one must be a
   literal or migemo's pattern, which match a line holding one of their strings, and it must
@@ -768,7 +777,9 @@ built.
   the search starts again. A literal one is its text. So typing `n`, `na`, `nam`, `name`
   narrows on each key, and so do `kan` then `kanj` with a dictionary, but not `ji` then
   `kanji`, whose `漢字` holds no `じ`. Case may stop being ignored, never start, and an
-  exclusion or an expression narrows only as it is. A proptest checks that a query that
+  exclusion or an expression narrows only as it is. A literal narrows on that case change only
+  if it is ASCII, in a project's search and in completion: `İ` lowers to `i` and U+0307, which
+  `i` ignoring case does not match. A proptest checks that a query that
   narrows matches no line the one before did not, with and without a dictionary. Completion
   still narrows only on the same component.
 - **Completion's `%` (Q4).** `%` at a component's start or end, as every affix, makes romaji
@@ -793,7 +804,9 @@ built.
   comes adds words the old one lacks, so that search starts over. A completion
   with one matches its input again: on the UI thread, or as a job for the worker past 5000
   candidates. The worker's jobs (`Build`, `Matching`, `Merge`) carry the table. A job that ran
-  with the table before it is superseded by the new match.
+  with the table before it is superseded by the new match. A job dropped before the host took
+  it goes to a job of its own that frees it on the worker, as it may hold the last copy of a
+  table that was replaced.
 - **Secrets.** No string or pattern reaches a log. `Debug` gives counts only, and `get-state`
   is as it was.
 - **A key's cost (Q3, Q7, Q8),** with the author's dictionary in a release build, load about
@@ -808,7 +821,13 @@ built.
   most, and 565 of those 822 narrowed. In a first probe over 109 of those prefixes, one
   component compiled in 0.15 to 0.18 ms p50, 1.5 to 1.7 ms p99 and at most about 3.4 ms. A
   migemo component's search through 20 MB of mixed code and Japanese on an `oso-grep` thread
-  takes 1.3 to 11 ms, against 1 to 2 ms for a literal.
+  takes 1.3 to 11 ms, against 1 to 2 ms for a literal. Later measures, at load 5 to 9: after a
+  search of 31 of the words ran to its end, an upper-case key, which compiles every component
+  again, takes 3.8 ms p50 and 4.1 ms p99, and narrows. A paste of three of those words, each
+  repeated to 255 letters, takes 1.7 ms p50 and 2.0 ms p99 in a project's search, 1.5 and 1.6
+  ms over 5000 candidates, and the key after it 0.55 ms p50. Building a component's strings for
+  narrowing takes 0.003 ms p50 and 0.023 ms p99 for each prefix of the words, and at most 0.07
+  ms for 255 letters.
 
 #### As built (step 5, 2026-11-12)
 

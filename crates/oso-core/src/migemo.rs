@@ -23,7 +23,7 @@
 //! - The components of one prompt's input share one pattern's words, a [`Budget`] each spends
 //!   in turn, and [`alternatives`] lists every string a pattern matches, for a project's
 //!   search to tell whether a longer one narrows it (ADR 0116, Q7 and Q8).
-//! - [`Table`] is a dictionary the editor holds, told from others by its generation.
+//! - [`Held`] is a dictionary the editor holds, told from others by its generation.
 
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ pub use dictionary::{
     MAX_WORDS_A_READING,
 };
 #[cfg(test)]
-pub(crate) use dictionary::{MAX_PATTERN_WORD_BYTES, word_cost};
+pub(crate) use dictionary::{MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES, word_cost};
 use trie::{Key, Trie};
 
 /// The most memory a pattern with a dictionary's words may take once compiled (ADR 0116, Q7):
@@ -406,13 +406,13 @@ pub(crate) const SOUND_MARKS: [char; 2] = ['\u{3099}', '\u{309A}'];
 /// A compiled query keeps only the generation, so it never keeps a table alive, and only a
 /// job holds the table, while it runs.
 #[derive(Clone)]
-pub(crate) struct Table {
+pub(crate) struct Held {
     pub(crate) generation: u64,
     pub(crate) dictionary: Arc<Dictionary>,
 }
 
 /// The generation of `table`, `None` for none: what a migemo component compiled with it keeps.
-pub(crate) fn generation(table: Option<&Table>) -> Option<u64> {
+pub(crate) fn generation(table: Option<&Held>) -> Option<u64> {
     table.map(|table| table.generation)
 }
 
