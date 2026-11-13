@@ -26,9 +26,12 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
 - Nothing grows without a bound in `limits.rs`. The input queue counts what a key or a paste
   may take until the thread has encoded it.
 - The library is pinned in `ghostty-vt.lock` and listed in `third-party.md`. A bump changes
-  both, re-reads each linked package, and is fuzzed again (`just fuzz-term`, ReleaseFast and
-  ReleaseSafe, an hour each, on the Mac mini) before it lands. `build.rs` never downloads;
-  `just ghostty-vt` fetches and checks the tarballs.
+  both and re-reads each linked package; any change to the lock is fuzzed again (`just fuzz-term`, ReleaseFast and
+  ReleaseSafe, an hour each, on the Mac mini, and on Linux) before it lands. `build.rs` never
+  downloads; `just ghostty-vt` fetches and checks the tarballs.
+- oso's patch to the library is in `patches/`, with its sha256 and the sha256 of each file it
+  changes in the lock. A bump drops a patch the release makes needless, or rebases it and
+  updates the hashes. Change the library only through a patch there, never in `OUT_DIR`.
 - Terminals exist on Unix only for now: on Windows nothing is built and `Terminal::start`
   returns `Unsupported`.
 - Every Rust file opens with its responsibility and a `Must not depend on:` paragraph (ADR

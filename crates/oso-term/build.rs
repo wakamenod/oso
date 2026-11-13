@@ -1,10 +1,12 @@
 //! Builds libghostty-vt with Zig from the release pinned in `ghostty-vt.lock`, and links its
 //! static archive (ADR 0120). It never downloads: `just ghostty-vt` fetches the tarballs and
 //! checks their signatures; this checks their sha256 again, unpacks them into `OUT_DIR`, and
-//! fails unless the dependency tarball holds exactly the packages the lock lists.
+//! fails unless the dependency tarball holds exactly the packages the lock lists. It then
+//! applies oso's patches in `patches/`, each checked against its sha256 in the lock, and fails
+//! unless every patched file has the sha256 the lock gives it.
 //!
-//! Must not depend on: the network, or anything but the lock, the tarballs, Zig, `tar` and a
-//! sha256 tool.
+//! Must not depend on: the network, or anything but the lock, the tarballs, the patches, Zig,
+//! `tar`, `patch` and a sha256 tool.
 //!
 //! Inputs, all optional:
 //! - `OSO_GHOSTTY_VT_DIR`: the directory holding the tarballs. Default:
@@ -18,7 +20,7 @@
 //!
 //! Only Unix targets build the library: oso has terminals on macOS and Linux (ADR 0120, Q3).
 
-// A build script runs Zig, `tar` and a sha256 tool, and talks to cargo through its standard
+// A build script runs Zig, `tar`, `patch` and a sha256 tool, and talks to cargo through its standard
 // output; it never ships in oso (crates/oso/tests/architecture allows this file).
 #![expect(
     clippy::disallowed_methods,
@@ -31,6 +33,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "build/patch_check.rs"]
+mod patch_check;
+
 const OPTIMIZE_MODES: [&str; 4] = ["Debug", "ReleaseSafe", "ReleaseFast", "ReleaseSmall"];
 
 /// What `ghostty-vt.lock` pins.
@@ -40,11 +45,16 @@ struct Lock {
     source: (String, String),
     deps: (String, String),
     packages: Vec<String>,
+    /// oso's patches, in order: (file in `patches/`, sha256).
+    patches: Vec<(String, String)>,
+    /// What the patched source must hold: (path in the source, sha256).
+    patched: Vec<(String, String)>,
 }
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=ghostty-vt.lock");
+    println!("cargo:rerun-if-changed=build/patch_check.rs");
     for name in [
         "OSO_TERM_ENGINE",
         "OSO_GHOSTTY_VT_DIR",
@@ -69,6 +79,7 @@ fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let tarballs = tarball_dir(&lock.version);
     let src = unpack(&tarballs, &lock.source, &out.join("src"));
+    apply_patches(&manifest.join("patches"), &src, &out.join("patches"), &lock);
     let deps = unpack(&tarballs, &lock.deps, &out.join("deps"));
     check_packages(&deps, &lock.packages);
     let zig = env::var_os("ZIG").unwrap_or_else(|| "zig".into());
@@ -89,6 +100,8 @@ fn read_lock(path: &Path) -> Lock {
     let mut source = None;
     let mut deps = None;
     let mut packages = Vec::new();
+    let mut patches = Vec::new();
+    let mut patched = Vec::new();
     for line in text
         .lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
@@ -101,6 +114,8 @@ fn read_lock(path: &Path) -> Lock {
             ["source", _, _] => source = Some(pair(&fields)),
             ["deps", _, _] => deps = Some(pair(&fields)),
             ["package", name] => packages.push((*name).to_owned()),
+            ["patch", _, _] => patches.push(pair(&fields)),
+            ["patched", _, _] => patched.push(pair(&fields)),
             ["url" | "minisign", _] => {}
             _ => panic!("ghostty-vt.lock: unknown line {line:?}"),
         }
@@ -111,6 +126,8 @@ fn read_lock(path: &Path) -> Lock {
         source: source.expect("ghostty-vt.lock: no source"),
         deps: deps.expect("ghostty-vt.lock: no deps"),
         packages,
+        patches,
+        patched,
     }
 }
 
@@ -161,6 +178,107 @@ fn unpack(dir: &Path, (name, sum): &(String, String), into: &Path) -> PathBuf {
         panic!("{name} does not unpack into one directory");
     }
     entries.remove(0)
+}
+
+/// Applies the lock's patches to the unpacked source `src`, in order, each copied into `into`,
+/// checked against its sha256 and read by `patch_check` first; then checks that `patch`
+/// changed exactly the files the check read, that the lock hashes exactly those files, and
+/// their sha256. Fails if `dir` holds a patch the lock does not list.
+fn apply_patches(dir: &Path, src: &Path, into: &Path, lock: &Lock) {
+    if dir.exists() {
+        println!("cargo:rerun-if-changed={}", dir.display());
+    }
+    let mut present: Vec<String> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .map(|e| {
+                    e.expect("read a patch")
+                        .file_name()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    present.sort();
+    let mut listed: Vec<String> = lock.patches.iter().map(|(name, _)| name.clone()).collect();
+    listed.sort();
+    if present != listed {
+        panic!("patches/ holds {present:?}, but ghostty-vt.lock lists {listed:?}");
+    }
+    let _ = fs::remove_dir_all(into);
+    fs::create_dir_all(into).expect("create the patch directory");
+    let mut touched = Vec::new();
+    for (name, sum) in &lock.patches {
+        // The copy is what is checked and applied, as with the tarballs.
+        let copy = into.join(name);
+        fs::copy(dir.join(name), &copy).expect("copy a patch");
+        let have = sha256(&copy);
+        if have != *sum {
+            panic!("patches/{name}: sha256 {have} is not the lock's {sum}");
+        }
+        let text = fs::read_to_string(&copy).expect("read a patch");
+        let files = patch_check::changed_files(&text)
+            .unwrap_or_else(|why| panic!("patches/{name} is refused: {why}"));
+        run_patch(src, &copy, name, &files);
+        touched.extend(files);
+    }
+    touched.sort();
+    touched.dedup();
+    let mut hashed: Vec<String> = lock.patched.iter().map(|(path, _)| path.clone()).collect();
+    hashed.sort();
+    if touched != hashed {
+        panic!("the patches change {touched:?}, but ghostty-vt.lock hashes {hashed:?}");
+    }
+    for (path, sum) in &lock.patched {
+        let have = sha256(&src.join(path));
+        if have != *sum {
+            panic!("patched {path}: sha256 {have} is not the lock's {sum}");
+        }
+    }
+}
+
+/// Runs `patch` with `copy` in `src`, and fails unless it changed exactly `files`, the files
+/// `patch_check` read.
+fn run_patch(src: &Path, copy: &Path, name: &str, files: &[String]) {
+    let mut command = Command::new("patch");
+    command
+        .current_dir(src)
+        .args(["-p1", "--batch", "--forward", "--fuzz=0", "-i"])
+        .arg(copy);
+    // Settings that would change what `patch` reads or writes.
+    for setting in [
+        "POSIXLY_CORRECT",
+        "PATCH_GET",
+        "PATCH_VERSION_CONTROL",
+        "VERSION_CONTROL",
+        "SIMPLE_BACKUP_SUFFIX",
+    ] {
+        command.env_remove(setting);
+    }
+    let output = command
+        .output()
+        .unwrap_or_else(|e| panic!("could not run {command:?}: {e}"));
+    if !output.status.success() {
+        panic!(
+            "{command:?} failed: {}\n{}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    // What `patch` says it changed must be what the check read.
+    let mut patched: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|l| l.strip_prefix("patching file "))
+        .map(|f| f.trim_matches(['\'', '"', '`']).to_owned())
+        .collect();
+    patched.sort();
+    let mut read = files.to_vec();
+    read.sort();
+    if patched != read {
+        panic!("patches/{name}: patch changed {patched:?}, the check read {read:?}");
+    }
 }
 
 fn sha256(file: &Path) -> String {

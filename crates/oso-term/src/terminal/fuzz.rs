@@ -4,8 +4,8 @@
 //! parameters, private modes, SGR's colon forms, OSC numbers with fixed payloads, DCS heads,
 //! Kitty APC keys, ESC forms, REP and margins, synchronized updates set and reset, invalid
 //! UTF-8, and resizes; between them, the UI's keys, pastes, scrolls and focus changes
-//! (`requests`), served as the thread serves them, on a clock each input moves on. The long
-//! run also makes long clusters, a link on each of many cells, and the largest grid.
+//! (`requests`), served as the thread serves them, on a clock each input moves on; long
+//! clusters, a link on each of many cells, and resizes up to the largest grid.
 //!
 //! Must not depend on: the thread or a PTY; it drives the engine directly.
 //!
@@ -69,34 +69,18 @@ const BIG: &[u64] = &[
     4_294_967_295,
     99_999_999_999_999,
 ];
+/// The sizes a resize picks: clamped to the smallest grid, the smallest grid, just above it,
+/// and up to the largest grid.
 const SIZES: &[(u16, u16)] = &[
     (1, 1),
-    (2, 1),
-    (1, 2),
-    (80, 24),
-    (300, 100),
-    (500, 300),
-    (13, 7),
-];
-/// The long run's sizes: also the largest grid.
-const ALL_SIZES: &[(u16, u16)] = &[
-    (1, 1),
-    (2, 1),
-    (1, 2),
+    (4, 1),
+    (5, 2),
     (80, 24),
     (300, 100),
     (500, 300),
     (1000, 500),
     (13, 7),
 ];
-
-/// Which inputs a run makes: the smoke run in `just test` keeps to the basic grammar; the
-/// long run adds the largest grid, long clusters and a link on each of many cells.
-#[derive(Clone, Copy)]
-enum Grammar {
-    Basic,
-    Full,
-}
 
 /// xorshift64*, enough for a generator.
 struct Rng(u64);
@@ -171,7 +155,7 @@ fn terminator(rng: &mut Rng, out: &mut Vec<u8>) {
     }
 }
 
-fn text(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
+fn text(rng: &mut Rng, out: &mut Vec<u8>) {
     const CLUSTERS: &[&str] = &[
         "日本",
         "👍",
@@ -184,10 +168,7 @@ fn text(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
         "ｱ",
         "\u{10ffff}",
     ];
-    let kinds = match grammar {
-        Grammar::Basic => 4,
-        Grammar::Full => 6,
-    };
+    let kinds = 6;
     match (rng.below(kinds), kinds) {
         (0 | 1, _) => (0..rng.below(40)).for_each(|_| out.push(b' ' + rng.below(95) as u8)),
         (2, _) => {
@@ -367,11 +348,11 @@ fn esc(rng: &mut Rng, out: &mut Vec<u8>) {
     out.extend_from_slice(rng.pick(ESCS));
 }
 
-fn piece(rng: &mut Rng, out: &mut Vec<u8>, grammar: Grammar) {
+fn piece(rng: &mut Rng, out: &mut Vec<u8>) {
     match rng.below(21) {
         20 if rng.chance(50) => out.extend_from_slice(b"\x1b[?2026h"),
         20 => out.extend_from_slice(b"\x1b[?2026l"),
-        0..=5 => text(rng, out, grammar),
+        0..=5 => text(rng, out),
         6 => out.push(rng.below(32) as u8),
         7..=12 => csi(rng, out),
         13 | 14 => osc(rng, out),
@@ -391,23 +372,19 @@ struct Case {
 }
 
 /// The input of `iteration` under `seed`.
-fn input(seed: u64, iteration: u64, resizes: bool, grammar: Grammar) -> Case {
+fn input(seed: u64, iteration: u64, resizes: bool) -> Case {
     let mut rng = Rng::new(seed, iteration);
     let requests = requests::requests(&mut rng);
     let tick = Duration::from_millis(rng.below(1500));
     let mut out = Vec::new();
     for _ in 0..1 + rng.below(200) {
-        piece(&mut rng, &mut out, grammar);
+        piece(&mut rng, &mut out);
         if out.len() > 128 * 1024 {
             break;
         }
     }
     let resize = (resizes && rng.chance(5)).then(|| {
-        let sizes = match grammar {
-            Grammar::Basic => SIZES,
-            Grammar::Full => ALL_SIZES,
-        };
-        let &(columns, rows) = rng.pick(sizes);
+        let &(columns, rows) = rng.pick(SIZES);
         sized(columns, rows)
     });
     Case {
@@ -522,12 +499,17 @@ fn check(event: &Event) {
 #[test]
 fn smoke() {
     let mut driver = Driver::new(scrollback(0));
+    let mut blocks = Vec::new();
     for iteration in 0..500u64 {
         if iteration.is_multiple_of(BLOCK) {
+            blocks.push(driver.engine.plain_copies());
             driver = Driver::new(scrollback(iteration));
         }
-        driver.run(input(0x5eed, iteration, true, Grammar::Basic));
+        driver.run(input(0x5eed, iteration, true));
     }
+    blocks.push(driver.engine.plain_copies());
+    // The library oso links is the patched one: each terminal knows its count.
+    assert!(blocks.iter().all(|(copies, _)| copies.is_some()));
 }
 
 fn setting(name: &str) -> Option<u64> {
@@ -572,7 +554,7 @@ fn long() {
         state
             .write_all(format!("{iteration:020}\n").as_bytes())
             .expect("the state file");
-        let case = input(seed, iteration, resizes, Grammar::Full);
+        let case = input(seed, iteration, resizes);
         let len = case.data.len();
         let started = Instant::now();
         driver.run(case);

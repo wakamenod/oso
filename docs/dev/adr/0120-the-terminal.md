@@ -1052,10 +1052,8 @@ each of its sixteen questions.
   Mac mini needs nothing installed. Step 3's runs, on 2026-11-13: ReleaseFast 1,380,942
   inputs, ReleaseSafe 1,096,148, and 80 × 24 without resizes 4,104,012, with 0 stops in all
   6,581,102. 991 and 1,134 inputs were slow (over 500 ms), all after resizes to large
-  terminals, as in step 1, and none without resizes. After those runs the review added the
-  largest grid (1000 × 500), clusters longer than the library keeps and a link on each of many
-  cells to the long run's generator; the next bump's runs cover them. The 500 inputs in `just
-  test` keep to the basic grammar.
+  terminals, as in step 1, and none without resizes. After those runs the review widened the
+  generator; the patched build's runs cover it ("Step 3, after merge" below).
 - **The policy (Q11 to Q14):** besides the table, enquiry gets no answer and XTVERSION answers
   `oso <version>`; the checksum report (DECRQCRA) is off; DECRQSS's replies are dropped, as the
   library answers it through the same callback as the reports it may make: replies go back
@@ -1066,7 +1064,7 @@ each of its sixteen questions.
   16 MiB, the file, temporary-file and shared-memory mediums off). OSC 52 writes over 1 MiB are
   dropped. The thread reads 64 KiB at a time and parses at most 1 MiB before it looks at
   requests; replies are dropped past 64 KiB waiting; a snapshot carries at most 256 events,
-  bells joined; a grid is between 2 × 1 and 1000 × 500 cells. A terminal's scrollback holds at
+  bells joined; a grid is between 4 × 1 and 1000 × 500 cells. A terminal's scrollback holds at
   most 256 MiB (condition 4's byte limit, `SIZE_MAX` until the review, the author's choice):
   plain lines at usual widths all fit, and very wide or dense lines are dropped sooner than
   `[terminal] scrollback` says. Empty input is skipped, and a cell's cluster is read whole (the
@@ -1095,6 +1093,38 @@ each of its sixteen questions.
   - Grapheme clustering (mode 2027) starts off in the library, so a flag takes two cells unless
     the program turns it on; whether oso turns it on is step 4's
     ([`open-questions.md`](../open-questions.md)).
+
+### Step 3, after merge: oso's patch to libghostty-vt
+
+- **The author chose to patch the library** rather than move the engine to a helper process or
+  back to `alacritty_terminal`; condition 2 still stands.
+- **Row copies never abort.** oso applies one patch to the release,
+  `crates/oso-term/patches/0001-row-copies.patch` (MIT, like the library). A row copy whose
+  styles, hyperlinks or cluster data do not fit keeps the row's text without them, and the
+  library counts it (terminal data 4096, both screens). The terminal keeps running. The engine
+  reads the count after each feed and resize and logs one warning per terminal, a count and no
+  text (the author's choice; ending or resetting the terminal were the others).
+- **How it is applied.** `build.rs` checks the tarball as before, then checks the patch against
+  its sha256 in `ghostty-vt.lock`. `build/patch_check.rs` reads it and refuses anything but a
+  plain unified diff of existing files inside the source, each named the same on its `--- a/`
+  and `+++ b/` lines: no other diff format, no creating, deleting or renaming, no git headers
+  for modes or binary data. `build.rs` applies it with `patch -p1 --batch --forward --fuzz=0`
+  (with the environment settings that change `patch`'s behaviour removed) and fails unless
+  `patch` changed exactly the files the check read, the lock's `patched` lines hash exactly
+  those files, and `patches/` holds exactly the lock's patches. A bump drops a patch the new
+  release makes needless, or rebases it and updates its hashes. Any change to the lock, a bump
+  or a patch, is fuzzed again before it lands, on Linux (a container) as well as macOS.
+  Building needs `patch`, which macOS and the CI runners have.
+- **The smallest grid is 4 × 1.**
+- **Tests.** The 500 inputs in `just test` use the long run's grammar (before the patch they
+  kept to step 1's) and check each terminal's count is known; a test checks it stays 0 for
+  ordinary output; the manifest test checks the new data key, and that each patch is in
+  `third-party.md`; `patch_check` has a test for the checked-in patch and one for each kind
+  of patch it refuses. No test in the repository raises the count; the inputs that do are
+  kept outside it.
+  The patched build was fuzzed with the long run's grammar before it landed: Linux, one hour,
+  ReleaseFast, 485,868 inputs, no stop; after the review round, macOS, ten minutes,
+  ReleaseFast, 89,624 inputs, no stop. One more `unsafe` block reads the count.
 
 ### Step 4a: the terminal view, the minimum to run `claude`
 
