@@ -13,27 +13,23 @@ use super::{Candidate, Component, Query, Style};
 use crate::migemo::{self, Budget, Dictionary, Spent, Table};
 
 /// Migemo's pattern for `string`, ignoring case if `ignore_case`, with as many of
-/// `dictionary`'s words as `budget` leaves, `None` if it gives no kana, and what they spent.
-fn compile_migemo(
+/// `dictionary`'s words as `budget` leaves, which it spends, of text for a candidate's name,
+/// `None` if it gives no kana, and what they spent.
+fn name_pattern(
     string: &str,
     ignore_case: bool,
     dictionary: Option<&Dictionary>,
-    budget: Budget,
+    budget: &mut Budget,
 ) -> (Option<Regex>, Spent) {
-    let compiled = migemo::compile_within(
-        string,
-        dictionary,
-        migemo::WORDS_SIZE_LIMIT,
-        budget,
-        |pattern, size_limit| {
+    let compiled =
+        migemo::compile_with_budget(string, dictionary, budget, |pattern, size_limit| {
             RegexBuilder::new(pattern)
                 .case_insensitive(ignore_case)
                 .size_limit(size_limit)
                 .nest_limit(migemo::NEST_LIMIT)
                 .build()
                 .ok()
-        },
-    );
+        });
     (compiled.compiled, compiled.spent)
 }
 
@@ -52,23 +48,23 @@ impl Component {
             return None;
         }
         let generation = migemo::generation(table);
+        // The one kept spends what it did, last, so only it does.
         let same = (before.components.iter())
             .filter(|_| before.ignore_case == ignore_case)
             .chain(built)
             .find(|old| {
                 old.style == Style::Migemo
                     && &*old.pattern == pattern
-                    && old.dictionary == generation
-                    && old.spent.same_within(*budget)
+                    && old.generation == generation
+                    && old.spent.keep(budget)
             });
         let (regex, spent) = match same {
             Some(old) => (old.regex.clone(), old.spent),
             None => {
                 let dictionary = table.map(|table| &*table.dictionary);
-                compile_migemo(rest, ignore_case, dictionary, *budget)
+                name_pattern(rest, ignore_case, dictionary, budget)
             }
         };
-        budget.spend(spent.spent);
         let regex = regex?;
         Some(Self {
             style: Style::Migemo,
@@ -80,7 +76,7 @@ impl Component {
             not: false,
             annotation: false,
             pattern: pattern.into(),
-            dictionary: generation,
+            generation,
             spent,
         })
     }

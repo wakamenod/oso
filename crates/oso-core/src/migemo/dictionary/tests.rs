@@ -399,7 +399,7 @@ proptest! {
 
 proptest! {
     /// What a budget left gives the words it does, and another budget gives the same words
-    /// exactly when what they spent says so (ADR 0116, Q7).
+    /// when what they spent says so, and only then while both have room (ADR 0116, Q7).
     #[test]
     fn a_budget_gives_the_same_words_exactly_when_what_they_spent_says_so(
         readings in 1usize..400,
@@ -419,15 +419,24 @@ proptest! {
         let given: Vec<_> = (budgets.iter())
             .map(|&(words, bytes)| {
                 let budget = Budget { words, bytes };
-                (budget, dictionary.pattern_words_within(&romaji, budget))
+                (budget, dictionary.pattern_words_with_budget(&romaji, budget))
             })
             .collect();
         for (budget, (words, spent)) in &given {
             let cost: usize = words.iter().map(|word| word_cost(word)).sum();
-            prop_assert_eq!(spent.spent, Budget { words: words.len(), bytes: cost });
-            prop_assert!(budget.holds(spent.spent));
+            prop_assert_eq!(spent.used, Budget { words: words.len(), bytes: cost });
+            prop_assert!(budget.holds(spent.used));
             for (other, (other_words, _)) in &given {
-                prop_assert_eq!(spent.same_within(*other), words == other_words, "{:?} {:?}", budget, other);
+                // Keeping is always sound; with room in both, it is exact. A budget with none
+                // left skips the lookup and keeps only for another with none.
+                let same = words == other_words;
+                if spent.same_within(*other) {
+                    prop_assert!(same, "{:?} {:?}", budget, other);
+                }
+                let room = |budget: &Budget| budget.words > 0 && budget.bytes > 0;
+                if room(budget) && room(other) {
+                    prop_assert_eq!(spent.same_within(*other), same, "{:?} {:?}", budget, other);
+                }
             }
         }
     }

@@ -180,16 +180,27 @@ impl Dictionary {
     /// shorter readings'.
     #[cfg(test)]
     pub(crate) fn pattern_words(&self, romaji: &Romaji) -> Vec<&str> {
-        self.pattern_words_within(romaji, Budget::PATTERN).0
+        self.pattern_words_with_budget(romaji, Budget::PATTERN).0
     }
 
     /// [`Self::pattern_words`], at most as many and as costly as `budget` leaves, and what
     /// they spent of it.
-    pub(crate) fn pattern_words_within(
+    pub(crate) fn pattern_words_with_budget(
         &self,
         romaji: &Romaji,
         budget: Budget,
     ) -> (Vec<&str>, Spent) {
+        // With no room left, no word fits, which a budget with none too would give.
+        if budget.words == 0 || budget.bytes == 0 {
+            let next = Some(Budget { words: 1, bytes: 1 });
+            return (
+                Vec::new(),
+                Spent {
+                    next,
+                    ..Spent::default()
+                },
+            );
+        }
         let Some(found) = self.found(romaji) else {
             return (Vec::new(), Spent::default());
         };
@@ -221,14 +232,14 @@ impl Dictionary {
         let mut given = Vec::new();
         for word in words.map(|span| &self.text[span.range()]) {
             let with = Budget {
-                words: spent.spent.words + 1,
-                bytes: spent.spent.bytes + word_cost(word),
+                words: spent.used.words + 1,
+                bytes: spent.used.bytes + word_cost(word),
             };
             if !budget.holds(with) {
                 spent.next = Some(with);
                 break;
             }
-            spent.spent = with;
+            spent.used = with;
             given.push(word);
         }
         (given, spent)

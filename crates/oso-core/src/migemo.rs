@@ -20,17 +20,20 @@
 //!   caller searches for the string as it is.
 //! - The pattern grows with the string, at most about 18 bytes a letter, and has no line
 //!   break. A string longer than `MAX_CHARS` has none.
+//! - The components of one prompt's input share one pattern's words, a [`Budget`] each spends
+//!   in turn, and [`alternatives`] lists every string a pattern matches, for a project's
+//!   search to tell whether a longer one narrows it (ADR 0116, Q7 and Q8).
+//! - [`Table`] is a dictionary the editor holds, told from others by its generation.
 
 use std::sync::Arc;
 
+mod budget;
 mod dictionary;
 mod forms;
 mod table;
 mod trie;
 
-#[cfg(not(test))]
-use dictionary::MAX_PATTERN_WORD_BYTES;
-use dictionary::MAX_PATTERN_WORDS;
+pub(crate) use budget::{Budget, Spent};
 pub use dictionary::{
     Dictionary, MAX_BYTES, MAX_ENTRIES, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS,
     MAX_WORDS_A_READING,
@@ -193,14 +196,10 @@ impl Romaji {
     /// its full-width letters and each of `words`, a dictionary's.
     pub(crate) fn pattern(&self, string: &str, words: &[&str]) -> String {
         let mut trie = Trie::default();
-        trie.insert(string);
-        trie.insert(&string.chars().map(forms::full_width).collect::<String>());
-        let forms: [Form; 3] = [
-            |c, out| out.push(c),
-            |c, out| out.push(forms::katakana(c)),
-            |c, out| forms::push_half_width(forms::katakana(c), out),
-        ];
-        for form in forms {
+        for letters in letters(string) {
+            trie.insert(&letters);
+        }
+        for form in FORMS {
             let node = trie.node(keys(&self.hiragana, form));
             if self.ends.is_empty() {
                 node.end();
@@ -226,6 +225,23 @@ impl Romaji {
 
 /// A form of the kana: a hiragana's own, pushed onto a string.
 type Form = fn(char, &mut String);
+
+/// The forms of the kana a pattern matches: hiragana, katakana and half-width katakana.
+/// [`Romaji::pattern`] and [`alternatives`] take them from here, so they agree.
+const FORMS: [Form; 3] = [
+    |c, out| out.push(c),
+    |c, out| out.push(forms::katakana(c)),
+    |c, out| forms::push_half_width(forms::katakana(c), out),
+];
+
+/// The letters a pattern matches besides the kana: the string, and its full-width letters.
+fn letters(string: &str) -> impl Iterator<Item = String> {
+    [
+        string.to_owned(),
+        string.chars().map(forms::full_width).collect(),
+    ]
+    .into_iter()
+}
 
 /// The keys of `hiragana` in `form`. Either of two kana gives either of two characters at
 /// each place their forms differ (`[ｽﾂ]ﾞ`), as both have the same number of characters in
@@ -260,76 +276,35 @@ pub(crate) fn compile<R>(
     words_limit: usize,
     build: impl FnMut(&str, usize) -> Option<R>,
 ) -> Option<R> {
-    compile_within(string, dictionary, words_limit, Budget::PATTERN, build).compiled
+    let mut budget = Budget::PATTERN;
+    compile_spending(string, dictionary, words_limit, &mut budget, build).compiled
 }
 
-/// What a pattern's words may spend: how many, and how many bytes by their cost, which counts
-/// a character with a case several times (see [`Dictionary`]). One input's components share
-/// one pattern's (ADR 0116, Q7).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Budget {
-    pub(crate) words: usize,
-    pub(crate) bytes: usize,
-}
-
-impl Budget {
-    /// One pattern's: the most words and bytes of words it takes.
-    pub(crate) const PATTERN: Self = Self {
-        words: MAX_PATTERN_WORDS,
-        bytes: MAX_PATTERN_WORD_BYTES,
-    };
-
-    /// Whether `cost` fits within it.
-    pub(crate) fn holds(self, cost: Self) -> bool {
-        cost.words <= self.words && cost.bytes <= self.bytes
-    }
-
-    /// What is left of it once `cost` is spent.
-    pub(crate) fn spend(&mut self, cost: Self) {
-        self.words = self.words.saturating_sub(cost.words);
-        self.bytes = self.bytes.saturating_sub(cost.bytes);
-    }
-
-    /// The smaller of it and `other` in each.
-    fn within(self, other: Self) -> Self {
-        Self {
-            words: self.words.min(other.words),
-            bytes: self.bytes.min(other.bytes),
-        }
-    }
-}
-
-/// What a pattern's words spent of the budget it was given, and, if the budget left a word
-/// out, what they would have spent with it. The words a budget gives depend on these alone,
-/// so a pattern compiled within one budget is the one another gives when
-/// [`Spent::same_within`] holds.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Spent {
-    pub(crate) spent: Budget,
-    pub(crate) next: Option<Budget>,
-}
-
-impl Spent {
-    /// Whether `budget` gives the same words: they fit within it, and the next one does not.
-    pub(crate) fn same_within(&self, budget: Budget) -> bool {
-        budget.holds(self.spent) && self.next.is_none_or(|next| !budget.holds(next))
-    }
-}
-
-/// A pattern [`compile_within`] compiled, if it compiled, the words that went into it and
-/// what they spent, which were tried even if they did not compile.
+/// A pattern [`compile_with_budget`] compiled, if it compiled, the words that went into it
+/// and what they spent, which were tried even if they did not compile.
 pub(crate) struct Compiled<'d, R> {
     pub(crate) compiled: Option<R>,
     pub(crate) words: Vec<&'d str>,
     pub(crate) spent: Spent,
 }
 
-/// [`compile`], with only the words `budget` leaves.
-pub(crate) fn compile_within<'d, R>(
+/// [`compile`], with only the words `budget` leaves, which it spends: what one input's
+/// components compile on the UI thread (ADR 0116, Q7).
+pub(crate) fn compile_with_budget<'d, R>(
+    string: &str,
+    dictionary: Option<&'d Dictionary>,
+    budget: &mut Budget,
+    build: impl FnMut(&str, usize) -> Option<R>,
+) -> Compiled<'d, R> {
+    compile_spending(string, dictionary, WORDS_SIZE_LIMIT, budget, build)
+}
+
+/// [`compile_with_budget`], the words within `words_limit`.
+fn compile_spending<'d, R>(
     string: &str,
     dictionary: Option<&'d Dictionary>,
     words_limit: usize,
-    budget: Budget,
+    budget: &mut Budget,
     mut build: impl FnMut(&str, usize) -> Option<R>,
 ) -> Compiled<'d, R> {
     let Some(romaji) = Romaji::new(string) else {
@@ -340,8 +315,9 @@ pub(crate) fn compile_within<'d, R>(
         };
     };
     let (words, spent) = dictionary.map_or_else(Default::default, |dictionary| {
-        dictionary.pattern_words_within(&romaji, budget)
+        dictionary.pattern_words_with_budget(&romaji, *budget)
     });
+    budget.spend(spent.used);
     if !words.is_empty()
         && let Some(compiled) = build(&romaji.pattern(string, &words), words_limit)
     {
@@ -359,31 +335,38 @@ pub(crate) fn compile_within<'d, R>(
 }
 
 /// Every string migemo's pattern for `string` with `words` matches, as [`Romaji::pattern`]
-/// writes it, `None` if it gives no kana or they would be more than `limit` besides the
-/// words: either of two kana and each unfinished end multiply them.
-pub(crate) fn alternatives(string: &str, words: &[&str], limit: usize) -> Option<Vec<Box<str>>> {
+/// writes it, `None` if it gives no kana, if they would be more than `count` besides the
+/// words, as either of two kana and each unfinished end multiply them, or if they would take
+/// more than `bytes`, the words' included. What it builds stays within those.
+pub(crate) fn alternatives(
+    string: &str,
+    words: &[&str],
+    (count, bytes): (usize, usize),
+) -> Option<Vec<Box<str>>> {
     let romaji = Romaji::new(string)?;
-    let forms: [Form; 3] = [
-        |c, out| out.push(c),
-        |c, out| out.push(forms::katakana(c)),
-        |c, out| forms::push_half_width(forms::katakana(c), out),
-    ];
-    let mut out: Vec<Box<str>> = vec![
-        string.into(),
-        string
-            .chars()
-            .map(forms::full_width)
-            .collect::<String>()
-            .into(),
-    ];
-    for form in forms {
-        let keys = keys(&romaji.hiragana, form);
+    let forms = FORMS.map(|form| (form, keys(&romaji.hiragana, form)));
+    let mut total = 0usize;
+    for (_, keys) in &forms {
         let pairs = keys.iter().filter(|(_, other)| other.is_some()).count();
         let each = 1usize.checked_shl(u32::try_from(pairs).ok()?)?;
-        let count = each.checked_mul(romaji.ends.len().max(1))?;
-        if out.len().saturating_add(count) > limit.saturating_add(2) {
+        total = total.checked_add(each.checked_mul(romaji.ends.len().max(1))?)?;
+    }
+    if total > count {
+        return None;
+    }
+    let mut size: usize = words.iter().map(|word| word.len()).sum();
+    let mut out: Vec<Box<str>> = Vec::new();
+    let mut push = |string: String, out: &mut Vec<Box<str>>| {
+        size += string.len();
+        out.push(string.into());
+        size <= bytes
+    };
+    for letters in letters(string) {
+        if !push(letters, &mut out) {
             return None;
         }
+    }
+    for (form, keys) in forms {
         let mut stems = vec![String::new()];
         for &(c, other) in &keys {
             match other {
@@ -398,13 +381,17 @@ pub(crate) fn alternatives(string: &str, words: &[&str], limit: usize) -> Option
         }
         for stem in stems {
             if romaji.ends.is_empty() {
-                out.push(stem.into());
+                if !push(stem, &mut out) {
+                    return None;
+                }
                 continue;
             }
             for end in &romaji.ends {
                 let mut alternative = stem.clone();
                 end.chars().for_each(|c| form(c, &mut alternative));
-                out.push(alternative.into());
+                if !push(alternative, &mut out) {
+                    return None;
+                }
             }
         }
     }

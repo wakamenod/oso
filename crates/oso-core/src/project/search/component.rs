@@ -18,8 +18,9 @@ const REGEX_SIZE_LIMIT: usize = 1 << 20;
 const REGEX_NEST_LIMIT: u32 = 32;
 
 /// The most strings a migemo component's pattern is kept as, besides its words, for a longer
-/// one to be checked against: past them, a search for a longer one starts again.
-pub(super) const MAX_ALTERNATIVES: usize = 1024;
+/// one to be checked against, and the most bytes they and the words take: past either, a
+/// search for a longer one starts again.
+pub(super) const MAX_ALTERNATIVES: (usize, usize) = (1024, 64 * 1024);
 
 /// The characters that make a component an expression, as well as a literal, as in completion.
 const REGEX_META: &[char] = &[
@@ -115,28 +116,23 @@ pub(super) fn compile(pattern: &str, expression: bool, ignore_case: bool) -> Opt
 }
 
 /// Migemo's pattern for `string`, ignoring case if `ignore_case`, with as many of
-/// `dictionary`'s words as `budget` leaves, and the strings it matches: `None` if it gives no
-/// kana and is matched as a literal.
-fn compile_migemo(
+/// `dictionary`'s words as `budget` leaves, which it spends, of bytes for a project's lines,
+/// and the strings it matches: `None` if it gives no kana and is matched as a literal.
+fn line_pattern(
     string: &str,
     ignore_case: bool,
     dictionary: Option<&Dictionary>,
-    budget: Budget,
+    budget: &mut Budget,
 ) -> (Option<(Regex, Option<Strings>)>, Spent) {
-    let compiled = migemo::compile_within(
-        string,
-        dictionary,
-        migemo::WORDS_SIZE_LIMIT,
-        budget,
-        |pattern, size_limit| {
+    let compiled =
+        migemo::compile_with_budget(string, dictionary, budget, |pattern, size_limit| {
             RegexBuilder::new(pattern)
                 .case_insensitive(ignore_case)
                 .size_limit(size_limit)
                 .nest_limit(migemo::NEST_LIMIT)
                 .build()
                 .ok()
-        },
-    );
+        });
     let regex = compiled.compiled.map(|regex| {
         let alternatives = migemo::alternatives(string, &compiled.words, MAX_ALTERNATIVES);
         (regex, alternatives.map(Arc::from))
@@ -179,15 +175,13 @@ impl Component {
         } else {
             rest.into()
         };
-        // What is excluded compiles as what is not, so either is kept for the other.
+        // What is excluded compiles as what is not, so either is kept for the other. The one
+        // kept spends what it did, last, so only it does.
         let same = (before.components.iter())
             .filter(|_| before.ignore_case == ignore_case)
             .chain(built)
-            .find(|old| {
-                old.asked == asked && old.pattern == pattern && old.spent.same_within(*budget)
-            });
+            .find(|old| old.asked == asked && old.pattern == pattern && old.spent.keep(budget));
         if let Some(old) = same {
-            budget.spend(old.spent.spent);
             return Some(Self {
                 regex: old.regex.clone(),
                 not,
@@ -203,11 +197,10 @@ impl Component {
         let (migemo, spent) = match &asked {
             Asked::Migemo(_) => {
                 let dictionary = table.map(|table| &*table.dictionary);
-                compile_migemo(rest, ignore_case, dictionary, *budget)
+                line_pattern(rest, ignore_case, dictionary, budget)
             }
             _ => (None, Spent::default()),
         };
-        budget.spend(spent.spent);
         let (regex, kind, alternatives) = match migemo {
             Some((regex, alternatives)) => (regex, Kind::Migemo, alternatives),
             None => {

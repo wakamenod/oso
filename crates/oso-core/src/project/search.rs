@@ -54,6 +54,10 @@ const MAX_INPUT_BYTES: usize = 1024;
 /// The most components an input is matched with; one with more searches for nothing.
 const MAX_COMPONENTS: usize = 32;
 
+/// The most strings, and bytes of them, one look at whether a query narrows another matches
+/// with the old one's components: past either, it does not narrow (ADR 0116, Q8).
+const MAX_NARROWING: (usize, usize) = (4096, 256 * 1024);
+
 /// How many characters a component that is not excluded needs before a search starts.
 const STARTS_AT: usize = 2;
 
@@ -214,6 +218,8 @@ impl LineQuery {
             return false;
         }
         let same_case = self.ignore_case == before.ignore_case;
+        // What one call looks through is bounded, past which it does not narrow.
+        let (mut strings, mut bytes) = MAX_NARROWING;
         self.components
             .iter()
             .zip(&before.components)
@@ -221,11 +227,16 @@ impl LineQuery {
                 if new.not != old.not {
                     return false;
                 }
-                let same = new.kind == old.kind
+                let same_text = new.kind == old.kind
                     && new.asked == old.asked
                     && new.pattern == old.pattern
-                    && new.spent == old.spent
-                    && same_case;
+                    && new.spent == old.spent;
+                // The same literal or pattern matches less once case counts; an excluded one
+                // then leaves out less.
+                if same_text && !new.not && new.kind != Kind::Expression {
+                    return true;
+                }
+                let same = same_text && same_case;
                 // A literal read as an expression too matches more, and the other way less.
                 if same || new.not || new.kind == Kind::Expression || old.kind == Kind::Expression {
                     return same;
@@ -234,8 +245,10 @@ impl LineQuery {
                     (Kind::Literal, Kind::Literal) if same_case => {
                         new.pattern.starts_with(&*old.pattern)
                     }
+                    // Lower case is the text as typed, character by character, only in ASCII.
                     (Kind::Literal, Kind::Literal) => {
-                        new.pattern.to_lowercase().starts_with(&*old.pattern)
+                        new.pattern.is_ascii()
+                            && new.pattern.to_lowercase().starts_with(&*old.pattern)
                     }
                     // A literal kept in lower case is the text as typed only in ASCII.
                     (Kind::Literal, _) => {
@@ -243,7 +256,12 @@ impl LineQuery {
                             && old.regex.is_match(new.pattern.as_bytes())
                     }
                     _ => new.alternatives.as_ref().is_some_and(|alternatives| {
-                        (alternatives.iter()).all(|string| old.regex.is_match(string.as_bytes()))
+                        (alternatives.iter()).all(|string| {
+                            let room = strings > 0 && bytes >= string.len();
+                            strings = strings.saturating_sub(1);
+                            bytes = bytes.saturating_sub(string.len());
+                            room && old.regex.is_match(string.as_bytes())
+                        })
                     }),
                 }
             })

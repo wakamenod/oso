@@ -79,7 +79,7 @@ struct Component {
     pattern: Box<str>,
     /// For a migemo one, the generation of the dictionary its pattern took words from, if
     /// any: never the table, so a query keeps none alive.
-    dictionary: Option<u64>,
+    generation: Option<u64>,
     /// For a migemo one, what its words spent of the input's budget, which decides them.
     spent: Spent,
 }
@@ -101,7 +101,7 @@ impl PartialEq for Component {
             other.annotation,
             other.tried,
             &other.pattern,
-        ) && (self.dictionary, self.spent) == (other.dictionary, other.spent)
+        ) && (self.generation, self.spent) == (other.generation, other.spent)
     }
 }
 
@@ -210,7 +210,7 @@ impl Component {
             not: affix == Some('!'),
             annotation: affix == Some('&'),
             pattern,
-            dictionary: None,
+            generation: None,
             spent: Spent::default(),
         })
     }
@@ -450,14 +450,14 @@ impl Query {
     pub(crate) fn compiled_for_another(&self, generation: Option<u64>) -> bool {
         self.components
             .iter()
-            .any(|component| component.style == Style::Migemo && component.dictionary != generation)
+            .any(|component| component.style == Style::Migemo && component.generation != generation)
     }
 
     /// Whether a migemo component was compiled with no dictionary, so one would add words.
     pub(crate) fn wants_dictionary(&self) -> bool {
         self.components
             .iter()
-            .any(|component| component.style == Style::Migemo && component.dictionary.is_none())
+            .any(|component| component.style == Style::Migemo && component.generation.is_none())
     }
 
     /// The query of an input too long to match: nothing matches it.

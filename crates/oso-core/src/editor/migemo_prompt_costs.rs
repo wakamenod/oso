@@ -176,8 +176,9 @@ fn heaviest(dictionary: &Dictionary, count: usize) -> Vec<String> {
         .collect()
 }
 
-/// A paste of the 32 heaviest strings, `prefix`ed, then an upper-case key, which makes case
-/// count and so compiles every component again: the time of each, over `rounds` rotations.
+/// A paste of the 32 heaviest strings, `prefix`ed, then an upper-case key at its end, which
+/// makes case count and so compiles every component again: the time of each, over each
+/// rotation of the strings.
 fn heavy_pastes(editor: &mut Editor, heavy: &[String], prefix: &str) -> (Vec<f64>, Vec<f64>) {
     let (mut pastes, mut uppers) = (Vec::new(), Vec::new());
     for start in 0..heavy.len() {
@@ -187,7 +188,8 @@ fn heavy_pastes(editor: &mut Editor, heavy: &[String], prefix: &str) -> (Vec<f64
             .collect();
         pastes.push(key(editor, &input.join(" ")));
         editor.take_search_request();
-        uppers.push(key(editor, " X"));
+        // Onto the last component, as a 33rd would be past the most an input matches.
+        uppers.push(key(editor, "X"));
         editor.take_search_request();
     }
     (pastes, uppers)

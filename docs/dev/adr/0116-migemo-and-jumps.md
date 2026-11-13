@@ -727,10 +727,12 @@ built.
 - **The API.** No public signature changes. `LineQuery::parse` reads a romaji component as
   migemo's, with no dictionary: its kana. The editor parses with `LineQuery::parse_after`
   (private to the crate), which takes the query before, the setting and the dictionary. Both
-  sit below `search`, so `oso_core::migemo::compile` builds the pattern with words within
-  4 MiB, or the kana alone within 256 KiB. Each caller compiles with its own builder, of bytes
-  for a project's lines and of text for completion; isearch's needle uses the same function.
-  The romaji, the forms and the pattern stay private to the crate.
+  sit below `search`, so `oso_core::migemo` builds the pattern with words within 4 MiB, or
+  the kana alone within 256 KiB: `compile_with_budget` for a prompt's components, which spend
+  one `Budget` (Q7), and `compile`, with one pattern's, for isearch's needle. Each caller
+  compiles with its own builder, of bytes for a project's lines and of text for completion.
+  The romaji, the forms, the pattern and its strings (`alternatives`, Q8) stay private to the
+  crate.
 - **A project's search (Q2, Q6).** After `!` or `=`: `=` gives a literal. Romaji by isearch's
   rule (lowercase ASCII letters, `'` and `-`, at most 256 characters) gives migemo's pattern,
   which holds the literal too. A component with a character an expression reads is a literal
@@ -786,21 +788,27 @@ built.
 - **The dictionary.** A project's search or a completion that compiled a migemo component
   with no dictionary says so, as isearch does. Around a buffer that may hold secrets, or a
   prompt opened around one, it does not. When the table comes or goes, a project's search
-  with a migemo component starts again (a new generation, never narrowing), and a completion
+  with a migemo component starts again with a new generation. It narrows the last whole search
+  only by Q8's rule, as when the table goes and the old pattern held every word; a table that
+  comes adds words the old one lacks, so that search starts over. A completion
   with one matches its input again: on the UI thread, or as a job for the worker past 5000
   candidates. The worker's jobs (`Build`, `Matching`, `Merge`) carry the table. A job that ran
   with the table before it is superseded by the new match.
 - **Secrets.** No string or pattern reaches a log. `Debug` gives counts only, and `get-state`
   is as it was.
-- **A key's cost (Q3),** with the author's dictionary in a release build, load about 2–3 (the
-  ignored `editor/migemo_prompt_costs.rs`): every prefix of step 3's 174 common words,
-  typed three times. A project's search key takes 0.14 ms p50, 2.1 ms p99 and 4.2 ms at most, and a key
-  over 5000 candidates with `%` 0.28 ms, 2.3 ms and 2.5 ms. A paste of 3, 8 or 32 of the words
-  takes about 2.0, 3.4 and 8.0 ms at p99 in either. The key after a paste takes 0.11 ms p99 in
-  a project's search and 0.33 ms over 5000 candidates. In a first probe over 109 of those prefixes, one
-  component compiled in 0.15 to 0.18 ms p50, 1.5 to 1.7 ms p99 and at most about 3.4 ms. A migemo component's search through
-  20 MB of mixed code and Japanese on an `oso-grep` thread takes 1.3 to 11 ms, against 1 to
-  2 ms for a literal.
+- **A key's cost (Q3, Q7, Q8),** with the author's dictionary in a release build, load about
+  2.5 (the ignored `editor/migemo_prompt_costs.rs`): every prefix of step 3's 174 common
+  words, typed three times. A project's search key takes 0.15 ms p50, 2.2 ms p99 and 2.9 ms at
+  most, and a key over 5000 candidates with `%` 0.29 ms, 2.3 ms and 2.6 ms. A paste of 3, 8 or
+  32 of the words takes about 2.1, 3.5 and 6.3 ms at p99 in either; 32 took 8.0 ms before the
+  input shared one budget. The key after a paste takes 0.15 ms p99 in a project's search and
+  0.35 ms over 5000 candidates. With every search ending, so that each key may narrow the one
+  before, a key takes 0.17 ms p50 and 2.2 ms p99, and 1647 of 2466 searches narrowed. Telling
+  whether a letter typed onto a prefix narrows takes 0.015 ms p50, 0.3 ms p99 and 1.1 ms at
+  most, and 565 of those 822 narrowed. In a first probe over 109 of those prefixes, one
+  component compiled in 0.15 to 0.18 ms p50, 1.5 to 1.7 ms p99 and at most about 3.4 ms. A
+  migemo component's search through 20 MB of mixed code and Japanese on an `oso-grep` thread
+  takes 1.3 to 11 ms, against 1 to 2 ms for a literal.
 
 #### As built (step 5, 2026-11-12)
 
