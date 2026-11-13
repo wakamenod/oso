@@ -373,6 +373,7 @@ impl App {
             self.watch.known.remove(&key);
             self.watch.attention.forget(key);
         }
+        self.forget_sending(&keys);
     }
 
     /// Each hosted session's space, added if new; the frame's tree is the first space's.
@@ -440,7 +441,10 @@ impl App {
                     branch: None,
                     state,
                     since,
-                    recap: self.recap_of(session.key),
+                    recap: self.row_recap(
+                        session.key,
+                        self.watch.known.get(&session.key).map_or("", |k| &k.recap),
+                    ),
                     pinned: session.pinned,
                     archived: session.archived,
                     parent,
@@ -449,21 +453,6 @@ impl App {
             .collect();
         entries.extend(self.watch.externals.iter().cloned());
         entries
-    }
-
-    /// What session `key`'s row says under its name: who messaged it while the person has
-    /// not seen it since, then its recap.
-    fn recap_of(&self, key: SessionKey) -> String {
-        let recap = self
-            .watch
-            .known
-            .get(&key)
-            .map_or("", |known| known.recap.as_str());
-        match self.message_note(key) {
-            Some(note) if recap.is_empty() => note,
-            Some(note) => format!("{note} · {recap}"),
-            None => recap.to_owned(),
-        }
     }
 
     /// Session `session`'s state and since when: as the worker told it, while that agrees

@@ -18,7 +18,7 @@ mod send;
 
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::ROW_MARKS;
-pub use send::{COMMANDS as SEND_COMMANDS, MENTION_LIST, SEND_LIST};
+pub use send::{COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, too_large};
 
 use std::path::PathBuf;
 

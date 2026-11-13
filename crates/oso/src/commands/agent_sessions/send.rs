@@ -23,9 +23,19 @@ pub const SEND_LIST: &str = "session-send";
 /// The list `session-mention` completes over: the live sessions' names, hosted and external.
 pub const MENTION_LIST: &str = "session-mention";
 
-/// The most a region may hold to be sent, 256 KiB, as the host checks the whole text it
-/// pastes (ADR 0121). Checked from the region's bounds, before any text is copied.
-const MOST: usize = 256 << 10;
+/// The most a send pastes, 256 KiB (ADR 0121): a region is checked from its bounds, before
+/// any text is copied, and the host checks the whole text it pastes.
+pub const MAX_SEND_BYTES: usize = 256 << 10;
+
+/// What a send of `bytes` past [`MAX_SEND_BYTES`] says.
+pub fn too_large(bytes: usize) -> String {
+    format!(
+        "That is {} KiB; at most {} KiB goes to a session. C-u C-x a m sends the path and \
+         lines only",
+        bytes.div_ceil(1024),
+        MAX_SEND_BYTES >> 10
+    )
+}
 
 /// The sending commands.
 pub const COMMANDS: &[Command] = &[
@@ -74,7 +84,7 @@ fn session_send(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let place_only = args.raw().is_some();
     let mut parts = match note {
         // No region showed: the line at point with `C-u`, then the note.
-        Some(_) if place_only => vec![SendPart::Excerpt(line_at_point(ctx))],
+        Some(_) if place_only => lines_at_points(ctx),
         Some(_) => Vec::new(),
         None => regions(ctx, place_only)?,
     };
@@ -92,7 +102,7 @@ fn session_send(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 }
 
 /// An excerpt for each region the selected window shows, in buffer order: with its text,
-/// unless `place_only` or the buffer may hold secrets. Refused past [`MOST`], before any
+/// unless `place_only` or the buffer may hold secrets. Refused past [`MAX_SEND_BYTES`], before any
 /// text is copied.
 fn regions(ctx: &Ctx<'_>, place_only: bool) -> Result<Vec<SendPart>, CommandError> {
     let (window, buffer) = ctx.editor.current();
@@ -109,13 +119,8 @@ fn regions(ctx: &Ctx<'_>, place_only: bool) -> Result<Vec<SendPart>, CommandErro
     let with_text = !place_only && !buffer.is_secret();
     if with_text {
         let bytes: usize = ranges.iter().map(std::ops::Range::len).sum();
-        if bytes > MOST {
-            return Err(CommandError::new(format!(
-                "The region is {} KiB; at most {} KiB goes to a session. C-u C-x a m sends its \
-                 path and lines only",
-                bytes.div_ceil(1024),
-                MOST >> 10
-            )));
+        if bytes > MAX_SEND_BYTES {
+            return Err(CommandError::new(too_large(bytes)));
         }
     }
     Ok(ranges
@@ -127,11 +132,21 @@ fn regions(ctx: &Ctx<'_>, place_only: bool) -> Result<Vec<SendPart>, CommandErro
         .collect())
 }
 
-/// The line point is on, as a place only.
-fn line_at_point(ctx: &Ctx<'_>) -> SendExcerpt {
+/// The line each cursor is on, as a place only, in buffer order, each line once.
+fn lines_at_points(ctx: &Ctx<'_>) -> Vec<SendPart> {
     let (window, buffer) = ctx.editor.current();
-    let cursor = window.selections.primary().cursor;
-    excerpt(buffer, cursor..cursor, None)
+    let mut cursors: Vec<usize> = window
+        .selections
+        .iter()
+        .map(|selection| selection.cursor)
+        .collect();
+    cursors.sort_unstable();
+    let mut places: Vec<SendExcerpt> = cursors
+        .into_iter()
+        .map(|cursor| excerpt(buffer, cursor..cursor, None))
+        .collect();
+    places.dedup_by_key(|place| place.first);
+    places.into_iter().map(SendPart::Excerpt).collect()
 }
 
 /// The excerpt of `buffer` that `range` covers: its lines from 1, a region that ends at the

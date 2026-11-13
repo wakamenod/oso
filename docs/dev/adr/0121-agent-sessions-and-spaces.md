@@ -1189,7 +1189,8 @@ through the coordinator:
 - **After a send (Q2)** the target session is shown and selected in its space; the person
   reads the paste and presses Enter there.
 - **`C-u C-x a m` sends the place only (Q3, Q4),** as plain `path:10-20` (`path:10` for one
-  line). With no region it sends the line at point, then the note if one is typed. A buffer
+  line). With no region it sends the line of each cursor, each line once, then the note if one
+  is typed. A mark with no text counts as no region. A buffer
   that may hold secrets always sends its place only.
 - **At most 256 KiB (Q8).** A region over that is refused from its bounds, before any text is
   copied, and the echo area suggests `C-u C-x a m`. The host checks the whole composed text
@@ -1208,8 +1209,8 @@ through the coordinator:
   ([agent-rules.md](../agent-rules.md)): a name, a region (`bottom(40)` if left out), a pattern
   with a capture `from`, and `disable`. At most 16; they count among the file's patterns. A
   message table never decides a state, and a wrong one is skipped and said. The worker finds
-  senders after each verdict, with 5 ms of its own, and only in lines the previous look did not
-  show; the fuzz target makes `[[message]]` tables too.
+  senders after each verdict, within the recap's 5 ms, and only in lines the previous look did
+  not show, told apart by their hashes; the fuzz target makes `[[message]]` tables too.
 - **Part B, as wired:**
   - `App::send_to_session(key, text)`, in `app/sessions/watch/sending.rs`, is the one
     delivery path: it checks the refusal, pastes with the terminal's own paste, and shows and
@@ -1219,6 +1220,8 @@ through the coordinator:
     started, and when a hold rule starts or stops matching it (`Out::Judged`). The tracker
     gives no change for a fresh session that is idle, and never reports a hold, so without it
     the app could not tell a session not judged yet, nor a full-screen view.
+  - A terminal whose program has bracketed paste off is refused too: a paste of several
+    lines would ask first and be no paste yet. Claude Code's TUI keeps it on.
   - The password refusal waits for ADR 0120's step 4b. The PTY's own echo flag cannot serve:
     Claude Code's TUI keeps echo off in raw mode, so it would refuse every session.
   - `session-send` completes over the running hosted sessions by their buffers' names, the
@@ -1244,7 +1247,10 @@ through the coordinator:
     read the pasted characters. The paste carries no Enter of its own.
   - Any program in a session's terminal can print a line that looks like a message. A sender
     found only sets the row's note and the session `session-follow-message` shows; it
-    authorises nothing and is never taken as who wrote.
+    authorises nothing and is never taken as who wrote. Its name is never logged, so what
+    `session-follow-message` says names no sender it does not show.
+  - Not checked with the real TUI: a resumed session that shows earlier message lines again,
+    or a resize that wraps one anew, gives the row a note for an old message.
 
 ## Consequences
 

@@ -160,12 +160,32 @@ fn a_region_past_256_kib_is_refused_with_the_place_only_way() {
     assert!(editor.take_session_requests().is_empty());
     assert!(
         messages(&editor)
-            .contains("The region is 300 KiB; at most 256 KiB goes to a session. C-u C-x a m"),
+            .contains("That is 300 KiB; at most 256 KiB goes to a session. C-u C-x a m"),
         "{}",
         messages(&editor)
     );
     send(&mut d, &mut editor, "C-u C-x a m RET");
     assert_eq!(editor.take_session_requests().len(), 1);
+}
+
+#[test]
+fn an_empty_region_reads_a_note_and_c_u_sends_each_cursors_line_once() {
+    let buffer = Buffer::from_text("notes.md", "ab\nxx\nab\n");
+    let (mut d, mut editor) = (Dispatcher::new(), editor(buffer));
+    send(&mut d, &mut editor, "C-SPC C-x a m RET h i RET");
+    assert_eq!(
+        editor.take_session_requests(),
+        [sent(API, vec![SendPart::Note("hi".to_owned())])]
+    );
+    send(
+        &mut d,
+        &mut editor,
+        "C-SPC C-f C-f C-> C-g C-u C-x a m RET RET",
+    );
+    assert_eq!(
+        editor.take_session_requests(),
+        [sent(API, vec![lines(1, 1, None), lines(3, 3, None)])]
+    );
 }
 
 #[test]

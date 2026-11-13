@@ -220,7 +220,7 @@ impl Core {
                 continue;
             }
             let mut recapped = None;
-            let mut sent_by = Vec::new();
+            let mut sent_by = None;
             let mut judged = None;
             let target = if screen_due {
                 let Some(evidence) = &session.evidence else {
@@ -247,15 +247,17 @@ impl Core {
                 } else {
                     session.late = 0;
                     *streak = None;
+                    // The recap and the message lines share one budget after the verdict.
                     let deadline = Deadline::after(*budget);
                     let found = recap(rules, &verdict, evidence, dropped, &deadline);
                     if let Some(found) = found.filter(|found| *found != session.recap) {
                         session.recap.clone_from(&found);
                         recapped = Some(found);
                     }
-                    let deadline = Deadline::after(*budget);
+                    // Only the newest sender: the app keeps one a session.
                     sent_by = senders(rules.messages(), evidence, &mut session.messages, &deadline)
-                        .unwrap_or_default();
+                        .ok()
+                        .and_then(|mut found| found.pop());
                     let held = matches!(verdict.target, Target::Hold);
                     if session.held != Some(held) {
                         session.held = Some(held);
@@ -276,7 +278,7 @@ impl Core {
             if let Some(recap) = recapped {
                 found.push(Out::Recap(key, recap));
             }
-            found.extend(sent_by.into_iter().map(|from| Out::Message(key, from)));
+            found.extend(sent_by.map(|from| Out::Message(key, from)));
             found.extend(judged.map(|held| Out::Judged(key, held)));
         }
         found

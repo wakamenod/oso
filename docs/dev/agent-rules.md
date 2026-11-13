@@ -120,8 +120,9 @@ pattern = '^\s*›\s*Message from @(?P<from>[^\s:]+)'  # needs a capture named f
 - A message table never decides a state. A wrong one, a pattern with no `from` capture
   included, is skipped and named in `*Messages*`; the state rules stay.
 - It replaces and is disabled by name like a rule, `[[message]]` with `disable = true`.
-- Finding senders gets 5 ms of its own after the rules' verdict; past that, the lines are
-  looked for again at the next look.
+- Finding senders shares the recap's 5 ms after the rules' verdict, checked before each line;
+  past that, the lines are looked for again at the next look. Only the newest sender of a look
+  is kept.
 - The line is screen text, which any program in the terminal could print. A sender found only
   sets the row's note and the session `C-x a f` shows; it is never proof of who wrote.
 

@@ -18,9 +18,9 @@ use oso_core::complete::Candidate;
 use oso_core::editor::{SendPart, SendTo};
 
 use crate::app::App;
-use crate::commands::agent_sessions::{MENTION_LIST, SEND_LIST};
+use crate::commands::agent_sessions::{MENTION_LIST, SEND_LIST, too_large};
 use crate::sessions::list::{Entry, Key};
-use crate::sessions::send::{self, MAX_BYTES, Standing, TooLarge};
+use crate::sessions::send::{self, Standing, TooLarge};
 use crate::sessions::state::State;
 use crate::sessions::worker::SessionKey;
 
@@ -51,27 +51,20 @@ impl App {
         let (key, name) = (session.key, session.name.clone());
         let text = match send::compose(parts, &session.directory) {
             Ok(text) => text,
-            Err(TooLarge { bytes }) => {
-                return self.editor.message(format!(
-                    "That is {} KiB; at most {} KiB goes to a session. C-u C-x a m sends the \
-                     path and lines only",
-                    bytes.div_ceil(1024),
-                    MAX_BYTES >> 10
-                ));
-            }
+            Err(TooLarge { bytes }) => return self.editor.message(too_large(bytes)),
         };
         if let Err(why) = self.send_to_session(key, text) {
             return self.editor.message(why);
         }
-        let withheld = parts.iter().any(|part| match part {
-            SendPart::Excerpt(excerpt) => {
-                excerpt.text.is_none()
-                    && self
-                        .editor
-                        .buffers()
-                        .any(|(_, buffer)| buffer.name() == excerpt.buffer && buffer.is_secret())
-            }
-            SendPart::Note(_) => false,
+        // A command's excerpts all come from one buffer: the first without text tells.
+        let placed = parts.iter().find_map(|part| match part {
+            SendPart::Excerpt(excerpt) if excerpt.text.is_none() => Some(&excerpt.buffer),
+            _ => None,
+        });
+        let withheld = placed.is_some_and(|placed| {
+            self.editor
+                .buffers()
+                .any(|(_, buffer)| buffer.name() == placed && buffer.is_secret())
         });
         self.editor.message(if withheld {
             format!(
@@ -104,6 +97,18 @@ impl App {
             .buffer
             .filter(|buffer| self.editor.buffer(*buffer).is_some())
             .ok_or_else(|| format!("{name} has no terminal: session-resume first"))?;
+        // Bracketed paste off, a paste of several lines asks first and is no paste yet; the
+        // TUI keeps it on, so a program that turned it off is not one a send is for.
+        let bracketed = self
+            .terminals
+            .map
+            .get(buffer)
+            .is_some_and(|hosted| hosted.grid.modes().bracketed_paste);
+        if !bracketed && session.runs() {
+            return Err(format!(
+                "{name}'s terminal takes no bracketed paste now; nothing is pasted"
+            ));
+        }
         let judged = self.watch.sending.judged.get(&key).copied();
         let standing = Standing {
             running: session.runs(),
@@ -169,18 +174,32 @@ impl App {
             .map(|session| session.key);
         match hosted {
             Some(key) => self.show_session(key),
+            // The name is the screen's text: never logged, nor said where the channel reads.
             None if self.watch.externals.iter().any(|entry| entry.name == from) => {
-                self.editor.message(format!("{from} runs outside oso"));
+                self.editor
+                    .message("The sender runs outside oso, which shows no such session");
             }
-            None => self.editor.message(format!("No session {from}")),
+            None => self.editor.message("The sender is no session oso knows"),
         }
     }
 
-    /// The row's note for session `key`, before its recap, while the person has not seen it
-    /// since a message came.
-    pub(super) fn message_note(&self, key: SessionKey) -> Option<String> {
-        let (from, unseen) = self.watch.sending.from.get(&key)?;
-        unseen.then(|| format!("message from {from}"))
+    /// What session `key`'s row says under its name: who messaged it, while the person has
+    /// not seen it since, then `recap`.
+    pub(super) fn row_recap(&self, key: SessionKey, recap: &str) -> String {
+        match self.watch.sending.from.get(&key) {
+            Some((from, true)) if recap.is_empty() => format!("message from {from}"),
+            Some((from, true)) => format!("message from {from} · {recap}"),
+            _ => recap.to_owned(),
+        }
+    }
+
+    /// Forgets what sending kept of sessions not in `live`.
+    pub(super) fn forget_sending(&mut self, live: &std::collections::HashSet<SessionKey>) {
+        self.watch.sending.from.retain(|key, _| live.contains(key));
+        self.watch
+            .sending
+            .judged
+            .retain(|key, _| live.contains(key));
     }
 
     /// Makes the completions of `session-send` and `session-mention` from `entries`.

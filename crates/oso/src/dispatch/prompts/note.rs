@@ -30,7 +30,12 @@ impl Dispatcher {
         prefix: Option<Prefix>,
         read: ListedAndNote,
     ) -> Effects {
-        let region = editor.window().selections.mark_active().is_active();
+        // A region shows, as the command reads it: an active mark and a selection with text.
+        let selections = &editor.window().selections;
+        let region = selections.mark_active().is_active()
+            && selections
+                .iter()
+                .any(|selection| !selection.range().is_empty());
         let items = editor.listed_candidates(read.list);
         match editor.open_completion(read.prompt, read.history, items) {
             Ok(prompt) => self.reading.push(Reading {

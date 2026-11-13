@@ -23,8 +23,8 @@ use oso_core::editor::{SendExcerpt, SendPart};
 
 use super::state::{Reason, State};
 
-/// The most a send pastes: 256 KiB (ADR 0121).
-pub const MAX_BYTES: usize = 256 << 10;
+/// The most a send pastes: 256 KiB (ADR 0121), the commands' own limit.
+pub const MAX_BYTES: usize = crate::commands::agent_sessions::MAX_SEND_BYTES;
 
 /// A send is larger than [`MAX_BYTES`]: `bytes` long.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
