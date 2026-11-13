@@ -31,6 +31,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Key,
         reach: Reach::Person,
         run: self_insert_command,
+        state: None,
     },
     Command {
         name: "insert",
@@ -41,6 +42,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Change,
         run: insert,
+        state: None,
     },
     Command {
         name: "insert-full-width-space",
@@ -48,6 +50,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: insert_full_width_space,
+        state: None,
     },
     Command {
         name: "delete-backward-char",
@@ -55,6 +58,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: delete_backward_char,
+        state: None,
     },
     Command {
         name: "delete-char",
@@ -62,6 +66,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: delete_char,
+        state: None,
     },
     Command {
         name: "tab-to-tab-stop",
@@ -69,6 +74,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: tab_to_tab_stop,
+        state: None,
     },
     Command {
         name: "undo",
@@ -76,6 +82,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: undo,
+        state: None,
     },
     Command {
         name: "undo-redo",
@@ -83,6 +90,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: undo_redo,
+        state: None,
     },
 ];
 

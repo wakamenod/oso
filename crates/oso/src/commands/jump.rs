@@ -22,6 +22,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_char_timer,
+        state: None,
     },
     Command {
         name: "avy-goto-line",
@@ -29,6 +30,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_line,
+        state: None,
     },
     Command {
         name: "avy-goto-end-of-line",
@@ -36,6 +38,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_end_of_line,
+        state: None,
     },
     Command {
         name: "avy-isearch",
@@ -43,6 +46,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_isearch,
+        state: None,
     },
     Command {
         name: "avy-printing-char",
@@ -50,6 +54,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_printing_char,
+        state: None,
     },
     Command {
         name: "avy-delete-char",
@@ -57,6 +62,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_delete_char,
+        state: None,
     },
     Command {
         name: "avy-show-labels",
@@ -64,6 +70,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_show_labels,
+        state: None,
     },
 ];
 

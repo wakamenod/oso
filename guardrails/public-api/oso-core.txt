@@ -268,6 +268,9 @@ pub oso_core::command::ArgSpec::KillEntry
 pub oso_core::command::ArgSpec::KillEntry::prompt: &'static str
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
+pub oso_core::command::ArgSpec::Menu
+pub oso_core::command::ArgSpec::Menu::history: &'static str
+pub oso_core::command::ArgSpec::Menu::prompt: &'static str
 pub oso_core::command::ArgSpec::None
 pub oso_core::command::ArgSpec::Number
 pub oso_core::command::ArgSpec::Number::history: &'static str
@@ -401,6 +404,7 @@ pub oso_core::command::Command::doc: &'static str
 pub oso_core::command::Command::name: &'static str
 pub oso_core::command::Command::reach: oso_core::command::Reach
 pub oso_core::command::Command::run: oso_core::command::CommandFn
+pub oso_core::command::Command::state: core::option::Option<oso_core::command::StateFn>
 impl oso_core::command::Command
 pub fn oso_core::command::Command::summary(&self) -> &'static str
 impl core::clone::Clone for oso_core::command::Command
@@ -455,6 +459,7 @@ pub fn oso_core::command::Ctx<'a>::replace_pair(&self) -> core::option::Option<(
 pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
 pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
 pub fn oso_core::command::Ctx<'a>::shifted(&self) -> bool
+pub fn oso_core::command::Ctx<'a>::switch(&self, &str) -> bool
 pub struct oso_core::command::Effects
 pub oso_core::command::Effects::exit: bool
 pub oso_core::command::Effects::prefix: core::option::Option<oso_core::command::Prefix>
@@ -481,6 +486,7 @@ pub oso_core::command::Invocation::key_char: core::option::Option<char>
 pub oso_core::command::Invocation::repeats: usize
 pub oso_core::command::Invocation::second: core::option::Option<&'a str>
 pub oso_core::command::Invocation::shifted: bool
+pub oso_core::command::Invocation::switches: &'a [&'a str]
 impl core::fmt::Debug for oso_core::command::Invocation<'_>
 pub fn oso_core::command::Invocation<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a> core::clone::Clone for oso_core::command::Invocation<'a>
@@ -507,6 +513,7 @@ impl core::fmt::Debug for oso_core::command::Registry
 pub fn oso_core::command::Registry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_core::command::MAX_REMOTE_COUNT: isize
 pub type oso_core::command::CommandFn = fn(&mut oso_core::command::Ctx<'_>, oso_core::command::Args) -> core::result::Result<(), oso_core::command::CommandError>
+pub type oso_core::command::StateFn = fn(&oso_core::editor::Editor) -> bool
 pub mod oso_core::complete
 pub enum oso_core::complete::NameKind
 pub oso_core::complete::NameKind::Directory
@@ -2878,6 +2885,7 @@ impl core::marker::Copy for oso_core::keymap::BindError
 impl core::marker::StructuralPartialEq for oso_core::keymap::BindError
 pub enum oso_core::keymap::Binding<'a>
 pub oso_core::keymap::Binding::Command(oso_core::command::CommandId)
+pub oso_core::keymap::Binding::Menu(oso_core::menu::MenuId)
 pub oso_core::keymap::Binding::Prefix(&'a oso_core::keymap::Keymap)
 pub oso_core::keymap::Binding::Undefined
 impl<'a> core::clone::Clone for oso_core::keymap::Binding<'a>
@@ -2892,6 +2900,7 @@ impl<'a> core::marker::StructuralPartialEq for oso_core::keymap::Binding<'a>
 pub enum oso_core::keymap::Resolution<'a>
 pub oso_core::keymap::Resolution::Cancelled
 pub oso_core::keymap::Resolution::Command(oso_core::command::CommandId)
+pub oso_core::keymap::Resolution::Menu(oso_core::menu::MenuId)
 pub oso_core::keymap::Resolution::Pending
 pub oso_core::keymap::Resolution::Shifted(oso_core::command::CommandId)
 pub oso_core::keymap::Resolution::Unbound(&'a [oso_core::key::KeyPress])
@@ -2929,6 +2938,7 @@ pub fn oso_core::keymap::KeyResolver::fmt(&self, &mut core::fmt::Formatter<'_>) 
 pub struct oso_core::keymap::Keymap
 impl oso_core::keymap::Keymap
 pub fn oso_core::keymap::Keymap::bind(&mut self, &[oso_core::key::KeyPress], oso_core::command::CommandId) -> core::result::Result<(), oso_core::keymap::BindError>
+pub fn oso_core::keymap::Keymap::bind_menu(&mut self, &[oso_core::key::KeyPress], oso_core::menu::MenuId) -> core::result::Result<(), oso_core::keymap::BindError>
 pub fn oso_core::keymap::Keymap::bindings(&self, impl core::ops::function::FnMut(&[oso_core::key::KeyPress], oso_core::command::CommandId))
 pub fn oso_core::keymap::Keymap::from_table(&oso_core::command::Registry, &[(&str, &str)]) -> core::result::Result<Self, oso_core::keymap::TableError>
 pub fn oso_core::keymap::Keymap::get(&self, oso_core::key::KeyPress) -> core::option::Option<oso_core::keymap::Binding<'_>>
@@ -3117,6 +3127,257 @@ pub const oso_core::load::LARGE: u64
 pub const oso_core::load::UNASKED: u64
 pub fn oso_core::load::decode_all(&[u8], oso_core::display_map::cell::TabWidth) -> oso_core::load::LoadSnapshot
 pub fn oso_core::load::gib(u64) -> alloc::string::String
+pub mod oso_core::menu
+pub enum oso_core::menu::ForeignKeys
+pub oso_core::menu::ForeignKeys::Exit
+pub oso_core::menu::ForeignKeys::Run
+pub oso_core::menu::ForeignKeys::Warn
+impl core::clone::Clone for oso_core::menu::ForeignKeys
+pub fn oso_core::menu::ForeignKeys::clone(&self) -> oso_core::menu::ForeignKeys
+impl core::cmp::Eq for oso_core::menu::ForeignKeys
+impl core::cmp::PartialEq for oso_core::menu::ForeignKeys
+pub fn oso_core::menu::ForeignKeys::eq(&self, &oso_core::menu::ForeignKeys) -> bool
+impl core::default::Default for oso_core::menu::ForeignKeys
+pub fn oso_core::menu::ForeignKeys::default() -> oso_core::menu::ForeignKeys
+impl core::fmt::Debug for oso_core::menu::ForeignKeys
+pub fn oso_core::menu::ForeignKeys::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::menu::ForeignKeys
+impl core::marker::StructuralPartialEq for oso_core::menu::ForeignKeys
+pub enum oso_core::menu::HeadAction
+pub oso_core::menu::HeadAction::Command(oso_core::command::CommandId)
+pub oso_core::menu::HeadAction::Menu(oso_core::menu::MenuId)
+pub oso_core::menu::HeadAction::Quit
+pub oso_core::menu::HeadAction::Switch(alloc::string::String)
+impl core::clone::Clone for oso_core::menu::HeadAction
+pub fn oso_core::menu::HeadAction::clone(&self) -> oso_core::menu::HeadAction
+impl core::cmp::Eq for oso_core::menu::HeadAction
+impl core::cmp::PartialEq for oso_core::menu::HeadAction
+pub fn oso_core::menu::HeadAction::eq(&self, &oso_core::menu::HeadAction) -> bool
+impl core::fmt::Debug for oso_core::menu::HeadAction
+pub fn oso_core::menu::HeadAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::HeadAction
+pub enum oso_core::menu::Lookup
+pub oso_core::menu::Lookup::Head(usize)
+pub oso_core::menu::Lookup::Pending
+pub oso_core::menu::Lookup::Quit
+pub oso_core::menu::Lookup::Unbound
+impl core::clone::Clone for oso_core::menu::Lookup
+pub fn oso_core::menu::Lookup::clone(&self) -> oso_core::menu::Lookup
+impl core::cmp::Eq for oso_core::menu::Lookup
+impl core::cmp::PartialEq for oso_core::menu::Lookup
+pub fn oso_core::menu::Lookup::eq(&self, &oso_core::menu::Lookup) -> bool
+impl core::fmt::Debug for oso_core::menu::Lookup
+pub fn oso_core::menu::Lookup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::menu::Lookup
+impl core::marker::StructuralPartialEq for oso_core::menu::Lookup
+pub enum oso_core::menu::MenuError
+pub oso_core::menu::MenuError::BadCount
+pub oso_core::menu::MenuError::BadName
+pub oso_core::menu::MenuError::BadRow
+pub oso_core::menu::MenuError::BadSwitchName
+pub oso_core::menu::MenuError::Cancel
+pub oso_core::menu::MenuError::DefaultTwice
+pub oso_core::menu::MenuError::KeyIsPrefix
+pub oso_core::menu::MenuError::KeyUsedTwice
+pub oso_core::menu::MenuError::LongLabel
+pub oso_core::menu::MenuError::LongTitle
+pub oso_core::menu::MenuError::NameTaken
+pub oso_core::menu::MenuError::NoGroup
+pub oso_core::menu::MenuError::NoKeys
+pub oso_core::menu::MenuError::NoSuchHead
+pub oso_core::menu::MenuError::ReservedKey
+pub oso_core::menu::MenuError::RetReserved
+pub oso_core::menu::MenuError::SwitchUsedTwice
+pub oso_core::menu::MenuError::TooManyColumns
+pub oso_core::menu::MenuError::TooManyHeads
+pub oso_core::menu::MenuError::TooManyKeys
+pub oso_core::menu::MenuError::TooManyMenus
+pub oso_core::menu::MenuError::WrongName
+impl core::clone::Clone for oso_core::menu::MenuError
+pub fn oso_core::menu::MenuError::clone(&self) -> oso_core::menu::MenuError
+impl core::cmp::Eq for oso_core::menu::MenuError
+impl core::cmp::PartialEq for oso_core::menu::MenuError
+pub fn oso_core::menu::MenuError::eq(&self, &oso_core::menu::MenuError) -> bool
+impl core::error::Error for oso_core::menu::MenuError
+impl core::fmt::Debug for oso_core::menu::MenuError
+pub fn oso_core::menu::MenuError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::menu::MenuError
+pub fn oso_core::menu::MenuError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::MenuError
+pub enum oso_core::menu::Stay
+pub oso_core::menu::Stay::Exit
+pub oso_core::menu::Stay::Stay
+impl core::clone::Clone for oso_core::menu::Stay
+pub fn oso_core::menu::Stay::clone(&self) -> oso_core::menu::Stay
+impl core::cmp::Eq for oso_core::menu::Stay
+impl core::cmp::PartialEq for oso_core::menu::Stay
+pub fn oso_core::menu::Stay::eq(&self, &oso_core::menu::Stay) -> bool
+impl core::default::Default for oso_core::menu::Stay
+pub fn oso_core::menu::Stay::default() -> oso_core::menu::Stay
+impl core::fmt::Debug for oso_core::menu::Stay
+pub fn oso_core::menu::Stay::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::menu::Stay
+impl core::marker::StructuralPartialEq for oso_core::menu::Stay
+pub struct oso_core::menu::Column
+pub oso_core::menu::Column::keys: usize
+pub oso_core::menu::Column::more: usize
+pub oso_core::menu::Column::rows: alloc::vec::Vec<(usize, oso_core::frame::CellRect)>
+pub oso_core::menu::Column::title: core::option::Option<oso_core::frame::CellRect>
+impl core::clone::Clone for oso_core::menu::Column
+pub fn oso_core::menu::Column::clone(&self) -> oso_core::menu::Column
+impl core::cmp::Eq for oso_core::menu::Column
+impl core::cmp::PartialEq for oso_core::menu::Column
+pub fn oso_core::menu::Column::eq(&self, &oso_core::menu::Column) -> bool
+impl core::fmt::Debug for oso_core::menu::Column
+pub fn oso_core::menu::Column::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::Column
+pub struct oso_core::menu::Definition
+impl oso_core::menu::Definition
+pub fn oso_core::menu::Definition::add_group(&mut self, core::option::Option<&str>, u8) -> core::result::Result<(), oso_core::menu::MenuError>
+pub fn oso_core::menu::Definition::add_head(&mut self, oso_core::menu::Head) -> core::result::Result<usize, oso_core::menu::MenuError>
+pub fn oso_core::menu::Definition::default_stay(&self) -> oso_core::menu::Stay
+pub fn oso_core::menu::Definition::describe(&self) -> core::option::Option<oso_core::menu::Describe>
+pub fn oso_core::menu::Definition::foreign_keys(&self) -> oso_core::menu::ForeignKeys
+pub fn oso_core::menu::Definition::groups(&self) -> &[oso_core::menu::Group]
+pub fn oso_core::menu::Definition::heads(&self) -> &[oso_core::menu::Head]
+pub fn oso_core::menu::Definition::lookup(&self, &[oso_core::key::KeyPress]) -> oso_core::menu::Lookup
+pub fn oso_core::menu::Definition::name(&self) -> &str
+pub fn oso_core::menu::Definition::new(&str, &str) -> core::result::Result<Self, oso_core::menu::MenuError>
+pub fn oso_core::menu::Definition::quits_on_q(&self) -> bool
+pub fn oso_core::menu::Definition::ret_head(&self) -> core::option::Option<usize>
+pub fn oso_core::menu::Definition::set_default_stay(&mut self, oso_core::menu::Stay)
+pub fn oso_core::menu::Definition::set_describe(&mut self, oso_core::menu::Describe)
+pub fn oso_core::menu::Definition::set_foreign_keys(&mut self, oso_core::menu::ForeignKeys)
+pub fn oso_core::menu::Definition::set_ret_head(&mut self, usize) -> core::result::Result<(), oso_core::menu::MenuError>
+pub fn oso_core::menu::Definition::stay(&self, usize) -> oso_core::menu::Stay
+pub fn oso_core::menu::Definition::title(&self) -> &str
+impl core::clone::Clone for oso_core::menu::Definition
+pub fn oso_core::menu::Definition::clone(&self) -> oso_core::menu::Definition
+impl core::fmt::Debug for oso_core::menu::Definition
+pub fn oso_core::menu::Definition::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::menu::Group
+impl oso_core::menu::Group
+pub fn oso_core::menu::Group::heads(&self) -> core::ops::range::Range<usize>
+pub fn oso_core::menu::Group::row(&self) -> u8
+pub fn oso_core::menu::Group::title(&self) -> core::option::Option<&str>
+impl core::clone::Clone for oso_core::menu::Group
+pub fn oso_core::menu::Group::clone(&self) -> oso_core::menu::Group
+impl core::cmp::Eq for oso_core::menu::Group
+impl core::cmp::PartialEq for oso_core::menu::Group
+pub fn oso_core::menu::Group::eq(&self, &oso_core::menu::Group) -> bool
+impl core::fmt::Debug for oso_core::menu::Group
+pub fn oso_core::menu::Group::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::Group
+pub struct oso_core::menu::Head
+pub oso_core::menu::Head::action: oso_core::menu::HeadAction
+pub oso_core::menu::Head::count: core::option::Option<i16>
+pub oso_core::menu::Head::keys: oso_core::key::KeySequence
+pub oso_core::menu::Head::label: alloc::string::String
+pub oso_core::menu::Head::stay: core::option::Option<oso_core::menu::Stay>
+impl core::clone::Clone for oso_core::menu::Head
+pub fn oso_core::menu::Head::clone(&self) -> oso_core::menu::Head
+impl core::cmp::Eq for oso_core::menu::Head
+impl core::cmp::PartialEq for oso_core::menu::Head
+pub fn oso_core::menu::Head::eq(&self, &oso_core::menu::Head) -> bool
+impl core::fmt::Debug for oso_core::menu::Head
+pub fn oso_core::menu::Head::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::Head
+pub struct oso_core::menu::Layout
+pub oso_core::menu::Layout::columns: alloc::vec::Vec<oso_core::menu::Column>
+pub oso_core::menu::Layout::inner: oso_core::frame::CellRect
+pub oso_core::menu::Layout::line: core::option::Option<oso_core::frame::CellRect>
+pub oso_core::menu::Layout::outer: oso_core::frame::CellRect
+pub oso_core::menu::Layout::quit: core::option::Option<oso_core::frame::CellRect>
+pub oso_core::menu::Layout::title: oso_core::frame::CellRect
+impl core::clone::Clone for oso_core::menu::Layout
+pub fn oso_core::menu::Layout::clone(&self) -> oso_core::menu::Layout
+impl core::cmp::Eq for oso_core::menu::Layout
+impl core::cmp::PartialEq for oso_core::menu::Layout
+pub fn oso_core::menu::Layout::eq(&self, &oso_core::menu::Layout) -> bool
+impl core::fmt::Debug for oso_core::menu::Layout
+pub fn oso_core::menu::Layout::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::Layout
+pub struct oso_core::menu::MenuId(_)
+impl core::clone::Clone for oso_core::menu::MenuId
+pub fn oso_core::menu::MenuId::clone(&self) -> oso_core::menu::MenuId
+impl core::cmp::Eq for oso_core::menu::MenuId
+impl core::cmp::PartialEq for oso_core::menu::MenuId
+pub fn oso_core::menu::MenuId::eq(&self, &oso_core::menu::MenuId) -> bool
+impl core::fmt::Debug for oso_core::menu::MenuId
+pub fn oso_core::menu::MenuId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::menu::MenuId
+pub fn oso_core::menu::MenuId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::menu::MenuId
+impl core::marker::StructuralPartialEq for oso_core::menu::MenuId
+pub struct oso_core::menu::Menus
+impl oso_core::menu::Menus
+pub fn oso_core::menu::Menus::define(&mut self, oso_core::menu::MenuId, oso_core::menu::Definition) -> core::result::Result<(), oso_core::menu::MenuError>
+pub fn oso_core::menu::Menus::get(&self, oso_core::menu::MenuId) -> core::option::Option<&alloc::sync::Arc<oso_core::menu::Definition>>
+pub fn oso_core::menu::Menus::id(&mut self, &str) -> core::result::Result<oso_core::menu::MenuId, oso_core::menu::MenuError>
+pub fn oso_core::menu::Menus::is_empty(&self) -> bool
+pub fn oso_core::menu::Menus::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::menu::MenuId, &oso_core::menu::Definition)>
+pub fn oso_core::menu::Menus::len(&self) -> usize
+pub fn oso_core::menu::Menus::lookup(&self, &str) -> core::option::Option<oso_core::menu::MenuId>
+pub fn oso_core::menu::Menus::new() -> Self
+pub fn oso_core::menu::Menus::remove(&mut self, oso_core::menu::MenuId)
+impl core::clone::Clone for oso_core::menu::Menus
+pub fn oso_core::menu::Menus::clone(&self) -> oso_core::menu::Menus
+impl core::default::Default for oso_core::menu::Menus
+pub fn oso_core::menu::Menus::default() -> oso_core::menu::Menus
+impl core::fmt::Debug for oso_core::menu::Menus
+pub fn oso_core::menu::Menus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::menu::Note
+pub oso_core::menu::Note::hidden: bool
+pub oso_core::menu::Note::text: alloc::string::String
+pub oso_core::menu::Note::unavailable: core::option::Option<alloc::string::String>
+impl core::clone::Clone for oso_core::menu::Note
+pub fn oso_core::menu::Note::clone(&self) -> oso_core::menu::Note
+impl core::cmp::Eq for oso_core::menu::Note
+impl core::cmp::PartialEq for oso_core::menu::Note
+pub fn oso_core::menu::Note::eq(&self, &oso_core::menu::Note) -> bool
+impl core::default::Default for oso_core::menu::Note
+pub fn oso_core::menu::Note::default() -> oso_core::menu::Note
+impl core::fmt::Debug for oso_core::menu::Note
+pub fn oso_core::menu::Note::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::Note
+pub struct oso_core::menu::Notes
+pub oso_core::menu::Notes::heads: alloc::vec::Vec<(usize, oso_core::menu::Note)>
+pub oso_core::menu::Notes::line: core::option::Option<alloc::string::String>
+pub oso_core::menu::Notes::ret_head: core::option::Option<usize>
+impl oso_core::menu::Notes
+pub fn oso_core::menu::Notes::get(&self, usize) -> core::option::Option<&oso_core::menu::Note>
+impl core::clone::Clone for oso_core::menu::Notes
+pub fn oso_core::menu::Notes::clone(&self) -> oso_core::menu::Notes
+impl core::cmp::Eq for oso_core::menu::Notes
+impl core::cmp::PartialEq for oso_core::menu::Notes
+pub fn oso_core::menu::Notes::eq(&self, &oso_core::menu::Notes) -> bool
+impl core::default::Default for oso_core::menu::Notes
+pub fn oso_core::menu::Notes::default() -> oso_core::menu::Notes
+impl core::fmt::Debug for oso_core::menu::Notes
+pub fn oso_core::menu::Notes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::menu::Notes
+pub struct oso_core::menu::Open
+impl oso_core::menu::Open
+pub fn oso_core::menu::Open::definition(&self) -> &oso_core::menu::Definition
+pub fn oso_core::menu::Open::flip(&mut self, &str) -> bool
+pub fn oso_core::menu::Open::new(alloc::sync::Arc<oso_core::menu::Definition>) -> Self
+pub fn oso_core::menu::Open::switch(&self, &str) -> bool
+pub fn oso_core::menu::Open::switches_on(&self) -> impl core::iter::traits::iterator::Iterator<Item = &str>
+impl core::clone::Clone for oso_core::menu::Open
+pub fn oso_core::menu::Open::clone(&self) -> oso_core::menu::Open
+impl core::fmt::Debug for oso_core::menu::Open
+pub fn oso_core::menu::Open::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_core::menu::MAX_COLUMNS: usize
+pub const oso_core::menu::MAX_COUNT: i16
+pub const oso_core::menu::MAX_DEPTH: usize
+pub const oso_core::menu::MAX_HEADS: usize
+pub const oso_core::menu::MAX_KEYS: usize
+pub const oso_core::menu::MAX_LABEL_CELLS: usize
+pub const oso_core::menu::MAX_MENUS: usize
+pub const oso_core::menu::MAX_NAME_BYTES: usize
+pub const oso_core::menu::MAX_ROWS: u8
+pub fn oso_core::menu::layout(&oso_core::menu::Definition, &oso_core::menu::Notes, &[core::option::Option<bool>], oso_core::frame::CellRect) -> oso_core::menu::Layout
+pub type oso_core::menu::Describe = fn(&oso_core::editor::Editor, &oso_core::menu::Open) -> oso_core::menu::Notes
 pub mod oso_core::minibuffer
 pub enum oso_core::minibuffer::Kind
 pub oso_core::minibuffer::Kind::Complete

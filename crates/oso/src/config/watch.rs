@@ -24,7 +24,7 @@ use oso_platform::file_meta::open_for_reading;
 use oso_platform::privacy::{self, Writers};
 
 use super::agent_rules::{RulesReport, RulesWatch};
-use super::{Loaded, STACK, Source, parse};
+use super::{Builtin, Loaded, STACK, Source, parse};
 use crate::loader::{same_file, stamp_of};
 use crate::{bindings, commands};
 
@@ -188,6 +188,7 @@ fn run(file: &Path, rules: Option<RulesWatch>, shared: &Shared) {
 fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
     let registry = commands::registry();
     let defaults = bindings::global_keymap(&registry);
+    let menus = bindings::menus(&registry);
     let themes: Vec<&str> = oso_render::theme::themes()
         .iter()
         .map(|theme| theme.name())
@@ -202,7 +203,13 @@ fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
             let (report, saying) = match &now {
                 Seen::Missing => (Report::Missing, Said::Missing),
                 Seen::Stamp(_) | Seen::Unknown(_) => {
-                    match read_and_parse(file, &registry, &defaults, &themes) {
+                    let builtin = Builtin {
+                        registry: &registry,
+                        defaults: &defaults,
+                        menus: &menus,
+                        themes: &themes,
+                    };
+                    match read_and_parse(file, builtin) {
                         (Report::Refused(why), _) => (
                             Report::Refused(why.clone()),
                             Said::Refused(why, now.clone()),
@@ -237,17 +244,12 @@ fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
 }
 
 /// Reads `file` and parses it, with a hash of what was read, to tell new text from old.
-fn read_and_parse(
-    file: &Path,
-    registry: &oso_core::command::Registry,
-    defaults: &oso_core::keymap::Keymap,
-    themes: &[&str],
-) -> (Report, u64) {
+fn read_and_parse(file: &Path, builtin: Builtin<'_>) -> (Report, u64) {
     let read = catch_unwind(AssertUnwindSafe(|| match read(file) {
         Ok((text, group_writes)) => {
             let mut hash = DefaultHasher::new();
             (&text, group_writes).hash(&mut hash);
-            let mut loaded = parse(&text, registry, defaults, themes);
+            let mut loaded = parse(&text, builtin);
             if may_hold_secrets(file) {
                 for problem in &mut loaded.problems {
                     problem.message = WITHHELD.to_owned();

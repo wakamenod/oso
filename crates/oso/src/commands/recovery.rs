@@ -15,6 +15,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: recover_session,
+        state: None,
     },
     Command {
         name: "emergency-copy-view",
@@ -22,6 +23,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: view,
+        state: None,
     },
     Command {
         name: "emergency-copy-compare",
@@ -29,6 +31,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: compare,
+        state: None,
     },
     Command {
         name: "emergency-copy-recover",
@@ -36,6 +39,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: recover,
+        state: None,
     },
     Command {
         name: "emergency-copy-delete",
@@ -43,6 +47,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: delete,
+        state: None,
     },
     Command {
         name: "emergency-copies-refresh",
@@ -50,6 +55,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: refresh,
+        state: None,
     },
     Command {
         name: "emergency-copies-back",
@@ -57,6 +63,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: back,
+        state: None,
     },
 ];
 

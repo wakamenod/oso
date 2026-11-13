@@ -18,6 +18,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Change,
         run: save_buffer,
+        state: None,
     },
     Command {
         name: "save-buffer-the-agent-opened",
@@ -25,6 +26,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffer_the_agent_opened,
+        state: None,
     },
     Command {
         name: "revert-buffer",
@@ -33,6 +35,7 @@ pub const COMMANDS: &[Command] = &[
         // It discards edits after a question, which stays the person's.
         reach: Reach::Person,
         run: revert_buffer,
+        state: None,
     },
 ];
 

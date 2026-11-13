@@ -21,6 +21,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: set_mark_command,
+        state: None,
     },
     Command {
         name: "exchange-point-and-mark",
@@ -28,6 +29,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: exchange_point_and_mark,
+        state: None,
     },
     Command {
         name: "pop-to-mark-command",
@@ -35,6 +37,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: pop_to_mark_command,
+        state: None,
     },
     Command {
         name: "mark-whole-buffer",
@@ -42,6 +45,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: mark_whole_buffer,
+        state: None,
     },
     Command {
         name: "consult-mark",
@@ -51,6 +55,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: consult_mark,
+        state: None,
     },
 ];
 

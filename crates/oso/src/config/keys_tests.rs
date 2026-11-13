@@ -29,13 +29,13 @@ fn bad_entries_are_skipped_with_a_message_and_the_rest_applies() {
     assert_eq!(
         messages(&loaded),
         [
-            r#"3:11: "C-c b": a key takes a command's name or false, not a number"#,
+            r#"3:11: "C-c b": a key takes a command's name, { menu = "name" } or false, not a number"#,
             r#"4:11: "C-c c": no command is named "no-such-command""#,
             r#"5:11: "C-c d": true binds nothing; give a command's name, or false to unbind"#,
             r#"6:1: "C-c foo": "foo" is not a key; write keys as Emacs does, such as C-x, M-<f5> or SPC"#,
             r#"7:1: "C-c S-1": "S-1" is not a key; write keys as Emacs does, such as C-x, M-<f5> or SPC"#,
             r#"8:1: "": no keys"#,
-            r#"9:11: "C-c e": a key takes a command's name or false, not a list"#,
+            r#"9:11: "C-c e": a key takes a command's name, { menu = "name" } or false, not a list"#,
         ]
     );
     let user = keys(&loaded);
@@ -252,7 +252,7 @@ fn of_entries_that_conflict_an_unbinding_wins_then_the_shorter_one() {
     assert_eq!(
         messages(&loaded),
         [
-            r#"2:1: "C-c x a": "C-c x" is bound to a command here, so it cannot be a prefix; skipped"#,
+            r#"2:1: "C-c x a": "C-c x" is bound to a command or a menu here, so it cannot be a prefix; skipped"#,
             r#"5:1: "C-c y": these keys are set more than once; skipped"#,
             r#"7:1: "C-c z": other entries set keys after these; skipped"#,
         ]

@@ -35,6 +35,7 @@ pub use hold_all::{Cancelled, holds_input};
 mod jump;
 mod keymaps;
 mod macros;
+mod menus;
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
 mod run_command;
@@ -79,6 +80,8 @@ pub struct Dispatcher {
     user_waiting: Option<Keymap>,
     /// The user's keymaps waiting ones replaced, for the caller to drop elsewhere.
     replaced: Vec<Keymap>,
+    /// The menus in force, which go in with the user's keymap (ADR 0117).
+    menus: menus::MenuSet,
     /// The command that ran last, with no undefined or cancelled key since, and
     /// how many times in a row it had run before that.
     last: Option<(CommandId, usize)>,
@@ -118,6 +121,7 @@ impl Dispatcher {
     pub fn with(registry: Registry, global: Keymap) -> Self {
         let keymaps = Keymaps::new(&registry, global);
         let macros = macros::MacroInput::new(&registry);
+        let menus = menus::MenuSet::new(bindings::menus(&registry));
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]
@@ -139,6 +143,7 @@ impl Dispatcher {
             prefix: None,
             user_waiting: None,
             replaced: Vec::new(),
+            menus,
             last: None,
             publisher: None,
             waiting: None,
@@ -236,9 +241,11 @@ impl Dispatcher {
     /// Puts in the user's keymap that waited for a prefix key, once none is pending. The one
     /// it replaces waits in turn, for [`Dispatcher::take_replaced_keymap`].
     fn take_waiting_user(&mut self) {
-        if self.resolver.pending().is_empty()
-            && let Some(user) = self.user_waiting.take()
-        {
+        if !self.resolver.pending().is_empty() {
+            return;
+        }
+        self.menus.take_waiting();
+        if let Some(user) = self.user_waiting.take() {
             let old = std::mem::replace(&mut self.keymaps.user, user);
             self.replaced.push(old);
         }
@@ -519,9 +526,8 @@ impl Dispatcher {
                 log::debug!("{}-", masked(self.resolver.pending(), true));
                 return Effects::default();
             }
-            Resolution::Unbound(_) if editor.jump().is_some() => {
-                return self.jump_unbound(editor);
-            }
+            Resolution::Menu(menu) => return self.menu_key(editor, menu),
+            Resolution::Unbound(_) if editor.jump().is_some() => return self.jump_unbound(editor),
             Resolution::Unbound(keys)
                 if editor.isearch().is_some() || editor.replace().is_some() =>
             {
@@ -636,6 +642,8 @@ mod kill_tests;
 mod macro_tests;
 #[cfg(test)]
 mod mark_tests;
+#[cfg(test)]
+mod menu_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]
@@ -930,6 +938,7 @@ mod tests {
             args: ArgSpec::None,
             reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, true),
+            state: None,
         };
         let plain_command = Command {
             name: "show-plain",
@@ -937,6 +946,7 @@ mod tests {
             args: ArgSpec::None,
             reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, false),
+            state: None,
         };
         registry
             .register_all(&[secret_command, plain_command])
@@ -992,6 +1002,7 @@ mod tests {
                 args: ArgSpec::None,
                 reach: oso_core::command::Reach::Look,
                 run: explode,
+                state: None,
             })
             .unwrap();
         let global =
@@ -1058,6 +1069,7 @@ mod tests {
                 args: ArgSpec::None,
                 reach: oso_core::command::Reach::Look,
                 run: explode,
+                state: None,
             })
             .unwrap();
         let mut dispatcher = Dispatcher::with(registry, Keymap::new());

@@ -18,6 +18,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: exit_minibuffer_input,
+        state: None,
     },
     Command {
         name: "execute-extended-command",
@@ -28,6 +29,7 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: execute_extended_command,
+        state: None,
     },
     Command {
         name: "next-completion",
@@ -35,6 +37,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: next_completion,
+        state: None,
     },
     Command {
         name: "previous-completion",
@@ -42,6 +45,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: previous_completion,
+        state: None,
     },
     Command {
         name: "first-completion",
@@ -49,6 +53,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: first_completion,
+        state: None,
     },
     Command {
         name: "last-completion",
@@ -56,6 +61,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: last_completion,
+        state: None,
     },
     Command {
         name: "scroll-completions-up",
@@ -63,6 +69,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: scroll_completions_up,
+        state: None,
     },
     Command {
         name: "scroll-completions-down",
@@ -70,6 +77,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: scroll_completions_down,
+        state: None,
     },
     Command {
         name: "insert-completion",
@@ -77,6 +85,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Person,
         run: insert_completion,
+        state: None,
     },
 ];
 

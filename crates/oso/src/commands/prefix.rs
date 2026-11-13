@@ -19,6 +19,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: universal_argument,
+        state: None,
     },
     Command {
         name: "digit-argument",
@@ -26,6 +27,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Key,
         reach: Reach::Person,
         run: digit_argument,
+        state: None,
     },
     Command {
         name: "negative-argument",
@@ -33,6 +35,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: negative_argument,
+        state: None,
     },
 ];
 

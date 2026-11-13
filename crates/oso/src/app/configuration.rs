@@ -10,9 +10,10 @@
 use std::path::PathBuf;
 
 use oso_core::keymap::Keymap;
+use oso_core::menu::Menus;
 
 use super::{App, UserEvent};
-use crate::config::{InForce, Look, MODES, Reader, Settings, Source, outcome};
+use crate::config::{InForce, Look, MODES, Reader, Report, Settings, Source, outcome};
 
 /// The configuration's thread, what has been said of the file, and the settings in force.
 pub(super) struct Configuration {
@@ -154,9 +155,15 @@ impl App {
         let Some((report, launch)) = configuration.reader.as_ref().and_then(Reader::take) else {
             return;
         };
+        let mut report = report;
+        // The menus go in with the keys that name them; with no file, the built-in ones.
+        let menus = match &mut report {
+            Report::Read { loaded, .. } => loaded.menus.take(),
+            Report::Missing | Report::Refused(_) => None,
+        };
         let mut outcome = outcome(report, &configuration.name, configuration.troubled);
         if let Some(keys) = outcome.keys.take() {
-            self.replace_user_keymap(keys);
+            self.replace_user_keymap(keys, menus);
         }
         if let Some(settings) = outcome.settings.take() {
             let look = Look {
@@ -238,7 +245,10 @@ impl App {
 
     /// Puts in the user's keys, and drops those they replace on the freeing thread: a large
     /// keymap takes milliseconds to drop.
-    fn replace_user_keymap(&mut self, keys: Keymap) {
+    fn replace_user_keymap(&mut self, keys: Keymap, menus: Option<Menus>) {
+        if let Some(old) = self.dispatcher.set_menus(menus) {
+            self.freer.free(old);
+        }
         if let Some(old) = self.dispatcher.set_user_keymap(keys) {
             self.freer.free(old);
         }
@@ -247,6 +257,9 @@ impl App {
     /// Drops on the freeing thread the user's keymaps that ones waiting for a prefix key replaced.
     pub(super) fn free_replaced_keymap(&mut self) {
         while let Some(old) = self.dispatcher.take_replaced_keymap() {
+            self.freer.free(old);
+        }
+        while let Some(old) = self.dispatcher.take_replaced_menus() {
             self.freer.free(old);
         }
     }
