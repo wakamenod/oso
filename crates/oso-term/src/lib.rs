@@ -25,11 +25,11 @@
 )]
 
 mod engine;
-pub mod event;
+mod event;
 pub mod limits;
 mod policy;
-pub mod snapshot;
-pub mod terminal;
+mod snapshot;
+mod terminal;
 
 pub use event::{End, Event, Progress, Prompt};
 pub use snapshot::{

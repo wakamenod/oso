@@ -79,12 +79,21 @@ impl Seen {
                 self.screen
                     .resize(usize::from(snapshot.size.rows), String::new());
                 for row in &snapshot.rows {
-                    let line: String = row
-                        .cells
-                        .iter()
-                        .filter(|c| !c.attrs.contains(Attrs::WIDE_SPACER))
-                        .map(|c| c.ch)
-                        .collect();
+                    let mut line = String::new();
+                    for (column, cell) in row.cells.iter().enumerate() {
+                        if cell.attrs.contains(Attrs::WIDE_SPACER) {
+                            continue;
+                        }
+                        let cluster = row
+                            .graphemes
+                            .iter()
+                            .find(|g| usize::from(g.0) == column)
+                            .and_then(|(_, at)| row.text.get(at.start as usize..at.end as usize));
+                        match cluster {
+                            Some(text) => line.push_str(text),
+                            None => line.push(cell.ch),
+                        }
+                    }
                     if let Some(at) = self.screen.get_mut(usize::from(row.index)) {
                         *at = line.trim_end().to_owned();
                     }
@@ -118,6 +127,20 @@ fn output_reaches_a_snapshot_and_the_end_carries_the_status() {
         Some(End::Exited(status)) => assert_eq!(status.code(), Some(3)),
         other => panic!("{other:?}"),
     }
+}
+
+#[test]
+fn clusters_keep_their_text_across_recycled_snapshots() {
+    // e + U+0301, then u + U+0308, each a cluster of two code points, in two snapshots.
+    let mut seen = Seen::start(sh(
+        "printf 'e\\314\\201 one\\n'; read line; printf 'u\\314\\210 two\\n'",
+    ));
+    seen.until(|s| s.shows("one"));
+    assert!(seen.shows("e\u{301} one"), "{:?}", seen.screen);
+    seen.terminal.send(b"\r".to_vec()).expect("queued");
+    seen.until(|s| s.shows("two"));
+    assert!(seen.shows("u\u{308} two"), "{:?}", seen.screen);
+    assert!(seen.shows("e\u{301} one"), "{:?}", seen.screen);
 }
 
 #[test]

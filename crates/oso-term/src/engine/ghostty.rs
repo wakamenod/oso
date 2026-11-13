@@ -89,6 +89,7 @@ impl Ghostty {
         row.index = index;
         row.wrapped = self.vt.row(&mut self.raw);
         row.cells.clear();
+        row.text.clear();
         row.graphemes.clear();
         // Id 0 never enters the cache: it is the default style.
         self.styles.fill((0, Cell::default()));
@@ -132,8 +133,13 @@ impl Ghostty {
             if tag == ffi::CELL_CONTENT_CODEPOINT_GRAPHEME {
                 cell.attrs = cell.attrs.with(Attrs::GRAPHEME);
                 let len = self.vt.grapheme(column, &mut self.grapheme);
-                let text = String::from_utf8_lossy(&self.grapheme[..len]).into_owned();
-                row.graphemes.push((column, text));
+                // Borrowed, not copied, when the bytes are UTF-8, as the library's are.
+                let start = row.text.len();
+                row.text
+                    .push_str(&String::from_utf8_lossy(&self.grapheme[..len]));
+                // At most columns × GRAPHEME_MAX × 3 bytes (each byte lossy-replaced): u32.
+                let range = start as u32..row.text.len() as u32;
+                row.graphemes.push((column, range));
             }
             row.cells.push(cell);
         }

@@ -98,7 +98,11 @@ fn wide_characters_take_two_cells_and_clusters_keep_their_text() {
     assert!(row.cells[1].attrs.contains(Attrs::WIDE_SPACER));
     assert_eq!(row.cells[2].ch, 'a');
     assert!(row.cells[3].attrs.contains(Attrs::GRAPHEME));
-    let texts: Vec<&str> = row.graphemes.iter().map(|(_, t)| t.as_str()).collect();
+    let texts: Vec<&str> = row
+        .graphemes
+        .iter()
+        .map(|(_, at)| &row.text[at.start as usize..at.end as usize])
+        .collect();
     assert!(texts.contains(&"\u{1F1EF}\u{1F1F5}"), "{texts:?}");
     assert!(texts.contains(&"e\u{301}"), "{texts:?}");
 }
@@ -201,6 +205,23 @@ fn spare_rows_are_reused() {
     e.feed(b"\x1b[2J");
     e.snapshot(&mut out, &mut spare);
     assert_eq!(out.rows.len(), 3);
+    assert!(spare.is_empty());
+}
+
+#[test]
+fn a_reused_row_keeps_no_cluster_text_of_its_last_use() {
+    let mut e = engine(10, 1);
+    let mut out = Snapshot::new(size(1, 1));
+    let mut spare = Vec::new();
+    e.feed("e\u{301}a\u{1F1EF}\u{1F1F5}".as_bytes());
+    e.snapshot(&mut out, &mut spare);
+    assert_eq!(out.rows[0].graphemes.len(), 1, "{:?}", out.rows[0]);
+    out.clear(&mut spare);
+    e.feed("\ru\u{308}".as_bytes());
+    e.snapshot(&mut out, &mut spare);
+    let row = &out.rows[0];
+    assert_eq!(row.text, "u\u{308}");
+    assert_eq!(row.graphemes, [(0, 0..3)]);
     assert!(spare.is_empty());
 }
 

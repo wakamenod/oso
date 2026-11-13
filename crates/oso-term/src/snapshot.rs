@@ -4,6 +4,8 @@
 //!
 //! Must not depend on: the engine, the policy or the thread.
 
+use std::ops::Range;
+
 use oso_platform::process::pty::Size;
 
 use crate::event::Event;
@@ -55,8 +57,10 @@ pub struct Row {
     pub cells: Vec<Cell>,
     /// The row's line goes on in the next row: a soft wrap.
     pub wrapped: bool,
-    /// The text of each cell that holds more than one code point, by column.
-    pub graphemes: Vec<(u16, String)>,
+    /// The text of every cell that holds more than one code point, one after another.
+    pub text: String,
+    /// Each such cell's column and its text's bytes in `text`, by column.
+    pub graphemes: Vec<(u16, Range<u32>)>,
 }
 
 /// A cell. The second cell of a wide character is `Attrs::WIDE_SPACER`.
@@ -139,7 +143,8 @@ impl Attrs {
     pub const WIDE: Attrs = Attrs(1 << 8);
     /// The cell after a wide character's first.
     pub const WIDE_SPACER: Attrs = Attrs(1 << 9);
-    /// The cell holds more than one code point; its text is in `Row::graphemes`.
+    /// The cell holds more than one code point; its text is in `Row::text`, at the
+    /// range `Row::graphemes` gives for its column.
     pub const GRAPHEME: Attrs = Attrs(1 << 10);
 
     /// Whether every flag of `other` is set.

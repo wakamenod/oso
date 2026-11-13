@@ -88,6 +88,56 @@ mod table {
         nothing(&big);
     }
 
+    /// Kitty's clipboard protocol: a write opens, its text/plain data follows (the MIME
+    /// type in base64), and data without a type commits it.
+    fn osc_5522_write(id: &str, data: &[u8]) -> Vec<u8> {
+        let mut bytes = format!("\x1b]5522;type=write{id}\x1b\\").into_bytes();
+        bytes.extend(b"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;");
+        bytes.extend(data);
+        bytes.extend(b"\x1b\\\x1b]5522;type=wdata\x1b\\");
+        bytes
+    }
+
+    #[test]
+    fn osc_5522_writes_reach_the_kill_ring_and_get_no_reply() {
+        for id in ["", ":id=x-y"] {
+            let (replies, events) = feed(&osc_5522_write(id, b"aGVsbG8="));
+            assert!(
+                replies.is_empty(),
+                "{id} replied {:?}",
+                String::from_utf8_lossy(&replies)
+            );
+            assert!(
+                matches!(&events[..], [Event::ClipboardWrite(t)] if t == "hello"),
+                "{id}: {events:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn osc_5522_writes_over_one_mib_are_dropped() {
+        let data = vec![b'Q'; (1 << 20) / 3 * 4 + 8];
+        nothing(&osc_5522_write("", &data));
+    }
+
+    #[test]
+    fn osc_1337_copy_reaches_the_kill_ring_and_gets_no_reply() {
+        for end in [&b"\x07"[..], b"\x1b\\"] {
+            let mut bytes = b"\x1b]1337;Copy=:aGVsbG8=".to_vec();
+            bytes.extend(end);
+            let (replies, events) = feed(&bytes);
+            assert!(
+                replies.is_empty(),
+                "replied {:?}",
+                String::from_utf8_lossy(&replies)
+            );
+            assert!(
+                matches!(&events[..], [Event::ClipboardWrite(t)] if t == "hello"),
+                "{events:?}"
+            );
+        }
+    }
+
     #[test]
     fn titles_are_shown_cleaned_and_cut() {
         let (_, events) = feed(b"\x1b]2;make \xe2\x80\xae build\x07");
