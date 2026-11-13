@@ -2,7 +2,7 @@
 //! removes one, in ADR 0121's order: a linked worktree of this repository; nothing uncommitted
 //! or untracked; no unsaved buffer or unsent brief; no busy session; its branch merged.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; [`look`] runs on a
+//! Must not depend on: `app`, `dispatch` or the UI thread; [`look`] runs on a
 //! worktree job's thread, and what only the UI thread knows (buffers, hosted sessions) comes
 //! with the job as [`Held`].
 //!
@@ -27,9 +27,27 @@ pub struct Held {
     pub unsaved: usize,
     /// Whether a `*Brief*` for it is not sent yet.
     pub unsent: bool,
-    /// The hosted sessions in it that are working, need input or may have a background task,
-    /// by name.
+    /// The hosted sessions in it that count as busy (see [`busy`]), by name.
     pub busy: Vec<String>,
+}
+
+/// A hosted session that runs, as the UI thread sees it when a job is asked for. A failed or
+/// stopped session is never busy, so none is sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostedSession {
+    pub directory: PathBuf,
+    pub name: String,
+    /// Its `claude`'s process id, while it runs.
+    pub pid: Option<u32>,
+    /// The state its screen gives is idle or done.
+    pub settled: bool,
+}
+
+/// Whether a hosted session that runs is busy, for check 4 (the author's choice, ADR 0121):
+/// unless its screen's state is idle or done *and* Claude Code's registry says `idle` for its
+/// process (`registry_idle`). Each half alone can miss a turn or a background task.
+pub fn busy(session: &HostedSession, registry_idle: bool) -> bool {
+    !(session.settled && registry_idle)
 }
 
 /// A check that does not hold, by its number in ADR 0121's order.
@@ -90,6 +108,9 @@ pub struct Looked {
     pub ignored: Vec<PathBuf>,
     /// Sessions oso did not start that run in it, by name or process id.
     pub external: Vec<String>,
+    /// The hosted sessions in it that were busy when the job looked, by name: the registry's
+    /// half of check 4, which only the job reads.
+    pub busy: Vec<String>,
     /// The tip of its branch, when only a merged pull request can tell whether it is merged
     /// and a row's look left `gh` to be asked after every row.
     pub gh_pending: Option<String>,
@@ -122,6 +143,7 @@ pub fn look(
         merged: None,
         ignored: Vec::new(),
         external: Vec::new(),
+        busy: held.busy.clone(),
         gh_pending: None,
     };
     let git = repo.in_worktree(&looked.listed.path);
@@ -211,6 +233,9 @@ pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
     if let Some(check) = held_refusal(held) {
         return Some(check);
     }
+    if !looked.busy.is_empty() {
+        return Some(Check::Busy(looked.busy.clone()));
+    }
     if !looked.external.is_empty() {
         return Some(Check::External(looked.external.clone()));
     }
@@ -261,4 +286,36 @@ pub fn remove(repo: &Repo, path: &Path) -> Result<(), String> {
     run(repo.git(), &["worktree", "remove", "--", path], MAX_LISTING)
         .map(drop)
         .map_err(|e| said(&e))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{HostedSession, busy};
+
+    fn session(settled: bool) -> HostedSession {
+        HostedSession {
+            directory: PathBuf::from("/r/.claude/worktrees/a"),
+            name: "a".to_owned(),
+            pid: Some(42),
+            settled,
+        }
+    }
+
+    #[test]
+    fn a_working_session_is_busy_whatever_the_registry_says() {
+        assert!(busy(&session(false), true));
+        assert!(busy(&session(false), false));
+    }
+
+    #[test]
+    fn an_idle_screen_with_a_busy_registry_is_busy() {
+        assert!(busy(&session(true), false));
+    }
+
+    #[test]
+    fn idle_on_screen_and_in_the_registry_is_not_busy() {
+        assert!(!busy(&session(true), true));
+    }
 }

@@ -11,10 +11,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, SessionRequest};
 
+mod feed;
 mod hosting;
 mod tools;
+mod watch;
 mod worktrees;
 pub(super) use hosting::Hosting;
+pub(super) use watch::Watch;
 
 use super::{App, UserEvent, Waker};
 use crate::config::RulesReport;
@@ -71,6 +74,18 @@ impl App {
                     self.worktree_request(request);
                     continue;
                 }
+                // The list, spaces and live explain are carried out once sessions are fed
+                // (ADR 0121 step 3).
+                SessionRequest::ShowList
+                | SessionRequest::Switch(_)
+                | SessionRequest::NextWaiting
+                | SessionRequest::NextDone
+                | SessionRequest::Space(_)
+                | SessionRequest::Zoom
+                | SessionRequest::Explain(_)
+                | SessionRequest::Row { .. }
+                | SessionRequest::Regroup
+                | SessionRequest::Refresh => continue,
             };
             match &self.sessions {
                 Some(worker) => worker.send(job),
@@ -79,6 +94,7 @@ impl App {
                     .message("Sessions are not available: see the log"),
             }
         }
+        self.drop_unanswered_fork_offer();
     }
 
     /// The configuration's thread read the agent rules file: what it says goes to
@@ -114,6 +130,8 @@ impl App {
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
             }
+            // Its text is the screen's: never logged.
+            Out::Recap(..) => {}
         }
     }
 

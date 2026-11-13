@@ -3,7 +3,7 @@
 //! undocumented, so this is best effort: a line that does not parse, or parses into something
 //! else, is skipped, and nothing found means the brief leaves the line out.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; [`find`] and
+//! Must not depend on: `app`, `dispatch` or the UI thread; [`find`] and
 //! [`read_tail`] read the file system, so they run on the worker. Nothing here follows a link
 //! or starts anything, and what the transcript holds is untrusted.
 

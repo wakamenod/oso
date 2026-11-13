@@ -5,7 +5,7 @@
 //! `oso-sessions-git` threads, through `oso-platform::process`, only for a trusted project
 //! whose main repository is trusted too.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; the app asks for jobs and
+//! Must not depend on: `app`, `dispatch` or the UI thread; the app asks for jobs and
 //! carries out what they report.
 //!
 //! - `slug`: a branch's directory name, and where its worktree goes.

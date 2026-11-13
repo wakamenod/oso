@@ -1,6 +1,6 @@
 //! Worktree jobs on the pool over temporary repositories: a root no longer trusted, one put in
 //! its place, a worktree whose main repository is not trusted, and a removal that runs every
-//! check again.
+//! check again and waits for the app's word.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these ask the jobs as the app does, and read
 //! their reports.
@@ -149,6 +149,7 @@ fn a_removal_runs_every_check_again() {
     let why = removed(3).unwrap_err();
     assert!(why.contains("ignores more"), "{why}");
     assert!(made.path.is_dir(), "nothing was removed");
+    // The checks hold: the app is asked to clear it, and calls it off.
     jobs.remove(
         4,
         trust(),
@@ -156,7 +157,27 @@ fn a_removal_runs_every_check_again() {
         Snapshot::default(),
         Asked::Named(1),
     );
-    assert_eq!(removed(4), Ok(vec![std::path::PathBuf::from(".env")]));
+    match next(&got) {
+        Report::Clear { token: 4, go, .. } => drop(go),
+        other => panic!("{other:?}"),
+    }
+    assert!(removed(4).unwrap_err().contains("called off"));
+    assert!(made.path.is_dir(), "nothing was removed");
+    jobs.remove(
+        5,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(1),
+    );
+    match next(&got) {
+        Report::Clear { token: 5, path, go } => {
+            assert_eq!(path, made.path);
+            go.proceed();
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(removed(5), Ok(vec![std::path::PathBuf::from(".env")]));
     assert!(!made.path.exists());
 }
 

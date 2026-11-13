@@ -2,7 +2,7 @@
 //! reach and whether it asks the person, the loop guard, the person's refusals, and what the
 //! person's question says.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands`, threads or the disk; the app carries a
+//! Must not depend on: `app`, `dispatch`, threads or the disk; the app carries a
 //! call out and asks these rules first.
 //!
 //! - A tool that asks starts nothing until the person's `y`, from the window. No tool types

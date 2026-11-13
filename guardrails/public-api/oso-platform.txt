@@ -232,6 +232,22 @@ pub fn oso_platform::file_meta::open_for_writing(&std::path::Path) -> std::io::e
 pub fn oso_platform::file_meta::open_regular_here(&std::path::Path) -> std::io::error::Result<core::option::Option<(std::fs::File, std::fs::Metadata)>>
 pub fn oso_platform::file_meta::path_of_opened(&std::fs::File) -> std::io::error::Result<core::option::Option<std::path::PathBuf>>
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
+pub mod oso_platform::notify
+pub enum oso_platform::notify::Kind
+pub oso_platform::notify::Kind::Done
+pub oso_platform::notify::Kind::Failed
+pub oso_platform::notify::Kind::NeedsInput
+pub oso_platform::notify::Kind::ReadyForReview
+impl core::clone::Clone for oso_platform::notify::Kind
+pub fn oso_platform::notify::Kind::clone(&self) -> oso_platform::notify::Kind
+impl core::cmp::Eq for oso_platform::notify::Kind
+impl core::cmp::PartialEq for oso_platform::notify::Kind
+pub fn oso_platform::notify::Kind::eq(&self, &oso_platform::notify::Kind) -> bool
+impl core::fmt::Debug for oso_platform::notify::Kind
+pub fn oso_platform::notify::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::notify::Kind
+impl core::marker::StructuralPartialEq for oso_platform::notify::Kind
+pub fn oso_platform::notify::attention(oso_platform::notify::Kind, &str, &str)
 pub mod oso_platform::privacy
 pub enum oso_platform::privacy::Writers
 pub oso_platform::privacy::Writers::Anyone
@@ -391,7 +407,7 @@ pub fn oso_platform::process::Spawn<'a>::clone(&self) -> oso_platform::process::
 impl<'a> core::marker::Copy for oso_platform::process::Spawn<'a>
 pub fn oso_platform::process::account_shell() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::process::spawn(&oso_platform::process::Spawn<'_>) -> std::io::error::Result<std::process::Child>
-pub fn oso_platform::process::start_time(u32) -> core::option::Option<std::time::SystemTime>
+pub fn oso_platform::process::start_time(u32) -> std::io::error::Result<core::option::Option<std::time::SystemTime>>
 pub mod oso_platform::text
 pub enum oso_platform::text::GlyphFormat
 pub oso_platform::text::GlyphFormat::Color
@@ -565,6 +581,7 @@ pub oso_platform::window::Event::Resized
 pub oso_platform::window::Event::Resized::height: u32
 pub oso_platform::window::Event::Resized::width: u32
 pub oso_platform::window::Event::ScaleFactorChanged(f64)
+pub oso_platform::window::Event::Unfocused
 pub oso_platform::window::Event::Wheel
 pub oso_platform::window::Event::Wheel::at: core::option::Option<oso_platform::window::Position>
 pub oso_platform::window::Event::Wheel::delta: oso_platform::window::Wheel

@@ -130,8 +130,8 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 - **A session is a hosted `claude` in an oso terminal, plus its identity:** the session id, a name,
   the directory it runs in (a repository or a worktree), the transcript's path once found, the
   space it belongs to, and the session that started it, if any.
-- **`claude` (`Person`)** starts a session in the selected window's project root, else the buffer's
-  directory. With a prefix argument it asks for a name and a directory. The session's terminal is a
+- **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
+  directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
 - **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for
@@ -787,33 +787,65 @@ points:
   `--mcp-config` takes several values and would take a brief as one. A fork passes oso's new id
   with `--session-id`, which the CLI accepts only together with `--fork-session`. A test keeps the
   line to these flags only.
-- **The login-shell wrapper** is `SHELL -l -c 'exec "$0" "$@"' CLAUDE ARGS…` for a shell whose
-  file name is `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with
-  `$(…)`, backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments.
+- **The login-shell wrapper** is `SHELL -l -c SCRIPT CLAUDE ARGS…` for a shell whose file name is
+  `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with `$(…)`,
+  backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments. The
+  script runs `[sessions] claude` as given. Else it looks for `claude` on the `PATH` the login
+  shell set, as oso's own look does when the shell is not one of these: only in absolute
+  entries, and in none inside the session's directory, compared with links resolved.
   The shell is ADR 0120's: `[terminal] shell`, then `$SHELL`, then the account's, then `/bin/sh`.
 - **The registry reader** (`sessions::registry`) reads only names of the form `<digits>.json` in
   `$CLAUDE_CONFIG_DIR/sessions`, else `~/.claude/sessions`: at most 256 files of 64 KiB, opened
-  without following a link, and only the reading user's. oso never reads the `*.key` files. A
+  without following a link, and only the reading user's. oso never reads the `*.key` files.
+  Whether a session runs cannot be told, and a resume is refused with the fork offered, when the
+  directory has more entry files than are read, when oso's `CLAUDE_CONFIG_DIR` is not an
+  absolute path, or when there is no home. A
   process is live if `process::start_time` of its pid is within 2 s of the entry's `procStart`
   (the start as C `ctime` text in UTC), or, when that does not parse, within 10 s of `startedAt`
   (ms since the epoch). A process whose start cannot be told counts as live, so a resume is
-  refused rather than risked. Step 1 reads it only before and 5 s after a resume; the poll comes
+  refused rather than risked: an entry with neither field, and a pid the system gives no start
+  time for, though it may run. Step 1 reads it only before and 5 s after a resume; the poll comes
   with step 3's list.
-- **`oso-platform` gained `process::start_time(pid: u32) -> Option<SystemTime>`,** with 3
-  `unsafe` blocks, each with its `// SAFETY:` comment: `proc_pidinfo` and reading its result on
-  macOS, and `sysconf(_SC_CLK_TCK)` on Linux.
+- **`oso-platform` gained `process::start_time(pid: u32) -> io::Result<Option<SystemTime>>`,**
+  with 3 `unsafe` blocks, each with its `// SAFETY:` comment: `proc_pidinfo` and reading its
+  result on macOS, and `sysconf(_SC_CLK_TCK)` on Linux. `Ok(None)` is no such process; an error
+  is a process the system does not say the start of, such as another user's, or any process on
+  a system it does not support, and the registry reader counts it as live.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
   directory, project root, parent, pin and archive marks, last change and the baseline's tree:
   at most 256 sessions and 256 KiB, private, refused if a link or another user's, written to a
   part file and renamed. A write reads the file again first and keeps the ids this instance never
-  knew, so two instances do not drop each other's sessions. It is read and written on the
+  knew, so two instances do not drop each other's sessions. It keeps the sessions that changed
+  last, and stops before a line that would take the file past 256 KiB, so every file written
+  can be read back. The table oso holds keeps 256 too: past that, the sessions that do not run
+  go, archived ones first, then unpinned ones, the oldest change first; a buffer whose session
+  went says `forgotten` in its modeline. It is read and written on the
   `oso-sessions` worker (`Job::Recall`, `Job::Remember`).
 - **The start thread** (`oso-session-start`, one per start) makes the id, checks the directory and
   `[sessions] claude`, reads the registry before a resume and 5 s after it, finds the shell, and
   in a trusted project takes ADR 0122's baseline, waiting at most 2 s; past that, `claude` starts
-  and the baseline follows.
+  and the baseline follows. Only `claude` takes a baseline, and only when the session runs at
+  the root of the selected buffer's trusted project: a resume, a fork, and `C-u claude` in
+  another directory take none. It then starts the session's `oso_term::Terminal` itself, so the UI
+  thread never waits on the spawn. The shell is found by the same function as a terminal's
+  (`terminal::hosted::find_shell`), and the app puts the terminal in its buffer with the same code
+  (`app/terminals/start.rs`).
+- **The environment** is ADR 0120's terminal environment, `[sessions] env`'s names,
+  `OSO_SESSION`, and always `CLAUDE_CONFIG_DIR` when oso has it: the session's registry entry is
+  then in the directory oso reads. A login profile that sets `CLAUDE_CONFIG_DIR` itself, which oso
+  started from the Dock does not see, moves the session's registry where oso does not look, and a
+  resume then finds no live process for it. Set the same value where oso is started too.
+- **The start baseline is the project's review baseline:** when it comes, in time or late, the
+  review takes it as if `B` had been pressed (ADR 0122), and the review menu shows when it was
+  taken. The review's index copies for it are in the same state directory as the review's own.
+  Its root is revoked with the project's trust, as a review's is.
+- **A refused resume's fork question forks that session,** whichever buffer is selected when `y`
+  is answered. A start that is refused turns the agent channel off again if that start turned it
+  on and no session runs, starts or holds a connection, unless the person or the configuration
+  asked for the channel since. A bridge's claim whose answer comes after the channel's server
+  stopped waiting holds no session.
 - **`C-u claude` reads a directory, then a name,** each with its own history. `oso-core` gained
   `ArgSpec::DirectoryAndTextOnPrefix { directory, directory_history, prompt, history }` and
   `Ctx::directory_and_text(&self) -> Option<(&str, &str)>`, and the new
@@ -822,8 +854,10 @@ points:
 - **Keys:** `C-x a c` (`claude`) and `C-x a r` (`session-resume`); the rest of `C-x a` comes
   with step 3. `claude`, `session-resume` and `session-fork` are `Person`.
 - **`C-x k` on a session's buffer archives the session:** it is not brought back at the next
-  start, and step 3's list shows and restores it. Exits oso caused (`C-x k`, `C-x C-c`, a hang-up)
-  make a session stopped, not failed.
+  start, and step 3's list shows and restores it. Its `claude` is hung up, and the session counts
+  as stopped, not failed. Any other end is stopped for status 0 and failed otherwise; the buffer
+  keeps the last screen and its modeline says `stopped: session-resume to continue`, or `failed
+  (exited 3): …`.
 - **ADR 0122's seams in step 1:** the baseline at start, and "which review is this agent's" as
   the connection's session. Delivering comments as a paste and "a turn ended" wait for step 3,
   which feeds screens to the states: until oso reads a session's screen it cannot refuse a paste
@@ -965,9 +999,14 @@ questions through the coordinator, (a) for each, and the coordinator approved th
 - **A branch with no commit of its own is not merged** (the author's choice), so a fresh,
   clean worktree is refused by check 5. ADR 0126's `C-u` removal is for that case.
 - **"Busy" in check 4:** a hosted session in the worktree counts as busy unless its state is
-  idle or done *and* the registry's `status` is `idle`. A rule for the TUI's background-task
-  footer comes when a screen showing it is saved for `session-explain-file`. Until step 3 gives
-  hosted sessions their states, every running hosted session counts as busy.
+  idle or done *and* the registry's `status` is `idle` (the author's choice). A failed or
+  stopped session is never busy. A rule for the TUI's background-task footer comes when a
+  screen showing it is saved for `session-explain-file`.
+  - The UI thread sends each running hosted session's process id and whether its state is idle
+    or done with the job. The job reads the registry once, as it reads it for external
+    sessions, and combines the two halves. A process with no live registry entry is busy.
+  - The UI thread looks at its own half again after the job's checks and before the removal;
+    the job's half is shown in `*Worktrees*` as the job found it.
 - **The squash test.** "A merged pull request whose merge commit contains the tip" is read as
   "whose head commit is the tip, or a commit here that the tip leads to". With nothing fetched,
   a squash's merge commit never contains the tip.
@@ -1027,9 +1066,26 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   The dispatcher waits for the project's branches, which the pool lists, before the branch
   prompt opens, as it waits for the clipboard. Only the listing the newest wait asked for opens
   a prompt, and a command the person runs meanwhile, `C-g` included, drops the wait.
-- **Left to step 3 and ADR 0120's terminal:** the space a worktree session opens and its
-  removal closes, the list's space column, live states in check 4 and the list, stopping a
-  worktree's idle sessions before it is removed, and the end-to-end flows.
+- **Wired to step 3 and ADR 0120's terminal** (2026-11-13, after step 3's part A and 4a):
+  - A worktree session's space opens, nested under its repository's, when its worktree is made
+    and its session starts. The app holds the spaces (`sessions::spaces`).
+  - `*Worktrees*` names a worktree's space, as `space: NAME`, when it has one.
+  - Check 4 takes the live states as above, and the list shows each session's state.
+  - **The removal clears the worktree in the job that removes it.** Once every check holds
+    again after the person's `y`, the job asks the app to clear the worktree and waits at most
+    10 s for its word. The app looks at what it holds once more, stops the idle sessions there
+    and closes the space, then says go. A refusal, or no word, keeps the worktree. `git
+    worktree remove` itself still refuses a worktree with changes by then. The coordinator
+    approved this order on 2026-11-13: it keeps "stop, close, then remove" without the UI
+    thread waiting.
+- **Left to step 3's part B:**
+  - Keeping each hosted session's live state on the UI thread (`Out::Changed`). Until then a
+    running session's state is not known: it counts as busy, and the list says `running`.
+  - Stopping a hosted session (`session-stop`), which the removal's clearing calls for each
+    idle session in the worktree, as ended by oso. Its buffer stays, read-only.
+  - Closing a space, which the removal's clearing calls: entering the repository's space first
+    if the worktree's is the one in the frame.
+  - The end-to-end flows, which need the terminal that `claude` runs in.
 
 ## Step 6, as built
 

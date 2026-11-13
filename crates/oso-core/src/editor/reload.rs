@@ -58,7 +58,7 @@ impl Leftover {
 /// Where an offset of the old text goes in the new one. Before the change and after it, it
 /// keeps its place, and inside it, its line and column, as far as the new line reaches and no
 /// further than the change.
-fn through_reload(offset: usize, old: &Rope, new: &Rope, change: Change) -> usize {
+pub(super) fn through_reload(offset: usize, old: &Rope, new: &Rope, change: Change) -> usize {
     if offset <= change.start {
         offset
     } else if offset >= change.old_end {
@@ -328,7 +328,7 @@ impl Editor {
 
     /// The cursors of every window showing `id` once the text read again is in, by window
     /// position. A change hides every region of the buffer (ADR 0071).
-    fn reloaded_selections(
+    pub(super) fn reloaded_selections(
         &self,
         id: BufferId,
         old: &Rope,

@@ -2,7 +2,7 @@
 //! set, compiled into oso, and the person's local file, which replaces bundled rules by name and
 //! disables them. Never read from a project, never fetched.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; `config`'s thread hands this
+//! Must not depend on: `app`, `dispatch` or `config`; `config`'s thread hands this
 //! the local file's text, and this compiles it there.
 //!
 //! The format is in `docs/dev/agent-rules.md`. Every pattern is the `regex` crate's (ADR
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 
+use super::recap::Recap;
 use super::screen::Region;
 use super::state::Target;
 
@@ -71,6 +72,8 @@ pub struct Rule {
     pub priority: i64,
     pub region: Region,
     pub source: Source,
+    /// What the recap of a session in the rule's state shows (ADR 0121, step 3).
+    pub recap: Option<Recap>,
     test: Test,
 }
 
@@ -179,7 +182,7 @@ impl Deadline {
         }
     }
 
-    fn check(&self) -> Result<(), Late> {
+    pub(super) fn check(&self) -> Result<(), Late> {
         if Instant::now() >= self.at {
             return Err(Late);
         }

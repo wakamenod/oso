@@ -1,11 +1,13 @@
 //! A rules file's text to its rules (ADR 0121, Q4): every check of its format and its limits.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; text in, rules out, no I/O,
+//! Must not depend on: `app`, `dispatch` or `config`; text in, rules out, no I/O,
 //! so it runs on any thread and its tests need no files.
 //!
 //! - A syntax error or a missing or unknown `version` refuses the whole file.
 //! - Otherwise a rule with anything wrong in it, an unknown name included, is skipped with a
 //!   problem: a misspelt matcher must not leave a rule that matches more than meant.
+
+mod recap;
 
 use std::fmt;
 
@@ -37,8 +39,23 @@ const MAX_QUOTED: usize = 64;
 
 /// The keys of a rule that are not matchers.
 const RULE_KEYS: &[&str] = &[
-    "name", "state", "reason", "priority", "region", "visible", "disable",
+    "name",
+    "state",
+    "reason",
+    "priority",
+    "region",
+    "visible",
+    "disable",
+    "recap",
+    "recap_region",
 ];
+
+/// What a problem says is not used: the rule.
+const SKIPPED: &str = "skipped";
+
+/// What a region must be, in a problem.
+const REGIONS: &str = "one of title, progress, bottom(N) with N from 1 to 40, prompt_box, \
+                       after_last_rule or above_prompt_box";
 
 /// Parses `text`, a rules file from `source`. Never panics, whatever the text.
 pub fn parse(text: &str, source: Source) -> Parsed {
@@ -204,9 +221,7 @@ impl Reader<'_> {
                 skip(
                     self,
                     value.span().start,
-                    format_args!(
-                        "region must be one of title, progress, bottom(N) with N from 1 to 40, prompt_box, after_last_rule or above_prompt_box"
-                    ),
+                    format_args!("region must be {REGIONS}"),
                 );
                 return None;
             }
@@ -221,12 +236,14 @@ impl Reader<'_> {
             skip(self, at, format_args!("it has nothing to match"));
             return None;
         }
+        let recap = self.recap(get("recap"), get("recap_region"), region, &name);
         Some(Read::Rule(Rule {
             name,
             target,
             priority,
             region,
             source: self.source,
+            recap,
             test,
         }))
     }
@@ -350,7 +367,7 @@ impl Reader<'_> {
                 "regex" | "line_regex" => {
                     let mut compiled = Vec::new();
                     for (pattern, at) in self.strings_at(value, matchers, name)? {
-                        compiled.push(self.compile(pattern, at, name)?);
+                        compiled.push(self.compile(pattern, at, name, SKIPPED)?);
                     }
                     if key_name == "regex" {
                         test.regex.extend(compiled);
@@ -468,11 +485,12 @@ impl Reader<'_> {
         Some(found)
     }
 
-    fn compile(&mut self, pattern: &str, at: usize, name: &str) -> Option<Regex> {
+    /// `pattern` compiled, or `None`, said: what then is not used is `skipped`.
+    fn compile(&mut self, pattern: &str, at: usize, name: &str, skipped: &str) -> Option<Regex> {
         self.patterns += 1;
         if self.patterns > MAX_PATTERNS {
             let message = format_args!(
-                "rule {}: more than {MAX_PATTERNS} patterns in the file, skipped",
+                "rule {}: more than {MAX_PATTERNS} patterns in the file, {skipped}",
                 Quoted(name)
             );
             self.problem(at, message);
@@ -488,7 +506,7 @@ impl Reader<'_> {
                 let first = error.to_string();
                 let first = first.lines().last().unwrap_or_default().trim().to_owned();
                 let message = format_args!(
-                    "rule {}: a pattern does not compile ({}), skipped",
+                    "rule {}: a pattern does not compile ({}), {skipped}",
                     Quoted(name),
                     Quoted(&first)
                 );

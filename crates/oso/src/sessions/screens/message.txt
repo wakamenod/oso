@@ -1,0 +1,16 @@
+ ▐▛███▛█   Claude Code vX.Y.Z
+▝▜██████▀  Model · Plan
+ ▝▝   ▝▝   ~/src/receiver
+
+› Message from @sender: fixture ping (ctrl+o to expand)
+  ⎿  “Reply pong to sender's fixture ping” → sent to sender
+  ⎿  Allowed by auto mode
+
+⏺ Another local Claude session (named "sender") sent a "fixture ping", and I replied "fixture pong".
+
+✻ Churned for 5s
+
+──────────────────────────────────────────────────────────────────────────────────────── receiver ─
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)                                                          /rc

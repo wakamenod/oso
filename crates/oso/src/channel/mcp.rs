@@ -88,8 +88,9 @@ struct Bridge {
     session: Option<String>,
 }
 
-/// The variable a hosted session's bridge finds its session in (ADR 0121).
-const SESSION_VARIABLE: &str = "OSO_SESSION";
+/// The variable that names a hosted session to its bridge (ADR 0121, "The bridge and the
+/// channel"): oso sets it in the session's environment and in the MCP server's own.
+pub(crate) const SESSION_VARIABLE: &str = "OSO_SESSION";
 
 impl Bridge {
     /// A bridge that connects with `connect` on its first tool call.

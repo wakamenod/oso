@@ -2,7 +2,8 @@
 //! on the UI thread. `session-worktree` lists the project's branches, opens `*Brief*`, and on
 //! `C-c C-c` makes the worktree and starts its session. `worktree-list` fills `*Worktrees*` row
 //! by row. `worktree-remove` checks first, asks, and removes only a worktree nothing would be
-//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads.
+//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads. A worktree
+//! session's space opens, nested under its repository's, as its session starts.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -27,8 +28,9 @@ use super::hosting::Begin;
 use crate::review::TrustedRoot;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
+use crate::sessions::state::State;
 use crate::sessions::worktree::brief::MAX_BRIEF;
-use crate::sessions::worktree::checks::Held;
+use crate::sessions::worktree::checks::{Held, HostedSession};
 use crate::sessions::worktree::create::{Created, Handover, Order, Step};
 use crate::sessions::worktree::jobs::{Jobs, Report, Snapshot, Trust};
 use crate::sessions::worktree::list::{Row, RowText, Shown};
@@ -212,6 +214,7 @@ impl App {
                 path,
                 result,
             } => self.worktree_checked(token, &path, result),
+            Report::Clear { token, path, go } => self.worktree_clear(token, &path, go),
             Report::Removed {
                 token,
                 path,
@@ -372,6 +375,10 @@ impl App {
             printable(&created.path.display().to_string(), 200),
             printable(&created.branch, 80),
         ));
+        // Its space, nested under the repository's (ADR 0121, Q8).
+        let spaces = &mut self.hosting.spaces;
+        spaces.add(&created.main, None);
+        spaces.add(&created.path, Some(&created.main));
         self.begin_session(Begin {
             name: None,
             directory: Some(created.path),
@@ -383,7 +390,8 @@ impl App {
     }
 
     /// What the UI thread holds about the worktree at `path` alone: buffers with unsaved
-    /// changes under it, an unsent brief for it, its busy hosted sessions.
+    /// changes under it, an unsent brief for it, and its hosted sessions whose screen's state
+    /// is not idle or done. The registry's half of check 4 is the job's to read.
     pub(in crate::app) fn held_at(&self, path: &Path) -> Held {
         let unsaved = self
             .editor
@@ -397,12 +405,10 @@ impl App {
             .values()
             .chain(worktrees.creating.values())
             .any(|brief| brief.place.starts_with(path));
-        let sessions = self.hosting.table.all();
-        // Until the states come (ADR 0121 step 3), a session that runs counts as busy.
-        let busy = sessions
-            .iter()
-            .filter(|session| session.runs() && session.directory.starts_with(path))
-            .map(|session| session.name.clone())
+        let busy = running_sessions(self.hosting.table.all())
+            .into_iter()
+            .filter(|session| !session.settled && session.directory.starts_with(path))
+            .map(|session| session.name)
             .collect();
         Held {
             unsaved,
@@ -428,20 +434,56 @@ impl App {
             .map(|brief| brief.place.clone())
             .collect();
         let sessions = self.hosting.table.all();
-        // Until the states come (ADR 0121 step 3), a session that runs counts as busy.
-        let busy = sessions
-            .iter()
-            .filter(|session| session.runs())
-            .map(|session| (session.directory.clone(), session.name.clone()))
-            .collect();
-        let hosted = hosted_pids(sessions);
         Snapshot {
             unsaved,
             briefs,
-            busy,
-            hosted,
+            sessions: running_sessions(sessions),
+            hosted: hosted_pids(sessions),
         }
     }
+
+    /// The name of the space of the worktree at `path`, if it has one.
+    fn space_of(&self, path: &Path) -> Option<String> {
+        let spaces = &self.hosting.spaces;
+        let at = spaces.find(path)?;
+        spaces.get(at).map(|space| space.name.clone())
+    }
+}
+
+/// A hosted session's state as the UI thread knows it, or `None` while its live state is not
+/// known: a session that runs then counts as busy.
+fn hosted_state(session: &Hosted) -> Option<State> {
+    match session.run {
+        Run::Stopped => Some(State::Stopped),
+        Run::Failed => Some(State::Failed),
+        // ADR 0121 step 3 part B: the state the sessions worker last gave this session
+        // (`Out::Changed`), which the app does not keep yet.
+        Run::Starting | Run::Running { .. } => None,
+    }
+}
+
+/// The hosted sessions that run, neither failed nor stopped, each with whether its screen's
+/// state is idle or done: check 4's half that the UI thread knows.
+fn running_sessions(sessions: &[Hosted]) -> Vec<HostedSession> {
+    sessions
+        .iter()
+        .filter(|session| session.runs())
+        .filter_map(|session| {
+            let state = hosted_state(session);
+            if matches!(state, Some(State::Failed | State::Stopped)) {
+                return None;
+            }
+            Some(HostedSession {
+                directory: session.directory.clone(),
+                name: session.name.clone(),
+                pid: match session.run {
+                    Run::Running { child } => child,
+                    _ => None,
+                },
+                settled: matches!(state, Some(State::Idle | State::Done)),
+            })
+        })
+        .collect()
 }
 
 /// The process ids of the `claude`s oso hosts.

@@ -1,7 +1,8 @@
 //! Architecture guardrails (ADR 0038, ADR 0039): the dependency direction
 //! between crates and between modules, external crates confined to their
 //! owner, the file-size ratchet, the ban on `static` items, the ban on
-//! spawning outside one module, where the control directory may be used, the module
+//! spawning outside one module, where foreign code may be reached, where the control
+//! directory may be used, the module
 //! headers and conflict markers in any file. The rules live in `guardrails/`; the format is described at the top of
 //! each file there.
 //!
@@ -13,6 +14,7 @@
 //! workspace.
 
 mod agent_tools;
+mod ffi;
 mod headers;
 mod lexer;
 mod listening;
@@ -146,6 +148,26 @@ fn session_tools_never_type_spawn_or_read_tokens() {
         .map(|path| (workspace.relative_path(&path), read(&path)))
         .collect();
     assert_none(&agent_tools::problems(&files));
+}
+
+#[test]
+fn foreign_code_is_reached_only_where_allowed() {
+    let workspace = Workspace::current();
+    let files: Vec<(String, String)> = workspace
+        .rust_files()
+        .into_iter()
+        .map(|path| (workspace.relative_path(&path), read(&path)))
+        .collect();
+    assert_none(&ffi::problems(&files));
+    let manifests: Vec<(String, String)> = workspace
+        .crates()
+        .iter()
+        .map(|c| {
+            let path = c.dir.join("Cargo.toml");
+            (workspace.relative_path(&path), read(&path))
+        })
+        .collect();
+    assert_none(&ffi::manifest_problems(&manifests));
 }
 
 #[test]

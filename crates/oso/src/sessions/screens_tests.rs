@@ -1,7 +1,7 @@
 //! The bundled rules against screens recorded from Claude Code's TUI (ADR 0121): each must give
 //! the state the TUI was in. When a rule changes for a new TUI, its screens are added here.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 //!
 //! The screens were recorded from Claude Code 2.1.322 in a terminal 100 columns by 32 rows, and
@@ -130,6 +130,15 @@ const SCREENS: &[(&str, &str, &str, Target, &str)] = &[
         "plan-cancelled",
         include_str!("screens/plan-cancelled.txt"),
         "✳ Date to now.txt",
+        IDLE,
+        "prompt",
+    ),
+    // A session started with `--name`, whose prompt box's top rule ends with that name, after a
+    // message from another session started a turn that ended.
+    (
+        "message",
+        include_str!("screens/message.txt"),
+        "✳ Fixture ping",
         IDLE,
         "prompt",
     ),

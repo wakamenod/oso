@@ -310,11 +310,16 @@ pub fn account_shell() -> Option<PathBuf> {
     }
 }
 
-/// When the process `pid` started, or `None` if there is no such process or the system does
-/// not say. A process ID is reused once its process has ended and been reaped, so a caller
-/// that recorded when a process started tells it from a later one by this (ADR 0121). On
-/// Linux it can be a second off, as the boot time it counts from is whole seconds.
-pub fn start_time(pid: u32) -> Option<std::time::SystemTime> {
+/// When the process `pid` started, or `None` if there is no such process. A process ID is
+/// reused once its process has ended and been reaped, so a caller that recorded when a process
+/// started tells it from a later one by this (ADR 0121). On Linux it can be a second off, as
+/// the boot time it counts from is whole seconds.
+///
+/// # Errors
+///
+/// When the system does not say: the process may run, but its start cannot be told, as when
+/// another user's process is not ours to read, or on a system this does not support.
+pub fn start_time(pid: u32) -> std::io::Result<Option<std::time::SystemTime>> {
     started::of(pid)
 }
 

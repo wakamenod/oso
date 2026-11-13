@@ -53,6 +53,14 @@ pub enum ArgSpec {
         base_prompt: &'static str,
         history: &'static str,
     },
+    /// Text as [`ArgSpec::Text`] reads it, but only with a prefix argument, such as `C-u`; with
+    /// none, the command runs at once with no answer. The agent channel gives the text with the
+    /// command, or nothing. The command reads it with [`Ctx::answer`](super::Ctx::answer), and
+    /// the prefix with its arguments.
+    TextOnPrefix {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A passphrase, read in a prompt that says `prompt` and shows one `*` per character.
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`](super::Ctx::answer), and must not keep it.
@@ -68,6 +76,17 @@ pub enum ArgSpec {
     /// host draws with, kept in the history named `history` (ADR 0089). The command reads it
     /// with [`Ctx::answer`](super::Ctx::answer).
     Theme {
+        prompt: &'static str,
+        history: &'static str,
+    },
+    /// One of a list the host keeps, read in a prompt that says `prompt` and completes over
+    /// the candidates the host last gave for `list` with
+    /// [`Editor::set_listed`](crate::editor::Editor::set_listed), kept in the history named
+    /// `history` (ADR 0121): agent sessions, and their spaces. Their annotations are searched
+    /// as completion searches any, so a word of one filters by it. The command reads the
+    /// candidate's text with [`Ctx::answer`](super::Ctx::answer).
+    Listed {
+        list: &'static str,
         prompt: &'static str,
         history: &'static str,
     },

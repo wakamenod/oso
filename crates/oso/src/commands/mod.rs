@@ -33,9 +33,11 @@ mod prefix;
 mod projects;
 mod recovery;
 mod replace;
+pub(crate) mod review;
 mod save;
 mod scroll;
 mod session;
+mod terminal;
 mod theme;
 mod view;
 mod whitespace;
@@ -97,10 +99,13 @@ const TABLES: &[&[Command]] = &[
     projects::COMMANDS,
     recovery::COMMANDS,
     replace::COMMANDS,
+    review::COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
     agent_sessions::COMMANDS,
+    terminal::COMMANDS,
+    agent_sessions::LIST_COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -250,6 +255,18 @@ mod tests {
         "emergency-copy-view",
         "recover-session",
         "revert-buffer",
+        // A review runs git, on a worker, in a trusted project (ADR 0122), and killing one may
+        // lose the person's comments, which only they may agree to.
+        "review-branch",
+        "review-commit",
+        "review-kill",
+        "review-mark-baseline",
+        "review-range",
+        "review-refresh",
+        "review-session",
+        "review-staged",
+        "review-uncommitted",
+        "review-unstaged",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
         // Opening and writing files by a path the person typed (ADR 0087); the channel has
@@ -281,7 +298,18 @@ mod tests {
         "session-worktree",
         "worktree-list",
         "worktree-remove",
+        "worktree-list-refresh",
+        "worktree-list-remove",
         "worktree-remove-confirmed",
+        // A terminal, which runs a program and takes the person's keys (ADR 0120).
+        "terminal",
+        "terminal-char-mode",
+        "terminal-paste-lines",
+        "terminal-send-interrupt",
+        "terminal-send-next-key",
+        "terminal-yank",
+        "session-stop",
+        "sessions-resume",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

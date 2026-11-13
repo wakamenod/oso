@@ -9,12 +9,16 @@
 //! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
-use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, Status};
+use oso_core::buffer::BufferId;
+use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, ReviewCells, Status};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
-    Bands, CursorStyle, Face, FlashFill, Layer, Pane, PaneContent, PaneId, Span, TextView,
+    Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, PaneId, Span,
+    TextView,
 };
+
+use crate::terminal::hosted::Terminals;
 
 /// The first pane id of the windows': the echo area's and the floats' are below it.
 const FIRST: u32 = 16;
@@ -43,8 +47,8 @@ pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
 /// What a window's text fills and draws besides its rows, kept from frame to frame so that
 /// none of it is allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), the
 /// current line's band and trailing whitespace (ADR 0097), the other cursors' boxes
-/// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097) and a jump's
-/// matches and labels (ADR 0116).
+/// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097), a jump's
+/// matches and labels (ADR 0116) and a review's bands (ADR 0122).
 #[derive(Default)]
 pub(super) struct WindowCells {
     region: Vec<CellRect>,
@@ -53,6 +57,7 @@ pub(super) struct WindowCells {
     jump: JumpCells,
     band: Vec<CellRect>,
     trailing: Vec<CellRect>,
+    review: ReviewCells,
     screen: Screen,
     gutter: Gutter,
 }
@@ -69,6 +74,7 @@ impl WindowCells {
         editor.replace_cells(id, screen, &mut self.matches);
         editor.jump_cells(id, screen, &mut self.jump);
         editor.trailing_cells(id, screen, &mut self.trailing);
+        editor.review_cells(id, screen, &mut self.review);
         editor.gutter_into(id, screen, &mut self.gutter);
         self.band.clear();
         self.band.extend(editor.current_line_cells(id, screen));
@@ -109,10 +115,11 @@ pub(super) fn tiled_status<'a>(
 
 /// A modeline's spans: warnings first, so that nothing can push them off the row, after
 /// `Agent` while the agent channel is on, dim, and bright while an agent is connected
-/// (ADR 0085), which only the selected window's says. A name and the rest are shaped apart,
+/// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` as a
+/// warning and `● N` as the modeline (ADR 0121). A name and the rest are shaped apart,
 /// so that neither changes how the other reads. A window that is not selected has its
 /// modeline in [`Face::ModelineInactive`] (ADR 0112).
-fn modeline_spans(status: &Status) -> [Span<'_>; 6] {
+fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
     let span = |text, face| Span { text, face };
     let agent = if status.agent_connected {
         Face::Warning
@@ -120,8 +127,13 @@ fn modeline_spans(status: &Status) -> [Span<'_>; 6] {
         Face::Prompt
     };
     let face = modeline_face(status);
+    let (waiting, done) = status
+        .sessions
+        .split_at(status.sessions.find('●').unwrap_or(status.sessions.len()));
     [
         span(status.agent, agent),
+        span(waiting, Face::Warning),
+        span(done, face),
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], face),
         span(&status.project[..], face),
@@ -131,6 +143,9 @@ fn modeline_spans(status: &Status) -> [Span<'_>; 6] {
     ]
 }
 
+/// How many spans a modeline is drawn in.
+const MODELINE_SPANS: usize = 8;
+
 fn modeline_face(status: &Status) -> Face {
     if status.selected {
         Face::Modeline
@@ -139,12 +154,19 @@ fn modeline_face(status: &Status) -> Face {
     }
 }
 
-/// The fills behind a window's text, from the back: the current line's band, trailing
+/// The fills behind a window's text, from the back: the current line's band, a review's bands
+/// (added and removed lines, their refined words, file headers and comment cards), trailing
 /// whitespace, then the current match first, so that it always has room, a jump's matches as
 /// isearch's others (ADR 0116), and the regions over the matches.
 fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
     [
         (Face::CurrentLine, &cells.band[..]),
+        (Face::DiffAdded, &cells.review.added[..]),
+        (Face::DiffRemoved, &cells.review.removed[..]),
+        (Face::DiffRefineAdded, &cells.review.refine_added[..]),
+        (Face::DiffRefineRemoved, &cells.review.refine_removed[..]),
+        (Face::DiffFileHeader, &cells.review.headers[..]),
+        (Face::ReviewCommentPerson, &cells.review.cards[..]),
         (Face::TrailingWhitespace, &cells.trailing[..]),
         (Face::SearchCurrent, &cells.matches.current[..]),
         (Face::SearchMatch, &cells.matches.others[..]),
@@ -154,7 +176,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 6;
+const FILLS: usize = 12;
 
 /// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
 /// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by
@@ -206,7 +228,7 @@ fn label_runs(cells: &WindowCells) -> usize {
 /// takes at its own lifetime ([`super::reuse`]), so that a frame allocates nothing once warm.
 #[derive(Default)]
 pub(super) struct Room {
-    modelines: Vec<[Span<'static>; 6]>,
+    modelines: Vec<[Span<'static>; MODELINE_SPANS]>,
     modeline_rows: Vec<[&'static [Span<'static>]; 1]>,
     numbers: Vec<[Span<'static>; 1]>,
     gutters: Vec<&'static [Span<'static>]>,
@@ -237,7 +259,8 @@ pub(super) fn spans_of<'a>(
     empty: &'a Status,
     room: &mut Room,
 ) -> Spans<'a> {
-    let mut modelines: Vec<[Span<'a>; 6]> = super::reuse(std::mem::take(&mut room.modelines));
+    let mut modelines: Vec<[Span<'a>; MODELINE_SPANS]> =
+        super::reuse(std::mem::take(&mut room.modelines));
     modelines.extend(
         windows
             .iter()
@@ -267,7 +290,7 @@ pub(super) fn spans_of<'a>(
 
 /// Every window's modeline spans, gutter numbers and fills, as [`spans_of`] makes them.
 pub(super) type Spans<'a> = (
-    Vec<[Span<'a>; 6]>,
+    Vec<[Span<'a>; MODELINE_SPANS]>,
     Vec<[Span<'a>; 1]>,
     Vec<[(Face, &'a [CellRect]); FILLS]>,
     Vec<(CellRect, Span<'a>)>,
@@ -275,7 +298,7 @@ pub(super) type Spans<'a> = (
 
 /// The rows of every window's modeline and gutter, over the spans [`spans_of`] made.
 pub(super) fn rows_of<'a>(
-    modelines: &'a [[Span<'a>; 6]],
+    modelines: &'a [[Span<'a>; MODELINE_SPANS]],
     numbers: &'a [[Span<'a>; 1]],
     room: &mut Room,
 ) -> (Vec<[&'a [Span<'a>]; 1]>, Vec<&'a [Span<'a>]>) {
@@ -304,8 +327,31 @@ pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, fills, label
     room.labels = super::reuse(labels);
 }
 
+/// The terminals a frame shows (ADR 0120): their rows, each terminal's once, and which of
+/// them each terminal's buffer has.
+pub(super) struct Grids<'a> {
+    pub(super) terminals: &'a Terminals,
+    pub(super) rows: &'a [GridRow<'a>],
+    pub(super) shown: &'a [(BufferId, std::ops::Range<usize>)],
+}
+
+impl<'a> Grids<'a> {
+    pub(super) fn new(
+        terminals: &'a Terminals,
+        rows: &'a [GridRow<'a>],
+        shown: &'a [(BufferId, std::ops::Range<usize>)],
+    ) -> Grids<'a> {
+        Grids {
+            terminals,
+            rows,
+            shown,
+        }
+    }
+}
+
 /// What [`panes`] reads, per window in the tree's order.
 pub(super) struct Drawn<'a> {
+    pub(super) terminals: Grids<'a>,
     pub(super) cells: &'a [WindowCells],
     pub(super) fills: &'a [[(Face, &'a [CellRect]); FILLS]],
     /// Every window's jump labels, one window's after another's in the tree's order.
@@ -410,6 +456,9 @@ fn text<'a>(
         return PaneContent::Lines(&[]);
     };
     let buffer = editor.shown(window);
+    if buffer.is_terminal() {
+        return grid(editor, (window, selected), &drawn.terminals);
+    }
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
     let screen = &cells.screen;
@@ -438,5 +487,37 @@ fn text<'a>(
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
         highlights: buffer.highlights(),
+    })
+}
+
+/// The text pane's content of a window that shows a terminal: its grid, as its thread last
+/// sent it, with the cursor as the program set it, hollow in a window not selected, and the
+/// preedit at the cursor in the selected one (ADR 0120). Nothing of the buffer's own text,
+/// fills or flash.
+fn grid<'a>(
+    editor: &'a Editor,
+    (window, selected): (&oso_core::window::Window, bool),
+    grids: &Grids<'a>,
+) -> PaneContent<'a> {
+    let buffer = window.buffer();
+    let rows = grids
+        .shown
+        .iter()
+        .find(|(shown, _)| *shown == buffer)
+        .and_then(|(_, range)| grids.rows.get(range.clone()))
+        .unwrap_or_default();
+    let hosted = grids.terminals.get(buffer);
+    let cursor = hosted.and_then(|hosted| hosted.grid.cursor(selected));
+    let preedit = editor
+        .preedit()
+        .filter(|_| selected && editor.prompt().is_none());
+    // At the program's cursor cell, also while it hides the cursor, as `claude`'s input does.
+    let preedit_at = hosted.map_or((0, 0), |hosted| hosted.grid.cursor_cell());
+    PaneContent::Grid(GridView {
+        id: buffer.get(),
+        rows,
+        cursor,
+        preedit,
+        preedit_at,
     })
 }

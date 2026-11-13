@@ -3,7 +3,7 @@
 //! `git worktree add`, and the `--settings` that installs it for a session oso starts when
 //! `[sessions] steer_worktrees = true`. Nothing is written into Claude Code's settings files.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands`, the file system or sockets; the hook
+//! Must not depend on: `app`, `dispatch`, the file system or sockets; the hook
 //! reads its standard input, writes its answer and starts nothing.
 //!
 //! The hook steers; it is no boundary. A command can make a worktree in ways no pattern sees,

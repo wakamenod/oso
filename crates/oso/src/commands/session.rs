@@ -19,7 +19,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer or a save running, this asks whether to exit without saving, and says how many. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish.",
+        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, or a program running in a terminal, this asks whether to exit, and says how many. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffers_kill_terminal,
@@ -51,18 +51,40 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    match ctx.editor.confirm_exit(ctx.confirmed()) {
-        Ok(()) => ctx.request_exit(),
-        Err(refused) => {
-            ask(
-                ctx,
-                format!("{refused}; exit without saving?"),
-                "save-buffers-kill-terminal",
-                ["exit", "stay"],
-            )?;
-        }
+    // Comments of the person's not sent yet are lost with the editor until reviews are saved
+    // (ADR 0122, step 6), and programs in terminals end with it (ADR 0120): one question says
+    // all of it.
+    let mut lost = Vec::new();
+    match super::review::unsent_everywhere(ctx.editor) {
+        0 => {}
+        1 => lost.push("1 comment of yours will be lost".to_owned()),
+        n => lost.push(format!("{n} comments of yours will be lost")),
     }
-    Ok(())
+    match ctx.editor.running_terminals().count() {
+        0 => {}
+        1 => lost.push("1 terminal runs a program".to_owned()),
+        n => lost.push(format!("{n} terminals run programs")),
+    }
+    let lost = (!lost.is_empty()).then(|| lost.join(", and "));
+    let question = match (ctx.editor.confirm_exit(ctx.confirmed()), lost) {
+        (Ok(()), None) => {
+            ctx.request_exit();
+            return Ok(());
+        }
+        (Ok(()), Some(_)) if ctx.confirmed() => {
+            ctx.request_exit();
+            return Ok(());
+        }
+        (Ok(()), Some(lost)) => format!("{lost}; exit anyway?"),
+        (Err(refused), None) => format!("{refused}; exit without saving?"),
+        (Err(refused), Some(lost)) => format!("{lost}, and {refused}; exit without saving?"),
+    };
+    ask(
+        ctx,
+        question,
+        "save-buffers-kill-terminal",
+        ["exit", "stay"],
+    )
 }
 
 /// Asks `question`, whose `y` runs `command`, and shows it, with `verbs` saying what `y`
@@ -102,6 +124,34 @@ mod tests {
         let (_, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
         assert!(effects.exit);
         assert!(!effects.redraw);
+    }
+
+    #[test]
+    fn save_buffers_kill_terminal_asks_once_while_a_terminal_runs_a_program() {
+        let mut editor = editor("");
+        let terminal = editor.add_terminal_buffer("*terminal*");
+        editor.set_running(terminal, true);
+        let (result, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
+        assert_eq!(result, Ok(()));
+        assert!(!effects.exit);
+        let prompt = editor.prompt().expect("a question");
+        assert_eq!(
+            prompt.label(),
+            "1 terminal runs a program; exit anyway? (y or n)"
+        );
+        editor.quit();
+        let id = editor.window().buffer();
+        let edit = Replacement {
+            range: 0..0,
+            text: "x",
+        };
+        editor.apply_edits(id, &[edit]).unwrap();
+        let (_, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
+        assert!(!effects.exit);
+        assert_eq!(
+            editor.prompt().expect("a question").label(),
+            "1 terminal runs a program, and 1 modified buffer; exit without saving? (y or n)"
+        );
     }
 
     #[test]

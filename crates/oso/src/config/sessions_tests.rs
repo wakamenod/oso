@@ -69,6 +69,43 @@ fn env_names_are_kept_and_refused_ones_said() {
     );
 }
 
+#[test]
+fn notify_toggles_default_and_are_set_one_by_one() {
+    let f = Fixture::new();
+    let loaded = f.parse("");
+    let defaults = loaded.settings.sessions.notify;
+    assert_eq!(
+        (
+            defaults.needs_input,
+            defaults.done,
+            defaults.failed,
+            defaults.ready_for_review
+        ),
+        (true, true, true, false)
+    );
+    let loaded = f.parse("[sessions.notify]\ndone = false\nready_for_review = true\n");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    let notify = loaded.settings.sessions.notify;
+    assert!(notify.needs_input && !notify.done && notify.failed && notify.ready_for_review);
+}
+
+#[test]
+fn a_wrong_notify_toggle_keeps_its_default_and_is_said() {
+    let f = Fixture::new();
+    let loaded = f.parse("[sessions.notify]\nfailed = \"no\"\nbanner = true\ndone = false\n");
+    let said = messages_of(&loaded);
+    assert!(
+        said.contains("[sessions.notify] failed takes true or false, not a string"),
+        "{said}"
+    );
+    assert!(said.contains("banner"), "{said}");
+    let notify = loaded.settings.sessions.notify;
+    assert!(notify.failed && !notify.done);
+    let loaded = f.parse("[sessions]\nnotify = 3\n");
+    assert!(messages_of(&loaded).contains("[sessions.notify]"));
+    assert_eq!(loaded.settings.sessions.notify, Default::default());
+}
+
 fn messages_of(loaded: &super::Loaded) -> String {
     messages(loaded).join("\n")
 }

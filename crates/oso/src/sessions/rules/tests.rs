@@ -1,6 +1,6 @@
 //! The rules files' format, its limits and what each problem says.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 
 use std::fmt::Write as _;
@@ -278,4 +278,62 @@ fn a_problem_escapes_what_could_reorder_or_hide_its_text() {
     assert!(problem.contains(r"\u{202e}"), "{problem}");
     assert!(problem.contains(r"\u{200b}"), "{problem}");
     assert!(!problem.contains('\u{202E}') && !problem.contains('\u{200B}'));
+}
+
+#[test]
+fn a_recap_is_read_and_a_wrong_one_is_skipped_with_its_rule_kept() {
+    let parsed = one(&format!(
+        "{GOOD}\nrecap = '^(x+)'\nrecap_region = \"bottom(3)\""
+    ));
+    assert_eq!(parsed.problems, Vec::<String>::new());
+    let recap = parsed.rules[0].recap.as_ref().unwrap();
+    assert_eq!(recap.region.to_string(), "bottom(3)");
+    let deadline = Deadline::after(Duration::from_secs(5));
+    assert_eq!(
+        recap.find("y\nxx z\nq", &deadline),
+        Ok(Some("xx".to_owned()))
+    );
+    let own = one(&format!("{GOOD}\nrecap = 'z'"));
+    assert_eq!(
+        own.rules[0].recap.as_ref().unwrap().region.to_string(),
+        "title"
+    );
+    for (body, says) in [
+        ("recap = '('", "a pattern does not compile"),
+        ("recap = ''", "recap must be a pattern of 1 to"),
+        ("recap = 3", "recap must be a pattern of 1 to"),
+        (
+            "recap = 'a'\nrecap_region = \"bottom(0)\"",
+            "recap_region must be one of",
+        ),
+        ("recap_region = \"title\"", "recap_region needs a recap"),
+    ] {
+        let parsed = one(&format!("{GOOD}\n{body}"));
+        assert_eq!(parsed.rules.len(), 1, "{body}: the rule stays");
+        assert!(parsed.rules[0].recap.is_none(), "{body}");
+        assert_eq!(parsed.problems.len(), 1, "{body}");
+        let problem = &parsed.problems[0];
+        assert!(problem.contains(says), "{body}: {problem}");
+        assert!(problem.ends_with("the recap is skipped"), "{problem}");
+    }
+}
+
+#[test]
+fn recaps_count_among_the_files_patterns() {
+    let mut text = String::from("version = 1\n");
+    // Three patterns a rule: the 86th rule's second is the file's 257th.
+    for n in 0..100 {
+        let _ = write!(
+            text,
+            "[[rule]]\nname = \"r{n}\"\nstate = \"working\"\nregion = \"title\"\nregex = ['a', 'a']\nrecap = 'b'\n"
+        );
+    }
+    let parsed = local(&text);
+    let with_recap = parsed
+        .rules
+        .iter()
+        .filter(|rule| rule.recap.is_some())
+        .count();
+    assert_eq!(with_recap, MAX_PATTERNS / 3);
+    assert!(parsed.problems[0].contains("patterns in the file"));
 }

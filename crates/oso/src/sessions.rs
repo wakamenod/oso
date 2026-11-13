@@ -3,7 +3,7 @@
 //! rules that read a session's state from its screen, the tracker that turns their verdicts into
 //! the taxonomy, and the `oso-sessions` worker that runs them off the UI thread.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or `config`; the app feeds the worker and
+//! Must not depend on: `app`, `dispatch` or `config`; the app feeds the worker and
 //! carries out what it says, and `config`'s thread compiles the local rules with `rules`.
 //!
 //! - `screen`: what a look at a terminal found, and the regions rules read.
@@ -18,10 +18,15 @@
 //! - `record`: the sessions oso remembers, in its state directory.
 //! - `hosted`: the table of the sessions oso hosts.
 //! - `bridge`: whether a connection is a hosted session's bridge.
-//! - `start`: getting a session ready on a thread of its own.
+//! - `start`: getting a session ready and starting its terminal, on a thread of its own.
 //! - `worktree`: worktree sessions, their briefs, the list and safe removal.
 //! - `tools`: the agents' session tools: reach, questions, the loop guard and refusals.
+//! - `recap`: a session's one-line recap, from a rule's `recap` pattern or the title.
+//! - `attention`: when a session's state asks for the person's attention.
+//! - `list`: `*Sessions*`, grouped, nested and folded, rendered to a width.
+//! - `spaces`: each project's window tree, zoom and last buffers.
 
+pub mod attention;
 pub mod bridge;
 pub mod command;
 pub mod engine;
@@ -29,10 +34,13 @@ pub mod explain;
 pub mod hosted;
 pub mod identity;
 pub mod launch;
+pub mod list;
+pub mod recap;
 pub mod record;
 pub mod registry;
 pub mod rules;
 pub mod screen;
+pub mod spaces;
 pub mod start;
 pub mod state;
 pub mod tools;

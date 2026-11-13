@@ -270,6 +270,16 @@ impl App {
 
     /// A report of a worktree job, taken if a tool's call waits for it, else given back.
     pub(in crate::app) fn session_tool_report(&mut self, report: Report) -> Option<Report> {
+        // An agent's removal is cleared as the person's is, and its job waits for the end.
+        let report = match report {
+            Report::Clear { token, path, go }
+                if matches!(self.hosting.tools.jobs.get(&token), Some(Job::Removing(_))) =>
+            {
+                self.tool_clear(token, &path, go);
+                return None;
+            }
+            report => report,
+        };
         let token = match &report {
             Report::Prepared { token, .. }
             | Report::Step { token, .. }
@@ -279,7 +289,9 @@ impl App {
             | Report::Merged { token, .. }
             | Report::ListEnded { token }
             | Report::Removed { token, .. } => *token,
-            Report::Branches { .. } | Report::Checked { .. } => return Some(report),
+            Report::Branches { .. } | Report::Checked { .. } | Report::Clear { .. } => {
+                return Some(report);
+            }
         };
         // The agent listing that runs ends with its last report, whether or not a call still
         // waits for it: one cut or given up on is still the agents' to swallow.

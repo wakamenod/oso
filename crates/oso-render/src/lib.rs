@@ -7,6 +7,7 @@
 mod atlas;
 #[cfg(feature = "dev")]
 mod capture;
+mod cells;
 mod grid;
 mod paint;
 mod pane;
@@ -20,8 +21,8 @@ use atlas::RasterBudget;
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
 use paint::Painter;
 pub use pane::{
-    Bands, CursorStyle, Face, FlashFill, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span,
-    TextView,
+    Bands, CursorStyle, Face, FlashFill, GridCell, GridColor, GridCursor, GridCursorShape, GridRow,
+    GridStyle, GridView, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
 use theme::{Theme, themes};
 

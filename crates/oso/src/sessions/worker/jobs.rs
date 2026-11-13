@@ -1,7 +1,7 @@
 //! What the sessions worker does with each job, apart from its thread and its clock: the
 //! instants come from the caller, so the tests drive it with made-up ones.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`.
+//! Must not depend on: `app` or `dispatch`.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read as _;
@@ -14,7 +14,8 @@ use oso_platform::file_meta::open_for_reading;
 use super::{DROP_AFTER, EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey};
 use crate::sessions::engine::{Fallback, evaluate, evaluate_within};
 use crate::sessions::explain;
-use crate::sessions::rules::{BUDGET, RuleSet, Source};
+use crate::sessions::recap::recap;
+use crate::sessions::rules::{BUDGET, Deadline, RuleSet, Source};
 use crate::sessions::screen::Evidence;
 use crate::sessions::state::{Target, Tracker};
 
@@ -36,6 +37,8 @@ struct Session {
     last: Option<Target>,
     /// How many looks in a row ran out of time: each doubles the wait before the next.
     late: u32,
+    /// The recap last told the app; none is told yet while it is empty.
+    recap: String,
 }
 
 impl Session {
@@ -129,6 +132,7 @@ impl Core {
                     judged: None,
                     last: None,
                     late: 0,
+                    recap: String::new(),
                 };
                 self.sessions.insert(key, session);
                 return Vec::new();
@@ -143,6 +147,8 @@ impl Core {
                 }
                 return Vec::new();
             }
+            // The thread takes the slot's screens itself.
+            Job::Screens => return Vec::new(),
             Job::Forget(key) => {
                 self.sessions.remove(&key);
                 return Vec::new();
@@ -190,6 +196,7 @@ impl Core {
             if !(screen_due || tracker_due) {
                 continue;
             }
+            let mut recapped = None;
             let target = if screen_due {
                 let Some(evidence) = &session.evidence else {
                     continue;
@@ -215,6 +222,12 @@ impl Core {
                 } else {
                     session.late = 0;
                     *streak = None;
+                    let deadline = Deadline::after(*budget);
+                    let found = recap(rules, &verdict, evidence, dropped, &deadline);
+                    if let Some(found) = found.filter(|found| *found != session.recap) {
+                        session.recap.clone_from(&found);
+                        recapped = Some(found);
+                    }
                 }
                 session.last = Some(verdict.target);
                 verdict.target
@@ -226,6 +239,9 @@ impl Core {
             };
             if let Some(change) = session.tracker.verdict(target, now) {
                 found.push(Out::Changed(key, change));
+            }
+            if let Some(recap) = recapped {
+                found.push(Out::Recap(key, recap));
             }
         }
         found

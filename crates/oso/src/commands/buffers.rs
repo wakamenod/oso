@@ -111,7 +111,15 @@ fn kill(
             let question = format!("{cut}{more} is modified; kill it anyway?");
             super::session::ask(ctx, question, "kill-buffer-anyway", ["kill", "keep"])
         }
-        Err(KillRefused::Internal) => Err(CommandError::new(format!("{cut}{more} is kept"))),
+        Err(KillRefused::Running) => {
+            let question = format!("{cut}{more} runs a program; kill it anyway?");
+            super::session::ask(ctx, question, "kill-buffer-anyway", ["kill", "keep"])
+        }
+        // A review closes with its workers, asking about the comments it would lose (ADR 0122).
+        Err(KillRefused::Internal) => match ctx.editor.review_of(id) {
+            Some(review) => super::review::kill(ctx, review),
+            None => Err(CommandError::new(format!("{cut}{more} is kept"))),
+        },
         Err(KillRefused::Saving) => Err(CommandError::new(format!(
             "{cut}{more} is being saved; kill it when that ends"
         ))),

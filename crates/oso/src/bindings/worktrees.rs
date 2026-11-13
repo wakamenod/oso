@@ -9,4 +9,7 @@
 pub const BRIEF: &[(&str, &str)] = &[("C-c C-c", "brief-send"), ("C-c C-k", "brief-cancel")];
 
 /// Key sequences and the commands they run, in a `*Worktrees*` buffer only.
-pub const WORKTREES: &[(&str, &str)] = &[("g", "worktree-list"), ("D", "worktree-remove")];
+pub const WORKTREES: &[(&str, &str)] = &[
+    ("g", "worktree-list-refresh"),
+    ("D", "worktree-list-remove"),
+];

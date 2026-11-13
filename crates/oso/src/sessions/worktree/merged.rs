@@ -2,7 +2,7 @@
 //! by ancestry against the remotes' main branches as they were last fetched, else by a merged
 //! pull request `gh` knows of, which covers squash merges. Nothing is fetched.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; this runs on a worktree
+//! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread.
 //!
 //! - **Ancestry:** the branch's reflog shows a commit made on it, and its tip is in

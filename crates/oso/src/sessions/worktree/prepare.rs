@@ -3,7 +3,7 @@
 //! directory is the repository's own or one of its linked worktrees. So the question names what
 //! will happen, and a call that cannot happen is refused before anyone is asked.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; it runs git, on a job.
+//! Must not depend on: `app`, `dispatch` or the UI thread; it runs git, on a job.
 
 use std::path::{Path, PathBuf};
 

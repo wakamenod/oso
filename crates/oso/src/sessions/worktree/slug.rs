@@ -2,7 +2,7 @@
 //! herdr names them (ADR 0121, Q13), so that the place is one Claude Code and the previous setup
 //! used and a repository's ignore files already cover.
 //!
-//! Must not depend on: the file system, `app`, `dispatch` or `commands`; [`place`] asks the
+//! Must not depend on: the file system, `app` or `dispatch`; [`place`] asks the
 //! caller whether a place is taken.
 
 use std::path::{Path, PathBuf};

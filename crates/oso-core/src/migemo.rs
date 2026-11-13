@@ -4,8 +4,11 @@
 //! [`Dictionary`], the words of the readings its hiragana start, joined as a trie.
 //!
 //! Must not depend on: any module of this crate, I/O or a log. It uses only
-//! `regex::escape`, and compiling the pattern is the caller's; reading a dictionary's file is
-//! the host's.
+//! `regex::escape`. [`compile`] holds the pattern's limits, and the caller's builder compiles
+//! it, of bytes or of text; reading a dictionary's file is the host's.
+//!
+//! It also composes a kana and a combining sound mark after it (`か` and U+3099 are `が`), for
+//! completion to match file names macOS writes decomposed.
 //!
 //! - A string is romaji while it holds only lowercase ASCII letters, `'` and `-`, and at
 //!   least one letter. It converts the longest spelling first, so it has one reading: `nn`
@@ -17,19 +20,39 @@
 //!   caller searches for the string as it is.
 //! - The pattern grows with the string, at most about 18 bytes a letter, and has no line
 //!   break. A string longer than `MAX_CHARS` has none.
+//! - The components of one prompt's input share one pattern's words, a [`Budget`] each spends
+//!   in turn, and [`alternatives`] lists every string a pattern matches, for a project's
+//!   search to tell whether a longer one narrows it (ADR 0116, Q7 and Q8).
+//! - [`Table`] is a dictionary the editor holds, told from others by its generation.
 
+use std::sync::Arc;
+
+mod budget;
 mod dictionary;
 mod forms;
-mod table;
+mod spellings;
 mod trie;
 
+pub(crate) use budget::{Budget, Spent};
+#[cfg(test)]
+pub(crate) use budget::{MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES, word_cost};
 pub use dictionary::{
     Dictionary, MAX_BYTES, MAX_ENTRIES, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS,
     MAX_WORDS_A_READING,
 };
-#[cfg(test)]
-pub(crate) use dictionary::{MAX_PATTERN_WORD_BYTES, word_cost};
 use trie::{Key, Trie};
+
+/// The most memory a pattern with a dictionary's words may take once compiled (ADR 0116, Q7):
+/// past it, [`compile`] drops the words and keeps the kana.
+pub(crate) const WORDS_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
+/// The deepest a pattern may nest: past it, as past the words' size limit, [`compile`] drops
+/// the words.
+pub(crate) const NEST_LIMIT: u32 = 32;
+
+/// The most memory the kana's pattern alone may take once compiled, an isearch key's: the
+/// largest, of 256 characters, compiles within it on a key.
+pub(crate) const KANA_SIZE_LIMIT: usize = 256 * 1024;
 
 /// The most characters of a string that has a pattern. Its pattern then compiles in under a
 /// millisecond on a key; a longer string is searched for as it is.
@@ -104,7 +127,7 @@ impl Romaji {
 /// The spelling `rest` starts with, and its hiragana: as no spelling starts another, there
 /// is at most one.
 fn longest(rest: &str) -> Option<(&'static str, &'static str)> {
-    table::ROWS
+    spellings::ROWS
         .iter()
         .find(|(spelling, _)| rest.starts_with(spelling))
         .copied()
@@ -112,13 +135,13 @@ fn longest(rest: &str) -> Option<(&'static str, &'static str)> {
 
 /// The second kana `spelling` gives besides its row's, if it gives one.
 fn also(spelling: &str) -> Option<&'static str> {
-    table::ALSO
+    spellings::ALSO
         .iter()
         .find(|(also, _)| *also == spelling)
         .map(|(_, kana)| *kana)
 }
 
-/// The one character of `kana`, a kana of [`table::ALSO`] or its row's.
+/// The one character of `kana`, a kana of [`spellings::ALSO`] or its row's.
 fn one(kana: &str) -> char {
     kana.chars().next().unwrap_or_default()
 }
@@ -144,9 +167,9 @@ fn doubles(letter: u8, after: &[u8]) -> bool {
 /// consonant that doubles.
 fn ends(rest: &str) -> Vec<&'static str> {
     let started = |spelling: &str| spelling.len() > rest.len() && spelling.starts_with(rest);
-    let mut ends: Vec<&'static str> = table::ROWS
+    let mut ends: Vec<&'static str> = spellings::ROWS
         .iter()
-        .chain(table::ALSO)
+        .chain(spellings::ALSO)
         .filter(|(spelling, _)| started(spelling))
         .map(|(_, kana)| *kana)
         .collect();
@@ -173,14 +196,10 @@ impl Romaji {
     /// its full-width letters and each of `words`, a dictionary's.
     pub(crate) fn pattern(&self, string: &str, words: &[&str]) -> String {
         let mut trie = Trie::default();
-        trie.insert(string);
-        trie.insert(&string.chars().map(forms::full_width).collect::<String>());
-        let forms: [Form; 3] = [
-            |c, out| out.push(c),
-            |c, out| out.push(forms::katakana(c)),
-            |c, out| forms::push_half_width(forms::katakana(c), out),
-        ];
-        for form in forms {
+        for letters in letters(string) {
+            trie.insert(&letters);
+        }
+        for form in FORMS {
             let node = trie.node(keys(&self.hiragana, form));
             if self.ends.is_empty() {
                 node.end();
@@ -207,6 +226,23 @@ impl Romaji {
 /// A form of the kana: a hiragana's own, pushed onto a string.
 type Form = fn(char, &mut String);
 
+/// The forms of the kana a pattern matches: hiragana, katakana and half-width katakana.
+/// [`Romaji::pattern`] and [`alternatives`] take them from here, so they agree.
+const FORMS: [Form; 3] = [
+    |c, out| out.push(c),
+    |c, out| out.push(forms::katakana(c)),
+    |c, out| forms::push_half_width(forms::katakana(c), out),
+];
+
+/// The letters a pattern matches besides the kana: the string, and its full-width letters.
+fn letters(string: &str) -> impl Iterator<Item = String> {
+    [
+        string.to_owned(),
+        string.chars().map(forms::full_width).collect(),
+    ]
+    .into_iter()
+}
+
 /// The keys of `hiragana` in `form`. Either of two kana gives either of two characters at
 /// each place their forms differ (`[ｽﾂ]ﾞ`), as both have the same number of characters in
 /// each form.
@@ -229,10 +265,172 @@ fn keys(hiragana: &[Key], form: Form) -> Vec<Key> {
     keys
 }
 
+/// Migemo's pattern for `string`, compiled by `build` from a pattern's text within a size
+/// limit (ADR 0116): with `dictionary`'s words within [`WORDS_SIZE_LIMIT`], or, if there are
+/// none or that does not compile, the kana alone within [`KANA_SIZE_LIMIT`]. `None` if the
+/// string gives no kana (see [`Romaji::new`]) or not even the kana's pattern compiles, and
+/// the caller matches the string as it is. `build` sets the case and [`NEST_LIMIT`].
+pub(crate) fn compile<R>(
+    string: &str,
+    dictionary: Option<&Dictionary>,
+    words_limit: usize,
+    build: impl FnMut(&str, usize) -> Option<R>,
+) -> Option<R> {
+    let mut budget = Budget::PATTERN;
+    compile_spending(string, dictionary, words_limit, &mut budget, build).compiled
+}
+
+/// A pattern [`compile_with_budget`] compiled, if it compiled, the words that went into it
+/// and what they spent, which were tried even if they did not compile.
+pub(crate) struct Compiled<'d, R> {
+    pub(crate) compiled: Option<R>,
+    pub(crate) words: Vec<&'d str>,
+    pub(crate) spent: Spent,
+}
+
+/// [`compile`], with only the words `budget` leaves, which it spends: what one input's
+/// components compile on the UI thread (ADR 0116, Q7).
+pub(crate) fn compile_with_budget<'d, R>(
+    string: &str,
+    dictionary: Option<&'d Dictionary>,
+    budget: &mut Budget,
+    build: impl FnMut(&str, usize) -> Option<R>,
+) -> Compiled<'d, R> {
+    compile_spending(string, dictionary, WORDS_SIZE_LIMIT, budget, build)
+}
+
+/// [`compile_with_budget`], the words within `words_limit`.
+fn compile_spending<'d, R>(
+    string: &str,
+    dictionary: Option<&'d Dictionary>,
+    words_limit: usize,
+    budget: &mut Budget,
+    mut build: impl FnMut(&str, usize) -> Option<R>,
+) -> Compiled<'d, R> {
+    let Some(romaji) = Romaji::new(string) else {
+        return Compiled {
+            compiled: None,
+            words: Vec::new(),
+            spent: Spent::default(),
+        };
+    };
+    let (words, spent) = dictionary.map_or_else(Default::default, |dictionary| {
+        dictionary.pattern_words_with_budget(&romaji, *budget)
+    });
+    budget.spend(spent.used);
+    if !words.is_empty()
+        && let Some(compiled) = build(&romaji.pattern(string, &words), words_limit)
+    {
+        return Compiled {
+            compiled: Some(compiled),
+            words,
+            spent,
+        };
+    }
+    Compiled {
+        compiled: build(&romaji.pattern(string, &[]), KANA_SIZE_LIMIT),
+        words: Vec::new(),
+        spent,
+    }
+}
+
+/// Every string migemo's pattern for `string` with `words` matches, as [`Romaji::pattern`]
+/// writes it, `None` if it gives no kana, if they would be more than `count` besides the
+/// words, as either of two kana and each unfinished end multiply them, or if they would take
+/// more than `bytes`, the words' included. What it builds stays within those.
+pub(crate) fn alternatives(
+    string: &str,
+    words: &[&str],
+    (count, bytes): (usize, usize),
+) -> Option<Vec<Box<str>>> {
+    let romaji = Romaji::new(string)?;
+    let forms = FORMS.map(|form| (form, keys(&romaji.hiragana, form)));
+    let mut total = 0usize;
+    for (_, keys) in &forms {
+        let pairs = keys.iter().filter(|(_, other)| other.is_some()).count();
+        let each = 1usize.checked_shl(u32::try_from(pairs).ok()?)?;
+        total = total.checked_add(each.checked_mul(romaji.ends.len().max(1))?)?;
+    }
+    if total > count {
+        return None;
+    }
+    let mut size: usize = words.iter().map(|word| word.len()).sum();
+    let mut out: Vec<Box<str>> = Vec::new();
+    let mut push = |string: String, out: &mut Vec<Box<str>>| {
+        size += string.len();
+        out.push(string.into());
+        size <= bytes
+    };
+    for letters in letters(string) {
+        if !push(letters, &mut out) {
+            return None;
+        }
+    }
+    for (form, keys) in forms {
+        let mut stems = vec![String::new()];
+        for &(c, other) in &keys {
+            match other {
+                None => stems.iter_mut().for_each(|stem| stem.push(c)),
+                Some(other) => {
+                    let mut with = stems.clone();
+                    stems.iter_mut().for_each(|stem| stem.push(c));
+                    with.iter_mut().for_each(|stem| stem.push(other));
+                    stems.append(&mut with);
+                }
+            }
+        }
+        for stem in stems {
+            if romaji.ends.is_empty() {
+                if !push(stem, &mut out) {
+                    return None;
+                }
+                continue;
+            }
+            for end in &romaji.ends {
+                let mut alternative = stem.clone();
+                end.chars().for_each(|c| form(c, &mut alternative));
+                if !push(alternative, &mut out) {
+                    return None;
+                }
+            }
+        }
+    }
+    out.extend(words.iter().map(|&word| word.into()));
+    Some(out)
+}
+
+/// The combining sound marks, U+3099 and U+309A, which a kana before them may compose with.
+pub(crate) const SOUND_MARKS: [char; 2] = ['\u{3099}', '\u{309A}'];
+
+/// A dictionary the editor holds, and the generation that tells it from every other it held.
+/// A compiled query keeps only the generation, so it never keeps a table alive, and only a
+/// job holds the table, while it runs.
+#[derive(Clone)]
+pub(crate) struct Table {
+    pub(crate) generation: u64,
+    pub(crate) dictionary: Arc<Dictionary>,
+}
+
+/// The generation of `table`, `None` for none: what a migemo component compiled with it keeps.
+pub(crate) fn generation(table: Option<&Table>) -> Option<u64> {
+    table.map(|table| table.generation)
+}
+
+/// Whether `string` is romaji that gives kana, and so has migemo's pattern.
+pub(crate) fn gives_kana(string: &str) -> bool {
+    Romaji::new(string).is_some()
+}
+
+/// The kana `base` and `mark`, a combining sound mark, compose to: `か` and U+3099 are `が`,
+/// as Unicode's canonical composition has it. `None` where they do not compose.
+pub(crate) fn composed(base: char, mark: char) -> Option<char> {
+    forms::composed(base, mark)
+}
+
 /// Every spelling of the table, for tests that build romaji strings from them.
 #[cfg(test)]
 pub(crate) fn spellings() -> impl Iterator<Item = &'static str> {
-    table::ROWS.iter().map(|(spelling, _)| *spelling)
+    spellings::ROWS.iter().map(|(spelling, _)| *spelling)
 }
 
 #[cfg(test)]

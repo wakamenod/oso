@@ -16,7 +16,7 @@ use super::{Caller, Job, Pending, shown};
 use crate::channel::{Connection, Reply};
 use crate::sessions::tools::Tool;
 use crate::sessions::worktree::checks;
-use crate::sessions::worktree::jobs::{Asked, Report};
+use crate::sessions::worktree::jobs::{Asked, Go, Report};
 use crate::sessions::worktree::porcelain::printable;
 
 /// The most names of what git ignored a reply gives.
@@ -69,6 +69,24 @@ impl App {
                 path,
             }),
         );
+    }
+
+    /// The checks of the agent's removal `token` held again in its job: what the UI holds is
+    /// looked at once more, then the worktree's idle sessions are stopped before the job goes
+    /// on, as for the person's removal. Not saying [`Go`] calls the removal off, which its
+    /// [`Report::Removed`] then says.
+    pub(super) fn tool_clear(&mut self, token: u64, path: &Path, go: Go) {
+        if let Some(check) = checks::held_refusal(&self.held_at(path)) {
+            // Its call hears why now; the job's end then says only that it was called off.
+            if let Some(Job::Removing(removing)) = self.hosting.tools.jobs.get_mut(&token)
+                && let Some(pending) = removing.pending.take()
+            {
+                pending.answer(Err(format!("kept: {}", check.why())));
+            }
+            return;
+        }
+        self.stop_idle_sessions_in(path);
+        go.proceed();
     }
 
     /// The removal `removing` ended. Its call is answered, unless it was answered already that

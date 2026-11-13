@@ -58,6 +58,22 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "worktree-list-refresh",
+        doc: "In `*Worktrees*`, list the worktrees again (`g`).\n\nAs `worktree-list`, for the repository the list shows. It has a name of its own so that `M-x` offers `worktree-list` everywhere: a command bound only in a buffer's own keys is offered there alone.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: worktree_list,
+        state: None,
+    },
+    Command {
+        name: "worktree-list-remove",
+        doc: "In `*Worktrees*`, remove the worktree at point (`D`), as `worktree-remove` does.\n\nIt has a name of its own so that `M-x` offers `worktree-remove` everywhere.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: worktree_remove,
+        state: None,
+    },
+    Command {
         name: "worktree-remove-confirmed",
         doc: "Remove the worktree `worktree-remove` asked about, as its question's `y` does.\n\nEvery check runs again first, in the job that removes it, and it is refused if git ignores more there than the question named. Only the question runs it.",
         args: ArgSpec::None,

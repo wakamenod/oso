@@ -41,6 +41,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       # Linux has no display or GPU: Xvfb and lavapipe, as in perf.yml. It draws
       # no text yet (ADR 0036), and the flows say what that changes.
       - name: Install a virtual display and lavapipe
@@ -78,6 +81,9 @@ jobs:
         with:
           save-if: false
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       # Weston with its headless backend and its GL renderer on Mesa's software EGL, lavapipe,
       # and what winit's Wayland backend loads at run time, all from Ubuntu's archive.
       - name: Install a headless Wayland compositor and lavapipe

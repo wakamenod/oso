@@ -8,6 +8,7 @@
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::command::{ArgSpec, BufferPurpose, Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
+use oso_core::window::WindowId;
 
 use super::args::{self, Given};
 use super::{Dispatcher, Effects, Step};
@@ -145,9 +146,14 @@ impl Dispatcher {
         // Its kill joins no kill of the person's, before or after it, so that what reaches the
         // OS clipboard from a person's kill never holds the agent's text (ADR 0085).
         editor.forget_kills();
+        // Nothing the agent runs puts a terminal in front of the person's typing (ADR 0120).
+        if name == "delete-window" && shows_another_terminal(editor) {
+            return refused(TERMINAL_REFUSED.into());
+        }
+        let before = (editor.tiled().0.id(), editor.tiled().0.buffer());
         // The prompts it opens are the agent's, and say so (ADR 0085). What it queues to save
         // its caller starts as the agent's (ADR 0108).
-        let ran = self.as_input(editor, |this, editor| {
+        let mut ran = self.as_input(editor, |this, editor| {
             editor.for_agent(|editor| {
                 let (effects, result) = this.execute(editor, id, args, invocation, Step::Apart);
                 let effects = effects.union(this.after_prompts(editor));
@@ -155,8 +161,42 @@ impl Dispatcher {
             })
         });
         editor.forget_kills();
+        if took_a_terminal(editor, before) {
+            ran.1 = Err(TERMINAL_REFUSED.into());
+        }
         Ok(ran)
     }
+}
+
+/// Why the agent may not select a terminal: the person's next keys would go to its program.
+const TERMINAL_REFUSED: &str = "switching to a terminal is the person's";
+
+/// Whether a tiled window other than the selected one shows a terminal, which deleting the
+/// selected one may select.
+fn shows_another_terminal(editor: &Editor) -> bool {
+    let selected = editor.tiled().0.id();
+    editor.frame().windows().iter().any(|(id, _)| {
+        *id != selected
+            && editor
+                .window_by_id(*id)
+                .is_some_and(|window| editor.shown(window).is_terminal())
+    })
+}
+
+/// Whether the agent's command just put a terminal in front, selecting another window that
+/// shows one or showing one in the selected window. If so, the window selected `before` is
+/// selected again, and the buffer it showed shown again.
+fn took_a_terminal(editor: &mut Editor, (window, buffer): (WindowId, BufferId)) -> bool {
+    let now = editor.tiled().0;
+    if !editor.shown(now).is_terminal() || (now.id(), now.buffer()) == (window, buffer) {
+        return false;
+    }
+    if now.id() == window {
+        editor.show(buffer);
+    } else {
+        editor.select_window(window);
+    }
+    true
 }
 
 /// The buffer named `name`, if the agent may show it: one `C-x b` lists, as the channel
@@ -221,7 +261,14 @@ pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
 /// match with no wildcard, so that a new mode says.
 fn has_own_keys(mode: Mode) -> bool {
     match mode {
-        Mode::CopyList | Mode::CopyView | Mode::Brief | Mode::Worktrees => true,
+        // A terminal's keys go to its program (ADR 0120).
+        Mode::CopyList
+        | Mode::CopyView
+        | Mode::Brief
+        | Mode::Worktrees
+        | Mode::Review
+        | Mode::Terminal
+        | Mode::Sessions => true,
         Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }
 }
@@ -326,6 +373,63 @@ mod tests {
             Given::Text(name),
             Reach::Look,
         )
+    }
+
+    fn keys(text: &str) -> Vec<oso_core::key::KeyPress> {
+        text.parse::<oso_core::key::KeySequence>().unwrap().0
+    }
+
+    /// Runs `name` for the agent as a `Look` command, and says what it came to.
+    fn look(dispatcher: &mut Dispatcher, editor: &mut Editor, name: &str) -> Result<(), String> {
+        match dispatcher.run_for_agent(editor, name, Given::Nothing, Reach::Look) {
+            Ok((_, ran)) => ran,
+            Err(Refused(why)) => Err(why),
+        }
+    }
+
+    #[test]
+    fn the_agent_never_walks_buffers_onto_a_terminal() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let notes = editor.window().buffer();
+        let terminal = editor.add_terminal_buffer("*terminal*");
+        let other = editor.add_buffer(Buffer::from_text("other.md", ""));
+        for name in [
+            "previous-buffer",
+            "next-buffer",
+            "previous-buffer",
+            "next-buffer",
+        ] {
+            let _ = look(&mut dispatcher, &mut editor, name);
+            assert_ne!(editor.window().buffer(), terminal, "{name}");
+        }
+        assert!([notes, other].contains(&editor.window().buffer()));
+        // The person's own walk still reaches it, once it was shown.
+        editor.show(terminal);
+        editor.show(notes);
+        dispatcher.handle_keys(&mut editor, keys("M-,"));
+        assert_eq!(editor.window().buffer(), terminal);
+    }
+
+    #[test]
+    fn the_agent_never_selects_a_window_that_shows_a_terminal() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let notes = editor.window().buffer();
+        dispatcher.handle_keys(&mut editor, keys("C-x 2 C-x o"));
+        let terminal = editor.add_terminal_buffer("*terminal*");
+        editor.show(terminal);
+        dispatcher.handle_keys(&mut editor, keys("C-x o"));
+        let selected = editor.tiled().0.id();
+        assert_eq!(editor.window().buffer(), notes);
+        let ran = look(&mut dispatcher, &mut editor, "other-window");
+        assert_eq!(ran, Err(super::TERMINAL_REFUSED.into()));
+        assert_eq!(editor.tiled().0.id(), selected, "selected again");
+        assert_eq!(editor.window().buffer(), notes);
+        let deleted = look(&mut dispatcher, &mut editor, "delete-window");
+        assert_eq!(deleted, Err(super::TERMINAL_REFUSED.into()));
+        assert_eq!(editor.frame().windows().len(), 2, "nothing deleted");
+        // The person's own C-x o still goes there.
+        dispatcher.handle_keys(&mut editor, keys("C-x o"));
+        assert_eq!(editor.window().buffer(), terminal);
     }
 
     /// A loaded buffer visiting `path`, judged by the names it resolved to.

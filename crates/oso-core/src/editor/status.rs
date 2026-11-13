@@ -47,6 +47,9 @@ const AGENT: &str = "Agent  ";
 const DEFINING: &str = "  Def";
 /// The most cells a project's name takes (ADR 0114).
 const PROJECT_CELLS: usize = 24;
+
+/// The cells a mode's note, such as a terminal's title, takes at most (ADR 0120).
+const NOTE_CELLS: usize = 40;
 /// Says that the buffer's project is not trusted to run its code (ADR 0114).
 const RESTRICTED: &str = "restricted  ";
 
@@ -58,6 +61,10 @@ pub struct Status {
     pub agent: &'static str,
     /// An agent is connected, so the host draws [`Self::agent`] bright.
     pub agent_connected: bool,
+    /// Agent sessions that need the person, after [`Self::agent`] (ADR 0121): `⚠ 2  ` while
+    /// two need input, then `● 3  ` while three are done or ready for review, or as many
+    /// blanks while their mark blinks off.
+    pub sessions: String,
     /// The warnings, each with a blank after it. They come first on the row, and on
     /// the echo row of a frame with no modeline.
     pub warnings: String,
@@ -87,8 +94,14 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}{}",
-            self.agent, self.warnings, self.name, self.project, self.restricted, self.state
+            "{}{}{}{}{}{}{}",
+            self.agent,
+            self.sessions,
+            self.warnings,
+            self.name,
+            self.project,
+            self.restricted,
+            self.state
         )
     }
 
@@ -162,6 +175,16 @@ fn push_encoding(out: &mut String, info: FileInfo, invalid: bool) {
 }
 
 fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
+    // A terminal has no position, no file and no encoding: its mode and what the host notes,
+    // such as its program's title (ADR 0120).
+    if buffer.is_terminal() {
+        out.push_str(buffer.mode().name());
+        if !buffer.mode_note().is_empty() {
+            out.push_str(GAP);
+            push_cut(out, buffer.mode_note(), NOTE_CELLS);
+        }
+        return;
+    }
     if let Some(progress) = buffer.loading() {
         let _ = match progress.total {
             Some(total) => write!(out, "Loading {}%{GAP}", percent(progress.read, total)),
@@ -217,6 +240,10 @@ impl Editor {
             AGENT
         };
         status.agent_connected = frame_segments && agent == super::AgentChannel::Connected;
+        status.sessions.clear();
+        if frame_segments {
+            self.session_marks().write(&mut status.sessions);
+        }
         status.warnings.clear();
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
@@ -231,6 +258,7 @@ impl Editor {
         }
         status.state.clear();
         push_state(&mut status.state, window, buffer);
+        self.review_status_into(window.buffer(), &mut status.state);
         // `Def` while a keyboard macro is recorded, as Emacs's (ADR 0113).
         if id == tiled && self.macro_recording() {
             status.state.push_str(DEFINING);
@@ -250,6 +278,7 @@ impl Editor {
         let marker = marker(buffer);
         // These parts are ASCII, so their bytes are their cells.
         let others = status.agent.len()
+            + text_cells(&status.sessions)
             + status.warnings.len()
             + marker.len()
             + 1
@@ -377,6 +406,18 @@ mod tests {
         assert_eq!(status.name, "-- notes.md  ");
         assert_eq!(status.state, "2:1  Fundamental  UTF-8 LF");
         assert_eq!(status.modeline(), "-- notes.md  2:1  Fundamental  UTF-8 LF");
+    }
+
+    #[test]
+    fn a_terminal_says_its_mode_and_note_and_no_position_or_encoding() {
+        let mut editor = Editor::default();
+        let terminal = editor.add_terminal_buffer("*terminal*");
+        editor.show(terminal);
+        assert_eq!(status(&editor).state, "Terminal");
+        editor.set_mode_note(terminal, "vim".to_owned());
+        let status = status(&editor);
+        assert_eq!(status.name, "%% *terminal*  ");
+        assert_eq!(status.state, "Terminal  vim");
     }
 
     /// `editor`'s shown buffer, put in the project rooted at `root`.
