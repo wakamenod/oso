@@ -36,6 +36,7 @@ mod jump;
 mod keymaps;
 mod macros;
 mod menus;
+pub use menus::OpenMenu;
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
 mod run_command;
@@ -191,24 +192,29 @@ impl Dispatcher {
     }
 
     /// Whether the next key is read as a key rather than typed: a prefix key is
-    /// pending, or a prefix argument reads digits or a minus. The input method stays
-    /// off then, as a letter or a digit would start a composition (ADR 0069).
+    /// pending, a prefix argument reads digits or a minus, or a menu is open. The input method
+    /// stays off then, as a letter or a digit would start a composition (ADR 0069, ADR 0117).
     pub fn reads_keys(&self) -> bool {
-        !self.resolver.pending().is_empty()
+        self.menu_open()
+            || !self.resolver.pending().is_empty()
             || self
                 .prefix
                 .is_some_and(|prefix| prefix.reads_digits() || prefix.reads_minus())
     }
 
     /// Whether text would go in as typed now: no prefix key or prefix argument waits, no
-    /// question is open, and what is active takes text. A commit the window layer makes
+    /// question or menu is open, and what is active takes text. A commit the window layer makes
     /// unasked waits otherwise, so that it neither takes a prefix argument nor is lost
     /// (ADR 0077).
     pub fn types_text(&self, editor: &Editor) -> bool {
         let question = editor
             .prompt()
             .is_some_and(|prompt| prompt.kind().is_question());
-        if question || self.prefix.is_some() || !self.resolver.pending().is_empty() {
+        if question
+            || self.prefix.is_some()
+            || !self.resolver.pending().is_empty()
+            || self.menu_open()
+        {
             return false;
         }
         let reading = self.keymaps.reading();
@@ -230,50 +236,14 @@ impl Dispatcher {
         self.take_waiting_user();
         let before = editor.view_sample();
         let out = work(self, editor);
+        // A menu never sits over what took the keys from it (ADR 0117).
+        self.close_menus_if_taken(editor);
         // Before the view is sampled: another digit of line numbers narrows the text area.
         editor.fit_gutter();
         self.view_jumped = Some(editor.flashes(&before, &editor.view_sample()));
         self.take_waiting_user();
         self.show_keys_in_progress(editor);
         out
-    }
-
-    /// Puts in the user's keymap that waited for a prefix key, once none is pending. The one
-    /// it replaces waits in turn, for [`Dispatcher::take_replaced_keymap`].
-    fn take_waiting_user(&mut self) {
-        if !self.resolver.pending().is_empty() {
-            return;
-        }
-        self.menus.take_waiting();
-        if let Some(user) = self.user_waiting.take() {
-            let old = std::mem::replace(&mut self.keymaps.user, user);
-            self.replaced.push(old);
-        }
-    }
-
-    /// Puts the user's keys from the configuration just above the global keymap, in place of
-    /// those before; an empty keymap takes them away (ADR 0108). While a prefix key is
-    /// pending, they wait for it to resolve, so that its next key reads the keymaps it
-    /// started in.
-    ///
-    /// Returns the keymap this replaces now, the one in force or one that was waiting, for the
-    /// caller to drop elsewhere: a large one takes milliseconds to drop. One that a waiting
-    /// keymap replaces later is kept for [`Dispatcher::take_replaced_keymap`].
-    pub fn set_user_keymap(&mut self, user: Keymap) -> Option<Keymap> {
-        if self.resolver.pending().is_empty() {
-            if let Some(stale) = self.user_waiting.take() {
-                self.replaced.push(stale);
-            }
-            Some(std::mem::replace(&mut self.keymaps.user, user))
-        } else {
-            self.user_waiting.replace(user)
-        }
-    }
-
-    /// A user's keymap that a waiting one replaced, once its prefix key resolved, for the
-    /// caller to drop elsewhere. Call it until it gives `None`.
-    pub fn take_replaced_keymap(&mut self) -> Option<Keymap> {
-        self.replaced.pop()
     }
 
     /// Whether the last input since this was last asked made the view jump, so the cursor
@@ -358,6 +328,10 @@ impl Dispatcher {
                 redraw: true,
                 ..Effects::default()
             };
+        }
+        // A menu binds no text: its `foreign-keys` says what text does there (ADR 0117).
+        if self.menu_refuses_text(editor) {
+            return Effects::default();
         }
         if !self.resolver.pending().is_empty() {
             let pending = self.resolver.pending();
@@ -500,6 +474,15 @@ impl Dispatcher {
     }
 
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        // An open menu's keys come first, as isearch's do (ADR 0117).
+        if let Some(effects) = self.menu_takes(editor, key) {
+            return effects;
+        }
+        self.resolve_usual(editor, key)
+    }
+
+    /// Resolves `key` through the keymaps active now, past any open menu.
+    fn resolve_usual(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
         let dropped = self.drop_held_completion();
         if let Some(effects) = self.jump_digit(editor, key) {

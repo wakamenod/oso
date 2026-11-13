@@ -78,15 +78,20 @@ pub(super) fn boxes(
     let keys = panel
         .keys
         .iter()
-        .filter_map(move |key| key_chip(*key, &grid, pt, theme, clip));
+        .filter_map(move |&(key, face)| key_chip(key, face, &grid, pt, theme, clip));
     let selected = panel
         .selected
         .and_then(|row| selected_box(row, panel.border, &grid, pt, theme, fill, clip));
+    // A menu's default head is marked in its own column only (ADR 0117).
+    let marked = panel
+        .marked
+        .and_then(|row| selected_box(row, false, &grid, pt, theme, fill, clip));
     frame
         .into_iter()
         .chain(body)
         .chain(field)
         .chain(selected)
+        .chain(marked)
         .chain(keys)
 }
 
@@ -153,9 +158,12 @@ fn field_box(
     .cut(outline + 1.0, 0.0, clip)
 }
 
-/// A key's chip inside its `cells`, cut to `clip` (ADR 0075).
+/// A key's chip in `face`'s background, cut to `clip`: inside its `cells` for a question's key,
+/// which they pad (ADR 0075), and a little past them across for a menu's, which they only hold
+/// (ADR 0117).
 fn key_chip(
     cells: CellRect,
+    face: Face,
     grid: &PixelGrid,
     pt: f32,
     theme: &Theme,
@@ -166,7 +174,12 @@ fn key_chip(
         return None;
     }
     let cells = grid.rect(cells);
-    let [across, up] = style.key_inset.map(|inset| (inset * pt).round());
+    let [inset, up] = style.key_inset.map(|inset| (inset * pt).round());
+    let across = if face == Face::Key {
+        inset
+    } else {
+        -(style.key_reach * pt).round()
+    };
     Rounded {
         rect: [
             cells.x + across,
@@ -175,7 +188,7 @@ fn key_chip(
             (cells.height - 2.0 * up).max(0.0),
         ],
         radii: [style.key_radius * pt; 4],
-        fill: theme.background(Face::Key),
+        fill: theme.background(face),
         outline: [0.0; 4],
         shadow: [0.0; 4],
         params: [0.0; 4],

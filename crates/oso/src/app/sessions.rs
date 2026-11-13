@@ -197,7 +197,7 @@ mod tests {
         assert!(show_explanation(&mut editor, &mut kept, "screen row\n"));
         let id = kept.unwrap();
         assert_eq!(editor.window().buffer(), id);
-        let state = crate::channel::state::state(&editor, 0);
+        let state = crate::channel::state::state(&editor, None, 0);
         assert!(state["text"].is_null(), "{state}");
         let window = &state["windows"][0];
         assert!(window["selections"].is_null(), "{window}");
