@@ -283,6 +283,10 @@ mod tests {
         "save-buffers-kill-terminal",
         // A hosted session's saved screen, which an agent must not read (ADR 0121).
         "session-explain-file",
+        // A hosted session's `claude`, a process the person starts (ADR 0121).
+        "claude",
+        "session-fork",
+        "session-resume",
         "terminal",
         // Letting an agent read a terminal is the person's to give and to take back
         // (ADR 0120, Q16).

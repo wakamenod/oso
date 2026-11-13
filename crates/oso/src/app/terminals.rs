@@ -74,8 +74,12 @@ impl App {
         }
         self.drop_unasked_pastes();
         let editor = &self.editor;
-        for gone in self.terminals.map.retain(|id| editor.buffer(id).is_some()) {
-            // Dropping its handle hangs it up; its thread finishes on its own.
+        let gone = self.terminals.map.retain(|id| editor.buffer(id).is_some());
+        if !gone.is_empty() {
+            // A session whose buffer went is archived before its terminal is hung up (ADR 0121).
+            let buffers: Vec<BufferId> = gone.iter().map(|(id, _)| *id).collect();
+            self.archive_killed_sessions(&buffers);
+            // Dropping each handle hangs it up; its thread finishes on its own.
             drop(gone);
         }
         let editor = &self.editor;
@@ -89,7 +93,7 @@ impl App {
         }
     }
 
-    fn terminal_send(&mut self, buffer: BufferId, send: TerminalSend) {
+    pub(super) fn terminal_send(&mut self, buffer: BufferId, send: TerminalSend) {
         // Typed while the shell is found: it goes once the terminal starts.
         if let Some(hosted) = self.terminals.map.get_mut(buffer)
             && hosted.terminal.is_none()
@@ -167,6 +171,8 @@ impl App {
             if self.take_terminal_snapshots() {
                 self.terminals.hidden_due = Some(Instant::now() + HIDDEN_PACE);
             }
+            // A session that ended out of sight is remembered before the loop waits.
+            self.save_sessions();
         }
     }
 
@@ -213,7 +219,7 @@ impl App {
                     Event::Ended(end) => {
                         hosted.ended = Some(hosted::ended(&end));
                         hosted.note_stale = true;
-                        ended.push(id);
+                        ended.push((id, end));
                     }
                     Event::PasteRefused { lines } => said.push(format!(
                         "{lines} lines not pasted: the program turned bracketed paste off"
@@ -234,8 +240,10 @@ impl App {
                 terminal.recycle(snapshot);
             }
         }
-        for id in ended {
+        for (id, end) in ended {
             self.editor.set_running(id, false);
+            // A hosted session's end, which its modeline says differently (ADR 0121).
+            self.session_terminal_ended(id, &end);
         }
         // A password prompt is a secret from the snapshot on: secure input, the log and the
         // input method follow at once, between events (ADR 0120, Q17).
@@ -380,7 +388,7 @@ impl App {
     }
 
     /// The size, in cells and pixels, of `window`'s text.
-    fn window_size(&self, window: oso_core::window::WindowId) -> Option<Size> {
+    pub(super) fn window_size(&self, window: oso_core::window::WindowId) -> Option<Size> {
         let regions = self.editor.frame().regions(window)?;
         let text = regions.text;
         let metrics = self.view.as_ref()?.render_state.cell_metrics();

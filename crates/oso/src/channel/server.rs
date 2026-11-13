@@ -10,6 +10,10 @@
 //!   for [`REFUSED_FOR`] after the person says no.
 //! - Every connection counts toward [`MAX_ACCEPTS`] a minute, and at most [`MAX_CLIENTS`]
 //!   are open at once, so no process can hold the slots or churn connections unseen.
+//! - A first request that is `version` naming a session asks the UI thread first whether the
+//!   connection is that hosted session's bridge (ADR 0121). One is let in without the
+//!   question and outside [`MAX_CLIENTS`]: each session holds at most one, which the UI
+//!   keeps to. Anything else goes on as above.
 //! - Once let in, a connection sends at most [`MAX_RATE`] requests a second, one at a time,
 //!   with no idle limit.
 
@@ -92,6 +96,10 @@ pub enum Event {
     /// Its first request came: ask the person whether this process may drive the editor. An
     /// `Ok` reply lets it in.
     Asks(Peer),
+    /// Its first request names a hosted session, as the bridge gave it: is this process that
+    /// session's bridge (ADR 0121)? An `Ok(true)` reply lets it in without asking, as that
+    /// session's; anything else and it asks as any connection.
+    Claims { peer: Peer, session: String },
     /// A request from a connection the person let in.
     Op(Op),
     /// It closed, or the channel stopped.
@@ -300,32 +308,46 @@ where
         return Ok(());
     };
     drop(silent);
-    let first_id = protocol::parse(&first).map_or_else(|bad| bad.id, |request| request.id);
-    let Some(_slot) = Slot::take(&shared.open, MAX_CLIENTS) else {
-        writeln!(
-            writer,
-            "{}",
-            failure(&first_id, "too many agents are connected")
-        )?;
-        return Ok(());
+    let (first_id, claim) = match protocol::parse(&first) {
+        Ok(request) => match request.method {
+            Method::Version { session } => (request.id, session),
+            Method::Ui(_) => (request.id, None),
+        },
+        Err(bad) => (bad.id, None),
     };
-    if let Err(why) = gate(shared).may_ask(Instant::now()) {
-        writeln!(writer, "{}", failure(&first_id, why))?;
-        return Ok(());
-    }
-    let asked = ask(&peer, connection, &lines, &mut writer, shared, send);
-    // Only the person's own `n` holds others off: a client that goes, or a channel that
-    // stops, is no refusal.
-    let refused = matches!(&asked, Err(Asked::Refused(why)) if why == REFUSED_BY_THE_PERSON);
-    gate(shared).answered(refused, Instant::now());
-    match asked {
-        Ok(()) => closing.admitted = true,
-        Err(Asked::Refused(why)) => {
-            writeln!(writer, "{}", failure(&first_id, &why))?;
+    // A hosted session's bridge holds no slot of the two: each session holds one at most.
+    let bridges = claim.is_some_and(|session| claimed(&peer, session, connection, send));
+    let _slot = if bridges {
+        None
+    } else {
+        let Some(slot) = Slot::take(&shared.open, MAX_CLIENTS) else {
+            writeln!(
+                writer,
+                "{}",
+                failure(&first_id, "too many agents are connected")
+            )?;
+            return Ok(());
+        };
+        if let Err(why) = gate(shared).may_ask(Instant::now()) {
+            writeln!(writer, "{}", failure(&first_id, why))?;
             return Ok(());
         }
-        Err(Asked::Gone) => return Ok(()),
-    }
+        let asked = ask(&peer, connection, &lines, &mut writer, shared, send);
+        // Only the person's own `n` holds others off: a client that goes, or a channel that
+        // stops, is no refusal.
+        let refused = matches!(&asked, Err(Asked::Refused(why)) if why == REFUSED_BY_THE_PERSON);
+        gate(shared).answered(refused, Instant::now());
+        match asked {
+            Ok(()) => {}
+            Err(Asked::Refused(why)) => {
+                writeln!(writer, "{}", failure(&first_id, &why))?;
+                return Ok(());
+            }
+            Err(Asked::Gone) => return Ok(()),
+        }
+        Some(slot)
+    };
+    closing.admitted = true;
     let mut rate = Rate::new(Instant::now());
     let mut line = Some(first);
     while let Some(text) = line.take() {
@@ -396,6 +418,28 @@ fn note_silence<S: Fn(Request) -> bool>(shared: &Shared, send: &S) {
         event: Event::Silent,
         reply: None,
     });
+}
+
+/// Whether the UI thread finds the connection of `peer` to be the bridge of the hosted session
+/// `session` it claims, within [`REPLY_TIMEOUT`]. If so, the UI counts it as let in.
+fn claimed<S>(peer: &Peer, session: String, connection: Connection, send: &S) -> bool
+where
+    S: Fn(Request) -> bool,
+{
+    let (reply, replied) = mpsc::channel();
+    let claims = Request {
+        connection,
+        event: Event::Claims {
+            peer: peer.clone(),
+            session,
+        },
+        reply: Some(reply),
+    };
+    send(claims)
+        && matches!(
+            replied.recv_timeout(REPLY_TIMEOUT),
+            Ok(Ok(Value::Bool(true)))
+        )
 }
 
 /// How asking the person ended, when it did not let the connection in.
@@ -474,7 +518,7 @@ where
         Err(bad) => return bounded(&bad.id, failure(&bad.id, &bad.message)),
     };
     let op = match request.method {
-        Method::Version => return success(&request.id, version()),
+        Method::Version { .. } => return success(&request.id, version()),
         Method::Ui(op) => op,
     };
     // Only a file that is there opens: the channel starts no new file (ADR 0085). Looked at

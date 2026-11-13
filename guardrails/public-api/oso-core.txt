@@ -269,6 +269,11 @@ pub oso_core::command::ArgSpec::Command::history: &'static str
 pub oso_core::command::ArgSpec::Command::prompt: &'static str
 pub oso_core::command::ArgSpec::Count
 pub oso_core::command::ArgSpec::CountAndClipboard
+pub oso_core::command::ArgSpec::DirectoryAndTextOnPrefix
+pub oso_core::command::ArgSpec::DirectoryAndTextOnPrefix::directory: &'static str
+pub oso_core::command::ArgSpec::DirectoryAndTextOnPrefix::directory_history: &'static str
+pub oso_core::command::ArgSpec::DirectoryAndTextOnPrefix::history: &'static str
+pub oso_core::command::ArgSpec::DirectoryAndTextOnPrefix::prompt: &'static str
 pub oso_core::command::ArgSpec::File
 pub oso_core::command::ArgSpec::File::history: &'static str
 pub oso_core::command::ArgSpec::File::prompt: &'static str
@@ -459,6 +464,7 @@ impl<'a> oso_core::command::Ctx<'a>
 pub fn oso_core::command::Ctx<'a>::answer(&self) -> core::option::Option<&'a str>
 pub fn oso_core::command::Ctx<'a>::clipboard(&self) -> core::option::Option<&'a oso_core::kill::FromClipboard>
 pub fn oso_core::command::Ctx<'a>::confirmed(&self) -> bool
+pub fn oso_core::command::Ctx<'a>::directory_and_text(&self) -> core::option::Option<(&'a str, &'a str)>
 pub fn oso_core::command::Ctx<'a>::effects(&self) -> oso_core::command::Effects
 pub fn oso_core::command::Ctx<'a>::input(&self) -> &'a str
 pub fn oso_core::command::Ctx<'a>::invoked(&'a mut oso_core::editor::Editor, oso_core::command::Invocation<'a>) -> Self
@@ -1426,6 +1432,11 @@ impl core::marker::Copy for oso_core::editor::ScopeKind
 impl core::marker::StructuralPartialEq for oso_core::editor::ScopeKind
 pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
+pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::Resume(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::Start
+pub oso_core::editor::SessionRequest::Start::directory: core::option::Option<std::path::PathBuf>
+pub oso_core::editor::SessionRequest::Start::name: core::option::Option<alloc::string::String>
 impl core::clone::Clone for oso_core::editor::SessionRequest
 pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest
 impl core::cmp::Eq for oso_core::editor::SessionRequest

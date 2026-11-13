@@ -42,10 +42,16 @@ impl App {
     pub(super) fn start_agent_channel(&mut self) {
         self.agent.stop_when_started = false;
         if self.agent.channel.is_some() || self.agent.starting {
+            // Asked for by the person or the configuration: no refused session start turns
+            // it off any more.
+            self.agent.on_for_sessions = false;
+            self.agent.started_for_a_session = false;
             self.editor.message("The agent channel is on already");
             return;
         }
         self.agent.started_by = None;
+        self.agent.started_for_a_session = false;
+        self.agent.on_for_sessions = false;
         self.agent.run += 1;
         let run = self.agent.run;
         let waker = self.waker.clone();
@@ -69,6 +75,7 @@ impl App {
     pub(in crate::app) fn agent_started(&mut self, started: std::io::Result<channel::Channel>) {
         self.agent.starting = false;
         let started_by = self.agent.started_by.take();
+        let for_a_session = std::mem::take(&mut self.agent.started_for_a_session);
         if std::mem::take(&mut self.agent.stop_when_started) {
             return;
         }
@@ -77,6 +84,13 @@ impl App {
                 self.agent.channel = Some(channel);
                 self.agent.started = Some(Instant::now());
                 self.agent_log("the agent channel is on");
+                if for_a_session {
+                    self.agent.on_for_sessions = true;
+                    self.editor.message(
+                        "Agent channel on for the session's oso tools: any other agent asks you first",
+                    );
+                    return;
+                }
                 let on = match started_by {
                     Some(file) => format!("Agent channel on, as {file} says"),
                     None => "Agent channel on".to_owned(),
@@ -93,6 +107,7 @@ impl App {
     }
 
     pub(super) fn stop_agent_channel(&mut self) {
+        self.agent.on_for_sessions = false;
         if self.agent.starting {
             self.agent.stop_when_started = true;
             self.editor.message("Agent channel off");
@@ -117,6 +132,7 @@ impl App {
             }
         }
         self.agent.connected.clear();
+        self.session_bridge_gone(None);
         self.forget_undo_of(None);
         self.orphan_questions(None);
         self.drop_agent_opens(None);

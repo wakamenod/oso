@@ -300,6 +300,7 @@ pub struct oso_term::Terminal
 impl oso_term::Terminal
 pub fn oso_term::Terminal::hang_up(&self)
 pub fn oso_term::Terminal::paste(&self, alloc::string::String, bool) -> core::result::Result<(), oso_term::QueueFull>
+pub fn oso_term::Terminal::pid(&self) -> core::option::Option<u32>
 pub fn oso_term::Terminal::recycle(&self, oso_term::Snapshot)
 pub fn oso_term::Terminal::resize(&self, oso_platform::process::pty::Size)
 pub fn oso_term::Terminal::scroll(&self, oso_term::Scroll)

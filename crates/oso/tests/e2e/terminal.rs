@@ -199,6 +199,18 @@ fn the_input_method_commits_into_the_program_at_its_cursor() {
     assert_eq!(state["ime"]["wanted"], true);
     app.visual_aids_off();
     type_line(&mut app, "printf '\\033[?25l'");
+    // The next prompt first: keys typed ahead are echoed before a shell that reads lines
+    // (dash) prints it, and the row would end with the prompt instead.
+    app.wait_for("the prompt after printf", |state| {
+        let rows = rows(state);
+        rows.iter()
+            .rposition(|row| row.contains("printf"))
+            .is_some_and(|at| {
+                rows[at + 1..]
+                    .iter()
+                    .any(|row| row.trim_end().ends_with('$'))
+            })
+    });
     app.send_keys("e c h o SPC x");
     let state = app.wait_for("the typed text", |state| {
         rows(state).iter().any(|row| row.ends_with("echo x"))

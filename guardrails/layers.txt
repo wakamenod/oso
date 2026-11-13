@@ -62,10 +62,12 @@ bindings
 emergency
 saver
 lister
+# `sessions` judges hosted agent sessions' screens on its own thread (ADR 0121, Q24), and
+# starts their terminals (ADR 0121, step 1 as built).
+sessions
 # `grep` searches a project's files over `walk`'s walk (ADR 0114).
-# `sessions` judges hosted agent sessions' screens on its own thread (ADR 0121, Q24).
 # `terminal` hosts the terminals: their keys, shells and kept grids (ADR 0120).
-commands dev grep keys loader sessions terminal text
+commands dev grep keys loader terminal text
 # `walk` lists a project's files (ADR 0114), beside `project`, which finds them, and
 # `review`, which runs git and diffs for a review (ADR 0122).
 channel project review walk

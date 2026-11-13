@@ -35,7 +35,8 @@ pub(crate) struct Hosted {
     pub sized: Option<Size>,
     /// The program's title (OSC 0, 1, 2), already cleaned by the policy.
     pub title: String,
-    /// How the program ended, for the modeline: `exited 0`, `ended`.
+    /// How the program ended, for the modeline: `exited 0`, `ended`. A hosted session's buffer
+    /// says what to do next instead, such as `stopped: session-resume to continue` (ADR 0121).
     pub ended: Option<String>,
     /// A paste of several lines waits for the person's yes to the question asked, without
     /// bracketed paste.
@@ -158,6 +159,16 @@ impl Terminals {
         hosted
     }
 
+    /// Starts `buffer`'s terminal over, with an empty screen and no program yet, keeping the
+    /// window whose size it takes: a stopped session resumed in its buffer (ADR 0121).
+    pub(crate) fn restart(&mut self, buffer: BufferId) -> &mut Hosted {
+        let owner = self.map.get(&buffer).and_then(|hosted| hosted.owner);
+        self.map.insert(buffer, Hosted::new());
+        let hosted = self.add(buffer);
+        hosted.owner = owner;
+        hosted
+    }
+
     pub(crate) fn get(&self, buffer: BufferId) -> Option<&Hosted> {
         self.map.get(&buffer)
     }
@@ -206,9 +217,14 @@ impl Terminals {
 
     /// Drops the terminals whose buffers are gone, which hangs each up. `alive` says which
     /// buffers still are.
-    pub(crate) fn retain(&mut self, mut alive: impl FnMut(BufferId) -> bool) -> Vec<Hosted> {
+    pub(crate) fn retain(
+        &mut self,
+        mut alive: impl FnMut(BufferId) -> bool,
+    ) -> Vec<(BufferId, Hosted)> {
         let gone: Vec<BufferId> = self.map.keys().copied().filter(|id| !alive(*id)).collect();
-        gone.iter().filter_map(|id| self.map.remove(id)).collect()
+        gone.into_iter()
+            .filter_map(|id| Some((id, self.map.remove(&id)?)))
+            .collect()
     }
 }
 
@@ -263,6 +279,21 @@ pub(crate) fn start(
         .map(drop)
 }
 
+/// The shell a terminal runs: `[terminal] shell`, `$SHELL` if absolute, the account's, then
+/// `/bin/sh`, the first that is an executable (ADR 0120). A session's terminal finds it so too.
+///
+/// # Errors
+///
+/// When none is an executable, the last one's error.
+pub(crate) fn find_shell(settings: &shell::Settings) -> io::Result<shell::Resolved<Executable>> {
+    let candidates = shell::candidates(
+        settings.shell.as_deref(),
+        std::env::var_os("SHELL").as_deref(),
+        process::account_shell,
+    );
+    shell::resolve(candidates, |path| Executable::absolute(path))
+}
+
 fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched> {
     let Request {
         settings,
@@ -272,12 +303,7 @@ fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched>
         palette,
         ..
     } = request;
-    let candidates = shell::candidates(
-        settings.shell.as_deref(),
-        std::env::var_os("SHELL").as_deref(),
-        process::account_shell,
-    );
-    let found = shell::resolve(candidates, |path| Executable::absolute(path))?;
+    let found = find_shell(&settings)?;
     let start = Start {
         executable: found.executable,
         args: shell::args(settings.login),
@@ -339,6 +365,25 @@ mod tests {
             editor.add_terminal_buffer("*terminal*"),
             editor.add_terminal_buffer("*terminal*"),
         )
+    }
+
+    #[test]
+    fn a_restart_empties_the_terminal_and_keeps_its_window() {
+        let (a, _) = ids();
+        let editor = Editor::default();
+        let window = editor.window().id();
+        let mut terminals = Terminals::default();
+        terminals.add(a);
+        terminals.selected(a, window);
+        let hosted = terminals.get_mut(a).unwrap();
+        hosted.ended = Some("exited 0".to_owned());
+        hosted.title = "old".to_owned();
+        let hosted = terminals.restart(a);
+        assert!(hosted.running());
+        assert!(hosted.title.is_empty());
+        assert!(hosted.terminal.is_none());
+        assert_eq!(hosted.owner, Some(window));
+        assert_eq!(terminals.last_running(), Some(a));
     }
 
     #[test]

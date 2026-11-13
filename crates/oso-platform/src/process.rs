@@ -15,12 +15,14 @@
 //! - Every spawn is logged, with the names of the variables but not their
 //!   values.
 //! - [`account_shell`] reads the account's login shell from the user database.
+//! - [`start_time`] says when a process started, by its ID (ADR 0121).
 //!
 //! In every build since the terminal ships (ADR 0120).
 
 #[cfg(unix)]
 mod account;
 pub mod pty;
+mod started;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -306,6 +308,19 @@ pub fn account_shell() -> Option<PathBuf> {
     {
         None
     }
+}
+
+/// When the process `pid` started, or `None` if there is no such process. A process ID is
+/// reused once its process has ended and been reaped, so a caller that recorded when a process
+/// started tells it from a later one by this (ADR 0121). On Linux it can be a second off, as
+/// the boot time it counts from is whole seconds.
+///
+/// # Errors
+///
+/// When the system does not say: the process may run, but its start cannot be told, as when
+/// another user's process is not ours to read, or on a system this does not support.
+pub fn start_time(pid: u32) -> std::io::Result<Option<std::time::SystemTime>> {
+    started::of(pid)
 }
 
 /// The directories of `path`, a `PATH` value, that may supply a program: only

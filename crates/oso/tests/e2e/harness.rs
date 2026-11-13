@@ -159,15 +159,30 @@ impl App {
     /// it, and never among the real ones, its clipboard is in memory, and it reads no
     /// configuration file.
     pub fn start(file: Option<&Path>, cwd: &Path) -> Self {
-        Self::launch(file, cwd, None)
+        Self::launch(file, cwd, None, &[])
     }
 
     /// [`App::start`], reading the configuration from `config` (ADR 0108).
     pub fn start_with_config(file: Option<&Path>, cwd: &Path, config: &Path) -> Self {
-        Self::launch(file, cwd, Some(config))
+        Self::launch(file, cwd, Some(config), &[])
     }
 
-    fn launch(file: Option<&Path>, cwd: &Path, config: Option<&Path>) -> Self {
+    /// [`App::start_with_config`], with the variables `set` set in the instance's
+    /// environment, such as a `HOME` of the test's own.
+    pub fn start_with_config_and_env(
+        cwd: &Path,
+        config: &Path,
+        set: &[(&str, &std::ffi::OsStr)],
+    ) -> Self {
+        Self::launch(None, cwd, Some(config), set)
+    }
+
+    fn launch(
+        file: Option<&Path>,
+        cwd: &Path,
+        config: Option<&Path>,
+        set: &[(&str, &std::ffi::OsStr)],
+    ) -> Self {
         let mut args: Vec<OsString> = vec![
             "--emergency-dir".into(),
             emergency_dir(cwd).into_os_string(),
@@ -184,7 +199,7 @@ impl App {
             file.iter()
                 .flat_map(|file| [OsString::from("--"), file.into()]),
         );
-        let mut process = Process::start(&args, cwd);
+        let mut process = Process::start(&args, cwd, set);
         let (dir, stream) = process.connect();
         stream
             .set_read_timeout(Some(TIMEOUT))
@@ -490,6 +505,16 @@ impl App {
     /// Starts `oso mcp --pid PID`, reading its requests from `requests`, as a child's stdin
     /// is closed (ADR 0085). Its standard output is piped.
     pub fn mcp(&self, requests: &Path) -> std::process::Child {
+        self.mcp_claiming(requests, None)
+    }
+
+    /// [`App::mcp`], with `OSO_SESSION` set to `session`, as a hosted session's bridge has it
+    /// (ADR 0121).
+    pub fn mcp_claiming(&self, requests: &Path, session: Option<&str>) -> std::process::Child {
+        let set: Vec<(&str, &std::ffi::OsStr)> = session
+            .map(|id| ("OSO_SESSION", std::ffi::OsStr::new(id)))
+            .into_iter()
+            .collect();
         let pid = self.pid().to_string();
         let args: Vec<OsString> = vec![
             "mcp".into(),
@@ -508,7 +533,7 @@ impl App {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
-            set: &[],
+            set: &set,
             terminal: None,
         })
         .expect("cannot start oso mcp")
@@ -579,7 +604,7 @@ struct Process {
 }
 
 impl Process {
-    fn start(args: &[OsString], cwd: &Path) -> Self {
+    fn start(args: &[OsString], cwd: &Path, set: &[(&str, &std::ffi::OsStr)]) -> Self {
         compositor_is_there();
         let mut child = spawn(&Spawn {
             executable: &oso(),
@@ -591,7 +616,7 @@ impl Process {
             stdout: Sink::Null,
             stderr: Sink::Piped,
             own_process_group: false,
-            set: &[],
+            set,
             terminal: None,
         })
         .expect("cannot start the instance");

@@ -180,7 +180,8 @@ rules, as the end-to-end flows stand in for the person.
   one JSON object per line of UTF-8, ended by `\n`, with the dev socket's request and response
   shapes. The channel's methods and version are its own.
 - At most 2 clients, one request in flight each, and 30 requests a second per connection.
-  More is refused, not queued.
+  More is refused, not queued. A hosted session's proven bridge does not count toward the 2
+  ([ADR 0121](0121-agent-sessions-and-spaces.md), "Step 1, as built").
 - Request and response lines of at most 1 MiB, and 10 s for the UI to reply, as on the dev
   socket. An agreed connection has no idle limit; a waiting one closes if its client goes.
 - Background threads read and parse, and requests reach the UI thread as dev requests do. The

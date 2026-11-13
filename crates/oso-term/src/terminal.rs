@@ -14,7 +14,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
@@ -98,6 +98,9 @@ struct Shared {
     queued: AtomicUsize,
     /// A request waits: the thread cuts its parse short to serve it.
     requested: AtomicBool,
+    /// The child's process id while it runs and is not reaped; 0 before it starts and once
+    /// the thread reaps it, or leaves it to a reaper.
+    pid: AtomicU32,
 }
 
 impl Shared {
@@ -237,6 +240,16 @@ impl Terminal {
     /// The theme's colors, after a theme switch.
     pub fn set_palette(&self, palette: Palette) {
         self.request(Request::Palette(palette));
+    }
+
+    /// The child's process id, from its start until it is reaped; `None` before and after.
+    /// It is cleared before the reap, so the id of a process that ended, which the system may
+    /// give to another, is never returned (ADR 0121).
+    pub fn pid(&self) -> Option<u32> {
+        match self.shared.pid.load(Ordering::Acquire) {
+            0 => None,
+            pid => Some(pid),
+        }
     }
 
     /// Sends `SIGHUP` to the terminal's foreground process group, as closing a terminal does.

@@ -8,7 +8,8 @@
 //! - One request per line of stdin, at most [`MAX_LINE`] bytes, and one response per line of
 //!   stdout, escaped as the channel's are. It says what goes wrong on stderr only.
 //! - It connects on the first tool call, only to an oso that runs this program, and asks the
-//!   channel's `version` first. A connection that breaks, as when oso restarts, is made again
+//!   channel's `version` first, with the session `OSO_SESSION` names, if it names one
+//!   (ADR 0121). A connection that breaks, as when oso restarts, is made again
 //!   on the next call, which asks the person again. It looks through every instance's socket
 //!   only while it knows none to connect to, and at most once each [`PROBE_EVERY`]: each look
 //!   counts toward each instance's connections a minute.
@@ -82,7 +83,14 @@ struct Bridge {
     connect: Connect,
     link: Option<Box<dyn Link>>,
     interrupt: Arc<Interrupt>,
+    /// The hosted session this bridge says it serves, from `OSO_SESSION`, which oso believes
+    /// only if it started this bridge's parent as that session (ADR 0121).
+    session: Option<String>,
 }
+
+/// The variable that names a hosted session to its bridge (ADR 0121, "The bridge and the
+/// channel"): oso sets it in the session's environment and in the MCP server's own.
+pub(crate) const SESSION_VARIABLE: &str = "OSO_SESSION";
 
 impl Bridge {
     /// A bridge that connects with `connect` on its first tool call.
@@ -91,7 +99,14 @@ impl Bridge {
             connect,
             link: None,
             interrupt: Arc::default(),
+            session: None,
         }
+    }
+
+    /// The bridge names `session` when it connects.
+    fn for_session(mut self, session: Option<String>) -> Self {
+        self.session = session;
+        self
     }
 
     /// The response line to one request line, or `None` for a notification, a response the
@@ -232,7 +247,11 @@ impl Bridge {
                 }
                 calls.close = link.closer();
             }
-            let version = link.call("version", json!({}))?;
+            let params = match &self.session {
+                Some(session) => json!({ "session": session }),
+                None => json!({}),
+            };
+            let version = link.call("version", params)?;
             if version["protocol"] != PROTOCOL_VERSION {
                 return Err(Failed::Broken(format!(
                     "this oso speaks the channel's protocol {}, and this oso mcp {PROTOCOL_VERSION}",
@@ -444,7 +463,11 @@ fn run(args: Vec<OsString>) -> i32 {
         }
     }
     let mut target = Target::new(pid);
-    let mut bridge = Bridge::new(Box::new(move || connect(&mut target)));
+    // A session's id is short ASCII; anything else names none.
+    let session = std::env::var(SESSION_VARIABLE)
+        .ok()
+        .filter(|id| id.len() <= super::protocol::MAX_SESSION);
+    let mut bridge = Bridge::new(Box::new(move || connect(&mut target))).for_session(session);
     #[cfg(feature = "dev")]
     if let Some(path) = requests {
         return match std::fs::File::open(&path) {
