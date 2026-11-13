@@ -246,7 +246,9 @@ pub fn write(
     fs::rename(&part, directory.path().join(FILE))
 }
 
-#[cfg(test)]
+// Hosted sessions run on Unix only (ADR 0120): the scratch paths and the private state
+// directory these tests use are Unix ones.
+#[cfg(all(test, unix))]
 mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
