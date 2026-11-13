@@ -1,0 +1,227 @@
+oso's change to libghostty-vt 1.0.1 (MIT, like the library), applied by build.rs and checked
+against ghostty-vt.lock: row copies keep a row's text when its styles, hyperlinks or grapheme
+data do not fit, and count it (GhosttyTerminalData 4096). Drop or rebase it at every bump.
+
+diff -ruN a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -510,6 +510,10 @@
+ cols: size.CellCountInt,
+ rows: size.CellCountInt,
+ 
++/// oso patch: how many row copies dropped styles, hyperlinks or grapheme
++/// data because the page could not grow (see clonePartialRowPlain).
++oso_plain_copies: u64 = 0,
++
+ /// If this is true then verifyIntegrity will do nothing. This is
+ /// only present with runtime safety enabled.
+ pause_integrity_checks: if (build_options.slow_runtime_safety) usize else void =
+@@ -2329,6 +2333,14 @@
+         repeat,
+         skip_next,
+     } {
++        // oso patch: release what this cell holds before it is written.
++        if (self.page_cell.hasGrapheme()) self.page.clearGrapheme(self.page_cell);
++        if (self.page_cell.hyperlink) self.page.clearHyperlink(self.page_cell);
++        if (self.page_cell.hasStyling()) {
++            self.page.styles.release(self.page.memory, self.page_cell.style_id);
++            self.page_cell.style_id = stylepkg.default_id;
++        }
++
+         // Initialize self.page_cell with basic, unmanaged memory contents.
+         {
+             // This must not fail because we want to make sure we atomically
+@@ -5047,8 +5059,10 @@
+         // from the source page but we're only increasing capacity so
+         // this should never be possible. If it happens, we should crash
+         // because we're in no man's land and can't safely recover.
++        // oso patch: report it as out of space; errdefer destroys the
++        // new node.
+         log.err("increaseCapacity clone failed err={}", .{err});
+-        @panic("unexpected clone failure");
++        return error.OutOfSpace;
+     };
+ 
+     // Preserve page-level dirty flag (cloneFrom only copies row data)
+@@ -5927,16 +5941,18 @@
+             current = self.increaseCapacity(
+                 current,
+                 IncreaseCapacity.forCloneError(err),
+-            ) catch |e| switch (e) {
+-                // We can't gracefully recover from either of these
+-                // here: our callers have already rotated rows, so
+-                // returning an error would leave the page list
+-                // half-mutated (and corrupt), so a crash is better.
+-                error.OutOfMemory,
+-                => @panic("increaseCapacity system allocator OOM"),
+-
+-                error.OutOfSpace,
+-                => @panic("increaseCapacity OutOfSpace"),
++            ) catch {
++                // oso patch: copy the row without what did not fit,
++                // and count it.
++                cur_page.clonePartialRowPlain(
++                    src_page,
++                    &cur_rows[dst_y],
++                    src_row,
++                    0,
++                    cur_page.size.cols,
++                );
++                self.oso_plain_copies +|= 1;
++                return current;
+             };
+ 
+             // Retry the row copy with the increased capacity.
+diff -ruN a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -766,7 +766,8 @@
+ /// shifted), so a failure can't be propagated without leaving the
+ /// page list half-mutated (and corrupt). If the capacity can't be
+ /// increased (system OOM or the page is already at max capacity),
+-/// this panics: a crash is better than corruption.
++/// the cells are copied without their managed memory instead (oso
++/// patch, see Page.clonePartialRowPlain).
+ pub fn clonePartialRowGrowCapacity(
+     self: *Screen,
+     node: *PageList.List.Node,
+@@ -794,17 +795,18 @@
+             current = self.increaseCapacity(
+                 current,
+                 PageList.IncreaseCapacity.forCloneError(err),
+-            ) catch |e| switch (e) {
+-                // We can't gracefully recover from either of these
+-                // here: our callers have already rotated or shifted
+-                // rows, so returning an error would leave the page
+-                // list half-mutated (and corrupt), so a crash is
+-                // better.
+-                error.OutOfMemory,
+-                => @panic("increaseCapacity system allocator OOM"),
+-
+-                error.OutOfSpace,
+-                => @panic("increaseCapacity OutOfSpace"),
++            ) catch {
++                // oso patch: copy the cells without what did not
++                // fit, and count it.
++                cur_page.clonePartialRowPlain(
++                    src_page,
++                    &cur_rows[dst_y],
++                    src_row,
++                    x_start,
++                    x_end,
++                );
++                self.pages.oso_plain_copies +|= 1;
++                return current;
+             };
+ 
+             continue;
+diff -ruN a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1980,6 +1980,10 @@
+     mouse_shape = 41,
+     memory_usage = 42,
+ 
++    /// oso patch: row copies that dropped styles, hyperlinks or grapheme
++    /// data because a page could not grow, on both screens.
++    oso_plain_copies = 4096,
++
+     _,
+ 
+     /// Output type expected for querying the data of the given kind.
+@@ -2017,7 +2021,7 @@
+             .color_cursor_default,
+             => color.RGB.C,
+             .color_palette, .color_palette_default => color.PaletteC,
+-            .kitty_image_storage_limit => u64,
++            .kitty_image_storage_limit, .oso_plain_copies => u64,
+             .kitty_image_medium_file,
+             .kitty_image_medium_shared_mem,
+             => bool,
+@@ -2103,6 +2107,13 @@
+             out.* = .{ .ptr = pwd.ptr, .len = pwd.len };
+         },
+         .total_rows => out.* = t.screens.active.pages.total_rows,
++        .oso_plain_copies => {
++            var n: u64 = 0;
++            inline for (.{ .primary, .alternate }) |key| {
++                if (t.screens.get(key)) |s| n +|= s.pages.oso_plain_copies;
++            }
++            out.* = n;
++        },
+         .scrollback_rows => out.* = t.screens.active.pages.total_rows - t.rows,
+         .width_px => out.* = t.width_px,
+         .height_px => out.* = t.height_px,
+diff -ruN a/src/terminal/page.zig b/src/terminal/page.zig
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -1098,6 +1098,69 @@
+         }
+     }
+ 
++    /// oso patch: clone cells [x_start, x_end) of a row without their
++    /// styles, hyperlinks and grapheme data, so that it needs no new page
++    /// memory.
++    pub fn clonePartialRowPlain(
++        self: *Page,
++        other: *const Page,
++        dst_row: *Row,
++        src_row: *const Row,
++        x_start: usize,
++        x_end_req: usize,
++    ) void {
++        self.pauseIntegrityChecks(true);
++        defer {
++            self.pauseIntegrityChecks(false);
++            self.assertIntegrity();
++        }
++
++        const cell_len = @min(self.size.cols, other.size.cols);
++        const x_end = @min(x_end_req, cell_len);
++        assert(x_start <= x_end);
++        const other_cells = src_row.cells.ptr(other.memory)[x_start..x_end];
++        const cells = dst_row.cells.ptr(self.memory)[x_start..x_end];
++
++        if (dst_row.managedMemory()) self.clearCells(dst_row, x_start, x_end);
++
++        dst_row.* = copy: {
++            var copy = src_row.*;
++            if ((x_end - x_start) < self.size.cols) {
++                copy.wrap = dst_row.wrap;
++                copy.wrap_continuation = dst_row.wrap_continuation;
++                copy.grapheme = dst_row.grapheme;
++                copy.hyperlink = dst_row.hyperlink;
++                copy.styled = dst_row.styled;
++                copy.blank = dst_row.blank and src_row.blank;
++                copy.dirty |= dst_row.dirty;
++            } else {
++                copy.grapheme = false;
++                copy.hyperlink = false;
++                copy.styled = false;
++            }
++            copy.cells = dst_row.cells;
++            break :copy copy;
++        };
++
++        for (cells, other_cells) |*dst_cell, *src_cell| {
++            dst_cell.* = src_cell.*;
++            dst_cell.hyperlink = false;
++            dst_cell.style_id = stylepkg.default_id;
++            if (dst_cell.content_tag == .codepoint_grapheme) {
++                dst_cell.content_tag = .codepoint;
++            }
++        }
++
++        if (self.size.cols > other.size.cols and
++            x_end == other.size.cols and x_end > x_start)
++        {
++            const last = &cells[x_end - 1 - x_start];
++            if (last.wide == .spacer_head) {
++                last.wide = .narrow;
++            }
++        }
++    }
++
+     /// Get a single row. y must be valid.
+     pub inline fn getRow(self: *const Page, y: usize) *Row {
+         assert(y < self.size.rows);

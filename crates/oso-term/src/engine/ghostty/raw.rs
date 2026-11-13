@@ -322,6 +322,23 @@ impl Vt {
         state
     }
 
+    /// How many rows the library copied without their styles, hyperlinks or grapheme data
+    /// because they did not fit their page (oso's patch, `patches/`), or `None` if the library
+    /// does not know the count (it was built without the patch).
+    pub fn plain_copies(&self) -> Option<u64> {
+        let mut copies = 0u64;
+        // SAFETY: the terminal is live, and `copies` is a live `uint64_t`, the data's output
+        // type.
+        let read = unsafe {
+            ffi::ghostty_terminal_get(
+                self.terminal,
+                ffi::DATA_OSO_PLAIN_COPIES,
+                (&raw mut copies).cast(),
+            )
+        };
+        (read == ffi::SUCCESS).then_some(copies)
+    }
+
     /// Whether each of the DEC private modes in `modes` is set.
     pub fn dec_modes<const N: usize>(&self, modes: [u16; N]) -> [bool; N] {
         modes.map(|number| {

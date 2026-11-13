@@ -1,6 +1,7 @@
 //! libghostty-vt as oso-term's `Engine` (ADR 0120, step 1's choice): snapshots from the
 //! render state's dirty rows, packed cells decoded with the bit positions `manifest_tests`
-//! checks against the library's manifest, and a style read once per style id per row.
+//! checks against the library's manifest, and a style read once per style id per row. It
+//! warns once per terminal when oso's patch to the library copied rows without their styling.
 //!
 //! Must not depend on: the policy or the thread. This file is safe code over `raw`.
 
@@ -56,6 +57,8 @@ pub(crate) struct Ghostty {
     /// The row's styles read so far, as cells, by style id: a direct-mapped cache, cleared
     /// for each row, as style ids belong to a page.
     styles: [(u64, Cell); STYLES_CACHED],
+    /// Whether this terminal has warned that rows were copied without their styling.
+    warned_plain_copies: bool,
 }
 
 impl Ghostty {
@@ -76,7 +79,24 @@ impl Ghostty {
             raw: Vec::new(),
             grapheme: [0; limits::GRAPHEME_MAX],
             styles: [(0, Cell::default()); STYLES_CACHED],
+            warned_plain_copies: false,
         })
+    }
+
+    /// Warns once per terminal when the library copied rows without their styles, links or
+    /// clusters because they did not fit their page (oso's patch, `patches/`). The terminal
+    /// keeps running; the warning holds a count, never text.
+    fn note_plain_copies(&mut self) {
+        if self.warned_plain_copies {
+            return;
+        }
+        let copies = self.vt.plain_copies().unwrap_or(0);
+        if copies > 0 {
+            self.warned_plain_copies = true;
+            log::warn!(
+                "a terminal copied {copies} rows without their styling: their page was full"
+            );
+        }
     }
 
     /// The settings bounding memory, for the tests: the scrollback's bytes, then the Kitty
@@ -194,6 +214,7 @@ impl Ghostty {
 impl Engine for Ghostty {
     fn feed(&mut self, bytes: &[u8]) {
         self.vt.write(bytes);
+        self.note_plain_copies();
     }
 
     fn resize(&mut self, size: Size) {
@@ -201,6 +222,7 @@ impl Engine for Ghostty {
         self.vt.resize(size.columns, size.rows, width, height);
         self.size = size;
         self.full = true;
+        self.note_plain_copies();
     }
 
     fn set_palette(&mut self, palette: &Palette) {

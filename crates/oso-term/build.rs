@@ -1,10 +1,12 @@
 //! Builds libghostty-vt with Zig from the release pinned in `ghostty-vt.lock`, and links its
 //! static archive (ADR 0120). It never downloads: `just ghostty-vt` fetches the tarballs and
 //! checks their signatures; this checks their sha256 again, unpacks them into `OUT_DIR`, and
-//! fails unless the dependency tarball holds exactly the packages the lock lists.
+//! fails unless the dependency tarball holds exactly the packages the lock lists. It then
+//! applies oso's patches in `patches/`, each checked against its sha256 in the lock, and fails
+//! unless every patched file has the sha256 the lock gives it.
 //!
-//! Must not depend on: the network, or anything but the lock, the tarballs, Zig, `tar` and a
-//! sha256 tool.
+//! Must not depend on: the network, or anything but the lock, the tarballs, the patches, Zig,
+//! `tar`, `patch` and a sha256 tool.
 //!
 //! Inputs, all optional:
 //! - `OSO_GHOSTTY_VT_DIR`: the directory holding the tarballs. Default:
@@ -18,7 +20,7 @@
 //!
 //! Only Unix targets build the library: oso has terminals on macOS and Linux (ADR 0120, Q3).
 
-// A build script runs Zig, `tar` and a sha256 tool, and talks to cargo through its standard
+// A build script runs Zig, `tar`, `patch` and a sha256 tool, and talks to cargo through its standard
 // output; it never ships in oso (crates/oso/tests/architecture allows this file).
 #![expect(
     clippy::disallowed_methods,
@@ -40,6 +42,10 @@ struct Lock {
     source: (String, String),
     deps: (String, String),
     packages: Vec<String>,
+    /// oso's patches, in order: (file in `patches/`, sha256).
+    patches: Vec<(String, String)>,
+    /// What the patched source must hold: (path in the source, sha256).
+    patched: Vec<(String, String)>,
 }
 
 fn main() {
@@ -69,6 +75,7 @@ fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let tarballs = tarball_dir(&lock.version);
     let src = unpack(&tarballs, &lock.source, &out.join("src"));
+    apply_patches(&manifest.join("patches"), &src, &out.join("patches"), &lock);
     let deps = unpack(&tarballs, &lock.deps, &out.join("deps"));
     check_packages(&deps, &lock.packages);
     let zig = env::var_os("ZIG").unwrap_or_else(|| "zig".into());
@@ -89,6 +96,8 @@ fn read_lock(path: &Path) -> Lock {
     let mut source = None;
     let mut deps = None;
     let mut packages = Vec::new();
+    let mut patches = Vec::new();
+    let mut patched = Vec::new();
     for line in text
         .lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
@@ -101,6 +110,8 @@ fn read_lock(path: &Path) -> Lock {
             ["source", _, _] => source = Some(pair(&fields)),
             ["deps", _, _] => deps = Some(pair(&fields)),
             ["package", name] => packages.push((*name).to_owned()),
+            ["patch", _, _] => patches.push(pair(&fields)),
+            ["patched", _, _] => patched.push(pair(&fields)),
             ["url" | "minisign", _] => {}
             _ => panic!("ghostty-vt.lock: unknown line {line:?}"),
         }
@@ -111,6 +122,8 @@ fn read_lock(path: &Path) -> Lock {
         source: source.expect("ghostty-vt.lock: no source"),
         deps: deps.expect("ghostty-vt.lock: no deps"),
         packages,
+        patches,
+        patched,
     }
 }
 
@@ -161,6 +174,100 @@ fn unpack(dir: &Path, (name, sum): &(String, String), into: &Path) -> PathBuf {
         panic!("{name} does not unpack into one directory");
     }
     entries.remove(0)
+}
+
+/// Applies the lock's patches to the unpacked source `src`, in order, each copied into `into`
+/// and checked against its sha256 first; then checks the sha256 of every file the lock lists
+/// as patched. Fails if `dir` holds a patch the lock does not list.
+fn apply_patches(dir: &Path, src: &Path, into: &Path, lock: &Lock) {
+    if dir.exists() {
+        println!("cargo:rerun-if-changed={}", dir.display());
+    }
+    let mut present: Vec<String> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .map(|e| {
+                    e.expect("read a patch")
+                        .file_name()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    present.sort();
+    let mut listed: Vec<String> = lock.patches.iter().map(|(name, _)| name.clone()).collect();
+    listed.sort();
+    if present != listed {
+        panic!("patches/ holds {present:?}, but ghostty-vt.lock lists {listed:?}");
+    }
+    let _ = fs::remove_dir_all(into);
+    fs::create_dir_all(into).expect("create the patch directory");
+    let mut touched = Vec::new();
+    for (name, sum) in &lock.patches {
+        // The copy is what is checked and applied, as with the tarballs.
+        let copy = into.join(name);
+        fs::copy(dir.join(name), &copy).expect("copy a patch");
+        let have = sha256(&copy);
+        if have != *sum {
+            panic!("patches/{name}: sha256 {have} is not the lock's {sum}");
+        }
+        touched.extend(changed_files(name, &copy));
+        run(Command::new("patch")
+            .current_dir(src)
+            .args(["-p1", "--batch", "--forward", "--fuzz=0", "-i"])
+            .arg(&copy)
+            .stdout(Stdio::null()));
+    }
+    touched.sort();
+    touched.dedup();
+    let mut hashed: Vec<String> = lock.patched.iter().map(|(path, _)| path.clone()).collect();
+    hashed.sort();
+    if touched != hashed {
+        panic!("the patches change {touched:?}, but ghostty-vt.lock hashes {hashed:?}");
+    }
+    for (path, sum) in &lock.patched {
+        let have = sha256(&src.join(path));
+        if have != *sum {
+            panic!("patched {path}: sha256 {have} is not the lock's {sum}");
+        }
+    }
+}
+
+/// The files a patch changes, from its `+++ b/` lines. Fails on what a plain change to
+/// existing files never holds: a path leaving the source, or git's headers for renames,
+/// copies, modes, new or deleted files and binary data.
+fn changed_files(name: &str, patch: &Path) -> Vec<String> {
+    let text = fs::read_to_string(patch).expect("read a patch");
+    let mut files = Vec::new();
+    for line in text.lines() {
+        let refused = [
+            "rename ",
+            "copy ",
+            "old mode",
+            "new mode",
+            "new file mode",
+            "deleted file mode",
+            "similarity index",
+            "GIT binary patch",
+            "Binary files",
+        ];
+        if refused.iter().any(|head| line.starts_with(head)) {
+            panic!("patches/{name}: {line:?} is not a plain change to an existing file");
+        }
+        let Some(rest) = line.strip_prefix("+++ ") else {
+            continue;
+        };
+        let path = rest.split('\t').next().unwrap_or(rest);
+        let Some(path) = path.strip_prefix("b/") else {
+            panic!("patches/{name}: {path:?} does not start with b/");
+        };
+        if path.starts_with('/') || path.split('/').any(|part| part == ".." || part.is_empty()) {
+            panic!("patches/{name}: {path:?} leaves the library's source");
+        }
+        files.push(path.to_owned());
+    }
+    files
 }
 
 fn sha256(file: &Path) -> String {

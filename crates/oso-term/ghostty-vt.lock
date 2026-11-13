@@ -1,8 +1,11 @@
 # The libghostty-vt release oso-term builds (ADR 0120). `just ghostty-vt` fetches the two
 # tarballs and checks each against the minisign key and its sha256 below; build.rs checks the
 # sha256 again before it unpacks, and fails unless the dependency tarball holds exactly the
-# packages listed (each read and listed in third-party.md). A bump changes every line here,
-# is fuzzed again (`just fuzz-term`) and re-reads third-party.md before it lands.
+# packages listed (each read and listed in third-party.md). It then applies oso's patches
+# (patches/, `patch` lines, in order), each checked against its sha256, and fails unless each
+# `patched` file has its sha256. A bump changes every line here and re-reads third-party.md;
+# it drops a patch the new release makes needless, or rebases it and updates its hashes. Any
+# change to this file is fuzzed again (`just fuzz-term`, on macOS and on Linux) before it lands.
 version 1.0.1
 url https://release.files.ghostty.org/libghostty-vt/1.0.1
 minisign RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV
@@ -14,3 +17,8 @@ package N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE
 package N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI
 package translate_c-2.0.0-Q_BUWltOBwBYABF84EUL208pIFeUIwbBs29FmVBaafN5
 package uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv
+patch 0001-row-copies.patch 7d63537135a09778dd222109853758530cbaeeb19228419d9d506e2761cf5534
+patched src/terminal/PageList.zig acb38e20bf91be65eaeae17e9efce12d6802576b401d4de39fa1b3d8f89e0a04
+patched src/terminal/Screen.zig 9bcb292930eb2a7c5c4c36922164464917313b7be7fd3e39f43fdfd53ee08582
+patched src/terminal/c/terminal.zig ed0b7235393c2cfba6c3b9d28eb43e89d3d16731ae38b9f075ea5f52be0cc4d6
+patched src/terminal/page.zig 000ee3bb82da0e38680dddfa5c0568cb66d27e06901533310302e2e54384ebb8

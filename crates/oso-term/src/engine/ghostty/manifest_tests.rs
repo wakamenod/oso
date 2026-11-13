@@ -331,4 +331,12 @@ fn the_lock_and_the_licence_list_agree() {
             "{package} is not in third-party.md"
         );
     }
+    // Each of oso's patches is described there too.
+    for line in lock.lines().filter_map(|line| line.strip_prefix("patch ")) {
+        let name = line.split_whitespace().next().unwrap_or_default();
+        assert!(
+            list.contains(&format!("`patches/{name}`")),
+            "{name} is not in third-party.md"
+        );
+    }
 }

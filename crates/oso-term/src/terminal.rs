@@ -137,7 +137,7 @@ impl Terminal {
         Ok(())
     }
 
-    /// Resizes the PTY and the grid, clamped to 2 × 1 cells at least and 1000 × 500 at most.
+    /// Resizes the PTY and the grid, clamped to 4 × 1 cells at least and 1000 × 500 at most.
     pub fn resize(&self, size: Size) {
         self.request(Request::Resize(size));
     }

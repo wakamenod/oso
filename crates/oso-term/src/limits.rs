@@ -43,8 +43,9 @@ pub(crate) const CLIPBOARD_WRITE_MAX: usize = 1 << 20;
 pub(crate) const TEXT_MAX: usize = 256;
 /// The most events one snapshot carries; the rest are counted.
 pub(crate) const EVENTS_MAX: usize = 256;
-/// The smallest grid: a wide character always fits.
-pub(crate) const MIN_COLUMNS: u16 = 2;
+/// The smallest grid: a wide character always fits, with room to spare. Narrower terminals
+/// get 4 columns (ADR 0120).
+pub(crate) const MIN_COLUMNS: u16 = 4;
 pub(crate) const MIN_ROWS: u16 = 1;
 /// The largest grid.
 pub(crate) const MAX_COLUMNS: u16 = 1000;
