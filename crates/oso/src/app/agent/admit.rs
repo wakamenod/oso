@@ -42,6 +42,10 @@ impl App {
     pub(super) fn start_agent_channel(&mut self) {
         self.agent.stop_when_started = false;
         if self.agent.channel.is_some() || self.agent.starting {
+            // Asked for by the person or the configuration: no refused session start turns
+            // it off any more.
+            self.agent.on_for_sessions = false;
+            self.agent.started_for_a_session = false;
             self.editor.message("The agent channel is on already");
             return;
         }

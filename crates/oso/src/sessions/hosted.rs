@@ -188,25 +188,25 @@ impl Table {
         self.sessions.iter_mut().find(|session| session.key == key)
     }
 
-    /// Keeps at most [`MAX_SESSIONS`](super::record::MAX_SESSIONS) sessions, dropping the
-    /// archived ones that changed longest ago, so that the table and each record written stay
-    /// bounded in a long-running oso. Their ids stay known, so the record drops them too.
-    pub fn prune(&mut self) {
+    /// Keeps at most [`MAX_SESSIONS`](super::record::MAX_SESSIONS) sessions, so that the table
+    /// and each record written stay bounded in a long-running oso: past that, the ones that do
+    /// not run go, archived ones first, then unpinned ones, each the one that changed longest
+    /// ago. Their ids stay known, so the record drops them too. Returns the buffers of those
+    /// that had one, which hold no session any more.
+    pub fn prune(&mut self) -> Vec<BufferId> {
+        let mut buffers = Vec::new();
         while self.sessions.len() > super::record::MAX_SESSIONS {
             let oldest = self
                 .sessions
                 .iter()
                 .enumerate()
-                .filter(|(_, session)| session.archived)
-                .min_by_key(|(_, session)| session.changed)
+                .filter(|(_, session)| !session.runs())
+                .min_by_key(|(_, session)| (!session.archived, session.pinned, session.changed))
                 .map(|(at, _)| at);
-            match oldest {
-                Some(at) => {
-                    self.sessions.remove(at);
-                }
-                None => break,
-            }
+            let Some(at) = oldest else { break };
+            buffers.extend(self.sessions.remove(at).buffer);
         }
+        buffers
     }
 
     /// Every hosted session.
@@ -272,6 +272,28 @@ impl Table {
         let session = &mut self.sessions[index];
         session.bridge = Some(connection);
         Some(session)
+    }
+
+    /// Answers the claim of `connection`, from `peer`, to be `claim`'s bridge: [`Table::admit`],
+    /// then `answer` with whether it was admitted, which says whether the answer reached the
+    /// one who asked. An admission whose answer did not reach is undone: the asker took the
+    /// connection as no bridge. The session's name if it holds the connection now.
+    pub fn answer_claim(
+        &mut self,
+        connection: Connection,
+        peer: &oso_platform::control::Peer,
+        claim: Option<&SessionId>,
+        answer: impl FnOnce(bool) -> bool,
+    ) -> Option<String> {
+        let name = self
+            .admit(connection, peer, claim)
+            .map(|session| session.name.clone());
+        let reached = answer(name.is_some());
+        if name.is_some() && !reached {
+            self.bridge_gone(connection);
+            return None;
+        }
+        name
     }
 
     /// The bridge connection `connection` went: its session holds none.
@@ -365,6 +387,55 @@ mod tests {
     }
 
     #[test]
+    fn past_the_cap_archived_then_the_oldest_stopped_sessions_go_and_running_ones_stay() {
+        use crate::sessions::record::MAX_SESSIONS;
+        let many = |from: usize, count: usize| -> Vec<Remembered> {
+            (from..from + count)
+                .map(|i| {
+                    let mut bytes = [0u8; 16];
+                    bytes[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                    Remembered {
+                        id: SessionId::from_random(bytes),
+                        changed: 100 + i as u64,
+                        ..remembered(0, false)
+                    }
+                })
+                .collect()
+        };
+        let mut table = Table::default();
+        let mut first = many(0, MAX_SESSIONS);
+        first[5].archived = true;
+        first[0].pinned = true;
+        let keys = table.recall(first);
+        let oldest_unpinned = keys[1];
+        let running = table.iter().find(|s| s.changed == 102).unwrap().key;
+        table.get_mut(running).unwrap().run = Run::Running { child: None };
+        let buffer = oso_core::editor::Editor::default().window().buffer();
+        table.get_mut(oldest_unpinned).unwrap().buffer = Some(buffer);
+        assert!(table.prune().is_empty(), "at the cap, nothing goes");
+        table.recall(many(MAX_SESSIONS, 1));
+        assert!(table.prune().is_empty());
+        assert!(
+            table.iter().all(|s| !s.archived),
+            "the archived one went first"
+        );
+        table.recall(many(MAX_SESSIONS + 1, 2));
+        assert_eq!(table.prune(), [buffer]);
+        assert_eq!(table.iter().count(), MAX_SESSIONS);
+        assert!(
+            table.get(oldest_unpinned).is_none(),
+            "the oldest unpinned stopped one"
+        );
+        assert!(table.get(running).is_some(), "a running one stays");
+        assert!(
+            table.iter().any(|s| s.pinned),
+            "a pinned one stays while others can go"
+        );
+        let newest = table.iter().map(|s| s.changed).max().unwrap();
+        assert_eq!(newest, 100 + MAX_SESSIONS as u64 + 2);
+    }
+
+    #[test]
     fn names_differ_within_a_directory() {
         let mut table = Table::default();
         let (first, name) = table.reserve(Path::new("/p/oso"), "oso");
@@ -417,6 +488,39 @@ mod tests {
         assert!(table.admit(second, &peer, Some(&id)).is_some());
         assert_eq!(table.ended(key, Some(0), 2), Some(Exit::Stopped));
         assert!(table.by_connection(second).is_none());
+    }
+
+    #[test]
+    fn a_claim_whose_answer_came_too_late_holds_no_session() {
+        let mut table = Table::default();
+        let key = add(&mut table, 1, "/p", "p");
+        let id = table.get(key).unwrap().id.clone();
+        table.get_mut(key).unwrap().run = Run::Running { child: Some(77) };
+        let peer = Peer {
+            process: Some(PeerProcess::new(9, Some("oso"))),
+            parent: Some(PeerProcess::new(77, Some("claude"))),
+            runs_this_program: true,
+        };
+        let (late, next) = (
+            Connection { run: 1, number: 1 },
+            Connection { run: 1, number: 2 },
+        );
+        // The server stopped waiting: its receiver is gone, and the send fails.
+        let (reply, gone) = std::sync::mpsc::channel::<bool>();
+        drop(gone);
+        let kept = table.answer_claim(late, &peer, Some(&id), |admitted| {
+            reply.send(admitted).is_ok()
+        });
+        assert_eq!(kept, None);
+        assert!(table.by_connection(late).is_none());
+        assert!(table.get(key).unwrap().bridge.is_none());
+        // The session's next bridge is let in.
+        let (reply, answered) = std::sync::mpsc::channel::<bool>();
+        let kept = table.answer_claim(next, &peer, Some(&id), |admitted| {
+            reply.send(admitted).is_ok()
+        });
+        assert_eq!(kept.as_deref(), Some(table.get(key).unwrap().name.as_str()));
+        assert_eq!(answered.try_recv(), Ok(true));
     }
 
     #[test]

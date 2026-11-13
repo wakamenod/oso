@@ -794,3 +794,6 @@ a switch made with its command stands until that setting changes in the file
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
   `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
   Code's own settings give it.
+- A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
+  where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
+  runs elsewhere.
