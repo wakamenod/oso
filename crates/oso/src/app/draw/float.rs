@@ -45,6 +45,8 @@ pub(super) struct Parts<'a> {
     /// For a project's search, each row shown: how much of it is its path and line, and where
     /// it matches (ADR 0114).
     search_rows: Option<Vec<(usize, Vec<Range<usize>>)>>,
+    /// A question's key chips, ` y ` and ` n `.
+    chips: [(CellRect, Face); 2],
 }
 
 impl<'a> Parts<'a> {
@@ -105,6 +107,7 @@ impl<'a> Parts<'a> {
             kill,
             breaks: editor.kill_list_open(),
             search_rows,
+            chips: layout.keys.map(|key| (key, Face::Key)),
         })
     }
 
@@ -353,8 +356,8 @@ pub(super) fn panes<'a>(
         content,
     };
     let field = Some(layout.field).filter(|field| field.columns > 0);
-    let keys: &[CellRect] = if parts.kind.is_question() {
-        &layout.keys
+    let keys: &[(CellRect, Face)] = if parts.kind.is_question() {
+        &parts.chips
     } else {
         &[]
     };
@@ -371,6 +374,7 @@ pub(super) fn panes<'a>(
             field_room: layout.field_room,
             keys,
             selected: selected_row(parts),
+            marked: None,
             // A completion's float sits at the center, framed by a border (ADR 0076).
             border: parts.list.is_some(),
         }),

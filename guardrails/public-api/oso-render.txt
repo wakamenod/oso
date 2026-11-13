@@ -67,6 +67,11 @@ pub oso_render::Face::JumpLabelNext
 pub oso_render::Face::Key
 pub oso_render::Face::LineNumber
 pub oso_render::Face::LineNumberCurrent
+pub oso_render::Face::MenuKey
+pub oso_render::Face::MenuKeyStay
+pub oso_render::Face::MenuKeySwitch
+pub oso_render::Face::MenuNote
+pub oso_render::Face::MenuTitle
 pub oso_render::Face::Modeline
 pub oso_render::Face::ModelineInactive
 pub oso_render::Face::Preedit
@@ -242,7 +247,8 @@ pub oso_render::Panel::border: bool
 pub oso_render::Panel::cells: oso_core::frame::CellRect
 pub oso_render::Panel::field: core::option::Option<oso_core::frame::CellRect>
 pub oso_render::Panel::field_room: oso_core::frame::CellRect
-pub oso_render::Panel::keys: &'a [oso_core::frame::CellRect]
+pub oso_render::Panel::keys: &'a [(oso_core::frame::CellRect, oso_render::Face)]
+pub oso_render::Panel::marked: core::option::Option<oso_core::frame::CellRect>
 pub oso_render::Panel::selected: core::option::Option<oso_core::frame::CellRect>
 pub struct oso_render::RenderState
 impl oso_render::RenderState

@@ -112,6 +112,8 @@ struct Now {
     shows_secret: bool,
     agents_question: bool,
     persons_prompt: bool,
+    /// The person has a menu open (ADR 0117).
+    in_menu: bool,
     keys_in_progress: bool,
     composing: bool,
     /// An isearch, a jump or a query-replace is on (ADR 0082, ADR 0113, ADR 0116).
@@ -134,6 +136,9 @@ fn waits(now: &Now) -> Option<&'static str> {
     }
     if now.persons_prompt {
         return Some("the person is answering a prompt");
+    }
+    if now.in_menu {
+        return Some("the person is in a menu");
     }
     if now.keys_in_progress {
         return Some("the person is in the middle of a key sequence");
@@ -309,7 +314,11 @@ impl App {
         match op {
             Op::State { buffer_offset } => {
                 self.agent_log_often("state");
-                Ok(channel::state::state(&self.editor, buffer_offset))
+                Ok(channel::state::state(
+                    &self.editor,
+                    self.dispatcher.menu_name(),
+                    buffer_offset,
+                ))
             }
             Op::Commands => {
                 self.agent_log_often("commands");
@@ -433,6 +442,7 @@ impl App {
             shows_secret: self.editor.shows_secret(),
             agents_question: prompts.iter().any(|prompt| prompt.from_agent()),
             persons_prompt: !prompts.is_empty(),
+            in_menu: self.dispatcher.menu_open(),
             keys_in_progress: self.dispatcher.keys_in_progress(),
             composing: self.composing(),
             searching: self.editor.isearch().is_some()
@@ -501,6 +511,15 @@ impl App {
 mod tests {
     use super::{Now, PERSON_TYPING, waits};
     use std::time::Duration;
+
+    #[test]
+    fn the_channel_waits_while_the_person_has_a_menu_open() {
+        let now = Now {
+            in_menu: true,
+            ..Now::default()
+        };
+        assert_eq!(waits(&now), Some("the person is in a menu"));
+    }
 
     #[test]
     fn the_channel_waits_for_each_thing_the_person_is_in_the_middle_of() {

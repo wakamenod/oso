@@ -25,9 +25,9 @@ use oso_platform::window::{ImeEvent, InputSource};
 use super::App;
 use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 
-/// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
-/// cannot type (ADR 0069), or a prompt is selected (ADR 0072) or isearch is on (ADR 0082),
-/// which `reads_input` says. Menus add their own reasons here.
+/// Whether oso wants the IME on in `buffer`: unless the next letter is a key, which
+/// `reads_keys` says, an open menu included (ADR 0117), or cannot type (ADR 0069), or a
+/// prompt is selected (ADR 0072) or isearch is on (ADR 0082), which `reads_input` says.
 fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
     // Letters answer among the copies (ADR 0064).
     let answers = buffer.mode().shows_copies();
