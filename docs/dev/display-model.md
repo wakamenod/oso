@@ -251,8 +251,14 @@ output costs the UI one snapshot per frame.
   through the shaped-row cache text views use.
 - Colors come from the theme's 16 `terminal-color-N` faces; 256-color and true color
   cells are drawn as given.
-- The preedit is drawn at the terminal's cursor, and the candidate window placed at
-  its cell even while the program hides the cursor.
+- The preedit is drawn over the cells from the terminal's cursor on, without pushing them,
+  and the candidate window placed at its cell even while the program hides the cursor.
+- A row is shaped in pieces of one style, each cluster placed at its cell. A cell with a
+  right-to-left character, or a control or invisible one, is shaped alone, and controls and
+  invisible characters are boxed, so nothing reorders or joins across cells; a cell keeps the
+  character budget text views have. The cursor is not drawn while the view is scrolled back.
+- Shaped rows are kept by the row's place and a count of its changes: rows the program
+  rewrites with the same text are not shaped again, but a scroll shapes every row it moved.
 - In split windows the PTY takes the size of the window that last selected the
   terminal; others draw the same grid, clipped or padded. The floating terminal
   takes its float's size.

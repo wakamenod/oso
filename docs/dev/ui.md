@@ -606,9 +606,9 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 [ADR 0120](adr/0120-the-terminal.md); step 4a so far.
 
 - `M-x terminal` switches to the terminal still running that was selected last, or starts one;
-  with `C-u`, it always starts one. Buffers are `*terminal*`, `*terminal*<2>` and on. The
-  program's title, `char` in char mode, and `exited N` once the program ends follow `Terminal`
-  in the modeline. An ended terminal keeps its last screen.
+  with `C-u`, it always starts one. Buffers are `*terminal*`, `*terminal*<2>` and on. `char`
+  in char mode, `exited N` once the program ends, and then the program's title in quotes
+  follow `Terminal` in the modeline. An ended terminal keeps its last screen.
 - It starts `[terminal] shell` (an absolute path), else `$SHELL` if absolute, else the account's
   shell, else `/bin/sh`, in the selected buffer's project root, else its file's directory, else
   the home directory. A restricted project opens one too: what runs in it is the person's.
@@ -628,14 +628,18 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - **Semi-char mode**, the default, sends every key to the program but `C-x` and `M-x`, the
   `C-c` prefix, `C-q` and `C-y`, and every key while a prompt, a search or a key sequence of
   oso's is open. `C-c C-c` sends `C-c`; `C-c C-k` switches to char mode; `C-c` and any other key
-  sends both. `C-q` sends the next key as it is, oso's own among them.
+  sends both, the global and the user's `C-c` bindings among them: in a terminal, `C-c` is the
+  terminal's. `C-q` sends the next key as it is, oso's own among them. Text the input method
+  commits goes as a key does.
 - **Char mode** sends every key but `C-c C-k`, which comes back to semi-char mode.
 - Keys are encoded on the terminal's thread against the program's modes, in xterm's forms, or
   the kitty keyboard protocol's once the program pushes it, so `S-RET` reaches a program that
   reads it. `M-` is sent as Alt, with an `ESC` before the key.
 - `C-y` pastes the newest kill, or what another app put on the clipboard; `C-u N C-y` the Nth.
-  With bracketed paste on, control characters but tab and new line are removed first. With it
-  off, text of several lines asks `Paste N lines into a program that may run them?`.
+  Control characters but tab and new line are removed first, and line breaks of every kind
+  become new lines. With bracketed paste on, the text goes between its brackets. With it off,
+  each new line is sent as `RET`, and text of several lines asks `Paste N lines into a program
+  that may run them?` first; `keep` drops it.
 - The input method composes at the program's cursor, and its candidate window opens at that
   cell even while the program hides the cursor; the committed text goes to the program.
 - The PTY takes the size of the window that last selected the terminal; other windows showing

@@ -175,6 +175,12 @@ impl Dispatcher {
         }
     }
 
+    /// Drops what the current input noted for a recording: keys that went to a terminal's
+    /// program, which a macro never holds (ADR 0120).
+    pub(super) fn macro_forget_input(&mut self) {
+        self.macros.group.clear();
+    }
+
     /// After input from the window was taken: once its command has run, what it took goes into
     /// the recording, unless it ran a macro command. A passphrase prompt dropped the recording
     /// as it opened, and input that went to a buffer that may hold secrets drops it here.

@@ -126,8 +126,7 @@ impl App {
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
         self.person_typed("text");
-        if self.types_into_terminal() {
-            self.send_text(text);
+        if self.dispatcher.text_to_terminal(&mut self.editor, text) {
             return;
         }
         let started = Instant::now();

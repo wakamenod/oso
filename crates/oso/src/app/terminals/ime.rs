@@ -5,6 +5,10 @@
 
 use super::App;
 
+/// The most characters of a composition placed one by one, as text views place them
+/// (ADR 0077).
+const MOST_PLACED_CHARS: usize = 4096;
+
 impl App {
     /// The selected terminal's cursor cell in physical pixels, within its window's text, for
     /// the input method's candidate window.
@@ -38,14 +42,20 @@ impl App {
         let preedit = self.editor.preedit()?;
         let first = self.terminal_cursor_area(grid)?;
         let width = first.width;
-        let mut x = 0.0_f32;
+        let mut cells: u16 = 0;
         for cluster in oso_core::display_map::text_clusters(preedit.text(), 0) {
             for _ in cluster.text.chars() {
-                out.push(x);
+                // As the editor's own: one too long to place gives the cursor's cell alone.
+                if out.len() == MOST_PLACED_CHARS {
+                    out.clear();
+                    return None;
+                }
+                out.push(width * f32::from(cells));
             }
-            x += width * cluster.cells as f32;
+            let wide = u16::try_from(cluster.cells).unwrap_or(u16::MAX);
+            cells = cells.saturating_add(wide);
         }
-        out.push(x);
+        out.push(width * f32::from(cells));
         Some(first)
     }
 }

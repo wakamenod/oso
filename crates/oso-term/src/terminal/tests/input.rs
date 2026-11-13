@@ -139,6 +139,7 @@ fn a_hold_holds_until_it_ends_or_its_limit() {
     hold.set(false, at(500));
     assert!(!hold.holds(at(500), limit));
     assert_eq!(hold.left(at(500), limit), None);
+    hold.published();
     // Past the limit.
     hold.set(true, at(600));
     assert!(hold.holds(at(1599), limit));
@@ -149,11 +150,30 @@ fn a_hold_holds_until_it_ends_or_its_limit() {
         !hold.holds(at(1700), limit),
         "a beginning while open extends nothing"
     );
-    // Set again after a timeout, once the program reset it.
+    // Set again after a timeout, once the program reset it and a snapshot went.
     hold.set(false, at(2000));
     hold.set(true, at(2100));
+    assert!(!hold.holds(at(2200), limit), "the end lets one snapshot go");
+    hold.published();
     assert!(hold.holds(at(2200), limit));
     assert!(!hold.holds(at(3100), limit));
+}
+
+/// An end and a new beginning in one read cannot hold the screen past one snapshot each.
+#[test]
+fn ending_and_beginning_again_lets_a_snapshot_go_each_time() {
+    let limit = limits::RENDER_HOLD_MAX;
+    let t0 = Instant::now();
+    let at = |ms| t0 + Duration::from_millis(ms);
+    let mut hold = Hold::default();
+    for round in 0..5 {
+        let now = at(round * 900);
+        hold.set(false, now);
+        hold.set(true, now);
+        assert!(!hold.holds(now, limit), "round {round}");
+        hold.published();
+        assert!(hold.holds(now, limit), "round {round}");
+    }
 }
 
 #[test]

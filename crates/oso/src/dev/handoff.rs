@@ -90,17 +90,6 @@ pub fn export(
         return Err(SECRET_SHOWN.into());
     }
     held(editor)?;
-    // Until terminals are handed over (ADR 0120, step 11), one with a program running holds
-    // the restart, which would end it.
-    if let Some((_, buffer)) = editor
-        .buffers()
-        .find(|(_, buffer)| buffer.is_terminal() && buffer.is_running())
-    {
-        return Err(format!(
-            "cannot hand over {}: a program runs in it",
-            buffer.name()
-        ));
-    }
     carried_bytes(editor)?;
     let mut items = Vec::new();
     let mut buffers = Vec::new();
@@ -282,6 +271,10 @@ enum Handed<'a> {
 /// How `buffer` is handed over, or an error naming it and quoting none of its text if the
 /// new instance would not end up with the same text.
 fn handed(buffer: &Buffer) -> Result<Handed<'_>, String> {
+    // An ended terminal holds no text; a running one holds the restart in `held`.
+    if buffer.is_terminal() {
+        return Ok(Handed::Nothing);
+    }
     let path = buffer.path().map(|path| {
         path.to_str().ok_or_else(|| {
             format!(
@@ -449,6 +442,13 @@ fn held(editor: &Editor) -> Result<(), String> {
     }
     if let Some(why) = under_way(editor) {
         return Err(format!("cannot hand over: {why}"));
+    }
+    // A running terminal holds the restart until terminals are handed over (ADR 0120).
+    if let Some(buffer) = editor.running_terminals().find_map(|id| editor.buffer(id)) {
+        return Err(format!(
+            "cannot hand over {}: a program runs in it",
+            buffer.name()
+        ));
     }
     let tiling = editor.tiling();
     if tiling.depth() > Tiling::MAX_DEPTH {

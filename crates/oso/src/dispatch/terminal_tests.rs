@@ -5,11 +5,11 @@
 //! Must not depend on: `app`, winit or the terminal's thread; the host's part is the
 //! requests the editor holds.
 
-use oso_core::editor::{Editor, TerminalRequest};
+use oso_core::editor::Editor;
 use oso_core::key::{KeyPress, KeySequence};
 use oso_core::window::ViewSize;
 
-use super::Dispatcher;
+use super::{Dispatcher, TerminalSend};
 use crate::terminal::route::Input;
 
 fn keys(text: &str) -> Vec<KeyPress> {
@@ -28,13 +28,13 @@ fn in_terminal() -> (Dispatcher, Editor) {
     (Dispatcher::new(), editor)
 }
 
-/// The keys the host was asked to send, one request's after another's.
-fn sent(editor: &mut Editor) -> Vec<KeyPress> {
-    editor
-        .take_terminal_requests()
+/// The keys waiting to go to programs, one send's after another's.
+fn sent(dispatcher: &mut Dispatcher, editor: &mut Editor) -> Vec<KeyPress> {
+    dispatcher
+        .take_terminal_sends(editor)
         .into_iter()
-        .flat_map(|request| match request {
-            TerminalRequest::Keys(keys) => keys,
+        .flat_map(|(_, send)| match send {
+            TerminalSend::Keys(keys) => keys,
             _ => Vec::new(),
         })
         .collect()
@@ -44,7 +44,10 @@ fn sent(editor: &mut Editor) -> Vec<KeyPress> {
 fn typing_goes_to_the_program() {
     let (mut dispatcher, mut editor) = in_terminal();
     send(&mut dispatcher, &mut editor, "l s SPC RET C-a M-b <up> C-g");
-    assert_eq!(sent(&mut editor), keys("l s SPC RET C-a M-b <up> C-g"));
+    assert_eq!(
+        sent(&mut dispatcher, &mut editor),
+        keys("l s SPC RET C-a M-b <up> C-g")
+    );
     assert!(editor.current().1.text().is_empty(), "nothing is inserted");
 }
 
@@ -53,25 +56,20 @@ fn c_x_stays_oso_s_and_c_c_c_c_sends_c_c() {
     let (mut dispatcher, mut editor) = in_terminal();
     send(&mut dispatcher, &mut editor, "C-x 2");
     assert_eq!(editor.frame().windows().len(), 2);
-    assert!(sent(&mut editor).is_empty());
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
     send(&mut dispatcher, &mut editor, "C-c C-c");
-    assert_eq!(sent(&mut editor), keys("C-c"));
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c"));
     // Another key after C-c sends both.
     send(&mut dispatcher, &mut editor, "C-c a");
-    assert_eq!(sent(&mut editor), keys("C-c a"));
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c a"));
 }
 
 #[test]
 fn c_q_sends_the_next_key_as_it_is() {
     let (mut dispatcher, mut editor) = in_terminal();
-    send(&mut dispatcher, &mut editor, "C-q");
-    let id = editor.window().buffer();
-    for request in editor.take_terminal_requests() {
-        assert_eq!(request, TerminalRequest::QuoteNext);
-        dispatcher.quote_next(id);
-    }
-    send(&mut dispatcher, &mut editor, "C-x");
-    assert_eq!(sent(&mut editor), keys("C-x"));
+    // In one batch, as the dev socket and a macro's replay send keys.
+    send(&mut dispatcher, &mut editor, "C-q C-x");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-x"));
     // Only the one key.
     send(&mut dispatcher, &mut editor, "C-x 2");
     assert_eq!(editor.frame().windows().len(), 2);
@@ -81,19 +79,16 @@ fn c_q_sends_the_next_key_as_it_is() {
 fn char_mode_sends_everything_but_c_c_c_k() {
     let (mut dispatcher, mut editor) = in_terminal();
     let id = editor.window().buffer();
-    send(&mut dispatcher, &mut editor, "C-c C-k");
-    assert_eq!(
-        editor.take_terminal_requests(),
-        [TerminalRequest::ToggleCharMode]
-    );
-    dispatcher.toggle_char_mode(id);
+    send(&mut dispatcher, &mut editor, "C-c C-k C-x 2 M-x C-c C-c");
     assert_eq!(dispatcher.terminal_input(id), Input::Char);
-    send(&mut dispatcher, &mut editor, "C-x 2 M-x C-c C-c");
-    assert_eq!(sent(&mut editor), keys("C-x 2 M-x C-c C-c"));
+    assert_eq!(
+        sent(&mut dispatcher, &mut editor),
+        keys("C-x 2 M-x C-c C-c")
+    );
     assert_eq!(editor.frame().windows().len(), 1);
     send(&mut dispatcher, &mut editor, "C-c C-k");
     assert_eq!(dispatcher.terminal_input(id), Input::SemiChar);
-    assert!(sent(&mut editor).is_empty());
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
 }
 
 #[test]
@@ -103,14 +98,68 @@ fn a_prompt_takes_its_keys() {
     assert!(editor.prompt().is_some());
     send(&mut dispatcher, &mut editor, "a b C-g");
     assert!(editor.prompt().is_none());
-    assert!(sent(&mut editor).is_empty());
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
 }
 
 #[test]
 fn keys_sent_to_a_program_are_not_recorded_into_a_macro() {
     let (mut dispatcher, mut editor) = in_terminal();
     send(&mut dispatcher, &mut editor, "C-x ( s e c r e t C-x )");
-    assert_eq!(sent(&mut editor), keys("s e c r e t"));
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("s e c r e t"));
     send(&mut dispatcher, &mut editor, "C-x e");
-    assert!(sent(&mut editor).is_empty(), "the macro holds none of them");
+    assert!(
+        sent(&mut dispatcher, &mut editor).is_empty(),
+        "the macro holds none of them"
+    );
+}
+
+#[test]
+fn a_c_c_sent_with_the_next_key_leaves_nothing_in_a_recording() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    send(&mut dispatcher, &mut editor, "C-x ( C-c a C-x 2 C-x )");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c a"));
+    send(&mut dispatcher, &mut editor, "C-x 1 C-x e");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while editor.macro_replaying() {
+        dispatcher.replay(&mut editor, until);
+    }
+    assert!(
+        sent(&mut dispatcher, &mut editor).is_empty(),
+        "the replay splits the window and sends nothing"
+    );
+    assert_eq!(editor.frame().windows().len(), 2);
+}
+
+#[test]
+fn keys_go_to_the_terminal_they_were_typed_in_whatever_is_selected_after() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let first = editor.window().buffer();
+    send(&mut dispatcher, &mut editor, "C-x 2");
+    let second = editor.add_terminal_buffer("*terminal*");
+    send(&mut dispatcher, &mut editor, "C-x o");
+    editor.show(second);
+    send(&mut dispatcher, &mut editor, "C-x o a C-x o b C-c C-c");
+    let sends = dispatcher.take_terminal_sends(&mut editor);
+    assert_eq!(
+        sends,
+        [
+            (first, TerminalSend::Keys(keys("a"))),
+            (second, TerminalSend::Keys(keys("b"))),
+            (second, TerminalSend::Keys(keys("C-c"))),
+        ]
+    );
+}
+
+#[test]
+fn text_goes_like_a_key_and_waits_while_something_of_oso_s_is_open() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    let id = editor.window().buffer();
+    assert!(dispatcher.text_to_terminal(&mut editor, "日本"));
+    send(&mut dispatcher, &mut editor, "C-x");
+    assert!(!dispatcher.text_to_terminal(&mut editor, "語"));
+    send(&mut dispatcher, &mut editor, "C-g");
+    assert_eq!(
+        dispatcher.take_terminal_sends(&mut editor),
+        [(id, TerminalSend::Text("日本".into()))]
+    );
 }

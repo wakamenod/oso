@@ -1,5 +1,6 @@
 //! The terminals the app hosts, by their buffers' ids (ADR 0120): each one's handle to its
-//! thread, the screen the UI keeps, how it reads keys, and which window's size it takes. A
+//! thread, the screen the UI keeps, and which window's size it takes. How each reads keys is
+//! the dispatcher's, as key-reading state. A
 //! terminal starts on a thread of its own, which finds the shell, since that looks at the disk
 //! and may ask the user database, never on the UI thread.
 //!
@@ -33,8 +34,9 @@ pub(crate) struct Hosted {
     pub title: String,
     /// How the program ended, for the modeline: `exited 0`, `ended`.
     pub ended: Option<String>,
-    /// A paste of several lines waits for the person's yes, without bracketed paste.
-    pub pending_paste: Option<String>,
+    /// A paste of several lines waits for the person's yes to the question asked, without
+    /// bracketed paste.
+    pub pending_paste: Option<(oso_core::minibuffer::PromptId, String)>,
     /// A snapshot is ready to take.
     pub ready: bool,
     /// When it was last selected, by the app's count, for `terminal`'s "last".
@@ -43,6 +45,10 @@ pub(crate) struct Hosted {
     pub focused: Option<bool>,
     /// The note the modeline was last given, so that it is set only on a change.
     pub note: String,
+    /// The title or the end changed since the note was made.
+    pub note_stale: bool,
+    /// The input mode the note was made with.
+    pub noted_input: Input,
 }
 
 impl Hosted {
@@ -59,6 +65,8 @@ impl Hosted {
             selected: 0,
             focused: None,
             note: String::new(),
+            note_stale: false,
+            noted_input: Input::SemiChar,
         }
     }
 
@@ -67,19 +75,27 @@ impl Hosted {
         self.ended.is_none()
     }
 
-    /// What the modeline says after `Terminal`: the input mode, how it ended, the title.
+    /// What the modeline says after `Terminal`: oso's own marks, the input mode and how the
+    /// program ended, then the program's title last and in quotes, so that a title can never
+    /// pass for one of them.
     pub(crate) fn note_text(&self, input: Input) -> String {
-        let mut parts: Vec<&str> = Vec::new();
+        let mut note = String::new();
+        let mut push = |part: &str| {
+            if !note.is_empty() {
+                note.push_str("  ");
+            }
+            note.push_str(part);
+        };
         if input == Input::Char {
-            parts.push("char");
+            push("char");
         }
         if let Some(ended) = &self.ended {
-            parts.push(ended);
+            push(ended);
         }
         if !self.title.is_empty() {
-            parts.push(&self.title);
+            push(&format!("\u{201c}{}\u{201d}", self.title));
         }
-        parts.join("  ")
+        note
     }
 }
 
@@ -167,6 +183,8 @@ pub(crate) struct Started {
 #[derive(Debug)]
 pub(crate) struct Launched {
     pub terminal: Terminal,
+    /// The directory it started in, if one was given.
+    pub cwd: Option<PathBuf>,
     /// The shell's path, for `*Messages*` (ADR 0120, step 4's Q9).
     pub shell: PathBuf,
     /// Shells passed over before it, and why.
@@ -213,7 +231,7 @@ fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched>
     let start = Start {
         executable: found.executable,
         args: shell::args(settings.login),
-        cwd,
+        cwd: cwd.clone(),
         project,
         inherit: shell::inherit(&settings.env),
         set: shell::set(&found.path),
@@ -224,6 +242,7 @@ fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched>
     let terminal = Terminal::start(start, ready)?;
     Ok(Launched {
         terminal,
+        cwd,
         shell: found.path,
         passed_over: found.passed_over,
     })
@@ -292,7 +311,17 @@ mod tests {
         assert_eq!(hosted.note_text(Input::SemiChar), "");
         hosted.title = "vim".into();
         hosted.ended = Some("exited 1".into());
-        assert_eq!(hosted.note_text(Input::Char), "char  exited 1  vim");
+        assert_eq!(
+            hosted.note_text(Input::Char),
+            "char  exited 1  \u{201c}vim\u{201d}"
+        );
+        // A title that reads as oso's own mark stays a title.
+        hosted.ended = None;
+        hosted.title = "exited 0".into();
+        assert_eq!(
+            hosted.note_text(Input::SemiChar),
+            "\u{201c}exited 0\u{201d}"
+        );
     }
 
     #[test]

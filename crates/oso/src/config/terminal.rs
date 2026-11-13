@@ -13,8 +13,8 @@ use super::problems::{Found, cut, quoted};
 use super::settings::switch;
 use super::{table, type_name, unknown};
 
-/// The most scrollback lines (ADR 0120, Q11).
-pub(super) const MAX_SCROLLBACK: usize = 100_000;
+/// The most scrollback lines (ADR 0120, Q11): the terminal's own limit.
+pub(super) const MAX_SCROLLBACK: usize = oso_term::limits::SCROLLBACK_MAX;
 /// The most names `[terminal] env` passes on.
 pub(super) const MAX_ENV_NAMES: usize = 64;
 /// The longest name `[terminal] env` takes, in bytes.

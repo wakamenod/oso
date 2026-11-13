@@ -8,5 +8,6 @@
 pub(crate) mod colors;
 pub(crate) mod grid;
 pub(crate) mod hosted;
+pub(crate) mod paste;
 pub(crate) mod route;
 pub(crate) mod shell;

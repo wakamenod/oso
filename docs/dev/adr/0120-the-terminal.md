@@ -1075,3 +1075,84 @@ each of its sixteen questions.
   - Grapheme clustering (mode 2027) starts off in the library, so a flag takes two cells unless
     the program turns it on; whether oso turns it on is step 4's
     ([`open-questions.md`](../open-questions.md)).
+
+### Step 4a: the terminal view, the minimum to run `claude`
+
+The author approved the plan on 2026-11-13, through the coordinator, with the first option on
+each of its eleven questions, and added synchronized updates (mode 2026) while reviewing step 3.
+Step 4 is split in two pull requests (see Steps); this is the first.
+
+- **Echo off (Q17), as the author defined it on 2026-11-13, for step 4b:** a terminal is echo
+  off while its PTY has `ECHO` off and `ICANON` on, as password prompts have it (`sudo`, `ssh`,
+  `read -s`, `getpass`). Programs that read keys raw (a shell's line editor, `vim`, `claude`)
+  turn `ECHO` off too and do not count. Step 4b reads both flags through `oso-platform`.
+- **The public items,** as approved:
+  - `oso-core`: `Mode::Terminal`, `ReadOnly::Terminal`, `KillRefused::Running`,
+    `Buffer::{is_terminal, is_running, mode_note}`, `Editor::{add_terminal_buffer,
+    set_running, running_terminals, set_mode_note, request_terminal, take_terminal_requests}`
+    and `TerminalRequest`.
+  - `oso-term`: `Terminal::{send_key, paste, scroll, set_focused}`, `Scroll`,
+    `Snapshot::scrolled` and `Event::PasteRefused`; `Terminal::send` also scrolls to the bottom.
+  - `oso-render`: `PaneContent::Grid` with `GridView`, `GridRow`, `GridCell`, `GridColor`,
+    `GridStyle`, `GridCursor`, `GridCursorShape`, the faces `TerminalColor0` to
+    `TerminalColor15`, and `Theme::terminal_palette`, whose `TerminalPalette` sits in
+    `oso_render::theme` beside `Theme`.
+  - `oso-platform`: `window::Event::Unfocused`, sent when the window loses the keyboard's
+    focus (ADR 0121's step 3 uses it too).
+  - Layer rows: `terminal` in `oso`, `cells` in `oso-render`, `input` in `oso-term`. The tip
+    crate depends on `oso-term`.
+- **The `unsafe`:** 14 more foreign functions (37 in all), the library's key encoder and key
+  event, and viewport scrolling; 15 more blocks of one operation each, 14 in `raw.rs` and one
+  in `raw/callbacks.rs` (the render hold's sink), each with its `// SAFETY:` comment. Every new
+  struct, enumerator, option and callback signature is checked against the library's manifest;
+  the modifier bits, which the manifest leaves out, through the encoder's output.
+- **Keys** are routed by the dispatcher before any keymap, as key-reading state it holds per
+  terminal: semi-char mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y`, and every key
+  while a prompt, isearch, a menu, a jump or a key sequence of oso's is open; char mode keeps
+  only `C-c C-k`. After `C-c`, only the terminal's own keymap is read (`C-c C-c`, `C-c C-k`), so
+  any other `C-c` key, the global and the user's among them, goes to the program with it.
+  Text the input method commits, and a key that types several characters, go as a key does.
+  - What goes to a program waits in the dispatcher bound to the terminal it was typed in, and
+    the host sends it after the event, so a batch of keys that selects another window sends
+    nothing to the wrong terminal.
+  - Keys sent to a program are never recorded into a keyboard macro, which is stricter than
+    Q17's "while echo is off" (the author's choice, Q7); oso's own keys there are.
+  - The encoder is the library's: `M-` is Alt with an `ESC` before the key; Super is the
+    library's super. A key holds 128 bytes of the 16 MiB input queue until it is encoded.
+- **Paste:** control characters but tab and new line are removed and line breaks normalized on
+  the terminal's thread, against the mode current there. Bracketed, the text goes between its
+  brackets; otherwise each new line is a carriage return, and text of several lines asks first.
+  The thread checks the mode again, and a paste that meets bracketed paste turned off since the
+  question is dropped with `Event::PasteRefused`. A paste waits only for its own question.
+- **The view:** synchronized updates (mode 2026) hold snapshots back while one is open, at most
+  1 s, Ghostty's own value for its app; an end lets a snapshot go before another hold begins.
+  Grapheme clustering (mode 2027) is on before any output, through the library's mode default,
+  and stays on after a reset (the open question is answered). The wheel scrolls the scrollback
+  on the main screen; on the alternate screen it does nothing until the mouse in 4b. The PTY
+  takes the size of the window that last selected the terminal. Focus reports (1004) go to the
+  terminal of the selected window while oso has the focus and no prompt is open.
+- **Colours:** the default and the 16 named colours are drawn through the theme's faces, the
+  rest of the 256 as xterm's table gives them, and true colour as set. A program's OSC 4, 10 and
+  11 changes are answered to it but not drawn yet; that is a follow-up.
+- **The modeline** says `Terminal`, then `char` in char mode and `exited N` once the program
+  ended, then the program's title last, in quotes.
+- **The shell** is found on a thread of its own (`oso-terminal-start`), never the UI thread;
+  shells passed over and `Started <shell> in <dir>` go to `*Messages*` (Q9), the path only.
+  `[terminal] env` takes at most 64 names of at most 256 bytes and refuses the names the process
+  module refuses and those a terminal sets itself.
+- **Lifecycle:** a terminal counts as running from its start until its program ends. While one
+  runs, `C-x k` asks, `C-x C-c` asks once with any unsaved text (Q3), and an `oso dev` restart
+  is held (Q8). An ended terminal keeps its screen and is killed without asking; `terminal`
+  switches to the last terminal still running (Q2).
+- **The agent channel's minimum:** a terminal's buffer is read-only and withheld from agents,
+  its text is never read, every terminal command is `Person`, and keys reach a program only
+  from the person's input or the dev socket. The dev socket, in dev builds only, reads each
+  terminal's rows and sends keys to it, as it does for any buffer, for end-to-end flows.
+- **Cost, measured in the app** (release build with the dev feature, a 99 × 35 terminal):
+  shaping and painting a frame took p99 0.24 ms while a program printed a line at a time,
+  every row shaped again; 0.16 ms for `seq 1 300000`; 0.22 ms for coloured lines. A crafted
+  300 × 100 screen with every row changed and a colour a cell takes 6–9 ms (`grid_pane`'s
+  `cost` test). Rows are kept by their place and a count of their changes, so a scroll shapes
+  every row; reusing rows by what they hold, and placing simple cells without shaping, are
+  follow-ups (`open-questions.md`). The `just perf` flows, with the 8-terminal backpressure step
+  3 handed over, are step 4b's.

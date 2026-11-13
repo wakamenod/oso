@@ -164,17 +164,20 @@ impl Terminal {
         })
     }
 
-    /// The snapshot that is ready, if one is. The next is built only after this.
+    /// The snapshot that is ready, if one is. The next is built only after this, once
+    /// [`Terminal::recycle`] gives this one back, or at the thread's next wake.
     pub fn take_snapshot(&self) -> Option<Snapshot> {
         let snapshot = self.snapshots.try_recv().ok()?;
         self.shared.in_flight.store(false, Ordering::Release);
-        self.wake();
         Some(snapshot)
     }
 
-    /// Gives a snapshot's buffers back, so that later snapshots need not allocate.
+    /// Gives a snapshot's buffers back, so that later snapshots need not allocate, and wakes
+    /// the thread to build the next in them: one wake per snapshot taken.
     pub fn recycle(&self, snapshot: Snapshot) {
-        let _ = self.requests.send(Request::Recycle(snapshot));
+        if self.requests.send(Request::Recycle(snapshot)).is_ok() {
+            self.wake();
+        }
     }
 
     /// Queues bytes for the program, already encoded, and scrolls the view back to the

@@ -63,10 +63,12 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
     }
 }
 
-/// A synchronized update (mode 2026) as the thread keeps it: when the open one began.
+/// A synchronized update (mode 2026) as the thread keeps it: when the open one began, and
+/// whether one ended since a snapshot last went.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Hold {
     began: Option<Instant>,
+    ended: bool,
 }
 
 impl Hold {
@@ -75,15 +77,22 @@ impl Hold {
     pub(super) fn set(&mut self, held: bool, now: Instant) {
         if !held {
             self.began = None;
+            self.ended = true;
         } else if self.began.is_none() {
             self.began = Some(now);
         }
     }
 
+    /// A snapshot went. Until then, a hold that ended lets the next one go, even if another
+    /// began in the same read: ending and beginning again cannot hold the screen forever.
+    pub(super) fn published(&mut self) {
+        self.ended = false;
+    }
+
     /// Whether snapshots wait at `now`: a hold is open and younger than `limit`. Past it,
     /// snapshots go as if none were open, until the program ends it and begins another.
     pub(super) fn holds(&self, now: Instant, limit: Duration) -> bool {
-        self.left(now, limit).is_some()
+        !self.ended && self.left(now, limit).is_some()
     }
 
     /// How long from `now` the open hold still holds snapshots back, if it does.
@@ -491,6 +500,7 @@ impl<'a> Running<'a> {
         let snapshot = std::mem::replace(&mut self.next, fresh);
         self.next.size = size;
         shared.in_flight.store(true, Ordering::Release);
+        self.hold.published();
         if self.channels.snapshots.send(snapshot).is_ok() {
             (self.channels.wake)();
         }

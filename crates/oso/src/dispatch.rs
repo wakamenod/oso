@@ -27,6 +27,7 @@ mod buffers;
 pub use agent::{Unshowable, unshowable};
 pub use args::Given;
 pub(crate) use buffers::size;
+pub use terminal::Send as TerminalSend;
 mod clipboard;
 mod extended;
 mod held;
@@ -109,6 +110,8 @@ pub struct Dispatcher {
     /// How each terminal reads keys, and what waits there for the next key (ADR 0120).
     terminal_keys:
         std::collections::HashMap<oso_core::buffer::BufferId, crate::terminal::route::State>,
+    /// What waits to go to terminals' programs, each with its terminal (ADR 0120).
+    terminal_sends: Vec<(oso_core::buffer::BufferId, terminal::Send)>,
     /// The only commands `M-x` lists, for snapshots that a new command must not change.
     #[cfg(test)]
     m_x_only: Option<&'static [&'static str]>,
@@ -159,6 +162,7 @@ impl Dispatcher {
             view_jumped: None,
             ran_for_agent: false,
             terminal_keys: std::collections::HashMap::new(),
+            terminal_sends: Vec::new(),
             #[cfg(test)]
             m_x_only: None,
         }

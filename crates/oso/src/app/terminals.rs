@@ -18,8 +18,9 @@ use super::{App, UserEvent};
 #[cfg(feature = "dev")]
 mod dev_state;
 mod ime;
+use crate::dispatch::TerminalSend;
 use crate::terminal::hosted::{self, Request, Started, Terminals};
-use crate::terminal::{colors, shell};
+use crate::terminal::{colors, paste, shell};
 
 /// The name of a terminal's buffer; others are `*terminal*<2>` and on.
 const NAME: &str = "*terminal*";
@@ -50,12 +51,21 @@ impl App {
     /// After each event: carries out what commands and keys asked of terminals, drops the
     /// terminals of buffers that are gone, and keeps each one's size, focus and modeline.
     pub(super) fn sync_terminals(&mut self) {
+        // What commands asked is bound to the terminal it was asked in first; only starting
+        // one is left in the editor.
+        let sends = self.dispatcher.take_terminal_sends(&mut self.editor);
         for request in self.editor.take_terminal_requests() {
-            self.terminal_request(request);
+            if let TerminalRequest::Open { new } = request {
+                self.open_terminal(new);
+            }
+        }
+        for (buffer, send) in sends {
+            self.terminal_send(buffer, send);
         }
         if self.terminals.map.is_empty() {
             return;
         }
+        self.drop_unasked_pastes();
         let editor = &self.editor;
         for gone in self.terminals.map.retain(|id| editor.buffer(id).is_some()) {
             // Dropping its handle hangs it up; its thread finishes on its own.
@@ -67,29 +77,40 @@ impl App {
         self.note_terminal_selected();
         self.size_terminals();
         self.focus_terminals();
-        self.note_terminals();
+        if self.note_terminals() {
+            self.request_redraw();
+        }
     }
 
-    fn terminal_request(&mut self, request: TerminalRequest) {
-        let selected = self.editor.window().buffer();
-        match request {
-            TerminalRequest::Open { new } => self.open_terminal(new),
-            TerminalRequest::Keys(keys) => self.send_keys(selected, &keys),
-            TerminalRequest::Paste { text } => self.paste(selected, text),
-            TerminalRequest::PasteLines => {
+    fn terminal_send(&mut self, buffer: BufferId, send: TerminalSend) {
+        match send {
+            TerminalSend::Keys(keys) => self.send_keys(buffer, &keys),
+            TerminalSend::Text(text) => self.send_text(buffer, &text),
+            TerminalSend::Paste(text) => self.paste(buffer, text),
+            TerminalSend::PasteLines => {
                 let text = self
                     .terminals
                     .map
-                    .get_mut(selected)
+                    .get_mut(buffer)
                     .and_then(|hosted| hosted.pending_paste.take());
-                if let Some(text) = text {
-                    self.send_paste(selected, text, true);
+                if let Some((_, text)) = text {
+                    self.send_paste(buffer, text, true);
                 }
             }
-            TerminalRequest::QuoteNext => self.dispatcher.quote_next(selected),
-            TerminalRequest::ToggleCharMode => {
-                self.dispatcher.toggle_char_mode(selected);
-                self.request_redraw();
+        }
+    }
+
+    /// Drops a paste of lines whose question closed without a yes: a later
+    /// `terminal-paste-lines` never pastes it unasked.
+    fn drop_unasked_pastes(&mut self) {
+        let prompts = self.editor.prompts();
+        for (_, hosted) in self.terminals.map.iter_mut() {
+            if hosted
+                .pending_paste
+                .as_ref()
+                .is_some_and(|(asked, _)| !prompts.iter().any(|prompt| prompt.id() == *asked))
+            {
+                hosted.pending_paste = None;
             }
         }
     }
@@ -108,6 +129,9 @@ impl App {
         let window = self.editor.window().id();
         self.terminals.map.add(id);
         self.terminals.map.selected(id, window);
+        // From now on, until it ends or fails: a restart or an exit started before the shell
+        // is found would end the child about to start.
+        self.editor.set_running(id, true);
         let size = self.window_size(window).unwrap_or(Size {
             rows: 24,
             columns: 80,
@@ -118,13 +142,12 @@ impl App {
             hosted.sized = Some(size);
         }
         let configured = self.configuration.terminal();
+        let defaults = shell::Settings::default();
         let settings = shell::Settings {
             shell: configured.shell.clone(),
-            login: configured.login.unwrap_or(true),
-            env: configured.env.clone().unwrap_or_default(),
-            scrollback: configured
-                .scrollback
-                .unwrap_or(oso_term::limits::SCROLLBACK_DEFAULT),
+            login: configured.login.unwrap_or(defaults.login),
+            env: configured.env.clone().unwrap_or(defaults.env),
+            scrollback: configured.scrollback.unwrap_or(defaults.scrollback),
         };
         let request = Request {
             buffer: id,
@@ -190,8 +213,7 @@ impl App {
                     self.editor
                         .note(format!("Terminal shell passed over: {passed}"));
                 }
-                let dir = self
-                    .terminal_directory()
+                let dir = (launched.cwd.as_ref())
                     .map_or_else(String::new, |dir| format!(" in {}", dir.display()));
                 // The path only: the environment's values are never shown (ADR 0120).
                 self.editor
@@ -213,10 +235,19 @@ impl App {
     }
 
     /// A terminal's thread has a snapshot ready: the next frame takes it.
+    /// A terminal no window shows asks for no frame of its own: its snapshot waits for the
+    /// next frame drawn anyway, while its thread goes on parsing.
     pub(super) fn terminal_ready(&mut self, buffer: BufferId) {
         if let Some(hosted) = self.terminals.map.get_mut(buffer) {
             hosted.ready = true;
-            self.request_redraw();
+            let shown = (self.editor.frame().windows().iter()).any(|(id, _)| {
+                self.editor
+                    .window_by_id(*id)
+                    .is_some_and(|w| w.buffer() == buffer)
+            });
+            if shown {
+                self.request_redraw();
+            }
         }
     }
 
@@ -225,23 +256,32 @@ impl App {
     pub(super) fn take_terminal_snapshots(&mut self) {
         let mut ended = Vec::new();
         let mut said = Vec::new();
+        let mut again = false;
         for (id, hosted) in self.terminals.map.iter_mut() {
             if !hosted.ready {
                 continue;
             }
-            hosted.ready = false;
             let Some(terminal) = &hosted.terminal else {
+                hosted.ready = false;
                 continue;
             };
             let Some(mut snapshot) = terminal.take_snapshot() else {
+                hosted.ready = false;
                 continue;
             };
+            // Another may wait already, as the end does behind one in flight: the next frame
+            // looks again, so that this one takes one only.
+            again = true;
             hosted.grid.apply(&snapshot);
             for event in snapshot.events.drain(..) {
                 match event {
-                    Event::Title(title) => hosted.title = title,
+                    Event::Title(title) => {
+                        hosted.title = title;
+                        hosted.note_stale = true;
+                    }
                     Event::Ended(end) => {
                         hosted.ended = Some(hosted::ended(&end));
+                        hosted.note_stale = true;
                         ended.push(id);
                     }
                     Event::PasteRefused { lines } => said.push(format!(
@@ -269,7 +309,11 @@ impl App {
         for text in said {
             self.editor.message(text);
         }
+        // The frame being drawn shows the notes.
         self.note_terminals();
+        if again {
+            self.request_redraw();
+        }
     }
 
     fn send_keys(&mut self, buffer: BufferId, keys: &[KeyPress]) {
@@ -291,12 +335,8 @@ impl App {
     }
 
     /// Text the input method committed, or a key that types several characters, for the
-    /// selected terminal's program, as UTF-8. Keys asked for before it go first.
-    pub(super) fn send_text(&mut self, text: &str) {
-        for request in self.editor.take_terminal_requests() {
-            self.terminal_request(request);
-        }
-        let buffer = self.editor.window().buffer();
+    /// terminal `buffer`'s program, as UTF-8.
+    fn send_text(&mut self, buffer: BufferId, text: &str) {
         let Some(terminal) = self
             .terminals
             .map
@@ -309,12 +349,6 @@ impl App {
             self.editor
                 .message("The terminal's input is full; text dropped");
         }
-    }
-
-    /// Whether the selected window shows a terminal and no prompt is open: typed text goes to
-    /// its program.
-    pub(super) fn types_into_terminal(&self) -> bool {
-        self.editor.prompt().is_none() && self.editor.current().1.is_terminal()
     }
 
     fn no_program(&mut self, buffer: BufferId) {
@@ -332,16 +366,19 @@ impl App {
         let Some(hosted) = self.terminals.map.get_mut(buffer) else {
             return;
         };
-        let lines = text.lines().count();
-        let breaks = text.contains(['\n', '\r']);
-        if breaks && !hosted.grid.modes().bracketed_paste {
-            hosted.pending_paste = Some(text);
+        if paste::breaks(&text) && !hosted.grid.modes().bracketed_paste {
+            let lines = paste::lines(&text);
             let question = format!("Paste {lines} lines into a program that may run them?");
-            if let Err(error) =
-                self.editor
-                    .ask_with(question, "terminal-paste-lines", ["paste", "keep"])
+            match self
+                .editor
+                .ask_with(question, "terminal-paste-lines", ["paste", "keep"])
             {
-                self.editor.message(error.to_string());
+                Ok(asked) => {
+                    if let Some(hosted) = self.terminals.map.get_mut(buffer) {
+                        hosted.pending_paste = Some((asked, text));
+                    }
+                }
+                Err(error) => self.editor.message(error.to_string()),
             }
             self.request_redraw();
             return;
@@ -475,23 +512,29 @@ impl App {
     }
 
     /// Puts each terminal's mode, end and title in its modeline, when they changed.
-    fn note_terminals(&mut self) {
-        let notes: Vec<(BufferId, String)> = self
-            .terminals
-            .map
-            .iter()
-            .filter_map(|(id, hosted)| {
-                let note = hosted.note_text(self.dispatcher.terminal_input(id));
-                (note != hosted.note).then_some((id, note))
-            })
-            .collect();
-        for (id, note) in notes {
-            if let Some(hosted) = self.terminals.map.get_mut(id) {
-                hosted.note.clone_from(&note);
+    /// Puts each terminal's mode, end and title in its modeline, when one of them changed.
+    /// Returns whether a note changed, which the frame being drawn already shows.
+    fn note_terminals(&mut self) -> bool {
+        let mut changed = false;
+        let ids: Vec<BufferId> = self.terminals.map.iter().map(|(id, _)| id).collect();
+        for id in ids {
+            let input = self.dispatcher.terminal_input(id);
+            let Some(hosted) = self.terminals.map.get_mut(id) else {
+                continue;
+            };
+            if !hosted.note_stale && hosted.noted_input == input {
+                continue;
             }
-            self.editor.set_mode_note(id, note);
-            self.request_redraw();
+            hosted.note_stale = false;
+            hosted.noted_input = input;
+            let note = hosted.note_text(input);
+            if note != hosted.note {
+                hosted.note.clone_from(&note);
+                self.editor.set_mode_note(id, note);
+                changed = true;
+            }
         }
+        changed
     }
 }
 

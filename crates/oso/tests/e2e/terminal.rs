@@ -85,7 +85,8 @@ fn a_terminal_runs_the_shell_and_its_output_is_drawn() {
     wait_for_row(&mut app, "oso xterm-256color truecolor");
     assert!(app.screenshot().foreground().is_some(), "the grid is drawn");
     // `terminal` again switches to it rather than starting another.
-    app.send_keys("C-x b *scratch* RET");
+    app.send_keys("C-x b");
+    type_line(&mut app, "*scratch*");
     app.run_command("terminal", None).unwrap();
     let state = app.wait_for("the terminal again", |state| {
         state["buffer"]["name"] == "*terminal*"
@@ -100,6 +101,8 @@ fn oso_keeps_its_keys_and_the_rest_reach_the_program() {
     open_terminal(&mut app);
     // C-c C-c sends C-c: the sleep ends, so the echo after it runs at once.
     type_line(&mut app, "sleep 100");
+    // So that the shell has started it: a C-c before that reaches the shell instead.
+    std::thread::sleep(Duration::from_millis(500));
     app.send_keys("C-c C-c");
     type_line(&mut app, "echo stopped");
     wait_for_row(&mut app, "stopped");
@@ -226,11 +229,12 @@ fn a_paste_of_lines_asks_without_bracketed_paste_and_is_cleaned_with_it() {
 fn a_running_program_is_asked_about_and_its_end_is_shown() {
     let (_scratch, mut app) = start("terminal-end");
     open_terminal(&mut app);
-    // The scrollback keeps at most what the configuration says, and the wheel scrolls it.
-    type_line(&mut app, "seq 1 400");
-    let state = wait_for_row(&mut app, "400");
+    // The scrollback keeps about what the configuration says, the library freeing it a page
+    // at a time, and the wheel scrolls it.
+    type_line(&mut app, "seq 1 5000");
+    let state = wait_for_row(&mut app, "5000");
     let history = terminal(&state)["history"].as_u64().unwrap();
-    assert!(history > 0 && history <= 100, "{history}");
+    assert!(history > 0 && history < 2000, "{history}");
     app.call("wheel", Some(json!({ "lines": [0.0, 3.0] })));
     app.wait_for("scrolled back", |state| {
         terminal(state)["scrolled"].as_u64().is_some_and(|n| n > 0)

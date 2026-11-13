@@ -305,8 +305,7 @@ impl App {
     fn commit(&mut self, event_loop: &Loop<'_>, text: &str) -> bool {
         log::trace!("commit");
         // The committed text goes to a terminal's program as UTF-8 (ADR 0120).
-        if self.types_into_terminal() {
-            self.send_text(text);
+        if self.dispatcher.text_to_terminal(&mut self.editor, text) {
             return false;
         }
         let effects = self.dispatcher.commit_text(&mut self.editor, text);

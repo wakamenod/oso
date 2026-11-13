@@ -405,8 +405,9 @@ item notes when it must be settled.
 - Shipping the licence notices of libghostty-vt and what it bundles beside oso's binary, with
   the two texts its tarballs leave out (simdutf's, uucode's Unicode-3.0), when oso is packaged
   ([`crates/oso-term/third-party.md`](../../crates/oso-term/third-party.md)).
-- Whether terminals start with grapheme clustering (mode 2027) on, as Ghostty does, so that a
-  flag or a ZWJ emoji takes one cell pair; libghostty-vt starts with it off. ADR 0120's step 4.
+- Reusing a terminal's shaped rows by what they hold, so that a scroll shapes only the rows
+  that came, and a path that places a simple cell's glyph without shaping, for a large
+  terminal printing without pause ([ADR 0120](adr/0120-the-terminal.md), step 4a as built).
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,
