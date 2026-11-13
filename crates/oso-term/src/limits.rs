@@ -14,12 +14,22 @@ pub const INPUT_QUEUE_MAX: usize = 16 << 20;
 
 /// The most bytes read from the PTY at once.
 pub(crate) const READ_CHUNK: usize = 64 << 10;
-/// The most bytes parsed before the thread answers the UI's requests again.
+/// The most bytes, and the longest time, parsed before the thread answers the UI's requests
+/// and sends a snapshot again.
 pub(crate) const PARSE_SLICE: usize = 1 << 20;
+pub(crate) const PARSE_TIME: std::time::Duration = std::time::Duration::from_millis(4);
 /// Replies to the program are dropped while this many reply bytes wait to be written.
 pub(crate) const REPLIES_PENDING_MAX: usize = 64 << 10;
 /// What the library keeps of a sequence it does not know (oso's own, from step 10).
 pub(crate) const UNKNOWN_SEQUENCE_MAX: usize = 4096;
+/// The most of a title or a directory read from the library.
+pub(crate) const TERMINAL_STRING_MAX: usize = 4096;
+/// The longest OSC 7 URI taken; a longer one is dropped.
+pub(crate) const DIRECTORY_MAX: usize = 4096;
+/// The most bytes of one cell's grapheme cluster read.
+pub(crate) const GRAPHEME_MAX: usize = 256;
+/// Effects raised but not taken yet are dropped past this many.
+pub(crate) const EFFECTS_PENDING_MAX: usize = 1024;
 /// The most a Kitty graphics command may buffer (ADR 0120, step 1's condition 4).
 pub(crate) const KITTY_APC_MAX: usize = 16 << 20;
 /// The largest OSC 52 write taken; a larger one is dropped.

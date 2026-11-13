@@ -206,3 +206,45 @@ fn a_child_that_cannot_start_ends_the_terminal() {
         seen.events
     );
 }
+
+#[test]
+fn a_snapshot_keeps_the_latest_state_and_at_most_256_other_events() {
+    use crate::engine::Effect;
+    use crate::snapshot::Snapshot;
+    let mut effects: Vec<Effect> = (0..1000)
+        .flat_map(|i| {
+            [
+                Effect::Title(format!("t{i}").into_bytes()),
+                Effect::Notification {
+                    title: Vec::new(),
+                    body: b"n".to_vec(),
+                },
+                Effect::ClipboardWrite(vec![b'c'; 1000]),
+            ]
+        })
+        .collect();
+    let mut replies = Vec::new();
+    let mut next = Snapshot::new(size(10, 3));
+    assert!(super::thread::judge(&mut effects, &mut replies, &mut next));
+    let titles: Vec<&str> = next
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Title(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, ["t999"]);
+    let clips = next
+        .events
+        .iter()
+        .filter(|e| matches!(e, Event::ClipboardWrite(_)))
+        .count();
+    assert_eq!(clips, 1);
+    assert_eq!(
+        next.events.len(),
+        2 + 256 - 2,
+        "the two state events count among the 256"
+    );
+    assert_eq!(next.dropped_events, 1000 - 254);
+}

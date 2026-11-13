@@ -1,0 +1,588 @@
+pub mod oso_term
+pub mod oso_term::event
+pub enum oso_term::event::End
+pub oso_term::event::End::Closed
+pub oso_term::event::End::Exited(std::process::ExitStatus)
+pub oso_term::event::End::Failed(std::io::error::Error)
+impl core::fmt::Debug for oso_term::event::End
+pub fn oso_term::event::End::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_term::event::Event
+pub oso_term::event::Event::Bell
+pub oso_term::event::Event::ClipboardWrite(alloc::string::String)
+pub oso_term::event::Event::Directory(alloc::string::String)
+pub oso_term::event::Event::Ended(oso_term::event::End)
+pub oso_term::event::Event::Notification
+pub oso_term::event::Event::Notification::body: alloc::string::String
+pub oso_term::event::Event::Notification::title: alloc::string::String
+pub oso_term::event::Event::Progress(oso_term::event::Progress)
+pub oso_term::event::Event::Prompt(oso_term::event::Prompt)
+pub oso_term::event::Event::Title(alloc::string::String)
+impl core::fmt::Debug for oso_term::event::Event
+pub fn oso_term::event::Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_term::event::Progress
+pub oso_term::event::Progress::Error(core::option::Option<u8>)
+pub oso_term::event::Progress::Indeterminate
+pub oso_term::event::Progress::Paused(core::option::Option<u8>)
+pub oso_term::event::Progress::Remove
+pub oso_term::event::Progress::Set(u8)
+impl core::clone::Clone for oso_term::event::Progress
+pub fn oso_term::event::Progress::clone(&self) -> oso_term::event::Progress
+impl core::cmp::Eq for oso_term::event::Progress
+impl core::cmp::PartialEq for oso_term::event::Progress
+pub fn oso_term::event::Progress::eq(&self, &oso_term::event::Progress) -> bool
+impl core::fmt::Debug for oso_term::event::Progress
+pub fn oso_term::event::Progress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::event::Progress
+impl core::marker::StructuralPartialEq for oso_term::event::Progress
+pub enum oso_term::event::Prompt
+pub oso_term::event::Prompt::End
+pub oso_term::event::Prompt::End::exit: core::option::Option<i32>
+pub oso_term::event::Prompt::Input
+pub oso_term::event::Prompt::Output
+pub oso_term::event::Prompt::Output::command: core::option::Option<alloc::string::String>
+pub oso_term::event::Prompt::Start
+impl core::clone::Clone for oso_term::event::Prompt
+pub fn oso_term::event::Prompt::clone(&self) -> oso_term::event::Prompt
+impl core::cmp::Eq for oso_term::event::Prompt
+impl core::cmp::PartialEq for oso_term::event::Prompt
+pub fn oso_term::event::Prompt::eq(&self, &oso_term::event::Prompt) -> bool
+impl core::fmt::Debug for oso_term::event::Prompt
+pub fn oso_term::event::Prompt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_term::event::Prompt
+pub mod oso_term::limits
+pub const oso_term::limits::INPUT_QUEUE_MAX: usize
+pub const oso_term::limits::SCROLLBACK_DEFAULT: usize
+pub const oso_term::limits::SCROLLBACK_MAX: usize
+pub mod oso_term::snapshot
+pub enum oso_term::snapshot::Color
+pub oso_term::snapshot::Color::Default
+pub oso_term::snapshot::Color::Indexed(u8)
+pub oso_term::snapshot::Color::Rgb(oso_term::snapshot::Rgb)
+impl core::clone::Clone for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::clone(&self) -> oso_term::snapshot::Color
+impl core::cmp::Eq for oso_term::snapshot::Color
+impl core::cmp::PartialEq for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::eq(&self, &oso_term::snapshot::Color) -> bool
+impl core::default::Default for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::default() -> oso_term::snapshot::Color
+impl core::fmt::Debug for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Color
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Color
+pub enum oso_term::snapshot::CursorShape
+pub oso_term::snapshot::CursorShape::Bar
+pub oso_term::snapshot::CursorShape::Block
+pub oso_term::snapshot::CursorShape::HollowBlock
+pub oso_term::snapshot::CursorShape::Underline
+impl core::clone::Clone for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::clone(&self) -> oso_term::snapshot::CursorShape
+impl core::cmp::Eq for oso_term::snapshot::CursorShape
+impl core::cmp::PartialEq for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::eq(&self, &oso_term::snapshot::CursorShape) -> bool
+impl core::default::Default for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::default() -> oso_term::snapshot::CursorShape
+impl core::fmt::Debug for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::CursorShape
+impl core::marker::StructuralPartialEq for oso_term::snapshot::CursorShape
+pub enum oso_term::snapshot::Mouse
+pub oso_term::snapshot::Mouse::Click
+pub oso_term::snapshot::Mouse::Drag
+pub oso_term::snapshot::Mouse::Motion
+pub oso_term::snapshot::Mouse::Off
+impl core::clone::Clone for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::clone(&self) -> oso_term::snapshot::Mouse
+impl core::cmp::Eq for oso_term::snapshot::Mouse
+impl core::cmp::PartialEq for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::eq(&self, &oso_term::snapshot::Mouse) -> bool
+impl core::default::Default for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::default() -> oso_term::snapshot::Mouse
+impl core::fmt::Debug for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Mouse
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Mouse
+pub enum oso_term::snapshot::Underline
+pub oso_term::snapshot::Underline::Curly
+pub oso_term::snapshot::Underline::Dashed
+pub oso_term::snapshot::Underline::Dotted
+pub oso_term::snapshot::Underline::Double
+pub oso_term::snapshot::Underline::None
+pub oso_term::snapshot::Underline::Single
+impl core::clone::Clone for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::clone(&self) -> oso_term::snapshot::Underline
+impl core::cmp::Eq for oso_term::snapshot::Underline
+impl core::cmp::PartialEq for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::eq(&self, &oso_term::snapshot::Underline) -> bool
+impl core::default::Default for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::default() -> oso_term::snapshot::Underline
+impl core::fmt::Debug for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Underline
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Underline
+pub struct oso_term::snapshot::Attrs(_)
+impl oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::BLINK: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::BOLD: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::DIM: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::GRAPHEME: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::HIDDEN: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::INVERSE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::ITALIC: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::OVERLINE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::STRIKE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::WIDE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::WIDE_SPACER: oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::contains(self, oso_term::snapshot::Attrs) -> bool
+impl core::clone::Clone for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::clone(&self) -> oso_term::snapshot::Attrs
+impl core::cmp::Eq for oso_term::snapshot::Attrs
+impl core::cmp::PartialEq for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::eq(&self, &oso_term::snapshot::Attrs) -> bool
+impl core::default::Default for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::default() -> oso_term::snapshot::Attrs
+impl core::fmt::Debug for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_term::snapshot::Attrs
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Attrs
+pub struct oso_term::snapshot::Cell
+pub oso_term::snapshot::Cell::attrs: oso_term::snapshot::Attrs
+pub oso_term::snapshot::Cell::bg: oso_term::snapshot::Color
+pub oso_term::snapshot::Cell::ch: char
+pub oso_term::snapshot::Cell::fg: oso_term::snapshot::Color
+pub oso_term::snapshot::Cell::underline: oso_term::snapshot::Underline
+pub oso_term::snapshot::Cell::underline_color: oso_term::snapshot::Color
+impl core::clone::Clone for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::clone(&self) -> oso_term::snapshot::Cell
+impl core::cmp::Eq for oso_term::snapshot::Cell
+impl core::cmp::PartialEq for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::eq(&self, &oso_term::snapshot::Cell) -> bool
+impl core::default::Default for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::default() -> oso_term::snapshot::Cell
+impl core::fmt::Debug for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Cell
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Cell
+pub struct oso_term::snapshot::Cursor
+pub oso_term::snapshot::Cursor::blinking: bool
+pub oso_term::snapshot::Cursor::column: u16
+pub oso_term::snapshot::Cursor::row: u16
+pub oso_term::snapshot::Cursor::shape: oso_term::snapshot::CursorShape
+pub oso_term::snapshot::Cursor::visible: bool
+impl core::clone::Clone for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::clone(&self) -> oso_term::snapshot::Cursor
+impl core::cmp::Eq for oso_term::snapshot::Cursor
+impl core::cmp::PartialEq for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::eq(&self, &oso_term::snapshot::Cursor) -> bool
+impl core::default::Default for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::default() -> oso_term::snapshot::Cursor
+impl core::fmt::Debug for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Cursor
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Cursor
+pub struct oso_term::snapshot::Modes
+pub oso_term::snapshot::Modes::alternate_screen: bool
+pub oso_term::snapshot::Modes::application_cursor: bool
+pub oso_term::snapshot::Modes::bracketed_paste: bool
+pub oso_term::snapshot::Modes::focus_reports: bool
+pub oso_term::snapshot::Modes::kitty_keyboard: u8
+pub oso_term::snapshot::Modes::mouse: oso_term::snapshot::Mouse
+pub oso_term::snapshot::Modes::sgr_mouse: bool
+impl core::clone::Clone for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::clone(&self) -> oso_term::snapshot::Modes
+impl core::cmp::Eq for oso_term::snapshot::Modes
+impl core::cmp::PartialEq for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::eq(&self, &oso_term::snapshot::Modes) -> bool
+impl core::default::Default for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::default() -> oso_term::snapshot::Modes
+impl core::fmt::Debug for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Modes
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Modes
+pub struct oso_term::snapshot::Palette
+pub oso_term::snapshot::Palette::ansi: [oso_term::snapshot::Rgb; 16]
+pub oso_term::snapshot::Palette::background: oso_term::snapshot::Rgb
+pub oso_term::snapshot::Palette::cursor: core::option::Option<oso_term::snapshot::Rgb>
+pub oso_term::snapshot::Palette::foreground: oso_term::snapshot::Rgb
+impl core::clone::Clone for oso_term::snapshot::Palette
+pub fn oso_term::snapshot::Palette::clone(&self) -> oso_term::snapshot::Palette
+impl core::cmp::Eq for oso_term::snapshot::Palette
+impl core::cmp::PartialEq for oso_term::snapshot::Palette
+pub fn oso_term::snapshot::Palette::eq(&self, &oso_term::snapshot::Palette) -> bool
+impl core::fmt::Debug for oso_term::snapshot::Palette
+pub fn oso_term::snapshot::Palette::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Palette
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Palette
+pub struct oso_term::snapshot::Rgb
+pub oso_term::snapshot::Rgb::b: u8
+pub oso_term::snapshot::Rgb::g: u8
+pub oso_term::snapshot::Rgb::r: u8
+impl core::clone::Clone for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::clone(&self) -> oso_term::snapshot::Rgb
+impl core::cmp::Eq for oso_term::snapshot::Rgb
+impl core::cmp::PartialEq for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::eq(&self, &oso_term::snapshot::Rgb) -> bool
+impl core::default::Default for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::default() -> oso_term::snapshot::Rgb
+impl core::fmt::Debug for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Rgb
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Rgb
+pub struct oso_term::snapshot::Row
+pub oso_term::snapshot::Row::cells: alloc::vec::Vec<oso_term::snapshot::Cell>
+pub oso_term::snapshot::Row::graphemes: alloc::vec::Vec<(u16, alloc::string::String)>
+pub oso_term::snapshot::Row::index: u16
+pub oso_term::snapshot::Row::wrapped: bool
+impl core::clone::Clone for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::clone(&self) -> oso_term::snapshot::Row
+impl core::cmp::Eq for oso_term::snapshot::Row
+impl core::cmp::PartialEq for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::eq(&self, &oso_term::snapshot::Row) -> bool
+impl core::default::Default for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::default() -> oso_term::snapshot::Row
+impl core::fmt::Debug for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Row
+pub struct oso_term::snapshot::Snapshot
+pub oso_term::snapshot::Snapshot::cursor: oso_term::snapshot::Cursor
+pub oso_term::snapshot::Snapshot::dropped_events: u32
+pub oso_term::snapshot::Snapshot::echo_off: bool
+pub oso_term::snapshot::Snapshot::events: alloc::vec::Vec<oso_term::event::Event>
+pub oso_term::snapshot::Snapshot::history: usize
+pub oso_term::snapshot::Snapshot::modes: oso_term::snapshot::Modes
+pub oso_term::snapshot::Snapshot::rows: alloc::vec::Vec<oso_term::snapshot::Row>
+pub oso_term::snapshot::Snapshot::size: oso_platform::process::pty::Size
+impl core::fmt::Debug for oso_term::snapshot::Snapshot
+pub fn oso_term::snapshot::Snapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod oso_term::terminal
+pub struct oso_term::terminal::QueueFull
+impl core::clone::Clone for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::clone(&self) -> oso_term::terminal::QueueFull
+impl core::cmp::Eq for oso_term::terminal::QueueFull
+impl core::cmp::PartialEq for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::eq(&self, &oso_term::terminal::QueueFull) -> bool
+impl core::error::Error for oso_term::terminal::QueueFull
+impl core::fmt::Debug for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::terminal::QueueFull
+impl core::marker::StructuralPartialEq for oso_term::terminal::QueueFull
+pub struct oso_term::terminal::Start
+pub oso_term::terminal::Start::args: alloc::vec::Vec<std::ffi::os_str::OsString>
+pub oso_term::terminal::Start::cwd: core::option::Option<std::path::PathBuf>
+pub oso_term::terminal::Start::executable: oso_platform::process::Executable
+pub oso_term::terminal::Start::inherit: alloc::vec::Vec<alloc::string::String>
+pub oso_term::terminal::Start::palette: oso_term::snapshot::Palette
+pub oso_term::terminal::Start::project: core::option::Option<std::path::PathBuf>
+pub oso_term::terminal::Start::scrollback: usize
+pub oso_term::terminal::Start::set: alloc::vec::Vec<(alloc::string::String, std::ffi::os_str::OsString)>
+pub oso_term::terminal::Start::size: oso_platform::process::pty::Size
+impl core::clone::Clone for oso_term::terminal::Start
+pub fn oso_term::terminal::Start::clone(&self) -> oso_term::terminal::Start
+impl core::fmt::Debug for oso_term::terminal::Start
+pub fn oso_term::terminal::Start::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_term::terminal::Terminal
+impl oso_term::terminal::Terminal
+pub fn oso_term::terminal::Terminal::hang_up(&self)
+pub fn oso_term::terminal::Terminal::recycle(&self, oso_term::snapshot::Snapshot)
+pub fn oso_term::terminal::Terminal::resize(&self, oso_platform::process::pty::Size)
+pub fn oso_term::terminal::Terminal::send(&self, alloc::vec::Vec<u8>) -> core::result::Result<(), oso_term::terminal::QueueFull>
+pub fn oso_term::terminal::Terminal::set_palette(&self, oso_term::snapshot::Palette)
+pub fn oso_term::terminal::Terminal::start(oso_term::terminal::Start, alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>) -> std::io::error::Result<oso_term::terminal::Terminal>
+pub fn oso_term::terminal::Terminal::take_snapshot(&self) -> core::option::Option<oso_term::snapshot::Snapshot>
+impl core::fmt::Debug for oso_term::terminal::Terminal
+pub fn oso_term::terminal::Terminal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for oso_term::terminal::Terminal
+pub fn oso_term::terminal::Terminal::drop(&mut self)
+pub enum oso_term::Color
+pub oso_term::Color::Default
+pub oso_term::Color::Indexed(u8)
+pub oso_term::Color::Rgb(oso_term::snapshot::Rgb)
+impl core::clone::Clone for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::clone(&self) -> oso_term::snapshot::Color
+impl core::cmp::Eq for oso_term::snapshot::Color
+impl core::cmp::PartialEq for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::eq(&self, &oso_term::snapshot::Color) -> bool
+impl core::default::Default for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::default() -> oso_term::snapshot::Color
+impl core::fmt::Debug for oso_term::snapshot::Color
+pub fn oso_term::snapshot::Color::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Color
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Color
+pub enum oso_term::CursorShape
+pub oso_term::CursorShape::Bar
+pub oso_term::CursorShape::Block
+pub oso_term::CursorShape::HollowBlock
+pub oso_term::CursorShape::Underline
+impl core::clone::Clone for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::clone(&self) -> oso_term::snapshot::CursorShape
+impl core::cmp::Eq for oso_term::snapshot::CursorShape
+impl core::cmp::PartialEq for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::eq(&self, &oso_term::snapshot::CursorShape) -> bool
+impl core::default::Default for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::default() -> oso_term::snapshot::CursorShape
+impl core::fmt::Debug for oso_term::snapshot::CursorShape
+pub fn oso_term::snapshot::CursorShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::CursorShape
+impl core::marker::StructuralPartialEq for oso_term::snapshot::CursorShape
+pub enum oso_term::End
+pub oso_term::End::Closed
+pub oso_term::End::Exited(std::process::ExitStatus)
+pub oso_term::End::Failed(std::io::error::Error)
+impl core::fmt::Debug for oso_term::event::End
+pub fn oso_term::event::End::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_term::Event
+pub oso_term::Event::Bell
+pub oso_term::Event::ClipboardWrite(alloc::string::String)
+pub oso_term::Event::Directory(alloc::string::String)
+pub oso_term::Event::Ended(oso_term::event::End)
+pub oso_term::Event::Notification
+pub oso_term::Event::Notification::body: alloc::string::String
+pub oso_term::Event::Notification::title: alloc::string::String
+pub oso_term::Event::Progress(oso_term::event::Progress)
+pub oso_term::Event::Prompt(oso_term::event::Prompt)
+pub oso_term::Event::Title(alloc::string::String)
+impl core::fmt::Debug for oso_term::event::Event
+pub fn oso_term::event::Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_term::Mouse
+pub oso_term::Mouse::Click
+pub oso_term::Mouse::Drag
+pub oso_term::Mouse::Motion
+pub oso_term::Mouse::Off
+impl core::clone::Clone for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::clone(&self) -> oso_term::snapshot::Mouse
+impl core::cmp::Eq for oso_term::snapshot::Mouse
+impl core::cmp::PartialEq for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::eq(&self, &oso_term::snapshot::Mouse) -> bool
+impl core::default::Default for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::default() -> oso_term::snapshot::Mouse
+impl core::fmt::Debug for oso_term::snapshot::Mouse
+pub fn oso_term::snapshot::Mouse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Mouse
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Mouse
+pub enum oso_term::Progress
+pub oso_term::Progress::Error(core::option::Option<u8>)
+pub oso_term::Progress::Indeterminate
+pub oso_term::Progress::Paused(core::option::Option<u8>)
+pub oso_term::Progress::Remove
+pub oso_term::Progress::Set(u8)
+impl core::clone::Clone for oso_term::event::Progress
+pub fn oso_term::event::Progress::clone(&self) -> oso_term::event::Progress
+impl core::cmp::Eq for oso_term::event::Progress
+impl core::cmp::PartialEq for oso_term::event::Progress
+pub fn oso_term::event::Progress::eq(&self, &oso_term::event::Progress) -> bool
+impl core::fmt::Debug for oso_term::event::Progress
+pub fn oso_term::event::Progress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::event::Progress
+impl core::marker::StructuralPartialEq for oso_term::event::Progress
+pub enum oso_term::Prompt
+pub oso_term::Prompt::End
+pub oso_term::Prompt::End::exit: core::option::Option<i32>
+pub oso_term::Prompt::Input
+pub oso_term::Prompt::Output
+pub oso_term::Prompt::Output::command: core::option::Option<alloc::string::String>
+pub oso_term::Prompt::Start
+impl core::clone::Clone for oso_term::event::Prompt
+pub fn oso_term::event::Prompt::clone(&self) -> oso_term::event::Prompt
+impl core::cmp::Eq for oso_term::event::Prompt
+impl core::cmp::PartialEq for oso_term::event::Prompt
+pub fn oso_term::event::Prompt::eq(&self, &oso_term::event::Prompt) -> bool
+impl core::fmt::Debug for oso_term::event::Prompt
+pub fn oso_term::event::Prompt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_term::event::Prompt
+pub enum oso_term::Underline
+pub oso_term::Underline::Curly
+pub oso_term::Underline::Dashed
+pub oso_term::Underline::Dotted
+pub oso_term::Underline::Double
+pub oso_term::Underline::None
+pub oso_term::Underline::Single
+impl core::clone::Clone for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::clone(&self) -> oso_term::snapshot::Underline
+impl core::cmp::Eq for oso_term::snapshot::Underline
+impl core::cmp::PartialEq for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::eq(&self, &oso_term::snapshot::Underline) -> bool
+impl core::default::Default for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::default() -> oso_term::snapshot::Underline
+impl core::fmt::Debug for oso_term::snapshot::Underline
+pub fn oso_term::snapshot::Underline::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Underline
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Underline
+pub struct oso_term::Attrs(_)
+impl oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::BLINK: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::BOLD: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::DIM: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::GRAPHEME: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::HIDDEN: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::INVERSE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::ITALIC: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::OVERLINE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::STRIKE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::WIDE: oso_term::snapshot::Attrs
+pub const oso_term::snapshot::Attrs::WIDE_SPACER: oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::contains(self, oso_term::snapshot::Attrs) -> bool
+impl core::clone::Clone for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::clone(&self) -> oso_term::snapshot::Attrs
+impl core::cmp::Eq for oso_term::snapshot::Attrs
+impl core::cmp::PartialEq for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::eq(&self, &oso_term::snapshot::Attrs) -> bool
+impl core::default::Default for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::default() -> oso_term::snapshot::Attrs
+impl core::fmt::Debug for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_term::snapshot::Attrs
+pub fn oso_term::snapshot::Attrs::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_term::snapshot::Attrs
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Attrs
+pub struct oso_term::Cell
+pub oso_term::Cell::attrs: oso_term::snapshot::Attrs
+pub oso_term::Cell::bg: oso_term::snapshot::Color
+pub oso_term::Cell::ch: char
+pub oso_term::Cell::fg: oso_term::snapshot::Color
+pub oso_term::Cell::underline: oso_term::snapshot::Underline
+pub oso_term::Cell::underline_color: oso_term::snapshot::Color
+impl core::clone::Clone for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::clone(&self) -> oso_term::snapshot::Cell
+impl core::cmp::Eq for oso_term::snapshot::Cell
+impl core::cmp::PartialEq for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::eq(&self, &oso_term::snapshot::Cell) -> bool
+impl core::default::Default for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::default() -> oso_term::snapshot::Cell
+impl core::fmt::Debug for oso_term::snapshot::Cell
+pub fn oso_term::snapshot::Cell::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Cell
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Cell
+pub struct oso_term::Cursor
+pub oso_term::Cursor::blinking: bool
+pub oso_term::Cursor::column: u16
+pub oso_term::Cursor::row: u16
+pub oso_term::Cursor::shape: oso_term::snapshot::CursorShape
+pub oso_term::Cursor::visible: bool
+impl core::clone::Clone for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::clone(&self) -> oso_term::snapshot::Cursor
+impl core::cmp::Eq for oso_term::snapshot::Cursor
+impl core::cmp::PartialEq for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::eq(&self, &oso_term::snapshot::Cursor) -> bool
+impl core::default::Default for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::default() -> oso_term::snapshot::Cursor
+impl core::fmt::Debug for oso_term::snapshot::Cursor
+pub fn oso_term::snapshot::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Cursor
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Cursor
+pub struct oso_term::Modes
+pub oso_term::Modes::alternate_screen: bool
+pub oso_term::Modes::application_cursor: bool
+pub oso_term::Modes::bracketed_paste: bool
+pub oso_term::Modes::focus_reports: bool
+pub oso_term::Modes::kitty_keyboard: u8
+pub oso_term::Modes::mouse: oso_term::snapshot::Mouse
+pub oso_term::Modes::sgr_mouse: bool
+impl core::clone::Clone for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::clone(&self) -> oso_term::snapshot::Modes
+impl core::cmp::Eq for oso_term::snapshot::Modes
+impl core::cmp::PartialEq for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::eq(&self, &oso_term::snapshot::Modes) -> bool
+impl core::default::Default for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::default() -> oso_term::snapshot::Modes
+impl core::fmt::Debug for oso_term::snapshot::Modes
+pub fn oso_term::snapshot::Modes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Modes
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Modes
+pub struct oso_term::Palette
+pub oso_term::Palette::ansi: [oso_term::snapshot::Rgb; 16]
+pub oso_term::Palette::background: oso_term::snapshot::Rgb
+pub oso_term::Palette::cursor: core::option::Option<oso_term::snapshot::Rgb>
+pub oso_term::Palette::foreground: oso_term::snapshot::Rgb
+impl core::clone::Clone for oso_term::snapshot::Palette
+pub fn oso_term::snapshot::Palette::clone(&self) -> oso_term::snapshot::Palette
+impl core::cmp::Eq for oso_term::snapshot::Palette
+impl core::cmp::PartialEq for oso_term::snapshot::Palette
+pub fn oso_term::snapshot::Palette::eq(&self, &oso_term::snapshot::Palette) -> bool
+impl core::fmt::Debug for oso_term::snapshot::Palette
+pub fn oso_term::snapshot::Palette::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Palette
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Palette
+pub struct oso_term::QueueFull
+impl core::clone::Clone for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::clone(&self) -> oso_term::terminal::QueueFull
+impl core::cmp::Eq for oso_term::terminal::QueueFull
+impl core::cmp::PartialEq for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::eq(&self, &oso_term::terminal::QueueFull) -> bool
+impl core::error::Error for oso_term::terminal::QueueFull
+impl core::fmt::Debug for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_term::terminal::QueueFull
+pub fn oso_term::terminal::QueueFull::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::terminal::QueueFull
+impl core::marker::StructuralPartialEq for oso_term::terminal::QueueFull
+pub struct oso_term::Rgb
+pub oso_term::Rgb::b: u8
+pub oso_term::Rgb::g: u8
+pub oso_term::Rgb::r: u8
+impl core::clone::Clone for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::clone(&self) -> oso_term::snapshot::Rgb
+impl core::cmp::Eq for oso_term::snapshot::Rgb
+impl core::cmp::PartialEq for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::eq(&self, &oso_term::snapshot::Rgb) -> bool
+impl core::default::Default for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::default() -> oso_term::snapshot::Rgb
+impl core::fmt::Debug for oso_term::snapshot::Rgb
+pub fn oso_term::snapshot::Rgb::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::snapshot::Rgb
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Rgb
+pub struct oso_term::Row
+pub oso_term::Row::cells: alloc::vec::Vec<oso_term::snapshot::Cell>
+pub oso_term::Row::graphemes: alloc::vec::Vec<(u16, alloc::string::String)>
+pub oso_term::Row::index: u16
+pub oso_term::Row::wrapped: bool
+impl core::clone::Clone for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::clone(&self) -> oso_term::snapshot::Row
+impl core::cmp::Eq for oso_term::snapshot::Row
+impl core::cmp::PartialEq for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::eq(&self, &oso_term::snapshot::Row) -> bool
+impl core::default::Default for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::default() -> oso_term::snapshot::Row
+impl core::fmt::Debug for oso_term::snapshot::Row
+pub fn oso_term::snapshot::Row::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_term::snapshot::Row
+pub struct oso_term::Snapshot
+pub oso_term::Snapshot::cursor: oso_term::snapshot::Cursor
+pub oso_term::Snapshot::dropped_events: u32
+pub oso_term::Snapshot::echo_off: bool
+pub oso_term::Snapshot::events: alloc::vec::Vec<oso_term::event::Event>
+pub oso_term::Snapshot::history: usize
+pub oso_term::Snapshot::modes: oso_term::snapshot::Modes
+pub oso_term::Snapshot::rows: alloc::vec::Vec<oso_term::snapshot::Row>
+pub oso_term::Snapshot::size: oso_platform::process::pty::Size
+impl core::fmt::Debug for oso_term::snapshot::Snapshot
+pub fn oso_term::snapshot::Snapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_term::Start
+pub oso_term::Start::args: alloc::vec::Vec<std::ffi::os_str::OsString>
+pub oso_term::Start::cwd: core::option::Option<std::path::PathBuf>
+pub oso_term::Start::executable: oso_platform::process::Executable
+pub oso_term::Start::inherit: alloc::vec::Vec<alloc::string::String>
+pub oso_term::Start::palette: oso_term::snapshot::Palette
+pub oso_term::Start::project: core::option::Option<std::path::PathBuf>
+pub oso_term::Start::scrollback: usize
+pub oso_term::Start::set: alloc::vec::Vec<(alloc::string::String, std::ffi::os_str::OsString)>
+pub oso_term::Start::size: oso_platform::process::pty::Size
+impl core::clone::Clone for oso_term::terminal::Start
+pub fn oso_term::terminal::Start::clone(&self) -> oso_term::terminal::Start
+impl core::fmt::Debug for oso_term::terminal::Start
+pub fn oso_term::terminal::Start::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_term::Terminal
+impl oso_term::terminal::Terminal
+pub fn oso_term::terminal::Terminal::hang_up(&self)
+pub fn oso_term::terminal::Terminal::recycle(&self, oso_term::snapshot::Snapshot)
+pub fn oso_term::terminal::Terminal::resize(&self, oso_platform::process::pty::Size)
+pub fn oso_term::terminal::Terminal::send(&self, alloc::vec::Vec<u8>) -> core::result::Result<(), oso_term::terminal::QueueFull>
+pub fn oso_term::terminal::Terminal::set_palette(&self, oso_term::snapshot::Palette)
+pub fn oso_term::terminal::Terminal::start(oso_term::terminal::Start, alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>) -> std::io::error::Result<oso_term::terminal::Terminal>
+pub fn oso_term::terminal::Terminal::take_snapshot(&self) -> core::option::Option<oso_term::snapshot::Snapshot>
+impl core::fmt::Debug for oso_term::terminal::Terminal
+pub fn oso_term::terminal::Terminal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for oso_term::terminal::Terminal
+pub fn oso_term::terminal::Terminal::drop(&mut self)

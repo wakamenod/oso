@@ -1,10 +1,12 @@
-//! A terminal's thread (ADR 0120, Q4): it opens the PTY, starts the child in it, and then
-//! reads at most 64 KiB at a time, parses at most 1 MiB before it looks at the UI's requests
-//! again, writes what is queued, judges each effect, and sends a snapshot when the last one
-//! was taken. When the PTY ends it reaps the child and sends the end.
+//! A terminal's thread (ADR 0120, Q4): it makes the engine, opens the PTY and starts the child
+//! in it, and then reads at most 64 KiB at a time, parses for at most 4 ms (and at most 1 MiB)
+//! before it looks at the UI's requests again, writes what is queued, judges each effect, and
+//! sends a snapshot when the last one was taken. When the PTY ends it reaps the child and sends
+//! the end.
 //!
 //! Must not depend on: the UI thread's state; it shares only the channels and `Shared`.
 
+use std::collections::VecDeque;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::{Child, ExitStatus};
@@ -39,11 +41,24 @@ pub(super) fn run(
     let size = limits::clamp(start.size);
     let mut last = Snapshot::new(size);
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        let mut session = Session::open(start, size, wakeup, requests, snapshots, shared, wake)?;
-        let end = session.run();
-        last = session.finish();
+        let channels = Channels {
+            wakeup,
+            requests,
+            snapshots,
+            shared,
+            wake,
+        };
+        let mut running = Running::open(start, size, channels)?;
+        let end = running.run();
+        last = running.finish();
+        if running.detached {
+            // No one waits for the end: the child is left to a reaper at once.
+            if let Some(child) = running.child.take() {
+                reap_later(child);
+            }
+        }
         Ok(match end {
-            End::Closed => session.reap().map_or(End::Closed, End::Exited),
+            End::Closed => running.reap().map_or(End::Closed, End::Exited),
             other => other,
         })
     }));
@@ -60,26 +75,97 @@ pub(super) fn run(
     }
 }
 
-/// A running terminal, on its thread.
-struct Session<'a> {
-    master: Master,
-    child: Option<Child>,
-    engine: Ghostty,
+/// Judges the effects the output raised: replies queue, while 64 KiB wait at most; events go
+/// into `next`. A title, a directory, a progress or a clipboard write replaces the one of its
+/// kind already there, and is never dropped, so a snapshot holds the latest of each; the rest,
+/// at most 256, are counted past that, a bell right after a bell joined to it. Returns whether
+/// an event came. The terminal's thread and the fuzz target both judge through this.
+pub(super) fn judge(effects: &mut Vec<Effect>, replies: &mut Vec<u8>, next: &mut Snapshot) -> bool {
+    let mut evented = false;
+    for effect in effects.drain(..) {
+        match policy::judge(effect) {
+            Verdict::Reply(bytes) => {
+                if replies.len() + bytes.len() <= limits::REPLIES_PENDING_MAX {
+                    replies.extend_from_slice(&bytes);
+                }
+            }
+            Verdict::Event(event) => {
+                evented = true;
+                keep(event, next);
+            }
+            Verdict::Drop => {}
+        }
+    }
+    evented
+}
+
+fn keep(event: Event, next: &mut Snapshot) {
+    let kind = std::mem::discriminant(&event);
+    let latest = matches!(
+        event,
+        Event::Title(_) | Event::Directory(_) | Event::Progress(_) | Event::ClipboardWrite(_)
+    );
+    if latest {
+        if let Some(at) = next
+            .events
+            .iter_mut()
+            .find(|e| std::mem::discriminant(*e) == kind)
+        {
+            *at = event;
+        } else {
+            next.events.push(event);
+        }
+        return;
+    }
+    if matches!(event, Event::Bell) && matches!(next.events.last(), Some(Event::Bell)) {
+        return;
+    }
+    if next.events.len() < limits::EVENTS_MAX {
+        next.events.push(event);
+    } else {
+        next.dropped_events = next.dropped_events.saturating_add(1);
+    }
+}
+
+/// What the thread shares with the handle.
+struct Channels<'a> {
     wakeup: &'a Wakeup,
     requests: &'a mpsc::Receiver<Request>,
     snapshots: &'a mpsc::Sender<Snapshot>,
     shared: &'a Shared,
     wake: &'a dyn Fn(),
+}
+
+/// How a read slice ended.
+enum Slice {
+    /// The PTY would block: nothing more to read now.
+    Drained,
+    /// The slice's time or bytes ran out, or the UI wants something: more may wait.
+    Cut,
+    /// The PTY ended.
+    Ended,
+}
+
+/// A running terminal, on its thread.
+struct Running<'a> {
+    master: Master,
+    child: Option<Child>,
+    engine: Ghostty,
+    channels: Channels<'a>,
     /// Replies to the program, written before its input.
     replies: Vec<u8>,
-    input: Vec<u8>,
-    /// Bytes of `input` already written.
+    /// The input queued, in the chunks it came in, and what of the first is written.
+    input: VecDeque<Vec<u8>>,
     written: usize,
+    /// A resize waiting to be applied, the last of those asked.
+    resize: Option<Size>,
     read: Vec<u8>,
     effects: Vec<Effect>,
     /// The snapshot being filled until the UI took the last one.
     next: Snapshot,
     spare: Vec<Row>,
+    /// A snapshot the UI gave back, reused as the next `next`.
+    recycled: Option<Snapshot>,
     /// Whether `next` holds anything worth sending.
     changed: bool,
     echo_off: bool,
@@ -87,16 +173,13 @@ struct Session<'a> {
     detached: bool,
 }
 
-impl<'a> Session<'a> {
-    fn open(
-        start: Start,
-        size: Size,
-        wakeup: &'a Wakeup,
-        requests: &'a mpsc::Receiver<Request>,
-        snapshots: &'a mpsc::Sender<Snapshot>,
-        shared: &'a Shared,
-        wake: &'a dyn Fn(),
-    ) -> io::Result<Session<'a>> {
+impl<'a> Running<'a> {
+    fn open(start: Start, size: Size, channels: Channels<'a>) -> io::Result<Running<'a>> {
+        // The engine first: once a child runs, an error must not leave it unreaped.
+        let scrollback = start.scrollback.min(limits::SCROLLBACK_MAX);
+        let mut engine = Ghostty::new(size, scrollback, policy::XTVERSION)
+            .ok_or_else(|| io::Error::other("the terminal engine could not start"))?;
+        engine.set_palette(&start.palette);
         let (master, slave) = pty::open(size)?;
         let inherit: Vec<&str> = start.inherit.iter().map(String::as_str).collect();
         let set: Vec<(&str, &std::ffi::OsStr)> = start
@@ -119,26 +202,20 @@ impl<'a> Session<'a> {
         })?;
         // The master sees the terminal's end only once no slave is open here.
         drop(slave);
-        let scrollback = start.scrollback.min(limits::SCROLLBACK_MAX);
-        let mut engine = Ghostty::new(size, scrollback)
-            .ok_or_else(|| io::Error::other("the terminal engine could not start"))?;
-        engine.set_palette(&start.palette);
-        Ok(Session {
+        Ok(Running {
             master,
             child: Some(child),
             engine,
-            wakeup,
-            requests,
-            snapshots,
-            shared,
-            wake,
+            channels,
             replies: Vec::new(),
-            input: Vec::new(),
+            input: VecDeque::new(),
             written: 0,
+            resize: None,
             read: vec![0; limits::READ_CHUNK],
             effects: Vec::new(),
             next: Snapshot::new(size),
             spare: Vec::new(),
+            recycled: None,
             changed: true,
             echo_off: false,
             detached: false,
@@ -156,156 +233,144 @@ impl<'a> Session<'a> {
             if let Err(error) = self.write() {
                 return End::Failed(error);
             }
-            let (ended, more) = match self.read() {
-                Ok(read) => read,
+            let slice = match self.read() {
+                Ok(slice) => slice,
                 Err(error) => return End::Failed(error),
             };
-            self.judge();
+            self.engine.take_effects(&mut self.effects);
+            self.changed |= judge(&mut self.effects, &mut self.replies, &mut self.next);
             self.publish();
-            if ended {
-                return End::Closed;
-            }
-            let timeout = more.then_some(Duration::ZERO);
-            let writable = !self.replies.is_empty() || self.written < self.input.len();
-            if let Err(error) = self.master.wait(self.wakeup, writable, timeout) {
+            let timeout = match slice {
+                Slice::Ended => return End::Closed,
+                Slice::Cut => Some(Duration::ZERO),
+                Slice::Drained => None,
+            };
+            let writable = !self.replies.is_empty() || !self.input.is_empty();
+            let channels = &self.channels;
+            if let Err(error) = self.master.wait(channels.wakeup, writable, timeout) {
                 return End::Failed(error);
             }
         }
     }
 
     fn serve_requests(&mut self) {
+        self.channels
+            .shared
+            .requested
+            .store(false, Ordering::Release);
         loop {
-            match self.requests.try_recv() {
-                Ok(Request::Input(bytes)) => self.input.extend_from_slice(&bytes),
-                Ok(Request::Resize(size)) => {
-                    let size = limits::clamp(size);
-                    let _ = self.master.resize(size);
-                    self.engine.resize(size);
-                    self.changed = true;
-                }
+            match self.channels.requests.try_recv() {
+                Ok(Request::Input(bytes)) => self.input.push_back(bytes),
+                Ok(Request::Resize(size)) => self.resize = Some(limits::clamp(size)),
                 Ok(Request::Palette(palette)) => {
                     self.engine.set_palette(&palette);
                     self.changed = true;
                 }
                 Ok(Request::Recycle(mut snapshot)) => {
                     snapshot.clear(&mut self.spare);
-                    for row in &mut self.spare {
-                        row.cells.clear();
-                        row.graphemes.clear();
-                    }
+                    self.recycled = Some(snapshot);
                 }
                 Ok(Request::HangUp) => {
                     let _ = self.master.hang_up();
                 }
-                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     self.detached = true;
-                    return;
+                    break;
                 }
             }
         }
+        // Resizes coalesce: a drag asks many, and each makes the program redraw.
+        if let Some(size) = self.resize.take()
+            && size != self.next.size
+        {
+            let _ = self.master.resize(size);
+            self.engine.resize(size);
+            self.next.size = size;
+            self.changed = true;
+        }
     }
 
-    /// Writes replies, then input, until the PTY would block.
+    /// Writes until the PTY would block. Replies go between input chunks, whole, never inside
+    /// one: a reply inside a paste would split its bracket and let its lines run.
     fn write(&mut self) -> io::Result<()> {
-        while !self.replies.is_empty() {
-            match self.master.write(&self.replies) {
-                Ok(n) => drop(self.replies.drain(..n)),
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(e),
+        loop {
+            if self.written == 0 && !self.replies.is_empty() {
+                let Some(n) = written(self.master.write(&self.replies))? else {
+                    return Ok(());
+                };
+                drop(self.replies.drain(..n));
+                continue;
+            }
+            let Some(chunk) = self.input.front() else {
+                return Ok(());
+            };
+            let Some(n) = written(self.master.write(&chunk[self.written..]))? else {
+                return Ok(());
+            };
+            self.written += n;
+            self.channels.shared.queued.fetch_sub(n, Ordering::AcqRel);
+            if self.written == chunk.len() {
+                self.input.pop_front();
+                self.written = 0;
             }
         }
-        while self.written < self.input.len() {
-            match self.master.write(&self.input[self.written..]) {
-                Ok(n) => {
-                    self.written += n;
-                    self.shared.queued.fetch_sub(n, Ordering::AcqRel);
-                }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(e),
-            }
-        }
-        if self.written == self.input.len() {
-            self.input.clear();
-            self.written = 0;
-        }
-        Ok(())
     }
 
-    /// Reads and parses until the PTY would block, it ended, or a slice is parsed. Returns
-    /// whether it ended, and whether more may wait.
-    fn read(&mut self) -> io::Result<(bool, bool)> {
+    /// Reads and parses until the PTY would block or ends, the slice's time or bytes run out,
+    /// or the UI asked for something or took the last snapshot.
+    fn read(&mut self) -> io::Result<Slice> {
+        let started = Instant::now();
         let mut parsed = 0;
-        while parsed < limits::PARSE_SLICE {
+        loop {
             match self.master.read(&mut self.read) {
-                Ok(0) => return Ok((true, false)),
+                Ok(0) => return Ok(Slice::Ended),
                 Ok(n) => {
                     self.engine.feed(&self.read[..n]);
                     parsed += n;
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok((false, false)),
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Slice::Drained),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
             }
-        }
-        Ok((false, true))
-    }
-
-    /// Judges the effects the output raised: replies queue, events wait for the snapshot.
-    fn judge(&mut self) {
-        self.engine.take_effects(&mut self.effects);
-        for effect in self.effects.drain(..) {
-            match policy::judge(effect) {
-                Verdict::Reply(bytes) => {
-                    if self.replies.len() + bytes.len() <= limits::REPLIES_PENDING_MAX {
-                        self.replies.extend_from_slice(&bytes);
-                    }
-                }
-                Verdict::Event(event) => {
-                    self.changed = true;
-                    let bell_again = matches!(event, Event::Bell)
-                        && matches!(self.next.events.last(), Some(Event::Bell));
-                    if bell_again {
-                        continue;
-                    }
-                    if self.next.events.len() < limits::EVENTS_MAX {
-                        self.next.events.push(event);
-                    } else {
-                        self.next.dropped_events = self.next.dropped_events.saturating_add(1);
-                    }
-                }
-                Verdict::Drop => {}
+            let shared = self.channels.shared;
+            let wanted = shared.requested.load(Ordering::Acquire)
+                || !shared.in_flight.load(Ordering::Acquire);
+            if wanted || parsed >= limits::PARSE_SLICE || started.elapsed() >= limits::PARSE_TIME {
+                return Ok(Slice::Cut);
             }
         }
     }
 
     /// Sends a snapshot if the UI took the last one and something changed since.
     fn publish(&mut self) {
+        let shared = self.channels.shared;
+        if shared.in_flight.load(Ordering::Acquire) {
+            return;
+        }
         // A failed check reads as echo off, as on systems with no echo flag.
         let echo_off = !self.master.echoes().unwrap_or(false);
         self.changed |= echo_off != self.echo_off;
         self.echo_off = echo_off;
-        if self.shared.in_flight.load(Ordering::Acquire) {
-            return;
-        }
         self.changed |= self.engine.snapshot(&mut self.next, &mut self.spare);
         if !std::mem::take(&mut self.changed) {
             return;
         }
         self.next.echo_off = echo_off;
         let size = self.next.size;
-        let snapshot = std::mem::replace(&mut self.next, Snapshot::new(size));
-        self.shared.in_flight.store(true, Ordering::Release);
-        if self.snapshots.send(snapshot).is_ok() {
-            (self.wake)();
+        let fresh = self.recycled.take().unwrap_or_else(|| Snapshot::new(size));
+        let snapshot = std::mem::replace(&mut self.next, fresh);
+        self.next.size = size;
+        shared.in_flight.store(true, Ordering::Release);
+        if self.channels.snapshots.send(snapshot).is_ok() {
+            (self.channels.wake)();
         }
     }
 
     /// The last snapshot: what the output did before it ended.
     fn finish(&mut self) -> Snapshot {
-        self.judge();
+        self.engine.take_effects(&mut self.effects);
+        judge(&mut self.effects, &mut self.replies, &mut self.next);
         self.engine.snapshot(&mut self.next, &mut self.spare);
         self.next.echo_off = self.echo_off;
         let size = self.next.size;
@@ -329,9 +394,20 @@ impl<'a> Session<'a> {
     }
 }
 
-impl Drop for Session<'_> {
+impl Drop for Running<'_> {
     fn drop(&mut self) {
         let _ = self.reap();
+    }
+}
+
+/// How many bytes a write took: `None` when the PTY would block, or took none.
+fn written(result: io::Result<usize>) -> io::Result<Option<usize>> {
+    match result {
+        Ok(0) => Ok(None),
+        Ok(n) => Ok(Some(n)),
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::Interrupted => Ok(Some(0)),
+        Err(e) => Err(e),
     }
 }
 

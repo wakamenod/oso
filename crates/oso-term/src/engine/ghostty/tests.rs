@@ -9,6 +9,9 @@ use super::Ghostty;
 use crate::engine::Engine;
 use crate::snapshot::{Attrs, Color, CursorShape, Mouse, Palette, Rgb, Row, Snapshot, Underline};
 
+/// What `XTVERSION` answers in these tests; the policy's is the thread's.
+pub(crate) const XTVERSION: &str = "oso test";
+
 pub(crate) fn size(columns: u16, rows: u16) -> Size {
     Size {
         columns,
@@ -41,7 +44,7 @@ pub(crate) fn palette() -> Palette {
 }
 
 pub(crate) fn engine(columns: u16, rows: u16) -> Ghostty {
-    let mut engine = Ghostty::new(size(columns, rows), 1000).expect("an engine");
+    let mut engine = Ghostty::new(size(columns, rows), 1000, XTVERSION).expect("an engine");
     engine.set_palette(&palette());
     engine
 }
@@ -154,13 +157,13 @@ fn a_resize_sends_every_row_at_the_new_size() {
 
 #[test]
 fn scrollback_keeps_the_lines_asked_for_and_not_a_small_default() {
-    let mut e = Ghostty::new(size(80, 24), 10_000).expect("an engine");
+    let mut e = Ghostty::new(size(80, 24), 10_000, XTVERSION).expect("an engine");
     for i in 0..5000 {
         e.feed(format!("line {i}\r\n").as_bytes());
     }
     let (s, _) = snapshot(&mut e);
     assert!(s.history >= 4900, "history {}", s.history);
-    let mut small = Ghostty::new(size(80, 24), 100).expect("an engine");
+    let mut small = Ghostty::new(size(80, 24), 100, XTVERSION).expect("an engine");
     for i in 0..5000 {
         small.feed(format!("line {i}\r\n").as_bytes());
     }
@@ -199,4 +202,88 @@ fn spare_rows_are_reused() {
     e.snapshot(&mut out, &mut spare);
     assert_eq!(out.rows.len(), 3);
     assert!(spare.is_empty());
+}
+
+/// The snapshot and parse budgets of ADR 0120's Cost table, measured on this machine:
+/// `cargo test --release -p oso-term --lib measure -- --ignored --nocapture`. Each case fills a
+/// 300 × 100 screen, makes every row dirty, and times a full snapshot (p50 and p99 of 200).
+#[test]
+#[ignore = "a measurement, not a check"]
+fn measure() {
+    use std::io::Write;
+    use std::time::Instant;
+    type Line = Box<dyn Fn(usize) -> String>;
+    let screens: [(&str, Line); 4] = [
+        ("plain", Box::new(|i| format!("{:0>300}", i))),
+        (
+            "sgr per cell",
+            Box::new(|i| {
+                (0..300)
+                    .map(|c| format!("\x1b[38;5;{}m{}", (c + i) % 256, 'x'))
+                    .collect()
+            }),
+        ),
+        (
+            "a b a b styles",
+            Box::new(|_| {
+                (0..300)
+                    .map(|c| if c % 2 == 0 { "\x1b[31mx" } else { "\x1b[32my" })
+                    .collect()
+            }),
+        ),
+        ("graphemes", Box::new(|_| "e\u{301}".repeat(300))),
+    ];
+    let mut err = std::io::stderr();
+    for (name, line) in &screens {
+        let mut e = Ghostty::new(size(300, 100), 1000, XTVERSION).expect("an engine");
+        let mut times = Vec::new();
+        let mut out = Snapshot::new(size(1, 1));
+        let mut spare = Vec::new();
+        for round in 0..200 {
+            let mut screen = String::from("\x1b[H");
+            for row in 0..100 {
+                screen.push_str(&line(row + round));
+                screen.push_str("\x1b[0m\r\n");
+            }
+            e.feed(screen.trim_end().as_bytes());
+            e.resize(size(300, 100));
+            let started = Instant::now();
+            e.snapshot(&mut out, &mut spare);
+            times.push(started.elapsed());
+            out.clear(&mut spare);
+        }
+        times.sort();
+        let _ = writeln!(
+            err,
+            "snapshot 300x100 {name}: p50 {:?} p99 {:?}",
+            times[100], times[198]
+        );
+    }
+    let plain: Vec<u8> = (0..1_000_000)
+        .flat_map(|i: u32| format!("line {i} of plain text output here\r\n").into_bytes())
+        .collect();
+    let sgr: Vec<u8> = (0..400_000)
+        .flat_map(|i: u32| {
+            format!(
+                "\x1b[1;3{}mab\x1b[0mcd \x1b[38;2;1;2;{}mef\x1b[0m\r\n",
+                i % 8,
+                i % 256
+            )
+            .into_bytes()
+        })
+        .collect();
+    for (name, bytes) in [("plain", plain), ("sgr-heavy", sgr)] {
+        let mut e = Ghostty::new(size(200, 50), 10_000, XTVERSION).expect("an engine");
+        let started = Instant::now();
+        for chunk in bytes.chunks(64 << 10) {
+            e.feed(chunk);
+        }
+        let took = started.elapsed();
+        let mb = bytes.len() as f64 / 1e6;
+        let _ = writeln!(
+            err,
+            "parse {name}: {:.0} MB/s ({mb:.0} MB in {took:?})",
+            mb / took.as_secs_f64()
+        );
+    }
 }

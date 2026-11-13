@@ -26,8 +26,10 @@ use std::time::{Duration, Instant};
 
 use oso_platform::process::pty::Size;
 
+use super::thread::judge;
 use crate::engine::ghostty::Ghostty;
 use crate::engine::{Effect, Engine};
+use crate::event::Event;
 use crate::limits;
 use crate::policy;
 use crate::snapshot::{Row, Snapshot};
@@ -43,7 +45,7 @@ const PRIVATE_MODES: &[u32] = &[
     1048, 1049, 2004, 2026, 2027, 2031, 2048, 7727, 8452,
 ];
 const OSC_NUMBERS: &[u32] = &[
-    0, 1, 2, 4, 5, 7, 8, 9, 10, 11, 12, 17, 19, 21, 22, 46, 50, 51, 52, 66, 104, 105, 110, 111,
+    0, 1, 2, 4, 5, 7, 8, 9, 10, 11, 12, 17, 19, 21, 22, 46, 50, 51, 52, 66, 72, 104, 105, 110, 111,
     112, 133, 633, 777, 1337, 3008, 5522, 7501, 99999,
 ];
 const BIG: &[u64] = &[
@@ -352,22 +354,25 @@ fn scrollback(iteration: u64) -> usize {
     set.unwrap_or([100, 1000, 10_000][(iteration / BLOCK % 3) as usize])
 }
 
-/// Feeds one input as a terminal's thread would: parse, resize, judge, snapshot.
+/// Feeds one input as a terminal's thread would: parse, resize, judge (with the thread's own
+/// `judge`), snapshot.
 struct Driver {
     engine: Ghostty,
     snapshot: Snapshot,
     spare: Vec<Row>,
     effects: Vec<Effect>,
+    replies: Vec<u8>,
 }
 
 impl Driver {
     fn new(scrollback: usize) -> Driver {
         let size = sized(80, 24);
         Driver {
-            engine: Ghostty::new(size, scrollback).expect("an engine"),
+            engine: Ghostty::new(size, scrollback, policy::XTVERSION).expect("an engine"),
             snapshot: Snapshot::new(size),
             spare: Vec::new(),
             effects: Vec::new(),
+            replies: Vec::new(),
         }
     }
 
@@ -377,11 +382,26 @@ impl Driver {
             self.engine.resize(size);
         }
         self.engine.take_effects(&mut self.effects);
-        for effect in self.effects.drain(..) {
-            let _ = policy::judge(effect);
+        judge(&mut self.effects, &mut self.replies, &mut self.snapshot);
+        self.replies.clear();
+        for event in &self.snapshot.events {
+            check(event);
         }
         self.engine.snapshot(&mut self.snapshot, &mut self.spare);
         self.snapshot.clear(&mut self.spare);
+    }
+}
+
+/// What any input may raise: shown text is short and has no control characters.
+fn check(event: &Event) {
+    let shown: &[&str] = match event {
+        Event::Title(title) => &[title.as_str()],
+        Event::Notification { title, body } => &[title.as_str(), body.as_str()],
+        _ => &[],
+    };
+    for text in shown {
+        assert!(text.len() <= 256, "{event:?}");
+        assert!(!text.chars().any(char::is_control), "{event:?}");
     }
 }
 

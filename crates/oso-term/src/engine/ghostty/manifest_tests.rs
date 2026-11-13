@@ -15,7 +15,11 @@ use super::{ffi, raw};
 
 pub(super) fn types() -> Value {
     let manifest: Value = serde_json::from_str(raw::type_json()).expect("the manifest is JSON");
-    assert_eq!(manifest["library_version"], "1.0.1", "the lock's version");
+    assert_eq!(
+        manifest["library_version"],
+        env!("OSO_GHOSTTY_VT_VERSION"),
+        "the lock's version"
+    );
     manifest["types"].clone()
 }
 
@@ -80,8 +84,8 @@ fn structs_match_the_manifest() {
         &t,
         "GhosttyString",
         &[
-            ("ptr", offset_of!(ffi::GString, ptr)),
-            ("len", offset_of!(ffi::GString, len)),
+            ("ptr", ffi::GString::OFFSETS.0),
+            ("len", ffi::GString::OFFSETS.1),
         ],
     );
     check_struct::<ffi::GBuffer>(
@@ -308,5 +312,23 @@ fn callbacks_match_the_manifest() {
 
 #[test]
 fn the_library_is_the_locked_release() {
-    assert_eq!(raw::version(), "1.0.1");
+    assert_eq!(raw::version(), env!("OSO_GHOSTTY_VT_VERSION"));
+}
+
+/// Every package the lock pins is described in the licence list.
+#[test]
+fn the_lock_and_the_licence_list_agree() {
+    let lock = include_str!("../../../ghostty-vt.lock");
+    let list = include_str!("../../../third-party.md");
+    let packages: Vec<&str> = lock
+        .lines()
+        .filter_map(|line| line.strip_prefix("package "))
+        .collect();
+    assert_eq!(packages.len(), 5);
+    for package in packages {
+        assert!(
+            list.contains(&format!("`{package}`")),
+            "{package} is not in third-party.md"
+        );
+    }
 }

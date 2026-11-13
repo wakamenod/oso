@@ -13,7 +13,7 @@ pub enum Event {
     /// OSC 0, 1 or 2.
     Title(String),
     Bell,
-    /// OSC 7's URI, as the program sent it.
+    /// OSC 7's URI, as the program sent it: at most 4 KiB, UTF-8, no control characters.
     Directory(String),
     /// OSC 9 or 777.
     Notification {
@@ -58,8 +58,8 @@ pub enum Prompt {
 pub enum End {
     /// The child exited, with this status.
     Exited(ExitStatus),
-    /// The terminal's end came without a status: the child outlived it, or never started in
-    /// this instance.
+    /// The terminal's end came without a status: the child outlived its terminal by more
+    /// than 2 s, or its handle was dropped.
     Closed,
     /// The terminal could not start, or its thread failed.
     Failed(io::Error),

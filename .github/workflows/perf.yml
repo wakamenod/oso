@@ -53,6 +53,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       # Linux has no display or GPU: Xvfb and lavapipe, Mesa's software Vulkan
       # driver. It draws no text yet (ADR 0036).
       - name: Install a virtual display and lavapipe
@@ -118,6 +121,12 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # just from the cache or its release through the API, checked (.github/actions).
       - uses: $/.github/actions/install-just
+      # Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120); Windows
+      # builds no terminal yet.
+      - if: runner.os != 'Windows'
+        uses: $/.github/actions/install-zig
+      - if: runner.os != 'Windows'
+        uses: $/.github/actions/fetch-ghostty-vt
       - run: just build-time target/perf/build-time.json
       - name: Fetch the baseline
         env:

@@ -11,7 +11,7 @@
 //!   `$OSO_VENDOR_DIR/libghostty-vt-<version>`, `OSO_VENDOR_DIR` defaulting to
 //!   `$HOME/.cache/oso/vendor`.
 //! - `ZIG`: the Zig binary, which must be the lock's version. Default: `zig` on `PATH`.
-//! - `GHOSTTY_VT_OPTIMIZE`: Zig's optimize mode, `ReleaseFast` by default; the fuzz runs
+//! - `OSO_GHOSTTY_VT_OPTIMIZE`: Zig's optimize mode, `ReleaseFast` by default; the fuzz runs
 //!   `ReleaseSafe` too.
 //! - `OSO_TERM_ENGINE=skip`: build nothing and link nothing, for rustdoc (`just public-api`).
 //!   Refused in a release build.
@@ -50,10 +50,13 @@ fn main() {
         "OSO_GHOSTTY_VT_DIR",
         "OSO_VENDOR_DIR",
         "ZIG",
-        "GHOSTTY_VT_OPTIMIZE",
+        "OSO_GHOSTTY_VT_OPTIMIZE",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
+    let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let lock = read_lock(&manifest.join("ghostty-vt.lock"));
+    println!("cargo:rustc-env=OSO_GHOSTTY_VT_VERSION={}", lock.version);
     if env::var_os("CARGO_CFG_UNIX").is_none() {
         return;
     }
@@ -63,8 +66,6 @@ fn main() {
         }
         return;
     }
-    let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let lock = read_lock(&manifest.join("ghostty-vt.lock"));
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let tarballs = tarball_dir(&lock.version);
     let src = unpack(&tarballs, &lock.source, &out.join("src"));
@@ -79,7 +80,6 @@ fn main() {
     fs::copy(&archive, link_dir.join("libghostty-vt.a")).expect("copy libghostty-vt.a");
     println!("cargo:rustc-link-search=native={}", link_dir.display());
     println!("cargo:rustc-link-lib=static=ghostty-vt");
-    println!("cargo:rustc-env=OSO_GHOSTTY_VT_VERSION={}", lock.version);
 }
 
 fn read_lock(path: &Path) -> Lock {
@@ -139,7 +139,10 @@ fn unpack(dir: &Path, (name, sum): &(String, String), into: &Path) -> PathBuf {
             tarball.display()
         );
     }
-    let have = sha256(&tarball);
+    // The copy is what is checked and unpacked, so the cache cannot change it in between.
+    let copy = into.with_extension("tar.gz");
+    fs::copy(&tarball, &copy).expect("copy the tarball");
+    let have = sha256(&copy);
     if have != *sum {
         panic!("{name}: sha256 {have} is not the lock's {sum}; run `just ghostty-vt` again");
     }
@@ -147,7 +150,7 @@ fn unpack(dir: &Path, (name, sum): &(String, String), into: &Path) -> PathBuf {
     fs::create_dir_all(into).expect("create the unpack directory");
     run(Command::new("tar")
         .arg("-xzf")
-        .arg(&tarball)
+        .arg(&copy)
         .arg("-C")
         .arg(into));
     let mut entries: Vec<PathBuf> = fs::read_dir(into)
@@ -218,9 +221,9 @@ fn check_zig(zig: &std::ffi::OsStr, wanted: &str) {
 }
 
 fn zig_build(zig: &std::ffi::OsStr, src: &Path, deps: &Path, out: &Path) -> PathBuf {
-    let optimize = env::var("GHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
+    let optimize = env::var("OSO_GHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
     if !OPTIMIZE_MODES.contains(&optimize.as_str()) {
-        panic!("GHOSTTY_VT_OPTIMIZE must be one of {OPTIMIZE_MODES:?}, not {optimize:?}");
+        panic!("OSO_GHOSTTY_VT_OPTIMIZE must be one of {OPTIMIZE_MODES:?}, not {optimize:?}");
     }
     let prefix = out.join("zig-out");
     // Zig 0.17 fails ("reached unreachable code") on a global cache that already holds a

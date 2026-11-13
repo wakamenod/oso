@@ -42,12 +42,13 @@ pub type GResult = c_int;
 pub const SUCCESS: GResult = 0;
 pub const OUT_OF_SPACE: GResult = -3;
 
-/// `GhosttyString`: borrowed bytes.
+/// `GhosttyString`: borrowed bytes. Its fields are private, so that outside the library a
+/// value is only ever empty or static text, and `raw`'s `bytes` can read any value soundly.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GString {
-    pub ptr: *const u8,
-    pub len: usize,
+    ptr: *const u8,
+    len: usize,
 }
 
 impl GString {
@@ -55,6 +56,25 @@ impl GString {
         ptr: std::ptr::null(),
         len: 0,
     };
+
+    /// Text that lives as long as the process, for the library to copy.
+    pub const fn from_static(text: &'static str) -> GString {
+        GString {
+            ptr: text.as_ptr(),
+            len: text.len(),
+        }
+    }
+
+    pub fn parts(&self) -> (*const u8, usize) {
+        (self.ptr, self.len)
+    }
+
+    /// The offsets of `ptr` and `len`, for `manifest_tests`.
+    #[cfg(test)]
+    pub const OFFSETS: (usize, usize) = (
+        std::mem::offset_of!(GString, ptr),
+        std::mem::offset_of!(GString, len),
+    );
 }
 
 /// `GhosttyBuffer`: an output buffer the caller owns.

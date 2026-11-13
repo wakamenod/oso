@@ -8,7 +8,7 @@ nightly := "nightly-2026-05-25"
 cargo_public_api := "0.52.0"
 # Snapshots are taken for one target so that they read the same on every OS.
 api_target := "x86_64-unknown-linux-gnu"
-api_crates := "oso-core oso-platform oso-render oso-syntax"
+api_crates := "oso-core oso-platform oso-render oso-syntax oso-term"
 # oso's own macOS window layer exists only there, so oso-platform also has a snapshot
 # taken for macOS, on macOS (ADR 0070).
 api_macos_target := "aarch64-apple-darwin"
@@ -400,6 +400,8 @@ public-api:
         stubs=$(just c-stubs)
         export CC_x86_64_unknown_linux_gnu="$stubs/cc" AR_x86_64_unknown_linux_gnu="$stubs/ar"
     fi
+    # rustdoc links nothing, so oso-term's build script skips building libghostty-vt (ADR 0120).
+    export OSO_TERM_ENGINE=skip
     for crate in {{api_crates}}; do
         cargo +{{nightly}} public-api --color never -p "$crate" --all-features -ss \
             --target {{api_target}} > "guardrails/public-api/$crate.txt"
@@ -550,10 +552,9 @@ health-report out="target/design-health.md":
     } >"$out"
     echo "design health report: $out"
 
-# Fetch libghostty-vt's pinned release for oso-term into a cache outside the repository
-# ($OSO_VENDOR_DIR, by default ~/.cache/oso/vendor) and check each tarball against the
-# minisign key and the sha256 in crates/oso-term/ghostty-vt.lock (ADR 0120). Needs curl and
-# minisign. build.rs never downloads; it checks the sha256 again before it unpacks.
+# The cache is outside the repository: $OSO_VENDOR_DIR, by default ~/.cache/oso/vendor. Needs
+# curl and minisign. build.rs never downloads; it checks the sha256 again before it unpacks.
+# Fetch libghostty-vt's release for oso-term and check its signature and sha256 (ADR 0120)
 ghostty-vt:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -586,6 +587,57 @@ ghostty-vt:
         fi
     done
     echo "libghostty-vt $version: ok ($dir)"
+
+# Restarts after each stop. Runs on the Mac mini, never in CI. Each run writes
+# target/fuzz-term/<time>-<optimize>/report.txt: SLOW lines, STOP lines naming the input that
+# stopped the process, and a summary. More settings pass through the environment
+# (OSO_TERM_FUZZ_NO_RESIZE, OSO_TERM_FUZZ_SCROLLBACK; see crates/oso-term/src/terminal/fuzz.rs).
+# Fuzz oso-term's engine for `minutes`, libghostty-vt built ReleaseFast or ReleaseSafe (ADR 0120)
+fuzz-term minutes="60" optimize="ReleaseFast" seed="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{optimize}}" in ReleaseFast|ReleaseSafe) ;; *) echo "error: ReleaseFast or ReleaseSafe"; exit 1;; esac
+    [[ "{{minutes}}" =~ ^[0-9]+$ ]] || { echo "error: not a number of minutes: {{minutes}}"; exit 1; }
+    dir="$PWD/target/fuzz-term/$(date +%Y%m%d-%H%M%S)-{{optimize}}"
+    mkdir -p "$dir"
+    export OSO_GHOSTTY_VT_OPTIMIZE={{optimize}}
+    bin=$(cargo test --locked --release -p oso-term --lib --no-run --message-format=json \
+        | sed -n 's|.*"executable":"\([^"]*\)".*|\1|p' | tail -n 1)
+    [ -x "$bin" ] || { echo "error: no test binary"; exit 1; }
+    seed="{{seed}}"
+    seed="${seed:-$(( (RANDOM << 15) | RANDOM ))}"
+    first=0
+    end=$(( $(date +%s) + {{minutes}} * 60 ))
+    report="$dir/report.txt"
+    echo "fuzz-term: seed $seed, {{optimize}}, {{minutes}} min, in $dir"
+    while [ "$(date +%s)" -lt "$end" ]; do
+        OSO_TERM_FUZZ_SECONDS=$(( end - $(date +%s) )) OSO_TERM_FUZZ_SEED="$seed" \
+            OSO_TERM_FUZZ_FIRST="$first" OSO_TERM_FUZZ_STATE="$dir/state" \
+            OSO_TERM_FUZZ_REPORT="$report" \
+            "$bin" --ignored --exact terminal::fuzz::long --test-threads=1 >"$dir/last.log" 2>&1 &
+        pid=$!
+        # A watchdog: an input that holds the process for 60 s, or 4 GB of memory, is a stop.
+        last="" since=$(date +%s) why=""
+        while kill -0 "$pid" 2>/dev/null; do
+            sleep 2
+            now=$(cat "$dir/state" 2>/dev/null || true)
+            if [ "$now" != "$last" ]; then last="$now" since=$(date +%s); fi
+            rss=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ' || true)
+            if [ $(( $(date +%s) - since )) -gt 60 ]; then why="hang"; fi
+            if [ -n "$rss" ] && [ "$rss" -gt 4000000 ]; then why="memory ${rss} KB"; fi
+            if [ -n "$why" ]; then kill -9 "$pid" 2>/dev/null || true; break; fi
+        done
+        status=0
+        wait "$pid" || status=$?
+        if [ "$status" -eq 0 ] && [ -z "$why" ]; then break; fi
+        stopped=$(( 10#$(cat "$dir/state") ))
+        echo "STOP iteration $stopped seed $seed: ${why:-exit $status}" | tee -a "$report"
+        tail -n 20 "$dir/last.log" > "$dir/stop-$stopped.log"
+        first=$(( stopped + 1 ))
+    done
+    grep -c '^STOP' "$report" | sed 's/^/stops: /' || true
+    grep -c '^SLOW' "$report" | sed 's/^/slow: /' || true
+    echo "report: $report"
 
 # Check dependencies against deny.toml (advisories, licenses, sources, bans)
 deny:

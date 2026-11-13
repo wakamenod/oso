@@ -1,7 +1,7 @@
 //! Lint attributes that would let code outside `oso-platform::process` spawn
 //! (ADR 0010, ADR 0047). Clippy bans `Command::new`, but a source attribute
-//! overrides the workspace lints, so this check keeps them honest. The
-//! benchmark harness is the one recorded exception (ADR 0046).
+//! overrides the workspace lints, so this check keeps them honest. `ALLOWED`
+//! lists the exceptions.
 //!
 //! Must not depend on: the file system or the other checks; it sees only
 //! tokens.

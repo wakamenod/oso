@@ -964,3 +964,71 @@ question, and after the reviews, the restored guards below.
   that no other child inherits either end, that a descriptor left open on `exec` reaches no
   terminal child, the names refused by value and by name, the group a hang-up never signals, and the
   wake-up.
+
+### Step 3: `oso-term`
+
+The author approved the plan on 2026-11-13, through the coordinator, with the first option on
+each of its sixteen questions.
+
+- **What step 3 builds, and what moves (Q1):** the crate, the engine behind `Engine`, the
+  terminal's thread, the snapshot, the policy and its table's tests, the limits and the fuzz
+  target. The thread takes input already encoded. The key encoder is the library's (`key.h`),
+  which reads the modes and the kitty keyboard flags itself; step 4 builds it with the view.
+  The host API's row reads come with their first user, step 4 too.
+- **The source (Q2, Q3):** the release's two tarballs are fetched, not committed. `just
+  ghostty-vt` downloads them into a cache outside the repository and checks each against the
+  minisign key and the sha256 in `crates/oso-term/ghostty-vt.lock`. `build.rs` never downloads:
+  it checks the sha256 again, unpacks both into `OUT_DIR`, fails unless the dependency tarball
+  holds exactly the packages the lock lists, refuses a Zig other than 0.17, and links only the
+  static archive. CI installs Zig 0.17.1 with a checksum pinned per OS
+  (`.github/actions/install-zig`) and the tarballs through the recipe, cached
+  (`.github/actions/fetch-ghostty-vt`). A clean build of the library takes about 90 s, once per
+  profile and target directory.
+- **Windows (Q5):** nothing of the library is built there, and `Terminal::start` returns
+  `Unsupported`, as `pty::open` does; `just clippy-windows` needs no stub. `just public-api`
+  sets `OSO_TERM_ENGINE=skip`, which `build.rs` refuses in a release build.
+- **The guards (Q6):** `build.rs` may silence the bans on `Command` and printing, and is the
+  fourth file the architecture test lets silence the spawn ban. A new check confines foreign
+  code: `extern` blocks only in `oso-platform` and `oso-term`'s `ffi`; `unsafe` in `oso-term`
+  only in `engine/ghostty`'s `ffi.rs`, `raw.rs` and `raw/callbacks.rs`; a `links` key only in
+  `oso-term`'s manifest. `layers.txt` has `oso-term` beside `oso-render` and `oso-syntax`, and
+  its modules as `terminal`, `policy`, `engine`, `snapshot`, then `event` and `limits`.
+- **The licences (Q7):** `crates/oso-term/third-party.md` lists libghostty-vt 1.0.1 and the six
+  packages it uses (simdutf 9.0.0, highway 1.2.0, Wuffs 0.4.0-alpha.10, uucode 0.2.0 and
+  translate_c 2.0.0 linked, aro for the build), copied from the release's own report, with
+  their licence texts in `licenses/`; a test checks the list against the lock.
+- **The public items (Q8):** `Terminal` (`start`, `take_snapshot`, `recycle`, `send`, `resize`,
+  `set_palette`, `hang_up`), `Start`, `QueueFull`; `Snapshot`, `Row`, `Cell`, `Color`, `Rgb`,
+  `Palette`, `Underline`, `Attrs`, `Cursor`, `CursorShape`, `Modes`, `Mouse`; `Event`,
+  `Progress`, `Prompt`, `End`; and three limits. `Rgb` and `Palette` sit in `snapshot`, below
+  the engine that uses them, and are re-exported at the crate root. `Engine` is crate-private.
+- **The `unsafe` (Q9):** 23 foreign functions, and 54 blocks of one operation each (four only
+  in tests), each with its `// SAFETY:` comment: one per foreign call in `raw`, and in each
+  callback one for its sink and one per pointer it reads. Every callback catches panics.
+  Packed cells are decoded with bit positions a test checks against the library's manifest,
+  which also checks every struct, enumerator and callback signature.
+- **The fuzz target (Q10, Q16):** the step 1 spike's generator, in `terminal/fuzz.rs`, feeds the
+  engine and the policy as the thread does, sizes clamped as the thread clamps them. A seeded
+  run of 500 inputs is part of `just test`. `just fuzz-term <minutes> <ReleaseFast|ReleaseSafe>`
+  runs the long one on the Mac mini, restarting after a stop and naming the input that caused
+  it, with a watchdog for hangs and memory: an hour each, ReleaseFast, ReleaseSafe and 80 × 24
+  without resizes, for this step and at every bump.
+- **The policy (Q11 to Q14):** besides the table, enquiry gets no answer and XTVERSION answers
+  `oso <version>`; the checksum report (DECRQCRA) is off; DECRQSS's replies are dropped, as the
+  library answers it through the same callback as the reports it may make. Kitty graphics are
+  off until step 12 (an image store of 0 bytes, which turns the protocol off; its buffer at
+  16 MiB, the file, temporary-file and shared-memory mediums off). OSC 52 writes over 1 MiB are
+  dropped. The thread reads 64 KiB at a time and parses at most 1 MiB before it looks at
+  requests; replies are dropped past 64 KiB waiting; a snapshot carries at most 256 events,
+  bells joined; a grid is between 2 × 1 and 1000 × 500 cells.
+- **The end (Q15):** after the PTY's end the thread looks for the child's exit every 50 ms for
+  2 s and reports its status; a child that outlives that is reaped on a thread of its own and
+  the end is reported as `Closed`.
+- **Found while building:**
+  - Device attributes are the library's own answer (a VT220's), so no callback is installed for
+    them; the tests check each report the table lists.
+  - libghostty-vt 1.0.1 keeps no title stack: `CSI 22 t` and `CSI 23 t` change nothing. The
+    table's "allowed" holds, with nothing to allow.
+  - Grapheme clustering (mode 2027) starts off in the library, so a flag takes two cells unless
+    the program turns it on; whether oso turns it on is step 4's
+    ([`open-questions.md`](../open-questions.md)).

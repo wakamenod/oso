@@ -21,7 +21,7 @@ threats:
 | T7 | Terminal escape sequences | clipboard reads (OSC 52), title or report sequences that echo input back, spoofed hyperlinks (OSC 8), output that asks the editor to run a command |
 | T8 | Denial of service | huge files, very long lines, regex backtracking |
 | T9 | Agentic development | prompt injection through read content, casually added dependencies or `unsafe`, dev-only entry points leaking into release |
-| T10 | Untrusted parsers | image and PDF decoding (later milestones) |
+| T10 | Untrusted parsers | the terminal engine; image and PDF decoding (later milestones) |
 
 Out of scope: remote file editing (there is no TRAMP equivalent) and any
 network features.
@@ -364,9 +364,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   moves and resizes are denied.
 - OSC 8 hyperlinks, URLs and `path:line` show the real target before opening: `http` and `https` with
   the OS's opener, `file:` and `path:line` in oso, any other scheme asks.
-- Kitty graphics: direct transmission only, never from a file or shared memory; PNG decoded in pure
-  Rust on a worker, at most 16 MiB and 4096 × 4096 pixels an image and 64 MiB a terminal. Sixel and
-  iTerm2 images are denied.
+- Kitty graphics are off until ADR 0120's step 12. Then: direct transmission only, never from a file
+  or shared memory, at most 16 MiB and 4096 × 4096 pixels an image and 64 MiB a terminal, decoded as
+  step 12 decides (T10). Sixel and iTerm2 images are denied.
 - A shell runs an oso command only through oso's own sequence, and only when it carries the
   terminal's random token, the shell is in the foreground, the command is listed in `[terminal]
   commands-from-shell` (empty by default, and never one that changes trust, the agent channel or a
@@ -478,11 +478,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 ### Untrusted parsers (T10)
 
 - Image and PDF support (M4 and later) will use pure-Rust decoders, or isolate
-  parsing in a separate process. The terminal's Kitty images use a pure-Rust PNG decoder on a
-  worker ([ADR 0120](adr/0120-the-terminal.md)).
+  parsing in a separate process. How the terminal's Kitty images are decoded is ADR 0120's step 12
+  ([ADR 0120](adr/0120-the-terminal.md)).
 - The terminal engine, libghostty-vt, parses untrusted output in `oso-term`'s FFI: memory-unsafe
   Zig and C++ in oso's process, the second exception after the grammars. It is pinned to a signed
-  release, built offline, and fuzzed through `oso-term`'s target at each bump; a crash in it ends
+  release, built offline, and fuzzed through `oso-term`'s target at each bump (`just fuzz-term`, an
+  hour each built ReleaseFast and ReleaseSafe, on the Mac mini; a short run in `just test`); a crash in it ends
   oso with no emergency save, as one in a grammar does. Its Kitty images are decoded by Wuffs inside
   it, not by a pure-Rust decoder, unless ADR 0120's step 12 builds it without them
   ([ADR 0120](adr/0120-the-terminal.md), step 1 as built).

@@ -17,6 +17,12 @@
 )]
 // Terminal output is untrusted: failures are values, not panics (ADR 0038).
 #![deny(clippy::unwrap_used, clippy::expect_used)]
+// On Windows, which has no terminals yet, only the public types and `Terminal::start`'s
+// `Unsupported` are built; the engine and the policy are there but unused (ADR 0120, Q3).
+#![cfg_attr(
+    not(unix),
+    allow(dead_code, unused_imports, reason = "terminals exist on Unix only")
+)]
 
 mod engine;
 pub mod event;

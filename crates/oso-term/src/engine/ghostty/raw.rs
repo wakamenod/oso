@@ -25,12 +25,11 @@ use callbacks::{
     on_title, on_unknown, on_write_pty, on_xtversion,
 };
 
-/// Effects raised but not taken yet are dropped past this many.
-const EFFECTS_PENDING_MAX: usize = 1024;
-
 /// What the callbacks write to while the library runs.
 pub(super) struct Sink {
     pub effects: Vec<Effect>,
+    /// What `XTVERSION` answers.
+    xtversion: &'static str,
     /// Reply bytes among `effects`.
     reply_bytes: usize,
     /// What the text area size reports (`CSI 14 t`, `CSI 18 t`) answer.
@@ -39,9 +38,14 @@ pub(super) struct Sink {
 
 impl Sink {
     pub(super) fn push(&mut self, effect: Effect) {
-        if self.effects.len() < EFFECTS_PENDING_MAX {
+        if self.has_room() {
             self.effects.push(effect);
         }
+    }
+
+    /// Whether another effect would be kept; a callback checks before it copies anything.
+    pub(super) fn has_room(&self) -> bool {
+        self.effects.len() < limits::EFFECTS_PENDING_MAX
     }
 
     pub(super) fn reply(&mut self, bytes: &[u8]) {
@@ -87,9 +91,15 @@ pub(super) struct Vt {
 impl Vt {
     /// A terminal of `columns` × `rows`, with oso's settings and callbacks installed, or
     /// `None` when the library cannot allocate one.
-    pub fn new(columns: u16, rows: u16, scrollback_lines: usize) -> Option<Vt> {
+    pub fn new(
+        columns: u16,
+        rows: u16,
+        scrollback_lines: usize,
+        xtversion: &'static str,
+    ) -> Option<Vt> {
         let sink = Box::new(Sink {
             effects: Vec::new(),
+            xtversion,
             reply_bytes: 0,
             size: ffi::SizeReportSize {
                 rows,
@@ -418,21 +428,19 @@ impl Vt {
         style
     }
 
-    /// The UTF-8 text of the current row's cell at `column`, into `buf`.
-    pub fn grapheme(&mut self, column: u16, buf: &mut Vec<u8>) {
-        buf.clear();
+    /// The UTF-8 text of the current row's cell at `column`, into `buf`; returns its length.
+    /// A cluster longer than `buf` is cut: no grid draws more of one cell.
+    pub fn grapheme(&mut self, column: u16, buf: &mut [u8; limits::GRAPHEME_MAX]) -> usize {
         if !self.select(column) {
-            return;
+            return 0;
         }
-        // A cluster longer than this is cut: no grid draws more of one cell.
-        buf.resize(256, 0);
         let mut out = ffi::GBuffer {
             ptr: buf.as_mut_ptr(),
             cap: buf.len(),
             len: 0,
         };
-        // SAFETY: a cell is selected, and `out` describes `buf`'s initialised bytes, which
-        // the library writes at most `cap` of, reporting how many in `len`.
+        // SAFETY: a cell is selected, and `out` describes `buf`, which the library writes at
+        // most `cap` bytes of, reporting how many in `len`.
         let read = unsafe {
             ffi::ghostty_render_state_row_cells_get(
                 self.cells,
@@ -440,11 +448,11 @@ impl Vt {
                 (&raw mut out).cast(),
             )
         };
-        buf.truncate(if read == ffi::SUCCESS {
-            out.len.min(256)
+        if read == ffi::SUCCESS {
+            out.len.min(buf.len())
         } else {
             0
-        });
+        }
     }
 
     fn select(&mut self, column: u16) -> bool {
@@ -475,6 +483,27 @@ impl Drop for Vt {
         // userdata is gone.
         drop(unsafe { Box::from_raw(self.sink.as_ptr()) });
     }
+}
+
+/// The Kitty graphics settings, read back for the policy's tests: the image store's limit,
+/// and whether the file and shared-memory mediums are on.
+#[cfg(test)]
+pub(super) fn kitty_settings(vt: &Vt) -> (u64, bool, bool) {
+    let (mut limit, mut file, mut shm) = (u64::MAX, true, true);
+    let reads: [(c_int, *mut c_void); 3] = [
+        (ffi::DATA_KITTY_IMAGE_STORAGE_LIMIT, (&raw mut limit).cast()),
+        (ffi::DATA_KITTY_IMAGE_MEDIUM_FILE, (&raw mut file).cast()),
+        (
+            ffi::DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM,
+            (&raw mut shm).cast(),
+        ),
+    ];
+    for (data, out) in reads {
+        // SAFETY: the terminal is live, and each `out` points to a live value of the data's
+        // output type in terminal.h: `uint64_t`, `bool`, `bool`.
+        unsafe { ffi::ghostty_terminal_get(vt.terminal, data, out) };
+    }
+    (limit, file, shm)
 }
 
 /// The library's version, as it reports it, for `manifest_tests`.

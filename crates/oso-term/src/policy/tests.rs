@@ -12,6 +12,10 @@ fn text_drops_controls_bidi_and_invisibles_and_is_cut_at_256_bytes() {
     assert_eq!(text(b"a\x07b\x1b[31mc\x7f\xc2\x9bd"), "ab[31mcd");
     assert_eq!(text("x\u{202e}y\u{200b}z\u{2066}".as_bytes()), "xyz");
     assert_eq!(text(b"\xff\xfeok"), "\u{fffd}\u{fffd}ok");
+    assert_eq!(
+        text("a\u{2028}b\u{2029}c\u{feff}d\u{e0041}e".as_bytes()),
+        "abcde"
+    );
     let long = "é".repeat(200);
     let cut = text(long.as_bytes());
     assert_eq!(cut.len(), 256);
@@ -251,8 +255,102 @@ mod table {
             !String::from_utf8_lossy(&replies).contains(";OK"),
             "{replies:?}"
         );
-        let mut e = Ghostty::new(size(10, 3), 100).expect("an engine");
+        let mut e = Ghostty::new(size(10, 3), 100, crate::policy::XTVERSION).expect("an engine");
         let (_, events) = feed_to(&mut e, b"\x1b_Ga=T,f=24,s=1,v=1;AAAA\x1b\\");
         assert!(events.is_empty());
+    }
+
+    /// DECRQSS is answered by the library, and dropped by the policy.
+    #[test]
+    fn decrqss_is_answered_by_the_library_and_dropped() {
+        let mut e = engine(80, 24);
+        e.feed(b"\x1bP$qm\x1b\\");
+        let mut effects = Vec::new();
+        e.take_effects(&mut effects);
+        let raised = effects.iter().any(|effect| {
+            matches!(effect, crate::engine::Effect::Reply(r) if r.starts_with(b"\x1bP1$r"))
+        });
+        assert!(raised, "{effects:?}");
+        nothing(b"\x1bP$qm\x1b\\");
+    }
+
+    #[test]
+    fn replies_that_would_carry_the_programs_bytes_are_denied() {
+        nothing(b"\x1b]5522;type=read:mime=dGV4dC9wbGFpbg==:id=a+b\x1b\\");
+        let (replies, _) = feed(b"\x1b]5522;type=write:mime=dGV4dC9wbGFpbg==:id=x-y;aGk=\x1b\\");
+        assert!(
+            replies.is_empty(),
+            "{:?}",
+            String::from_utf8_lossy(&replies)
+        );
+        let (replies, _) = feed(b"\x1bP+q544e\x1b\\\x1bP+q636f6c6f7273\x1b\\");
+        assert!(
+            replies.is_empty(),
+            "XTGETTCAP {:?}",
+            String::from_utf8_lossy(&replies)
+        );
+        let (replies, _) = feed(b"\x1b]72;type=list\x1b\\");
+        assert!(
+            replies.is_empty(),
+            "OSC 72 {:?}",
+            String::from_utf8_lossy(&replies)
+        );
+        let (replies, _) = feed(b"\x1b]1337;Copy=;aGk=\x07");
+        assert!(
+            replies.is_empty(),
+            "OSC 1337 {:?}",
+            String::from_utf8_lossy(&replies)
+        );
+    }
+
+    #[test]
+    fn the_reply_allowlist_takes_only_the_tables_shapes() {
+        for good in [
+            &b"\x1b[?62;22c"[..],
+            b"\x1b[>1;10;0c",
+            b"\x1b[0n",
+            b"\x1b[3;5R",
+            b"\x1b[?2004;1$y",
+            b"\x1b[?0u",
+            b"\x1b[8;24;80t",
+            b"\x1bP>|oso 1\x1b\\",
+            b"\x1bP!|00000000\x1b\\",
+            b"\x1b]4;1;rgb:0a0a/0101/0202\x07",
+            b"\x1b]11;rgb:1111/1111/1111\x1b\\",
+        ] {
+            assert!(super::super::allowed_reply(good), "{good:?}");
+        }
+        for bad in [
+            &b"\x1bP1$rm\x1b\\"[..],
+            b"\x1bP1+r544e=787465726d\x1b\\",
+            b"\x1b]5522;type=write:status=DONE:id=x\x1b\\",
+            b"\x1b[2;3t",
+            b"\x1b[?62;22cX",
+            b"\x1bP>|\x1b[31m\x1b\\",
+            b"\x1b]4;1;rgb:zz/00/00\x07",
+            b"\x1b]2;title\x07",
+        ] {
+            assert!(!super::super::allowed_reply(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn kitty_mediums_and_the_image_store_are_off() {
+        assert_eq!(engine(10, 3).kitty_settings(), (0, false, false));
+    }
+
+    #[test]
+    fn a_directory_is_kept_as_sent_or_dropped_whole() {
+        let (_, events) = feed("\x1b]7;file://h/tmp/a\u{200b}b\x07".as_bytes());
+        assert!(
+            matches!(&events[..], [Event::Directory(d)] if d == "file://h/tmp/a\u{200b}b"),
+            "{events:?}"
+        );
+        let long = format!("\x1b]7;file://h/{}\x07", "d".repeat(5000));
+        let (_, events) = feed(long.as_bytes());
+        assert!(
+            events.iter().all(|e| !matches!(e, Event::Directory(_))),
+            "{events:?}"
+        );
     }
 }

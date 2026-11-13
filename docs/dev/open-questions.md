@@ -396,10 +396,13 @@ item notes when it must be settled.
   step 8).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
-- libghostty-vt's release tarballs in the repository or fetched and checked by a `just` recipe,
-  and its key encoder or oso's own: ADR 0120's step 3 decides. Its Kitty images through its Wuffs
-  decoder or a pure-Rust one in oso: step 12 ([ADR 0120](adr/0120-the-terminal.md), step 1 as
-  built).
+- libghostty-vt's Kitty images through its Wuffs decoder or a pure-Rust one in oso: step 12
+  ([ADR 0120](adr/0120-the-terminal.md), step 1 as built).
+- Shipping the licence notices of libghostty-vt and what it bundles beside oso's binary, with
+  the two texts its tarballs leave out (simdutf's, uucode's Unicode-3.0), when oso is packaged
+  ([`crates/oso-term/third-party.md`](../../crates/oso-term/third-party.md)).
+- Whether terminals start with grapheme clustering (mode 2027) on, as Ghostty does, so that a
+  flag or a ZWJ emoji takes one cell pair; libghostty-vt starts with it off. ADR 0120's step 4.
 - If oso is published with the Claude Code integration, check Anthropic's
   terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,

@@ -12,12 +12,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use super::super::ffi;
 use super::Sink;
-use crate::engine::Effect;
-use crate::event::{Progress, Prompt};
+use crate::engine::{Effect, PromptMark};
+use crate::event::Progress;
 use crate::limits;
-
-/// What `XTVERSION` reports.
-const XTVERSION: &str = concat!("oso ", env!("CARGO_PKG_VERSION"));
 
 /// Runs a callback's body, so that a panic never unwinds into the library.
 fn guarded<T>(fallback: T, body: impl FnOnce() -> T) -> T {
@@ -35,26 +32,30 @@ unsafe fn sink<'a>(ud: *mut c_void) -> &'a mut Sink {
     unsafe { &mut *ud.cast::<Sink>() }
 }
 
-/// A `GhosttyString`'s bytes; empty for NULL. Only for strings the library handed out.
+/// A `GhosttyString`'s bytes; empty for NULL.
 pub(super) fn bytes(s: &ffi::GString) -> &[u8] {
-    if s.ptr.is_null() || s.len == 0 {
+    let (ptr, len) = s.parts();
+    if ptr.is_null() || len == 0 {
         return &[];
     }
-    // SAFETY: every `GhosttyString` the library hands out points to `len` readable bytes for
-    // as long as the struct holding it (a callback's argument, or static build info), which
-    // the returned borrow cannot outlive.
-    unsafe { std::slice::from_raw_parts(s.ptr, s.len) }
+    // SAFETY: a `GString` is empty, static text (`from_static`), or written by the library,
+    // whose strings point to `len` readable bytes for as long as the struct holding them (a
+    // callback's argument, or static build info), which the returned borrow cannot outlive.
+    unsafe { std::slice::from_raw_parts(ptr, len) }
 }
 
 /// A terminal string (the title or the directory) read inside a callback.
-fn terminal_string(terminal: ffi::Terminal, data: c_int) -> Vec<u8> {
+///
+/// # Safety
+/// `terminal` must be the live terminal the callback got, and `data` `DATA_TITLE` or
+/// `DATA_PWD`.
+unsafe fn terminal_string(terminal: ffi::Terminal, data: c_int) -> Vec<u8> {
     let mut s = ffi::GString::EMPTY;
-    // SAFETY: `terminal` is the live terminal the callback got, and `data` is `DATA_TITLE` or
-    // `DATA_PWD`, whose output type is `GhosttyString`.
+    // SAFETY: the function's contract; both data have the output type `GhosttyString`.
     let read = unsafe { ffi::ghostty_terminal_get(terminal, data, (&raw mut s).cast()) };
     if read == ffi::SUCCESS {
         let mut text = bytes(&s).to_vec();
-        text.truncate(limits::UNKNOWN_SEQUENCE_MAX);
+        text.truncate(limits::TERMINAL_STRING_MAX);
         text
     } else {
         Vec::new()
@@ -68,8 +69,11 @@ pub(super) extern "C" fn on_write_pty(
     len: usize,
 ) {
     guarded((), || {
-        let reply = ffi::GString { ptr: data, len };
-        let reply = bytes(&reply);
+        if data.is_null() {
+            return;
+        }
+        // SAFETY: the library passes `len` readable bytes for the call.
+        let reply = unsafe { std::slice::from_raw_parts(data, len) };
         // SAFETY: called by the library with `configure`'s userdata.
         unsafe { sink(ud) }.reply(reply);
     });
@@ -80,26 +84,34 @@ pub(super) extern "C" fn on_bell(_terminal: ffi::Terminal, ud: *mut c_void) {
     guarded((), || unsafe { sink(ud) }.push(Effect::Bell));
 }
 
-pub(super) extern "C" fn on_xtversion(_terminal: ffi::Terminal, _ud: *mut c_void) -> ffi::GString {
-    ffi::GString {
-        ptr: XTVERSION.as_ptr(),
-        len: XTVERSION.len(),
-    }
+pub(super) extern "C" fn on_xtversion(_terminal: ffi::Terminal, ud: *mut c_void) -> ffi::GString {
+    guarded(ffi::GString::EMPTY, || {
+        // SAFETY: called by the library with `configure`'s userdata.
+        ffi::GString::from_static(unsafe { sink(ud) }.xtversion)
+    })
 }
 
 pub(super) extern "C" fn on_title(terminal: ffi::Terminal, ud: *mut c_void) {
     guarded((), || {
-        let title = terminal_string(terminal, ffi::DATA_TITLE);
         // SAFETY: called by the library with `configure`'s userdata.
-        unsafe { sink(ud) }.push(Effect::Title(title));
+        let sink = unsafe { sink(ud) };
+        if sink.has_room() {
+            // SAFETY: the terminal the callback got, and a string datum.
+            let title = unsafe { terminal_string(terminal, ffi::DATA_TITLE) };
+            sink.push(Effect::Title(title));
+        }
     });
 }
 
 pub(super) extern "C" fn on_pwd(terminal: ffi::Terminal, ud: *mut c_void) {
     guarded((), || {
-        let pwd = terminal_string(terminal, ffi::DATA_PWD);
         // SAFETY: called by the library with `configure`'s userdata.
-        unsafe { sink(ud) }.push(Effect::Directory(pwd));
+        let sink = unsafe { sink(ud) };
+        if sink.has_room() {
+            // SAFETY: the terminal the callback got, and a string datum.
+            let pwd = unsafe { terminal_string(terminal, ffi::DATA_PWD) };
+            sink.push(Effect::Directory(pwd));
+        }
     });
 }
 
@@ -140,10 +152,17 @@ pub(super) extern "C" fn on_clipboard_write(
             .iter()
             .find(|c| bytes(&c.mime).starts_with(b"text/plain"))
             .map(|c| bytes(&c.data));
-        if let Some(text) = text.filter(|t| t.len() <= limits::CLIPBOARD_WRITE_MAX) {
-            // SAFETY: called by the library with `configure`'s userdata.
-            unsafe { sink(ud) }.push(Effect::ClipboardWrite(text.to_vec()));
+        // A write not taken (no text, too large, or a request to clear) gets no reply, which
+        // denies it.
+        let Some(text) = text.filter(|t| t.len() <= limits::CLIPBOARD_WRITE_MAX) else {
+            return;
+        };
+        // SAFETY: called by the library with `configure`'s userdata.
+        let sink = unsafe { sink(ud) };
+        if !sink.has_room() {
+            return;
         }
+        sink.push(Effect::ClipboardWrite(text.to_vec()));
         if let Some(reply) = request.reply {
             let answer = ffi::ClipboardWriteReply {
                 size: size_of::<ffi::ClipboardWriteReply>(),
@@ -211,18 +230,14 @@ pub(super) extern "C" fn on_prompt(
             return;
         };
         let effect = match mark.kind {
-            ffi::SEMANTIC_PROMPT_PROMPT_START => Effect::Prompt(Prompt::Start, Vec::new()),
-            ffi::SEMANTIC_PROMPT_INPUT_START => Effect::Prompt(Prompt::Input, Vec::new()),
-            ffi::SEMANTIC_PROMPT_OUTPUT_START => Effect::Prompt(
-                Prompt::Output { command: None },
-                bytes(&mark.command).to_vec(),
-            ),
-            ffi::SEMANTIC_PROMPT_COMMAND_END => Effect::Prompt(
-                Prompt::End {
-                    exit: mark.has_exit_code.then_some(mark.exit_code),
-                },
-                Vec::new(),
-            ),
+            ffi::SEMANTIC_PROMPT_PROMPT_START => Effect::Prompt(PromptMark::Start),
+            ffi::SEMANTIC_PROMPT_INPUT_START => Effect::Prompt(PromptMark::Input),
+            ffi::SEMANTIC_PROMPT_OUTPUT_START => {
+                Effect::Prompt(PromptMark::Output(bytes(&mark.command).to_vec()))
+            }
+            ffi::SEMANTIC_PROMPT_COMMAND_END => Effect::Prompt(PromptMark::End(
+                mark.has_exit_code.then_some(mark.exit_code),
+            )),
             _ => return,
         };
         // SAFETY: called by the library with `configure`'s userdata.
@@ -236,6 +251,11 @@ pub(super) extern "C" fn on_unknown(
     sequence: *const ffi::UnknownSequence,
 ) {
     guarded((), || {
+        // SAFETY: called by the library with `configure`'s userdata.
+        let sink = unsafe { sink(ud) };
+        if !sink.has_room() {
+            return;
+        }
         // SAFETY: the library passes a valid sequence for the call, or NULL.
         let Some(sequence) = (unsafe { sequence.as_ref() }) else {
             return;
@@ -247,8 +267,6 @@ pub(super) extern "C" fn on_unknown(
             ffi::UNKNOWN_SEQUENCE_APC => unsafe { sequence.value.apc }.content,
             _ => return,
         };
-        let content = bytes(&content).to_vec();
-        // SAFETY: called by the library with `configure`'s userdata.
-        unsafe { sink(ud) }.push(Effect::Unknown(content));
+        sink.push(Effect::Unknown(bytes(&content).to_vec()));
     });
 }

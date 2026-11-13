@@ -15,6 +15,7 @@ pub(crate) mod tests;
 use oso_platform::process::pty::Size;
 
 use super::{Effect, Engine};
+use crate::limits;
 use crate::snapshot::{
     Attrs, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Rgb, Row, Snapshot, Underline,
 };
@@ -36,6 +37,9 @@ mod layout {
     }
 }
 
+/// How many styles a row's cache holds.
+const STYLES_CACHED: usize = 16;
+
 /// The DEC private modes the snapshot reports, in `Modes`' order.
 const MODES: [u16; 7] = [1, 2004, 1004, 1000, 1002, 1003, 1006];
 
@@ -48,14 +52,18 @@ pub(crate) struct Ghostty {
     modes: Modes,
     history: usize,
     raw: Vec<ffi::Cell>,
-    grapheme: Vec<u8>,
+    grapheme: [u8; limits::GRAPHEME_MAX],
+    /// The row's styles read so far, as cells, by style id: a direct-mapped cache, cleared
+    /// for each row, as style ids belong to a page.
+    styles: [(u64, Cell); STYLES_CACHED],
 }
 
 impl Ghostty {
     /// A terminal of `size` keeping `scrollback` lines, or `None` if the library cannot
     /// allocate one. `size` is clamped to the limits already.
-    pub(crate) fn new(size: Size, scrollback: usize) -> Option<Ghostty> {
-        let mut vt = Vt::new(size.columns, size.rows, scrollback)?;
+    /// `xtversion` is what `XTVERSION` answers (the policy's).
+    pub(crate) fn new(size: Size, scrollback: usize, xtversion: &'static str) -> Option<Ghostty> {
+        let mut vt = Vt::new(size.columns, size.rows, scrollback, xtversion)?;
         let (width, height) = cell_pixels(size);
         vt.resize(size.columns, size.rows, width, height);
         Some(Ghostty {
@@ -66,8 +74,15 @@ impl Ghostty {
             modes: Modes::default(),
             history: 0,
             raw: Vec::new(),
-            grapheme: Vec::new(),
+            grapheme: [0; limits::GRAPHEME_MAX],
+            styles: [(0, Cell::default()); STYLES_CACHED],
         })
+    }
+
+    /// The Kitty graphics settings, for the policy's tests.
+    #[cfg(test)]
+    pub(crate) fn kitty_settings(&self) -> (u64, bool, bool) {
+        raw::kitty_settings(&self.vt)
     }
 
     fn build_row(&mut self, index: u16, row: &mut Row) {
@@ -75,21 +90,21 @@ impl Ghostty {
         row.wrapped = self.vt.row(&mut self.raw);
         row.cells.clear();
         row.graphemes.clear();
-        let mut style: Option<(u64, ffi::Style)> = None;
+        // Id 0 never enters the cache: it is the default style.
+        self.styles.fill((0, Cell::default()));
         let columns = usize::from(self.size.columns);
         for (column, &packed) in self.raw.iter().take(columns).enumerate() {
             let column = u16::try_from(column).unwrap_or(u16::MAX);
             let id = layout::get(packed, layout::STYLE_ID);
-            let cell_style = match style {
-                _ if id == 0 => ffi::Style::DEFAULT,
-                Some((last, s)) if last == id => s,
-                _ => {
-                    let s = self.vt.style(column);
-                    style = Some((id, s));
-                    s
+            let mut cell = if id == 0 {
+                Cell::default()
+            } else {
+                let slot = &mut self.styles[id as usize % STYLES_CACHED];
+                if slot.0 != id {
+                    *slot = (id, from_style(&self.vt.style(column)));
                 }
+                slot.1
             };
-            let mut cell = from_style(&cell_style);
             let tag = layout::get(packed, layout::CONTENT_TAG) as i32;
             match tag {
                 ffi::CELL_CONTENT_CODEPOINT | ffi::CELL_CONTENT_CODEPOINT_GRAPHEME => {
@@ -116,8 +131,8 @@ impl Ghostty {
             }
             if tag == ffi::CELL_CONTENT_CODEPOINT_GRAPHEME {
                 cell.attrs = cell.attrs.with(Attrs::GRAPHEME);
-                self.vt.grapheme(column, &mut self.grapheme);
-                let text = String::from_utf8_lossy(&self.grapheme).into_owned();
+                let len = self.vt.grapheme(column, &mut self.grapheme);
+                let text = String::from_utf8_lossy(&self.grapheme[..len]).into_owned();
                 row.graphemes.push((column, text));
             }
             row.cells.push(cell);

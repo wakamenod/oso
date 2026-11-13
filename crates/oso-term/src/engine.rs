@@ -8,7 +8,7 @@
 
 use oso_platform::process::pty::Size;
 
-use crate::event::{Progress, Prompt};
+use crate::event::Progress;
 use crate::snapshot::{Palette, Row, Snapshot};
 
 #[cfg(unix)]
@@ -47,9 +47,18 @@ pub(crate) enum Effect {
         body: Vec<u8>,
     },
     Progress(Progress),
-    /// An OSC 133 mark; `Output`'s command line is still raw, in `prompt_command`.
-    Prompt(Prompt, Vec<u8>),
+    /// An OSC 133 mark.
+    Prompt(PromptMark),
     ClipboardWrite(Vec<u8>),
     /// An OSC or APC the engine does not know, at most 4 KiB of it.
     Unknown(Vec<u8>),
+}
+
+/// OSC 133's marks as the engine reads them: a command line is still raw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PromptMark {
+    Start,
+    Input,
+    Output(Vec<u8>),
+    End(Option<i32>),
 }

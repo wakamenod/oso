@@ -68,6 +68,8 @@ struct Shared {
     in_flight: AtomicBool,
     /// Input bytes queued and not written yet.
     queued: AtomicUsize,
+    /// A request waits: the thread cuts its parse short to serve it.
+    requested: AtomicBool,
 }
 
 /// A running terminal. Dropping it hangs the terminal up and lets its thread finish, without
@@ -147,6 +149,7 @@ impl Terminal {
     }
 
     fn request(&self, request: Request) {
+        self.shared.requested.store(true, Ordering::Release);
         if self.requests.send(request).is_ok() {
             self.wake();
         }
