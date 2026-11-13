@@ -47,6 +47,7 @@ impl App {
         }
         self.agent.started_by = None;
         self.agent.started_for_a_session = false;
+        self.agent.on_for_sessions = false;
         self.agent.run += 1;
         let run = self.agent.run;
         let waker = self.waker.clone();
@@ -80,6 +81,7 @@ impl App {
                 self.agent.started = Some(Instant::now());
                 self.agent_log("the agent channel is on");
                 if for_a_session {
+                    self.agent.on_for_sessions = true;
                     self.editor.message(
                         "Agent channel on for the session's oso tools: any other agent asks you first",
                     );
@@ -101,6 +103,7 @@ impl App {
     }
 
     pub(super) fn stop_agent_channel(&mut self) {
+        self.agent.on_for_sessions = false;
         if self.agent.starting {
             self.agent.stop_when_started = true;
             self.editor.message("Agent channel off");

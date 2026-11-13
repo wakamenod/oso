@@ -3,7 +3,7 @@
 //! merged and how that was found, the sessions in it with their states, the oso buffers in it
 //! with unsaved changes, its space, and whether `worktree-remove` would take it or why not.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or threads; this is a plain function over
+//! Must not depend on: `app`, `dispatch` or threads; this is a plain function over
 //! what the jobs found and what the UI thread holds.
 //!
 //! Paths, branch names and session names are untrusted text: each is shown with its control

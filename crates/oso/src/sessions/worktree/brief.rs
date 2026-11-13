@@ -3,7 +3,7 @@
 //! starting session leaves behind, and the person's brief, together at most [`MAX_BRIEF`]
 //! bytes, as one argument. Facts that do not fit are dropped, least useful first.
 //!
-//! Must not depend on: the file system, `app`, `dispatch` or `commands`; it is a plain function
+//! Must not depend on: the file system, `app` or `dispatch`; it is a plain function
 //! over what the worker found, and shows untrusted text as `porcelain::printable` does.
 
 use std::fmt;

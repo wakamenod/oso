@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use oso_core::buffer::BufferId;
+use oso_core::minibuffer::PromptId;
+use oso_core::project::ProjectId;
 use oso_platform::control::Peer;
 
 use super::super::{App, UserEvent};
@@ -20,12 +22,24 @@ use crate::sessions::identity::SessionId;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
+mod terminal;
+
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
 pub(in crate::app) struct Hosting {
     pub(in crate::app) table: Table,
     /// oso's own state directory, where the record is kept.
     pub(in crate::app) directory: Option<PathBuf>,
+    /// The buffer each session being started has, by its key, until the start thread reports.
+    starting: HashMap<SessionKey, BufferId>,
+    /// The trusted project each new session takes a baseline of, by its key, until the
+    /// baseline comes or the start is refused: the review takes it as the project's.
+    baselines: HashMap<SessionKey, ProjectId>,
+    /// The sessions changed since the worker was last given them to remember.
+    unsaved: bool,
+    /// The "fork it instead?" question of a refused resume, and the session it is about: its
+    /// `y` forks that session, whichever buffer is selected then.
+    fork_offered: Option<(PromptId, SessionKey)>,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
@@ -45,7 +59,8 @@ pub(in crate::app) struct Hosting {
 pub(in crate::app) struct Begin {
     /// Its name's base, else its directory's name.
     pub name: Option<String>,
-    /// Its directory, else the selected window's project root, else the buffer's directory.
+    /// Its directory, else the selected buffer's project root, else its file's directory, else
+    /// the directory oso started in.
     pub directory: Option<PathBuf>,
     /// Its first prompt (ADR 0121 step 4).
     pub brief: Option<String>,
@@ -68,6 +83,10 @@ impl Hosting {
         Self {
             table: Table::default(),
             directory,
+            starting: HashMap::new(),
+            baselines: HashMap::new(),
+            unsaved: false,
+            fork_offered: None,
             explain: None,
             parents: HashMap::new(),
             shared: None,
@@ -94,6 +113,20 @@ fn base_name(directory: &Path) -> String {
     )
 }
 
+/// The most bytes of a registry's directory a question shows.
+const MAX_SHOWN_DIRECTORY: usize = 200;
+
+/// A directory from Claude Code's registry, which any process of the person's may write, as a
+/// question shows it: escaped so that it stays on one row and cannot reorder it, and cut short.
+fn shown_directory(directory: &Path) -> String {
+    let mut shown = oso_core::editor::row_text(&directory.to_string_lossy());
+    if shown.len() > MAX_SHOWN_DIRECTORY {
+        shown.truncate(shown.floor_char_boundary(MAX_SHOWN_DIRECTORY));
+        shown.push('…');
+    }
+    shown
+}
+
 impl App {
     /// The sessions an earlier oso remembered: each that is not archived comes back stopped,
     /// with nothing started.
@@ -107,8 +140,18 @@ impl App {
         }
     }
 
-    /// Hands the sessions to the worker to remember, keeping another instance's.
-    fn remember_sessions(&self) {
+    /// Notes that the sessions changed: [`App::save_sessions`] hands them to the worker once
+    /// for every change an event made.
+    fn remember_sessions(&mut self) {
+        self.hosting.unsaved = true;
+    }
+
+    /// After an event: hands the sessions to the worker to remember, keeping another
+    /// instance's, if they changed.
+    pub(in crate::app) fn save_sessions(&mut self) {
+        if !std::mem::take(&mut self.hosting.unsaved) {
+            return;
+        }
         if let (Some(worker), Some(directory)) = (&self.sessions, &self.hosting.directory) {
             worker.send(Job::Remember {
                 directory: directory.clone(),
@@ -118,9 +161,9 @@ impl App {
         }
     }
 
-    /// `claude`: a new session in `directory`, else the selected window's project root, else
-    /// the buffer's directory, named `name`, else after its directory. It turns the agent
-    /// channel on if it is off (Q20).
+    /// `claude`: a new session in `directory`, else the selected buffer's project root, else
+    /// its file's directory, as a new terminal, else the directory oso started in, named
+    /// `name`, else after its directory. It turns the agent channel on if it is off (Q20).
     pub(in crate::app) fn start_session(
         &mut self,
         name: Option<String>,
@@ -136,29 +179,26 @@ impl App {
 
     /// Starts a new session as `begin` says.
     pub(in crate::app) fn begin_session(&mut self, begin: Begin) {
-        let current = self.editor.current().1.project();
-        let (directory, project) = match begin.directory.clone() {
+        let directory = match begin.directory.clone() {
             Some(directory) if !directory.is_absolute() => {
                 self.editor.message("Name the session's directory whole");
                 return;
             }
-            Some(directory) => {
-                let project = current.filter(|id| {
-                    self.editor
-                        .project(*id)
-                        .is_some_and(|project| project.root() == directory)
-                });
-                (directory, project)
-            }
-            None => match self.editor.project_files_root() {
-                Ok((root, _)) => (root, current),
-                Err(_) => (self.editor.start_directory().to_path_buf(), None),
-            },
+            Some(directory) => directory,
+            None => self
+                .buffer_directory()
+                .unwrap_or_else(|| self.editor.start_directory().to_path_buf()),
         };
         if begin.check_shared && self.hosting.table.runs_in(&directory) {
             self.ask_shared(begin);
             return;
         }
+        // The selected buffer's project, if the session runs at its root.
+        let project = self.editor.current().1.project().filter(|id| {
+            self.editor
+                .project(*id)
+                .is_some_and(|project| project.root() == directory)
+        });
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         if let Some(parent) = begin.parent.clone() {
@@ -168,15 +208,20 @@ impl App {
             self.hosting.shared = Some(begin.clone());
         }
         self.turn_agent_channel_on_for_a_session();
+        let terminal = self.session_terminal(key, &name, None);
         let (trusted, root) = match begin.trusted.clone() {
             // A worktree just made, which no buffer opened yet: its own root and trust.
             Some(trusted) => (Some(trusted), Some(directory.clone())),
-            None => (
-                project.and_then(|id| TrustedRoot::of(&self.editor, id)),
-                project
+            None => {
+                let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
+                if let (Some(id), Some(_)) = (project, &trusted) {
+                    self.hosting.baselines.insert(key, id);
+                }
+                let root = project
                     .and_then(|id| self.editor.project(id))
-                    .map(|project| project.root().to_path_buf()),
-            ),
+                    .map(|project| project.root().to_path_buf());
+                (trusted, root)
+            }
         };
         self.order_session(Order {
             token: key,
@@ -185,9 +230,9 @@ impl App {
             directory,
             project: root,
             trusted,
-            state: self.hosting.directory.clone(),
+            state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            shell: None,
+            terminal,
             brief: begin.brief,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
@@ -227,33 +272,45 @@ impl App {
                 .message(format!("Session {} runs", session.name));
             return;
         }
-        let order = Order {
-            token: session.key,
-            kind: Kind::Resume(session.id.clone()),
-            name: session.name.clone(),
-            directory: session.directory.clone(),
-            project: session.root.clone(),
-            // A resume takes no baseline: the session keeps the one it had.
-            trusted: None,
-            state: self.hosting.directory.clone(),
-            claude: self.configuration.session_claude().map(Path::to_path_buf),
-            shell: None,
-            brief: None,
-            steer_worktrees: self.configuration.steer_worktrees(),
-            check_shared: false,
-        };
-        let key = session.key;
+        let (key, kind, name, directory, root) = (
+            session.key,
+            Kind::Resume(session.id.clone()),
+            session.name.clone(),
+            session.directory.clone(),
+            session.root.clone(),
+        );
         self.turn_agent_channel_on_for_a_session();
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
         }
-        self.order_session(order);
+        let terminal = self.session_terminal(key, &name, Some(buffer));
+        self.order_session(Order {
+            token: key,
+            kind,
+            name,
+            directory,
+            project: root,
+            // A resume takes no baseline: the session keeps the one it had.
+            trusted: None,
+            state: super::super::reviews::state(),
+            claude: self.configuration.session_claude().map(Path::to_path_buf),
+            terminal,
+            brief: None,
+            steer_worktrees: self.configuration.steer_worktrees(),
+            check_shared: false,
+        });
     }
 
     /// `session-fork`: the conversation of the session whose terminal is `buffer`, copied
-    /// under a new id, in a new buffer.
+    /// under a new id, in a new buffer; or, as the `y` of a refused resume's question, that
+    /// session's.
     pub(in crate::app) fn fork_session(&mut self, buffer: BufferId) {
-        let Some(session) = self.hosting.table.by_buffer(buffer) else {
+        let offered = self.answered_fork_offer();
+        let session = match offered {
+            Some(key) => self.hosting.table.get(key),
+            None => self.hosting.table.by_buffer(buffer),
+        };
+        let Some(session) = session else {
             self.editor.message("This buffer holds no session");
             return;
         };
@@ -265,6 +322,7 @@ impl App {
         );
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         self.turn_agent_channel_on_for_a_session();
+        let terminal = self.session_terminal(key, &name, None);
         self.order_session(Order {
             token: key,
             kind: Kind::Fork(from),
@@ -272,13 +330,34 @@ impl App {
             directory,
             project: root,
             trusted: None,
-            state: self.hosting.directory.clone(),
+            state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            shell: None,
+            terminal,
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
         });
+    }
+
+    /// The session of the refused resume whose question just closed, once: the question was
+    /// answered `y` if `session-fork` runs now.
+    fn answered_fork_offer(&mut self) -> Option<SessionKey> {
+        let (asked, _) = self.hosting.fork_offered?;
+        if self
+            .editor
+            .prompts()
+            .iter()
+            .any(|prompt| prompt.id() == asked)
+        {
+            return None;
+        }
+        self.hosting.fork_offered.take().map(|(_, key)| key)
+    }
+
+    /// After the requests of an event: a fork offer whose question closed without a `y` goes,
+    /// so that a later `session-fork` forks the selected buffer's session.
+    pub(in crate::app) fn drop_unanswered_fork_offer(&mut self) {
+        let _ = self.answered_fork_offer();
     }
 
     fn order_session(&self, order: Order) {
@@ -312,16 +391,18 @@ impl App {
                     .get(token)
                     .map_or_else(String::new, |session| session.name.clone());
                 let place = directory
-                    .map(|directory| format!(" in {}", directory.display()))
+                    .map(|directory| format!(" in {}", shown_directory(&directory)))
                     .unwrap_or_default();
                 let question = format!(
                     "Session {name} runs already as process {pid}{place}; fork it instead?"
                 );
-                if let Err(e) = self.editor.ask(question, "session-fork") {
-                    self.editor.message(e.to_string());
+                match self.editor.ask(question, "session-fork") {
+                    Ok(asked) => self.hosting.fork_offered = Some((asked, token)),
+                    Err(e) => self.editor.message(e.to_string()),
                 }
             }
             Report::Baseline { token, tree } => {
+                self.session_baseline_to_review(token, &tree);
                 if let Some(session) = self.hosting.table.get_mut(token) {
                     session.baseline = Some(tree);
                     self.remember_sessions();
@@ -346,16 +427,27 @@ impl App {
         self.request_redraw();
     }
 
-    /// A start that did not happen: a held name goes, and a resumed session is stopped again.
-    fn session_not_started(&mut self, token: SessionKey) {
-        if self.hosting.table.release(token).is_some() {
-            return;
+    /// Session `key`'s start baseline goes to its project's review, once.
+    fn session_baseline_to_review(&mut self, key: SessionKey, tree: &str) {
+        if let Some(project) = self.hosting.baselines.remove(&key) {
+            self.session_baseline_taken(project, tree);
         }
-        if let Some(session) = self.hosting.table.get_mut(token)
+    }
+
+    /// A start that did not happen: a held name goes, and a resumed session is stopped again.
+    /// The agent channel goes off again if this start turned it on and nothing else needs it.
+    fn session_not_started(&mut self, token: SessionKey) {
+        self.session_terminal_not_started(token);
+        self.hosting.baselines.remove(&token);
+        if self.hosting.table.release(token).is_none()
+            && let Some(session) = self.hosting.table.get_mut(token)
             && session.run == Run::Starting
         {
             session.run = Run::Stopped;
         }
+        let needed = !self.hosting.starting.is_empty()
+            || self.hosting.table.iter().any(|session| session.runs());
+        self.turn_agent_channel_off_unless_a_session_needs_it(needed);
     }
 
     /// The start thread got the session ready: it starts in its terminal.
@@ -376,34 +468,24 @@ impl App {
                 return;
             }
         }
+        if let Some(tree) = &ready.baseline {
+            self.session_baseline_to_review(key, tree);
+        }
         if let Some(session) = self.hosting.table.get_mut(key) {
             if ready.baseline.is_some() {
                 session.baseline.clone_from(&ready.baseline);
             }
             session.changed = now_ms();
         }
-        if let Err(why) = self.start_session_terminal(key, &ready) {
+        if !self.session_terminal_started(key, ready) {
+            // Its buffer went while it started: the terminal is dropped, which hangs it up.
             if new {
                 self.hosting.table.forget(key);
-            } else {
-                self.session_not_started(key);
+            } else if let Some(session) = self.hosting.table.get_mut(key) {
+                session.run = Run::Stopped;
             }
-            self.editor.message(why);
         }
         self.remember_sessions();
-    }
-
-    /// Starts the terminal of session `key` as `ready` says.
-    fn start_session_terminal(&mut self, _key: SessionKey, _ready: &Ready) -> Result<(), String> {
-        Err("Sessions run in a terminal, which this build of oso does not have yet".into())
-    }
-
-    /// Brings session `key` back as a terminal buffer with no process, which says
-    /// `stopped: session-resume to continue`.
-    fn bring_back_stopped(&mut self, key: SessionKey) {
-        if let Some(session) = self.hosting.table.get(key) {
-            log::debug!("session {} remembered, stopped", session.name);
-        }
     }
 
     /// Whether the connection of `peer` that claims the session `claim` is that hosted
@@ -415,6 +497,27 @@ impl App {
         claim: &str,
     ) -> Option<String> {
         let id = SessionId::parse(claim)?;
+        // Each running `claude`'s id as its terminal has it now: set once the child started,
+        // cleared before it is reaped.
+        let children: Vec<(SessionKey, Option<u32>)> = self
+            .hosting
+            .table
+            .iter()
+            .filter(|session| matches!(session.run, Run::Running { .. }))
+            .map(|session| {
+                let child = session
+                    .buffer
+                    .and_then(|buffer| self.terminals.map.get(buffer))
+                    .and_then(|hosted| hosted.terminal.as_ref())
+                    .and_then(oso_term::Terminal::pid);
+                (session.key, child)
+            })
+            .collect();
+        for (key, child) in children {
+            if let Some(session) = self.hosting.table.get_mut(key) {
+                session.run = Run::Running { child };
+            }
+        }
         self.hosting
             .table
             .admit(connection, peer, Some(&id))
@@ -427,5 +530,28 @@ impl App {
             Some(connection) => self.hosting.table.bridge_gone(connection),
             None => self.hosting.table.bridges_gone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{MAX_SHOWN_DIRECTORY, shown_directory};
+
+    #[test]
+    fn a_registry_directory_is_shown_escaped_on_one_row_and_cut_short() {
+        let shown = shown_directory(Path::new("/p/a\nb\u{202e}c"));
+        assert!(!shown.contains('\n'), "{shown}");
+        assert!(!shown.contains('\u{202e}'), "{shown}");
+        let long = format!("/{}", "é".repeat(400));
+        let shown = shown_directory(Path::new(&long));
+        assert!(
+            shown.len() <= MAX_SHOWN_DIRECTORY + '…'.len_utf8(),
+            "{}",
+            shown.len()
+        );
+        assert!(shown.ends_with('…'));
+        assert_eq!(shown_directory(Path::new("/p/oso")), "/p/oso");
     }
 }

@@ -3,7 +3,7 @@
 //! question. Working: the line a working rule's `recap` finds, the TUI's status line. Otherwise
 //! the title.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; plain functions over the evidence, run
+//! Must not depend on: `app` or `dispatch`; plain functions over the evidence, run
 //! on the sessions worker next to the rules and never on the UI thread.
 //!
 //! The text is the screen's, so a model wrote it: it is cut to [`MAX_CHARS`], with control and

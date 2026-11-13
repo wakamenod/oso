@@ -23,12 +23,8 @@ pub enum Run {
     /// Being started on its thread.
     Starting,
     /// Running as this process, while it is not reaped.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the session's terminal sets it (ADR 0120 step 4)")
-    )]
     Running { child: Option<u32> },
-    /// Not running: remembered from an earlier oso, or ended with status 0 or by oso.
+    /// Not running: remembered from an earlier oso, ended with status 0, or archived.
     Stopped,
     /// Ended otherwise.
     Failed,
@@ -48,8 +44,6 @@ pub struct Hosted {
     /// Its terminal buffer, once it has one.
     pub buffer: Option<BufferId>,
     pub run: Run,
-    /// oso stopped it (`C-x k`, `C-x C-c`, a hang-up), so an end by a signal is no failure.
-    pub ended_by_oso: bool,
     /// Its baseline's tree id (ADR 0122), once taken.
     pub baseline: Option<String>,
     pub pinned: bool,
@@ -135,7 +129,6 @@ impl Table {
             parent: new.parent,
             buffer: None,
             run: Run::Starting,
-            ended_by_oso: false,
             baseline: None,
             pinned: false,
             archived: false,
@@ -169,7 +162,6 @@ impl Table {
                 parent: session.parent,
                 buffer: None,
                 run: Run::Stopped,
-                ended_by_oso: false,
                 baseline: session.baseline,
                 pinned: session.pinned,
                 archived: session.archived,
@@ -211,6 +203,32 @@ impl Table {
         &self.sessions
     }
 
+    /// Keeps at most [`MAX_SESSIONS`](super::record::MAX_SESSIONS) sessions, dropping the
+    /// archived ones that changed longest ago, so that the table and each record written stay
+    /// bounded in a long-running oso. Their ids stay known, so the record drops them too.
+    pub fn prune(&mut self) {
+        while self.sessions.len() > super::record::MAX_SESSIONS {
+            let oldest = self
+                .sessions
+                .iter()
+                .enumerate()
+                .filter(|(_, session)| session.archived)
+                .min_by_key(|(_, session)| session.changed)
+                .map(|(at, _)| at);
+            match oldest {
+                Some(at) => {
+                    self.sessions.remove(at);
+                }
+                None => break,
+            }
+        }
+    }
+
+    /// Every hosted session.
+    pub fn iter(&self) -> impl Iterator<Item = &Hosted> {
+        self.sessions.iter()
+    }
+
     /// The session whose terminal is `buffer`.
     pub fn by_buffer(&self, buffer: BufferId) -> Option<&Hosted> {
         self.sessions
@@ -223,7 +241,7 @@ impl Table {
         not(test),
         expect(
             dead_code,
-            reason = "the session's terminal and step 6's tools use it (ADR 0120 step 4)"
+            reason = "a review names its agent's session by it (ADR 0122 step 7), and so do step 6's tools"
         )
     )]
     pub fn by_connection(&self, connection: Connection) -> Option<&Hosted> {
@@ -288,16 +306,9 @@ impl Table {
     }
 
     /// The session `key`'s `claude` ended with `status`, or a signal: stopped or failed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's terminal and step 6's tools use it (ADR 0120 step 4)"
-        )
-    )]
     pub fn ended(&mut self, key: SessionKey, status: Option<i32>, changed: u64) -> Option<Exit> {
         let session = self.get_mut(key)?;
-        let exit = exit_of(status, session.ended_by_oso);
+        let exit = exit_of(status);
         session.run = match exit {
             Exit::Stopped => Run::Stopped,
             Exit::Failed => Run::Failed,
@@ -318,12 +329,13 @@ impl Table {
     }
 }
 
-/// How an end reads: status 0, or a signal when oso stopped it, is stopped; else failed.
-pub fn exit_of(status: Option<i32>, ended_by_oso: bool) -> Exit {
-    match status {
-        Some(0) => Exit::Stopped,
-        None if ended_by_oso => Exit::Stopped,
-        _ => Exit::Failed,
+/// How an end reads: status 0 is stopped; another status or a signal is failed. A session oso
+/// ends itself, with `C-x k`, is archived with its buffer and never reported as ended.
+pub fn exit_of(status: Option<i32>) -> Exit {
+    if status == Some(0) {
+        Exit::Stopped
+    } else {
+        Exit::Failed
     }
 }
 
@@ -424,10 +436,8 @@ mod tests {
 
     #[test]
     fn an_end_is_stopped_or_failed() {
-        assert_eq!(exit_of(Some(0), false), Exit::Stopped);
-        assert_eq!(exit_of(Some(3), false), Exit::Failed);
-        assert_eq!(exit_of(Some(3), true), Exit::Failed);
-        assert_eq!(exit_of(None, true), Exit::Stopped);
-        assert_eq!(exit_of(None, false), Exit::Failed);
+        assert_eq!(exit_of(Some(0)), Exit::Stopped);
+        assert_eq!(exit_of(Some(3)), Exit::Failed);
+        assert_eq!(exit_of(None), Exit::Failed);
     }
 }

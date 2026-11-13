@@ -43,6 +43,8 @@ impl App {
         self.sync_sessions();
         self.sync_reviews();
         self.sync_terminals();
+        // Once for all the changes the event made to the sessions (ADR 0121).
+        self.save_sessions();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
     }

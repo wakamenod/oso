@@ -3,7 +3,7 @@
 //! Git's output is untrusted: a path or a branch name may hold any byte, so nothing here
 //! panics, every list has a bound, and [`printable`] makes text safe to show a person.
 //!
-//! Must not depend on: processes, the file system, `app`, `dispatch` or `commands`; these are
+//! Must not depend on: processes, the file system, `app` or `dispatch`; these are
 //! plain functions over bytes the worker read.
 
 use std::path::PathBuf;

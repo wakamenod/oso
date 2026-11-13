@@ -29,7 +29,8 @@ often, so it must rebuild within 2 s.
   it.
 - `src/terminal.rs` and `src/terminal/` host terminals (ADR 0120): which keys go to a program
   (`route`), what a terminal starts (`shell`), the screen the UI keeps (`grid`, `colors`) and
-  the start thread (`hosted`). `oso-term` owns the PTY, the engine and the policy; the
+  the start thread (`hosted`). A hosted session's terminal finds its shell with
+  `hosted::find_shell` and is put in its buffer by `app/terminals/start.rs`, as a terminal's. `oso-term` owns the PTY, the engine and the policy; the
   dispatcher holds each terminal's key-reading state (`dispatch/terminal.rs`), and
   `app/terminals.rs` carries out what commands and keys ask. Terminal text never reaches a
   log, the disk or the agent channel.
@@ -37,7 +38,11 @@ often, so it must rebuild within 2 s.
   hosted session's state from its screen, the tracker, the `oso-sessions` worker, and worktree
   sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the
   worker. Their patterns use `regex`, compiled with size limits; the screen is untrusted text.
-  `app/sessions.rs` carries out what the worker and the jobs find.
+  Hosted sessions get ready and start their terminal on `oso-session-start` (`start`), with a
+  command line built by pure functions (`command`, `launch`); Claude Code's registry
+  (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
+  judged by one pure function (`bridge`). `app/sessions.rs` and `app/sessions/` carry out what
+  the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`. Its runner,
   `review/git.rs`, is shared with the worktree jobs. `review/view.rs`

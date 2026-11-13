@@ -2,7 +2,7 @@
 //! removes one, in ADR 0121's order: a linked worktree of this repository; nothing uncommitted
 //! or untracked; no unsaved buffer or unsent brief; no busy session; its branch merged.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; [`look`] runs on a
+//! Must not depend on: `app`, `dispatch` or the UI thread; [`look`] runs on a
 //! worktree job's thread, and what only the UI thread knows (buffers, hosted sessions) comes
 //! with the job as [`Held`].
 //!

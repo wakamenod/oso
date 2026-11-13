@@ -3,7 +3,7 @@
 //! them; archived ones in a last group, folded. Rendered to the window's width, so wrapping
 //! never applies, with a map from each line to what it shows.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; plain data in, text out, so
+//! Must not depend on: `app`, `dispatch` or `config`; plain data in, text out, so
 //! that the board ADR 0126 plans is a second renderer of the same model.
 //!
 //! Names, spaces, branches and recaps are untrusted text: each is cut to the room it has, and

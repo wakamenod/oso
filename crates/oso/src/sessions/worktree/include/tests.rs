@@ -1,7 +1,7 @@
 //! Tests of reading `.worktreeinclude` and copying what it takes into a new worktree, on scratch
 //! directories, with git's answer written by hand.
 //!
-//! Must not depend on: `app`, `dispatch` or `commands`.
+//! Must not depend on: `app` or `dispatch`.
 
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};

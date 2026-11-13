@@ -3,7 +3,7 @@
 //! went to a remote, the GitHub repository `gh` is asked about, the live sessions oso did not
 //! start, and which of the sessions oso hosts Claude Code's registry calls idle.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; this runs on a worktree
+//! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread.
 //!
 //! `gh` is asked only about `github.com`, or the host `GH_HOST` names in oso's environment: a

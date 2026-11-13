@@ -42,6 +42,7 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
         if running.detached {
             // No one waits for the end: the child is left to a reaper at once.
             if let Some(child) = running.child.take() {
+                running.channels.shared.pid.store(0, Ordering::Release);
                 reap_later(child);
             }
         }
@@ -303,6 +304,8 @@ impl<'a> Running<'a> {
         })?;
         // The master sees the terminal's end only once no slave is open here.
         drop(slave);
+        // Until the reap: `reap` and `reap_later` clear it first.
+        channels.shared.pid.store(child.id(), Ordering::Release);
         Ok(Running {
             master,
             child: Some(child),
@@ -532,6 +535,8 @@ impl<'a> Running<'a> {
     /// terminal is left to a thread of its own, so that no zombie stays.
     fn reap(&mut self) -> Option<ExitStatus> {
         let mut child = self.child.take()?;
+        // Before the reap, after which the id may be another process's.
+        self.channels.shared.pid.store(0, Ordering::Release);
         let since = Instant::now();
         while since.elapsed() < REAP_FOR {
             match child.try_wait() {

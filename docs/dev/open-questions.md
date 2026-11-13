@@ -434,6 +434,11 @@ item notes when it must be settled.
   ([ADR 0130](adr/0130-agent-chat.md)).
 - Check before ADR 0126 step 3 that a `statusLine` given with `--settings` overrides the person's
   own for that session only ([ADR 0126](adr/0126-sessions-and-worktrees-in-depth.md)).
+- After ADR 0121 step 6 lands, rename the hosted session's table entry,
+  `sessions::hosted::Hosted`, which shares its name with a terminal's `terminal::hosted::Hosted`
+  (for example `sessions::table::Session`), move `SessionKey` out of the worker, and call the
+  directory `App::new` takes the state directory. Renaming earlier would churn steps 3 to 6,
+  which build on step 1 ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 1 as built).
 - Dictation: the author deferred it on 2026-11-13. [ADR 0129](adr/0129-dictation.md) stays
   Proposed with its questions open (where recognition runs, the text, the key, the language, the
   macOS microphone permission).

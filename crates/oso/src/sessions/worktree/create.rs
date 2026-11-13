@@ -3,7 +3,7 @@
 //! starting session's hand-off facts, the worktree is added under `.claude/worktrees`, and
 //! `.worktreeinclude`'s files are copied in. The app then starts the session.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread.
+//! Must not depend on: `app`, `dispatch` or the UI thread.
 //!
 //! - The brief is put together before anything is made, so one that is refused leaves nothing.
 //! - The project's trust is checked again between steps: a project no longer trusted, or whose

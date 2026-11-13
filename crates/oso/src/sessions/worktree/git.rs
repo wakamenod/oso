@@ -2,7 +2,7 @@
 //! worktrees, and the pull requests `gh` knows of, each run bounded as ADR 0122's runner bounds
 //! it.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; this runs on a worktree
+//! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread and waits for git.
 //!
 //! - Every git run is [`review::git`](crate::review)'s: oso's own arguments and environment,

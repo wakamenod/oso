@@ -1,7 +1,7 @@
 //! `*Sessions*`: its groups and their order, pins, nesting, folds, the narrow and wide layouts,
 //! the line map, and its cost.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window.
 
 use std::time::{Duration, Instant};

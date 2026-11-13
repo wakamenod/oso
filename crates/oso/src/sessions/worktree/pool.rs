@@ -2,7 +2,7 @@
 //! most [`MAX_THREADS`] at once, each git or `gh` call on them bounded to 10 s, so a slow
 //! repository delays other jobs, never the UI or the sessions worker's rules.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread.
+//! Must not depend on: `app`, `dispatch` or the UI thread.
 //!
 //! Nothing runs while nothing is asked: a thread starts when a job waits and none is free,
 //! and ends after [`IDLE`] with no job. A waiting thread woken for a job counts as taken, so a

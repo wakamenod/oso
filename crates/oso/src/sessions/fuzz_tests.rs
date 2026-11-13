@@ -3,7 +3,7 @@
 //! Whatever they are, parsing and judging never panic, keep within their limits, and say what
 //! they matched truly.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 //!
 //! It runs in `just ci` with proptest's default cases. For a long run:

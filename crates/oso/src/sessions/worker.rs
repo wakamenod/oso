@@ -3,7 +3,7 @@
 //! It also reads and explains a saved screen for `session-explain-file`, and reads and writes
 //! the record of the sessions oso remembers.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; the app sends jobs and carries out what
+//! Must not depend on: `app` or `dispatch`; the app sends jobs and carries out what
 //! comes back through the function it gives.
 //!
 //! Nothing runs while nothing changes: the thread waits for a job, and wakes on its own only
@@ -49,10 +49,6 @@ pub enum Job {
     /// The rules in force from now, for every session (ADR 0121, Q4).
     Rules(Arc<RuleSet>),
     /// A session started or was resumed.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "hosted sessions start it (ADR 0121 step 3)")
-    )]
     Start(SessionKey),
     /// A session's screen, title or progress changed. The app gives screens with
     /// [`Worker::send_screen`], which keeps one a session.
@@ -60,13 +56,6 @@ pub enum Job {
     /// Screens wait in the slot: [`Worker::send_screen`] sends it, and the thread takes them.
     Screens,
     /// A session's process ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the terminal's thread reports it (ADR 0121 step 3)"
-        )
-    )]
     Exited(SessionKey, Exit),
     /// The person has seen a session.
     #[cfg_attr(

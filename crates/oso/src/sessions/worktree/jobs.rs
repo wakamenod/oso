@@ -4,7 +4,7 @@
 //! repository is trusted too, and tells the app what it found through the function the app
 //! gives.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread.
+//! Must not depend on: `app`, `dispatch` or the UI thread.
 //!
 //! - Each job checks its root again before it runs anything: a project no longer trusted, or
 //!   whose root is no longer the directory that was trusted, runs no git.

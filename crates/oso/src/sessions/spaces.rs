@@ -2,7 +2,7 @@
 //! repository's. Each keeps its own window tree, swapped whole into the frame as a tab would be,
 //! its zoom, and the session and the file buffer it showed last, for its first entry.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; it acts on the editor through
+//! Must not depend on: `app`, `dispatch` or `config`; it acts on the editor through
 //! oso-core's window trees alone, and is given each space's root and repository: whether a
 //! worktree belongs to a repository is ADR 0114's claim, which the app checks off this thread.
 

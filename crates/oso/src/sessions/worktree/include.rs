@@ -4,7 +4,7 @@
 //! two checkouts is touched, and the copy stops at fixed caps. Git's answer comes from the
 //! caller: this runs no process.
 //!
-//! Must not depend on: `app`, `dispatch`, `commands` or the UI thread; it touches the disk, on a
+//! Must not depend on: `app`, `dispatch` or the UI thread; it touches the disk, on a
 //! worktree job's thread.
 
 use std::ffi::{OsStr, OsString};

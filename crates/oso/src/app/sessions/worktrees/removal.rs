@@ -175,9 +175,10 @@ impl App {
             .map(|session| session.name)
             .collect();
         // ADR 0121 step 3 part B: stop each one as `session-stop` does, as ended by oso so
-        // that it becomes stopped, not failed. Nothing stops a hosted session yet, and none is
-        // idle here yet: until the app keeps live states, a running session is busy and check
-        // 4 refused it.
+        // that it becomes stopped, not failed, and keeps its buffer. Nothing stops a hosted
+        // session so yet: `C-x k` archives it with its buffer, and a hang-up alone ends by a
+        // signal, which reads as failed. None is idle here yet either: until the app keeps
+        // live states, a running session is busy and check 4 refused it.
         if !idle.is_empty() {
             log::warn!(
                 "{} idle sessions are not stopped before a removal",

@@ -1,7 +1,7 @@
 //! What the sessions worker does with each job, apart from its thread and its clock: the
 //! instants come from the caller, so the tests drive it with made-up ones.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`.
+//! Must not depend on: `app` or `dispatch`.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read as _;

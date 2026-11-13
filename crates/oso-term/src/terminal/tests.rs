@@ -204,6 +204,21 @@ fn echo_off_is_reported() {
 }
 
 #[test]
+fn the_pid_is_the_childs_while_it_runs_and_none_once_it_ended() {
+    let mut seen = Seen::start(sh("printf 'pid %s\\n' $$; read line; exit 0"));
+    seen.until(|s| s.shows("pid "));
+    let shown = seen
+        .screen
+        .iter()
+        .find_map(|line| line.strip_prefix("pid "))
+        .and_then(|pid| pid.trim().parse::<u32>().ok());
+    assert_eq!(seen.terminal.pid(), shown);
+    seen.terminal.send(b"go\n".to_vec()).unwrap();
+    seen.until(|s| s.end().is_some());
+    assert_eq!(seen.terminal.pid(), None);
+}
+
+#[test]
 fn a_hang_up_ends_the_terminal() {
     let mut seen = Seen::start(sh("printf 'up\\n'; while :; do sleep 1; done"));
     seen.until(|s| s.shows("up"));

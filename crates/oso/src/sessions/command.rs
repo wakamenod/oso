@@ -18,9 +18,7 @@ use serde_json::json;
 
 use super::identity::SessionId;
 
-/// The variable that names a hosted session to its bridge, `oso mcp` (ADR 0121, "The bridge and
-/// the channel"). Set in the session's environment and in the MCP server's own.
-pub const SESSION_VARIABLE: &str = "OSO_SESSION";
+pub(crate) use crate::channel::mcp::SESSION_VARIABLE;
 
 /// How a session's `claude` starts.
 #[derive(Debug, Clone, PartialEq, Eq)]

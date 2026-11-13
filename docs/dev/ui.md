@@ -767,7 +767,8 @@ a switch made with its command stands until that setting changes in the file
 ## Agent sessions
 
 - `C-x a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
-  the selected window's project root, else the buffer's directory. NAME is the directory's
+  the selected buffer's project root, else its file's directory, as a new terminal does, else the
+  directory oso started in. NAME is the directory's
   name, then `-2`, `-3` for more sessions there. `C-u C-x a c` asks for the directory, then the
   name. The agent channel turns on if it was off, and the echo area says so: the session's own
   oso tools connect without asking, and any other agent still asks
@@ -776,7 +777,8 @@ a switch made with its command stands until that setting changes in the file
   `stopped: session-resume to continue`; nothing runs until the person asks.
 - `C-x a r` (`session-resume`), in a stopped session's buffer, continues its conversation in the
   same buffer. If Claude Code runs that conversation elsewhere, it refuses, names the process and
-  its directory, and asks whether to fork instead. `session-fork` copies the conversation into a
+  its directory, and asks whether to fork instead; `y` forks that session, whichever buffer is
+  selected by then. `session-fork` copies the conversation into a
   new session and buffer.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
 - `C-x a w` (`session-worktree`), in a trusted project whose main repository is trusted too,
