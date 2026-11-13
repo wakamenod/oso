@@ -855,6 +855,81 @@ What was built:
   the thread's end, and that the person's index is left as it was. `cat-file`'s standard error
   goes nowhere, so a warning cannot end it.
 
+### Step 3: the unified view, part one
+
+Step 3 lands in three PRs, as the author chose: the review buffer, its threads, the menu, the
+motions, the faces and the `review` scenario first; comments and drafts second; jumping to the
+source and refinement third. The author approved the plan's public items and answered its
+questions (a) on 2026-11-13, and approved two items added while building:
+`command::ArgSpec::TextOnPrefix`, text read only with a prefix argument, and
+`Editor::set_review_reading`. What the first PR built:
+
+- **A view thread per review,** `oso-review-view`, beside step 2's `oso-review`. It keeps each
+  file's latest reading and lays out each file's section, again only for a file read again,
+  then builds the whole text through `oso_core::load::Builder` and compares it with the text
+  before. The UI thread puts it in at O(1), carrying every cursor and window top through the
+  span that changed, with no undo, as a file read again is put in; the text it replaces is
+  freed off the UI thread, and a text the same as the one before is not sent at all. Texts go
+  in in order, and wait while a prompt is open, as a reload does. The text is at most 64 MiB:
+  files past it show their header and a note.
+- **Carrying a file with no comment to place** runs on the view thread, as it is hashing
+  alone. When applying a carry asks for another, it runs again only for the file's current
+  reading; a newer reading has its own on the way.
+- **One review per project and scope,** the session scope whatever its baseline, and a branch,
+  commit or range by the revision given. Opening one that is open shows it in the selected
+  window and reads it again. A baseline is taken on a thread of its own and kept for the
+  session; keeping it across restarts is step 6's.
+- **The menu** is the built-in `review` menu on `C-x v r` (ADR 0117), with a describe function:
+  heads `D` session, `w` uncommitted, `u` unstaged, `s` staged, `b` branch, `c` commit, `r`
+  range, and `B` to take a baseline, which keeps the menu open. **The heads `p` (a pull
+  request) and `S` (the session comments go to) are left out, not hidden, until step 12 and
+  ADR 0121's registry,** as the author agreed. `C-u b` names the branch's base; without it the
+  base found is used: the branch's upstream, else `origin/HEAD`'s branch, else `main` or
+  `master`. `RET` takes the last scope reviewed, else uncommitted.
+- **The menu's counts** come from at most two `oso-review-count` threads, listing as a review
+  lists and reading no side, only for a trusted project, the session scope only with a
+  baseline. Each opening is an epoch: a new one, or the menu closing, drops the counts waiting
+  and stops those running between git runs. Each note keeps one width whatever its count
+  says, so the float never moves. A project with only `.jj` or `.hg` shows `?` counts, and a
+  review of it fails with git's message.
+- **The line under the menu's title** names the project and its root, and the baseline's age
+  as **"N min ago",** with no local time of day, as the author chose: oso has no helper for
+  the local time.
+- **Commands,** each with its reach: `review-session`, `review-uncommitted`, `review-unstaged`,
+  `review-staged`, `review-branch`, `review-commit`, `review-range`, `review-mark-baseline`,
+  `review-refresh` and `review-kill` are `Person`, as they run git; `review-next-hunk`,
+  `review-previous-hunk`, `review-next-file`, `review-previous-file` and `review-keys` are
+  `Look`; `review-quit` is `Change`. The motions take a count and move every cursor, by the
+  buffer's rows, never by its text.
+- **Keys in a review buffer:** `n`/`p` hunk, `N`/`P` file, `g` refresh, `q` bury, and `?`
+  shows `*Review keys*`. The comment keys and `RET` come with the next two PRs.
+- **Closing:** `C-x k` in a review buffer, and leaving oso, ask first while comments of the
+  person's that were not sent would be lost.
+- **The modeline** says how many agent comments are unread and, while a request reads,
+  `reading n/m`.
+- **A project no longer trusted** has its review's root revoked: its thread runs no more git,
+  and the review says `M-x trust-project, then g`. `g` once it is trusted again starts the
+  review over from a new root.
+- **Display:** a path keeps to its row; a newline in it shows as `␤`, and a control character
+  or a bidirectional mark is boxed and named in the modeline, as in any buffer. The title and
+  each note are one line, a newline or carriage return in them a space.
+- **Faces:** nine join the themes with their contrast rules: `diff.added`, `diff.removed`,
+  `diff.refine-added`, `diff.refine-removed`, `diff.hunk-header`, `diff.file-header`,
+  `review.comment-person`, `review.comment-agent` and `review.outdated`; `review.sent` and
+  `review.decided` come with steps 12 and 5. Added and removed lines, headers and cards are
+  bands drawn behind the text of the rows in view, as the current line's band is, and syntax
+  fills; refined words are bands too, but not syntax fills, so text over them keeps the text
+  colour. How syntax faces read over the bands is checked in step 9.
+- **The `review` scenario** (`examples/perf/bench/review.rs`) reviews a repository of 57 files
+  with some 5,000 lines changed: `review_open_first_screen_ms`, `review_open_whole_ms`,
+  `review_key_p99_ms` (paced `n`, `p`, `N`, `P`) and `review_refresh_ms` (`g` after one file
+  changed). It is recorded with no threshold yet; dev builds report each frame that shows a
+  review's new text for it.
+- **Tests:** the sections' text and rows, the view thread, the menu's notes, the motions and
+  the commands; text-grid snapshots of a review buffer (its bands marked, every note, paths
+  that would pass for another row); the glue's choices; and an end-to-end flow that trusts a
+  project, opens a review over the window's keys, moves, refreshes and quits.
+
 ### Step 8: documents no buffer owns
 
 The author approved the plan's API and its nine answers, each the recommended one (2026-11-13,

@@ -313,6 +313,23 @@ are planned.
 - Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
   the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
 
+## Reviews
+
+An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
+`*review: <scope> <project>*`, opened from the `review` menu on `C-x v r`: `D` since the session's
+baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
+names it), `c` a commit, `r` a range `FROM..TO`, and `B` takes a baseline, keeping the menu open.
+Each head's note counts the files it would show, as they come; the line under the title names the
+project and how long ago the baseline was taken. Only a trusted project runs git.
+
+- The buffer is one stream: a title, then each file's header (status, path, `+n −m`), its notes
+  and its hunks, `-` and `+` lines on bands of their own. Files read later show `reading…`, and
+  the modeline says `reading n/m` until every file is read.
+- `n`/`p` go to the next or previous hunk, `N`/`P` to the next or previous file, each with a
+  count; `g` reads the files again, those in view first; `q` goes back; `?` lists the keys.
+- `C-x k` closes the review, asking first while comments of yours that were not sent would be
+  lost.
+
 ## Echo area
 
 - A single line at the bottom of the frame shows messages such as "Saved"

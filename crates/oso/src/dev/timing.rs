@@ -84,6 +84,19 @@ pub struct Timings {
     frame_spans: Option<FrameSpans>,
     dropped_keys: u64,
     load: LoadTimes,
+    /// How far a review's reading was in the last text put in, until a frame shows it.
+    review_text: Option<ReviewText>,
+    /// Each frame that showed a review's new text, as wall-clock time, for the review
+    /// benchmark (ADR 0122). Taken by `take`.
+    review_frames: Vec<(u64, ReviewText)>,
+}
+
+/// How far a review's reading was in a text put in: files read of those listed, or done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReviewText {
+    pub read: usize,
+    pub listed: usize,
+    pub done: bool,
 }
 
 /// The first presented frame. A frame skipped while the window is hidden
@@ -129,6 +142,8 @@ impl Timings {
             frame_spans: None,
             dropped_keys: 0,
             load: LoadTimes::default(),
+            review_text: None,
+            review_frames: Vec::new(),
         }
     }
 
@@ -166,6 +181,11 @@ impl Timings {
         }
     }
 
+    /// A review's new text went in, its reading as far as `text` says.
+    pub fn review_text(&mut self, text: ReviewText) {
+        self.review_text = Some(text);
+    }
+
     /// Where the frame about to be reported presented spent its time.
     pub fn frame_spans(&mut self, spans: FrameSpans) {
         self.frame_spans = Some(spans);
@@ -194,6 +214,11 @@ impl Timings {
             }
         }
         let spans = self.frame_spans.take();
+        if let Some(text) = self.review_text.take()
+            && self.review_frames.len() < MAX_KEY_SAMPLES
+        {
+            self.review_frames.push((micros(unix_now()), text));
+        }
         if withheld {
             self.waiting_keys.clear();
             return;
@@ -224,6 +249,12 @@ impl Timings {
         let keys = std::mem::take(&mut self.key_latency_us);
         let spans = std::mem::take(&mut self.key_spans_us);
         let dropped = std::mem::take(&mut self.dropped_keys);
+        let reviews: Vec<Value> = std::mem::take(&mut self.review_frames)
+            .into_iter()
+            .map(|(at, text)| {
+                json!({ "unix_us": at, "read": text.read, "listed": text.listed, "done": text.done })
+            })
+            .collect();
         json!({
             "startup_us": self.first_frame.map(|frame| micros(frame.after_start)),
             "first_frame_unix_us": self.first_frame.map(|frame| micros(frame.unix)),
@@ -238,6 +269,7 @@ impl Timings {
                 "first_screen_after_start_us": self.load.first_screen_after_start.map(micros),
                 "done_us": self.load.done.map(micros),
             },
+            "review_frames": reviews,
         })
     }
 }
@@ -268,6 +300,28 @@ mod tests {
 
     fn key(redraw: bool, withheld: bool) -> HandledKey {
         HandledKey { redraw, withheld }
+    }
+
+    #[test]
+    fn a_review_text_is_marked_at_the_frame_that_shows_it_and_taken_once() {
+        let mut timings = timings();
+        timings.frame_presented(true, false);
+        let text = super::ReviewText {
+            read: 2,
+            listed: 5,
+            done: false,
+        };
+        timings.review_text(text);
+        timings.frame_presented(true, false);
+        timings.frame_presented(true, false);
+        let taken = timings.take();
+        let frames = taken["review_frames"].as_array().unwrap();
+        assert_eq!(frames.len(), 1, "one frame showed it");
+        assert_eq!(frames[0]["read"], 2);
+        assert_eq!(frames[0]["listed"], 5);
+        assert_eq!(frames[0]["done"], false);
+        assert!(frames[0]["unix_us"].as_u64().unwrap() > 0);
+        assert_eq!(timings.take()["review_frames"], json!([]));
     }
 
     #[test]

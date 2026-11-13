@@ -632,6 +632,14 @@ The UI thread never blocks on I/O or parsing:
   share a generation; refreshes asked for meanwhile are answered as one. Before each request
   the root's device and inode are looked at again, and git never looks above the root
   ([ADR 0122](adr/0122-agent-review.md)).
+- Each review also has a view thread, `oso-review-view` (`crates/oso/src/review/view.rs`),
+  which lays out each file's section and builds the review buffer's whole text through
+  `load::Builder`, compared with the text before; the UI thread (`app/reviews.rs`) puts each
+  text in at O(1), in order, while no prompt holds it, and frees the one it replaces off the
+  UI thread. The review menu's counts come from at most two `oso-review-count` threads
+  (`review/count.rs`), an epoch per opening of the menu. A review buffer's added and removed
+  lines, headers and cards are bands the window fills behind its text for the rows in view
+  (`Editor::review_cells`).
 
 ### Configuration
 

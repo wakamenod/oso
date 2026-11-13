@@ -524,6 +524,12 @@ impl App {
             }
         }
         self.editor.set_review_reading(id, reading);
+        #[cfg(feature = "dev")]
+        self.timings.review_text(crate::dev::ReviewText {
+            read: reading.map_or(0, |(read, _)| read),
+            listed: reading.map_or(0, |(_, listed)| listed),
+            done: reading.is_none(),
+        });
     }
 
     /// Revokes the root of every review whose project is no longer trusted, once.
