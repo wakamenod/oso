@@ -1163,3 +1163,7 @@ Step 4 is split in two pull requests (see Steps); this is the first.
   every row; reusing rows by what they hold, and placing simple cells without shaping, are
   follow-ups (`open-questions.md`). The `just perf` flows, with the 8-terminal backpressure step
   3 handed over, are step 4b's.
+- **Fuzzing:** the fuzz target feeds keys, pastes, scrolls, focus changes and synchronized
+  updates between the output. One hour of `just fuzz-term` with `ReleaseSafe` on the Mac mini,
+  with the new calls into the library: 1,179,736 inputs, no stop, 1,074 slow (over 500 ms), as
+  in step 3.
