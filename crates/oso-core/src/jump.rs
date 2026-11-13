@@ -9,6 +9,10 @@
 //! as can get one key do, nearest first, and the rest share the other keys as prefixes, so no
 //! label starts another. `Debug` prints none of the string, which can say something of a
 //! buffer that may hold secrets (ADR 0044).
+//!
+//! At the labels, an action's key ([`Action`]) arms it, and the label typed next is acted on
+//! rather than jumped to, as avy's `avy-dispatch-alist` (ADR 0116 step 6). No label key is an
+//! action's, as [`Keys::new`] refuses them.
 
 use std::fmt::{self, Write};
 use std::ops::Range;
@@ -31,7 +35,8 @@ pub const MAX_LABELLED: usize = 4096;
 /// The most characters a jump's string holds.
 pub const MAX_STRING: usize = 64;
 
-/// The keys of the actions on a target (ADR 0116 step 6), which no label may use.
+/// The keys of the actions on a target (ADR 0116 step 6) that a label could take, which no
+/// label may use. The other, `SPC`, is no printable key.
 const ACTION_KEYS: &str = "WKYTc";
 
 /// The label keys when `[jump] keys` gives none: the home row without `k`, which an action
@@ -58,6 +63,61 @@ pub enum Stage {
     Reading,
     /// It shows its labels, and reads one.
     Labels,
+}
+
+/// What a key at the labels does to the target of the label typed next, in place of going
+/// there (ADR 0116 step 6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Action {
+    /// `SPC`: sets the region from the cursor to the target.
+    Mark,
+    /// `W`: copies the target's whole line, and stays.
+    Copy,
+    /// `K`: kills the target's whole line, and stays.
+    Kill,
+    /// `Y`: copies the target's whole line and yanks it at the cursor.
+    Yank,
+    /// `T`: kills the target's whole line and yanks it at the cursor.
+    Move,
+    /// `c`: adds a cursor at the target.
+    Cursor,
+}
+
+impl Action {
+    /// The action of `key`, if it is one's.
+    pub(crate) fn of_key(key: char) -> Option<Self> {
+        Some(match key {
+            ' ' => Self::Mark,
+            'W' => Self::Copy,
+            'K' => Self::Kill,
+            'Y' => Self::Yank,
+            'T' => Self::Move,
+            'c' => Self::Cursor,
+            _ => return None,
+        })
+    }
+
+    /// What the echo row calls it while it is armed.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Mark => "mark",
+            Self::Copy => "copy line",
+            Self::Kill => "kill line",
+            Self::Yank => "yank line",
+            Self::Move => "move line",
+            Self::Cursor => "add cursor",
+        }
+    }
+
+    /// Whether it deletes the target's line.
+    pub(crate) fn kills(self) -> bool {
+        matches!(self, Self::Kill | Self::Move)
+    }
+
+    /// Whether it yanks the target's line at the cursor.
+    pub(crate) fn yanks(self) -> bool {
+        matches!(self, Self::Yank | Self::Move)
+    }
 }
 
 /// The keys labels are typed with, as `[jump] keys` gives them: 2 to 32 distinct printable
@@ -294,6 +354,8 @@ pub struct Jump {
     /// A change under its labels ended it, saying this: it draws nothing, and takes the next key
     /// only to say it again, so that a key meant for a label never types.
     pub(crate) ended: Option<&'static str>,
+    /// The action an action's key armed, which the label typed next gets in place of a move.
+    pub(crate) action: Option<Action>,
 }
 
 impl fmt::Debug for Jump {
@@ -323,6 +385,7 @@ impl Jump {
             shown: Vec::new(),
             around_secret,
             ended: None,
+            action: None,
         }
     }
 
@@ -367,13 +430,14 @@ impl Jump {
     }
 
     /// Whether `key` is a digit that `avy-goto-line`'s labels hand to `goto-line`: its labels
-    /// show, none of a label is typed yet, and no label takes it.
+    /// show, none of a label is typed yet, no action is armed, and no label takes it.
     pub fn gives_goto_line(&self, key: char) -> bool {
         key.is_ascii_digit()
             && self.kind == Kind::LineStart
             && self.stage == Stage::Labels
             && self.ended.is_none()
             && self.typed.is_empty()
+            && self.action.is_none()
             && !self.takes(key)
     }
 
@@ -409,8 +473,8 @@ impl Jump {
         self.stage = Stage::Labels;
     }
 
-    /// Writes what the echo row says of it into `out`: `Jump: ka`, or what it labels, and how
-    /// many of its candidates have labels when not all do.
+    /// Writes what the echo row says of it into `out`: `Jump: ka`, or what it labels, the
+    /// action armed, and how many of its candidates have labels when not all do.
     pub(crate) fn write_line(&self, out: &mut String) {
         match self.kind {
             Kind::Char => {
@@ -421,6 +485,11 @@ impl Jump {
             Kind::LineEnd => out.push_str("Jump to a line's end"),
             Kind::Isearch => out.push_str("Jump to a match"),
         }
+        if let Some(action) = self.action {
+            out.push_str("  [");
+            out.push_str(action.name());
+            out.push(']');
+        }
         if self.stage == Stage::Labels && self.found > self.labelled() {
             // Writing to a `String` cannot fail.
             let _ = write!(out, "  [{} of {} labelled]", self.labelled(), self.found);
@@ -430,7 +499,7 @@ impl Jump {
 
 #[cfg(test)]
 mod tests {
-    use super::{Keys, KeysError, Labels, MAX_LABELLED, subdivide};
+    use super::{ACTION_KEYS, Action, Keys, KeysError, Labels, MAX_LABELLED, subdivide};
     use proptest::prelude::*;
 
     #[test]
@@ -500,5 +569,18 @@ mod tests {
         assert_eq!(Keys::new("asdK"), Err(KeysError::Action('K')));
         assert_eq!(Keys::new("asdc"), Err(KeysError::Action('c')));
         assert!(Keys::new("1234").is_ok(), "digits may be keys");
+    }
+
+    #[test]
+    fn no_label_key_can_be_an_actions() {
+        for key in ' '..='~' {
+            if Action::of_key(key).is_none() {
+                continue;
+            }
+            assert!(key == ' ' || ACTION_KEYS.contains(key), "{key:?}");
+            assert!(Keys::new(&format!("ab{key}")).is_err(), "{key:?}");
+        }
+        assert_eq!(ACTION_KEYS.chars().count(), 5, "every one an action's");
+        assert!(ACTION_KEYS.chars().all(|key| Action::of_key(key).is_some()));
     }
 }

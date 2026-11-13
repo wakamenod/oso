@@ -90,7 +90,7 @@ pub use files::Looked;
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
-pub use jump::{Chose, JumpCells, LabelCells};
+pub use jump::{Chose, JumpActionError, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
@@ -1077,6 +1077,8 @@ mod isearch_migemo_tests;
 mod isearch_regexp_tests;
 #[cfg(test)]
 mod isearch_tests;
+#[cfg(test)]
+mod jump_actions_tests;
 #[cfg(test)]
 mod jump_tests;
 #[cfg(test)]

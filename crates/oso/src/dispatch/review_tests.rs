@@ -13,7 +13,7 @@ use crate::commands::review::tests::in_project;
 /// The notes the review menu shows now.
 fn notes(editor: &Editor) -> Notes {
     let registry = crate::commands::registry();
-    let menus = crate::bindings::menus(&registry);
+    let menus = crate::bindings::built_in_menus(&registry);
     let definition = menus.get(menus.lookup("review").unwrap()).unwrap();
     crate::commands::review::review_menu(editor, &Open::new(Arc::clone(definition)))
 }

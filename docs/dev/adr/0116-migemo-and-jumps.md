@@ -792,6 +792,50 @@ at most 1 MiB in all (Q5).
   and a jump true to their text before the host waits, in place of `isearch_follow_text`. A
   jump's byte budgets count what a regexp reads around each row too, not the row alone.
 
+#### As built (step 6, 2026-11-13)
+
+The author answered nine questions on 2026-11-13, through the coordinator, each as
+recommended. None departs from the text above; these notes say what it left open. The ninth,
+after review, named the error `JumpActionError`, so that it reads as a jump's beside
+`RecoveryAction`.
+
+- **The API,** as the snapshots show: `Chose::Armed`, `JumpActionError` (`Edit`, `Yank`,
+  `Cursor`), and `Editor::jump_choose`, which now gives `Result<Chose, JumpActionError>`. The
+  actions themselves are crate-private (`jump::Action`, `editor/jump/actions.rs`), and run
+  inside `avy-printing-char`, so they need no command of their own and are `Person` as it is.
+- **The keys and the labels:** `[jump] keys` refuses `W`, `K`, `Y`, `T` and `c` as before, and a
+  space as not printable, so no label key is an action's. While `avy-goto-char-timer` reads its
+  string, an action's key is a character of it, as in avy; the keys act once the labels show.
+- **Arming (Q1, Q6):** an action's key keeps what is typed of a label, and the label's next key
+  acts; another action's key takes the first one's place. The echo row adds the one armed, as
+  `Jump: ka  [kill line]` (`mark`, `copy line`, `kill line`, `yank line`, `move line`, `add
+  cursor`). With one armed, a digit at `M-g f`'s labels is no line number.
+- **The whole line (Q3),** as the author's avy actions take it: from its start through its line
+  break. A last line with no break is copied as its text alone, and killed with the break before
+  it, so no empty line is left, where Emacs's `kill-whole-line` leaves one. Such a line has no
+  break of its own, so `Y` and `T` yank it into the line at the cursor: `T` on `last` in
+  `a\nb\nlast`, from the buffer's start, gives `\nlasta\nb`. The author accepted this.
+- **`SPC` (Q7):** `C-SPC`, then the jump: every cursor's mark is set where that cursor is, the
+  regions show, and the primary goes to the target, so a region shown before gives way to one
+  from the cursor.
+- **`Y` and `T` (Q2)** yank as `C-u C-y` at every cursor of the selected window: each cursor stays
+  before the line and its mark after it, and a region shown is replaced. They yank the entry the
+  action made, never the clipboard's, and nothing when the line was empty.
+- **`c` (Q5)** adds a cursor with no mark, and the primary stays; past 1000 cursors it says so.
+- **Other windows (Q4):** `W`, `K`, `Y` and `T` keep the selected window, and `K` and `T` kill in
+  the target's buffer. `SPC` and `c` select the target's window, as a jump does.
+- **`avy-isearch`** ends the search as `RET` does, and then acts. avy ends it after the action;
+  oso ends it before, so that a kill or a yank never edits under a search, and the cursor a yank
+  goes to is where `RET` leaves it.
+- **Undo, the ring and secrets:** the action is part of the command of its label's last key, so
+  it undoes as one step in each buffer it changed. Its kill is an entry of its own, which goes to
+  the clipboard as any kill does. A line from a buffer that may hold secrets is a secret entry,
+  concealed on the clipboard, and a yank of it makes its buffer one too (ADR 0074).
+- **Refusals:** every buffer an action would change is asked first. A read-only one, or a yank
+  past `kill::MAX_YANK` at every cursor, ends the jump with the error, with the text, the
+  cursors and the ring as they were (`avy-isearch`'s search has ended). `W` copies from a
+  read-only buffer.
+
 ## Changes to accepted ADRs
 
 - **[ADR 0082](0082-isearch.md):** "`C-s` and `C-r` search for the literal string" becomes: for the

@@ -187,7 +187,7 @@ fn run(file: &Path, rules: Option<RulesWatch>, shared: &Shared) {
 fn watch(file: &Path, mut rules: Option<RulesWatch>, shared: &Shared) {
     let registry = commands::registry();
     let defaults = bindings::global_keymap(&registry);
-    let menus = bindings::menus(&registry);
+    let menus = bindings::built_in_menus(&registry);
     let themes: Vec<&str> = oso_render::theme::themes()
         .iter()
         .map(|theme| theme.name())

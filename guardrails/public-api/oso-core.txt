@@ -1091,6 +1091,7 @@ pub fn oso_core::editor::CannotResize::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::marker::Copy for oso_core::editor::CannotResize
 impl core::marker::StructuralPartialEq for oso_core::editor::CannotResize
 pub enum oso_core::editor::Chose
+pub oso_core::editor::Chose::Armed
 pub oso_core::editor::Chose::Jumped
 pub oso_core::editor::Chose::Narrowed
 pub oso_core::editor::Chose::NoSuch
@@ -1161,6 +1162,22 @@ impl core::fmt::Display for oso_core::editor::IndentError
 pub fn oso_core::editor::IndentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::IndentError
 impl core::marker::StructuralPartialEq for oso_core::editor::IndentError
+pub enum oso_core::editor::JumpActionError
+pub oso_core::editor::JumpActionError::Cursor(oso_core::editor::CursorError)
+pub oso_core::editor::JumpActionError::Edit(oso_core::buffer::EditError)
+pub oso_core::editor::JumpActionError::Yank(oso_core::editor::YankError)
+impl core::clone::Clone for oso_core::editor::JumpActionError
+pub fn oso_core::editor::JumpActionError::clone(&self) -> oso_core::editor::JumpActionError
+impl core::cmp::Eq for oso_core::editor::JumpActionError
+impl core::cmp::PartialEq for oso_core::editor::JumpActionError
+pub fn oso_core::editor::JumpActionError::eq(&self, &oso_core::editor::JumpActionError) -> bool
+impl core::error::Error for oso_core::editor::JumpActionError
+impl core::fmt::Debug for oso_core::editor::JumpActionError
+pub fn oso_core::editor::JumpActionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::JumpActionError
+pub fn oso_core::editor::JumpActionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::JumpActionError
+impl core::marker::StructuralPartialEq for oso_core::editor::JumpActionError
 pub enum oso_core::editor::KillRefused
 pub oso_core::editor::KillRefused::Gone
 pub oso_core::editor::KillRefused::Internal
@@ -1833,7 +1850,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::jump(&self) -> core::option::Option<&oso_core::jump::Jump>
 pub fn oso_core::editor::Editor::jump_add(&mut self, &str)
 pub fn oso_core::editor::Editor::jump_begin(&mut self, oso_core::jump::Kind, bool) -> bool
-pub fn oso_core::editor::Editor::jump_choose(&mut self, char) -> oso_core::editor::Chose
+pub fn oso_core::editor::Editor::jump_choose(&mut self, char) -> core::result::Result<oso_core::editor::Chose, oso_core::editor::JumpActionError>
 pub fn oso_core::editor::Editor::jump_delete(&mut self) -> bool
 pub fn oso_core::editor::Editor::jump_end(&mut self) -> bool
 pub fn oso_core::editor::Editor::jump_refuse(&mut self) -> bool

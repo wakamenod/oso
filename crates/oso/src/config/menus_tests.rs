@@ -7,7 +7,7 @@ use oso_core::keymap::Binding;
 use oso_core::menu::{Definition, ForeignKeys, Head, HeadAction, Menus, Stay};
 
 use super::Loaded;
-use super::tests::{Fixture, messages};
+use super::tests::{Fixture, keys, messages};
 
 /// A fixture whose built-in menus are `toggles`, of one head, and `jumps`.
 fn with_builtins() -> Fixture {
@@ -319,7 +319,8 @@ fn heads_past_the_limit_are_skipped_with_one_message() {
 fn menus_that_are_not_tables_or_break_a_limit_are_skipped() {
     let f = Fixture::new();
     let mut text = String::from("[menus]\nBad = {}\nnumber = 3\ntoo = true\n");
-    for i in 0..257 {
+    // One more than the built-in menus leave room for.
+    for i in 0..257 - f.menus.len() {
         text.push_str(&format!("m{i} = {{}}\n"));
     }
     let loaded = f.parse(&text);
@@ -336,9 +337,7 @@ fn menus_that_are_not_tables_or_break_a_limit_are_skipped() {
         .iter()
         .filter(|s| s.contains("there are at most 256 menus; skipped"))
         .collect();
-    // The built-in menus take their room first.
-    let builtin = f.menus.len();
-    assert_eq!(past.len(), 1 + builtin, "{said:?}");
+    assert_eq!(past.len(), 1, "{said:?}");
     assert_eq!(menus(&loaded).len(), 256);
 }
 
@@ -444,4 +443,116 @@ fn unbinding_a_shifted_key_warns_when_shift_still_finds_a_menu() {
         said[0].contains("changes nothing while \"C-c C-t\" is bound"),
         "{said:?}"
     );
+}
+
+#[test]
+fn removing_a_built_in_menu_unbinds_its_default_key_only() {
+    let f = Fixture::new();
+    let loaded = f.parse("[menus]\ntoggles = false\n");
+    assert!(messages(&loaded).is_empty(), "{:?}", messages(&loaded));
+    assert!(menus(&loaded).lookup("toggles").is_none());
+    let user = keys(&loaded);
+    assert_eq!(f.bound(user, "C-c t"), Some("undefined"));
+    // The rest of `C-c` is the defaults' still.
+    assert_eq!(f.bound(user, "C-c C-<"), None);
+    // A menu with no default key unbinds nothing.
+    let loaded = f.parse("[menus]\nwindows = false\n");
+    assert!(keys(&loaded).is_empty());
+    assert!(menus(&loaded).lookup("windows").is_none());
+}
+
+#[test]
+fn a_replaced_built_in_menu_keeps_its_default_key() {
+    let f = Fixture::new();
+    let toggles = f.menus.lookup("toggles").unwrap();
+    let loaded = f.parse(
+        "[menus.toggles]\ntitle = \"Mine\"\n[[menus.toggles.groups]]\nheads = [[\"x\", \"goto-line\", \"go\"]]\n",
+    );
+    assert!(messages(&loaded).is_empty(), "{:?}", messages(&loaded));
+    assert!(keys(&loaded).is_empty());
+    assert_eq!(menus(&loaded).lookup("toggles"), Some(toggles));
+    assert_eq!(menu(&loaded, "toggles").title(), "Mine");
+    let keys: oso_core::key::KeySequence = "C-c t".parse().unwrap();
+    assert_eq!(f.defaults.lookup(&keys.0), Some(Binding::Menu(toggles)));
+}
+
+#[test]
+fn a_removed_menus_key_the_file_binds_is_the_files() {
+    let f = Fixture::new();
+    for (value, bound) in [("\"goto-line\"", "goto-line"), ("false", "undefined")] {
+        let text = format!("[menus]\ntoggles = false\n[keys.global]\n\"C-c t\" = {value}\n");
+        let loaded = f.parse(&text);
+        assert_eq!(f.bound(keys(&loaded), "C-c t"), Some(bound));
+    }
+    // One beside it under the same prefix keeps both.
+    let loaded = f.parse("[menus]\ntoggles = false\n[keys.global]\n\"C-c a\" = \"goto-line\"\n");
+    assert_eq!(f.bound(keys(&loaded), "C-c a"), Some("goto-line"));
+    assert_eq!(f.bound(keys(&loaded), "C-c t"), Some("undefined"));
+    // One the file binds to a command over its prefix leaves the default key unreachable.
+    let loaded = f.parse("[menus]\ntoggles = false\n[keys.global]\n\"C-c\" = \"goto-line\"\n");
+    assert_eq!(f.bound(keys(&loaded), "C-c"), Some("goto-line"));
+}
+
+/// The sample in `ui.md`'s Menus section, which must load with no problem.
+const UI_SAMPLE: &str = r#"
+[menus]
+search = false
+
+[menus.toggles]
+title = "Toggles"
+[[menus.toggles.groups]]
+title = "Aids"
+heads = [
+  ["w", "global-whitespace-mode", "whitespace"],
+  ["n", "global-display-line-numbers-mode", "line numbers", { stay = true }],
+]
+
+[menus.buffers]
+title = "Buffers"
+[[menus.buffers.groups]]
+heads = [
+  ["b", "switch-to-buffer", "switch"],
+  [",", "previous-buffer", "previous", { stay = true }],
+  [".", "next-buffer", "next", { stay = true }],
+  ["w", { menu = "windows" }, "windows…"],
+]
+
+[keys.global]
+"C-c w" = { menu = "windows" }
+"C-c b" = { menu = "buffers" }
+"#;
+
+#[test]
+fn the_sample_in_the_docs_loads_with_no_problem() {
+    let f = Fixture::new();
+    let loaded = f.parse(UI_SAMPLE);
+    assert!(messages(&loaded).is_empty(), "{:?}", messages(&loaded));
+    assert!(menus(&loaded).lookup("search").is_none());
+    assert_eq!(heads(menu(&loaded, "toggles")).len(), 2);
+    assert_eq!(heads(menu(&loaded, "buffers")).len(), 4);
+    for sequence in ["C-c w", "C-c b"] {
+        assert_eq!(f.bound(keys(&loaded), sequence), Some("menu"));
+    }
+}
+
+#[test]
+fn a_removed_menus_key_may_become_a_prefix_and_shift_finds_nothing_there() {
+    let f = Fixture::new();
+    // Without the removal, keys under `C-c t` are refused: it opens a menu by default.
+    let kept = f.parse("[keys.global]\n\"C-c t w\" = \"global-whitespace-mode\"\n");
+    assert_eq!(f.bound(keys(&kept), "C-c t w"), None);
+    assert_eq!(messages(&kept).len(), 1, "{:?}", messages(&kept));
+    let loaded = f.parse(
+        "[menus]\ntoggles = false\n[keys.global]\n\"C-c t w\" = \"global-whitespace-mode\"\n",
+    );
+    assert!(messages(&loaded).is_empty(), "{:?}", messages(&loaded));
+    assert_eq!(
+        f.bound(keys(&loaded), "C-c t w"),
+        Some("global-whitespace-mode")
+    );
+    assert_eq!(f.bound(keys(&loaded), "C-c t"), Some("prefix"));
+    // `C-c T` = false says nothing of `C-c t`, which runs nothing now.
+    let loaded = f.parse("[menus]\ntoggles = false\n[keys.global]\n\"C-c T\" = false\n");
+    assert!(messages(&loaded).is_empty(), "{:?}", messages(&loaded));
+    assert_eq!(f.bound(keys(&loaded), "C-c t"), Some("undefined"));
 }
