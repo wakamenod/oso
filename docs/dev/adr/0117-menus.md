@@ -255,10 +255,14 @@ is decided until the author answers.
 
 ### How menus are defined (Q11, Q12)
 
-- **Built-in menus are Rust tables in `bindings/menus.rs`, user menus are `[menus.<name>]` in
-  `config.toml` (Q11), both in one model** (`oso_core::menu::Definition`). A user menu with a
-  built-in name replaces it whole. `[menus.<name>] = false` removes a built-in one, as `false`
-  unbinds a key.
+- **A menu's contents are the user's configuration (Q11).** Built-in menus are only defaults,
+  written as Rust tables in `bindings/menus.rs` so that oso works without a file; user menus are
+  `[menus.<name>]` in `config.toml`; both are one model (`oso_core::menu::Definition`).
+  - A `[menus.<name>]` with a new name **adds** a menu.
+  - One with a built-in menu's name **replaces** that menu whole: its title, heads, keys and
+    rules are the file's, and nothing of the built-in one is merged in.
+  - `[menus.<name>] = false` **removes** a built-in menu, as `false` unbinds a key.
+  - Saving the file reloads every menu (below); no rebuild, and no code runs.
 - In the file:
 
   ```toml
@@ -338,6 +342,10 @@ is decided until the author answers.
   a question the channel caused waits until it closes. `get-state` gains `menu`: the open menu's
   name, or null. Heads run commands the person pressed, so a head may name a `Person` command, as a
   key may (ADR 0108).
+- **An agent never opens a menu.** It needs none: it runs a head's command directly with `run`,
+  under that command's own reach (ADR 0085), so a menu gives an agent nothing it could not do
+  without one, and takes nothing away. A switch is the person's; a command that reads switches
+  gets none from `run` (all off) unless its `ArgSpec` lets the channel pass them.
 - **In a prompt (Q20), a menu does not open:** `Not in the minibuffer`, as `C-x b` says there. During
   isearch and query-replace, a menu's key is a key they do not bind, which ends them first.
 - **Multiple cursors:** a head's command acts on the selection set, as from any key. Nothing new.
@@ -350,9 +358,52 @@ is decided until the author answers.
 - **`oso dev` restart:** an open menu is not carried; the new instance starts with none.
 - **Frame resize:** the layout is worked out again, as a prompt's is.
 
-### The first menus (Q1, Q23)
+### The key list (Q24, Q26–Q32)
 
-On the recommended options, the first menus are built in, as Rust tables:
+The author needs which-key, and wants it to behave as which-key does, not drawn in the menu's
+centred float. It is not a menu: nothing in it is chosen, the keys go on as usual, and it closes
+with the next key that is not a paging key.
+
+- **When (Q26):** after a prefix key (`C-x`, `C-c`, `C-x 4`, `C-h`) has waited 1.0 s with no
+  next key, as which-key's `which-key-idle-delay`. Once a list is shown, the list of a further
+  prefix (`C-x 4` after `C-x`) replaces it at once. `[which-key] delay` in `config.toml` sets the
+  delay, and `[which-key] enabled = false` turns it off. It is not shown during a macro replay, and
+  not for a prefix argument (`C-u`), whose keys are digits.
+- **Where (Q27):** a panel along the bottom of the frame, just above the echo area, the full width
+  of the frame, as tall as its content up to a quarter of the frame's rows. It is drawn over the
+  bottom rows of the tiled windows, which keep their size and views, so showing it moves no text;
+  it may cover the cursor. It uses `Layer::FLOAT` and `FLOAT_CONTENT` with pane ids of its own, and
+  never overlaps a prompt, which is at the top edge (ADR 0075). Its look is the float's fill with a
+  1-row rule above, in `Float` and `FloatBorder`.
+- **What it lists (Q29):** every key that may follow the typed prefix, as the dispatcher would
+  resolve it now: the user layer, the buffer's mode keymap and the global one, each key once, with
+  the binding that wins. A key bound to `false` is not listed. A key that is itself a prefix shows
+  as `+prefix` (or its label, below); a key bound to a menu shows as `+<menu>`. Shift-translated
+  keys are not listed apart.
+- **How each entry reads (Q30):** `key → name`, the command's registered name, as which-key shows
+  them. A prefix may be given a label in `config.toml` (`[which-key.labels] "C-x 4" = "other
+  window"`), as which-key's `which-key-add-key-based-replacements`. Entries are sorted by key, plain
+  keys first, then `C-`, then `M-`, and laid out in columns down then across,
+  each column as wide as its widest entry.
+- **Paging (Q28):** a list taller than the panel is split into pages, and the last row says
+  `1 of 3 · C-h for more`. While the list is shown, `C-h` asks which-key's question on the echo
+  line: `n` next page, `p` previous, `u` undoes the last key of the prefix, `C-g` quits. Any other
+  key goes on as usual through the prefix.
+- **`C-h` before the list shows (Q31):** `C-h` after a prefix shows the list at once, instead of
+  waiting for the delay, as `which-key-show-early-on-C-h` does; a second `C-h` pages as above.
+  Where the prefix's keymap binds `C-h` itself, the binding wins and the list waits for the delay.
+- **Faces (Q32):** keys in `WhichKeyKey`, prefixes and menus in `WhichKeyPrefix`, the arrow and
+  the page line in `WhichKeyDim`, each checked against the float's fill in every theme as ADR 0089
+  asks.
+- **Cost:** the list is built once when it shows, from the keymaps the dispatcher already holds
+  (a few hundred keys at most), and laid out again only when the frame resizes or it pages. A key
+  that arrives before the delay costs one timer, as the prefix's echo does.
+- **The channel** is unchanged: a pending prefix already makes it wait (ADR 0085), and the list
+  shows nothing of a buffer.
+
+### The first menus (Q1, Q25)
+
+The author chose (Q1 (d)) these first menus, built in as Rust tables:
 
 - **`review`** on `C-x v r`, ADR 0122's scope menu, built in ADR 0122 step 3 on this component:
   the scopes as `exit` heads with their counts as notes and `(last)` on the default head,
@@ -366,7 +417,17 @@ On the recommended options, the first menus are built in, as Rust tables:
 - **`windows`** (the author's window-and-buffer menu, about 15 of its 30 heads): resize by 3,
   balance, split, delete, delete others, the buffer commands and finding files.
 - **`jumps`** (the author's jump menu's avy heads and `goto-line`).
+- **`search`** (the author's search menu's heads oso has today: project search and finding a
+  project's file; the rest join as their commands come).
 - The rest wait for their commands; the author may write any of them in `config.toml` meanwhile.
+- **Default keys (Q25):** only `C-c t` (toggles) and `C-x v r` (review). The windows, jump and
+  search menus have no key by default; the author binds them in `config.toml`, and `M-x open-menu`
+  reaches every menu.
+- **These are defaults, not the author's menus fixed in code.** Each one is a starting point that
+  `config.toml` can replace whole by giving a `[menus.<name>]` of the same name, or remove with
+  `[menus.<name>] = false`; any other `[menus.<name>]` adds a menu. Only what a file cannot express
+  (the review menu's describe function) stays in Rust, and even that menu's heads and keys can be
+  replaced, losing its live notes.
 
 ### Where the code lives
 
@@ -386,7 +447,11 @@ On the recommended options, the first menus are built in, as Rust tables:
 - **`oso`:** `bindings/menus.rs` (the built-in menus), `config` reads `[menus]` and `{ menu = … }`
   keys, `commands/menus.rs` (`open-menu`), `dispatch/menus.rs` (the open menus and their rules), and
   `app/draw` draws them.
-- **`oso-render`:** the five faces and their contrast pairs. No new pipeline.
+- **`oso-render`:** the five faces and their contrast pairs, and the key list's three. No new
+  pipeline.
+- **The key list:** `dispatch/which_key.rs` collects a prefix's continuations from the layers the
+  dispatcher resolves through and holds the shown list and its page; `app/draw` draws the panel;
+  its delay is a timer of the app's loop, as the cursor flash's is.
 
 ### Tests and measures
 
@@ -394,6 +459,8 @@ On the recommended options, the first menus are built in, as Rust tables:
   `foreign-keys` rule, of key sequences, switches, counts, the default head, notes and unavailable
   heads, of the prefix argument, of the stack, and of the configuration's checks and limits, in
   `oso-core` and the dispatcher's tests, with no window.
+- An end-to-end flow for the key list: type `C-x`, wait, read the panel, page, then a key that
+  runs, with a screenshot.
 - An end-to-end flow: open a built-in menu, run a `stay` head twice, flip a switch, open a submenu
   and go back with `C-g`, an `exit` head, a foreign key, and `C-g`, with a screenshot.
 - A `just perf` scenario: open a menu and press a `stay` head that moves the cursor, report-only
@@ -584,9 +651,9 @@ To put to the author, the recommended option first. Each stands on its own.
     sets thresholds, as ADR 0112 step 6 did. Needs the author's approval to edit `bench.rs`.
     (b) Only unit-level timing in `text_perf`-style tests; no `just perf` scenario.
 24. **A list of a prefix key's continuations (which-key).** The author runs which-key everywhere.
-    (a) Not in this ADR; a later ADR may draw it in this float after a delay, from the keymap.
-    (b) A last step of this ADR: after `C-x` (or any prefix) waits 1 s, the float lists its
-    continuations as a menu of exit heads, closed by the next key.
+    Answered: the author needs it, as which-key behaves (a panel along the bottom that lists a
+    waiting prefix's keys), not in the menu's centred float; it is a step of this ADR, and Q26–Q32
+    settle it.
 25. **Keys for the built-in menus.** In oso, Command is Meta and Option is Super (`s-`); the
     author's Emacs binds its menus to `C-c t`, `s-s`, `s-g`, `s-c` and `M-s`, and oso already uses
     `M-s r` for project search.
@@ -595,9 +662,92 @@ To put to the author, the recommended option first. Each stands on its own.
     (b) The author names the keys now, and they become the defaults.
     (c) No default keys but `C-x v r`; everything else through `M-x open-menu` or `config.toml`.
 
+### The key list (which-key)
+
+26. **When it shows.** which-key's default delay is 1.0 s.
+    (a) After a prefix has waited 1.0 s; once shown, a further prefix's list replaces it at once;
+    `[which-key] delay` and `enabled` in `config.toml`; never during a macro replay or for `C-u`.
+    (b) The same with 0.5 s.
+    (c) At once after every prefix key, with no delay.
+27. **Where it is drawn and how tall.**
+    (a) A full-width panel at the bottom of the frame, above the echo area, as tall as its content
+    up to a quarter of the frame, drawn over the windows' bottom rows: no window moves or resizes,
+    and it may cover the cursor.
+    (b) The same place and height, but the tiled windows shrink while it shows, as which-key's
+    side window makes Emacs's windows do: nothing is covered, but views jump up and back.
+    (c) The same, up to half the frame.
+28. **Paging a list taller than the panel.**
+    (a) As which-key: the last row says `1 of 3 · C-h for more`; `C-h` asks on the echo line, `n`
+    next page, `p` previous, `u` undo the last prefix key, `C-g` quit.
+    (b) `C-h` alone goes to the next page and wraps around; no undo.
+    (c) No paging: the list is cut with `… N more`, and `C-h` (Q31) opens the whole list in
+    completion.
+29. **What it lists.**
+    (a) Every key that may follow, as the dispatcher would resolve it now (the user layer, the
+    buffer's mode keymap, the global one), each key once with the binding that wins; keys bound
+    to `false` left out; sub-prefixes as `+prefix`, menus as `+<menu>`.
+    (b) Only the global keymap and the user layer, so a mode's keys are not listed.
+30. **How an entry reads.**
+    (a) `key → command-name`, as which-key; a prefix may get a label in `config.toml`
+    (`[which-key.labels] "C-x 4" = "other window"`); sorted by key, columns down then across.
+    (b) `key → summary`, the first line of the command's docstring, cut to fit: longer and fewer
+    columns.
+    (c) The name, and the summary as well when the panel is wide enough.
+31. **`C-h` after a prefix.** The author's Emacs sends it to embark's prefix help, a completion
+    list of the prefix's keys.
+    (a) It shows the list at once, without waiting for the delay, and a second `C-h` pages
+    (which-key's `which-key-show-early-on-C-h`). A prefix that binds `C-h` itself keeps it.
+    (b) It opens the completion float (ADR 0076) over the prefix's keys and commands; `RET` runs
+    the chosen one, as embark's prefix help.
+    (c) Nothing new: `C-h` after a prefix stays an undefined key.
+32. **Faces.**
+    (a) Three: `WhichKeyKey` for keys, `WhichKeyPrefix` for prefixes and menus, `WhichKeyDim` for
+    the arrow and the page line, each contrast-checked against the float's fill in every theme.
+    (b) Reuse the menu's `MenuKey` and `MenuNote`, with no faces of its own.
+
 ## Steps
 
-To fill in after the answers.
+One PR per step; each passes `just ci` and, where it touches the window, `just e2e`.
+
+1. **The model and the configuration.** `oso_core::menu` (definitions, heads, switches, key
+   sequences, counts, limits, and the pure layout), `Entry::Menu`, `Binding::Menu` and
+   `Resolution::Menu` in `keymap`, `ArgSpec::Menu`, `Command::state` and `Ctx::switch` in
+   `command`; `config` reads `[menus]` and `{ menu = … }` keys with their checks. The public items
+   are listed for the author's approval when the step starts, and the `guardrails/layers.txt` line
+   for `menu` waits for that approval. Unit tests only; no UI.
+2. **The open menu and its float.** The dispatcher's stack and its rules (exit, stay, foreign keys,
+   `q` and `C-g`, sequences, the prefix argument, counts, failing heads, closing as a prompt
+   opens), `open-menu`, describe functions with notes, unavailable and hidden heads and the
+   default head, drawing with the five faces and their contrast pairs, `wants_ime`, the channel's
+   wait and `get-state`, macros. An end-to-end flow on a test menu. `ui.md`'s Menus section and
+   open-questions.md's `wants_ime` item. **ADR 0122 step 3 builds the review menu on this step.**
+3. **The built-in menus:** `toggles` on `C-c t` (with `Command::state` on the toggling commands),
+   `windows`, `jumps` and `search`, and a sample `[menus]` in the configuration's docs.
+4. **Hidden menus:** `show = false`, and `indent-rigidly`'s arrow layer (ADR 0115) moved onto a
+   hidden built-in menu.
+5. **The perf scenario:** `menu_open_p99_ms` and `menu_head_p99_ms` in `just perf`, report-only.
+   The `bench.rs` registration is a guard-file edit, asked for when the step starts.
+6. **The key list (which-key)** as Q26–Q32 settle it: the delay, the bottom panel, what it lists,
+   labels from `[which-key.labels]`, paging, `C-h`, its faces, an end-to-end flow. A public way to
+   list a prefix's entries in `keymap`, if the dispatcher needs one, is listed for approval when the
+   step starts.
+
+Steps 3 to 6 follow step 2 in any order.
+
+## The author's choices
+
+The author answered Q1–Q25 on 2026-11-13, through the coordinator: (a) for each, but these.
+
+- **Q1: (d).** The built-in menus are the review scope menu, toggles, windows and buffers, jumps,
+  and the search menu with the heads oso has today.
+- **Q24: changed.** The author needs which-key, behaving as which-key does: a panel at the bottom
+  of the frame lists a waiting prefix's keys, and the next key goes on as usual. It is not drawn
+  in the menu's float. It is step 6 of this ADR; Q26–Q32 settle its design.
+- On Q11 the author asked whether the menus are the user's configuration: they are (see "How
+  menus are defined"); the built-in ones are defaults the file adds to, replaces or removes.
+- On Q22 the author asked whether agents can open menus: they cannot, and need not, since an agent
+  runs a head's command directly with `run` (see "Around the menu").
+- On Q23 the author approves the `bench.rs` registration when step 5 comes.
 
 ## Changes to accepted ADRs
 
@@ -618,8 +768,8 @@ To fill in after the answers.
   whose labels change as they draw are built in.
 - A menu costs one small float and a keymap built when it opens; nothing runs while none is open.
 - Menus are reached only by the person, so the channel gains nothing and loses nothing.
-- Options with values, saved values and a which-key list stay for later ADRs (on the recommended
-  options).
+- Options with values and saved values stay for a later ADR; the which-key list is step 6.
+- A key waiting after a prefix shows what can follow after a delay, without the person asking.
 
 ## Alternatives considered
 
