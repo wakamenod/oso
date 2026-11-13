@@ -3340,9 +3340,9 @@ impl core::fmt::Debug for oso_core::menu::Note
 pub fn oso_core::menu::Note::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::menu::Note
 pub struct oso_core::menu::Notes
-pub oso_core::menu::Notes::default: core::option::Option<usize>
 pub oso_core::menu::Notes::heads: alloc::vec::Vec<(usize, oso_core::menu::Note)>
 pub oso_core::menu::Notes::line: core::option::Option<alloc::string::String>
+pub oso_core::menu::Notes::ret_head: core::option::Option<usize>
 impl oso_core::menu::Notes
 pub fn oso_core::menu::Notes::get(&self, usize) -> core::option::Option<&oso_core::menu::Note>
 impl core::clone::Clone for oso_core::menu::Notes

@@ -754,8 +754,8 @@ Steps 3 to 6 follow step 2 in any order.
 - **A column is cut a row at a time, the longest first,** so a short column in another row keeps
   the rows the frame still has, and `… N more` is sized for the number it says.
 - `Definition`'s default head is `ret_head` (`set_ret_head`), and its default for heads that say
-  nothing is `default_stay` (`set_default_stay`). The file's names stay `default = true` and
-  `default-head`.
+  nothing is `default_stay` (`set_default_stay`); a describe function's is `Notes::ret_head`. The
+  file's names stay `default = true` and `default-head`.
 
 ## The author's choices
 

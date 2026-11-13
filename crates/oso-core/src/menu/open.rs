@@ -76,7 +76,7 @@ pub struct Notes {
     /// A line under the title, such as the session and project a review is about.
     pub line: Option<String>,
     /// The head `RET` runs, in place of the definition's.
-    pub default: Option<usize>,
+    pub ret_head: Option<usize>,
     /// Notes on heads, by the head's index.
     pub heads: Vec<(usize, Note)>,
 }
