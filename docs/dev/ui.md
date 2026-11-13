@@ -493,6 +493,14 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - The primary cursor jumps and the others stay. A jump into another window selects it. With a
   region shown, the jump extends it; otherwise the place left is pushed onto the mark ring.
   `C-u` keeps to the selected window.
+- At the labels, an action's key acts on the label typed next instead of going there, as avy's
+  dispatch keys: `SPC` sets the region from the cursor to it; `W` copies its whole line and `K`
+  kills it, and the cursor stays; `Y` copies it and `T` kills it, and each yanks it at every
+  cursor as `C-u C-y` does; `c` adds a cursor there, and the primary stays. What is typed of a
+  label stays, another action's key takes the place of the first, and the echo row shows the one
+  armed: `Jump to a line  [kill line]`. While a string is read, these keys are characters of it.
+  An action is one undo step in each buffer it changes; in a read-only buffer it says so and does
+  nothing (ADR 0116 step 6).
 - `C-g` ends a jump with nothing moved, before anything else it would do. A key that is not a
   label, `DEL` and `RET` among them, says `No such candidate` and does not run; while the string
   is read, a key the jump does not bind ends it silently. A change to the text or a scroll under

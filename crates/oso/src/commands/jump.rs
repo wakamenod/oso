@@ -18,7 +18,7 @@ use super::not_in_prompt;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "avy-goto-char-timer",
-        doc: "Jump to a match of characters typed, by its label.\n\nCharacters are read until a moment passes with no key, or `RET`, and their matches in view show as they are typed. Romaji also match their hiragana and katakana (migemo) unless `[search] migemo = false`. Then each match in every window shows a label, the nearest the cursor the shortest: typing a label goes there. A key that is no label ends the jump with nothing moved, as `C-g` does. Only the primary cursor moves, and the place it left goes on the mark ring. With `C-u`, only the selected window is labelled.",
+        doc: "Jump to a match of characters typed, by its label.\n\nCharacters are read until a moment passes with no key, or `RET`, and their matches in view show as they are typed. Romaji also match their hiragana and katakana (migemo) unless `[search] migemo = false`. Then each match in every window shows a label, the nearest the cursor the shortest: typing a label goes there. A key that is no label ends the jump with nothing moved, as `C-g` does. Only the primary cursor moves, and the place it left goes on the mark ring. At the labels, an action's key acts on the label typed next instead: `SPC` sets the region from the cursor to it, `W` copies its whole line and `K` kills it, `Y` copies it and `T` kills it and each yanks it at every cursor, as `C-u C-y`, and `c` adds a cursor there. The cursor stays for `W`, `K`, `Y` and `T`. With `C-u`, only the selected window is labelled.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_char_timer,
@@ -26,7 +26,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "avy-goto-line",
-        doc: "Jump to the start of a line in view, by its label.\n\nEach line in every window shows a label. A digit that is no label ends the jump and reads a line number for `goto-line`, starting with it. With `C-u`, only the selected window is labelled.",
+        doc: "Jump to the start of a line in view, by its label.\n\nEach line in every window shows a label, and an action's key acts on the label typed next, as in `avy-goto-char-timer`. A digit that is no label ends the jump and reads a line number for `goto-line`, starting with it. With `C-u`, only the selected window is labelled.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_line,
@@ -34,7 +34,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "avy-goto-end-of-line",
-        doc: "Jump to the end of a line in view, by its label.\n\nWith `C-u`, only the selected window is labelled.",
+        doc: "Jump to the end of a line in view, by its label.\n\nAn action's key acts on the label typed next, as in `avy-goto-char-timer`. With `C-u`, only the selected window is labelled.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: avy_goto_end_of_line,
@@ -42,7 +42,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "avy-isearch",
-        doc: "In isearch, jump to a match in view by its label, and end the search there.\n\nThe search ends as `RET` ends it: its string goes in the history, and the place it began on the mark ring.",
+        doc: "In isearch, jump to a match in view by its label, and end the search there.\n\nThe search ends as `RET` ends it: its string goes in the history, and the place it began on the mark ring. An action's key acts on the label typed next, as in `avy-goto-char-timer`, after the search ended so.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_isearch,
@@ -50,7 +50,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "avy-printing-char",
-        doc: "In a jump, add the character typed to the string it reads, or type a label's key.",
+        doc: "In a jump, add the character typed to the string it reads, or type a label's key, or an action's: `SPC`, `W`, `K`, `Y`, `T` or `c`.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: avy_printing_char,
@@ -122,16 +122,19 @@ fn avy_printing_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let Some(key) = input.chars().next() else {
         return Err(CommandError::new("No character typed"));
     };
+    let mut acted = Ok(());
     jumping(ctx, |ctx| {
         match ctx.editor.jump().map(|jump| jump.stage()) {
             Some(Stage::Reading) => ctx.editor.jump_add(input),
             Some(Stage::Labels) => {
-                // What it did shows: the labels left, the cursor moved, or the message.
-                let _: Chose = ctx.editor.jump_choose(key);
+                // What it did shows: the labels left, the cursor moved, the action's work, or
+                // the message. An action that could not act changed nothing, and says why.
+                acted = ctx.editor.jump_choose(key).map(|_: Chose| ());
             }
             None => {}
         }
-    })
+    })?;
+    acted.map_err(|error| CommandError::new(error.to_string()))
 }
 
 fn avy_delete_char(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

@@ -1,7 +1,7 @@
 //! Jumps on the editor (ADR 0116): starting one, the string it reads, its candidates in every
 //! tiled window, its labels' keys, and where it goes. What it holds is `crate::jump`'s
-//! [`Jump`], the cells it draws are in [`cells`], and finding its candidates in a window
-//! in [`find`].
+//! [`Jump`], the cells it draws are in [`cells`], finding its candidates in a window
+//! in [`find`], and what an action's key does to a target in [`actions`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window, threads or clock: the host
 //! keeps the time a string is read for, and calls [`Editor::jump_show_labels`] when it passes.
@@ -19,14 +19,17 @@
 //!   unless a region shows, which the jump then extends.
 //! - Nothing here logs the string, and `Debug` prints none of it (ADR 0044).
 
+use std::fmt;
 use std::ops::Range;
 
-use super::{Editor, Isearch};
+use super::{CursorError, Editor, Isearch, YankError};
+use crate::buffer::EditError;
 use crate::display_map::DisplayPoint;
-use crate::jump::{Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
+use crate::jump::{Action, Candidate, Jump, Keys, Kind, MAX_LABELLED, MAX_STRING, Shown, Stage};
 use crate::search;
 use crate::window::{Screen, WindowId};
 
+mod actions;
 mod cells;
 mod find;
 
@@ -51,11 +54,38 @@ const MAX_FOUND: usize = 64 * 1024;
 pub enum Chose {
     /// It was a label's first keys: the labels that start with them stay.
     Narrowed,
-    /// It ended a label: the cursor went to its candidate, and the jump ended.
+    /// It was an action's key: the label typed next is acted on, not gone to. What is typed
+    /// of a label stays, and another action's key takes this one's place.
+    Armed,
+    /// It ended a label: the cursor went to its candidate, or the action armed acted on it,
+    /// and the jump ended.
     Jumped,
     /// No label goes on with it: the jump ended, and nothing moved.
     NoSuch,
 }
+
+/// Why an action on a jump's target did nothing. The jump ended all the same.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionError {
+    /// A buffer it would change refused, as a read-only one does. Nothing changed.
+    Edit(EditError),
+    /// The line, at every cursor, is more than a yank may insert. Nothing changed.
+    Yank(YankError),
+    /// The window has as many cursors as it may have.
+    Cursor(CursorError),
+}
+
+impl fmt::Display for ActionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Edit(error) => error.fmt(f),
+            Self::Yank(error) => error.fmt(f),
+            Self::Cursor(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for ActionError {}
 
 /// A candidate found, before the nearest are picked.
 #[derive(Debug)]
@@ -179,19 +209,29 @@ impl Editor {
         jump.label();
     }
 
-    /// A key typed while labels show: narrows them to those that go on with it, or, at a
-    /// label's last key, goes to its candidate. A key no label goes on with ends the jump
-    /// saying `No such candidate`.
-    pub fn jump_choose(&mut self, key: char) -> Chose {
+    /// A key typed while labels show: narrows them to those that go on with it, arms an
+    /// action at an action's key (`SPC`, `W`, `K`, `Y`, `T` or `c`), or, at a label's last
+    /// key, goes to its candidate, or acts on it with the action armed. A key no label goes on
+    /// with ends the jump saying `No such candidate`.
+    ///
+    /// # Errors
+    ///
+    /// An [`ActionError`] when the action armed could not act, which changed nothing. The
+    /// jump ended.
+    pub fn jump_choose(&mut self, key: char) -> Result<Chose, ActionError> {
         if self.jump_follow_text() && self.jump.is_none() {
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
         }
         let Some(jump) = (self.jump.as_mut()).filter(|jump| jump.stage == Stage::Labels) else {
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
         };
         if jump.ended.is_some() {
             self.jump_refuse();
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
+        }
+        if let Some(action) = Action::of_key(key) {
+            jump.action = Some(action);
+            return Ok(Chose::Armed);
         }
         let chosen = jump.keys.index_of(key).and_then(|index| {
             let (at, label) = jump.labels_after(index).next()?;
@@ -199,17 +239,20 @@ impl Editor {
         });
         let Some((at, len, index)) = chosen else {
             self.jump_refuse();
-            return Chose::NoSuch;
+            return Ok(Chose::NoSuch);
         };
         if len > jump.typed.len() + 1 {
             jump.typed.push(index);
-            return Chose::Narrowed;
+            return Ok(Chose::Narrowed);
         }
         let candidate = jump.candidates[at].clone();
-        let kind = jump.kind;
+        let (kind, action) = (jump.kind, jump.action);
         self.jump = None;
-        self.jump_to(kind, &candidate);
-        Chose::Jumped
+        match action {
+            None => self.jump_to(kind, &candidate),
+            Some(action) => self.jump_act(kind, action, &candidate)?,
+        }
+        Ok(Chose::Jumped)
     }
 
     /// Ends a jump with nothing moved and nothing said, as a key it does not bind does.

@@ -1056,6 +1056,22 @@ pub fn oso_core::display_map::escape(char) -> core::option::Option<oso_core::dis
 pub fn oso_core::display_map::row_clusters<'a>(&'a oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint, core::option::Option<(usize, &'a oso_core::display_map::Preedit)>, bool, impl core::ops::function::FnMut(oso_core::display_map::DisplayCluster<'a>, bool) -> core::ops::control_flow::ControlFlow<()>)
 pub fn oso_core::display_map::text_clusters(&str, usize) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::display_map::DisplayCluster<'_>>
 pub mod oso_core::editor
+pub enum oso_core::editor::ActionError
+pub oso_core::editor::ActionError::Cursor(oso_core::editor::CursorError)
+pub oso_core::editor::ActionError::Edit(oso_core::buffer::EditError)
+pub oso_core::editor::ActionError::Yank(oso_core::editor::YankError)
+impl core::clone::Clone for oso_core::editor::ActionError
+pub fn oso_core::editor::ActionError::clone(&self) -> oso_core::editor::ActionError
+impl core::cmp::Eq for oso_core::editor::ActionError
+impl core::cmp::PartialEq for oso_core::editor::ActionError
+pub fn oso_core::editor::ActionError::eq(&self, &oso_core::editor::ActionError) -> bool
+impl core::error::Error for oso_core::editor::ActionError
+impl core::fmt::Debug for oso_core::editor::ActionError
+pub fn oso_core::editor::ActionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::ActionError
+pub fn oso_core::editor::ActionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ActionError
+impl core::marker::StructuralPartialEq for oso_core::editor::ActionError
 pub enum oso_core::editor::AgentChannel
 pub oso_core::editor::AgentChannel::Connected
 pub oso_core::editor::AgentChannel::Off
@@ -1087,6 +1103,7 @@ pub fn oso_core::editor::CannotResize::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::marker::Copy for oso_core::editor::CannotResize
 impl core::marker::StructuralPartialEq for oso_core::editor::CannotResize
 pub enum oso_core::editor::Chose
+pub oso_core::editor::Chose::Armed
 pub oso_core::editor::Chose::Jumped
 pub oso_core::editor::Chose::Narrowed
 pub oso_core::editor::Chose::NoSuch
@@ -1744,7 +1761,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::jump(&self) -> core::option::Option<&oso_core::jump::Jump>
 pub fn oso_core::editor::Editor::jump_add(&mut self, &str)
 pub fn oso_core::editor::Editor::jump_begin(&mut self, oso_core::jump::Kind, bool) -> bool
-pub fn oso_core::editor::Editor::jump_choose(&mut self, char) -> oso_core::editor::Chose
+pub fn oso_core::editor::Editor::jump_choose(&mut self, char) -> core::result::Result<oso_core::editor::Chose, oso_core::editor::ActionError>
 pub fn oso_core::editor::Editor::jump_delete(&mut self) -> bool
 pub fn oso_core::editor::Editor::jump_end(&mut self) -> bool
 pub fn oso_core::editor::Editor::jump_refuse(&mut self) -> bool

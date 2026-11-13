@@ -13,7 +13,7 @@ use std::fmt;
 use std::ops::Range;
 
 use super::Editor;
-use crate::buffer::{EditError, Replacement};
+use crate::buffer::{BufferId, EditError, Replacement};
 use crate::kill::{self, Direction, Fingerprint, KillEntry, Piece};
 use crate::rope::Rope;
 use crate::selection::{MarkActive, Selection};
@@ -116,8 +116,20 @@ impl Editor {
         direction: Direction,
         copy_only: bool,
     ) -> Result<(), EditError> {
-        let (window, buffer) = self.current();
-        let id = window.buffer();
+        let id = self.current().0.buffer();
+        self.kill_in(id, ranges, direction, copy_only)
+    }
+
+    /// [`Editor::kill`] in the buffer `id`, which another window than the selected one may
+    /// show, as a jump's actions kill there (ADR 0116).
+    pub(super) fn kill_in(
+        &mut self,
+        id: BufferId,
+        ranges: impl IntoIterator<Item = Range<usize>>,
+        direction: Direction,
+        copy_only: bool,
+    ) -> Result<(), EditError> {
+        let buffer = self.buffer(id).ok_or(EditError::NoSuchBuffer)?;
         let merged = kill::kill_ranges(ranges, !copy_only);
         let text = buffer.text();
         let pieces: Vec<Piece> = merged
