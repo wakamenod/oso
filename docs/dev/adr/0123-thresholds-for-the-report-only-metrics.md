@@ -66,10 +66,10 @@ The author accepted this on 2026-11-12, through the coordinator. The thresholds 
   for example 1.5 times and 1 ms for `key_p99_ms`, `type_p99_ms` and `win16_type_p99_ms`,
   2.25 times and 5.25 ms for `file_prompt_type_p99_ms` (1.5 times and 1 ms since
   [ADR 0124](0124-three-drawables.md), see As built), and 1.5 times and 17.5 ms for
-  `startup_ms`. `indent_ret_p99_ms`, not measured there yet, takes typing's. The freezes keep
-  the freeze threshold. `just perf-remote` then fails on a slowdown of about half, where the
-  macOS runner's table needed several times. CI does not change, as its runners have no
-  hardware GPU.
+  `startup_ms`. `indent_ret_p99_ms`, not measured there yet, takes typing's (measured since,
+  see As built). The freezes keep the freeze threshold. `just perf-remote` then fails on a
+  slowdown of about half, where the macOS runner's table needed several times. CI does not
+  change, as its runners have no hardware GPU.
 - **Every key's latency fails over its budget on a real GPU.** `BUDGETS` lists each gated
   key and typing 99th percentile at 8 ms. `compare.rs` holds each 99th percentile in
   `BUDGETS` to it, where it held only `key_p99_ms`. A frame's preparation,
