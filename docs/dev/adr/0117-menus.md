@@ -313,8 +313,8 @@ question under [Questions](#questions), but Q1 (d) and Q24, which the author cha
   reads a menu's name with completion over every menu (`ArgSpec::Menu`). `where-is` and the
   completion's key column show a menu's key for `open-menu`'s candidates.
 - **Limits:** 256 menus, 128 heads per menu, 8 columns per row, 3 rows, keys of 3 key presses,
-  counts up to 1,000, labels and titles of 64 cells, menu and switch names of 64 bytes in kebab
-  case. Past them an entry is refused with its line.
+  counts up to 1,000, labels and titles of 64 cells (and 512 bytes, see [As built](#as-built)),
+  menu and switch names of 64 bytes in kebab case. Past them an entry is refused with its line.
 
 ### The prefix argument (Q15)
 
@@ -438,8 +438,8 @@ The author chose (Q1 (d)) these first menus, built in as Rust tables:
   `frame::float_regions` is. `keymap` gains `Entry::Menu`, `Binding::Menu` and `Resolution::Menu`;
   `command` gains `ArgSpec::Menu`, `Command::state`, and `Ctx::switch`. A head names a `CommandId`
   and `keymap` names a `MenuId`, so in `guardrails/layers.txt` `menu` gets a line of its own between
-  `keymap` and `command`: it uses `command`, `editor`, `key` and `frame`, and only `keymap` uses it.
-  The public items are listed for the author's approval in step 1.
+  `keymap` and `command`: it uses `command`, `editor`, `key`, `frame` and `minibuffer` (for
+  `cells_of`), and only `keymap` uses it. The public items are listed for the author's approval in step 1.
 - **The open menus are the dispatcher's,** as a pending prefix argument is: the stack of
   definitions, the keymap built from each when it opens, its switches, and a prefix argument being
   typed. `Editor` does not hold them. The app reads them to draw, to ask `wants_ime`, and for the
@@ -734,6 +734,28 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
    step starts.
 
 Steps 3 to 6 follow step 2 in any order.
+
+## As built
+
+### Step 1: the model and the configuration (2026-11-13)
+
+- **Labels and titles are also capped at 512 bytes**, a change to the limits above that the
+  author chose after review, since a count of cells alone does not bound a label's bytes. One
+  over either cap is refused as a long label or title is; the bytes are checked first.
+- **`RET` is kept for the default head:** a head whose keys begin with `RET` is refused in a menu
+  that has a default head, and a head cannot be made the default while another head's keys begin
+  with `RET` (`MenuError::RetReserved`). A head on `RET` may itself be the default head.
+- **Options that do nothing warn:** `stay` on a switch, on a head that opens a menu or on one that
+  only closes it, and `count` on a switch or on a head that only closes the menu, are ignored with
+  their line, as an unknown name is. `count` on a head that opens a menu is kept: it passes the
+  count on, as a prefix argument typed before it would be.
+- **A menu's heads past 128 are not read:** the first one says the limit with its line, and it and
+  the rest of that menu's heads and groups are skipped.
+- **A column is cut a row at a time, the longest first,** so a short column in another row keeps
+  the rows the frame still has, and `… N more` is sized for the number it says.
+- `Definition`'s default head is `ret_head` (`set_ret_head`), and its default for heads that say
+  nothing is `default_stay` (`set_default_stay`). The file's names stay `default = true` and
+  `default-head`.
 
 ## The author's choices
 

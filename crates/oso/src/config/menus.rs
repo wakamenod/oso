@@ -7,10 +7,13 @@
 //! registered command, a switch, another menu, or nothing.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 use oso_core::command::Registry;
 use oso_core::key::{KeyPress, KeySequence};
-use oso_core::menu::{Definition, ForeignKeys, Head, HeadAction, MAX_KEYS, MenuId, Menus, Stay};
+use oso_core::menu::{
+    Definition, ForeignKeys, Head, HeadAction, MAX_HEADS, MAX_KEYS, MenuError, MenuId, Menus, Stay,
+};
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
@@ -69,13 +72,9 @@ pub(super) fn menus(
             ),
         }
     }
-    let defined = |name: &str| {
-        tables
-            .iter()
-            .find(|table| table.name == name)
-            .map(|table| table.id)
-            .or_else(|| menus.lookup(name))
-    };
+    // By name, so that a head naming a menu costs one look, however many tables there are.
+    let by_name: HashMap<&str, MenuId> = tables.iter().map(|t| (t.name, t.id)).collect();
+    let defined = |name: &str| by_name.get(name).copied().or_else(|| menus.lookup(name));
     let mut built = Vec::with_capacity(tables.len());
     for table in &tables {
         let mut read = Read {
@@ -147,7 +146,7 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
                 }
                 "default-head" => {
                     if let Some(rule) = self.choice(value, "default-head", &["exit", "stay"]) {
-                        definition.set_default_head(if rule == "stay" {
+                        definition.set_default_stay(if rule == "stay" {
                             Stay::Stay
                         } else {
                             Stay::Exit
@@ -205,33 +204,49 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
                 );
                 continue;
             }
-            if let Some(heads) = heads {
-                self.heads(definition, table, heads);
+            if heads.is_some_and(|heads| self.heads(definition, table, heads)) {
+                return;
             }
         }
     }
 
-    /// The heads of a group, `value`, into `definition`'s last group.
+    /// The heads of a group, `value`, into `definition`'s last group. True if the menu is full
+    /// and the rest of its heads were skipped.
     fn heads(
         &mut self,
         definition: &mut Definition,
         table: &Table<'_, '_>,
         value: &Spanned<DeValue<'_>>,
-    ) {
+    ) -> bool {
         let DeValue::Array(heads) = value.get_ref() else {
             self.found
                 .at(value.span().start, format_args!("heads is a list of heads"));
-            return;
+            return false;
         };
         for head in heads {
             let at = head.span().start;
+            // The rest of the menu's heads are not read: the definition would refuse each.
+            if definition.heads().len() == MAX_HEADS {
+                self.found.at(
+                    at,
+                    format_args!(
+                        "{}; this head and the rest are skipped",
+                        MenuError::TooManyHeads
+                    ),
+                );
+                return true;
+            }
             let Some((spelled, head, default)) = self.head(table, head) else {
                 continue;
             };
             match definition.add_head(head) {
                 Ok(index) if default => {
-                    if let Err(error) = definition.set_default(index) {
-                        self.found.about(at, spelled, format_args!("{error}"));
+                    if let Err(error) = definition.set_ret_head(index) {
+                        self.found.about(
+                            at,
+                            spelled,
+                            format_args!("{error}; it is not made the default head"),
+                        );
                     }
                 }
                 Ok(_) => {}
@@ -240,6 +255,7 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
                     .about(at, spelled, format_args!("{error}; skipped")),
             }
         }
+        false
     }
 
     /// One head, with its keys as the file spells them and whether it is the default head.
@@ -376,14 +392,22 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
             return None;
         };
         let mut default = false;
+        let (no_stay, no_count) = (ignores_stay(&head.action), ignores_count(&head.action));
         for (name, value) in options {
             let at = value.span().start;
-            match (name.get_ref().as_ref(), value.get_ref()) {
-                ("stay", DeValue::Boolean(stay)) => {
+            match (name.get_ref().as_ref(), value.get_ref(), no_stay, no_count) {
+                ("stay", DeValue::Boolean(_), Some(what), _) | ("count", _, _, Some(what)) => {
+                    self.found.about(
+                        at,
+                        spelled,
+                        format_args!("{} does nothing on {what}; ignored", name.get_ref()),
+                    );
+                }
+                ("stay", DeValue::Boolean(stay), ..) => {
                     head.stay = Some(if *stay { Stay::Stay } else { Stay::Exit });
                 }
-                ("default", DeValue::Boolean(is)) => default = *is,
-                ("count", _) => match integer(value).and_then(|n| i16::try_from(n).ok()) {
+                ("default", DeValue::Boolean(is), ..) => default = *is,
+                ("count", ..) => match integer(value).and_then(|n| i16::try_from(n).ok()) {
                     Some(count) => head.count = Some(count),
                     None => {
                         self.found.about(
@@ -394,7 +418,7 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
                         return None;
                     }
                 },
-                ("stay" | "default", other) => {
+                ("stay" | "default", other, ..) => {
                     self.found.about(
                         at,
                         spelled,
@@ -406,7 +430,7 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
                     );
                     return None;
                 }
-                (other, _) => unknown(self.found, name.span().start, other, "a head's options"),
+                (other, ..) => unknown(self.found, name.span().start, other, "a head's options"),
             }
         }
         Some(default)
@@ -443,6 +467,27 @@ impl<D: Fn(&str) -> Option<MenuId>> Read<'_, '_, D> {
             format_args!("{name} is one of {}", Choices(choices)),
         );
         None
+    }
+}
+
+/// What a head whose `stay` does nothing is, for a message: one that always stays or always exits
+/// (`Definition::stay`).
+fn ignores_stay(action: &HeadAction) -> Option<&'static str> {
+    match action {
+        HeadAction::Command(_) => None,
+        HeadAction::Switch(_) => Some("a switch, which always stays"),
+        HeadAction::Menu(_) => Some("a head that opens a menu, which always stays"),
+        HeadAction::Quit => Some("a head that only closes the menu"),
+    }
+}
+
+/// What a head whose `count` does nothing is, for a message: one that runs no command. A head
+/// that opens a menu passes its count on.
+fn ignores_count(action: &HeadAction) -> Option<&'static str> {
+    match action {
+        HeadAction::Command(_) | HeadAction::Menu(_) => None,
+        HeadAction::Switch(_) => Some("a switch"),
+        HeadAction::Quit => Some("a head that only closes the menu"),
     }
 }
 

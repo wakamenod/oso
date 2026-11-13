@@ -71,15 +71,15 @@ const QUIT: &str = "q quit";
 ///
 /// A float never comes closer than 2 columns or 1 row to an edge. Where it does not fit, it gives
 /// up its padding, then the column titles, then moves columns of a row onto a new row below,
-/// then cuts the longest columns, whose last row then says how many heads it left out. What is
-/// still too wide is cut where it is drawn.
+/// then cuts the longest columns, a row at a time and the longest first, whose last row then
+/// says how many heads it left out. What is still too wide is cut where it is drawn.
 pub fn layout(
     definition: &Definition,
     notes: &Notes,
     checks: &[Option<bool>],
     area: CellRect,
 ) -> Layout {
-    let blocks = blocks(definition, notes, checks);
+    let mut blocks = blocks(definition, notes, checks);
     let room = CellRect {
         row: area.row + EDGE_ROWS.min(area.rows / 2),
         column: area.column + EDGE_COLUMNS.min(area.columns / 2),
@@ -90,23 +90,17 @@ pub fn layout(
         line: notes.line.is_some(),
         quit: definition.quits_on_q(),
     };
-    let longest = blocks
-        .iter()
-        .map(|block| block.heads.len())
-        .max()
-        .unwrap_or(0);
-    let fits = |fit: &Fit| {
-        let (columns, rows) = fit.outer_size(&blocks, shape);
+    let fits = |fit: &Fit, blocks: &[Block<'_>]| {
+        let (columns, rows) = fit.outer_size(blocks, shape);
         columns <= room.columns && rows <= room.rows
     };
     let mut fit = Fit {
         padded: true,
         titled: true,
         lines: by_rows(&blocks),
-        limit: usize::MAX,
     };
     for stage in 0..3 {
-        if fits(&fit) {
+        if fits(&fit, &blocks) {
             break;
         }
         match stage {
@@ -115,10 +109,19 @@ pub fn layout(
             _ => fit.lines = reflowed(&blocks, &fit, room.columns),
         }
     }
-    let mut limit = longest;
-    while !fits(&fit) && limit > 1 {
-        limit -= 1;
-        fit.limit = limit;
+    // Cutting a column makes it no narrower, so only rows are cut for.
+    while fit.outer_size(&blocks, shape).1 > room.rows {
+        // The column that takes the most rows, the first of those that do.
+        let mut longest: Option<&mut Block<'_>> = None;
+        for block in &mut blocks {
+            if longest.as_ref().is_none_or(|l| block.shown() > l.shown()) {
+                longest = Some(block);
+            }
+        }
+        match longest {
+            Some(block) if block.shown() > 1 => block.limit = block.shown() - 1,
+            _ => break,
+        }
     }
     place(definition, notes, &blocks, &fit, shape, room)
 }
@@ -141,6 +144,8 @@ struct Block<'d> {
     keys: usize,
     /// The cells of its widest head's row.
     body: usize,
+    /// The most rows it takes: with more heads, it shows one fewer, and then `… N more`.
+    limit: usize,
 }
 
 /// How a float is fitted to the room it has.
@@ -149,17 +154,28 @@ struct Fit {
     titled: bool,
     /// The rows of columns, each a list of blocks, left to right.
     lines: Vec<Vec<usize>>,
-    /// The most rows a column takes: one with more heads shows one fewer, and then `… N more`.
-    limit: usize,
 }
 
 impl Block<'_> {
-    fn width(&self, fit: &Fit) -> usize {
-        let title = if fit.titled { self.title_cells } else { 0 };
-        let more = if self.heads.len() > fit.limit {
-            more_cells(self.heads.len())
+    /// The rows its heads take, `… N more` included.
+    fn shown(&self) -> usize {
+        self.heads.len().min(self.limit)
+    }
+
+    /// How many of its heads are cut: none, or all but `limit - 1`.
+    fn cut(&self) -> usize {
+        if self.heads.len() > self.limit {
+            self.heads.len() - (self.limit - 1)
         } else {
             0
+        }
+    }
+
+    fn width(&self, fit: &Fit) -> usize {
+        let title = if fit.titled { self.title_cells } else { 0 };
+        let more = match self.cut() {
+            0 => 0,
+            cut => more_cells(cut),
         };
         self.body.max(title).max(more)
     }
@@ -170,7 +186,7 @@ impl Block<'_> {
         } else {
             0
         };
-        title + self.heads.len().min(fit.limit)
+        title + self.shown()
     }
 }
 
@@ -220,11 +236,10 @@ impl Fit {
     }
 }
 
-/// The cells `… N more` may take, for a column of `heads` heads cut to show one fewer than its
-/// limit: `…`, a space, the number left out, which is at most `heads - 1`, and ` more`. Counted,
-/// not written, since a layout may measure it many times.
-fn more_cells(heads: usize) -> usize {
-    let digits = heads.saturating_sub(1).max(1).ilog10() as usize + 1;
+/// The cells `… N more` takes for `cut` heads left out: `…`, a space, the number, and ` more`.
+/// Counted, not written, since a layout may measure it many times.
+fn more_cells(cut: usize) -> usize {
+    let digits = cut.max(1).ilog10() as usize + 1;
     2 + digits + 5
 }
 
@@ -283,6 +298,7 @@ fn blocks<'d>(
             heads: shown,
             keys,
             body,
+            limit: usize::MAX,
         });
     }
     blocks
@@ -433,13 +449,8 @@ fn column(
     let titled = fit.titled && block.title.is_some();
     let title = if titled { row_at(y, x, width) } else { None };
     let first = y + if titled { 2 } else { 0 };
-    let cut = block.heads.len() > fit.limit;
-    let shown = if cut {
-        fit.limit - 1
-    } else {
-        block.heads.len()
-    };
-    let rows = block.heads[..shown]
+    let more = block.cut();
+    let rows = block.heads[..block.heads.len() - more]
         .iter()
         .enumerate()
         .filter_map(|(i, &head)| Some((head, row_at(first + i, x, width)?)))
@@ -448,7 +459,7 @@ fn column(
         title,
         keys: block.keys,
         rows,
-        more: if cut { block.heads.len() - shown } else { 0 },
+        more,
     }
 }
 

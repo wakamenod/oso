@@ -228,6 +228,53 @@ fn a_short_frame_cuts_the_longest_columns() {
     assert_eq!(layout.columns[1].more, 0);
 }
 
+/// `count` heads of keys `prefix a`, `prefix b`, …, labelled `x`.
+fn many(prefix: &str, count: u8) -> Vec<(String, String)> {
+    (0..count)
+        .map(|i| (format!("{prefix} {}", char::from(b'a' + i)), "x".to_owned()))
+        .collect()
+}
+
+fn borrowed(heads: &[(String, String)]) -> Vec<(&str, &str)> {
+    heads
+        .iter()
+        .map(|(k, l)| (k.as_str(), l.as_str()))
+        .collect()
+}
+
+#[test]
+fn a_column_cut_to_one_row_counts_all_its_heads() {
+    let heads = many("x", 10);
+    let menu = menu(&[(None, 1, &borrowed(&heads))]);
+    // 3 rows: the title, `… 10 more` and `q quit`.
+    let layout = layout(&menu, &Notes::default(), &[], area(5, 100));
+    assert_eq!(layout.inner.rows, 3);
+    let column = &layout.columns[0];
+    assert!(column.rows.is_empty());
+    assert_eq!(column.more, 10);
+    // `x a  x` is 6 cells, `Windows` 7: the column is as wide as `… 10 more`, 9 cells.
+    assert_eq!(layout.inner.columns, 9);
+}
+
+#[test]
+fn columns_are_cut_a_row_at_a_time_the_longest_first() {
+    let (long, short) = (many("x", 20), many("y", 10));
+    let menu = menu(&[(None, 1, &borrowed(&long)), (None, 2, &borrowed(&short))]);
+    // 17 rows: the title and `q quit` leave 15 for the two rows of columns, which take 30. The
+    // long one is cut to 10 first, then each in turn, the first of two as long first: 7 and 8,
+    // not 7 and 7 under one limit for both.
+    let layout = layout(&menu, &Notes::default(), &[], area(19, 100));
+    assert_eq!(layout.inner.rows, 17);
+    let (long, short) = (&layout.columns[0], &layout.columns[1]);
+    assert_eq!((long.rows.len(), long.more), (6, 14));
+    assert_eq!((short.rows.len(), short.more), (7, 3));
+    // Where the long one alone is too tall, only it is cut.
+    let layout = super::layout(&menu, &Notes::default(), &[], area(26, 100));
+    let (long, short) = (&layout.columns[0], &layout.columns[1]);
+    assert_eq!((long.rows.len(), long.more), (11, 9));
+    assert_eq!((short.rows.len(), short.more), (10, 0));
+}
+
 /// Every part of `layout` is inside `inner`, and no two rows overlap.
 fn well_placed(layout: &Layout) -> Result<(), TestCaseError> {
     let inner = layout.inner;

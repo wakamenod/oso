@@ -90,7 +90,7 @@ fn a_file_adds_menus_with_their_groups_heads_and_rules() {
     let windows = menu(&loaded, "windows");
     assert_eq!(windows.title(), "Windows");
     assert_eq!(windows.foreign_keys(), ForeignKeys::Run);
-    assert_eq!(windows.default_head(), Stay::Stay);
+    assert_eq!(windows.default_stay(), Stay::Stay);
     assert_eq!(
         heads(windows),
         [
@@ -115,7 +115,7 @@ fn a_file_adds_menus_with_their_groups_heads_and_rules() {
     let narrower = &windows.heads()[0];
     assert_eq!((narrower.stay, narrower.count), (Some(Stay::Stay), Some(3)));
     assert_eq!(windows.stay(1), Stay::Exit);
-    assert_eq!(windows.default(), Some(2));
+    assert_eq!(windows.ret_head(), Some(2));
     // A head can name a menu the file defines after it.
     let more = menus(&loaded).lookup("more").unwrap();
     assert_eq!(windows.heads()[3].action, HeadAction::Menu(more));
@@ -210,7 +210,7 @@ heads = [["l", "forward-char", "x"]]
         "15:32: unknown name \"colour\" in a head's options, skipped",
         "16:3: a head is [keys, action, label], with an optional table of stay, count and default",
         "17:9: \"h\": a head's action is a command's name, { menu = \"name\" }, { switch = \"name\" }, or false to only close the menu",
-        "18:3: \"i\": a label takes at most 64 cells; skipped",
+        "18:3: \"i\": a label takes at most 64 cells and 512 bytes; skipped",
         "19:3: \"j\": a switch's name must be lower-case kebab case, such as \"windows\", of at most 64 bytes; skipped",
         "20:3: \"<nokey>\": \"<nokey>\" is not a key; write keys as Emacs does, such as C-x, M-<f5> or SPC",
         "23:1: a group's row is 1 to 3; the group is skipped",
@@ -222,6 +222,97 @@ heads = [["l", "forward-char", "x"]]
     assert_eq!(heads(m), [("f".to_owned(), "x"), ("k".to_owned(), "fine")]);
     assert_eq!(m.groups().len(), 1);
     assert_eq!(m.foreign_keys(), ForeignKeys::Warn);
+}
+
+#[test]
+fn options_that_do_nothing_warn_and_the_head_loads() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        r#"
+[menus.m]
+[menus.n]
+[[menus.m.groups]]
+heads = [
+  ["a", { switch = "files" }, "x", { stay = false, count = 2 }],
+  ["b", false, "x", { stay = true, count = 2 }],
+  ["c", { menu = "n" }, "x", { stay = false, count = 2 }],
+  ["d", "forward-char", "x", { stay = true, count = 2 }],
+]
+"#,
+    );
+    let said = messages(&loaded);
+    let expected = [
+        "6:45: \"a\": stay does nothing on a switch, which always stays; ignored",
+        "6:60: \"a\": count does nothing on a switch; ignored",
+        "7:30: \"b\": stay does nothing on a head that only closes the menu; ignored",
+        "7:44: \"b\": count does nothing on a head that only closes the menu; ignored",
+        "8:39: \"c\": stay does nothing on a head that opens a menu, which always stays; ignored",
+    ];
+    assert_eq!(said, expected);
+    let m = menu(&loaded, "m");
+    assert_eq!(m.heads().len(), 4);
+    assert_eq!(m.heads()[0].count, None);
+    assert_eq!(m.heads()[2].count, Some(2));
+    assert_eq!(m.heads()[3].stay, Some(Stay::Stay));
+}
+
+#[test]
+fn ret_is_refused_beside_a_default_head_either_way() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        r#"
+[menus.m]
+[[menus.m.groups]]
+heads = [
+  ["a", "forward-char", "x", { default = true }],
+  ["RET", "forward-char", "x"],
+]
+[menus.n]
+[[menus.n.groups]]
+heads = [
+  ["RET", "forward-char", "x"],
+  ["a", "forward-char", "x", { default = true }],
+]
+"#,
+    );
+    let said = messages(&loaded);
+    let ret = "RET runs the menu's default head, so no other head's keys may begin with it";
+    assert_eq!(
+        said,
+        [
+            format!("6:3: \"RET\": {ret}; skipped"),
+            format!("12:3: \"a\": {ret}; it is not made the default head"),
+        ]
+    );
+    assert_eq!(menu(&loaded, "m").ret_head(), Some(0));
+    assert_eq!(heads(menu(&loaded, "m")).len(), 1);
+    assert_eq!(menu(&loaded, "n").ret_head(), None);
+    assert_eq!(heads(menu(&loaded, "n")).len(), 2);
+}
+
+#[test]
+fn heads_past_the_limit_are_skipped_with_one_message() {
+    let f = Fixture::new();
+    // 130 heads of two keys each, then a group of one more.
+    let mut text = String::from("[menus.m]\n[[menus.m.groups]]\nheads = [\n");
+    let letters = "abcdefghijklmnoprstuvwxyz";
+    let mut n = 0;
+    'all: for a in letters.chars() {
+        for b in letters.chars() {
+            if n == 130 {
+                break 'all;
+            }
+            text.push_str(&format!("  [\"{a} {b}\", \"forward-char\", \"x\"],\n"));
+            n += 1;
+        }
+    }
+    text.push_str("]\n[[menus.m.groups]]\nheads = [[\"Z\", \"forward-char\", \"x\"]]\n");
+    let loaded = f.parse(&text);
+    assert_eq!(
+        messages(&loaded),
+        ["132:3: a menu has at most 128 heads; this head and the rest are skipped"]
+    );
+    assert_eq!(menu(&loaded, "m").heads().len(), 128);
 }
 
 #[test]

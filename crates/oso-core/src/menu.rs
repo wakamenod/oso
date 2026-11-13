@@ -51,6 +51,10 @@ pub const MAX_COUNT: i16 = 1_000;
 /// The most cells in a label or a title.
 pub const MAX_LABEL_CELLS: usize = 64;
 
+/// The most bytes in a label or a title, so that one of zero-width characters within
+/// [`MAX_LABEL_CELLS`] stays short too.
+const MAX_LABEL_BYTES: usize = 512;
+
 /// The most bytes in a menu's or a switch's name.
 pub const MAX_NAME_BYTES: usize = 64;
 
@@ -101,7 +105,7 @@ pub enum HeadAction {
 pub struct Head {
     /// The keys that run it: 1 to [`MAX_KEYS`].
     pub keys: KeySequence,
-    /// What the float says for it: at most [`MAX_LABEL_CELLS`] cells.
+    /// What the float says for it: at most [`MAX_LABEL_CELLS`] cells and 512 bytes.
     pub label: String,
     /// What it does.
     pub action: HeadAction,

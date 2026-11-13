@@ -7,13 +7,23 @@ use std::fmt;
 
 use super::{
     Describe, ForeignKeys, Group, Head, HeadAction, Lookup, MAX_COLUMNS, MAX_COUNT, MAX_HEADS,
-    MAX_KEYS, MAX_LABEL_CELLS, MAX_ROWS, MenuError, Stay, builds_prefix, is_cancel, is_name,
+    MAX_KEYS, MAX_LABEL_BYTES, MAX_LABEL_CELLS, MAX_ROWS, MenuError, Stay, builds_prefix,
+    is_cancel, is_name,
 };
-use crate::key::{Key, KeyPress};
+use crate::key::{Key, KeyPress, NamedKey};
 use crate::minibuffer::cells_of;
 
 /// `q`, which closes a menu where no head binds it.
 const QUIT: KeyPress = KeyPress::plain(Key::Char('q'));
+
+/// `RET`, which runs a menu's head for it where the menu names one.
+const RET: KeyPress = KeyPress::plain(Key::Named(NamedKey::Return));
+
+/// Whether `text` fits a label or a title: at most 512 bytes, checked first so that a long text
+/// is never segmented, and at most 64 cells.
+fn fits_label(text: &str) -> bool {
+    text.len() <= MAX_LABEL_BYTES && cells_of(text) <= MAX_LABEL_CELLS
+}
 
 /// A menu: its name, title, rules, groups and heads.
 #[derive(Clone)]
@@ -21,8 +31,8 @@ pub struct Definition {
     name: String,
     title: String,
     foreign_keys: ForeignKeys,
-    default_head: Stay,
-    default: Option<usize>,
+    default_stay: Stay,
+    ret_head: Option<usize>,
     describe: Option<Describe>,
     groups: Vec<Group>,
     heads: Vec<Head>,
@@ -30,21 +40,21 @@ pub struct Definition {
 
 impl Definition {
     /// An empty menu named `name`, which must be lower-case kebab case of at most 64 bytes,
-    /// under `title`, of at most 64 cells. Its heads exit and it refuses foreign keys until set
+    /// under `title`, of at most 64 cells and 512 bytes. Its heads exit and it refuses foreign keys until set
     /// otherwise.
     pub fn new(name: &str, title: &str) -> Result<Self, MenuError> {
         if !is_name(name) {
             return Err(MenuError::BadName);
         }
-        if cells_of(title) > MAX_LABEL_CELLS {
+        if !fits_label(title) {
             return Err(MenuError::LongTitle);
         }
         Ok(Self {
             name: name.to_owned(),
             title: title.to_owned(),
             foreign_keys: ForeignKeys::default(),
-            default_head: Stay::default(),
-            default: None,
+            default_stay: Stay::default(),
+            ret_head: None,
             describe: None,
             groups: Vec::new(),
             heads: Vec::new(),
@@ -57,8 +67,8 @@ impl Definition {
     }
 
     /// What a head that says nothing does: exit, or stay.
-    pub fn set_default_head(&mut self, stay: Stay) {
-        self.default_head = stay;
+    pub fn set_default_stay(&mut self, stay: Stay) {
+        self.default_stay = stay;
     }
 
     /// The function that gives notes as it is drawn, for a built-in menu.
@@ -66,13 +76,13 @@ impl Definition {
         self.describe = Some(describe);
     }
 
-    /// Starts a group, in row `row` (1 to 3), with an optional title of at most 64 cells. The
-    /// heads added next go in it.
+    /// Starts a group, in row `row` (1 to 3), with an optional title of at most 64 cells and 512
+    /// bytes. The heads added next go in it.
     pub fn add_group(&mut self, title: Option<&str>, row: u8) -> Result<(), MenuError> {
         if !(1..=MAX_ROWS).contains(&row) {
             return Err(MenuError::BadRow);
         }
-        if title.is_some_and(|title| cells_of(title) > MAX_LABEL_CELLS) {
+        if title.is_some_and(|title| !fits_label(title)) {
             return Err(MenuError::LongTitle);
         }
         if self.groups.iter().filter(|group| group.row == row).count() == MAX_COLUMNS {
@@ -89,7 +99,8 @@ impl Definition {
 
     /// Adds `head` to the last group, and returns its index. Refused if it breaks a limit, if
     /// its keys include `C-g`, `C-u`, `M-<digit>` or `M--`, if another head has the same keys or
-    /// keys one begins the other's, or if another head flips the same switch.
+    /// keys one begins the other's, if another head flips the same switch, or if its keys begin
+    /// with `RET` and another head is the one `RET` runs.
     pub fn add_head(&mut self, head: Head) -> Result<usize, MenuError> {
         if self.groups.is_empty() {
             return Err(MenuError::NoGroup);
@@ -121,7 +132,7 @@ impl Definition {
         if keys.iter().copied().any(builds_prefix) {
             return Err(MenuError::ReservedKey);
         }
-        if cells_of(&head.label) > MAX_LABEL_CELLS {
+        if !fits_label(&head.label) {
             return Err(MenuError::LongLabel);
         }
         if head
@@ -129,6 +140,9 @@ impl Definition {
             .is_some_and(|count| count.unsigned_abs() > MAX_COUNT.unsigned_abs())
         {
             return Err(MenuError::BadCount);
+        }
+        if keys.first() == Some(&RET) && self.ret_head.is_some() {
+            return Err(MenuError::RetReserved);
         }
         for other in &self.heads {
             let theirs = &other.keys.0;
@@ -152,14 +166,20 @@ impl Definition {
     }
 
     /// Makes `head` the one `RET` runs. A describe function may name another as it draws.
-    pub fn set_default(&mut self, head: usize) -> Result<(), MenuError> {
+    /// Refused if another head's keys begin with `RET`, which would never reach it.
+    pub fn set_ret_head(&mut self, head: usize) -> Result<(), MenuError> {
         if head >= self.heads.len() {
             return Err(MenuError::NoSuchHead);
         }
-        if self.default.is_some() {
+        if self.ret_head.is_some() {
             return Err(MenuError::DefaultTwice);
         }
-        self.default = Some(head);
+        let on_ret =
+            |(index, other): (usize, &Head)| index != head && other.keys.0.first() == Some(&RET);
+        if self.heads.iter().enumerate().any(on_ret) {
+            return Err(MenuError::RetReserved);
+        }
+        self.ret_head = Some(head);
         Ok(())
     }
 
@@ -179,13 +199,13 @@ impl Definition {
     }
 
     /// What a head that says nothing does.
-    pub fn default_head(&self) -> Stay {
-        self.default_head
+    pub fn default_stay(&self) -> Stay {
+        self.default_stay
     }
 
     /// The head `RET` runs, unless a describe function names another.
-    pub fn default(&self) -> Option<usize> {
-        self.default
+    pub fn ret_head(&self) -> Option<usize> {
+        self.ret_head
     }
 
     /// The function that gives notes as it is drawn, for a built-in menu that has one.
@@ -213,7 +233,7 @@ impl Definition {
         match head.action {
             HeadAction::Switch(_) | HeadAction::Menu(_) => Stay::Stay,
             HeadAction::Quit => Stay::Exit,
-            HeadAction::Command(_) => head.stay.unwrap_or(self.default_head),
+            HeadAction::Command(_) => head.stay.unwrap_or(self.default_stay),
         }
     }
 
@@ -255,8 +275,8 @@ impl fmt::Debug for Definition {
             .field("name", &self.name)
             .field("title", &self.title)
             .field("foreign_keys", &self.foreign_keys)
-            .field("default_head", &self.default_head)
-            .field("default", &self.default)
+            .field("default_stay", &self.default_stay)
+            .field("ret_head", &self.ret_head)
             .field("describe", &self.describe.is_some())
             .field("groups", &self.groups)
             .field("heads", &self.heads)

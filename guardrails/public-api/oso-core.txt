@@ -3181,6 +3181,7 @@ pub oso_core::menu::MenuError::NoGroup
 pub oso_core::menu::MenuError::NoKeys
 pub oso_core::menu::MenuError::NoSuchHead
 pub oso_core::menu::MenuError::ReservedKey
+pub oso_core::menu::MenuError::RetReserved
 pub oso_core::menu::MenuError::SwitchUsedTwice
 pub oso_core::menu::MenuError::TooManyColumns
 pub oso_core::menu::MenuError::TooManyHeads
@@ -3229,8 +3230,7 @@ pub struct oso_core::menu::Definition
 impl oso_core::menu::Definition
 pub fn oso_core::menu::Definition::add_group(&mut self, core::option::Option<&str>, u8) -> core::result::Result<(), oso_core::menu::MenuError>
 pub fn oso_core::menu::Definition::add_head(&mut self, oso_core::menu::Head) -> core::result::Result<usize, oso_core::menu::MenuError>
-pub fn oso_core::menu::Definition::default(&self) -> core::option::Option<usize>
-pub fn oso_core::menu::Definition::default_head(&self) -> oso_core::menu::Stay
+pub fn oso_core::menu::Definition::default_stay(&self) -> oso_core::menu::Stay
 pub fn oso_core::menu::Definition::describe(&self) -> core::option::Option<oso_core::menu::Describe>
 pub fn oso_core::menu::Definition::foreign_keys(&self) -> oso_core::menu::ForeignKeys
 pub fn oso_core::menu::Definition::groups(&self) -> &[oso_core::menu::Group]
@@ -3239,10 +3239,11 @@ pub fn oso_core::menu::Definition::lookup(&self, &[oso_core::key::KeyPress]) -> 
 pub fn oso_core::menu::Definition::name(&self) -> &str
 pub fn oso_core::menu::Definition::new(&str, &str) -> core::result::Result<Self, oso_core::menu::MenuError>
 pub fn oso_core::menu::Definition::quits_on_q(&self) -> bool
-pub fn oso_core::menu::Definition::set_default(&mut self, usize) -> core::result::Result<(), oso_core::menu::MenuError>
-pub fn oso_core::menu::Definition::set_default_head(&mut self, oso_core::menu::Stay)
+pub fn oso_core::menu::Definition::ret_head(&self) -> core::option::Option<usize>
+pub fn oso_core::menu::Definition::set_default_stay(&mut self, oso_core::menu::Stay)
 pub fn oso_core::menu::Definition::set_describe(&mut self, oso_core::menu::Describe)
 pub fn oso_core::menu::Definition::set_foreign_keys(&mut self, oso_core::menu::ForeignKeys)
+pub fn oso_core::menu::Definition::set_ret_head(&mut self, usize) -> core::result::Result<(), oso_core::menu::MenuError>
 pub fn oso_core::menu::Definition::stay(&self, usize) -> oso_core::menu::Stay
 pub fn oso_core::menu::Definition::title(&self) -> &str
 impl core::clone::Clone for oso_core::menu::Definition

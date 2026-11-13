@@ -5,7 +5,10 @@
 
 use std::fmt;
 
-use super::{MAX_COLUMNS, MAX_COUNT, MAX_HEADS, MAX_KEYS, MAX_LABEL_CELLS, MAX_MENUS, MAX_ROWS};
+use super::{
+    MAX_COLUMNS, MAX_COUNT, MAX_HEADS, MAX_KEYS, MAX_LABEL_BYTES, MAX_LABEL_CELLS, MAX_MENUS,
+    MAX_ROWS,
+};
 
 /// Why [`Definition`](super::Definition) or [`Menus`](super::Menus) refused something. Each one
 /// leaves what it was given to unchanged.
@@ -13,9 +16,9 @@ use super::{MAX_COLUMNS, MAX_COUNT, MAX_HEADS, MAX_KEYS, MAX_LABEL_CELLS, MAX_ME
 pub enum MenuError {
     /// A menu's name is not lower-case kebab case of at most 64 bytes.
     BadName,
-    /// A title is over 64 cells.
+    /// A title is over 64 cells or 512 bytes.
     LongTitle,
-    /// A label is over 64 cells.
+    /// A label is over 64 cells or 512 bytes.
     LongLabel,
     /// A group's row is not 1 to 3.
     BadRow,
@@ -48,6 +51,8 @@ pub enum MenuError {
     NoSuchHead,
     /// The menu already has a default head.
     DefaultTwice,
+    /// A head's keys begin with `RET` while another head is the one `RET` runs.
+    RetReserved,
     /// The set already has 256 menus.
     TooManyMenus,
     /// A menu of this name is already defined.
@@ -61,8 +66,14 @@ impl fmt::Display for MenuError {
         let names = "lower-case kebab case, such as \"windows\", of at most 64 bytes";
         match self {
             Self::BadName => write!(f, "a menu's name must be {names}"),
-            Self::LongTitle => write!(f, "a title takes at most {MAX_LABEL_CELLS} cells"),
-            Self::LongLabel => write!(f, "a label takes at most {MAX_LABEL_CELLS} cells"),
+            Self::LongTitle => write!(
+                f,
+                "a title takes at most {MAX_LABEL_CELLS} cells and {MAX_LABEL_BYTES} bytes"
+            ),
+            Self::LongLabel => write!(
+                f,
+                "a label takes at most {MAX_LABEL_CELLS} cells and {MAX_LABEL_BYTES} bytes"
+            ),
             Self::BadRow => write!(f, "a group's row is 1 to {MAX_ROWS}"),
             Self::TooManyColumns => write!(f, "a row has at most {MAX_COLUMNS} groups"),
             Self::TooManyHeads => write!(f, "a menu has at most {MAX_HEADS} heads"),
@@ -81,6 +92,10 @@ impl fmt::Display for MenuError {
             Self::SwitchUsedTwice => write!(f, "another head of this menu flips this switch"),
             Self::NoSuchHead => write!(f, "the menu has no such head"),
             Self::DefaultTwice => write!(f, "the menu already has a default head"),
+            Self::RetReserved => write!(
+                f,
+                "RET runs the menu's default head, so no other head's keys may begin with it"
+            ),
             Self::TooManyMenus => write!(f, "there are at most {MAX_MENUS} menus"),
             Self::NameTaken => write!(f, "a menu of this name is already defined"),
             Self::WrongName => write!(f, "the definition's name is not its id's"),

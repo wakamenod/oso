@@ -49,6 +49,14 @@ fn run(spelled: &str) -> Head {
     head(spelled, HeadAction::Command(command()))
 }
 
+/// 64 cells of `e`, each with `marks` combining marks: 64 cells in `1 + 2 * marks` bytes each.
+fn marked(marks: usize) -> String {
+    let cluster: String = std::iter::once('e')
+        .chain(('\u{301}'..).take(marks))
+        .collect();
+    cluster.repeat(64)
+}
+
 fn menu() -> Definition {
     let mut menu = Definition::new("windows", "Windows").unwrap();
     menu.add_group(Some("Size"), 1).unwrap();
@@ -56,7 +64,7 @@ fn menu() -> Definition {
 }
 
 #[test]
-fn a_menu_is_named_in_kebab_case_and_titled_in_64_cells() {
+fn a_menu_is_named_in_kebab_case_and_titled_in_64_cells_and_512_bytes() {
     assert!(Definition::new("windows-and-buffers", "Windows").is_ok());
     for bad in [
         "",
@@ -84,6 +92,16 @@ fn a_menu_is_named_in_kebab_case_and_titled_in_64_cells() {
         Definition::new("w", &"窓".repeat(33)).unwrap_err(),
         MenuError::LongTitle
     );
+    // Bytes too: 64 clusters of a letter and its marks take 64 cells, however many bytes.
+    let (short, long) = (marked(3), marked(4));
+    assert_eq!((short.len(), long.len()), (448, 576));
+    assert!(Definition::new("w", &short).is_ok());
+    assert_eq!(
+        Definition::new("w", &long).unwrap_err(),
+        MenuError::LongTitle
+    );
+    let mut menu = Definition::new("w", "T").unwrap();
+    assert_eq!(menu.add_group(Some(&long), 1), Err(MenuError::LongTitle));
 }
 
 #[test]
@@ -173,6 +191,11 @@ fn labels_counts_and_switches_have_limits() {
         ..run("a")
     };
     assert_eq!(menu.add_head(long), Err(MenuError::LongLabel));
+    let marks = Head {
+        label: marked(4),
+        ..run("a")
+    };
+    assert_eq!(menu.add_head(marks), Err(MenuError::LongLabel));
     for (count, ok) in [
         (1000, true),
         (-1000, true),
@@ -233,7 +256,7 @@ fn heads_exit_by_default_and_a_menu_or_a_head_may_say_stay() {
         [0, 1, 2, 3, 99].map(|i| menu.stay(i)),
         [Stay::Stay, Stay::Exit, Stay::Stay, Stay::Exit, Stay::Exit]
     );
-    menu.set_default_head(Stay::Stay);
+    menu.set_default_stay(Stay::Stay);
     let exits = Head {
         stay: Some(Stay::Exit),
         ..run("c")
@@ -243,7 +266,7 @@ fn heads_exit_by_default_and_a_menu_or_a_head_may_say_stay() {
         [0, 1, 5].map(|i| menu.stay(i)),
         [Stay::Stay, Stay::Stay, Stay::Exit]
     );
-    assert_eq!(menu.default_head(), Stay::Stay);
+    assert_eq!(menu.default_stay(), Stay::Stay);
     assert_eq!(menu.foreign_keys(), ForeignKeys::Warn);
     menu.set_foreign_keys(ForeignKeys::Run);
     assert_eq!(menu.foreign_keys(), ForeignKeys::Run);
@@ -271,15 +294,34 @@ fn keys_look_up_heads_sequences_and_q() {
 }
 
 #[test]
-fn a_menu_names_one_default_head() {
+fn a_menu_names_one_ret_head() {
     let mut menu = menu();
     menu.add_head(run("a")).unwrap();
     menu.add_head(run("b")).unwrap();
-    assert_eq!(menu.default(), None);
-    assert_eq!(menu.set_default(2), Err(MenuError::NoSuchHead));
-    assert_eq!(menu.set_default(1), Ok(()));
-    assert_eq!(menu.set_default(0), Err(MenuError::DefaultTwice));
-    assert_eq!(menu.default(), Some(1));
+    assert_eq!(menu.ret_head(), None);
+    assert_eq!(menu.set_ret_head(2), Err(MenuError::NoSuchHead));
+    assert_eq!(menu.set_ret_head(1), Ok(()));
+    assert_eq!(menu.set_ret_head(0), Err(MenuError::DefaultTwice));
+    assert_eq!(menu.ret_head(), Some(1));
+}
+
+#[test]
+fn ret_is_reserved_for_the_ret_head() {
+    // A head on RET, or beginning with it, while another is the RET head.
+    let mut menu = menu();
+    menu.add_head(run("a")).unwrap();
+    menu.set_ret_head(0).unwrap();
+    assert_eq!(menu.add_head(run("RET")), Err(MenuError::RetReserved));
+    assert_eq!(menu.add_head(run("RET x")), Err(MenuError::RetReserved));
+    assert!(menu.add_head(run("x RET")).is_ok());
+    // And the other way: no RET head while another head is on RET.
+    let mut menu = self::menu();
+    menu.add_head(run("RET")).unwrap();
+    menu.add_head(run("b")).unwrap();
+    assert_eq!(menu.set_ret_head(1), Err(MenuError::RetReserved));
+    assert_eq!(menu.ret_head(), None);
+    // The head on RET may itself be the RET head.
+    assert_eq!(menu.set_ret_head(0), Ok(()));
 }
 
 #[test]
@@ -409,6 +451,8 @@ fn errors_read_as_sentences() {
         MenuError::Cancel,
         MenuError::BadCount,
         MenuError::TooManyMenus,
+        MenuError::RetReserved,
+        MenuError::LongLabel,
     ] {
         let message = error.to_string();
         assert!(!message.ends_with('.'), "{message}");
@@ -416,5 +460,9 @@ fn errors_read_as_sentences() {
     assert_eq!(
         MenuError::BadCount.to_string(),
         "a count is at most 1000 either way"
+    );
+    assert_eq!(
+        MenuError::LongLabel.to_string(),
+        "a label takes at most 64 cells and 512 bytes"
     );
 }
