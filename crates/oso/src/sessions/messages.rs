@@ -3,7 +3,7 @@
 //! sender's name in it, so that the session's row says who wrote and `session-follow-message`
 //! shows that session.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; rows in, names out.
+//! Must not depend on: `app`, `dispatch` or `config`; rows in, names out.
 //!
 //! The line is screen text, which any program in the terminal could print: a sender found is
 //! a pointer to a session for the person, never proof of who wrote, and it authorises nothing.

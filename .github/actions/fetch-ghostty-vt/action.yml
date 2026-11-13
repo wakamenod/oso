@@ -1,0 +1,58 @@
+name: Fetch libghostty-vt
+description: >-
+  The libghostty-vt release crates/oso-term/ghostty-vt.lock pins, for oso-term's build script
+  (ADR 0120): from the actions cache, or fetched by `just ghostty-vt`, which checks each
+  tarball's minisign signature and sha256. The build script checks the sha256 again, so a
+  cached tarball cannot be another file. Needs just on the PATH; Windows needs none of it.
+
+runs:
+  using: composite
+  steps:
+    - name: Choose the cache
+      id: pick
+      shell: bash
+      run: echo "dir=$RUNNER_TEMP/oso-vendor" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the tarballs
+      id: cache
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: ${{ steps.pick.outputs.dir }}
+        key: ghostty-vt-${{ hashFiles('crates/oso-term/ghostty-vt.lock') }}
+
+    - name: Install minisign
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = macOS ]; then
+          brew install minisign
+        else
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign
+        fi
+
+    - name: Fetch and check the tarballs
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        OSO_VENDOR_DIR: ${{ steps.pick.outputs.dir }}
+      run: |
+        for attempt in 1 2 3; do
+          if just ghostty-vt; then exit 0; fi
+          echo "::warning::fetch $attempt of 3 failed"
+          sleep $((attempt * 20))
+        done
+        exit 1
+
+    - name: Save the tarballs
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v6.1.0
+      with:
+        path: ${{ steps.pick.outputs.dir }}
+        key: ghostty-vt-${{ hashFiles('crates/oso-term/ghostty-vt.lock') }}
+
+    - name: Point the build at them
+      shell: bash
+      env:
+        DIR: ${{ steps.pick.outputs.dir }}
+      run: echo "OSO_VENDOR_DIR=$DIR" >> "$GITHUB_ENV"

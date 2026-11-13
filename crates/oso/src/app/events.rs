@@ -24,6 +24,16 @@ fn keeps_state_true(event: &Event<'_>) -> bool {
     )
 }
 
+/// Whether the window has the keyboard's focus after `event`, if it says: kept also while
+/// leaving, as a leave can be taken back and a terminal's program is told (ADR 0120).
+fn focus_after(event: &Event<'_>) -> Option<bool> {
+    match event {
+        Event::Focused => Some(true),
+        Event::Unfocused => Some(false),
+        _ => None,
+    }
+}
+
 impl App {
     /// What follows every event, before the next is read: the input method's part, then the
     /// agent channel's (ADR 0069, ADR 0085).
@@ -31,6 +41,10 @@ impl App {
         self.sync_ime_after_event(event_loop);
         self.sync_agent();
         self.sync_sessions();
+        self.sync_reviews();
+        self.sync_terminals();
+        // Once for all the changes the event made to the sessions (ADR 0121).
+        self.save_sessions();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
     }
@@ -74,6 +88,10 @@ impl App {
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
+            UserEvent::SessionChanges(key, changed) => self.session_changes(key, changed),
+            UserEvent::Review(event) => self.review_reported(event),
+            UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
+            UserEvent::TerminalStarted(started) => self.terminal_started(*started),
             // `after_event` looks at the deadlines.
             UserEvent::AgentDeadline => {}
         }
@@ -95,6 +113,9 @@ impl App {
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.
         self.start_searches();
+        // A prompt closed outside a command, as an agent's question, may have uncovered a
+        // project's search that looks again with a new dictionary (ADR 0116).
+        self.start_project_search();
         // `!` replaces a slice a turn, an undo of a large step goes on (ADR 0119), and a
         // keyboard macro replays a little (ADR 0113).
         self.run_slices(event_loop);
@@ -108,6 +129,8 @@ impl App {
         self.start_preview_read();
         // A list built here after a listing ends a wait with no report.
         self.run_held_completion(event_loop);
+        self.take_hidden_snapshots();
+        self.sessions_due();
         self.ask_for_a_frame_if_status_changed();
         self.draw_flash_if_due();
         self.show_jump_labels_if_due();
@@ -119,6 +142,9 @@ impl App {
     /// An event from the window.
     pub(super) fn handle_window_event(&mut self, event_loop: &Loop<'_>, event: Event<'_>) {
         self.begin_logging();
+        if let Some(focused) = focus_after(&event) {
+            self.terminals.focused = focused;
+        }
         // An exit only sets a flag, and the loop still delivers what is queued. Input
         // handled now, by any path, would be lost with the process. But a leave can be
         // taken back, so what the window's state depends on still counts.
@@ -144,6 +170,9 @@ impl App {
                 self.window_focused();
                 self.look_at_configuration_again();
             }
+
+            // ---- Elsewhere: kept above, for a terminal's program that asks (ADR 0120) ----
+            Event::Unfocused => {}
 
             // ---- Redraw ----
             Event::RedrawRequested => self.draw_frame(),
@@ -190,6 +219,8 @@ impl App {
             self.reload_deadline(),
             self.quiet_walk_deadline(),
             self.slice_deadline(),
+            self.hidden_terminals_deadline(),
+            self.sessions_deadline(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),
@@ -200,7 +231,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{earliest, keeps_state_true};
+    use super::{earliest, focus_after, keeps_state_true};
     use oso_platform::window::{Event, Held};
 
     #[test]
@@ -213,7 +244,18 @@ mod tests {
         assert!(keeps_state_true(&Event::ScaleFactorChanged(2.0)));
         assert!(!keeps_state_true(&Event::RedrawRequested));
         assert!(!keeps_state_true(&Event::CloseRequested));
-        assert!(!keeps_state_true(&Event::Other), "focus, among others");
+        assert!(!keeps_state_true(&Event::Other));
+        assert!(
+            !keeps_state_true(&Event::Focused),
+            "kept by `focus_after` instead"
+        );
+    }
+
+    #[test]
+    fn focus_is_kept_whether_leaving_or_not() {
+        assert_eq!(focus_after(&Event::Focused), Some(true));
+        assert_eq!(focus_after(&Event::Unfocused), Some(false));
+        assert_eq!(focus_after(&Event::RedrawRequested), None);
     }
 
     #[test]

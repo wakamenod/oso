@@ -10,14 +10,14 @@
 //! selected last, and select it: a split, a resize, `C-x 1` and showing a buffer, so that what
 //! a command shows never lands in the side window. `C-x 0` in it hides it.
 
-use super::Editor;
 use crate::buffer::BufferId;
+use crate::editor::Editor;
 use crate::frame::SideColumns;
 use crate::window::WindowId;
 
 /// The side window: which window it is, and how wide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct SideWindow {
+pub(in crate::editor) struct SideWindow {
     id: WindowId,
     columns: usize,
 }
@@ -78,7 +78,7 @@ impl Editor {
     }
 
     /// What the frame lays out at its left.
-    pub(super) fn side_columns(&self) -> Option<SideColumns> {
+    pub(in crate::editor) fn side_columns(&self) -> Option<SideColumns> {
         self.sessions.side.map(|side| SideColumns {
             window: side.id,
             columns: side.columns,
@@ -86,18 +86,18 @@ impl Editor {
     }
 
     /// Whether `id` is a tiled window: one of the tree's, or the side window.
-    pub(super) fn is_tiled_id(&self, id: WindowId) -> bool {
+    pub(in crate::editor) fn is_tiled_id(&self, id: WindowId) -> bool {
         self.splits.contains(id) || self.side_window() == Some(id)
     }
 
     /// Whether the side window is the selected tiled window, or the one beneath the prompts.
-    pub(super) fn side_selected(&self) -> bool {
+    pub(in crate::editor) fn side_selected(&self) -> bool {
         self.side_window().is_some_and(|id| id == self.tiled_id())
     }
 
     /// The tree's window the tree's commands act on: the selected tiled window, or, while the
     /// side window is, the tree's window selected last.
-    pub(super) fn tree_id(&self) -> WindowId {
+    pub(in crate::editor) fn tree_id(&self) -> WindowId {
         if !self.side_selected() {
             return self.tiled_id();
         }
@@ -108,17 +108,24 @@ impl Editor {
     }
 
     /// The position of [`Editor::tree_id`]'s window in [`Editor::windows`].
-    pub(super) fn tree_index(&self) -> usize {
+    pub(in crate::editor) fn tree_index(&self) -> usize {
         self.window_index(self.tree_id())
             .unwrap_or_else(|| self.tiled_index())
     }
 
     /// Selects the tree's window selected last while the side window is selected, as the
     /// tree's commands do before they act.
-    pub(super) fn leave_side(&mut self) {
+    pub(in crate::editor) fn leave_side(&mut self) {
         if self.side_selected() {
             self.make_tiled(self.tree_id());
         }
+    }
+
+    /// The position of the tree's window [`Editor::leave_side`] selects, which it then selects.
+    pub(in crate::editor) fn leave_side_at(&mut self) -> usize {
+        let index = self.tree_index();
+        self.leave_side();
+        index
     }
 }
 

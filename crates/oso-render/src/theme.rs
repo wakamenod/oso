@@ -38,10 +38,48 @@ const fn rgba(rgb: u32, alpha: f32) -> Color {
 impl Color {
     /// In linear RGB, as the GPU blends.
     fn linear(self) -> [f32; 4] {
-        let channel = |shift: u32| decode(((self.rgb >> shift) & 0xff) as f32 / 255.0);
-        [channel(16), channel(8), channel(0), self.alpha]
+        let [r, g, b] = self.bytes();
+        let channel = |byte: u8| decode(f32::from(byte) / 255.0);
+        [channel(r), channel(g), channel(b), self.alpha]
+    }
+
+    /// Its sRGB bytes, red first. The alpha is left out.
+    fn bytes(self) -> [u8; 3] {
+        let [_, r, g, b] = self.rgb.to_be_bytes();
+        [r, g, b]
     }
 }
+
+/// A theme's colours as a terminal's engine is given them, to answer a program that asks
+/// (ADR 0120): the text's foreground and background, the cursor box's colour and the 16
+/// terminal faces', in sRGB bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalPalette {
+    pub foreground: [u8; 3],
+    pub background: [u8; 3],
+    pub cursor: [u8; 3],
+    pub ansi: [[u8; 3]; 16],
+}
+
+/// The terminal faces, colour 0 first.
+const TERMINAL: [Face; 16] = [
+    Face::TerminalColor0,
+    Face::TerminalColor1,
+    Face::TerminalColor2,
+    Face::TerminalColor3,
+    Face::TerminalColor4,
+    Face::TerminalColor5,
+    Face::TerminalColor6,
+    Face::TerminalColor7,
+    Face::TerminalColor8,
+    Face::TerminalColor9,
+    Face::TerminalColor10,
+    Face::TerminalColor11,
+    Face::TerminalColor12,
+    Face::TerminalColor13,
+    Face::TerminalColor14,
+    Face::TerminalColor15,
+];
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
 /// over 16), and the shadow's and border's colours (ADR 0075, ADR 0076). A light theme wants a
@@ -118,6 +156,7 @@ pub struct Theme {
     background: [[f32; 4]; FACES.len()],
     panel: PanelStyle,
     text: TextGamma,
+    terminal: TerminalPalette,
 }
 
 impl Theme {
@@ -128,6 +167,11 @@ impl Theme {
 
     pub fn kind(&self) -> Kind {
         self.kind
+    }
+
+    /// Its colours as a terminal's engine is given them (ADR 0120).
+    pub fn terminal_palette(&self) -> TerminalPalette {
+        self.terminal
     }
 
     /// The colour of `face`'s coverage glyphs.
@@ -169,6 +213,15 @@ impl Theme {
             FACES.map(|face| (source.palette)(pick((source.faces)(face))).linear())
         };
         let palette = |name| (source.palette)(name).linear();
+        let bytes = |face, pick: fn((Name, Name)) -> Name| {
+            (source.palette)(pick((source.faces)(face))).bytes()
+        };
+        let terminal = TerminalPalette {
+            foreground: bytes(Face::Text, |(fg, _)| fg),
+            background: bytes(Face::Text, |(_, bg)| bg),
+            cursor: bytes(Face::Cursor, |(_, bg)| bg),
+            ansi: TERMINAL.map(|face| bytes(face, |(fg, _)| fg)),
+        };
         Self {
             name: source.name,
             kind: source.kind,
@@ -180,6 +233,7 @@ impl Theme {
                 ..SIZES
             },
             text: source.text,
+            terminal,
         }
     }
 }
@@ -187,10 +241,20 @@ impl Theme {
 /// The fills a syntax face is drawn on, besides the background. On every other fill, and
 /// under the flash, highlighted text keeps [`Face::Text`]'s colour, so a syntax face is checked
 /// on these only (ADR 0111).
-pub(crate) const SYNTAX_FILLS: [Face; 1] = [Face::CurrentLine];
+///
+/// A review's bands (ADR 0122) follow: behind its rows only its own faces are drawn until step 9
+/// of ADR 0122 highlights the sides, which checks the syntax faces on them too. Its refined
+/// words' bands are not here, so text on them is drawn in [`Face::Text`]'s colour.
+pub(crate) const SYNTAX_FILLS: [Face; 5] = [
+    Face::CurrentLine,
+    Face::DiffAdded,
+    Face::DiffRemoved,
+    Face::DiffFileHeader,
+    Face::ReviewCommentPerson,
+];
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 49] = [
+const FACES: [Face; 74] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -240,6 +304,31 @@ const FACES: [Face; 49] = [
     Face::MenuKeySwitch,
     Face::MenuTitle,
     Face::MenuNote,
+    Face::DiffAdded,
+    Face::DiffRemoved,
+    Face::DiffRefineAdded,
+    Face::DiffRefineRemoved,
+    Face::DiffHunkHeader,
+    Face::DiffFileHeader,
+    Face::ReviewCommentPerson,
+    Face::ReviewCommentAgent,
+    Face::ReviewOutdated,
+    Face::TerminalColor0,
+    Face::TerminalColor1,
+    Face::TerminalColor2,
+    Face::TerminalColor3,
+    Face::TerminalColor4,
+    Face::TerminalColor5,
+    Face::TerminalColor6,
+    Face::TerminalColor7,
+    Face::TerminalColor8,
+    Face::TerminalColor9,
+    Face::TerminalColor10,
+    Face::TerminalColor11,
+    Face::TerminalColor12,
+    Face::TerminalColor13,
+    Face::TerminalColor14,
+    Face::TerminalColor15,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -295,6 +384,31 @@ const fn index(face: Face) -> usize {
         Face::MenuKeySwitch => 46,
         Face::MenuTitle => 47,
         Face::MenuNote => 48,
+        Face::DiffAdded => 49,
+        Face::DiffRemoved => 50,
+        Face::DiffRefineAdded => 51,
+        Face::DiffRefineRemoved => 52,
+        Face::DiffHunkHeader => 53,
+        Face::DiffFileHeader => 54,
+        Face::ReviewCommentPerson => 55,
+        Face::ReviewCommentAgent => 56,
+        Face::ReviewOutdated => 57,
+        Face::TerminalColor0 => 58,
+        Face::TerminalColor1 => 59,
+        Face::TerminalColor2 => 60,
+        Face::TerminalColor3 => 61,
+        Face::TerminalColor4 => 62,
+        Face::TerminalColor5 => 63,
+        Face::TerminalColor6 => 64,
+        Face::TerminalColor7 => 65,
+        Face::TerminalColor8 => 66,
+        Face::TerminalColor9 => 67,
+        Face::TerminalColor10 => 68,
+        Face::TerminalColor11 => 69,
+        Face::TerminalColor12 => 70,
+        Face::TerminalColor13 => 71,
+        Face::TerminalColor14 => 72,
+        Face::TerminalColor15 => 73,
     }
 }
 
@@ -359,6 +473,34 @@ fn faces(face: Face) -> (Name, Name) {
         Face::MenuKeySwitch => (FgMenuKey, BgMenuSwitch),
         Face::MenuTitle => (Azure, BgMain),
         Face::MenuNote => (Slate, BgMain),
+        // A review's rows (ADR 0122): each text face on its band, which the window fills behind
+        // the rows in view. The refined words' bands are fills only, behind their line's text.
+        Face::DiffAdded => (FgAdded, BgAdded),
+        Face::DiffRemoved => (FgRemoved, BgRemoved),
+        Face::DiffRefineAdded => (FgAdded, BgRefineAdded),
+        Face::DiffRefineRemoved => (FgRemoved, BgRefineRemoved),
+        Face::DiffHunkHeader => (FgHunkHeader, BgHeader),
+        Face::DiffFileHeader => (FgFileHeader, BgHeader),
+        Face::ReviewCommentPerson => (FgCommentPerson, BgCard),
+        Face::ReviewCommentAgent => (FgCommentAgent, BgCard),
+        Face::ReviewOutdated => (Slate, BgCard),
+        // One colour each, on the text's background (ADR 0120).
+        Face::TerminalColor0 => (Terminal(0), BgMain),
+        Face::TerminalColor1 => (Terminal(1), BgMain),
+        Face::TerminalColor2 => (Terminal(2), BgMain),
+        Face::TerminalColor3 => (Terminal(3), BgMain),
+        Face::TerminalColor4 => (Terminal(4), BgMain),
+        Face::TerminalColor5 => (Terminal(5), BgMain),
+        Face::TerminalColor6 => (Terminal(6), BgMain),
+        Face::TerminalColor7 => (Terminal(7), BgMain),
+        Face::TerminalColor8 => (Terminal(8), BgMain),
+        Face::TerminalColor9 => (Terminal(9), BgMain),
+        Face::TerminalColor10 => (Terminal(10), BgMain),
+        Face::TerminalColor11 => (Terminal(11), BgMain),
+        Face::TerminalColor12 => (Terminal(12), BgMain),
+        Face::TerminalColor13 => (Terminal(13), BgMain),
+        Face::TerminalColor14 => (Terminal(14), BgMain),
+        Face::TerminalColor15 => (Terminal(15), BgMain),
     }
 }
 
@@ -387,7 +529,7 @@ pub fn themes() -> Vec<Theme> {
 }
 
 /// An sRGB value in linear light.
-fn decode(value: f32) -> f32 {
+pub(crate) fn decode(value: f32) -> f32 {
     if value <= 0.04045 {
         value / 12.92
     } else {
@@ -458,8 +600,12 @@ pub(crate) mod tests {
     }
 
     /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
-    const TEXT: [(Face, f32); 7] = [
+    const TEXT: [(Face, f32); 10] = [
         (Face::Text, 7.0),
+        // A refined word's band, and a comment's text on its card (ADR 0122).
+        (Face::DiffRefineAdded, 7.0),
+        (Face::DiffRefineRemoved, 7.0),
+        (Face::ReviewCommentPerson, 7.0),
         (Face::CurrentLine, 7.0),
         (Face::Flash, 7.0),
         (Face::Region, 7.0),
@@ -476,8 +622,47 @@ pub(crate) mod tests {
         (Face::Float, 7.0),
     ];
 
+    /// An escape's label sits wherever text can: on every fill behind buffer text, a review's
+    /// bands among them, in a modeline's name and on a float.
+    const ESCAPE_PAIRS: [(Face, f32); 16] = [
+        (Face::Text, 4.5),
+        (Face::CurrentLine, 4.5),
+        (Face::Flash, 4.5),
+        (Face::Region, 4.5),
+        (Face::SearchMatch, 4.5),
+        (Face::SearchCurrent, 4.5),
+        (Face::CompletionSelected, 4.5),
+        (Face::Modeline, 4.5),
+        (Face::ModelineInactive, 4.5),
+        (Face::Float, 4.5),
+        (Face::DiffAdded, 4.5),
+        (Face::DiffRemoved, 4.5),
+        (Face::DiffRefineAdded, 4.5),
+        (Face::DiffRefineRemoved, 4.5),
+        (Face::DiffFileHeader, 4.5),
+        (Face::ReviewCommentPerson, 4.5),
+    ];
+
+    /// A whitespace or wrap mark sits on everything behind buffer text (ADR 0097).
+    const MARK_PAIRS: [(Face, f32); 13] = [
+        (Face::Text, 3.0),
+        (Face::CurrentLine, 3.0),
+        (Face::TrailingWhitespace, 3.0),
+        (Face::Flash, 3.0),
+        (Face::Region, 3.0),
+        (Face::SearchMatch, 3.0),
+        (Face::SearchCurrent, 3.0),
+        (Face::DiffAdded, 3.0),
+        (Face::DiffRemoved, 3.0),
+        (Face::DiffRefineAdded, 3.0),
+        (Face::DiffRefineRemoved, 3.0),
+        (Face::DiffFileHeader, 3.0),
+        (Face::ReviewCommentPerson, 3.0),
+    ];
+
     /// What each face's foreground must reach on which background (ADR 0089). A match with no
     /// wildcard, so that a new face does not compile until it has its pairs.
+    #[expect(clippy::too_many_lines, reason = "one arm per face or group of faces")]
     fn pairs(face: Face) -> &'static [(Face, f32)] {
         const READ: f32 = 7.0;
         const LABEL: f32 = 4.5;
@@ -499,20 +684,7 @@ pub(crate) mod tests {
                 (Face::ModelineInactive, LABEL),
             ],
             Face::CompletionMatch => &[(LIST[0], READ), (LIST[1], READ)],
-            // An escape's label sits wherever text can: on every fill behind buffer text, in a
-            // modeline's name and on a float.
-            Face::Escape => &[
-                (Face::Text, LABEL),
-                (Face::CurrentLine, LABEL),
-                (Face::Flash, LABEL),
-                (Face::Region, LABEL),
-                (Face::SearchMatch, LABEL),
-                (Face::SearchCurrent, LABEL),
-                (Face::CompletionSelected, LABEL),
-                (Face::Modeline, LABEL),
-                (Face::ModelineInactive, LABEL),
-                (Face::Float, LABEL),
-            ],
+            Face::Escape => &ESCAPE_PAIRS,
             Face::Boxed => &[(Face::Boxed, LABEL)],
             // A prompt's label, and the dim `Agent` on a modeline (ADR 0085, ADR 0112).
             Face::Prompt => &[
@@ -528,16 +700,7 @@ pub(crate) mod tests {
             // The gutter has no band and no fill, and a menu's titles are on the text's background.
             Face::LineNumber | Face::MenuTitle => &[(Face::Text, LABEL)],
             Face::LineNumberCurrent => &[(Face::Text, READ)],
-            // A mark sits on everything behind buffer text.
-            Face::Whitespace | Face::WrapMark => &[
-                (Face::Text, MARK),
-                (Face::CurrentLine, MARK),
-                (Face::TrailingWhitespace, MARK),
-                (Face::Flash, MARK),
-                (Face::Region, MARK),
-                (Face::SearchMatch, MARK),
-                (Face::SearchCurrent, MARK),
-            ],
+            Face::Whitespace | Face::WrapMark => &MARK_PAIRS,
             // Text that is read, on what is behind a line. Under the fills and the flash it is
             // drawn in `Text`'s colour (ADR 0111, the author's choice).
             Face::SyntaxComment
@@ -559,6 +722,33 @@ pub(crate) mod tests {
             Face::MenuKey => &[(Face::MenuKey, LABEL)],
             Face::MenuKeyStay => &[(Face::MenuKeyStay, LABEL)],
             Face::MenuKeySwitch => &[(Face::MenuKeySwitch, LABEL)],
+            // A review's text on its bands (ADR 0122): the headers share one band, and the
+            // comments another.
+            Face::DiffAdded => &[(Face::DiffAdded, READ)],
+            Face::DiffRemoved => &[(Face::DiffRemoved, READ)],
+            Face::DiffHunkHeader | Face::DiffFileHeader => &[(Face::DiffFileHeader, READ)],
+            Face::ReviewCommentPerson | Face::ReviewCommentAgent => {
+                &[(Face::ReviewCommentPerson, READ)]
+            }
+            Face::ReviewOutdated => &[(Face::ReviewCommentPerson, LABEL), (Face::Text, LABEL)],
+            // A terminal's colours are read on the text's background, as highlighted text is,
+            // but its blacks, greys and whites, which programs draw on one another (ADR 0120).
+            Face::TerminalColor1
+            | Face::TerminalColor2
+            | Face::TerminalColor3
+            | Face::TerminalColor4
+            | Face::TerminalColor5
+            | Face::TerminalColor6
+            | Face::TerminalColor9
+            | Face::TerminalColor10
+            | Face::TerminalColor11
+            | Face::TerminalColor12
+            | Face::TerminalColor13
+            | Face::TerminalColor14 => &[(Face::Text, READ)],
+            Face::TerminalColor0
+            | Face::TerminalColor7
+            | Face::TerminalColor8
+            | Face::TerminalColor15 => &[],
             // Drawn as fills or lines, checked as such below.
             Face::Preedit
             | Face::FloatBorder
@@ -570,7 +760,9 @@ pub(crate) mod tests {
             | Face::SecondaryCursor
             | Face::TrailingWhitespace
             | Face::CurrentLine
-            | Face::Flash => &[],
+            | Face::Flash
+            | Face::DiffRefineAdded
+            | Face::DiffRefineRemoved => &[],
         }
     }
 
@@ -717,6 +909,12 @@ pub(crate) mod tests {
                 (Face::Flash, behind_text),
                 (Face::JumpLabel, behind_text),
                 (Face::JumpLabelNext, behind_text),
+                (Face::DiffAdded, behind_text),
+                (Face::DiffRemoved, behind_text),
+                (Face::DiffFileHeader, behind_text),
+                (Face::ReviewCommentPerson, behind_text),
+                (Face::DiffRefineAdded, theme.background(Face::DiffAdded)),
+                (Face::DiffRefineRemoved, theme.background(Face::DiffRemoved)),
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
@@ -1015,6 +1213,25 @@ pub(crate) mod tests {
         }
     }
 
+    /// A review's person's and agent's labels are told apart by their colour, besides their
+    /// words, and the added and removed bands by theirs (ADR 0122).
+    #[test]
+    fn a_reviews_authors_and_sides_are_told_apart() {
+        for theme in &themes() {
+            let name = theme.name();
+            let labels = distance(
+                theme.foreground(Face::ReviewCommentPerson),
+                theme.foreground(Face::ReviewCommentAgent),
+            );
+            assert!(labels >= 0.09, "{name}: the labels {labels:.3}");
+            let bands = distance(
+                theme.background(Face::DiffAdded),
+                theme.background(Face::DiffRemoved),
+            );
+            assert!(bands >= 0.05, "{name}: the bands {bands:.3}");
+        }
+    }
+
     /// A jump's label fills are no other face's, nor near one: whatever else a frame fills or
     /// draws a line in, a label stands apart from it (ADR 0116).
     #[test]
@@ -1037,6 +1254,52 @@ pub(crate) mod tests {
                 }
             }
         }
+    }
+
+    /// A terminal's colours 1 to 6 and 9 to 14 are read on the text's background at 7:1, the
+    /// floor highlighted text has there (ADR 0120).
+    #[test]
+    fn a_terminals_colours_are_read_on_the_text_background() {
+        for theme in &themes() {
+            let behind = theme.background(Face::Text);
+            for n in [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14] {
+                let face = TERMINAL[n];
+                let ratio = contrast(over(theme.foreground(face), behind), behind);
+                assert!(ratio >= 7.0, "{}: {face:?} {ratio:.2}", theme.name());
+            }
+        }
+    }
+
+    /// The colours a terminal's engine is given are the faces' (ADR 0120).
+    #[test]
+    fn a_terminal_palette_is_the_faces_colours() {
+        let linear = |[r, g, b]: [u8; 3]| rgb(u32::from_be_bytes([0, r, g, b])).linear();
+        for theme in &themes() {
+            let palette = theme.terminal_palette();
+            let name = theme.name();
+            assert_eq!(
+                linear(palette.foreground),
+                theme.foreground(Face::Text),
+                "{name}"
+            );
+            assert_eq!(
+                linear(palette.background),
+                theme.background(Face::Text),
+                "{name}"
+            );
+            assert_eq!(
+                linear(palette.cursor),
+                theme.background(Face::Cursor),
+                "{name}"
+            );
+            for (n, colour) in palette.ansi.iter().enumerate() {
+                let face = TERMINAL[n];
+                assert_eq!(linear(*colour), theme.foreground(face), "{name}: {face:?}");
+            }
+        }
+        let dark = themes()[0].terminal_palette();
+        assert_eq!(dark.background, [0x0d, 0x0e, 0x12]);
+        assert_eq!(dark.ansi[1], [0xff, 0x8f, 0x87]);
     }
 
     #[test]

@@ -8,13 +8,16 @@
 //! and asks the host, whose start thread and sessions worker do the work.
 //!
 //! What starts or resumes a session needs a person at the keyboard: a session runs a process.
-//! What only shows is `Look`: an agent that runs one still cannot show a buffer withheld from
-//! it, a session's terminal among them.
+//! So does what puts a session's terminal or `*Sessions*` in front of the person's keys, as the
+//! host selects the window after the command (the author's choice, 2026-11-13).
+//! `session-switch` and `session-explain` are `Look`: the first completes over a list the agent
+//! channel cannot answer, and the second shows only a buffer withheld from agents.
 
 mod list;
 mod send;
 
 pub use list::COMMANDS as LIST_COMMANDS;
+pub use list::ROW_MARKS;
 pub use send::COMMANDS as SEND_COMMANDS;
 
 use std::path::PathBuf;
@@ -32,7 +35,7 @@ pub const SPACES_LIST: &str = "spaces";
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "claude",
-        doc: "Start a Claude Code session in a terminal buffer, `*claude: NAME*`.\n\nIt runs in the selected window's project root, else the buffer's directory, and is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
+        doc: "Start a Claude Code session in a terminal buffer, `*claude: NAME*`.\n\nIt runs in the selected buffer's project root, else its file's directory, as a new terminal does, else the directory oso started in. It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
         args: ArgSpec::DirectoryAndTextOnPrefix {
             directory: "Session in directory:",
             directory_history: "session-directory",
@@ -76,7 +79,7 @@ pub const COMMANDS: &[Command] = &[
 
 The list groups the sessions by state, most urgent first, or by space. `C-x o` passes the side window over, and `C-x 1` keeps it. Once hidden, it does not show by itself again until oso restarts.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: sessions,
         state: None,
     },
@@ -98,7 +101,7 @@ Each session is its buffer's name, with its state, space, branch and recap after
         name: "session-next-waiting",
         doc: "Show the session that has needed input longest, switching to its space.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: session_next_waiting,
         state: None,
     },
@@ -106,7 +109,7 @@ Each session is its buffer's name, with its state, space, branch and recap after
         name: "session-next-done",
         doc: "Show the session done or ready for review longest, switching to its space.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: session_next_done,
         state: None,
     },
@@ -120,7 +123,7 @@ The windows of the space left are kept for when it is shown again. A space shown
             prompt: "Space:",
             history: "space",
         },
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: space_switch,
         state: None,
     },
@@ -130,7 +133,7 @@ The windows of the space left are kept for when it is shown again. A space shown
 
 Back, the window it was zoomed from shows what the zoomed window showed, where it was.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: space_zoom,
         state: None,
     },

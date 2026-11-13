@@ -3,21 +3,13 @@
 //! oso window is told about if it is still so 1 s later; several due within 2 s are told as
 //! one; and a session not shown that enters needs input or failed blinks the modeline's mark.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; this is pure, driven by the
+//! Must not depend on: `app`, `dispatch` or `config`; this is pure, driven by the
 //! instants its caller gives, as the tracker is, so its tests need no clock.
 //!
 //! `config` reads [`Toggles`] from `[sessions.notify]`, and the app asks the platform for
 //! attention with what [`Attention::tick`] gives.
 //!
 //! Nothing waits while nothing is due: [`Attention::due`] is `None` then, and no timer runs.
-
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the app drives it once sessions are fed (ADR 0121 step 3)"
-    )
-)]
 
 use std::time::{Duration, Instant};
 
@@ -118,6 +110,7 @@ struct Blink {
 }
 
 impl Attention {
+    #[cfg(test)]
     pub fn new(toggles: Toggles) -> Self {
         Self {
             toggles,

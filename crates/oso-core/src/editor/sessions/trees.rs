@@ -12,12 +12,12 @@
 
 use std::fmt;
 
-use super::{Editor, pairs::Pair};
 use crate::buffer::BufferId;
+use crate::editor::{Editor, pairs::Pair};
 use crate::frame::{Splits, Tiling};
 use crate::window::{Window, WindowId};
 
-use super::follow::clip_selections;
+use crate::editor::follow::clip_selections;
 
 /// A tree of tiled windows out of the frame, for [`Editor::swap_window_tree`].
 pub struct WindowTree {

@@ -64,6 +64,9 @@ pub(super) struct Agent {
     started_by: Option<String>,
     /// `claude` started it, for its session's bridge (ADR 0121, Q20).
     started_for_a_session: bool,
+    /// It is on because `claude` turned it on, so a start that is refused turns it off again
+    /// while no session needs it.
+    on_for_sessions: bool,
     started: Option<Instant>,
     /// The connections the person let in.
     connected: Vec<Connection>,
@@ -174,6 +177,17 @@ impl App {
         self.agent.started_for_a_session = self.agent.starting;
     }
 
+    /// Turns the agent channel off again after a session's start was refused, if a session's
+    /// start turned it on and nothing holds it now: no session runs or starts, and no
+    /// connection is let in.
+    pub(super) fn turn_agent_channel_off_unless_a_session_needs_it(&mut self, needed: bool) {
+        let for_sessions =
+            self.agent.on_for_sessions || (self.agent.starting && self.agent.started_for_a_session);
+        if for_sessions && !needed && self.agent.connected.is_empty() {
+            self.stop_agent_channel();
+        }
+    }
+
     /// A connection of the agent channel brought something.
     pub(super) fn handle_agent(&mut self, event_loop: &Loop<'_>, request: channel::Request) {
         let channel::Request {
@@ -210,15 +224,9 @@ impl App {
             // A hosted session's bridge is let in without the question, as that session's
             // (ADR 0121, Q19), and logged as any connection.
             Event::Claims { peer, session } => {
-                let Some(reply) = reply else { return };
-                let bridges = self.session_bridge(connection, &peer, &session);
-                if let Some(name) = &bridges {
-                    self.agent.connected.push(connection);
-                    let pid = peer.process.as_ref().map_or(0, PeerProcess::pid);
-                    self.agent_log(&format!("pid {pid}: let in as session {name}'s bridge"));
-                    self.request_redraw();
+                if let Some(reply) = reply {
+                    self.agent_claims(connection, &peer, &session, reply);
                 }
-                let _ = reply.send(Ok(serde_json::Value::Bool(bridges.is_some())));
             }
             Event::Gone => self.agent_gone(connection),
             Event::Silent => self.agent_log_often("closed connections that sent nothing"),
@@ -333,6 +341,26 @@ impl App {
             self.agent_log("an agent left");
         }
         self.request_redraw();
+    }
+
+    /// The connection of `peer` claims to be the bridge of the hosted session `session`: it is
+    /// let in unasked if it is, and the server is told.
+    fn agent_claims(
+        &mut self,
+        connection: Connection,
+        peer: &Peer,
+        session: &str,
+        reply: std::sync::mpsc::Sender<Reply>,
+    ) {
+        // An answer that comes after the server stopped waiting is undone: the server treats
+        // the connection as any agent's, which asks the person, and it holds no session.
+        let answer = |bridges: bool| reply.send(Ok(serde_json::Value::Bool(bridges))).is_ok();
+        if let Some(name) = self.session_bridge(connection, peer, session, answer) {
+            self.agent.connected.push(connection);
+            let pid = peer.process.as_ref().map_or(0, PeerProcess::pid);
+            self.agent_log(&format!("pid {pid}: let in as session {name}'s bridge"));
+            self.request_redraw();
+        }
     }
 
     /// Answers a request of a connection the person let in.

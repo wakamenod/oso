@@ -97,6 +97,7 @@ impl fmt::Display for SaveRefused {
             Self::ReadOnly(ReadOnly::InvalidUtf8) => "Cannot save a file with invalid UTF-8",
             Self::ReadOnly(ReadOnly::Loading) => "Cannot save a file that is still loading",
             Self::ReadOnly(ReadOnly::Internal) => "Cannot save an internal buffer",
+            Self::ReadOnly(ReadOnly::Terminal) => "Cannot save a terminal",
             Self::AlreadySaving => "This buffer is already being saved; save again when it ends",
             Self::Unmodified => "(No changes need to be saved)",
             Self::NoFile => "Buffer has no file name",

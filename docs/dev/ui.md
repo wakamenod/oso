@@ -118,8 +118,13 @@ are rounded.
 - **Matching is orderless's:** words separated by spaces match in any order, each as
   literal text or a regular expression. An affix at a word's start or end picks one style:
   `!` must not match, `,` initials (`,sbk` for `save-buffers-kill-terminal`), `=` literal
-  only, `^` at the start, `~` the letters in order, `&` the annotation. Case counts once the
-  input has an upper-case letter. What matched is highlighted.
+  only, `^` at the start, `~` the letters in order, `&` the annotation, `%` migemo: romaji
+  after it also matches its kana, and the words of a migemo dictionary, so `%kan` finds
+  `かんじ.md`, and `漢字.md` with a dictionary. Kana a file name holds decomposed, as macOS
+  writes them, match too ([ADR 0116](adr/0116-migemo-and-jumps.md)). The words of one
+  pattern are shared by every `%` word of an input, in order, so a third or later word whose
+  readings give many may match its kana alone. Case counts once the input has an upper-case
+  letter. What matched is highlighted.
 - **The order is vertico's:** the prompt's history first, then shorter, then alphabetical,
   with an exact match of the input on top. Typing never moves a candidate.
 - **Each row** has the candidate, its shortest key after it, and a summary at the right end:
@@ -224,13 +229,19 @@ are rounded.
   with the same outside-a-project rule, and `C-u` asks `Search in directory:` first.
 - What is typed is what to look for. It is split at spaces into parts, and a line matches when
   every part does, in any order. A part matches as typed and, if it holds a character an
-  expression reads, as that expression too, so `fn\s+main` and `^use` work. `=` before a part
-  keeps it as typed, and `!` before one leaves out the lines holding it. No other affix of `M-x`'s
+  expression reads, as that expression too, so `fn\s+main` and `^use` work. A part that is
+  romaji, as isearch reads it, also matches its kana and a migemo dictionary's words, unless
+  `[search] migemo = false` ([ADR 0116](adr/0116-migemo-and-jumps.md)). The words of one
+  pattern are shared by every such part, in order, so a third or later part whose readings
+  give many may match its kana alone. `=` before a part
+  keeps it as typed, and `!` before one leaves out the lines holding it, its kana too. No other affix of `M-x`'s
   means anything here, and an affix is read only at a part's start, so `x =` and `done!` are
   text. Case is ignored unless an upper-case letter is typed.
 - A search starts once a part that is not excluded has two characters, and each key starts a new
   one; the one before stops at its next file or block. A key that only narrows a search that
-  ended without a limit looks again through the lines it found, without reading the files again.
+  ended without a limit looks again through the lines it found, without reading the files again:
+  a part made longer at its end, a romaji one too while every kana form and word of the longer
+  part holds one of the shorter's, as when typing `n`, `na`, `nam`, `name`.
 - Rows come while the search runs, a file's together and in line order, at most every 30 ms, and
   never move once shown. Each is `path:line: text`, the path and line in the annotation's face and
   the matches in the match face. The text is at most 512 bytes of the line around its first
@@ -318,11 +329,13 @@ planned.
   - `jumps`: `t` the timed character jump, `l` and `h` a line, `e` a line's end, `n` a line by
     number.
   - `search`: `f` a project's file, `r` the project's lines.
-  The review menu on `C-x v r` comes with ADR 0122. `windows`, `jumps` and `search` have no
-  key: `M-x open-menu` opens them, or a key in `config.toml`.
+  - `review` on `C-x v r` (ADR 0122): a review of each scope and the session's baseline, with
+    each scope's count of files; see [Reviews](#reviews).
+  `windows`, `jumps` and `search` have no key: `M-x open-menu` opens them, or a key in
+  `config.toml`.
 - `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
   or removes it with `false`. A removed menu's default key is then undefined. There are at most
-  256 menus, the four built-in ones among them even when removed. For example
+  256 menus, the five built-in ones among them even when removed. For example
   (`config/menus_tests.rs` loads this sample, and changes with it):
 
   ```toml
@@ -354,6 +367,25 @@ planned.
   ```
 - Planned (step 6): after a prefix key waits 1.0 s, a panel along the bottom of the frame lists
   the keys that may follow, as which-key does; `C-h` shows it at once and pages it.
+
+## Reviews
+
+An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
+`*review: <scope> <project>*`, opened from the `review` menu on `C-x v r`: `D` since the session's
+baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
+names it), `c` a commit, `r` a range `FROM..TO`, and `B` takes a baseline, keeping the menu open.
+Each head's note counts the files it would show, as they come; the line under the title names the
+project and how long ago the baseline was taken. Only a trusted project runs git.
+
+- The buffer is one stream: a title, then each file's header (status, path, `+n −m`), its notes
+  and its hunks, `-` and `+` lines on bands of their own. Files read later show `reading…`, and
+  the modeline says `reading n/m` until every file is read.
+- `n`/`p` go to the next or previous hunk, `N`/`P` to the next or previous file, each with a
+  count; `g` reads the files again, those in view first; `q` goes back; `?` lists the keys.
+- `C-x k` closes the review, asking first while comments of yours that were not sent would be
+  lost; a review not shown is shown before the question.
+- In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
+  project is not trusted to run: M-x trust-project".
 
 ## Echo area
 
@@ -599,6 +631,57 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 - A replay runs a few milliseconds at each turn, so frames keep coming. A command's error, an
   undefined key, a failing search, a question or a passphrase prompt stops it, and `C-g`
   does. What it changed in a buffer undoes as one step.
+- Keys a terminal sends to its program are not recorded ([ADR 0120](adr/0120-the-terminal.md)).
+
+## Terminals
+
+[ADR 0120](adr/0120-the-terminal.md); step 4a so far.
+
+- `M-x terminal` switches to the terminal still running that was selected last, or starts one;
+  with `C-u`, it always starts one. Buffers are `*terminal*`, `*terminal*<2>` and on. `char`
+  in char mode, `exited N` once the program ends, and then the program's title in quotes
+  follow `Terminal` in the modeline. An ended terminal keeps its last screen.
+- It starts `[terminal] shell` (an absolute path), else `$SHELL` if absolute, else the account's
+  shell, else `/bin/sh`, in the selected buffer's project root, else its file's directory, else
+  the home directory. A restricted project opens one too: what runs in it is the person's.
+  `*Messages*` says `Started <shell> in <dir>`.
+- `[terminal] login = true` (the default) starts it as a login shell (`-l`). With `false`, the
+  shell is interactive but not a login shell, and starts with oso's own environment: from the
+  Dock that is the GUI's short `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`) unless its startup files
+  set one. bash then reads `~/.bashrc` and not `~/.bash_profile` or `~/.profile`; zsh reads
+  `~/.zshenv` and `~/.zshrc` but not `~/.zprofile`; fish reads `config.fish` either way.
+- The environment is the process module's allowlist, `SHELL`, `TERM=xterm-256color`,
+  `COLORTERM=truecolor`, `TERM_PROGRAM=oso`, `TERM_PROGRAM_VERSION`, `SSH_AUTH_SOCK`, and the
+  names `[terminal] env` lists, passed on from oso's own environment. `PATH`, `LD_*`, `DYLD_*`
+  and the names a terminal sets itself are refused there, and reported.
+- `[terminal] scrollback` keeps 0 to 100,000 lines above the screen, 10,000 by default; the
+  library frees them a page at a time, so a few hundred fewer may be kept. The wheel scrolls
+  them; the next key sent to the program goes back to the bottom.
+- **Semi-char mode**, the default, sends every key to the program but `C-x` and `M-x`, the
+  `C-c` prefix, `C-q` and `C-y`, and every key while a prompt, a search or a key sequence of
+  oso's is open. `C-c C-c` sends `C-c`; `C-c C-k` switches to char mode; `C-c` and any other key
+  sends both, the global and the user's `C-c` bindings among them: in a terminal, `C-c` is the
+  terminal's. `C-q` sends the next key as it is, oso's own among them. Text the input method
+  commits goes as a key does.
+- **Char mode** sends every key but `C-c C-k`, which comes back to semi-char mode; `C-c C-c`
+  sends one `C-c` there too, and `C-c` with any other key sends both.
+- Keys are encoded on the terminal's thread against the program's modes, in xterm's forms, or
+  the kitty keyboard protocol's once the program pushes it, so `S-RET` reaches a program that
+  reads it. `M-` is sent as Alt, with an `ESC` before the key.
+- `C-y` pastes the newest kill, or what another app put on the clipboard; `C-u N C-y` the Nth.
+  Control characters but tab and new line are removed first, and line breaks of every kind
+  become new lines. With bracketed paste on, the text goes between its brackets. With it off,
+  each new line is sent as `RET`, and text of several lines asks `Paste N lines into a program
+  that may run them?` first; `keep` drops it.
+- The input method composes at the program's cursor, and its candidate window opens at that
+  cell even while the program hides the cursor; the committed text goes to the program.
+- The PTY takes the size of the window that last selected the terminal; other windows showing
+  it clip or pad the same grid.
+- `C-x k` on a terminal whose program still runs asks first, as `C-x C-c` does for every such
+  terminal. Under `oso dev`, a running terminal holds the restart, until terminals are handed
+  over: run long-lived programs in an oso that is not rebuilt.
+- The agent channel reads no terminal's text, types nothing into one, and never selects one:
+  switching to a terminal is the person's.
 
 ## Input method (IME)
 
@@ -684,7 +767,8 @@ a switch made with its command stands until that setting changes in the file
 ## Agent sessions
 
 - `C-x a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
-  the selected window's project root, else the buffer's directory. NAME is the directory's
+  the selected buffer's project root, else its file's directory, as a new terminal does, else the
+  directory oso started in. NAME is the directory's
   name, then `-2`, `-3` for more sessions there. `C-u C-x a c` asks for the directory, then the
   name. The agent channel turns on if it was off, and the echo area says so: the session's own
   oso tools connect without asking, and any other agent still asks
@@ -693,7 +777,8 @@ a switch made with its command stands until that setting changes in the file
   `stopped: session-resume to continue`; nothing runs until the person asks.
 - `C-x a r` (`session-resume`), in a stopped session's buffer, continues its conversation in the
   same buffer. If Claude Code runs that conversation elsewhere, it refuses, names the process and
-  its directory, and asks whether to fork instead. `session-fork` copies the conversation into a
+  its directory, and asks whether to fork instead; `y` forks that session, whichever buffer is
+  selected by then. `session-fork` copies the conversation into a
   new session and buffer.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
 - `config.toml`:
@@ -709,6 +794,9 @@ a switch made with its command stands until that setting changes in the file
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
   `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
   Code's own settings give it.
+- A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
+  where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
+  runs elsewhere.
 - Which states ask for attention, in `config.toml`:
 
   ```toml
@@ -724,6 +812,38 @@ a switch made with its command stands until that setting changes in the file
   Dock bounce: repeated until oso is focused for needs input and failed, once otherwise. On
   Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
   sessions need input"). A notification names the session and its state, never screen text.
+- `*Sessions*` lists every session in a side window, 32 columns wide at the frame's left, shown
+  by itself while oso has a session that is not archived. Each session takes three lines: its
+  state's mark (⚠ needs input, ✗ failed, ▶ working, ◆ ready for review, ● done, ○ idle,
+  ■ stopped), name and age; its space and branch; its recap, the dialog's question or the
+  status line. Sessions are grouped by state, pinned ones first, sessions a session started
+  nested under it; archived ones last, folded. In a window 60 columns wide or more, each takes
+  one line. The list is withheld from agents: while it is shown, the agent channel's commands
+  answer in the echo area only.
+  - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
+    if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
+    for again. `C-x o` skips it; a click or `windmove-left` reaches it. While it is selected,
+    `C-x 2`, `C-x 3`, `C-x 1` and showing a buffer act on the window selected before it.
+  - The commands that show a session or the list, and pinning and archiving, need a person at
+    the keyboard: the agent channel cannot run them.
+  - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
+    renders again with fresh ages, `s` groups by space instead, `P` pins, `A` archives or
+    brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
+    explains its state.
+- `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and
+  recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
+  that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
+  session's state in `*Session explain*`.
+- A space is a project with its sessions, and keeps its own windows. `C-x a j` (`space-switch`)
+  switches to another; showing a session of another space switches to it first. A space
+  entered for the first time shows its last file and its last session side by side.
+  `C-x a z` (`space-zoom`) shows the selected window alone, and back.
+- The selected window's modeline counts `⚠ N` sessions that need input and `● N` done or
+  ready for review. A session's own modeline says its state and age, `needs input
+  (permission) 3m`, before its title. A session counts as seen after 2 s in the selected window
+  of a focused oso window: done becomes idle.
+- Sessions of Claude Code run outside oso, from its registry, are listed too, as working or
+  idle; they are never shown.
 - `C-x a m` (`session-send`) pastes the region into a session read with completion, the
   session of this space shown last first. Each region goes as its path relative to the
   session's directory, its lines and its text in a fence. With no region it reads a one-line

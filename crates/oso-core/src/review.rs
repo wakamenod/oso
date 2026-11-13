@@ -28,6 +28,7 @@ mod carry;
 mod comment;
 mod decision;
 mod map;
+mod rows;
 mod shape;
 
 pub use carry::{Applied, Carried, Carry};
@@ -37,6 +38,7 @@ pub use comment::{
 };
 pub use decision::Decision;
 pub use map::{BaseHunk, LineMap, base_pair};
+pub use rows::{Row, RowKind, Rows, Section, Seek};
 pub use shape::{Base, Hunk, Shape, ShapeError, Side};
 
 use carry::Item;

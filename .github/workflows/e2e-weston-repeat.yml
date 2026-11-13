@@ -56,6 +56,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: false
+      # just, Zig and libghostty-vt's tarballs for oso-term's build script (ADR 0120).
+      - uses: $/.github/actions/install-just
+      - uses: $/.github/actions/install-zig
+      - uses: $/.github/actions/fetch-ghostty-vt
       - name: Install a headless Wayland compositor and lavapipe
         run: |
           sudo apt-get update

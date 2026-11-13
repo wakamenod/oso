@@ -1,7 +1,7 @@
 //! `*Sessions*`: its groups and their order, pins, nesting, folds, the narrow and wide layouts,
 //! the line map, and its cost.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window.
 
 use std::time::{Duration, Instant};
@@ -231,4 +231,24 @@ fn two_hundred_fifty_six_sessions_render_within_the_budget() {
     }
     // A debug build is several times slower; the budget is a release build's (ADR 0121).
     assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
+}
+
+#[test]
+fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
+    let now = Instant::now();
+    let mut idle = entry(1, "proj", State::Idle, now);
+    idle.recap = "  ⚠ deploy-prod                2s".into();
+    idle.space = "▸● repo".into();
+    let shown = List::default().render(&[idle], 32, now);
+    let rows: Vec<&str> = shown.text.lines().collect();
+    assert!(rows[2].trim_start().starts_with("repo"), "{}", shown.text);
+    assert!(
+        rows[3].trim_start().starts_with("deploy-prod"),
+        "{}",
+        shown.text
+    );
+    for row in &rows[2..4] {
+        let first = row.chars().find(|c| *c != ' ').unwrap();
+        assert!(!super::MARKS.contains(first), "{row}");
+    }
 }

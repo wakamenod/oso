@@ -179,6 +179,11 @@ impl App {
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
         // The menu open, as the channel's state names it (ADR 0117).
         state["menu"] = json!(self.dispatcher.menu_name());
+        // Each terminal, for end-to-end flows (ADR 0120). The dev socket trusts the same user
+        // (ADR 0044); the agent channel reads none of this.
+        state["terminals"] = self.terminals_state();
+        // Agent sessions' states, the list and the attention asked for (ADR 0121 step 3).
+        state["sessions"] = self.sessions_state();
         // The steps of the last live resize and the frames drawn for them (ADR 0077): numbers
         // only, null on winit.
         let resize = self
@@ -351,7 +356,7 @@ impl App {
         let cells = &mut super::draw::Cells::default();
         let open_menu = self.dispatcher.menu();
         let capture = with_frame(
-            &self.editor,
+            (&self.editor, &self.terminals.map),
             open_menu.as_ref(),
             &statuses,
             cells,

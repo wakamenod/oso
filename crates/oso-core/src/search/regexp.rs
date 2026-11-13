@@ -48,9 +48,8 @@ const SIZE_LIMIT: usize = 2 * 1024 * 1024;
 /// size compiles within about a millisecond, and a larger one compiles on the worker.
 pub(crate) const KEY_SIZE_LIMIT: usize = 256 * 1024;
 
-/// The most memory migemo's pattern with a dictionary's words takes (ADR 0116, Q7): past it,
-/// the pattern drops the words and keeps the kana, within [`KEY_SIZE_LIMIT`].
-pub(crate) const WORDS_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+// Migemo's kana compile on a key, within a key's limit.
+const _: () = assert!(crate::migemo::KANA_SIZE_LIMIT == KEY_SIZE_LIMIT);
 
 /// What reading a line costs besides its bytes, as a line's seek and copy take time of
 /// their own.

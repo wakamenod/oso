@@ -31,7 +31,6 @@ use crate::frame::{FrameLayout, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
 use crate::project::Project;
 use crate::selection::SelectionSet;
-use crate::undo::Opening;
 use crate::window::{Window, WindowId};
 use follow::Selected;
 use std::sync::Arc;
@@ -61,15 +60,15 @@ mod projects;
 mod prompts;
 mod reload;
 mod replace;
+mod reviews;
 mod save;
 mod screen;
 mod sessions;
-mod side;
 mod status;
 mod switch;
 mod tab;
+mod terminals;
 mod themes;
-mod trees;
 mod trim;
 mod undo_group;
 mod view;
@@ -104,12 +103,15 @@ pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
+pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use sessions::{RowAction, SendExcerpt, SendPart, SendTo, SessionMarks, SessionRequest};
+pub use sessions::{
+    RowAction, SendExcerpt, SendPart, SendTo, SessionMarks, SessionRequest, WindowTree,
+};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
+pub use terminals::TerminalRequest;
 pub use themes::NoSuchTheme;
-pub use trees::WindowTree;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
 pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
@@ -250,6 +252,7 @@ pub struct Editor {
     agent: agent::Agent,
     /// Agent sessions' requests, side window, marks and lists (ADR 0121).
     sessions: sessions::Sessions,
+    terminal_requests: Vec<TerminalRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// Migemo's setting, its dictionary, and the needles of the last romaji strings
@@ -292,6 +295,7 @@ pub struct Editor {
     replacing: replace::Replacing,
     /// Keyboard macros: the recording, the last one and a replay (ADR 0113).
     macros: macros::Macros,
+    reviews: reviews::Reviews,
 }
 
 impl Default for Editor {
@@ -355,6 +359,7 @@ impl Editor {
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
             sessions: sessions::Sessions::default(),
+            terminal_requests: Vec::new(),
             isearch: None,
             migemo: migemo::Migemo::default(),
             jump: None,
@@ -377,6 +382,7 @@ impl Editor {
             trims: trim::Trims::default(),
             replacing: replace::Replacing::default(),
             macros: macros::Macros::default(),
+            reviews: reviews::Reviews::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));
@@ -428,8 +434,7 @@ impl Editor {
     pub fn show(&mut self, buffer: BufferId) {
         if self.buffer(buffer).is_some() {
             self.window_moves_on();
-            let index = self.tree_index();
-            self.leave_side();
+            let index = self.leave_side_at();
             self.window_shows(index, buffer);
         }
     }
@@ -561,41 +566,6 @@ impl Editor {
         // The line count may have another digit (ADR 0097).
         self.fit_gutter();
         Ok(())
-    }
-
-    /// `id` has been edited: the open undo group touches it, or with none, nothing joins.
-    fn note_edited(&mut self, id: BufferId) {
-        match &mut self.undo_scope {
-            Some(scope) if !scope.touched.contains(&id) => scope.touched.push(id),
-            Some(_) => {}
-            None => self.join_ready = false,
-        }
-    }
-
-    /// How an edit of `id` relates to its newest undo group.
-    fn opening(&self, id: BufferId, buffer: &Buffer) -> Opening {
-        let Some(scope) = &self.undo_scope else {
-            return Opening::New(self.selected_selections(id).cloned());
-        };
-        if scope.touched.contains(&id) {
-            return Opening::Continue;
-        }
-        let before = if scope.before.0 == id {
-            Some(&scope.before.1)
-        } else {
-            self.selected_selections(id)
-        };
-        if scope.join && self.join_ready && buffer.can_join_undo(before) {
-            Opening::Join
-        } else {
-            Opening::New(before.cloned())
-        }
-    }
-
-    /// The selected window's cursors, if it shows `id`.
-    fn selected_selections(&self, id: BufferId) -> Option<&SelectionSet> {
-        let window = &self.windows[self.selected];
-        (window.buffer() == id).then_some(&window.selections)
     }
 }
 
@@ -1088,11 +1058,19 @@ mod migemo_dictionary_costs;
 #[cfg(test)]
 mod migemo_dictionary_tests;
 #[cfg(test)]
+mod migemo_lookup_costs;
+#[cfg(test)]
+mod migemo_prompt_costs;
+#[cfg(test)]
+mod migemo_prompt_tests;
+#[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod prompt_tests;
 #[cfg(test)]
 mod reload_tests;
+#[cfg(test)]
+mod reviews_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

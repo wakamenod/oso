@@ -125,6 +125,12 @@ impl Window {
         self.0.set_visible(visible);
     }
 
+    /// Asks for the person's attention for an agent session: on macOS `notify` asks the
+    /// application as a whole (ADR 0121), so a window asks nothing more.
+    pub(super) fn request_session_attention(&self, kind: oso_platform::notify::Kind) {
+        let _ = kind;
+    }
+
     /// Asks for the person's attention, without taking the keyboard from another app.
     pub(super) fn request_attention(&self) {
         self.0.request_attention();

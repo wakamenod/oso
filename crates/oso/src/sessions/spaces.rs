@@ -2,17 +2,9 @@
 //! repository's. Each keeps its own window tree, swapped whole into the frame as a tab would be,
 //! its zoom, and the session and the file buffer it showed last, for its first entry.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; it acts on the editor through
+//! Must not depend on: `app`, `dispatch` or `config`; it acts on the editor through
 //! oso-core's window trees alone, and is given each space's root and repository: whether a
 //! worktree belongs to a repository is ADR 0114's claim, which the app checks off this thread.
-
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the app drives it once sessions are fed (ADR 0121 step 3)"
-    )
-)]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -28,6 +20,10 @@ pub struct Space {
     /// `repo`, or `repo/slug` for a worktree.
     pub name: String,
     /// The repository a worktree's space is nested under.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "step 4 gives worktrees' spaces their repository")
+    )]
     pub repo: Option<PathBuf>,
     /// Its window tree while another space's is in the frame.
     tree: Option<WindowTree>,

@@ -1,7 +1,7 @@
 //! Message rules: how a `[[message]]` table is read, laid over the bundled ones, and how a
 //! look finds the senders of lines it did not show before.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 
 use std::time::Duration;

@@ -73,7 +73,11 @@ fn the_default_keys_open_their_built_in_menus() {
     }
     let mut bound = Vec::new();
     keymap.menu_bindings(|keys, id| bound.push((keys.to_vec(), id)));
-    assert_eq!(bound.len(), MENU_KEYS.len(), "only the toggles have a key");
+    assert_eq!(
+        bound.len(),
+        MENU_KEYS.len(),
+        "only the toggles and the review menu have a key"
+    );
 }
 
 #[test]

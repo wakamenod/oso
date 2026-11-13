@@ -28,6 +28,14 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// Text as [`ArgSpec::Text`] reads it, but only with a prefix argument, such as `C-u`; with
+    /// none, the command runs at once with no answer. The agent channel gives the text with the
+    /// command, or nothing. The command reads it with [`Ctx::answer`](super::Ctx::answer), and
+    /// the prefix with its arguments.
+    TextOnPrefix {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// Nothing with no prefix argument: the command runs at once with no answer. With one,
     /// such as `C-u`, a directory is read first, as [`ArgSpec::File`] reads a path, in a prompt
     /// that says `directory` and kept in the history `directory_history`, then text as

@@ -4,7 +4,7 @@
 //! their limits, and say what they matched truly; a screen looked at twice gives no sender
 //! again.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the sessions' own
+//! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
 //!
 //! It runs in `just ci` with proptest's default cases. For a long run:

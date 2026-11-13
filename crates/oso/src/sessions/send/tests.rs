@@ -1,6 +1,6 @@
 //! What a send pastes and when it is refused.
 //!
-//! Must not depend on: `app`, `commands` or `dispatch`; these tests drive the pure functions,
+//! Must not depend on: `app` or `dispatch`; these tests drive the pure functions,
 //! with no window and no terminal.
 
 use std::path::{Path, PathBuf};

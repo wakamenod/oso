@@ -130,8 +130,8 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 - **A session is a hosted `claude` in an oso terminal, plus its identity:** the session id, a name,
   the directory it runs in (a repository or a worktree), the transcript's path once found, the
   space it belongs to, and the session that started it, if any.
-- **`claude` (`Person`)** starts a session in the selected window's project root, else the buffer's
-  directory. With a prefix argument it asks for a name and a directory. The session's terminal is a
+- **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
+  directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
 - **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for
@@ -781,33 +781,65 @@ points:
   `--mcp-config` takes several values and would take a brief as one. A fork passes oso's new id
   with `--session-id`, which the CLI accepts only together with `--fork-session`. A test keeps the
   line to these flags only.
-- **The login-shell wrapper** is `SHELL -l -c 'exec "$0" "$@"' CLAUDE ARGS…` for a shell whose
-  file name is `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with
-  `$(…)`, backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments.
+- **The login-shell wrapper** is `SHELL -l -c SCRIPT CLAUDE ARGS…` for a shell whose file name is
+  `sh`, `bash`, `zsh`, `dash` or `ksh`; tests run it through each one installed, with `$(…)`,
+  backticks, `;`, newlines, quotes, a leading `-` and non-UTF-8 bytes in the arguments. The
+  script runs `[sessions] claude` as given. Else it looks for `claude` on the `PATH` the login
+  shell set, as oso's own look does when the shell is not one of these: only in absolute
+  entries, and in none inside the session's directory, compared with links resolved.
   The shell is ADR 0120's: `[terminal] shell`, then `$SHELL`, then the account's, then `/bin/sh`.
 - **The registry reader** (`sessions::registry`) reads only names of the form `<digits>.json` in
   `$CLAUDE_CONFIG_DIR/sessions`, else `~/.claude/sessions`: at most 256 files of 64 KiB, opened
-  without following a link, and only the reading user's. oso never reads the `*.key` files. A
+  without following a link, and only the reading user's. oso never reads the `*.key` files.
+  Whether a session runs cannot be told, and a resume is refused with the fork offered, when the
+  directory has more entry files than are read, when oso's `CLAUDE_CONFIG_DIR` is not an
+  absolute path, or when there is no home. A
   process is live if `process::start_time` of its pid is within 2 s of the entry's `procStart`
   (the start as C `ctime` text in UTC), or, when that does not parse, within 10 s of `startedAt`
   (ms since the epoch). A process whose start cannot be told counts as live, so a resume is
-  refused rather than risked. Step 1 reads it only before and 5 s after a resume; the poll comes
+  refused rather than risked: an entry with neither field, and a pid the system gives no start
+  time for, though it may run. Step 1 reads it only before and 5 s after a resume; the poll comes
   with step 3's list.
-- **`oso-platform` gained `process::start_time(pid: u32) -> Option<SystemTime>`,** with 3
-  `unsafe` blocks, each with its `// SAFETY:` comment: `proc_pidinfo` and reading its result on
-  macOS, and `sysconf(_SC_CLK_TCK)` on Linux.
+- **`oso-platform` gained `process::start_time(pid: u32) -> io::Result<Option<SystemTime>>`,**
+  with 3 `unsafe` blocks, each with its `// SAFETY:` comment: `proc_pidinfo` and reading its
+  result on macOS, and `sysconf(_SC_CLK_TCK)` on Linux. `Ok(None)` is no such process; an error
+  is a process the system does not say the start of, such as another user's, or any process on
+  a system it does not support, and the registry reader counts it as live.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
   directory, project root, parent, pin and archive marks, last change and the baseline's tree:
   at most 256 sessions and 256 KiB, private, refused if a link or another user's, written to a
   part file and renamed. A write reads the file again first and keeps the ids this instance never
-  knew, so two instances do not drop each other's sessions. It is read and written on the
+  knew, so two instances do not drop each other's sessions. It keeps the sessions that changed
+  last, and stops before a line that would take the file past 256 KiB, so every file written
+  can be read back. The table oso holds keeps 256 too: past that, the sessions that do not run
+  go, archived ones first, then unpinned ones, the oldest change first; a buffer whose session
+  went says `forgotten` in its modeline. It is read and written on the
   `oso-sessions` worker (`Job::Recall`, `Job::Remember`).
 - **The start thread** (`oso-session-start`, one per start) makes the id, checks the directory and
   `[sessions] claude`, reads the registry before a resume and 5 s after it, finds the shell, and
   in a trusted project takes ADR 0122's baseline, waiting at most 2 s; past that, `claude` starts
-  and the baseline follows.
+  and the baseline follows. Only `claude` takes a baseline, and only when the session runs at
+  the root of the selected buffer's trusted project: a resume, a fork, and `C-u claude` in
+  another directory take none. It then starts the session's `oso_term::Terminal` itself, so the UI
+  thread never waits on the spawn. The shell is found by the same function as a terminal's
+  (`terminal::hosted::find_shell`), and the app puts the terminal in its buffer with the same code
+  (`app/terminals/start.rs`).
+- **The environment** is ADR 0120's terminal environment, `[sessions] env`'s names,
+  `OSO_SESSION`, and always `CLAUDE_CONFIG_DIR` when oso has it: the session's registry entry is
+  then in the directory oso reads. A login profile that sets `CLAUDE_CONFIG_DIR` itself, which oso
+  started from the Dock does not see, moves the session's registry where oso does not look, and a
+  resume then finds no live process for it. Set the same value where oso is started too.
+- **The start baseline is the project's review baseline:** when it comes, in time or late, the
+  review takes it as if `B` had been pressed (ADR 0122), and the review menu shows when it was
+  taken. The review's index copies for it are in the same state directory as the review's own.
+  Its root is revoked with the project's trust, as a review's is.
+- **A refused resume's fork question forks that session,** whichever buffer is selected when `y`
+  is answered. A start that is refused turns the agent channel off again if that start turned it
+  on and no session runs, starts or holds a connection, unless the person or the configuration
+  asked for the channel since. A bridge's claim whose answer comes after the channel's server
+  stopped waiting holds no session.
 - **`C-u claude` reads a directory, then a name,** each with its own history. `oso-core` gained
   `ArgSpec::DirectoryAndTextOnPrefix { directory, directory_history, prompt, history }` and
   `Ctx::directory_and_text(&self) -> Option<(&str, &str)>`, and the new
@@ -816,8 +848,10 @@ points:
 - **Keys:** `C-x a c` (`claude`) and `C-x a r` (`session-resume`); the rest of `C-x a` comes
   with step 3. `claude`, `session-resume` and `session-fork` are `Person`.
 - **`C-x k` on a session's buffer archives the session:** it is not brought back at the next
-  start, and step 3's list shows and restores it. Exits oso caused (`C-x k`, `C-x C-c`, a hang-up)
-  make a session stopped, not failed.
+  start, and step 3's list shows and restores it. Its `claude` is hung up, and the session counts
+  as stopped, not failed. Any other end is stopped for status 0 and failed otherwise; the buffer
+  keeps the last screen and its modeline says `stopped: session-resume to continue`, or `failed
+  (exited 3): …`.
 - **ADR 0122's seams in step 1:** the baseline at start, and "which review is this agent's" as
   the connection's session. Delivering comments as a paste and "a turn ended" wait for step 3,
   which feeds screens to the states: until oso reads a session's screen it cannot refuse a paste
@@ -920,6 +954,93 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
 
   The tracker already takes seen and the call's answer.
 
+## Step 3, as built
+
+Step 3 was built on 2026-11-13, on top of ADR 0120's terminal view (step 4a) and this ADR's
+step 1. The author chose the recommended answer to each of its questions; the coordinator
+approved these points:
+
+- **The side window is outside the window tree** (`editor/sessions/side.rs`): one window at
+  the frame's left, 32 columns wide, with a divider. `tiling()`, a space's tree, a restart's
+  layout and `C-x +` never see it. `C-x o` skips it; a click and `windmove-left` reach it.
+  While it is selected, the tree's commands (`C-x 2`, `C-x 3`, `C-x 1`, a resize, and showing
+  a buffer) act on the tree's window selected last, and select it, so that no session's own
+  command shows anything in it. `C-x 0` in it hides it, and `C-x 1` keeps it.
+  - It shows by itself while oso has a session that is not archived. `C-x a s` shows and
+    selects it when hidden, selects it when shown, and hides it when selected. Once the
+    person hides it, by `C-x a s` or `C-x 0`, it stays hidden for that oso instance.
+- **Spaces swap an opaque `WindowTree`** (`editor/sessions/trees.rs`): each window keeps its
+  cursors, scroll, kept places and ADR 0122 pair. `swap_window_tree` refuses while a prompt
+  is open and gives the tree back. `space-zoom` swaps in a tree of one window like the
+  selected one, and back. Showing a session of another space switches to that space first.
+  A space is a project root; worktrees' spaces get their repository with step 4.
+- **What the editor keeps for sessions is one field, `Sessions`**, in
+  `editor/sessions.rs`: the requests, the side window, the modeline's marks
+  (`SessionMarks`, drawn as `⚠ N` and `● N` on the selected window's modeline only) and the
+  lists the host gives. `editor.rs` is at its size limit, so nothing of this is there.
+- **`ArgSpec::Listed` completes over a list the host gave** with `Editor::set_listed`, read
+  back with `Editor::listed_candidates(&self, list: &str) -> Arc<[Candidate]>`, a public item
+  beyond the plan's list. `session-switch` lists sessions by buffer name, annotated with
+  their state, space and recap, so `&needs` finds those that need input; `space-switch` lists
+  spaces. The agent channel cannot answer a `Listed` prompt: its candidates hold recaps.
+- **Recaps come from the rules**: an optional `recap` pattern on each rule, and
+  `recap_region` for where it looks (see [agent-rules.md](../agent-rules.md)). The worker
+  finds the recap after each verdict, within its own 5 ms deadline, and sends `Out::Recap`
+  only when it changed. A recap that cannot be found leaves the title.
+- **`*Sessions*` is an internal buffer, withheld from agents** (step 2's flag), in
+  `Mode::Sessions`. While it is shown, the channel's commands answer in the echo area only.
+  It is rendered only while shown, to the window's width, with point kept on its row. Ages
+  move on only with a frame drawn anyway, and with `g`: there is no timer of their own.
+- **Notices:** a state that `[sessions.notify]` names, of a session not in front of the
+  person, becomes due 1 s later if it still holds. The first notice goes at once; those due
+  within the next 2 s are merged into one line ("3 sessions need input"). A notice is said in
+  the echo area and asks for attention: on macOS `oso-platform::notify` (a Dock bounce,
+  repeated for needs input and failed), on Linux and Windows winit's urgency, critical for
+  those two. The marks blink 3 times after a session that is not shown needs input or fails.
+  The text names sessions and states only.
+- **A session counts as seen** after 2 s in the selected window of a focused oso window with
+  no prompt open. A turn's end in a trusted project, with a baseline, takes the tree as it is
+  now on a review's thread (ADR 0122, at most 2 at once) and tells the worker whether it
+  differs from the baseline: that is `git diff --quiet` done with the review's own git. A
+  review of the session scope tells the worker its project's sessions were reviewed.
+- **The screen feed goes through the UI thread** (Q6), not from each terminal's thread as
+  step 2 proposed: after a session's snapshot is merged into ADR 0120's kept grid, its last
+  rows, title and OSC 9;4 progress go to the worker at most every 100 ms, and only when
+  something changed, never while the person has scrolled back. The worker keeps them in a
+  slot of one screen per session, so a busy worker never queues more than one each.
+- **Other programs' sessions:** once oso has a session, the worker looks at Claude Code's
+  registry once a second: a listing and a `stat` of each `<pid>.json`, read again with step
+  1's reader only when one changed, and each process's start time. Live entries that are not
+  oso's own are listed as working or idle, never shown.
+- **`k` in the list hangs up a session's terminal**, asking first while it works or needs
+  input. The question is the app's, as only the app knows the state; its yes runs
+  `session-stop` again, which finds it answered.
+- **What differs from the decision above.** `sessions` shows, selects and hides in three
+  steps rather than toggling. The side window and spaces' trees are two new modules under
+  `editor/sessions/`, not a window flag. `session-switch` searches names, spaces and recaps
+  (in their annotation), not directories. The list where `ArgSpec::Listed` reads its
+  candidates is kept in the same `Sessions` field, as sessions are its only lists so far.
+- **Reaches, the author's choice (2026-11-13):** what puts a session's terminal or
+  `*Sessions*` in front of the person's keys is `Person`, as the host selects the window after
+  the command: `sessions`, `session-next-waiting`, `session-next-done`, `space-switch`,
+  `space-zoom` and the list's `sessions-show`. So are `sessions-pin` and `sessions-archive`,
+  which change which sessions ask for the person. `session-switch` (whose list the channel
+  cannot answer), `session-explain` and the list's moving, folding, regrouping, refreshing
+  and explaining stay `Look`.
+- **The views are made once a batch:** a change from the worker marks them stale, and they
+  are made once before the event loop waits; what the person asked is made at once. The list's
+  text is set only when it changed, and a frame is asked for only when the list, the marks or
+  a modeline note changed. Spaces are placed again only when the table changed.
+- **The list's untrusted lines never begin with a mark:** a space or recap that does loses
+  its leading blanks and marks, so that it never reads as a row, and `n`/`p` never stop on it.
+- **A restart leaves the side window out** of the handed-over windows, as the layout is the
+  tree's; it comes back by itself while sessions exist. A project no longer trusted revokes
+  the root of a running look for a session's changes, as it does a review's.
+- **The registry poll runs while a session of oso's runs,** and stops when none does. It looks
+  at most at 1,024 names, and reads a file again only when it changed.
+- **Not done in step 3:** the branch in each row (it needs git on a trusted project, and
+  comes with step 4's worktrees); finding a session's trusted project needs one of its
+  buffers open.
 ## Step 5, as built
 
 Step 5 was built on 2026-11-13 in two parts. Part A, the pure parts, came first, on step 3's

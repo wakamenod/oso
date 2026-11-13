@@ -6,10 +6,13 @@
 use proptest::prelude::*;
 
 use super::{
-    Dictionary, Entry, MAX_BYTES, MAX_ENTRIES, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS,
-    MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD, MAX_WORDS, MAX_WORDS_A_READING, Span, word_cost,
+    Dictionary, Entry, MAX_BYTES, MAX_ENTRIES, MAX_PREFIX_ENTRIES, MAX_READING, MAX_WORD,
+    MAX_WORDS, MAX_WORDS_A_READING, Span,
 };
-use crate::migemo::Romaji;
+use crate::migemo::budget::{
+    MAX_LOOKUP_STEPS, MAX_PATTERN_WORD_BYTES, MAX_PATTERN_WORDS, word_cost,
+};
+use crate::migemo::{Budget, Romaji};
 
 /// The words `string`'s kana give from `dictionary`, sorted.
 fn words(dictionary: &Dictionary, string: &str) -> Vec<String> {
@@ -289,6 +292,89 @@ fn many_splits_of_either_kana_give_none_past_the_limit() {
 }
 
 #[test]
+fn a_lookup_past_its_steps_stops_short_and_gives_no_words() {
+    // Readings of `ず` or `づ` 11 times, then `あ` `long` times and `か`: a lookup keeps
+    // every range through each `あ`.
+    let readings = |long: usize| {
+        let mut text = String::new();
+        for n in 0..MAX_PREFIX_ENTRIES {
+            let reading: String = (0..11)
+                .map(|bit| if n >> bit & 1 == 1 { 'ず' } else { 'づ' })
+                .chain(std::iter::repeat_n('あ', long))
+                .chain(['か'])
+                .collect();
+            text.push_str(&format!("{reading}\tw{n}\n"));
+        }
+        Dictionary::new(text)
+    };
+    let given = |long: usize| {
+        let string = format!("{}{}ka", "zu".repeat(11), "a".repeat(long));
+        let romaji = Romaji::new(&string).expect("romaji");
+        let dictionary = readings(long);
+        let (words, spent) = dictionary.pattern_words_with_budget(&romaji, Budget::PATTERN);
+        (words.len(), spent)
+    };
+    let (found, spent) = given(4);
+    assert_eq!(found, MAX_PREFIX_ENTRIES);
+    assert!(spent.used.steps > MAX_LOOKUP_STEPS / 4);
+    assert!(spent.used.steps <= MAX_LOOKUP_STEPS);
+    let (found, spent) = given(40);
+    assert_eq!(found, 0);
+    assert!(spent.used.steps <= MAX_LOOKUP_STEPS);
+    assert!(spent.next.is_some_and(|next| next.steps > MAX_LOOKUP_STEPS));
+}
+
+#[test]
+fn ordering_the_entries_found_takes_a_step_each() {
+    // `か` and 2048 readings after it: two narrowings find them all.
+    let mut text = String::new();
+    for n in 0..MAX_PREFIX_ENTRIES {
+        text.push_str(&format!("か{}\tw{n}\n", hiragana(n)));
+    }
+    let dictionary = Dictionary::new(text);
+    let romaji = Romaji::new("ka").expect("romaji");
+    let (words, spent) = dictionary.pattern_words_with_budget(&romaji, Budget::PATTERN);
+    assert_eq!(words.len(), MAX_PREFIX_ENTRIES);
+    assert!(spent.used.steps > MAX_PREFIX_ENTRIES && spent.used.steps < 2 * MAX_PREFIX_ENTRIES);
+    let budget = Budget {
+        steps: spent.used.steps - 1,
+        ..Budget::PATTERN
+    };
+    let (words, short) = dictionary.pattern_words_with_budget(&romaji, budget);
+    assert!(words.is_empty());
+    assert_eq!(short.next.map(|next| next.steps), Some(spent.used.steps));
+}
+
+#[test]
+fn one_inputs_components_share_the_lookup_steps() {
+    // As above: each lookup keeps every range through 10 `あ`, which takes more than half
+    // of the steps, and the first finds no word.
+    let mut text = String::new();
+    for n in 0..MAX_PREFIX_ENTRIES {
+        let reading: String = (0..11)
+            .map(|bit| if n >> bit & 1 == 1 { 'ず' } else { 'づ' })
+            .chain(std::iter::repeat_n('あ', 10))
+            .chain(['か'])
+            .collect();
+        text.push_str(&format!("{reading}\tw{n}\n"));
+    }
+    let dictionary = Dictionary::new(text);
+    let stem = format!("{}{}", "zu".repeat(11), "a".repeat(10));
+    let compile = |string: &str, budget: &mut Budget| {
+        crate::migemo::compile_with_budget(string, Some(&dictionary), budget, |_, _| Some(()))
+    };
+    let alone = compile(&format!("{stem}ka"), &mut { Budget::PATTERN });
+    assert_eq!(alone.words.len(), MAX_PREFIX_ENTRIES);
+    let mut budget = Budget::PATTERN;
+    let first = compile(&format!("{stem}ni"), &mut budget);
+    assert!(first.words.is_empty() && first.spent.next.is_none());
+    assert_eq!(budget.steps, MAX_LOOKUP_STEPS - first.spent.used.steps);
+    let second = compile(&format!("{stem}ka"), &mut budget);
+    assert!(second.words.is_empty() && second.compiled.is_some());
+    assert!(second.spent.next.is_some());
+}
+
+#[test]
 fn an_skk_okuri_block_and_blank_words_are_left_out() {
     let text = "あいs /愛/[す/愛/]/[し/哀/]/\nか / /蚊/\nき\t \t木\n";
     let dictionary = Dictionary::new(text.to_owned());
@@ -394,5 +480,67 @@ proptest! {
         let cost: usize = given.iter().map(|word| word_cost(word)).sum();
         prop_assert!(given.len() <= MAX_PATTERN_WORDS);
         prop_assert!(cost <= MAX_PATTERN_WORD_BYTES, "{cost}");
+    }
+}
+
+proptest! {
+    /// What a budget left gives the words it does, and another budget gives the same words
+    /// and spends the same exactly when what they spent says so (ADR 0116, Q7), whether its
+    /// words, bytes or lookup steps ran out.
+    #[test]
+    fn a_budget_gives_the_same_words_exactly_when_what_they_spent_says_so(
+        readings in 1usize..400,
+        long in 1usize..40,
+        string in "[a-z]{1,3}",
+        budgets in prop::collection::vec((0usize..600, 0usize..20_000, 0usize..60), 2..6),
+    ) {
+        let mut text = String::new();
+        for n in 0..readings {
+            let word = "漢".repeat(1 + n % long);
+            text.push_str(&format!("{}\t{word}{n}\n", hiragana(n)));
+        }
+        let dictionary = Dictionary::new(text);
+        let Some(romaji) = Romaji::new(&string) else {
+            return Ok(());
+        };
+        let given: Vec<_> = (budgets.iter())
+            .map(|&(words, bytes, steps)| {
+                let budget = Budget { words, bytes, steps };
+                (budget, dictionary.pattern_words_with_budget(&romaji, budget))
+            })
+            .collect();
+        for (budget, (words, spent)) in &given {
+            let cost: usize = words.iter().map(|word| word_cost(word)).sum();
+            prop_assert_eq!((spent.used.words, spent.used.bytes), (words.len(), cost));
+            prop_assert!(budget.holds(spent.used));
+            for (other, (other_words, other_spent)) in &given {
+                let same = words == other_words && spent.used == other_spent.used;
+                prop_assert_eq!(spent.same_within(*other), same, "{:?} {:?}", budget, other);
+            }
+        }
+    }
+
+    /// A lookup takes at most the steps it is given, and with all of a pattern's it finishes
+    /// for a common string (ADR 0116, Q7).
+    #[test]
+    fn a_lookup_takes_at_most_its_steps(
+        readings in 1usize..400,
+        string in "[a-z]{1,8}",
+        steps in 0usize..80,
+    ) {
+        let mut text = String::new();
+        for n in 0..readings {
+            text.push_str(&format!("{}\t漢{n}\n", hiragana(n)));
+        }
+        let dictionary = Dictionary::new(text);
+        let Some(romaji) = Romaji::new(&string) else {
+            return Ok(());
+        };
+        let budget = Budget { steps, ..Budget::PATTERN };
+        let (_, spent) = dictionary.pattern_words_with_budget(&romaji, budget);
+        prop_assert!(spent.used.steps <= steps);
+        let (_, all) = dictionary.pattern_words_with_budget(&romaji, Budget::PATTERN);
+        prop_assert!(all.used.steps < MAX_LOOKUP_STEPS / 16, "{:?}", all);
+        prop_assert!(all.next.is_none_or(|next| next.steps == all.used.steps));
     }
 }

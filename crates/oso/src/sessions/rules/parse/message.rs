@@ -2,7 +2,7 @@
 //! session makes, and its sender in the capture `from`. Kept apart from the state rules, as it
 //! never decides a state: a wrong one is skipped and said.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; text in, a pattern out.
+//! Must not depend on: `app`, `dispatch` or `config`; text in, a pattern out.
 
 use std::fmt;
 

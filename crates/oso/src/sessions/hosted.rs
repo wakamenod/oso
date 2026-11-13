@@ -23,12 +23,8 @@ pub enum Run {
     /// Being started on its thread.
     Starting,
     /// Running as this process, while it is not reaped.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the session's terminal sets it (ADR 0120 step 4)")
-    )]
     Running { child: Option<u32> },
-    /// Not running: remembered from an earlier oso, or ended with status 0 or by oso.
+    /// Not running: remembered from an earlier oso, ended with status 0, or archived.
     Stopped,
     /// Ended otherwise.
     Failed,
@@ -48,8 +44,6 @@ pub struct Hosted {
     /// Its terminal buffer, once it has one.
     pub buffer: Option<BufferId>,
     pub run: Run,
-    /// oso stopped it (`C-x k`, `C-x C-c`, a hang-up), so an end by a signal is no failure.
-    pub ended_by_oso: bool,
     /// Its baseline's tree id (ADR 0122), once taken.
     pub baseline: Option<String>,
     pub pinned: bool,
@@ -135,7 +129,6 @@ impl Table {
             parent: new.parent,
             buffer: None,
             run: Run::Starting,
-            ended_by_oso: false,
             baseline: None,
             pinned: false,
             archived: false,
@@ -169,7 +162,6 @@ impl Table {
                 parent: session.parent,
                 buffer: None,
                 run: Run::Stopped,
-                ended_by_oso: false,
                 baseline: session.baseline,
                 pinned: session.pinned,
                 archived: session.archived,
@@ -196,6 +188,32 @@ impl Table {
         self.sessions.iter_mut().find(|session| session.key == key)
     }
 
+    /// Keeps at most [`MAX_SESSIONS`](super::record::MAX_SESSIONS) sessions, so that the table
+    /// and each record written stay bounded in a long-running oso: past that, the ones that do
+    /// not run go, archived ones first, then unpinned ones, each the one that changed longest
+    /// ago. Their ids stay known, so the record drops them too. Returns the buffers of those
+    /// that had one, which hold no session any more.
+    pub fn prune(&mut self) -> Vec<BufferId> {
+        let mut buffers = Vec::new();
+        while self.sessions.len() > super::record::MAX_SESSIONS {
+            let oldest = self
+                .sessions
+                .iter()
+                .enumerate()
+                .filter(|(_, session)| !session.runs())
+                .min_by_key(|(_, session)| (!session.archived, session.pinned, session.changed))
+                .map(|(at, _)| at);
+            let Some(at) = oldest else { break };
+            buffers.extend(self.sessions.remove(at).buffer);
+        }
+        buffers
+    }
+
+    /// Every hosted session.
+    pub fn iter(&self) -> impl Iterator<Item = &Hosted> {
+        self.sessions.iter()
+    }
+
     /// The session whose terminal is `buffer`.
     pub fn by_buffer(&self, buffer: BufferId) -> Option<&Hosted> {
         self.sessions
@@ -208,7 +226,7 @@ impl Table {
         not(test),
         expect(
             dead_code,
-            reason = "the session's terminal and step 6's tools use it (ADR 0120 step 4)"
+            reason = "a review names its agent's session by it (ADR 0122 step 7), and so do step 6's tools"
         )
     )]
     pub fn by_connection(&self, connection: Connection) -> Option<&Hosted> {
@@ -256,6 +274,28 @@ impl Table {
         Some(session)
     }
 
+    /// Answers the claim of `connection`, from `peer`, to be `claim`'s bridge: [`Table::admit`],
+    /// then `answer` with whether it was admitted, which says whether the answer reached the
+    /// one who asked. An admission whose answer did not reach is undone: the asker took the
+    /// connection as no bridge. The session's name if it holds the connection now.
+    pub fn answer_claim(
+        &mut self,
+        connection: Connection,
+        peer: &oso_platform::control::Peer,
+        claim: Option<&SessionId>,
+        answer: impl FnOnce(bool) -> bool,
+    ) -> Option<String> {
+        let name = self
+            .admit(connection, peer, claim)
+            .map(|session| session.name.clone());
+        let reached = answer(name.is_some());
+        if name.is_some() && !reached {
+            self.bridge_gone(connection);
+            return None;
+        }
+        name
+    }
+
     /// The bridge connection `connection` went: its session holds none.
     pub fn bridge_gone(&mut self, connection: Connection) {
         for session in &mut self.sessions {
@@ -273,16 +313,9 @@ impl Table {
     }
 
     /// The session `key`'s `claude` ended with `status`, or a signal: stopped or failed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's terminal and step 6's tools use it (ADR 0120 step 4)"
-        )
-    )]
     pub fn ended(&mut self, key: SessionKey, status: Option<i32>, changed: u64) -> Option<Exit> {
         let session = self.get_mut(key)?;
-        let exit = exit_of(status, session.ended_by_oso);
+        let exit = exit_of(status);
         session.run = match exit {
             Exit::Stopped => Run::Stopped,
             Exit::Failed => Run::Failed,
@@ -303,12 +336,13 @@ impl Table {
     }
 }
 
-/// How an end reads: status 0, or a signal when oso stopped it, is stopped; else failed.
-pub fn exit_of(status: Option<i32>, ended_by_oso: bool) -> Exit {
-    match status {
-        Some(0) => Exit::Stopped,
-        None if ended_by_oso => Exit::Stopped,
-        _ => Exit::Failed,
+/// How an end reads: status 0 is stopped; another status or a signal is failed. A session oso
+/// ends itself, with `C-x k`, is archived with its buffer and never reported as ended.
+pub fn exit_of(status: Option<i32>) -> Exit {
+    if status == Some(0) {
+        Exit::Stopped
+    } else {
+        Exit::Failed
     }
 }
 
@@ -350,6 +384,55 @@ mod tests {
             changed: 5,
             baseline: None,
         }
+    }
+
+    #[test]
+    fn past_the_cap_archived_then_the_oldest_stopped_sessions_go_and_running_ones_stay() {
+        use crate::sessions::record::MAX_SESSIONS;
+        let many = |from: usize, count: usize| -> Vec<Remembered> {
+            (from..from + count)
+                .map(|i| {
+                    let mut bytes = [0u8; 16];
+                    bytes[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                    Remembered {
+                        id: SessionId::from_random(bytes),
+                        changed: 100 + i as u64,
+                        ..remembered(0, false)
+                    }
+                })
+                .collect()
+        };
+        let mut table = Table::default();
+        let mut first = many(0, MAX_SESSIONS);
+        first[5].archived = true;
+        first[0].pinned = true;
+        let keys = table.recall(first);
+        let oldest_unpinned = keys[1];
+        let running = table.iter().find(|s| s.changed == 102).unwrap().key;
+        table.get_mut(running).unwrap().run = Run::Running { child: None };
+        let buffer = oso_core::editor::Editor::default().window().buffer();
+        table.get_mut(oldest_unpinned).unwrap().buffer = Some(buffer);
+        assert!(table.prune().is_empty(), "at the cap, nothing goes");
+        table.recall(many(MAX_SESSIONS, 1));
+        assert!(table.prune().is_empty());
+        assert!(
+            table.iter().all(|s| !s.archived),
+            "the archived one went first"
+        );
+        table.recall(many(MAX_SESSIONS + 1, 2));
+        assert_eq!(table.prune(), [buffer]);
+        assert_eq!(table.iter().count(), MAX_SESSIONS);
+        assert!(
+            table.get(oldest_unpinned).is_none(),
+            "the oldest unpinned stopped one"
+        );
+        assert!(table.get(running).is_some(), "a running one stays");
+        assert!(
+            table.iter().any(|s| s.pinned),
+            "a pinned one stays while others can go"
+        );
+        let newest = table.iter().map(|s| s.changed).max().unwrap();
+        assert_eq!(newest, 100 + MAX_SESSIONS as u64 + 2);
     }
 
     #[test]
@@ -408,11 +491,42 @@ mod tests {
     }
 
     #[test]
+    fn a_claim_whose_answer_came_too_late_holds_no_session() {
+        let mut table = Table::default();
+        let key = add(&mut table, 1, "/p", "p");
+        let id = table.get(key).unwrap().id.clone();
+        table.get_mut(key).unwrap().run = Run::Running { child: Some(77) };
+        let peer = Peer {
+            process: Some(PeerProcess::new(9, Some("oso"))),
+            parent: Some(PeerProcess::new(77, Some("claude"))),
+            runs_this_program: true,
+        };
+        let (late, next) = (
+            Connection { run: 1, number: 1 },
+            Connection { run: 1, number: 2 },
+        );
+        // The server stopped waiting: its receiver is gone, and the send fails.
+        let (reply, gone) = std::sync::mpsc::channel::<bool>();
+        drop(gone);
+        let kept = table.answer_claim(late, &peer, Some(&id), |admitted| {
+            reply.send(admitted).is_ok()
+        });
+        assert_eq!(kept, None);
+        assert!(table.by_connection(late).is_none());
+        assert!(table.get(key).unwrap().bridge.is_none());
+        // The session's next bridge is let in.
+        let (reply, answered) = std::sync::mpsc::channel::<bool>();
+        let kept = table.answer_claim(next, &peer, Some(&id), |admitted| {
+            reply.send(admitted).is_ok()
+        });
+        assert_eq!(kept.as_deref(), Some(table.get(key).unwrap().name.as_str()));
+        assert_eq!(answered.try_recv(), Ok(true));
+    }
+
+    #[test]
     fn an_end_is_stopped_or_failed() {
-        assert_eq!(exit_of(Some(0), false), Exit::Stopped);
-        assert_eq!(exit_of(Some(3), false), Exit::Failed);
-        assert_eq!(exit_of(Some(3), true), Exit::Failed);
-        assert_eq!(exit_of(None, true), Exit::Stopped);
-        assert_eq!(exit_of(None, false), Exit::Failed);
+        assert_eq!(exit_of(Some(0)), Exit::Stopped);
+        assert_eq!(exit_of(Some(3)), Exit::Failed);
+        assert_eq!(exit_of(None), Exit::Failed);
     }
 }

@@ -406,7 +406,7 @@ fn words_past_their_size_limit_are_dropped_for_the_kana() {
             Some(Needle::Regexp(regexp)) => regexp,
             _ => panic!("kanji gives a needle"),
         };
-    let within = needle(super::WORDS_SIZE_LIMIT);
+    let within = needle(crate::migemo::WORDS_SIZE_LIMIT);
     assert!(within.regex.is_match("漢字"));
     let past = needle(1);
     assert!(!past.regex.is_match("漢字"));

@@ -32,6 +32,9 @@
 //! - An input method's preedit is spliced into the cursor's row, in a face of its
 //!   own, so it is shaped apart from the text around it. That row is read and
 //!   compared each frame while it has one, and the frame after (ADR 0069).
+//! - A terminal's grid rows are kept by their index, and reused while their generation
+//!   and their columns hold, without reading them (ADR 0120). The caller reads a row into
+//!   [`RowInput`] when it changes.
 
 use std::collections::HashMap;
 use std::ops::{ControlFlow, Range, RangeInclusive};
@@ -56,7 +59,7 @@ use pieces::{KEPT_PIECE_BYTES, Pieces, shape_pieces};
 /// text then has at most this many characters per column plus one more, and
 /// one cluster: hostile text costs a bounded amount per row, about 20 bytes per
 /// column at worst. The display model bounds a cluster's length (ADR 0054).
-const CHARS_PER_COLUMN: usize = 4;
+pub(crate) const CHARS_PER_COLUMN: usize = 4;
 
 /// The part of `text` that can show in `columns` columns: a display cluster takes
 /// at least one cell. A span is cut to this before it is read, since nothing past
@@ -81,7 +84,7 @@ pub(crate) struct ShapedRow {
     /// The columns shaped.
     columns: Range<usize>,
     /// The buffer revision the row was checked at. While it holds, the row
-    /// is reused without looking at the buffer.
+    /// is reused without looking at the buffer. A grid row's generation.
     revision: u64,
     /// Whether it was read with a preedit, which the revision says nothing of.
     spliced: bool,
@@ -117,12 +120,24 @@ pub(crate) struct ShapedRow {
     pub(crate) clusters: Vec<(usize, usize)>,
 }
 
+/// What a grid row is read into for [`Rows::grid_row`]: its text, its display clusters, in
+/// order from byte 0, where it is cut into pieces shaped on their own, and its boxes, each its
+/// first column and cells.
+pub(crate) struct RowInput<'a> {
+    pub(crate) text: &'a mut String,
+    pub(crate) graphemes: &'a mut Vec<Grapheme>,
+    pub(crate) breaks: &'a mut Vec<u32>,
+    pub(crate) boxes: &'a mut Vec<(usize, usize)>,
+}
+
 /// Shaped rows of one pane, by logical line and start column, or by row for text that
 /// is no buffer's: the shaping cache. Each pane has its own, because [`Rows::begin`]
 /// drops another buffer's rows.
 #[derive(Default)]
 pub(crate) struct Rows {
     buffer: Option<BufferId>,
+    /// The terminal grid whose rows these are, if they are one's (ADR 0120).
+    grid: Option<u64>,
     /// The revision of the buffer this frame shows.
     revision: u64,
     rows: HashMap<(usize, usize), ShapedRow>,
@@ -173,7 +188,8 @@ impl Rows {
     /// kept pieces are dropped, and the pieces of another revision.
     pub(crate) fn begin(&mut self, buffer: BufferId, revision: u64) {
         self.frame += 1;
-        if self.buffer != Some(buffer) {
+        let from_grid = self.grid.take().is_some();
+        if self.buffer != Some(buffer) || from_grid {
             self.buffer = Some(buffer);
             self.rows.clear();
             self.pieces.clear();
@@ -187,10 +203,56 @@ impl Rows {
     /// dropped, and so are these when a buffer comes back.
     pub(crate) fn begin_lines(&mut self) {
         self.frame += 1;
-        if self.buffer.take().is_some() {
+        if self.buffer.take().is_some() | self.grid.take().is_some() {
             self.rows.clear();
             self.pieces.clear();
         }
+    }
+
+    /// Starts a frame of terminal grid `id` (ADR 0120). Rows of anything else are dropped,
+    /// and so are these when anything else comes.
+    pub(crate) fn begin_grid(&mut self, id: u64) {
+        self.frame += 1;
+        self.buffer = None;
+        if self.grid != Some(id) {
+            self.grid = Some(id);
+            self.rows.clear();
+            self.pieces.clear();
+        }
+    }
+
+    /// Grid row `index` at `generation`, of its first `columns` cells. While the generation and
+    /// the columns hold, the shaped row is reused and `read` is not called. Otherwise `read`
+    /// fills what the shaper and the placer are given, with columns from the row's first, and
+    /// the row is shaped unless that is as it was.
+    pub(crate) fn grid_row(
+        &mut self,
+        index: usize,
+        (generation, columns): (u64, usize),
+        read: impl FnOnce(RowInput<'_>),
+        system: &mut dyn TextSystem,
+    ) -> &ShapedRow {
+        let key = (index, 0);
+        let unchanged = self
+            .rows
+            .get(&key)
+            .is_some_and(|shaped| shaped.revision == generation && shaped.columns == (0..columns));
+        if !unchanged {
+            self.clear_scratch();
+            self.base = 0;
+            read(RowInput {
+                text: &mut self.text,
+                graphemes: &mut self.graphemes,
+                breaks: &mut self.breaks,
+                boxes: &mut self.boxes,
+            });
+            self.revision = generation;
+            self.keep(key, 0..columns, system, false);
+        }
+        let frame = self.frame;
+        let shaped = self.rows.entry(key).or_default();
+        shaped.used = frame;
+        shaped
     }
 
     /// Drops cached rows once there are many more of them than the `shown` rows: those whose

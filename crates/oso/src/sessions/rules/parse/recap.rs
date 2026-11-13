@@ -2,7 +2,7 @@
 //! the region it reads. Kept apart from the matchers, as it never decides whether a rule
 //! matches: a wrong one is skipped and said, and its rule kept.
 //!
-//! Must not depend on: `app`, `commands`, `dispatch` or `config`; text in, a pattern out.
+//! Must not depend on: `app`, `dispatch` or `config`; text in, a pattern out.
 
 use std::fmt;
 

@@ -340,6 +340,7 @@ impl Editor {
             batches: self.project_files.unmerged.clone(),
             history: Arc::clone(&self.project_files.history),
             input,
+            table: self.migemo.table(),
         };
         let revision = self.prompt_revision().unwrap_or_default();
         self.leave_merge(merge, revision, awaited);

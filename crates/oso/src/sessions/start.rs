@@ -12,8 +12,10 @@
 //! - A missing directory refuses before anything starts.
 //! - In a trusted project, the baseline is taken first (ADR 0122), waiting at most
 //!   [`BASELINE_WAIT`]; past that, the session starts and the baseline follows.
-//! - The shell is found, and `claude` on `PATH` when the shell is not one that runs the
-//!   wrapper, as [`launch`](super::launch) has it.
+//! - The shell is found as ADR 0120 has it, and `claude` on `PATH` when the shell is not one
+//!   that runs the wrapper, as [`launch`](super::launch) has it.
+//! - The terminal starts here too, with ADR 0120's environment, `[sessions] env`'s names and
+//!   `CLAUDE_CONFIG_DIR` and `OSO_SESSION`, so that the UI thread never waits on the spawn.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -21,13 +23,18 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use oso_core::buffer::BufferId;
+use oso_platform::process::pty::Size;
 use oso_platform::process::{self, Executable};
+use oso_term::{Palette, Terminal};
 
 use super::command::{self, Line, SESSION_VARIABLE, Start};
 use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
 use super::registry;
 use crate::review::{self, Reviewer, TrustedRoot};
+use crate::terminal::hosted;
+use crate::terminal::shell::{self, Settings};
 
 /// The longest a session waits for its baseline before it starts (ADR 0122).
 pub const BASELINE_WAIT: Duration = Duration::from_secs(2);
@@ -62,22 +69,34 @@ pub struct Order {
     pub state: Option<PathBuf>,
     /// `[sessions] claude`, an absolute path.
     pub claude: Option<PathBuf>,
-    /// The shell `[terminal] shell` names, else the one found as ADR 0120 has it.
-    pub shell: Option<PathBuf>,
+    /// The terminal it runs in.
+    pub terminal: TerminalOrder,
 }
 
-/// What a session's terminal runs.
-#[derive(Debug, Clone)]
-#[expect(
-    dead_code,
-    reason = "the session's terminal reads them (ADR 0120 step 4)"
-)]
+/// The terminal a session runs in, as the app gives it.
+pub struct TerminalOrder {
+    /// Its buffer, already made.
+    pub buffer: BufferId,
+    /// `[terminal]`'s settings: the shell, `-l`, the names passed on and the scrollback.
+    pub settings: Settings,
+    /// `[sessions] env`: more names passed on from oso's environment.
+    pub env: Vec<String>,
+    pub size: Size,
+    pub palette: Palette,
+    /// Called from the terminal's thread whenever a snapshot is ready.
+    pub ready: Box<dyn Fn() + Send>,
+}
+
+/// A session whose terminal started.
+#[derive(Debug)]
 pub struct Ready {
     pub token: u64,
     pub id: SessionId,
-    pub launch: Launch,
-    /// Variables set by value: [`SESSION_VARIABLE`].
-    pub set: Vec<(String, OsString)>,
+    pub buffer: BufferId,
+    pub terminal: Terminal,
+    /// The shell's path and the shells passed over before it, for `*Messages*`.
+    pub shell: PathBuf,
+    pub passed_over: Vec<String>,
     pub directory: PathBuf,
     /// The project it runs in, as the order gave it.
     pub project: Option<PathBuf>,
@@ -92,10 +111,11 @@ pub enum Report {
     Ready(Ready),
     /// It does not start; why, for the echo area.
     Refused { token: u64, why: String },
-    /// A resume found the conversation live in this process, in this directory.
+    /// A resume found the conversation live in this process, in this directory; or, with no
+    /// process, could not tell from the registry whether it runs, which counts as live.
     Live {
         token: u64,
-        pid: u32,
+        pid: Option<u32>,
         directory: Option<PathBuf>,
     },
     /// The baseline came after the session started.
@@ -149,23 +169,51 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
             Err(e) => return refuse(format!("The session did not start: {e}")),
         },
     };
-    let launch = match launch_of(&order, &id) {
+    let found = match hosted::find_shell(&order.terminal.settings) {
+        Ok(found) => found,
+        Err(e) => return refuse(format!("The session did not start: no shell is found: {e}")),
+    };
+    let launch = match launch_of(&order, &id, &found.executable) {
         Ok(launch) => launch,
         Err(why) => return refuse(why),
     };
+    // The baseline before `claude` runs, so that the review shows what the session changed.
     let baseline = order
         .trusted
         .clone()
         .and_then(|root| Baseline::start(root, order.state.clone()));
     let in_time = baseline.as_ref().and_then(|b| b.wait(BASELINE_WAIT));
     let late = baseline.filter(|_| in_time.is_none());
+    let Order {
+        directory,
+        project,
+        terminal: given,
+        ..
+    } = order;
+    let start = oso_term::Start {
+        executable: launch.program,
+        args: launch.args,
+        cwd: Some(directory.clone()),
+        project: project.clone(),
+        inherit: inherit(&given.settings.env, &given.env),
+        set: set(&found.path, &id),
+        size: given.size,
+        scrollback: given.settings.scrollback,
+        palette: given.palette,
+    };
+    let terminal = match Terminal::start(start, given.ready) {
+        Ok(terminal) => terminal,
+        Err(e) => return refuse(format!("The session's terminal did not start: {e}")),
+    };
     send(Report::Ready(Ready {
         token,
         id: id.clone(),
-        launch,
-        set: vec![(SESSION_VARIABLE.to_owned(), id.as_str().into())],
-        directory: order.directory,
-        project: order.project,
+        buffer: given.buffer,
+        terminal,
+        shell: found.path,
+        passed_over: found.passed_over,
+        directory,
+        project,
         baseline: in_time.flatten(),
     }));
     if let Some(Some(tree)) = late.and_then(|b| b.wait(BASELINE_GIVE_UP)) {
@@ -179,8 +227,31 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
     }
 }
 
-/// The program and arguments that start the session `id` as `order` says.
-fn launch_of(order: &Order, id: &SessionId) -> Result<Launch, String> {
+/// The names a session's terminal passes on: a terminal's, `[sessions] env`'s, and
+/// `CLAUDE_CONFIG_DIR`, so that the session's registry is the one oso reads.
+fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
+    let mut names = shell::inherit(terminal);
+    for name in sessions
+        .iter()
+        .map(String::as_str)
+        .chain([registry::CONFIG_VARIABLE])
+    {
+        if !names.iter().any(|known| known == name) {
+            names.push(name.to_owned());
+        }
+    }
+    names
+}
+
+/// The variables a session's terminal sets: a terminal's, and [`SESSION_VARIABLE`].
+fn set(shell_path: &Path, id: &SessionId) -> Vec<(String, OsString)> {
+    let mut set = shell::set(shell_path);
+    set.push((SESSION_VARIABLE.to_owned(), id.as_str().into()));
+    set
+}
+
+/// The program and arguments that start the session `id` as `order` says, in `shell`.
+fn launch_of(order: &Order, id: &SessionId, shell: &Executable) -> Result<Launch, String> {
     let claude = match &order.claude {
         Some(path) => Some(
             Executable::absolute(path)
@@ -204,30 +275,23 @@ fn launch_of(order: &Order, id: &SessionId) -> Result<Launch, String> {
         brief: None,
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
-    let shell = shell(order.shell.as_deref())
-        .ok_or_else(|| "The session did not start: no shell is found".to_owned())?;
-    launch::launch(&shell, claude.as_ref(), args, order.project.as_deref())
+    launch::launch(shell, claude.as_ref(), args, order.project.as_deref())
         .map_err(|e| format!("The session did not start: {e}"))
 }
 
-/// The shell: the one given if it is an executable file, else `$SHELL` if absolute, else the
-/// account's, else `/bin/sh` (ADR 0120).
-fn shell(given: Option<&Path>) -> Option<Executable> {
-    let shell_variable = std::env::var_os("SHELL").map(PathBuf::from);
-    given
-        .map(Path::to_path_buf)
-        .into_iter()
-        .chain(shell_variable)
-        .chain(process::account_shell())
-        .chain([PathBuf::from("/bin/sh")])
-        .find_map(|path| Executable::absolute(path).ok())
-}
-
-/// A live process of the session `id`, by the registry: its pid and directory.
-fn live(id: &SessionId) -> Option<(u32, Option<PathBuf>)> {
-    let entries = registry::read(&registry::directory()?);
-    let live = registry::live_with(&entries, id, process::start_time);
-    live.first().map(|entry| (entry.pid, entry.cwd.clone()))
+/// A live process of the session `id`, by the registry: its pid and directory. With no pid,
+/// the registry could not tell: its directory is not known, or it holds more entries than are
+/// read. A resume is then refused too, as the safe side.
+fn live(id: &SessionId) -> Option<(Option<u32>, Option<PathBuf>)> {
+    let Some(directory) = registry::directory() else {
+        return Some((None, None));
+    };
+    let listing = registry::list(&directory);
+    let live = registry::live_with(&listing.entries, id, process::start_time);
+    match live.first() {
+        Some(entry) => Some((Some(entry.pid), entry.cwd.clone())),
+        None => listing.cut.then_some((None, None)),
+    }
 }
 
 /// How many live processes the registry has for `id`.
@@ -275,5 +339,41 @@ impl Baseline {
             Err(mpsc::RecvTimeoutError::Timeout) => None,
             Err(mpsc::RecvTimeoutError::Disconnected) => Some(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{SESSION_VARIABLE, inherit, set};
+    use crate::sessions::identity::SessionId;
+
+    #[test]
+    fn a_session_passes_on_a_terminals_names_its_own_and_the_config_directory_once_each() {
+        let names = inherit(
+            &["LANG".to_owned()],
+            &["HTTPS_PROXY".to_owned(), "LANG".to_owned()],
+        );
+        assert_eq!(
+            names,
+            ["SSH_AUTH_SOCK", "LANG", "HTTPS_PROXY", "CLAUDE_CONFIG_DIR"]
+        );
+        let named = inherit(&[], &["CLAUDE_CONFIG_DIR".to_owned()]);
+        assert_eq!(named, ["SSH_AUTH_SOCK", "CLAUDE_CONFIG_DIR"]);
+    }
+
+    #[test]
+    fn a_session_sets_a_terminals_variables_and_its_id() {
+        let id = SessionId::from_random([7; 16]);
+        let vars = set(Path::new("/bin/zsh"), &id);
+        let get = |name: &str| {
+            vars.iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| v.to_string_lossy().into_owned())
+        };
+        assert_eq!(get("SHELL").as_deref(), Some("/bin/zsh"));
+        assert_eq!(get("TERM_PROGRAM").as_deref(), Some("oso"));
+        assert_eq!(get(SESSION_VARIABLE).as_deref(), Some(id.as_str()));
     }
 }
