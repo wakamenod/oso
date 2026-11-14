@@ -20,6 +20,7 @@
 #![cfg(unix)]
 
 mod requests;
+mod restore;
 mod script;
 
 use script::sized;
@@ -419,8 +420,13 @@ struct Driver {
 impl Driver {
     fn new(scrollback: usize) -> Driver {
         let size = sized(80, 24);
+        let engine = Ghostty::new(size, scrollback, policy::XTVERSION).expect("an engine");
+        Driver::around(engine, size)
+    }
+
+    fn around(engine: Ghostty, size: Size) -> Driver {
         Driver {
-            engine: Ghostty::new(size, scrollback, policy::XTVERSION).expect("an engine"),
+            engine,
             snapshot: Snapshot::new(size),
             spare: Vec::new(),
             effects: Vec::new(),
