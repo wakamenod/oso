@@ -1,6 +1,6 @@
 # 0120. The terminal
 
-- Status: Accepted, amended by 0132
+- Status: Accepted, amended by 0132 and 0133
 - Date: 2026-11-12
 
 ## Context
