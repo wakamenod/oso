@@ -7,7 +7,10 @@
 //!
 //! Only names the reader opens are looked at: `<digits>.json`, never `*.key`, at most
 //! [`registry::MAX_FILES`] of them. A look is one listing, a `stat` of each, and the start
-//! time of each process read, as a process that ends leaves its file behind.
+//! time of each process read, as a process that ends leaves its file behind. Each session's
+//! directory is resolved once, when first seen (ADR 0131): its real path, and the repository
+//! root nearest above it, for where the tree lists it. The same look `stat`s each watched
+//! project's `worktrees` directory, and says which changed.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -36,6 +39,10 @@ pub struct External {
     pub working: bool,
     /// When the CLI last changed its status, as its registry entry says.
     pub status_changed: Option<SystemTime>,
+    /// Its directory with links resolved, where it is still there.
+    pub place: Option<PathBuf>,
+    /// The repository root nearest above that.
+    pub repo: Option<PathBuf>,
 }
 
 impl External {
@@ -76,7 +83,19 @@ pub struct Poll {
     entries: HashMap<OsString, registry::Entry>,
     /// What went to the app last.
     told: Option<Vec<External>>,
+    /// Each directory seen, resolved: its real path and its repository's root.
+    places: HashMap<PathBuf, Resolved>,
+    /// Each watched project's root, its `worktrees` directory and when that last changed.
+    watched: Vec<(PathBuf, PathBuf, Option<SystemTime>)>,
+    /// The watched projects whose `worktrees` directory changed since taken.
+    moved: Vec<PathBuf>,
 }
+
+/// A directory, resolved.
+type Resolved = (Option<PathBuf>, Option<PathBuf>);
+
+/// How far up a directory a repository's root is looked for.
+const MAX_REPO_DEPTH: usize = 32;
 
 impl Poll {
     /// Starts looking at `dir`, or stops with `None`. What was read and told is forgotten, so
@@ -118,13 +137,67 @@ impl Poll {
             self.entries = entries;
             self.stamps = stamps;
         }
-        let live = live(self.entries.values());
+        for (root, dir, changed) in &mut self.watched {
+            let now = std::fs::metadata(&*dir)
+                .and_then(|meta| meta.modified())
+                .ok();
+            if now != *changed {
+                *changed = now;
+                self.moved.push(root.clone());
+            }
+        }
+        let mut live = live(self.entries.values());
+        let places = &mut self.places;
+        places.retain(|dir, _| live.iter().any(|e| e.directory.as_ref() == Some(dir)));
+        for external in &mut live {
+            if let Some(dir) = &external.directory {
+                let (place, repo) = places.entry(dir.clone()).or_insert_with(|| resolve(dir));
+                external.place.clone_from(place);
+                external.repo.clone_from(repo);
+            }
+        }
         if self.told.as_ref() == Some(&live) {
             return None;
         }
         self.told = Some(live.clone());
         Some(live)
     }
+}
+
+impl Poll {
+    /// Watches each project's `worktrees` directory, by `(root, directory)`, from the next look:
+    /// a change is said once.
+    pub fn watch(&mut self, watched: Vec<(PathBuf, PathBuf)>) {
+        let kept = std::mem::take(&mut self.watched);
+        self.watched = watched
+            .into_iter()
+            .map(|(root, dir)| {
+                let changed = kept
+                    .iter()
+                    .find(|(_, at, _)| *at == dir)
+                    .and_then(|(.., changed)| *changed);
+                (root, dir, changed)
+            })
+            .collect();
+    }
+
+    /// The watched projects whose `worktrees` directory changed since the last call.
+    pub fn take_moved(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.moved)
+    }
+}
+
+/// `dir` resolved: its real path, and the nearest directory at or above it that holds `.git`.
+fn resolve(dir: &Path) -> Resolved {
+    let Ok(real) = std::fs::canonicalize(dir) else {
+        return (None, None);
+    };
+    let repo = real
+        .ancestors()
+        .take(MAX_REPO_DEPTH)
+        .find(|at| std::fs::symlink_metadata(at.join(".git")).is_ok())
+        .map(Path::to_owned);
+    (Some(real), repo)
 }
 
 /// Each file of the registry the reader would open, with when it changed, in name order. At
@@ -158,6 +231,8 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
             directory: entry.cwd.clone(),
             working: entry.status.as_deref() == Some("busy"),
             session_id: entry.session_id.clone(),
+            place: None,
+            repo: None,
             status_changed: entry
                 .status_updated_at
                 .map(|ms| std::time::UNIX_EPOCH + Duration::from_millis(ms)),
@@ -248,6 +323,8 @@ mod tests {
             directory: Some("/work/a\u{202E}b".into()),
             working: false,
             status_changed: changed.map(|s| UNIX_EPOCH + Duration::from_secs(s)),
+            place: None,
+            repo: None,
         };
         let now = Instant::now();
         let wall = UNIX_EPOCH + Duration::from_secs(1_000);

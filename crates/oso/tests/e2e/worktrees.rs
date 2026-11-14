@@ -62,14 +62,14 @@ type Run = (String, Vec<String>);
 pub(super) struct Flow {
     pub(super) scratch: Scratch,
     pub(super) repo: PathBuf,
-    home: PathBuf,
+    pub(super) home: PathBuf,
     config: PathBuf,
 }
 
 impl Flow {
     /// A committed repository, `repo`, with `.env` ignored and named by `.worktreeinclude`, and
     /// `main` pushed to a bare `origin`. `sessions` is added to the `[sessions]` table.
-    fn new(test: &str, sessions: &str) -> Flow {
+    pub(super) fn new(test: &str, sessions: &str) -> Flow {
         Flow::with_fake(test, sessions, FAKE)
     }
 

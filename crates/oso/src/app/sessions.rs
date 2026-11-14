@@ -137,6 +137,7 @@ impl App {
                  until the rules reload. See agent-rules/claude.toml",
                 crate::sessions::worker::DROP_AFTER
             )),
+            Out::WorktreesMoved(roots) => self.worktrees_moved(&roots),
             Out::Recalled(remembered) => {
                 self.sessions_recalled(remembered);
                 self.sessions_touched();

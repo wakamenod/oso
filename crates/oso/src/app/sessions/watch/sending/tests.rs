@@ -22,6 +22,8 @@ fn entry(key: Key, name: &str, state: State, archived: bool) -> Entry {
         pinned: false,
         archived,
         parent: None,
+        dir: None,
+        repo: None,
     }
 }
 

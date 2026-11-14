@@ -57,7 +57,7 @@ impl App {
                 }
             }
             SessionRequest::Regroup => self.watch.list.regroup(),
-            SessionRequest::Refresh => {}
+            SessionRequest::Refresh => self.relist_projects(),
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
             SessionRequest::FollowMessage(buffer) => self.follow_message(buffer),
             other => return Some(other),
@@ -198,6 +198,13 @@ impl App {
                 return self.watch.list.fold(&Line::Session(key));
             }
             Line::Header(_) => return,
+            // A project's or a worktree's row folds; step 2b gives a worktree's RET its space.
+            Line::Project(_) | Line::Worktree(_) => {
+                if matches!(action, RowAction::Fold | RowAction::Show) {
+                    self.watch.list.fold(&row);
+                }
+                return;
+            }
             Line::Session(Key::External(pid)) => {
                 return self.editor.message(format!(
                     "Process {pid} runs that session outside oso: it is only listed"

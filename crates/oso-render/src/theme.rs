@@ -254,7 +254,7 @@ pub(crate) const SYNTAX_FILLS: [Face; 5] = [
 ];
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 78] = [
+const FACES: [Face; 79] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -333,10 +333,15 @@ const FACES: [Face; 78] = [
     Face::SessionWorking,
     Face::SessionDone,
     Face::SessionQuiet,
+    Face::SessionFront,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
 /// compile until it is placed.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm for each face, so that a new face does not compile until it is placed"
+)]
 const fn index(face: Face) -> usize {
     match face {
         Face::Text => 0,
@@ -417,10 +422,15 @@ const fn index(face: Face) -> usize {
         Face::SessionWorking => 75,
         Face::SessionDone => 76,
         Face::SessionQuiet => 77,
+        Face::SessionFront => 78,
     }
 }
 
 /// The face map the themes share: each face's foreground and background, by name.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm for each face, as `index` has"
+)]
 fn faces(face: Face) -> (Name, Name) {
     use Name::*;
     match face {
@@ -509,19 +519,23 @@ fn faces(face: Face) -> (Name, Name) {
         Face::TerminalColor13 => (Terminal(13), BgMain),
         Face::TerminalColor14 => (Terminal(14), BgMain),
         Face::TerminalColor15 => (Terminal(15), BgMain),
-        Face::SessionAlert | Face::SessionWorking | Face::SessionDone | Face::SessionQuiet => {
-            (session(face), BgMain)
-        }
+        Face::SessionAlert
+        | Face::SessionWorking
+        | Face::SessionDone
+        | Face::SessionQuiet
+        | Face::SessionFront => (session(face), BgMain),
     }
 }
 
 /// A session's state's colour (ADR 0131): red, amber or green, and quiet in a prompt's dim
-/// colour, each on the text's background.
+/// colour, each on the text's background; the space in front's name in the hue of an agent's
+/// comment, which no state uses (Azure falls short on dusk's band).
 fn session(face: Face) -> Name {
     match face {
         Face::SessionAlert => Name::Terminal(9),
         Face::SessionWorking => Name::Warning,
         Face::SessionDone => Name::Terminal(10),
+        Face::SessionFront => Name::FgCommentAgent,
         _ => Name::FgPrompt,
     }
 }
@@ -762,7 +776,7 @@ pub(crate) mod tests {
                 (Face::Modeline, LABEL),
                 (Face::ModelineInactive, LABEL),
             ],
-            Face::SessionWorking | Face::SessionQuiet => {
+            Face::SessionWorking | Face::SessionQuiet | Face::SessionFront => {
                 &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
             }
             // A terminal's colours are read on the text's background, as highlighted text is,

@@ -76,6 +76,9 @@ pub enum Job {
     Explain(SessionKey),
     /// Look at Claude Code's registry once a second for other programs' sessions, or stop.
     Externals(bool),
+    /// With each look, `stat` these projects' `worktrees` directories, by `(root, directory)`
+    /// (ADR 0131).
+    Watch(Vec<(PathBuf, PathBuf)>),
     /// Read the sessions an earlier oso remembered in this state directory (ADR 0121).
     Recall(PathBuf),
     /// Remember these sessions in this state directory, keeping those of another instance:
@@ -94,6 +97,8 @@ pub enum Out {
     Changed(SessionKey, Change),
     /// The live sessions of Claude Code's registry changed: all of them, the app's own too.
     Externals(Vec<externals::External>),
+    /// These watched projects' worktrees changed: they are listed again (ADR 0131).
+    WorktreesMoved(Vec<PathBuf>),
     /// A session's recap changed (ADR 0121, step 3): cleaned and cut, the screen's text.
     Recap(SessionKey, String),
     /// Whether a hold rule matched a session's newest look changed, or `None`, the newest

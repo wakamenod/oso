@@ -98,6 +98,11 @@ impl Spaces {
             .max_by_key(|&at| self.spaces[at].root.components().count())
     }
 
+    /// Every space, in the order they were added.
+    pub fn iter(&self) -> impl Iterator<Item = &Space> {
+        self.spaces.iter()
+    }
+
     pub fn get(&self, at: usize) -> Option<&Space> {
         self.spaces.get(at)
     }
