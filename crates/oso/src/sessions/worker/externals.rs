@@ -29,10 +29,20 @@ pub const POLL_EVERY: Duration = Duration::from_secs(1);
 pub struct External {
     pub pid: u32,
     pub session_id: Option<SessionId>,
-    pub name: String,
+    /// The name the registry gives it, if any.
+    pub name: Option<String>,
     pub directory: Option<PathBuf>,
     /// The CLI says it is busy.
     pub working: bool,
+}
+
+impl External {
+    /// The name `*Sessions*` lists it by: the registry's, else `claude PID`.
+    pub fn listed_name(&self) -> String {
+        self.name
+            .clone()
+            .unwrap_or_else(|| format!("claude {}", self.pid))
+    }
 }
 
 /// The poll's state.
@@ -136,11 +146,11 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
     live
 }
 
-/// The name `*Sessions*` lists for `entry`. It is the registry's text, so it is cleaned as a
-/// recap is, that it cannot reorder or break the line it is drawn on.
+/// The name `*Sessions*` lists for `entry`, if it has one. It is the registry's text, so it is
+/// cleaned as a recap is, that it cannot reorder or break the line it is drawn on.
 /// Characters that draw nothing, or a blank, are dropped too: a name of them alone would show
 /// as no name, and among others they would make a copy of another session's name.
-fn shown_name(entry: &registry::Entry) -> String {
+fn shown_name(entry: &registry::Entry) -> Option<String> {
     entry
         .name
         .as_deref()
@@ -149,7 +159,6 @@ fn shown_name(entry: &registry::Entry) -> String {
             recap::clean(&drawn)
         })
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| format!("claude {}", entry.pid))
 }
 
 /// Whether `c` draws nothing, or a blank that is not white space.
@@ -216,11 +225,15 @@ mod tests {
             ..Default::default()
         };
         let shown = super::shown_name(&named(Some("fix\u{202E}txt.exe\tnow\nx")));
-        assert_eq!(shown, "fixtxt.exe now x");
-        assert_eq!(super::shown_name(&named(Some("\u{2066}\t"))), "claude 42");
-        assert_eq!(super::shown_name(&named(None)), "claude 42");
+        assert_eq!(shown.as_deref(), Some("fixtxt.exe now x"));
+        // No name is left: `*Sessions*` lists it as `claude PID`.
+        assert_eq!(super::shown_name(&named(Some("\u{2066}\t"))), None);
+        assert_eq!(super::shown_name(&named(None)), None);
         let blank = named(Some("\u{200B}\u{2800}\u{3164}\u{FEFF}"));
-        assert_eq!(super::shown_name(&blank), "claude 42");
-        assert_eq!(super::shown_name(&named(Some("fi\u{200B}x"))), "fix");
+        assert_eq!(super::shown_name(&blank), None);
+        assert_eq!(
+            super::shown_name(&named(Some("fi\u{200B}x"))).as_deref(),
+            Some("fix")
+        );
     }
 }

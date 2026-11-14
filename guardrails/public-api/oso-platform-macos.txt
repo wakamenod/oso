@@ -577,6 +577,7 @@ pub oso_platform::window::Event::Ime(oso_platform::window::ImeEvent)
 pub oso_platform::window::Event::InputSource(oso_platform::window::InputSource)
 pub oso_platform::window::Event::Key(oso_platform::window::KeyInput<'a>)
 pub oso_platform::window::Event::ModifiersChanged(oso_platform::window::Held)
+pub oso_platform::window::Event::Mouse(oso_platform::window::Mouse)
 pub oso_platform::window::Event::Occluded(bool)
 pub oso_platform::window::Event::Other
 pub oso_platform::window::Event::RedrawRequested
@@ -604,6 +605,32 @@ impl core::fmt::Debug for oso_platform::window::InputSource
 pub fn oso_platform::window::InputSource::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_platform::window::InputSource
 impl core::marker::StructuralPartialEq for oso_platform::window::InputSource
+pub enum oso_platform::window::MouseAction
+pub oso_platform::window::MouseAction::Moved
+pub oso_platform::window::MouseAction::Press(oso_platform::window::MouseButton)
+pub oso_platform::window::MouseAction::Release(oso_platform::window::MouseButton)
+impl core::clone::Clone for oso_platform::window::MouseAction
+pub fn oso_platform::window::MouseAction::clone(&self) -> oso_platform::window::MouseAction
+impl core::cmp::Eq for oso_platform::window::MouseAction
+impl core::cmp::PartialEq for oso_platform::window::MouseAction
+pub fn oso_platform::window::MouseAction::eq(&self, &oso_platform::window::MouseAction) -> bool
+impl core::fmt::Debug for oso_platform::window::MouseAction
+pub fn oso_platform::window::MouseAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::MouseAction
+impl core::marker::StructuralPartialEq for oso_platform::window::MouseAction
+pub enum oso_platform::window::MouseButton
+pub oso_platform::window::MouseButton::Left
+pub oso_platform::window::MouseButton::Middle
+pub oso_platform::window::MouseButton::Right
+impl core::clone::Clone for oso_platform::window::MouseButton
+pub fn oso_platform::window::MouseButton::clone(&self) -> oso_platform::window::MouseButton
+impl core::cmp::Eq for oso_platform::window::MouseButton
+impl core::cmp::PartialEq for oso_platform::window::MouseButton
+pub fn oso_platform::window::MouseButton::eq(&self, &oso_platform::window::MouseButton) -> bool
+impl core::fmt::Debug for oso_platform::window::MouseButton
+pub fn oso_platform::window::MouseButton::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::MouseButton
+impl core::marker::StructuralPartialEq for oso_platform::window::MouseButton
 pub enum oso_platform::window::QuitAnswer
 pub oso_platform::window::QuitAnswer::Cancel
 pub oso_platform::window::QuitAnswer::Later
@@ -733,6 +760,18 @@ pub oso_platform::window::KeyInput::repeat: bool
 impl<'a> core::clone::Clone for oso_platform::window::KeyInput<'a>
 pub fn oso_platform::window::KeyInput<'a>::clone(&self) -> oso_platform::window::KeyInput<'a>
 impl<'a> core::marker::Copy for oso_platform::window::KeyInput<'a>
+pub struct oso_platform::window::Mouse
+pub oso_platform::window::Mouse::action: oso_platform::window::MouseAction
+pub oso_platform::window::Mouse::at: oso_platform::window::Position
+pub oso_platform::window::Mouse::held: oso_platform::window::Held
+impl core::clone::Clone for oso_platform::window::Mouse
+pub fn oso_platform::window::Mouse::clone(&self) -> oso_platform::window::Mouse
+impl core::cmp::PartialEq for oso_platform::window::Mouse
+pub fn oso_platform::window::Mouse::eq(&self, &oso_platform::window::Mouse) -> bool
+impl core::fmt::Debug for oso_platform::window::Mouse
+pub fn oso_platform::window::Mouse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::Mouse
+impl core::marker::StructuralPartialEq for oso_platform::window::Mouse
 pub struct oso_platform::window::Position
 pub oso_platform::window::Position::x: f64
 pub oso_platform::window::Position::y: f64
@@ -777,6 +816,7 @@ pub fn oso_platform::window::Window::set_ime_cursor_area(&self, oso_platform::wi
 pub fn oso_platform::window::Window::set_ime_excerpt(&self, &mut alloc::string::String, core::option::Option<usize>)
 pub fn oso_platform::window::Window::set_ime_preedit(&self, core::option::Option<(&str, oso_platform::window::CursorArea, &[f32])>)
 pub fn oso_platform::window::Window::set_outer_position(&self, i32, i32)
+pub fn oso_platform::window::Window::set_pointer_motion(&self, bool)
 pub fn oso_platform::window::Window::set_secure_input(&self, bool)
 pub fn oso_platform::window::Window::set_visible(&self, bool)
 pub trait oso_platform::window::Handler<T>

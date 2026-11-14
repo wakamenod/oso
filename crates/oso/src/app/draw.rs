@@ -832,4 +832,63 @@ mod tests {
             );
         }
     }
+
+    /// A review comment's draft over several rows (ADR 0122): its answer's pane takes them
+    /// all, with the gap above its first and the padding below its last, its field is one
+    /// over the same rows, and its text's rows are drawn in it.
+    #[test]
+    fn a_drafts_answer_of_several_rows_is_one_pane_and_one_field() {
+        use oso_core::buffer::Replacement;
+        use oso_core::editor::DraftFor;
+        use oso_core::review::{Anchor, Side};
+
+        let (mut editor, project) = crate::commands::review::tests::in_project(true);
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 80,
+        });
+        let (review, _) = editor.add_review(project, "*review*".into());
+        let anchor = Anchor::Line {
+            side: Side::New,
+            number: 1,
+        };
+        let draft = DraftFor::Comment {
+            path: b"a".as_slice().into(),
+            anchor,
+        };
+        editor.open_draft(review, draft, "").unwrap();
+        let buffer = editor.prompt().unwrap().buffer();
+        let text = "one\ntwo\nthree\nfour";
+        let edit = Replacement { range: 0..0, text };
+        editor.apply_edits(buffer, &[edit]).unwrap();
+        let layout = editor.prompt_layout().unwrap().clone();
+        assert_eq!(layout.input.rows, 4);
+        assert_eq!(layout.field.rows, 4);
+        let regions = layout.regions;
+        let mut cells = Cells::default();
+        with_panes(&editor, &statuses(&editor), &mut cells, |panes| {
+            let float = panes.iter().find(|pane| pane.layer == Layer::FLOAT);
+            let panel = float.and_then(|pane| pane.panel.as_ref()).unwrap();
+            assert_eq!(panel.field, Some(layout.field));
+            let answer = panes
+                .iter()
+                .find(|pane| pane.region == layout.input)
+                .unwrap();
+            assert_eq!(answer.bands.above, regions.gap);
+            assert_eq!(answer.bands.below, regions.padded_below());
+            assert!(regions.padded_below(), "a float of 24 rows has room");
+            let PaneContent::Text(view) = &answer.content else {
+                panic!("the answer is the prompt's window");
+            };
+            let lines: Vec<usize> = view.screen.rows().iter().map(|row| row.line).collect();
+            assert_eq!(lines, [0, 1, 2, 3], "a row for each line");
+            // Nothing else of the float keeps a band into the padding below.
+            for pane in panes
+                .iter()
+                .filter(|pane| pane.layer == Layer::FLOAT_CONTENT && pane.region != layout.input)
+            {
+                assert!(!pane.bands.below, "{:?}", pane.region);
+            }
+        });
+    }
 }

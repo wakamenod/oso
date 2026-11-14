@@ -183,9 +183,13 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   moves the view and leaves the cursor, even out of view, until the next command in
   that window or one that moves it; `Editor::scroll_view` leaves it too beneath a
   prompt or a composition (ADR 0069, ADR 0072). The wheel scrolls the window under the pointer
-  without selecting it: the app turns the pointer's pixel into a cell with
+  without selecting it (over a terminal it may go to the program instead, ADR 0120): the app turns the pointer's pixel into a cell with
   `PixelGrid::cell_at`, and `Editor::wheel_window` into a window
-  ([ADR 0112](adr/0112-window-splits.md)).
+  ([ADR 0112](adr/0112-window-splits.md)). A click finds its window the same way, so
+  over a float it gets the tiled window beneath, and selects it; point never moves in a
+  text buffer. In a terminal, a drag selects cells, and the release copies their text
+  with `Editor::kill_new`, which puts text from outside any buffer in the kill ring as
+  `M-w` does ([ADR 0120](adr/0120-the-terminal.md), step 4b-2).
 - **Undo** is linear (`oso_core::undo`, [ADR 0030](adr/0030-m2-editing-commands.md)):
   an edit after an undo discards the redo groups. A group holds one command's
   edits across all cursors, and the selected window's cursors before and after.
@@ -657,6 +661,9 @@ The UI thread never blocks on I/O or parsing:
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
   judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
   asks (`Event::Claims`).
+  `session-adopt`'s list of conversations oso does not host is made on a short
+  `oso-session-adopt-list` thread (`sessions/adopt.rs`, `sessions/transcripts.rs`, glue in
+  `app/sessions/hosting/adopt.rs`), and its pick resumes through the same start thread.
 - Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
   delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with

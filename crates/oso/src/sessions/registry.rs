@@ -186,13 +186,44 @@ fn parse(bytes: &[u8]) -> Option<Entry> {
             .get("sessionId")
             .and_then(Value::as_str)
             .and_then(SessionId::parse),
-        cwd: text("cwd", MAX_CWD).map(PathBuf::from),
+        cwd: text("cwd", MAX_CWD)
+            .map(PathBuf::from)
+            .filter(|cwd| is_plain_directory(cwd)),
         proc_start: text("procStart", MAX_FIELD),
         started_at: object.get("startedAt").and_then(Value::as_u64),
         name: text("name", MAX_FIELD),
         kind: text("kind", MAX_FIELD),
         status: text("status", MAX_FIELD),
     })
+}
+
+/// Whether `directory`, read from a file of Claude Code's, is absolute with no `.` or `..` in
+/// it: a directory oso may place or start a session in by its text, as one that held `..`
+/// could seem to be inside a project it is not.
+pub fn is_plain_directory(directory: &Path) -> bool {
+    // By its text: `components` drops a `.` inside a path.
+    directory.is_absolute()
+        && !directory
+            .to_string_lossy()
+            .split(std::path::is_separator)
+            .any(|part| part == "." || part == "..")
+}
+
+/// The most bytes of a directory from Claude Code's files that oso shows.
+pub const MAX_SHOWN_DIRECTORY: usize = 200;
+
+/// A directory from Claude Code's files, which any process of the person's may write, as oso
+/// shows it: escaped so that it stays on one row and cannot reorder it, and cut in the middle
+/// when long, so that its start and its last names both show.
+pub fn shown_directory(directory: &Path) -> String {
+    let shown = oso_core::editor::row_text(&directory.to_string_lossy());
+    if shown.len() <= MAX_SHOWN_DIRECTORY {
+        return shown;
+    }
+    let half = MAX_SHOWN_DIRECTORY / 2;
+    let head = shown.floor_char_boundary(half);
+    let tail = shown.ceil_char_boundary(shown.len() - half);
+    format!("{}…{}", &shown[..head], &shown[tail..])
 }
 
 /// Whether `entry`'s process still runs, by `started`, which gives when a process started,
@@ -293,8 +324,8 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use super::{
-        Entry, Live, MAX_FILES, directory_from, list, live_with, liveness, parse_ctime, pid_of,
-        read,
+        Entry, Live, MAX_FILES, MAX_SHOWN_DIRECTORY, directory_from, is_plain_directory, list,
+        live_with, liveness, parse, parse_ctime, pid_of, read, shown_directory,
     };
     use crate::sessions::identity::SessionId;
 
@@ -669,5 +700,36 @@ mod tests {
             .map(|entry| entry.pid)
             .collect();
         assert_eq!(live, [me]);
+    }
+
+    #[test]
+    fn a_directory_is_taken_only_absolute_and_without_dots() {
+        assert!(is_plain_directory(std::path::Path::new("/p/oso")));
+        for dotted in ["/p/proj/x/../../y", "/p/./oso", "p/oso", "", "/p/oso/.."] {
+            assert!(
+                !is_plain_directory(std::path::Path::new(dotted)),
+                "{dotted}"
+            );
+        }
+        let entry = parse(br#"{"pid":7,"cwd":"/p/proj/../x"}"#).unwrap();
+        assert_eq!(entry.cwd, None);
+    }
+
+    #[test]
+    fn a_directory_is_shown_escaped_on_one_row_and_cut_in_the_middle() {
+        let shown = shown_directory(std::path::Path::new("/p/a\nb\u{202e}c"));
+        assert!(!shown.contains('\n'), "{shown}");
+        assert!(!shown.contains('\u{202e}'), "{shown}");
+        let long = format!("/start/{}/the-end/..", "é".repeat(400));
+        let shown = shown_directory(std::path::Path::new(&long));
+        assert!(
+            shown.len() <= MAX_SHOWN_DIRECTORY + '…'.len_utf8(),
+            "{}",
+            shown.len()
+        );
+        assert!(shown.starts_with("/start/"), "{shown}");
+        assert!(shown.ends_with("/the-end/.."), "{shown}");
+        assert!(shown.contains('…'));
+        assert_eq!(shown_directory(std::path::Path::new("/p/oso")), "/p/oso");
     }
 }

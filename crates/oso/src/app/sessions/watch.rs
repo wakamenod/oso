@@ -358,7 +358,7 @@ impl App {
                 .map_or(now, |(_, since)| *since);
             externals.push(Entry {
                 key: Key::External(external.pid),
-                name: external.name.clone(),
+                name: external.listed_name(),
                 space,
                 branch: None,
                 state,
@@ -369,8 +369,10 @@ impl App {
                 parent: None,
             });
         }
+        let gone_from: Vec<u32> = before.keys().copied().collect();
         self.watch.externals = externals;
         self.watch.stale = true;
+        self.adoptable_externals(&gone_from, &live);
     }
 
     /// What is kept of sessions no longer in the table goes.

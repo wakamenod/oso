@@ -256,6 +256,7 @@ mod tests {
             | UiOp::Ime(_)
             | UiOp::Clipboard(_)
             | UiOp::Wheel { .. }
+            | UiOp::Mouse { .. }
             | UiOp::Focus(_)
             | UiOp::ExportText { .. }
             | UiOp::ImportText(_)

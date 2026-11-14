@@ -35,7 +35,7 @@ fn several_characters(key: SystemKey<'_>, held: Held) -> Option<&str> {
 }
 
 /// Maps the modifiers held to oso's, applying the macOS mapping.
-fn modifiers(held: Held) -> Modifiers {
+pub(crate) fn modifiers(held: Held) -> Modifiers {
     let (meta, sup) = if cfg!(target_os = "macos") {
         (Held::LOGO, Held::ALT)
     } else {

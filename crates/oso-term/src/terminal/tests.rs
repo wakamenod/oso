@@ -44,6 +44,9 @@ pub(super) struct Seen {
     pub screen: Vec<String>,
     pub events: Vec<Event>,
     echo_off: bool,
+    /// What each snapshot said of echo, in order: one `take` may drain several snapshots, and
+    /// `echo_off` keeps only the last.
+    echo_said: Vec<bool>,
     pub cursor: crate::snapshot::Cursor,
     size: (u16, u16),
     pub scrolled: usize,
@@ -69,6 +72,7 @@ impl Seen {
             screen: Vec::new(),
             events: Vec::new(),
             echo_off: false,
+            echo_said: Vec::new(),
             cursor: crate::snapshot::Cursor::default(),
             size: (0, 0),
             scrolled: 0,
@@ -82,9 +86,10 @@ impl Seen {
         while !done(self) {
             assert!(
                 Instant::now() < deadline,
-                "timed out: {:?} {:?}",
+                "timed out: {:?} {:?} echo said {:?}",
                 self.screen,
-                self.events
+                self.events,
+                self.echo_said
             );
             let _ = self.woken.recv_timeout(Duration::from_millis(50));
             self.take();
@@ -119,6 +124,7 @@ impl Seen {
                 }
             }
             self.echo_off = snapshot.echo_off;
+            self.echo_said.push(snapshot.echo_off);
             self.cursor = snapshot.cursor;
             self.size = (snapshot.size.columns, snapshot.size.rows);
             self.events.append(&mut snapshot.events);
@@ -298,12 +304,15 @@ fn echo_back_on_with_no_output_is_seen() {
 fn a_prompt_that_came_and_went_while_a_snapshot_waited_is_said_over_after() {
     let (off, on) = (Marker::new("came-off"), Marker::new("came-on"));
     let mut seen = Seen::start(sh(&format!(
-        "printf 'ready\\n'; read a; stty -echo; {}; read x; stty echo; {}; read y",
+        "read a; stty -echo; {}; read x; stty echo; {}; read y",
         off.touch(),
         on.touch()
     )));
-    seen.until(|s| s.shows("ready"));
-    // The UI takes nothing while the prompt opens and ends: the snapshot of `a`'s echo waits.
+    // The UI takes nothing while the prompt opens and ends: the first snapshot waits. It went
+    // before `a`, so before the prompt could open.
+    seen.woken
+        .recv_timeout(Duration::from_secs(10))
+        .expect("a snapshot");
     seen.terminal.send(b"a\r".to_vec()).expect("queued");
     off.wait();
     // The look before this write sees the prompt.
@@ -312,8 +321,10 @@ fn a_prompt_that_came_and_went_while_a_snapshot_waited_is_said_over_after() {
     // Time for the thread's last looks, so that it has seen the prompt end before the UI takes
     // anything: only the follow-up then says it is over. Passing never hangs on this.
     std::thread::sleep(Duration::from_millis(600));
-    seen.until(|s| s.echo_off);
-    seen.until(|s| !s.echo_off);
+    // The waiting snapshot says echo is on, the next the prompt, the one after that it is over:
+    // each in its own snapshot, however many one `take` drains.
+    seen.until(|s| s.echo_said.len() >= 3);
+    assert_eq!(seen.echo_said[..3], [false, true, false]);
 }
 
 #[test]

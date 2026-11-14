@@ -9,6 +9,8 @@
 
 mod echo;
 mod hold;
+mod inputs;
+mod pointer;
 
 use std::collections::VecDeque;
 use std::io;
@@ -25,12 +27,12 @@ use super::{Input, Request, Shared, Start};
 use crate::engine::ghostty::Ghostty;
 use crate::engine::{Effect, Engine};
 use crate::event::{End, Event};
-use crate::input::{self, Refused};
 use crate::limits;
 use crate::policy::{self, Verdict};
-use crate::snapshot::{Row, Scroll, Snapshot};
+use crate::snapshot::{Row, Snapshot};
 use echo::EchoWatch;
 pub(super) use hold::Hold;
+pub(super) use inputs::Inputs;
 
 /// How often, and for how long, a child is looked for after the PTY ended.
 const REAP_EVERY: Duration = Duration::from_millis(50);
@@ -70,63 +72,6 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
     }
 }
 
-/// What the thread keeps to serve input: the focus it last heard of, and a key's bytes.
-pub(super) struct Inputs {
-    focused: Option<bool>,
-    key: [u8; limits::KEY_BYTES_MAX],
-}
-
-impl Inputs {
-    pub(super) fn new() -> Inputs {
-        Inputs {
-            focused: None,
-            key: [0; limits::KEY_BYTES_MAX],
-        }
-    }
-
-    /// Encodes one input against the engine's modes as they are now, and returns its bytes
-    /// for the program, maybe none, and whether it raised an event into `next`. Input that
-    /// sends anything but a focus report scrolls the view to the bottom first. The terminal's
-    /// thread and the fuzz target both serve input through this.
-    pub(super) fn serve(
-        &mut self,
-        input: Input,
-        engine: &mut impl Engine,
-        next: &mut Snapshot,
-    ) -> (Vec<u8>, bool) {
-        let bytes = match input {
-            Input::Bytes(bytes) => bytes,
-            Input::Key(key) => {
-                let n = engine.encode_key(key, &mut self.key);
-                self.key[..n].to_vec()
-            }
-            Input::Paste {
-                text,
-                lines_allowed,
-            } => {
-                let bracketed = engine.modes().bracketed_paste;
-                match input::paste(&text, bracketed, lines_allowed) {
-                    Ok(bytes) => bytes,
-                    Err(Refused { lines }) => {
-                        keep(Event::PasteRefused { lines }, next);
-                        return (Vec::new(), true);
-                    }
-                }
-            }
-            Input::Focus(focused) => {
-                let changed = self.focused.replace(focused) != Some(focused);
-                let report = changed && engine.modes().focus_reports;
-                let bytes = if report { input::focus(focused) } else { &[] };
-                return (bytes.to_vec(), false);
-            }
-        };
-        if !bytes.is_empty() {
-            engine.scroll(Scroll::Bottom);
-        }
-        (bytes, false)
-    }
-}
-
 /// Judges the effects the output raised: replies queue, while 64 KiB wait at most; holds
 /// begin and end at `now`; events go into `next`. A title, a directory, a progress or a
 /// clipboard write replaces the one of its kind already there, and is never dropped, so a
@@ -159,6 +104,7 @@ pub(super) fn judge(
     evented
 }
 
+/// Keeps `event` in `next`, as `judge` says.
 fn keep(event: Event, next: &mut Snapshot) {
     let kind = std::mem::discriminant(&event);
     let latest = matches!(

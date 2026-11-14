@@ -30,8 +30,10 @@ use crate::window::WindowId;
 mod candidates;
 mod completion;
 mod cut;
+mod draft;
 mod history;
 
+pub(crate) use draft::{draft_layout, draft_rows};
 pub(crate) use history::Histories;
 
 /// The most prompts open at once. One more is refused.
@@ -85,6 +87,9 @@ pub enum Kind {
         yes: &'static str,
         verbs: [&'static str; 2],
     },
+    /// A review comment's draft (ADR 0122): any text, over several rows that wrap, in no
+    /// history. `RET` breaks a line; its own key keeps it.
+    Draft,
 }
 
 impl Kind {
@@ -93,7 +98,7 @@ impl Kind {
         match self {
             Self::Number { history } | Self::Text { history } => history,
             Self::Complete { history } => Some(history),
-            Self::Passphrase | Self::Question { .. } => None,
+            Self::Passphrase | Self::Question { .. } | Self::Draft => None,
         }
     }
 

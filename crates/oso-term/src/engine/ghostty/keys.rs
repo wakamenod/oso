@@ -37,18 +37,22 @@ const SHIFTED: [(char, char); 21] = [
     ('?', '/'),
 ];
 
-/// The key event for `press`.
-pub(super) fn input(press: KeyPress) -> KeyInput {
+/// The library's modifier bits for `modifiers`: Meta as Alt, Super as super.
+pub(super) fn mods(modifiers: Modifiers) -> ffi::Mods {
     const MODS: [(Modifiers, ffi::Mods); 4] = [
         (Modifiers::CONTROL, ffi::MODS_CTRL),
         (Modifiers::META, ffi::MODS_ALT),
         (Modifiers::SUPER, ffi::MODS_SUPER),
         (Modifiers::SHIFT, ffi::MODS_SHIFT),
     ];
-    let mods = MODS
-        .iter()
-        .filter(|(modifier, _)| press.modifiers.contains(*modifier))
-        .fold(0, |all, (_, bit)| all | bit);
+    MODS.iter()
+        .filter(|(modifier, _)| modifiers.contains(*modifier))
+        .fold(0, |all, (_, bit)| all | bit)
+}
+
+/// The key event for `press`.
+pub(super) fn input(press: KeyPress) -> KeyInput {
+    let mods = mods(press.modifiers);
     let mut input = KeyInput {
         key: ffi::KEY_UNIDENTIFIED,
         mods,

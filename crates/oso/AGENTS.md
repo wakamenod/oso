@@ -28,11 +28,15 @@ often, so it must rebuild within 2 s.
   parses the agent rules files (ADR 0121), use `toml`, which review keeps: no guard test checks
   it.
 - `src/terminal.rs` and `src/terminal/` host terminals (ADR 0120): which keys go to a program
-  (`route`), what a terminal starts (`shell`), the screen the UI keeps (`grid`, `colors`) and
-  the start thread (`hosted`). A hosted session's terminal finds its shell with
-  `hosted::find_shell` and is put in its buffer by `app/terminals/start.rs`, as a terminal's. `oso-term` owns the PTY, the engine and the policy; the
-  dispatcher holds each terminal's key-reading state (`dispatch/terminal.rs`), and
-  `app/terminals.rs` carries out what commands and keys ask. Terminal text never reaches a
+  (`route`), what a terminal starts (`shell`), the screen the UI keeps (`grid`, `colors`), the
+  mouse's selection on it (`selection`) and the start thread (`hosted`). A hosted session's
+  terminal finds its shell with `hosted::find_shell` and is put in its buffer by
+  `app/terminals/start.rs`, as a terminal's. `oso-term` owns the PTY, the engine and the
+  policy; the dispatcher holds each terminal's key-reading state (`dispatch/terminal.rs`), and
+  `app/terminals.rs` carries out what commands and keys ask, with `app/terminals/`: `input`
+  (keys, text, pastes, and the wheel over the scrollback), `mouse` (clicks, drags and their
+  reports), `wheel` (the wheel's reports and mode 1007's arrows) and `snapshots` (what each
+  terminal's thread sent). Terminal text never reaches a
   log or the disk, and reaches the agent channel only as the rows of a terminal the person
   let agents read (`terminal-allow-agent-read`), never while its program reads a password.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
@@ -42,8 +46,10 @@ often, so it must rebuild within 2 s.
   Hosted sessions get ready and start their terminal on `oso-session-start` (`start`), with a
   command line built by pure functions (`command`, `launch`); Claude Code's registry
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
-  judged by one pure function (`bridge`). `app/sessions.rs` and `app/sessions/` carry out what
-  the worker, the jobs and the start thread find.
+  judged by one pure function (`bridge`). `session-adopt` reads Claude Code's transcripts
+  (`transcripts`) only for ids, names, times and directories, on its own
+  `oso-session-adopt-list` thread (`adopt`). `app/sessions.rs` and `app/sessions/` carry out
+  what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`. Its runner,
   `review/git.rs`, is shared with the worktree jobs. `review/view.rs`

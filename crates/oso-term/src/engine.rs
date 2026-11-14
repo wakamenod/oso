@@ -12,6 +12,7 @@ use oso_platform::process::pty::Size;
 
 use crate::event::Progress;
 use crate::limits;
+use crate::snapshot::{Button, Pointer};
 use crate::snapshot::{Modes, Palette, Row, Scroll, Snapshot};
 
 #[cfg(unix)]
@@ -36,6 +37,16 @@ pub(crate) trait Engine {
     /// Encodes a key into `out` against the modes the program has set by now; returns how
     /// many bytes it took, 0 for a key that sends nothing.
     fn encode_key(&mut self, key: KeyPress, out: &mut [u8; limits::KEY_BYTES_MAX]) -> usize;
+
+    /// Encodes the mouse's `pointer` into `out` as a report in the mode and format the program
+    /// has set by now, with `held` the button the presses sent hold down; returns how many
+    /// bytes it took, 0 when the program asked for no such report.
+    fn encode_pointer(
+        &mut self,
+        pointer: Pointer,
+        held: Option<Button>,
+        out: &mut [u8; limits::KEY_BYTES_MAX],
+    ) -> usize;
 
     /// Moves the view over the scrollback. Output while scrolled back keeps the view on the
     /// lines it shows.

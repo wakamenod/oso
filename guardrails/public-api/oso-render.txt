@@ -301,6 +301,7 @@ pub const oso_render::GridStyle::GRAPHEME: Self
 pub const oso_render::GridStyle::HIDDEN: Self
 pub const oso_render::GridStyle::INVERSE: Self
 pub const oso_render::GridStyle::ITALIC: Self
+pub const oso_render::GridStyle::SELECTED: Self
 pub const oso_render::GridStyle::STRIKE: Self
 pub const oso_render::GridStyle::UNDERLINE: Self
 pub const oso_render::GridStyle::WIDE: Self

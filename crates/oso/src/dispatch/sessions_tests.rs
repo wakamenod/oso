@@ -133,3 +133,32 @@ fn the_lists_keys_act_on_the_row_point_is_on() {
     send(&mut d, &mut editor, "C-u 9 n");
     assert_eq!(editor.cursor_line(), 8, "stops at the last row");
 }
+
+#[test]
+fn the_adopt_float_keeps_the_order_the_host_gave() {
+    let (mut d, mut editor) = (Dispatcher::new(), editor());
+    // Newest first: a length or a history must not reorder them.
+    let adoptable: Arc<[Candidate]> = Arc::from([
+        Candidate::new("a-longer-newest-name", "", "1m ago · /p/oso"),
+        Candidate::new("old", "", "3d ago · /p/oso"),
+    ]);
+    editor.set_listed(crate::commands::agent_sessions::ADOPT_LIST, adoptable);
+    send(&mut d, &mut editor, "C-x a a RET");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::Adopt("a-longer-newest-name".to_owned())]
+    );
+    // The same candidates in another list are sorted as completion sorts them.
+    editor.set_listed(
+        "sessions",
+        Arc::from([
+            Candidate::new("a-longer-newest-name", "", ""),
+            Candidate::new("old", "", ""),
+        ]),
+    );
+    send(&mut d, &mut editor, "C-x a b RET");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::Switch("old".to_owned())]
+    );
+}

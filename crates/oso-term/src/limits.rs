@@ -17,8 +17,9 @@ pub(crate) const SCROLLBACK_BYTES_MAX: usize = 256 << 20;
 /// The most input bytes queued for a program; `Terminal::send` refuses more.
 pub const INPUT_QUEUE_MAX: usize = 16 << 20;
 
-/// The most bytes one key encodes to. `Terminal::send_key` holds this much of the input
-/// queue for a key until its thread has encoded it, and gives back what it did not take.
+/// The most bytes one key or one mouse report encodes to. `Terminal::send_key` and
+/// `Terminal::send_pointer` hold this much of the input queue for each until its thread has
+/// encoded it, and give back what it did not take.
 pub(crate) const KEY_BYTES_MAX: usize = 128;
 /// The longest a synchronized update (mode 2026) holds snapshots back: Ghostty's own app's
 /// limit. Past it a terminal sends snapshots as if no hold were open, until the program ends

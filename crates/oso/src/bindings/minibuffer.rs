@@ -15,6 +15,16 @@ pub const MINIBUFFER: &[(&str, &str)] = &[
     ("M-y", "yank-pop"),
 ];
 
+/// The keys of a review comment's draft, above the global keymap (ADR 0122): `RET` breaks a
+/// line, as a draft holds several, and `C-c C-c` keeps it. It has no history, so no `M-p` or
+/// `M-n`.
+pub const DRAFT: &[(&str, &str)] = &[
+    ("RET", "newline"),
+    ("C-c C-c", "review-keep-draft"),
+    ("C-g", "keyboard-quit"),
+    ("M-y", "yank-pop"),
+];
+
 /// The keys of a question, in place of the global keymap: no other key reaches a command.
 /// `SPC`, `DEL` and `RET` do not answer, unlike in Emacs, as prose types them most.
 pub const QUESTION: &[(&str, &str)] = &[

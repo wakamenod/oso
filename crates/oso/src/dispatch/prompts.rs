@@ -272,7 +272,12 @@ impl Dispatcher {
             }
             // Sessions and spaces complete over what the host last listed (ADR 0121).
             Kind::Complete { history } if let Some(ArgSpec::Listed { list, .. }) = spec => {
-                editor.open_completion(prompt, history, editor.listed_candidates(list))
+                let items = editor.listed_candidates(list);
+                let style = CompletionStyle {
+                    given_order: crate::commands::agent_sessions::listed_in_given_order(list),
+                    ..CompletionStyle::default()
+                };
+                editor.open_completion_as(prompt, history, items, style)
             }
             _ => editor.open_prompt(prompt, kind),
         };

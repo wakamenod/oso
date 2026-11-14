@@ -34,8 +34,10 @@ use objc2_quartz_core::{CALayer, CAMetalLayer};
 use super::key_text;
 use super::keys::{self, Route};
 use super::{Delivery, State};
+use crate::window::MouseAction::{Moved, Press, Release};
+use crate::window::MouseButton::{Left, Middle, Right};
 use crate::window::utf16;
-use crate::window::{CursorArea, Event, Held, ImeEvent, KeyInput, Position, SystemKey, Wheel};
+use crate::window::{CursorArea, Event, Held, ImeEvent, KeyInput, SystemKey};
 
 /// The key `keyDown:` is handling while the input method has it, and whether the input
 /// method gave it back to oso as a key.
@@ -46,7 +48,7 @@ struct Handling {
 }
 
 pub(super) struct Ivars {
-    state: &'static State,
+    pub(super) state: &'static State,
     /// The text being composed, as the input method last gave it; empty when nothing is.
     marked: RefCell<String>,
     /// The caret or the segment in it, in UTF-16 units, as the input method gave it.
@@ -161,33 +163,48 @@ define_class!(
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            self.ivars().state.during_event(|| {
-                let (x, y) = (event.scrollingDeltaX(), event.scrollingDeltaY());
-                let scale = self.scale();
-                let wheel = if event.hasPreciseScrollingDeltas() {
-                    Wheel::Pixels {
-                        x: x * scale,
-                        y: y * scale,
-                    }
-                } else {
-                    #[expect(clippy::cast_possible_truncation, reason = "a wheel's notches are few")]
-                    Wheel::Lines {
-                        x: x as f32,
-                        y: y as f32,
-                    }
-                };
-                // In the view's own points, from its top left as it is flipped, then in
-                // pixels as the drawable's size is (ADR 0112).
-                let point = self.convertPoint_fromView(event.locationInWindow(), None);
-                let at = Position {
-                    x: point.x * scale,
-                    y: point.y * scale,
-                };
-                self.ivars().state.deliver(Delivery::Window(Event::Wheel {
-                    delta: wheel,
-                    at: Some(at),
-                }));
-            });
+            self.ivars().state.during_event(|| self.wheel(event));
+        }
+
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.mouse(event, Press(Left)));
+        }
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.mouse(event, Release(Left)));
+        }
+        #[unsafe(method(mouseDragged:))]
+        fn mouse_dragged(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.mouse(event, Moved));
+        }
+        #[unsafe(method(rightMouseDown:))]
+        fn right_mouse_down(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.mouse(event, Press(Right)));
+        }
+        #[unsafe(method(rightMouseUp:))]
+        fn right_mouse_up(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.mouse(event, Release(Right)));
+        }
+        #[unsafe(method(rightMouseDragged:))]
+        fn right_mouse_dragged(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.mouse(event, Moved));
+        }
+        #[unsafe(method(otherMouseDown:))]
+        fn other_mouse_down(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.other_mouse(event, Press(Middle)));
+        }
+        #[unsafe(method(otherMouseUp:))]
+        fn other_mouse_up(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.other_mouse(event, Release(Middle)));
+        }
+        #[unsafe(method(otherMouseDragged:))]
+        fn other_mouse_dragged(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.other_mouse(event, Moved));
+        }
+        #[unsafe(method(mouseMoved:))]
+        fn mouse_moved(&self, event: &NSEvent) {
+            self.ivars().state.during_event(|| self.mouse(event, Moved));
         }
     }
 
@@ -386,7 +403,7 @@ impl OsoView {
         view
     }
 
-    fn scale(&self) -> f64 {
+    pub(super) fn scale(&self) -> f64 {
         self.window()
             .map_or(1.0, |window| window.backingScaleFactor())
     }

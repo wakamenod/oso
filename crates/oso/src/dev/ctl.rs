@@ -48,6 +48,9 @@ methods:
   wheel JSON        scrolls as the wheel or the trackpad would, with the pointer
                     at a pixel or a cell, such as '{\"lines\": [0, -1]}' or
                     '{\"pixels\": [0, -40], \"at\": {\"row\": 3, \"column\": 10}}'
+  mouse JSON        presses or releases a button, or moves the pointer, at a pixel or
+                    a cell, such as '{\"press\": \"left\", \"at\": {\"row\": 3, \"column\": 10}}',
+                    '{\"move\": true, \"at\": {\"row\": 3, \"column\": 20}, \"shift\": true}'
 
 Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
 and screenshot fails while one is shown.
@@ -175,6 +178,11 @@ fn parse_params(
             let wheel = positional.next().ok_or("wheel needs JSON")?;
             let wheel: Value = serde_json::from_str(&wheel).map_err(|e| format!("wheel: {e}"))?;
             Some(wheel)
+        }
+        "mouse" => {
+            let mouse = positional.next().ok_or("mouse needs JSON")?;
+            let mouse: Value = serde_json::from_str(&mouse).map_err(|e| format!("mouse: {e}"))?;
+            Some(mouse)
         }
         "clipboard" => positional
             .next()

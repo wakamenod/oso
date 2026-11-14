@@ -159,7 +159,11 @@ impl App {
     fn person_busy(&self) -> bool {
         question_waits(
             &self.editor,
-            self.dispatcher.keys_in_progress() || self.dispatcher.menu_open() || self.composing(),
+            // A question the channel causes waits for an open menu to close too (ADR 0117).
+            self.dispatcher.keys_in_progress()
+                || self.terminals.button_held()
+                || self.dispatcher.menu_open()
+                || self.composing(),
         )
     }
 

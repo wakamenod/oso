@@ -100,6 +100,7 @@ const TABLES: &[&[Command]] = &[
     recovery::COMMANDS,
     replace::COMMANDS,
     review::COMMANDS,
+    review::COMMENT_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
@@ -268,6 +269,15 @@ mod tests {
         "review-staged",
         "review-uncommitted",
         "review-unstaged",
+        // The person's comments are theirs alone to write (ADR 0122, Q11).
+        "review-comment",
+        "review-edit-comment",
+        "review-keep-draft",
+        "review-remove-comment",
+        "review-resolve",
+        // Folding the agent's comments hides what it wrote from the person, who alone chooses
+        // how much of it to see.
+        "review-fold-agents",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
         // Opening and writing files by a path the person typed (ADR 0087); the channel has
@@ -290,6 +300,7 @@ mod tests {
         "session-explain-file",
         // A hosted session's `claude`, a process the person starts (ADR 0121).
         "claude",
+        "session-adopt",
         "session-fork",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",

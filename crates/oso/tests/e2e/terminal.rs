@@ -3,6 +3,7 @@
 //! commits into it, a paste asks without bracketed paste, and its end, a kill, an exit and a
 //! restart treat a running program as at risk. The agent channel reads and types nothing there,
 //! but rows the person let it read (step 4b-1); a password prompt is a secret, a raw read is not.
+//! The mouse's flows are in `mouse` (step 4b-2).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the key
 //! routing, the encoder and the policy have their own tests.
@@ -10,6 +11,8 @@
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+
+mod mouse;
 
 use super::agent::let_in;
 use super::harness::{App, Scratch};

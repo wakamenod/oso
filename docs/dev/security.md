@@ -388,7 +388,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   for that terminal (`terminal-allow-agent-read`). While the PTY has echo off with line editing on,
   as a password prompt has it, the terminal is treated as secret: the channel waits while it is
   shown, its rows are withheld, secure input is on while it is selected, and input typed there
-  drops a keyboard macro's recording. Terminal text never reaches the disk.
+  drops a keyboard macro's recording. A mouse copy there is a secret kill-ring entry, and no
+  mouse report or wheel arrow key (mode 1007) reaches its program. A copy reads concealed cells (SGR 8) as blanks.
+  Terminal text never reaches the disk.
 - A terminal parses on its own thread, reads at most 64 KiB at a time and queues at most 16 MiB of
   writes, so neither bulk output nor a large paste reaches the UI thread.
 
@@ -426,8 +428,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     whether it runs a program, with no default, and the modeline and the agent's reply say what
     waits ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)).
   - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
-    prompt, a key sequence, a composition or an isearch (ADR 0082), within 1 s of the person's
-    last key, or while a
+    prompt, a key sequence, a composition or an isearch (ADR 0082), while a mouse button is
+    held, within 1 s of the person's last key or mouse press or release, or while a
     question it opened is open. It does not open a path that matches the secret patterns, and
     shows a file it opened only once it is judged ordinary. Its state withholds what
     `get-state` withholds, and never has keys in progress, prompt input, the kill ring or the
@@ -490,12 +492,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   controls, never from text an agent gave, and passes no permission option, so a session starts
   in the mode the person's own settings give it. Through the login shell, its arguments are
   positional parameters of a fixed script, never script text, and `claude` is found on the
-  shell's `PATH` as in any terminal the person opens, unless `[sessions] claude` names it by
-  absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,
+  shell's `PATH` as in any terminal the person opens, outside the session's directory and its
+  project, unless `[sessions] claude` names it by absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,
   resuming and forking are `Person`. oso's start brings sessions back stopped, and runs nothing.
   - A resume reads Claude Code's registry first, and refuses while a live process has that id,
     offering a fork. The registry is read on a thread, `<digits>.json` names only, bounded,
     without following links and only the reading user's; oso never reads the `*.key` files.
+  - `session-adopt` (`Person`) lists Claude Code's transcripts, `<uuid>.jsonl` names only, on a
+    thread, bounded, without following links and only the reading user's with one name. Of each
+    it reads only the id, the change time, a name from lines that start as title lines, and the
+    top-level `cwd`, found by a scanner that never decodes another value. It never reads what
+    was said. A directory from either file is taken only absolute, with no `.` or `..` part.
+    Names and directories are escaped before they are shown. Each candidate's text stands for
+    one conversation, looked up in the list its prompt showed. The resume is a resume, refused
+    while the registry says the conversation runs.
   - A session's `oso mcp` names its session, and is let in without the question only if its
     parent is the `claude` oso started and has not reaped, it runs oso's own program, and no
     other connection holds that session. Such a bridge is outside the channel's cap of 2, one a

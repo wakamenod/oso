@@ -82,6 +82,11 @@ pub fn random_bytes() -> io::Result<[u8; 16]> {
 /// `-` becomes `-`, runs of `-` become one, and `-` and `.` at either end go, so that no name
 /// starts like an option. At most [`MAX_NAME`] bytes, and `session` if nothing is left.
 pub fn clean_name(raw: &str) -> String {
+    cleaned(raw).unwrap_or_else(|| FALLBACK_NAME.to_owned())
+}
+
+/// `raw` cleaned as [`clean_name`] does, or `None` if nothing is left of it.
+pub fn cleaned(raw: &str) -> Option<String> {
     let mut name = String::with_capacity(raw.len().min(MAX_NAME));
     for c in raw.chars() {
         let c = if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
@@ -98,11 +103,7 @@ pub fn clean_name(raw: &str) -> String {
         name.push(c);
     }
     let name = name.trim_matches(['-', '.']);
-    if name.is_empty() {
-        FALLBACK_NAME.to_owned()
-    } else {
-        name.to_owned()
-    }
+    (!name.is_empty()).then(|| name.to_owned())
 }
 
 /// `base`, cleaned, or with `-2`, `-3` and on after it, the first that `taken` does not hold.

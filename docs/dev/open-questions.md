@@ -379,7 +379,8 @@ item notes when it must be settled.
     `display-buffer`;
   - undoing a change of layout, as Emacs's `winner-mode`;
   - repeating `C-x o` and the resize keys with their last key alone, as Emacs's `repeat-mode`;
-  - clicks that select a window and drags on dividers and modelines, with mouse focus;
+  - drags on dividers and modelines, with mouse focus (a click selects a window since ADR 0120's
+    step 4b-2);
   - one shaped-row cache per buffer shared by its windows, if measuring a buffer shown twice
     says it is needed.
 - Fuzzing targets and how long they run. The `SumTree`, the rope, the
