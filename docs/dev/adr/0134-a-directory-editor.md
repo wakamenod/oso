@@ -487,10 +487,15 @@ The author agreed to each on 2026-11-15, through the coordinator.
   refresh replaces the whole listing at once. A listing no longer wanted stops reading. A
   listing with links is handed over before its links are followed, then again once they are; a
   link whose target's words name a UNC or device path, or a place mounted from the network when
-  looked at (`/net`), is not followed.
+  looked at (`/net`, `/Network`), or another volume (`/Volumes` on macOS), is not followed (the
+  author's choice).
 - **Judging:** a directory whose real place cannot be found, or whose real place is not the
   directory opened by device and inode, counts as one that may hold secrets. No line of such a
   listing is carried over a restart.
+- **One cursor a window over a refresh:** a new listing of the same directory puts each window's
+  point on the name its primary cursor was on, as one cursor; other cursors go, and a window that
+  will come back to the listing comes back to the line asked for. The author kept this as a limit
+  (2026-11-15) rather than change `listing_points`.
 - **Rows:** a backslash in a name shows as `\\`, so that no name reads as one with a line break;
   a link's target shows at most 1 KiB. `w` refuses a name that is not UTF-8 or holds a line
   break. The 100,000-entry limit counts every entry read, backups and unreadable ones too.

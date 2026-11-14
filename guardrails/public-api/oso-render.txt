@@ -78,6 +78,13 @@ pub oso_render::Face::DiffHunkHeader
 pub oso_render::Face::DiffRefineAdded
 pub oso_render::Face::DiffRefineRemoved
 pub oso_render::Face::DiffRemoved
+pub oso_render::Face::DiredBrokenSymlink
+pub oso_render::Face::DiredDetails
+pub oso_render::Face::DiredDirectory
+pub oso_render::Face::DiredExecutable
+pub oso_render::Face::DiredHeader
+pub oso_render::Face::DiredSpecial
+pub oso_render::Face::DiredSymlink
 pub oso_render::Face::Divider
 pub oso_render::Face::Escape
 pub oso_render::Face::Field

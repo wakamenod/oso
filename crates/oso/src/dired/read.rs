@@ -119,7 +119,8 @@ fn resolved_place(path: &Path, directory: &Directory) -> Option<Vec<PathBuf>> {
 
 /// Whether following the link `target`, in `directory`, may reach another machine by its words
 /// alone: a UNC or device path, or a place the system mounts from the network when it is looked
-/// at, such as `/net`. Such a link is shown, and not followed to tell what it leads to.
+/// at, such as `/net`, or another volume (`/Volumes` on macOS). Such a link is shown, and not
+/// followed to tell what it leads to.
 pub(super) fn reaches_out(directory: &Path, target: &Path) -> bool {
     let words = target.as_os_str().as_encoded_bytes();
     if words.starts_with(b"//") || words.starts_with(b"\\\\") {
@@ -138,7 +139,7 @@ pub(super) fn reaches_out(directory: &Path, target: &Path) -> bool {
         }
     }
     let automounted: &[&str] = if cfg!(target_os = "macos") {
-        &["/net", "/Network", "/home"]
+        &["/net", "/Network", "/Volumes", "/home"]
     } else {
         &["/net", "/misc"]
     };
