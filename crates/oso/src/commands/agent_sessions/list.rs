@@ -14,8 +14,9 @@ use oso_core::editor::{RowAction, SessionRequest};
 use oso_core::selection::SelectionSet;
 
 /// The marks a row of `*Sessions*` begins with, after its indent: a group's fold, then each
-/// state's. The list draws them, and never begins another line with one.
-pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■";
+/// state's, then the frames of a working mark that spins (ADR 0131). The list draws them, and
+/// never begins another line with one.
+pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 /// What `?` says in `*Sessions*` (ADR 0131): the marks, then the keys.
 pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  TAB fold  s group  k stop  e explain";

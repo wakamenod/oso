@@ -230,6 +230,8 @@ impl App {
         // `[sessions.notify]` applies from the next change of a session's state.
         self.watch
             .set_toggles(configuration.in_force.sessions.notify);
+        self.watch
+            .set_spinner(!configuration.in_force.sessions.no_spinner);
         if let Some(on) = changes.electric_indent {
             self.editor.set_electric_indent(on);
         }

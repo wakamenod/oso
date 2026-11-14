@@ -115,8 +115,8 @@ pub(super) fn tiled_status<'a>(
 
 /// A modeline's spans: warnings first, so that nothing can push them off the row, after
 /// `Agent` while the agent channel is on, dim, and bright while an agent is connected
-/// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` as a
-/// warning and `● N` as the modeline (ADR 0121). A name and the rest are shaped apart,
+/// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` and
+/// `● N` in their states' faces, as `*Sessions*` draws them (ADR 0121, ADR 0131). A name and the rest are shaped apart,
 /// so that neither changes how the other reads. A window that is not selected has its
 /// modeline in [`Face::ModelineInactive`] (ADR 0112).
 fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
@@ -132,8 +132,8 @@ fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
         .split_at(status.sessions.find('●').unwrap_or(status.sessions.len()));
     [
         span(status.agent, agent),
-        span(waiting, Face::Warning),
-        span(done, face),
+        span(waiting, Face::SessionAlert),
+        span(done, Face::SessionDone),
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], face),
         span(&status.project[..], face),

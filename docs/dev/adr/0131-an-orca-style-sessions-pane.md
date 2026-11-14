@@ -442,6 +442,51 @@ The author answered every question on 2026-11-14, through the coordinator: (a) f
   pane_width`, `<` and `>` (Q7); no spinner words, the title as a working recap (Q8); the branch
   only (Q9); names cut in the middle (Q10).
 
+## Step 1, as built
+
+Built on 2026-11-14 and 15 in two pull requests: 1a, the text (#260), and 1b, the faces, the
+band and the spinner. The coordinator accepted each point below that differs from the decision.
+
+- **One line a session, at any width** (`sessions/list.rs`): mark, name cut in the middle
+  (`cut_middle`, the last third of the room kept), place where at least 6 cells are left, age
+  at the right edge. The 60-column layout with a recap column is gone. A second line holds the
+  reason for needs input and failed, and "N nested need input" for a parent whose nested
+  sessions do. `age` gives `now` under a minute; `age_of`, which `session-adopt` uses for
+  "12s ago", keeps seconds.
+- **External ages** come from the registry's `statusUpdatedAt` (`registry::Entry::
+  status_updated_at`, `External::since`), cut to now. **An entry without it** (an older CLI)
+  is aged from oso's first look, as before, rather than showing no age: `Entry::since` is not
+  optional, and the case is rare.
+- **The word `external`** stayed in 1a, at the start of the place, until 1b's quiet face could
+  tell such a row apart; 1b removed it. An external session's place is its space's name, else
+  its directory's last name, cleaned as a name is.
+- **No spinner words:** the bundled `status-line` rule lost its `recap`, so a working session's
+  recap falls to its title (`agent-rules.md`).
+- **`?` is `sessions-help` (`Look`)**: the legend and the keys in the echo area, bound in the
+  list's own bindings.
+- **Faces:** `oso-core`'s `Highlight` gained `SessionAlert`, `SessionWorking`, `SessionDone` and
+  `SessionQuiet`, and `oso-render`'s `Face` the same four. Red is the terminal's colour 9, amber
+  the warning's, green the terminal's colour 10. Quiet text uses a prompt's dim colour: a
+  completion's annotation colour fell short of 4.5:1 on dusk's band (4.48). Each is checked at
+  4.5:1 on the text's background and on the band, and the alert and done faces on both
+  modelines, which now draw `⚠ N` and `● N` in them.
+- **Highlights reach the list** through `Editor::set_internal_highlights`, a new public function
+  (the coordinator's approval, 2026-11-15): host-made highlights on an internal buffer in
+  `Mode::Sessions`, as a review's are, refused unless they cover the text.
+- **The band:** `Editor::current_line_cells` also gives the side window's row at point while it
+  shows `*Sessions*`, whatever the visual aids say. No new public item.
+- **The spinner** (`sessions/spinner.rs`, pure; `app/sessions/watch/view.rs`): one deadline beside
+  the attention's, 125 ms a frame, from the instant it started. A tick renders the list again
+  with the next frame and sets its text whole, rather than editing one cell. `oso-render`'s
+  shaping cache reuses every row whose text did not change, so only the spinning rows are
+  shaped again, and no edit API was needed. It runs only while the side window shows the list,
+  a spinning row is in view, and oso's window is not occluded (`Event::Occluded`), and stops
+  otherwise. `[sessions] spinner = false` keeps every mark still.
+- **The `just perf` flow** is `sessions_spinning_frame_p99_ms` and `sessions_spinning_ui_ms_per_s`
+  in `bench/sessions.rs`: the 20 sessions of the printing flow, each showing a working screen,
+  over 5 s. It reports, with no threshold, and measures frames rather than typing, which the
+  other flows time. `bench.rs` did not change.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.

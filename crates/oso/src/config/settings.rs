@@ -53,6 +53,9 @@ pub struct Sessions {
     /// `steer_worktrees`: a session oso starts gets a hook that denies Claude's own worktree
     /// tools and points it to `session-worktree` (ADR 0121, Q15). Off unless set.
     pub steer_worktrees: bool,
+    /// `spinner = false`: working marks in `*Sessions*` stand still (ADR 0131, Q14). They spin
+    /// unless set.
+    pub no_spinner: bool,
     /// `[sessions.notify]`: which states ask for the person's attention (ADR 0121, step 3).
     pub notify: crate::sessions::attention::Toggles,
 }
@@ -293,6 +296,11 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
             "steer_worktrees" => {
                 if let Some(on) = switch(value, "[sessions]", "steer_worktrees", found) {
                     sessions.steer_worktrees = on;
+                }
+            }
+            "spinner" => {
+                if let Some(on) = switch(value, "[sessions]", "spinner", found) {
+                    sessions.no_spinner = !on;
                 }
             }
             "notify" => notify(value, &mut sessions.notify, found),

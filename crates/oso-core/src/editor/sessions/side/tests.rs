@@ -236,3 +236,34 @@ fn killing_what_it_shows_hides_it() {
     assert!(editor.window_by_id(side).is_none());
     assert_eq!(selected(&editor), first);
 }
+
+#[test]
+fn sessions_in_it_have_the_band_on_points_row_unselected_and_with_aids_off() {
+    use crate::buffer::Mode;
+    use crate::editor::aids::VisualAids;
+    use crate::selection::SelectionSet;
+    use crate::window::Screen;
+    let (mut editor, list) = editor(100);
+    let sessions = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    editor.set_internal_text(sessions, "▾ Idle 2\n○ a  now\n○ b  now\n");
+    editor.set_visual_aids(VisualAids {
+        current_line: false,
+        ..VisualAids::default()
+    });
+    let side = editor.show_side_window(sessions, 32);
+    if let Some(window) = editor.windows.iter_mut().find(|window| window.id() == side) {
+        window.selections = SelectionSet::new("▾ Idle 2\n".len());
+    }
+    let mut screen = Screen::default();
+    editor.screen_of(side, &mut screen);
+    let band = editor.current_line_cells(side, &screen).unwrap();
+    assert_eq!((band.row, band.rows, band.column), (1, 1, 0));
+    // Another list in the side window, and the tree's window with the aids off, have none.
+    let first = selected(&editor);
+    editor.screen_of(first, &mut screen);
+    assert!(editor.current_line_cells(first, &screen).is_none());
+    editor.show_side_window(list, 32);
+    let side = editor.side_window().unwrap();
+    editor.screen_of(side, &mut screen);
+    assert!(editor.current_line_cells(side, &screen).is_none());
+}

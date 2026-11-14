@@ -1,5 +1,6 @@
-//! The buffers that show emergency copies, and putting a copy's text in a buffer (ADR 0064).
-//! The way back from them is the one in `messages`, which all internal buffers share.
+//! The buffers that show emergency copies, and putting a copy's text in a buffer (ADR 0064);
+//! the text of the host's internal buffers, and `*Sessions*'` highlights (ADR 0131). The way
+//! back from them is the one in `messages`, which all internal buffers share.
 //!
 //! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O. The host
 //! reads the directory and the copies, and holds what it found. A command only queues what
@@ -9,6 +10,7 @@ use super::Editor;
 use crate::buffer::{Buffer, BufferId, EditError, Mode};
 use crate::load::LoadSnapshot;
 use crate::selection::SelectionSet;
+use crate::syntax::Highlights;
 
 /// The name of the internal buffer that lists the emergency copies.
 const COPIES: &str = "*Emergency Copies*";
@@ -100,6 +102,23 @@ impl Editor {
         if self.window().buffer() == id {
             self.follow_cursor();
         }
+    }
+
+    /// Shows `highlights`, which the host built with the text it gave the internal buffer `id`
+    /// in `Mode::Sessions` (ADR 0131), and returns the ones before, for the host to drop. They
+    /// come back, changing nothing, for any other buffer, or when they do not cover its text.
+    pub fn set_internal_highlights(
+        &mut self,
+        id: BufferId,
+        highlights: Highlights,
+    ) -> Option<Highlights> {
+        let fits =
+            |buffer: &&mut Buffer| buffer.is_internal() && buffer.text().len() == highlights.len();
+        let Some(buffer) = self.buffer_mut(id).filter(fits) else {
+            return Some(highlights);
+        };
+        let old = buffer.take_generated_highlights();
+        buffer.set_generated_highlights(highlights).or(old)
     }
 
     /// Takes an internal buffer out, unless the editor needs it, and hands it over so that
@@ -792,5 +811,38 @@ mod tests {
         let id = editor.add_buffer(Buffer::from_text("notes", "mine"));
         editor.set_internal_text(id, "replaced");
         assert_eq!(editor.buffer(id).unwrap().text().to_string(), "mine");
+    }
+
+    #[test]
+    fn the_sessions_list_alone_takes_the_hosts_highlights_and_only_whole() {
+        use crate::syntax::{Highlight, Highlights};
+        let mut editor = Editor::default();
+        let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+        editor.set_internal_text(list, "⚠ ask\n");
+        let mut marks = Highlights::new("⚠ ask\n".len());
+        marks.replace(0..3, [(3, Some(Highlight::SessionAlert))]);
+        assert!(
+            editor
+                .set_internal_highlights(list, marks.clone())
+                .is_none()
+        );
+        let shown = editor.buffer(list).unwrap().highlights().unwrap();
+        assert_eq!(shown.at(0), Some(Highlight::SessionAlert));
+        assert_eq!(shown.at(4), None);
+        // Short ones come back, and the list keeps what it had.
+        let short = Highlights::new(2);
+        assert!(editor.set_internal_highlights(list, short).is_some());
+        assert!(editor.buffer(list).unwrap().highlights().is_some());
+        // Another internal buffer, and a buffer of the person's, take none.
+        let report = editor.add_internal_buffer("*Report*", Mode::Fundamental);
+        editor.set_internal_text(report, "⚠ ask\n");
+        assert!(
+            editor
+                .set_internal_highlights(report, marks.clone())
+                .is_some()
+        );
+        let notes = editor.add_buffer(Buffer::from_text("notes", "⚠ ask\n"));
+        assert!(editor.set_internal_highlights(notes, marks).is_some());
+        assert!(editor.buffer(notes).unwrap().highlights().is_none());
     }
 }

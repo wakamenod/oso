@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use super::{Entry, Group, Key, Line, List, age, cells, cut, cut_middle};
 use crate::sessions::state::{Reason, State};
+use oso_core::syntax::Highlight;
 
 const ASK: State = State::NeedsInput(Reason::Permission);
 
@@ -187,16 +188,62 @@ fn a_session_takes_one_line_and_a_reason_only_when_it_needs_the_person() {
 }
 
 #[test]
-fn an_external_row_says_so_whatever_its_space() {
+fn an_external_row_is_quiet_throughout_and_never_spins() {
     let t = Instant::now();
     let mut external = entry(9, "other", State::Working, t);
     external.key = Key::External(4242);
     external.space = "a-space-name-long-enough-to-be-cut".to_owned();
     external.branch = None;
-    let shown = List::default().render(&[external], 60, t);
+    let mut list = List::default();
+    list.set_spin(Some(3));
+    let shown = list.render(&[external], 60, t);
     let row = shown.text.lines().nth(1).unwrap().to_owned();
-    assert!(row.starts_with("▶ other  external · a-space"), "{row}");
-    assert!(row.ends_with("now"), "{row}");
+    assert!(row.starts_with("▶ other  a-space"), "{row}");
+    assert!(!row.contains("external"), "{row}");
+    let start = shown.text.find('▶').unwrap();
+    assert_eq!(
+        shown.highlights,
+        [(start..start + row.len(), Highlight::SessionQuiet)]
+    );
+    assert!(shown.spinning.is_empty());
+}
+
+#[test]
+fn marks_take_their_states_face_and_a_working_one_spins() {
+    let t = Instant::now();
+    let mut asking = entry(1, "ask", ASK, t);
+    asking.recap = "Proceed?".to_owned();
+    let entries = [
+        asking,
+        entry(2, "work", State::Working, t),
+        entry(3, "done", State::Done, t),
+    ];
+    let mut list = List::default();
+    let still = list.render(&entries, 32, t);
+    assert!(still.spinning.is_empty());
+    assert!(still.text.contains("▶ work"), "{}", still.text);
+    list.set_spin(Some(12));
+    let shown = list.render(&entries, 32, t);
+    let text: Vec<&str> = shown.text.lines().collect();
+    // Frame 12 is the third of ten.
+    assert!(text[4].starts_with("⠹ work"), "{text:?}");
+    assert_eq!(shown.spinning, [4]);
+    let face_at = |needle: &str| {
+        let at = shown.text.find(needle).unwrap();
+        shown
+            .highlights
+            .iter()
+            .find(|(range, _)| range.start == at)
+            .map(|(_, highlight)| *highlight)
+    };
+    assert_eq!(face_at("⚠ ask"), Some(Highlight::SessionAlert));
+    assert_eq!(face_at("⠹ work"), Some(Highlight::SessionWorking));
+    assert_eq!(face_at("● done"), Some(Highlight::SessionDone));
+    assert_eq!(face_at("Proceed?"), Some(Highlight::SessionQuiet));
+    for (range, _) in &shown.highlights {
+        assert!(shown.text.is_char_boundary(range.start) && shown.text.is_char_boundary(range.end));
+        assert!(range.end <= shown.text.len());
+    }
 }
 
 #[test]
