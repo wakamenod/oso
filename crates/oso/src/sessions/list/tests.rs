@@ -1,12 +1,13 @@
-//! `*Sessions*`: its groups and their order, pins, nesting, folds, the narrow and wide layouts,
-//! the line map, and its cost.
+//! `*Sessions*`: its groups and their order, pins, nesting, folds, one line a session at any
+//! width with a reason line only where the person has something to do, the line map, and its
+//! cost.
 //!
 //! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window.
 
 use std::time::{Duration, Instant};
 
-use super::{Entry, Group, Key, Line, List, WIDE_FROM, age, cells, cut};
+use super::{Entry, Group, Key, Line, List, age, cells, cut, cut_middle};
 use crate::sessions::state::{Reason, State};
 
 const ASK: State = State::NeedsInput(Reason::Permission);
@@ -134,8 +135,9 @@ fn sessions_nest_under_their_parent_which_counts_those_that_need_input() {
     let shown = list.render(&entries, 32, t);
     assert_eq!(order(&shown.lines), [1, 2, 3, 4].map(Key::Hosted));
     let text: Vec<&str> = shown.text.lines().collect();
-    assert_eq!(text[3], "  2 nested need input · lead re…", "{text:?}");
-    assert!(text[4].starts_with("  ⚠ child-a"), "indented: {text:?}");
+    // The lead works, so only its nested sessions give it a reason line.
+    assert_eq!(text[2], "  2 nested need input", "{text:?}");
+    assert!(text[3].starts_with("  ⚠ child-a"), "indented: {text:?}");
     list.fold(&Line::Session(Key::Hosted(1)));
     assert_eq!(order(&list.render(&entries, 32, t).lines), [Key::Hosted(1)]);
     // By state the children wait in their own group, at the top level.
@@ -159,38 +161,29 @@ fn a_cycle_of_parents_ends() {
 }
 
 #[test]
-fn a_narrow_window_takes_three_lines_a_session_each_within_its_width() {
+fn a_session_takes_one_line_and_a_reason_only_when_it_needs_the_person() {
     let t = Instant::now();
-    let mut long = entry(1, &"n".repeat(40), ASK, t);
+    let mut long = entry(1, &format!("chore-{}-hook", "n".repeat(40)), ASK, t);
     long.recap = "Do you want to proceed with this rather long command?".to_owned();
     long.branch = Some("feature/界面".to_owned());
-    let shown = List::default().render(&[long], 32, t + Duration::from_secs(720));
+    let mut quiet = entry(2, "quiet", State::Working, t);
+    quiet.recap = "Design the pane".to_owned();
+    let shown = List::default().render(&[long, quiet], 32, t + Duration::from_secs(720));
     let text: Vec<&str> = shown.text.lines().collect();
-    assert_eq!(text.len(), 4);
-    assert_eq!(text[1], format!("⚠ {}… 12m", "n".repeat(25)));
-    assert_eq!(text[2], "  oso · feature/界面");
-    assert_eq!(text[3], format!("  {}…", &"Do you want to proceed with t"));
+    assert_eq!(text.len(), 5, "{text:?}");
+    // The name is cut in the middle, so its end shows; the age is at the right edge.
+    assert_eq!(text[1], format!("⚠ chore-{}…nnn-hook 12m", "n".repeat(11)));
+    assert_eq!(text[2], format!("  {}…", &"Do you want to proceed with t"));
+    // A working session shows no recap; its place fits after its name.
+    assert_eq!(text[4], "▶ quiet  oso · main          12m");
     for line in &text {
         assert!(cells(line) <= 32, "{line:?}");
     }
-    assert_eq!(shown.lines.len(), 4);
-    assert_eq!(shown.lines[3], Line::Session(Key::Hosted(1)));
-}
-
-#[test]
-fn a_wide_window_takes_one_line_a_session_in_columns() {
-    let t = Instant::now();
-    let mut external = entry(9, "other", State::Working, t);
-    external.key = Key::External(4242);
-    external.branch = None;
-    let shown = List::default().render(&[external], WIDE_FROM, t);
-    let text: Vec<&str> = shown.text.lines().collect();
-    assert_eq!(text.len(), 2);
-    assert_eq!(
-        text[1],
-        "▶ other                external · oso               0s    o…"
-    );
-    assert!(cells(text[1]) <= WIDE_FROM);
+    assert_eq!(shown.lines.len(), 5);
+    assert_eq!(shown.lines[2], Line::Session(Key::Hosted(1)));
+    // As wide as it may be, a session keeps to one line.
+    let wide = List::default().render(&[entry(3, "a", State::Idle, t)], 120, t);
+    assert_eq!(wide.text.lines().count(), 2);
 }
 
 #[test]
@@ -199,9 +192,11 @@ fn an_external_row_says_so_whatever_its_space() {
     let mut external = entry(9, "other", State::Working, t);
     external.key = Key::External(4242);
     external.space = "a-space-name-long-enough-to-be-cut".to_owned();
-    let shown = List::default().render(&[external], WIDE_FROM, t);
+    external.branch = None;
+    let shown = List::default().render(&[external], 60, t);
     let row = shown.text.lines().nth(1).unwrap().to_owned();
-    assert!(row.contains("external · a-space"), "{row}");
+    assert!(row.starts_with("▶ other  external · a-space"), "{row}");
+    assert!(row.ends_with("now"), "{row}");
 }
 
 #[test]
@@ -210,8 +205,19 @@ fn ages_and_cuts() {
     let after = |s| age(t, t + Duration::from_secs(s));
     assert_eq!(
         [0, 59, 60, 3599, 3600, 86_400].map(after),
-        ["0s", "59s", "1m", "59m", "1h", "1d"]
+        ["now", "now", "1m", "59m", "1h", "1d"]
     );
+    assert_eq!(
+        cut_middle("chore-survey-review-lifecycle-hook", 30),
+        "chore-survey-review-…ycle-hook"
+    );
+    assert_eq!(cut_middle("short", 30), "short");
+    assert_eq!(cut_middle("abcdefgh", 4), "abc…");
+    assert_eq!(cut_middle("界界界界界界界界", 9), "界界界…界");
+    for width in 0..40 {
+        let cut = cut_middle("chore-survey-review-lifecycle-hook", width);
+        assert!(cells(&cut) <= width, "{width}: {cut}");
+    }
     assert_eq!(cut("abc", 3), "abc");
     assert_eq!(cut("abcd", 3), "ab…");
     assert_eq!(cut("界界界", 4), "界…");
@@ -238,7 +244,7 @@ fn two_hundred_fifty_six_sessions_render_within_the_budget() {
         let start = Instant::now();
         let shown = list.render(&entries, 32, t);
         best = best.min(start.elapsed());
-        assert!(shown.lines.len() > 256 * 3);
+        assert!(shown.lines.len() > 256);
     }
     // A debug build is several times slower; the budget is a release build's (ADR 0121).
     assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
@@ -252,14 +258,16 @@ fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
     idle.space = "▸● repo".into();
     let shown = List::default().render(&[idle], 32, now);
     let rows: Vec<&str> = shown.text.lines().collect();
-    assert!(rows[2].trim_start().starts_with("repo"), "{}", shown.text);
+    assert!(rows[1].starts_with("○ proj  repo"), "{}", shown.text);
+    let mut asking = entry(2, "ask", ASK, now);
+    asking.recap = "  ⚠ deploy-prod                2s".into();
+    let shown = List::default().render(&[asking], 32, now);
+    let rows: Vec<&str> = shown.text.lines().collect();
     assert!(
-        rows[3].trim_start().starts_with("deploy-prod"),
+        rows[2].trim_start().starts_with("deploy-prod"),
         "{}",
         shown.text
     );
-    for row in &rows[2..4] {
-        let first = row.chars().find(|c| *c != ' ').unwrap();
-        assert!(!super::MARKS.contains(first), "{row}");
-    }
+    let first = rows[2].chars().find(|c| *c != ' ').unwrap();
+    assert!(!super::MARKS.contains(first), "{}", rows[2]);
 }

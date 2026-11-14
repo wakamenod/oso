@@ -56,13 +56,14 @@ fn a_dialog_is_recapped_by_its_question() {
 }
 
 #[test]
-fn a_turn_is_recapped_by_its_status_line_whichever_working_rule_matched() {
+fn a_turn_is_recapped_by_its_title_never_by_its_status_lines_word() {
+    // The status line's word means nothing (ADR 0131), whichever working rule matched.
     let working = include_str!("../screens/working.txt");
-    assert_eq!(of(working).as_deref(), Some("Nucleating…"));
+    assert_eq!(of(working).as_deref(), Some(TITLE));
     let planning = include_str!("../screens/working-plan-mode.txt");
-    assert_eq!(of(planning).as_deref(), Some("Zigzagging…"));
+    assert_eq!(of(planning).as_deref(), Some(TITLE));
     let footless = working.replace("· esc to interrupt", "");
-    assert_eq!(of(&footless).as_deref(), Some("Nucleating…"));
+    assert_eq!(of(&footless).as_deref(), Some(TITLE));
 }
 
 #[test]
@@ -80,7 +81,8 @@ fn otherwise_the_title_and_a_held_screen_keeps_the_last_recap() {
 #[test]
 fn a_late_recap_keeps_the_last_one() {
     let rules = RuleSet::bundled();
-    let evidence = Evidence::new(include_str!("../screens/working.txt").lines(), TITLE, None);
+    let screen = include_str!("../screens/permission-bash.txt");
+    let evidence = Evidence::new(screen.lines(), TITLE, None);
     let verdict = evaluate(&rules, &evidence);
     let late = Deadline::after(Duration::ZERO);
     assert_eq!(
