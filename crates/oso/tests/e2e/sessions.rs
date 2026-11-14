@@ -418,6 +418,36 @@ fn a_start_brings_sessions_back_stopped_and_a_killed_one_stays_archived() {
     assert!(flow.runs().is_empty());
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_running_session_goes_on_over_a_restart_and_ends_in_the_new_instance() {
+    let flow = Flow::new("sessions-restart");
+    let mut old = flow.start();
+    flow.hold();
+    old.run_command("claude", None).unwrap();
+    old.wait_for("the fake", |state| {
+        shows(state, "*claude: proj*", "fake claude proj")
+    });
+    flow.wait_for_run("--name=proj");
+    let mut new = flow.start();
+    crate::terminal::restart::hand_over(&mut old, &mut new);
+    let state = new.wait_for("the session", |state| {
+        shows(state, "*claude: proj*", "fake claude proj")
+    });
+    assert_eq!(terminal(&state, "*claude: proj*").unwrap()["running"], true);
+    let sessions = state["sessions"]["sessions"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let named: Vec<_> = sessions.iter().filter(|s| s["name"] == "proj").collect();
+    assert_eq!(named.len(), 1, "one session, not a second: {sessions:?}");
+    assert_ne!(named[0]["state"], "stopped", "{sessions:?}");
+    assert_eq!(flow.runs().len(), 1, "nothing ran again: {:?}", flow.runs());
+    // Its end is seen in the new instance, from the terminal's end.
+    flow.exit_with(0);
+    new.wait_for("the stop", |state| ended(state, "*claude: proj*").is_some());
+}
+
 /// Exits the instance with `C-x C-c`, which asks nothing here.
 fn quit(app: &mut App) {
     app.send_keys("C-x C-c");

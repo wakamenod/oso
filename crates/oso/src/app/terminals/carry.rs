@@ -403,8 +403,13 @@ impl App {
         if !passed.parent {
             return Err(NOT_PARENT.into());
         }
-        crate::dev::handoff::exit_allowed(&self.editor, Some(generation))?;
-        self.carried_unchanged()?;
+        // A refusal ends that restart: the terminals read again at once.
+        let allowed = crate::dev::handoff::exit_allowed(&self.editor, Some(generation))
+            .and_then(|()| self.carried_unchanged());
+        if let Err(why) = allowed {
+            self.resume_terminals();
+            return Err(why);
+        }
         let exported = self
             .handover
             .going

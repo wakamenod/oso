@@ -53,6 +53,10 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
         let mut running = Running::open(start, size, hold_limit, channels)?;
         let end = running.run();
         if running.released() {
+            // The next instance has the terminal: its child is not waited for here, and the
+            // system takes it over once this instance exits.
+            drop(running.child.take());
+            running.channels.shared.pid.store(0, Ordering::Release);
             return Ok(None);
         }
         last = running.finish();
