@@ -140,11 +140,15 @@ impl App {
             }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
+                self.sending_changed(key, change.state);
                 self.session_changed(key, change);
             }
             // Its text is the screen's: never logged.
             Out::Recap(key, recap) => self.session_recapped(key, recap),
             Out::Externals(live) => self.externals_found(live),
+            // Its text is the screen's too: never logged.
+            Out::Message(key, from) => self.message_from(key, from),
+            Out::Judged(key, held) => self.session_judged(key, held),
         }
     }
 

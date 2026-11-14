@@ -96,7 +96,11 @@ pub const COMMANDS: &[Command] = &[
 
 /// Inserts `text` at every cursor of the selected window, `count` times, in place of
 /// the region if it shows. Asks for a redraw if that changes anything.
-fn insert_at_cursors(ctx: &mut Ctx<'_>, text: &str, count: isize) -> Result<(), CommandError> {
+pub(super) fn insert_at_cursors(
+    ctx: &mut Ctx<'_>,
+    text: &str,
+    count: isize,
+) -> Result<(), CommandError> {
     let times = usize::try_from(count)
         .map_err(|_| CommandError::new(format!("Negative repetition argument {count}")))?;
     let window = ctx.editor.window();

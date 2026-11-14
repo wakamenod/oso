@@ -10,6 +10,7 @@ mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
 mod requests;
+mod sending;
 mod shared;
 mod view;
 
@@ -74,6 +75,8 @@ pub(in crate::app) struct Watch {
     aging: bool,
     /// Each hosted session's space's name.
     placed: HashMap<SessionKey, String>,
+    /// Who messaged each session, and which can take a paste (step 5).
+    sending: sending::Sending,
     /// How many notices asked for attention, for end-to-end flows: the Dock cannot be seen.
     #[cfg(feature = "dev")]
     asked: u32,
@@ -259,6 +262,7 @@ impl App {
             self.editor.set_listed(SESSIONS_LIST, candidates);
             self.editor
                 .set_listed(SPACES_LIST, self.watch.spaces.candidates());
+            self.sending_lists(&entries);
         }
         visible |= self.note_sessions(&entries, now);
         visible |= self.show_sessions_list(&entries, now);
@@ -385,6 +389,7 @@ impl App {
             self.watch.known.remove(&key);
             self.watch.attention.forget(key);
         }
+        self.forget_sending(&keys);
     }
 
     /// Each hosted session's space, added if new; the frame's tree is the first space's.
@@ -452,11 +457,7 @@ impl App {
                     branch: None,
                     state,
                     since,
-                    recap: self
-                        .watch
-                        .known
-                        .get(&session.key)
-                        .map_or_else(String::new, |known| known.recap.clone()),
+                    recap: self.row_recap(session.key),
                     pinned: session.pinned,
                     archived: session.archived,
                     parent,

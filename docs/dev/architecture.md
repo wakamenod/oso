@@ -660,6 +660,15 @@ The UI thread never blocks on I/O or parsing:
   `session-adopt`'s list of conversations oso does not host is made on a short
   `oso-session-adopt-list` thread (`sessions/adopt.rs`, `sessions/transcripts.rs`, glue in
   `app/sessions/hosting/adopt.rs`), and its pick resumes through the same start thread.
+- Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
+  delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
+  refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
+  the terminal's own paste, never submitted, and shows the session. Commands only describe
+  what to send (`SessionRequest::Send`); the text is put together by pure functions
+  (`sessions/send.rs::compose`). ADR 0122's review comments and ADR 0127's drafts call the
+  same path. The worker finds message lines' senders with `[[message]]` rules
+  (`sessions/messages.rs`) after each verdict, and tells the app when a session is first judged
+  and when a hold rule starts or stops matching (`Out::Judged`).
 - Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`,
   [ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 4) run as jobs on `oso-sessions-git`,
   at most 2 threads, beside the sessions worker so that its rules never wait on git.

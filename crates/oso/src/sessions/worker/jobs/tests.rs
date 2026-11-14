@@ -251,7 +251,13 @@ fn a_local_rule_late_three_looks_in_a_row_is_dropped_until_the_rules_load() {
     // With it gone nothing is late, and no rule matches.
     core.handle(screen("esc to interrupt."), at);
     let due = core.due().unwrap();
-    assert!(core.tick(due).is_empty(), "idle, as it was");
+    let found = core.tick(due);
+    assert!(
+        found
+            .iter()
+            .all(|out| matches!(out, Out::Judged(_, Some(false)))),
+        "idle, as it was, and judged in time at last: {found:?}"
+    );
     assert_eq!(core.due(), None, "judged in time");
     core.handle(Job::Rules(rules), due);
     let (found, _) = look_again(&mut core, due, 3);
@@ -297,4 +303,68 @@ fn a_recap_is_told_only_when_it_changes() {
         core.handle(screen(text), at);
         assert_eq!(recaps(core.tick(at)), told, "{text}");
     }
+}
+
+#[test]
+fn the_first_look_in_time_and_each_change_of_hold_are_told() {
+    let rules = "version = 1\n[[rule]]\nname = \"view\"\nstate = \"hold\"\n\
+                 region = \"bottom(1)\"\ncontains = [\"showing detailed transcript\"]\n";
+    let parsed = parse(rules, Source::Bundled);
+    assert!(parsed.problems.is_empty(), "{:?}", parsed.problems);
+    let mut core = Core::new(Arc::new(RuleSet::merged(parsed, Default::default())));
+    let judged = |found: Vec<Out>| -> Vec<bool> {
+        found
+            .into_iter()
+            .filter_map(|out| match out {
+                Out::Judged(1, Some(held)) => Some(held),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut at = Instant::now();
+    core.handle(Job::Start(1), at);
+    for (text, told) in [
+        ("❯ ", &[false][..]),
+        ("❯ hello", &[]),
+        ("showing detailed transcript", &[true]),
+        ("showing detailed transcript ·", &[]),
+        ("❯ ", &[false]),
+    ] {
+        at += GRACE;
+        core.handle(screen(text), at);
+        assert_eq!(judged(core.tick(at)), told, "{text}");
+    }
+}
+
+#[test]
+fn a_session_is_told_judged_only_by_looks_in_time_and_told_when_one_runs_late() {
+    let judged = |found: &[Out]| -> Vec<Option<bool>> {
+        found
+            .iter()
+            .filter_map(|out| match out {
+                Out::Judged(1, held) => Some(*held),
+                _ => None,
+            })
+            .collect()
+    };
+    let start = Instant::now();
+    let rules = Arc::new(RuleSet::merged(
+        Default::default(),
+        parse(RULES, Source::Local),
+    ));
+    let mut core = Core::with_budget(Arc::clone(&rules), Duration::ZERO);
+    core.handle(Job::Start(1), start);
+    let at = start + GRACE;
+    // Late from the start, until the slow local rule is dropped: never judged.
+    core.handle(screen("esc to interrupt"), at);
+    let (found, at) = look_again(&mut core, at, 3);
+    assert_eq!(judged(&found), []);
+    // With it gone, a look in time.
+    core.handle(screen("esc to interrupt."), at);
+    let due = core.due().unwrap();
+    assert_eq!(judged(&core.tick(due)), [Some(false)]);
+    // The rules load again with it, and the next look is late: no longer judged.
+    core.handle(Job::Rules(rules), due);
+    let (found, _) = look_again(&mut core, due, 1);
+    assert_eq!(judged(&found), [None]);
 }

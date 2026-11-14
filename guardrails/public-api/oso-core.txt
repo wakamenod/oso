@@ -291,6 +291,12 @@ pub oso_core::command::ArgSpec::Listed
 pub oso_core::command::ArgSpec::Listed::history: &'static str
 pub oso_core::command::ArgSpec::Listed::list: &'static str
 pub oso_core::command::ArgSpec::Listed::prompt: &'static str
+pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion
+pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::history: &'static str
+pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::list: &'static str
+pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::note_history: &'static str
+pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::note_prompt: &'static str
+pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::prompt: &'static str
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::Menu
@@ -482,6 +488,7 @@ pub fn oso_core::command::Ctx<'a>::input(&self) -> &'a str
 pub fn oso_core::command::Ctx<'a>::invoked(&'a mut oso_core::editor::Editor, oso_core::command::Invocation<'a>) -> Self
 pub fn oso_core::command::Ctx<'a>::key_char(&self) -> core::option::Option<char>
 pub fn oso_core::command::Ctx<'a>::leave_prefix(&mut self, core::option::Option<oso_core::command::Prefix>)
+pub fn oso_core::command::Ctx<'a>::listed_and_note(&self) -> core::option::Option<(&'a str, core::option::Option<&'a str>)>
 pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
 pub fn oso_core::command::Ctx<'a>::number(&self) -> core::option::Option<i64>
 pub fn oso_core::command::Ctx<'a>::repeats(&self) -> usize
@@ -1459,11 +1466,34 @@ impl core::hash::Hash for oso_core::editor::ScopeKind
 pub fn oso_core::editor::ScopeKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::editor::ScopeKind
 impl core::marker::StructuralPartialEq for oso_core::editor::ScopeKind
+pub enum oso_core::editor::SendPart
+pub oso_core::editor::SendPart::Excerpt(oso_core::editor::SendExcerpt)
+pub oso_core::editor::SendPart::Note(alloc::string::String)
+impl core::clone::Clone for oso_core::editor::SendPart
+pub fn oso_core::editor::SendPart::clone(&self) -> oso_core::editor::SendPart
+impl core::cmp::Eq for oso_core::editor::SendPart
+impl core::cmp::PartialEq for oso_core::editor::SendPart
+pub fn oso_core::editor::SendPart::eq(&self, &oso_core::editor::SendPart) -> bool
+impl core::fmt::Debug for oso_core::editor::SendPart
+pub fn oso_core::editor::SendPart::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SendPart
+pub enum oso_core::editor::SendTo
+pub oso_core::editor::SendTo::Buffer(oso_core::buffer::BufferId)
+pub oso_core::editor::SendTo::Named(alloc::string::String)
+impl core::clone::Clone for oso_core::editor::SendTo
+pub fn oso_core::editor::SendTo::clone(&self) -> oso_core::editor::SendTo
+impl core::cmp::Eq for oso_core::editor::SendTo
+impl core::cmp::PartialEq for oso_core::editor::SendTo
+pub fn oso_core::editor::SendTo::eq(&self, &oso_core::editor::SendTo) -> bool
+impl core::fmt::Debug for oso_core::editor::SendTo
+pub fn oso_core::editor::SendTo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SendTo
 pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
 pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
+pub oso_core::editor::SessionRequest::FollowMessage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::NextDone
 pub oso_core::editor::SessionRequest::NextWaiting
@@ -1473,6 +1503,9 @@ pub oso_core::editor::SessionRequest::Resume(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Row
 pub oso_core::editor::SessionRequest::Row::action: oso_core::editor::RowAction
 pub oso_core::editor::SessionRequest::Row::line: usize
+pub oso_core::editor::SessionRequest::Send
+pub oso_core::editor::SessionRequest::Send::parts: alloc::vec::Vec<oso_core::editor::SendPart>
+pub oso_core::editor::SessionRequest::Send::to: oso_core::editor::SendTo
 pub oso_core::editor::SessionRequest::SendBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ShowList
 pub oso_core::editor::SessionRequest::Space(alloc::string::String)
@@ -2359,6 +2392,20 @@ pub fn oso_core::editor::SearchReport::eq(&self, &oso_core::editor::SearchReport
 impl core::fmt::Debug for oso_core::editor::SearchReport
 pub fn oso_core::editor::SearchReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::SearchReport
+pub struct oso_core::editor::SendExcerpt
+pub oso_core::editor::SendExcerpt::buffer: alloc::string::String
+pub oso_core::editor::SendExcerpt::first: usize
+pub oso_core::editor::SendExcerpt::last: usize
+pub oso_core::editor::SendExcerpt::path: core::option::Option<std::path::PathBuf>
+pub oso_core::editor::SendExcerpt::text: core::option::Option<alloc::string::String>
+impl core::clone::Clone for oso_core::editor::SendExcerpt
+pub fn oso_core::editor::SendExcerpt::clone(&self) -> oso_core::editor::SendExcerpt
+impl core::cmp::Eq for oso_core::editor::SendExcerpt
+impl core::cmp::PartialEq for oso_core::editor::SendExcerpt
+pub fn oso_core::editor::SendExcerpt::eq(&self, &oso_core::editor::SendExcerpt) -> bool
+impl core::fmt::Debug for oso_core::editor::SendExcerpt
+pub fn oso_core::editor::SendExcerpt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SendExcerpt
 pub struct oso_core::editor::SessionMarks
 pub oso_core::editor::SessionMarks::dark: bool
 pub oso_core::editor::SessionMarks::done: u16

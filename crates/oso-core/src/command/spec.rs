@@ -90,6 +90,19 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// One of a list the host keeps, read as [`ArgSpec::Listed`] reads it; then, unless the
+    /// selected window shows a region, a line of text in a prompt that says `note_prompt`, kept
+    /// in the history named `note_history` (ADR 0121): a session to send to, and a note when
+    /// there is no region to send. Only keys give them: the agent channel never runs such a
+    /// command. The command reads both with
+    /// [`Ctx::listed_and_note`](super::Ctx::listed_and_note).
+    ListedAndNoteUnlessRegion {
+        list: &'static str,
+        prompt: &'static str,
+        history: &'static str,
+        note_prompt: &'static str,
+        note_history: &'static str,
+    },
     /// A buffer's name, read in a prompt that says `prompt` and completes over the buffers,
     /// most recent first, kept in the history named `history` (ADR 0088). The command reads
     /// the name with [`Ctx::answer`](super::Ctx::answer).

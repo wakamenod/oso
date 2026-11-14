@@ -26,6 +26,8 @@
 //! - `spaces`: each project's window tree, zoom and last buffers.
 //! - `transcripts`: the ids, names, times and directories of Claude Code's conversations, and
 //!   `adopt`: what `session-adopt` offers, found on a thread of its own.
+//! - `messages`: who sent a session a message, from its screen.
+//! - `send`: what the person sends to a session, and why a send is refused.
 
 pub mod adopt;
 pub mod attention;
@@ -37,11 +39,13 @@ pub mod hosted;
 pub mod identity;
 pub mod launch;
 pub mod list;
+pub mod messages;
 pub mod recap;
 pub mod record;
 pub mod registry;
 pub mod rules;
 pub mod screen;
+pub mod send;
 pub mod spaces;
 pub mod start;
 pub mod state;

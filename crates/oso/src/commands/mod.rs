@@ -105,6 +105,7 @@ const TABLES: &[&[Command]] = &[
     session::COMMANDS,
     agent_sessions::COMMANDS,
     agent_sessions::LIST_COMMANDS,
+    agent_sessions::SEND_COMMANDS,
     terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
@@ -290,7 +291,11 @@ mod tests {
         "claude",
         "session-adopt",
         "session-fork",
+        // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
+        "session-follow-message",
+        "session-mention",
         "session-resume",
+        "session-send",
         "session-stop",
         "sessions-resume",
         // What puts a session's terminal or `*Sessions*` in front of the person's keys, and

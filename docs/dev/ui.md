@@ -887,3 +887,24 @@ a switch made with its command stands until that setting changes in the file
   of a focused oso window: done becomes idle.
 - Sessions of Claude Code run outside oso, from its registry, are listed too, as working or
   idle; they are never shown.
+- `C-x a m` (`session-send`) pastes the region into a session read with completion, the
+  session of this space shown last first. Each region goes as its path relative to the
+  session's directory, its lines and its text in a fence. With no region it reads a one-line
+  note and sends that. `C-u C-x a m` sends the place only, `path:10-20`, which the agent reads
+  itself; with no region, each cursor's line, then the note if one is typed. A buffer that may
+  hold secrets sends its place only. A region over 256 KiB is refused, and the echo area
+  suggests `C-u`.
+  - The paste is a bracketed paste and is not submitted: the session is shown and selected in
+    its space, and the person reads the text in its input box and presses Enter.
+  - A session that needs input (a permission dialog, a question, a plan) is refused until the
+    person answers it, as a paste could choose an option. So are a session that has not
+    started yet, one showing a full-screen view such as a picker or the settings, and one at
+    a password prompt.
+- `C-x a @` (`session-mention`) reads a live session's name, hosted or external, and gives it as
+  `@NAME`: inserted at each cursor in an oso buffer such as `*Brief*`, or pasted into the session
+  whose terminal is selected. An agent addresses that session by the name with Claude Code's
+  own `SendMessage`.
+- When a session receives a message from another, its `*Sessions*` row says "message from NAME"
+  until the session is seen. `C-x a f` (`session-follow-message`), in that session's terminal,
+  shows the sender. The sender is read from the screen, so it points to a session but does not
+  prove who wrote.
