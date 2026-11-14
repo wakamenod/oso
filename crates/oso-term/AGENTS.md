@@ -21,7 +21,7 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
 - Input is encoded on the terminal's thread, against the modes the program has by then: keys
   by the library's encoder, mouse reports by its mouse encoder (`engine/ghostty/pointers.rs`
   over `raw/mouse.rs`), pastes and focus reports by `input.rs`, safe code. The thread keeps
-  the button held (`terminal/thread/pointer.rs`); the wheel's `↑` and `↓` of mode 1007 are
+  the button held (`Inputs::button_held`, served by `terminal/thread/pointer.rs`); the wheel's `↑` and `↓` of mode 1007 are
   keys the UI sends, never made from a pointer here. A paste keeps no
   control character but TAB and LF, so it cannot end its own bracket. Input that sends anything
   scrolls the view to the bottom; a focus report does not.

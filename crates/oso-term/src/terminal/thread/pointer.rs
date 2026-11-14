@@ -72,22 +72,6 @@ mod tests {
     }
 
     #[test]
-    fn the_wheels_arrows_follow_the_cursor_key_mode() {
-        use oso_core::key::{Key, KeyPress, NamedKey};
-        let mut e = engine(80, 24);
-        let up = KeyPress {
-            modifiers: Modifiers::NONE,
-            key: Key::Named(NamedKey::Up),
-        };
-        let mut out = [0; limits::KEY_BYTES_MAX];
-        let n = e.encode_key(up, &mut out);
-        assert_eq!(&out[..n], b"\x1b[A");
-        e.feed(b"\x1b[?1049h\x1b[?1h");
-        let n = e.encode_key(up, &mut out);
-        assert_eq!(&out[..n], b"\x1bOA", "application cursor keys");
-    }
-
-    #[test]
     fn the_button_held_is_kept_for_drags() {
         let mut e = engine(80, 24);
         e.feed(b"\x1b[?1002h\x1b[?1006h");

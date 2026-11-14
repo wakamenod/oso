@@ -1,37 +1,31 @@
 //! The mouse in the app (ADR 0120, step 4b-2; ADR 0112). A press selects the window under it,
 //! and the first press on a window not selected does only that; point never moves in a text
-//! buffer. In the selected window's terminal, a program that asked for mouse reports gets them;
-//! otherwise, or with Shift held, a drag selects cells, and the release copies them to the kill
-//! ring and the OS clipboard, as `M-w` does. The wheel over a terminal sends reports, or `↑`
-//! and `↓` on the alternate screen (mode 1007) of the selected window while no password is
-//! read, unless Shift is held, when it scrolls the scrollback. While oso holds input (a
-//! prompt, isearch, a menu, a key sequence), presses are dropped and the wheel scrolls as
-//! before. A drag ends early, copying nothing, when the window loses the focus, another press
-//! comes, or its window is no longer selected or oso holds input.
+//! buffer. In the selected window's terminal, a program that asked for mouse reports gets them,
+//! but never while it reads a password; otherwise, or with Shift held, a drag selects cells,
+//! and the release copies them to the kill ring and the OS clipboard, as `M-w` does. The wheel
+//! is `wheel`'s. While oso holds input (a prompt, a menu, a key sequence and the rest that
+//! hold keys from a terminal), presses are dropped. A drag ends early, copying nothing, when the
+//! window loses the focus, another press comes, or its window is no longer selected or oso
+//! holds input.
 //!
 //! Must not depend on: how a frame is drawn, beyond the size of a cell and where a window's
 //! text is.
 
 use oso_core::buffer::BufferId;
-use oso_core::key::{Key, KeyPress, Modifiers, NamedKey};
 use oso_core::window::WindowId;
 use oso_platform::window::{Held, Mouse, MouseAction, MouseButton, Position};
-use oso_term::{Button, Modes, Pointer, PointerAction};
+use oso_term::{Button, Pointer, PointerAction};
 
 use super::super::App;
 use super::reads_a_password;
-use crate::dispatch::holds_input;
-
-/// The most wheel notches one wheel event sends a program, whatever the trackpad's speed.
-const NOTCHES_MAX: usize = 32;
 
 /// A cell of a terminal's screen, and the pointer in pixels from the screen's top left:
 /// `(row, column, x, y)`.
-type At = (u16, u16, u32, u32);
+pub(super) type At = (u16, u16, u32, u32);
 
 /// What became of a report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Reported {
+pub(super) enum Reported {
     /// Nothing went: no cell, no program, or a motion in the cell of the last.
     Skipped,
     Sent,
@@ -127,40 +121,6 @@ fn route_press(
     }
 }
 
-/// Where the wheel over a terminal goes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WheelGoes {
-    /// It scrolls the scrollback.
-    Scrollback,
-    /// Its program asked for reports, and gets one per notch.
-    Reports,
-    /// `↑` or `↓` per notch (mode 1007).
-    Arrows,
-}
-
-/// Where the wheel over a terminal whose program has `modes` goes: never to the program while
-/// oso is `holding` input or with `shift` held. Reports go to any window under the pointer,
-/// as the program asked for them; the arrows of mode 1007 only to the `selected` window, and
-/// never while it `reads_a_password`, as they are keys the person did not type (the author,
-/// 2026-11-14).
-fn wheel_goes(
-    holding: bool,
-    shift: bool,
-    modes: Modes,
-    selected: bool,
-    reads_a_password: bool,
-) -> WheelGoes {
-    if holding || shift {
-        WheelGoes::Scrollback
-    } else if modes.mouse != oso_term::Mouse::Off {
-        WheelGoes::Reports
-    } else if modes.alternate_screen && modes.alternate_scroll && selected && !reads_a_password {
-        WheelGoes::Arrows
-    } else {
-        WheelGoes::Scrollback
-    }
-}
-
 impl App {
     /// A mouse button pressed or released, or the pointer moved. Returns false for a move
     /// that did nothing, after which the event needs no more work.
@@ -193,9 +153,11 @@ impl App {
         };
         let buffer = self.editor.window_by_id(window).map(|w| w.buffer());
         let hosted = buffer.and_then(|buffer| self.terminals.map.get(buffer));
-        let reports = hosted.is_some_and(|h| h.grid.modes().mouse != oso_term::Mouse::Off);
+        // While its program reads a password, no report reaches it (the author, 2026-11-14).
+        let reports = hosted.is_some_and(|h| h.grid.modes().mouse != oso_term::Mouse::Off)
+            && buffer.is_some_and(|buffer| !self.reads_password(buffer));
         let goes = route_press(
-            holds_input(&self.editor),
+            self.oso_holds_input(),
             window == self.editor.tiled().0.id(),
             hosted.is_some(),
             in_text,
@@ -298,7 +260,7 @@ impl App {
                 let buffer = self.editor.tiled().0.buffer();
                 let wants = self.wants_every_motion(buffer)
                     && !held.contains(Held::SHIFT)
-                    && !holds_input(&self.editor)
+                    && !self.oso_holds_input()
                     && (self.window_under(at)).is_some_and(|(w, inside)| w == window && inside);
                 let cell = if wants {
                     self.cell_in(window, buffer, at)
@@ -310,35 +272,56 @@ impl App {
         }
     }
 
-    /// Whether a drag begun as `drag` may go on: its window is still the one selected and
-    /// oso holds no input. A key may have selected another window or opened a prompt while
-    /// the button was held.
+    /// Whether a drag begun as `drag` may go on: its window is still the one selected, oso
+    /// holds no input, and a program getting reports reads no password. A key may have
+    /// selected another window or opened a prompt while the button was held.
     fn drag_goes_on(&self, drag: Drag) -> bool {
-        let window = match drag {
+        let (window, reporting) = match drag {
             Drag::Nothing => return true,
-            Drag::Select { window, .. } | Drag::Report { window, .. } => window,
+            Drag::Select { window, .. } => (window, None),
+            Drag::Report { window, buffer, .. } => (window, Some(buffer)),
         };
-        window == self.editor.tiled().0.id() && !holds_input(&self.editor)
+        window == self.editor.tiled().0.id()
+            && !self.oso_holds_input()
+            && reporting.is_none_or(|buffer| !self.reads_password(buffer))
     }
 
     /// Ends the drag going on, if any, with no copy: the window lost the focus, another
     /// press came, or the drag may not go on. A program that got the press gets its release
-    /// where its last report went, so neither it nor the terminal's thread holds the button.
+    /// where its last report went, so neither it nor the terminal's thread holds the button,
+    /// unless it now reads a password.
     pub(in crate::app) fn end_drag(&mut self) {
         let Some((button, drag)) = self.terminals.pointer.take_drag() else {
             return;
         };
-        if let Drag::Report { buffer, last, .. } = drag {
+        if let Drag::Report { buffer, last, .. } = drag
+            && !self.reads_password(buffer)
+        {
             let release = PointerAction::Release(term_button(button));
             self.report(buffer, last, self.modifiers, release);
         }
     }
 
-    /// Whether the terminal `buffer` runs a program that asked for every motion (1003).
+    /// Whether the terminal `buffer` runs a program that asked for every motion (1003), and
+    /// reads no password.
     fn wants_every_motion(&self, buffer: BufferId) -> bool {
         (self.terminals.map.get(buffer)).is_some_and(|h| {
             h.terminal.is_some() && h.grid.modes().mouse == oso_term::Mouse::Motion
-        })
+        }) && !self.reads_password(buffer)
+    }
+
+    /// Whether oso holds input from terminals now, as it holds keys: see
+    /// `Dispatcher::holds_the_mouse`, and a composition.
+    pub(super) fn oso_holds_input(&self) -> bool {
+        self.dispatcher.holds_the_mouse(&self.editor) || self.composing()
+    }
+
+    /// Whether the terminal `buffer`'s program reads a password, or the buffer is gone or
+    /// secret: no mouse report or wheel arrow goes to it then (ADR 0120, Q17).
+    pub(super) fn reads_password(&self, buffer: BufferId) -> bool {
+        self.editor
+            .buffer(buffer)
+            .is_none_or(|b| b.is_secret() || reads_a_password(b))
     }
 
     /// The tiled window under the pointer `at`, and whether `at` is over its text; `None`
@@ -362,7 +345,7 @@ impl App {
     /// The cell of the terminal `buffer`'s screen under `at` in `window`, kept inside its
     /// text and its screen as a drag past them is, and `at` in pixels from the screen's top
     /// left, at least 0: `(row, column, x, y)`.
-    fn cell_in(&self, window: WindowId, buffer: BufferId, at: Position) -> Option<At> {
+    pub(super) fn cell_in(&self, window: WindowId, buffer: BufferId, at: Position) -> Option<At> {
         let view = self.view.as_ref()?;
         let text = self.editor.frame().regions(window)?.text;
         let size = self.terminals.map.get(buffer)?.grid.size()?;
@@ -387,7 +370,7 @@ impl App {
 
     /// Sends the program in `buffer` the pointer at `cell` (`cell_in`'s) doing `action`. A
     /// motion goes once per cell.
-    fn report(
+    pub(super) fn report(
         &mut self,
         buffer: BufferId,
         cell: Option<At>,
@@ -425,86 +408,6 @@ impl App {
         Reported::Sent
     }
 
-    /// The wheel over the terminal shown in `window`: `rows` and `columns` of notches, sent to
-    /// its program at the pointer `at` where [`wheel_goes`] says. Returns whether they went;
-    /// if not, the wheel scrolls the scrollback.
-    pub(in crate::app) fn wheel_to_program(
-        &mut self,
-        window: WindowId,
-        buffer: BufferId,
-        rows: isize,
-        columns: isize,
-        at: Option<Position>,
-    ) -> bool {
-        let Some(hosted) = self.terminals.map.get(buffer) else {
-            return false;
-        };
-        let goes = wheel_goes(
-            holds_input(&self.editor),
-            self.modifiers.contains(Held::SHIFT),
-            hosted.grid.modes(),
-            window == self.editor.tiled().0.id(),
-            self.editor.buffer(buffer).is_none_or(reads_a_password),
-        );
-        match goes {
-            WheelGoes::Scrollback => return false,
-            WheelGoes::Reports => self.wheel_reports(window, buffer, rows, columns, at),
-            WheelGoes::Arrows => self.wheel_arrows(buffer, rows),
-        }
-        true
-    }
-
-    /// The wheel's notches as reports, stopped at the first a full queue drops, said once.
-    fn wheel_reports(
-        &mut self,
-        window: WindowId,
-        buffer: BufferId,
-        rows: isize,
-        columns: isize,
-        at: Option<Position>,
-    ) {
-        let cell = self.cell_in(window, buffer, at.unwrap_or(Position { x: 0.0, y: 0.0 }));
-        let held = self.modifiers;
-        let notches = [
-            (rows, Button::WheelUp, Button::WheelDown),
-            (columns, Button::WheelLeft, Button::WheelRight),
-        ];
-        'notches: for (count, back, on) in notches {
-            let button = if count < 0 { back } else { on };
-            for _ in 0..count.unsigned_abs().min(NOTCHES_MAX) {
-                let press = PointerAction::Press(button);
-                if self.report(buffer, cell, held, press) == Reported::Full {
-                    break 'notches;
-                }
-            }
-        }
-    }
-
-    /// The wheel's `rows` of notches as `↑` or `↓`, which the terminal's thread encodes against
-    /// the program's cursor-key mode, as any key; sideways notches send nothing.
-    fn wheel_arrows(&mut self, buffer: BufferId, rows: isize) {
-        let Some(terminal) = (self.terminals.map.get(buffer)).and_then(|h| h.terminal.as_ref())
-        else {
-            return;
-        };
-        let arrow = if rows < 0 {
-            NamedKey::Up
-        } else {
-            NamedKey::Down
-        };
-        let key = KeyPress {
-            modifiers: Modifiers::NONE,
-            key: Key::Named(arrow),
-        };
-        for _ in 0..rows.unsigned_abs().min(NOTCHES_MAX) {
-            if terminal.send_key(key).is_err() {
-                self.editor
-                    .message("The terminal's input is full; mouse dropped");
-                return;
-            }
-        }
-    }
-
     /// Moves the selection's end in the terminal `buffer` to the cell under `at`. Returns
     /// whether that changed what is drawn.
     fn select_to(&mut self, window: WindowId, buffer: BufferId, at: Position) -> bool {
@@ -527,10 +430,7 @@ impl App {
         else {
             return;
         };
-        let secret = self
-            .editor
-            .buffer(buffer)
-            .is_none_or(|b| b.is_secret() || reads_a_password(b));
+        let secret = self.reads_password(buffer);
         self.editor.kill_new(&text, secret);
         self.write_clipboard();
     }

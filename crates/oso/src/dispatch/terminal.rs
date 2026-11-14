@@ -77,6 +77,13 @@ impl Dispatcher {
         }
     }
 
+    /// Whether oso holds the mouse from a terminal's program, as it holds keys from it: a
+    /// prompt is open, something of oso's takes every key ([`Dispatcher::oso_busy`]), or input
+    /// waits for `!` or an undo ([`holds_input`]). The app adds a composition.
+    pub(crate) fn holds_the_mouse(&self, editor: &Editor) -> bool {
+        editor.prompt().is_some() || self.oso_busy(editor) || super::holds_input(editor)
+    }
+
     /// Something of oso's is open that takes every key: a key sequence or a prefix argument in
     /// progress, the clipboard awaited, a menu, isearch, a jump or a query-replace.
     fn oso_busy(&self, editor: &Editor) -> bool {

@@ -183,7 +183,7 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   moves the view and leaves the cursor, even out of view, until the next command in
   that window or one that moves it; `Editor::scroll_view` leaves it too beneath a
   prompt or a composition (ADR 0069, ADR 0072). The wheel scrolls the window under the pointer
-  without selecting it: the app turns the pointer's pixel into a cell with
+  without selecting it (over a terminal it may go to the program instead, ADR 0120): the app turns the pointer's pixel into a cell with
   `PixelGrid::cell_at`, and `Editor::wheel_window` into a window
   ([ADR 0112](adr/0112-window-splits.md)). A click finds its window the same way, so
   over a float it gets the tiled window beneath, and selects it; point never moves in a

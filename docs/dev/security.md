@@ -388,7 +388,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   for that terminal (`terminal-allow-agent-read`). While the PTY has echo off with line editing on,
   as a password prompt has it, the terminal is treated as secret: the channel waits while it is
   shown, its rows are withheld, secure input is on while it is selected, and input typed there
-  drops a keyboard macro's recording. Terminal text never reaches the disk.
+  drops a keyboard macro's recording. A mouse copy there is a secret kill-ring entry, and no
+  mouse report or wheel arrow key (mode 1007) reaches its program. A copy reads concealed cells (SGR 8) as blanks.
+  Terminal text never reaches the disk.
 - A terminal parses on its own thread, reads at most 64 KiB at a time and queues at most 16 MiB of
   writes, so neither bulk output nor a large paste reaches the UI thread.
 
@@ -426,8 +428,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     whether it runs a program, with no default, and the modeline and the agent's reply say what
     waits ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)).
   - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
-    prompt, a key sequence, a composition or an isearch (ADR 0082), within 1 s of the person's
-    last key, or while a
+    prompt, a key sequence, a composition or an isearch (ADR 0082), while a mouse button is
+    held, within 1 s of the person's last key or mouse press or release, or while a
     question it opened is open. It does not open a path that matches the secret patterns, and
     shows a file it opened only once it is judged ordinary. Its state withholds what
     `get-state` withholds, and never has keys in progress, prompt input, the kill ring or the

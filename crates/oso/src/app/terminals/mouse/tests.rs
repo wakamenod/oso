@@ -1,13 +1,12 @@
 //! Where the mouse goes (ADR 0120, step 4b-2): presses by what holds input, the window, the
-//! program's reports and Shift, and the wheel by the program's modes.
+//! program's reports and Shift; and how a drag ends.
 //!
 //! Must not depend on: a window or a terminal; the routing is pure.
 
 use oso_core::editor::Editor;
 use oso_platform::window::MouseButton;
-use oso_term::{Modes, Mouse};
 
-use super::{Drag, Pointing, PressGoes, WheelGoes, route_press, wheel_goes, whole};
+use super::{Drag, Pointing, PressGoes, route_press, whole};
 
 #[test]
 fn the_press_routing_table() {
@@ -39,49 +38,6 @@ fn the_press_routing_table() {
             goes,
             "holding {holding}, selected {selected}, terminal {terminal}, in text {in_text}, \
              reports {reports}, shift {shift}, left {left}"
-        );
-    }
-}
-
-#[test]
-fn the_wheel_goes_to_a_program_that_wants_it_unless_shift_or_held() {
-    use WheelGoes::{Arrows, Reports, Scrollback};
-    let off = Modes::default();
-    let reports = Modes {
-        mouse: Mouse::Click,
-        ..off
-    };
-    let alternate = Modes {
-        alternate_screen: true,
-        alternate_scroll: true,
-        ..off
-    };
-    let alternate_without_1007 = Modes {
-        alternate_screen: true,
-        ..off
-    };
-    // (holding, shift, modes, selected, reads a password) → where it goes.
-    let table = [
-        ((false, false, off, true, false), Scrollback),
-        ((false, false, reports, true, false), Reports),
-        ((false, false, reports, false, true), Reports),
-        ((false, false, alternate, true, false), Arrows),
-        ((false, false, alternate, false, false), Scrollback),
-        ((false, false, alternate, true, true), Scrollback),
-        (
-            (false, false, alternate_without_1007, true, false),
-            Scrollback,
-        ),
-        ((false, true, reports, true, false), Scrollback),
-        ((false, true, alternate, true, false), Scrollback),
-        ((true, false, reports, true, false), Scrollback),
-    ];
-    for ((holding, shift, modes, selected, password), goes) in table {
-        assert_eq!(
-            wheel_goes(holding, shift, modes, selected, password),
-            goes,
-            "holding {holding}, shift {shift}, {modes:?}, selected {selected}, \
-             password {password}"
         );
     }
 }

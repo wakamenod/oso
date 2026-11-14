@@ -23,6 +23,7 @@ mod input;
 mod mouse;
 mod snapshots;
 mod start;
+mod wheel;
 
 /// How often terminals no window shows are looked at, for their end and their title.
 const HIDDEN_PACE: Duration = Duration::from_millis(250);
