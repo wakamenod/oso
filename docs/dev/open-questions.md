@@ -458,7 +458,9 @@ item notes when it must be settled.
   and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - A row's branch in `*Sessions*`, which needs git on a trusted project off the UI thread; and
   finding a session's trusted project without one of its buffers open
-  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 3).
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 3). [ADR
+  0131](adr/0131-an-orca-style-sessions-pane.md) puts the branch on worktree rows from
+  `git worktree list` on the git pool.
 - An option for East Asian Ambiguous characters to take 2 cells
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.
