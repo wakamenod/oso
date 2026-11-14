@@ -246,9 +246,10 @@ mod tests {
             call("session_list", json!({})),
             call("session_state", json!({ "session": "api" })),
             call("worktree_list", json!({})),
+            // Absolute on every OS: `/r` is not on Windows.
             call(
                 "worktree_remove",
-                json!({ "path": "/r/.claude/worktrees/x" }),
+                json!({ "path": std::env::temp_dir().join("x").display().to_string() }),
             ),
             call(
                 "start_worktree_session",

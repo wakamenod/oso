@@ -847,7 +847,8 @@ points:
   (`app/terminals/start.rs`).
 - **The environment** is ADR 0120's terminal environment, `[sessions] env`'s names,
   `OSO_SESSION`, and always `CLAUDE_CONFIG_DIR` when oso has it: the session's registry entry is
-  then in the directory oso reads. A login profile that sets `CLAUDE_CONFIG_DIR` itself, which oso
+  then in the directory oso reads. `XDG_RUNTIME_DIR` too, when oso has it (added with step 6a):
+  on Linux oso's sockets are there, and without it the session's `oso mcp` finds no channel. A login profile that sets `CLAUDE_CONFIG_DIR` itself, which oso
   started from the Dock does not see, moves the session's registry where oso does not look, and a
   resume then finds no live process for it. Set the same value where oso is started too.
 - **The start baseline is the project's review baseline:** when it comes, in time or late, the
