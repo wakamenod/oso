@@ -211,7 +211,7 @@ impl App {
     }
 
     /// A key of `*Sessions*` on line `line`.
-    pub(super) fn on_row(&mut self, line: usize, action: RowAction) {
+    fn on_row(&mut self, line: usize, action: RowAction) {
         let Some(row) = self.sessions_line(line).cloned() else {
             return;
         };

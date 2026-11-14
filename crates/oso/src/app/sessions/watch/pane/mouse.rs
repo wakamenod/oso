@@ -6,7 +6,7 @@
 //! Must not depend on: how a frame is drawn, beyond where a window's text is.
 
 use oso_core::buffer::Mode;
-use oso_core::editor::RowAction;
+use oso_core::editor::{RowAction, SessionRequest};
 use oso_core::selection::SelectionSet;
 use oso_core::window::WindowId;
 use oso_platform::window::Position;
@@ -69,7 +69,9 @@ impl App {
         } else {
             RowAction::Show
         };
-        self.on_row(line, action);
+        // As the row's key asks, so that the list renders again after it as after a key.
+        self.editor
+            .request_session(SessionRequest::Row { line, action });
         self.request_redraw();
         true
     }
