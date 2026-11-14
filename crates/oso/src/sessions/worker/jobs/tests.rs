@@ -268,3 +268,33 @@ fn a_bundled_rule_is_never_dropped() {
     let (found, _) = look_again(&mut core, at, 6);
     assert_eq!(found, [Out::Slow("busy".to_owned())]);
 }
+
+#[test]
+fn a_recap_is_told_only_when_it_changes() {
+    let rules = "version = 1\n[[rule]]\nname = \"busy\"\nstate = \"working\"\n\
+                 region = \"bottom(1)\"\ncontains = [\"esc to interrupt\"]\n\
+                 recap = '^(\\S+) · '\n";
+    let parsed = parse(rules, Source::Bundled);
+    assert!(parsed.problems.is_empty(), "{:?}", parsed.problems);
+    let mut core = Core::new(Arc::new(RuleSet::merged(parsed, Default::default())));
+    let recaps = |found: Vec<Out>| -> Vec<String> {
+        found
+            .into_iter()
+            .filter_map(|out| match out {
+                Out::Recap(1, recap) => Some(recap),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut at = Instant::now();
+    core.handle(Job::Start(1), at);
+    for (text, told) in [
+        ("Reading · esc to interrupt", &["Reading"][..]),
+        ("Reading · 2s · esc to interrupt", &[]),
+        ("Writing · esc to interrupt", &["Writing"]),
+    ] {
+        at += GRACE;
+        core.handle(screen(text), at);
+        assert_eq!(recaps(core.tick(at)), told, "{text}");
+    }
+}

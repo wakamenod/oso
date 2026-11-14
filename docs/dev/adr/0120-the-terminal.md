@@ -1254,8 +1254,9 @@ option on each of its nine questions. Step 4b is three pull requests; this is th
     on. So a password typed and entered between two frames is still seen once. A change of it is
     sent even while a synchronized update holds snapshots back.
   - Before this step the flag was echo alone, so it was set for every program that reads keys
-    raw, `claude` among them. ADR 0121's sessions engine is to hold on the same flag, the
-    narrower signal that ADR asked for, once its screen feed reads snapshots (its step 3).
+    raw, `claude` among them. ADR 0121's screen feed now sends a session's worker only that its
+    program reads a password, by the buffer's verdict, and no rows: its engine holds there, the
+    narrower signal that ADR asked for.
   - **What it does not see:**
     - A program that turns echo off long after its last output, with nothing typed since, is
       seen at the next key, before that key is written. That key reaches the system before

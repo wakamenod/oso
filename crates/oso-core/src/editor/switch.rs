@@ -11,7 +11,7 @@ use super::follow::clip_selections;
 use crate::buffer::{self, Buffer, BufferId};
 use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{Place, Walk};
+use crate::window::{Place, Walk, Window, WindowId};
 
 use super::SCRATCH;
 
@@ -60,14 +60,21 @@ impl Editor {
     /// Shows `buffer` in the tiled window `id`, selected or not, as [`Editor::show`] shows it in
     /// the selected one, as a restart shows each window's (ADR 0112). Does nothing for a window
     /// that is not tiled or a buffer that does not exist.
+    ///
+    /// For the side window, it shows it in the tree's window [`Editor::show`] would, as only
+    /// [`Editor::show_side_window`] changes what the side window shows (ADR 0121).
     pub fn show_in(&mut self, id: crate::window::WindowId, buffer: BufferId) {
+        if self.buffer(buffer).is_none() {
+            return;
+        }
+        if self.side_window() == Some(id) {
+            return self.show(buffer);
+        }
         let Some(index) = self.window_index(id).filter(|&i| i < self.tiled_count()) else {
             return;
         };
-        if self.buffer(buffer).is_some() {
-            self.window_moves_on();
-            self.window_shows(index, buffer);
-        }
+        self.window_moves_on();
+        self.window_shows(index, buffer);
     }
 
     /// Makes the window at `index` show `buffer`, where it was there the last time, clipped to
@@ -113,11 +120,16 @@ impl Editor {
     /// `index`, is in it, or left it: its primary cursor with its mark and the ring, and its
     /// view, as a split copies them (ADR 0088, ADR 0112). `None` if no other window showed it.
     fn place_elsewhere(&self, index: usize, buffer: BufferId) -> Option<Place> {
-        let me = self.windows[index].id();
+        self.place_in_other(Some(self.windows[index].id()), buffer)
+    }
+
+    /// Where the tiled window selected most recently that showed `buffer`, other than `me`, is
+    /// in it, or left it, as [`Editor::place_elsewhere`] says.
+    pub(super) fn place_in_other(&self, me: Option<WindowId>, buffer: BufferId) -> Option<Place> {
         let window = self
             .recent
             .iter()
-            .filter(|id| **id != me)
+            .filter(|id| Some(**id) != me)
             .filter_map(|id| self.window_by_id(*id))
             .find(|window| window.has_shown(buffer))?;
         let (selections, scroll) = if window.buffer() == buffer {
@@ -153,13 +165,14 @@ impl Editor {
     /// Shows the buffer `count` before the one shown in the tiled window's order, the most
     /// recent first and then those it never showed, skipping internal buffers: `M-,`. A
     /// negative count goes the other way, as `M-/` does. Repeating it walks on through every
-    /// buffer, as long as nothing else showed one.
+    /// buffer, as long as nothing else showed one. From the side window, the tree's window
+    /// selected last walks, and is selected (ADR 0121).
     ///
     /// # Errors
     ///
     /// With no other buffer to show.
     pub fn walk_buffers(&mut self, count: isize) -> Result<(), &'static str> {
-        let index = self.tiled_index();
+        let index = self.tree_index();
         let walk = match self.windows[index].walk() {
             Some(walk) => walk.clone(),
             None => {
@@ -187,6 +200,7 @@ impl Editor {
             return Err("No other buffer");
         }
         self.window_moves_on();
+        self.leave_side();
         self.window_shows(index, next);
         self.windows[index].places_mut().set_walk(Walk {
             ring: walk.ring,
@@ -443,6 +457,15 @@ impl Editor {
             self.window_moves_on();
             // Before it goes, as what it was cannot be asked after.
             self.note_secret_shown();
+        }
+        // The side window shows only what the host gave it: with that gone, it goes (ADR 0121).
+        let side = self.side_window();
+        if side
+            .and_then(|side| self.window_by_id(side))
+            .map(Window::buffer)
+            == Some(id)
+        {
+            self.hide_side_window();
         }
         for index in 0..self.windows.len() {
             if self.windows[index].buffer() != id {

@@ -168,6 +168,17 @@ impl Window {
         self.window.set_visible(visible);
     }
 
+    /// Asks for the person's attention for an agent session that became `kind`: urgent while
+    /// it waits on the person, once for news (ADR 0121). macOS asks through `notify` instead.
+    pub(super) fn request_session_attention(&self, kind: oso_platform::notify::Kind) {
+        use oso_platform::notify::Kind;
+        let urgency = match kind {
+            Kind::NeedsInput | Kind::Failed => UserAttentionType::Critical,
+            Kind::Done | Kind::ReadyForReview => UserAttentionType::Informational,
+        };
+        self.window.request_user_attention(Some(urgency));
+    }
+
     /// Asks for the person's attention, without taking the keyboard from another app.
     pub(super) fn request_attention(&self) {
         self.window

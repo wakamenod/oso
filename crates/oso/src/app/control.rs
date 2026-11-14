@@ -123,6 +123,7 @@ impl App {
             dev::UiOp::Clipboard(op) => self.memory_clipboard(op),
             dev::UiOp::Wheel { delta, at } => self.dev_wheel(delta, at),
             dev::UiOp::Mouse { action, at, shift } => self.dev_mouse(action, at, shift),
+            dev::UiOp::Focus(focused) => Ok(self.dev_focus(focused)),
             dev::UiOp::ImportState(state) => return self.answer_import(*state, reply),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
@@ -183,6 +184,8 @@ impl App {
         // Each terminal, for end-to-end flows (ADR 0120). The dev socket trusts the same user
         // (ADR 0044); the agent channel reads none of this.
         state["terminals"] = self.terminals_state();
+        // Agent sessions' states, the list and the attention asked for (ADR 0121 step 3).
+        state["sessions"] = self.sessions_state();
         // The steps of the last live resize and the frames drawn for them (ADR 0077): numbers
         // only, null on winit.
         let resize = self
@@ -280,6 +283,14 @@ impl App {
         };
         self.timings.key_handled(received, key);
         Ok(json!({ "ime": true }))
+    }
+
+    /// Takes the keyboard's focus or loses it, as the window's focus event would: only
+    /// whether the window has the keys, which a session's look and a terminal's focus reports
+    /// follow (ADR 0120, ADR 0121).
+    fn dev_focus(&mut self, focused: bool) -> serde_json::Value {
+        self.terminals.focused = focused;
+        json!({ "focused": focused })
     }
 
     /// The result of `wheel`: scrolls as the wheel would with the pointer `at` a pixel, or the

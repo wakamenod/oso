@@ -280,7 +280,7 @@ impl App {
 
     /// Puts each terminal's mode, end and title in its modeline, when one of them changed.
     /// Returns whether a note changed, which the frame being drawn already shows.
-    fn note_terminals(&mut self) -> bool {
+    pub(in crate::app) fn note_terminals(&mut self) -> bool {
         let mut changed = false;
         let ids: Vec<BufferId> = self.terminals.map.iter().map(|(id, _)| id).collect();
         for id in ids {

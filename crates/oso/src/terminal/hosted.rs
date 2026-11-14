@@ -35,6 +35,8 @@ pub(crate) struct Hosted {
     pub sized: Option<Size>,
     /// The program's title (OSC 0, 1, 2), already cleaned by the policy.
     pub title: String,
+    /// The OSC 9;4 progress the program reported last, for agent sessions (ADR 0121).
+    pub progress: Option<oso_term::Progress>,
     /// How the program ended, for the modeline: `exited 0`, `ended`. A hosted session's buffer
     /// says what to do next instead, such as `stopped: session-resume to continue` (ADR 0121).
     pub ended: Option<String>,
@@ -47,6 +49,8 @@ pub(crate) struct Hosted {
     pub selected: u64,
     /// Whether the program was last told it has the focus (mode 1004).
     pub focused: Option<bool>,
+    /// An agent session's state, reason and age, for its modeline (ADR 0121 step 3).
+    pub session_note: String,
     /// The note the modeline was last given, so that it is set only on a change.
     pub note: String,
     /// The title or the end changed since the note was made.
@@ -65,11 +69,13 @@ impl Hosted {
             owner: None,
             sized: None,
             title: String::new(),
+            progress: None,
             ended: None,
             pending_paste: None,
             ready: false,
             selected: 0,
             focused: None,
+            session_note: String::new(),
             note: String::new(),
             note_stale: false,
             noted: Marks::default(),
@@ -104,9 +110,10 @@ impl Hosted {
         self.ended.is_none()
     }
 
-    /// What the modeline says after `Terminal`: oso's own marks, the input mode, a password
-    /// prompt, the agent's leave to read and how the program ended, then the program's title
-    /// last and in quotes, so that a title can never pass for one of them.
+    /// What the modeline says after `Terminal`: oso's own marks (an agent session's state,
+    /// the input mode, a password prompt, the agent's leave to read and how the program
+    /// ended), then the program's title last and in quotes, so that a title can never pass for
+    /// one of them.
     pub(crate) fn note_text(&self, marks: Marks) -> String {
         let mut note = String::new();
         let mut push = |part: &str| {
@@ -115,6 +122,9 @@ impl Hosted {
             }
             note.push_str(part);
         };
+        if !self.session_note.is_empty() {
+            push(&self.session_note);
+        }
         if marks.input == Input::Char {
             push("char");
         }

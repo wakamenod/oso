@@ -106,8 +106,11 @@ impl Editor {
     /// # Errors
     ///
     /// [`TooSmall`] when either half would be smaller than a window may be. Nothing changes.
+    ///
+    /// While the side window is selected, the tree's window selected last splits, and is
+    /// selected (ADR 0121).
     pub fn split_window(&mut self, way: Way, select: bool) -> Result<WindowId, TooSmall> {
-        let at = self.tiled_index();
+        let at = self.tree_index();
         let id = WindowId::new(self.next_window);
         self.set_split_gutter();
         let mut splits = self.splits.clone();
@@ -115,6 +118,7 @@ impl Editor {
         self.isearch_exit();
         self.splits = splits;
         self.next_window += 1;
+        self.leave_side();
         self.add_split_off(at, id);
         self.lay_out(self.frame.size());
         if select {
@@ -148,7 +152,13 @@ impl Editor {
     ///
     /// [`SoleWindow`] for the only window, a pair that is the whole frame, or a pair beneath an
     /// open prompt. Nothing changes.
+    ///
+    /// In the side window, it hides the side window (ADR 0121).
     pub fn delete_window(&mut self) -> Result<(), SoleWindow> {
+        if self.side_selected() {
+            self.hide_side_window();
+            return Ok(());
+        }
         let id = self.tiled_id();
         let mut splits = self.splits.clone();
         if self.pair_beneath_prompt(id) || !splits.remove(id, &self.frame) {
@@ -168,8 +178,12 @@ impl Editor {
     /// Deletes every tiled window but the selected one, which takes the whole tiled area, with
     /// the other window of its pair if it is in one (ADR 0122). Does nothing with one window.
     /// Ends isearch. Returns whether it deleted any.
+    ///
+    /// The side window stays (ADR 0121). While it is selected, the tree's window selected last
+    /// is the one kept, and is selected.
     pub fn delete_other_windows(&mut self) -> bool {
-        let keep = self.tiled_id();
+        let keep = self.tree_id();
+        self.leave_side();
         let pair = self.splits.pair_of(keep);
         let others: Vec<WindowId> = self
             .splits
@@ -189,7 +203,8 @@ impl Editor {
     }
 
     /// Takes the window `id` out of the editor, once the tree no longer holds it, and selects
-    /// the window selected most recently instead of it if it was selected.
+    /// the window selected most recently instead of it if it was selected: never the side
+    /// window, which only a click, `windmove` or its own command selects (ADR 0121).
     pub(super) fn drop_window(&mut self, id: WindowId) {
         let Some(index) = self.window_index(id) else {
             return;
@@ -206,7 +221,9 @@ impl Editor {
         if self.selected > index {
             self.selected -= 1;
         }
-        if was_tiled && let Some(&next) = self.recent.first() {
+        let side = self.side_window();
+        let next = self.recent.iter().find(|other| Some(**other) != side);
+        if was_tiled && let Some(&next) = next {
             self.make_tiled(next);
         }
     }
@@ -238,13 +255,22 @@ impl Editor {
 
     /// The index of the tiled window `id`, if it is one.
     pub(super) fn tiled_window_index(&self, id: WindowId) -> Option<usize> {
-        self.window_index(id).filter(|_| self.splits.contains(id))
+        self.window_index(id).filter(|_| self.is_tiled_id(id))
     }
 
-    /// Selects the tiled window `id`. Does nothing for a window that is not tiled, or that is
-    /// selected already. Ends isearch, which runs in the selected window only.
+    /// Selects the tiled window `id`, the side window too (ADR 0121). Does nothing for a
+    /// window that is not tiled, or that is selected already, or for the side window while
+    /// the frame has no room for it. Ends isearch, which runs in the selected window only.
     pub fn select_window(&mut self, id: WindowId) {
-        if id == self.tiled_id() || !self.splits.contains(id) {
+        if id == self.tiled_id() || !self.is_tiled_id(id) {
+            return;
+        }
+        let side_hidden = self.side_window() == Some(id)
+            && !self
+                .frame
+                .regions(id)
+                .is_some_and(crate::frame::WindowRegions::has_cells);
+        if side_hidden {
             return;
         }
         self.isearch_exit();
@@ -262,10 +288,18 @@ impl Editor {
 
     /// Selects the window `count` after the selected one in the tree's order, wrapping
     /// around, or before it if negative, as `C-x o` does. Windows the frame has no room for
-    /// are skipped.
+    /// are skipped, and so is the side window, as Emacs's `no-other-window` has it (ADR 0121):
+    /// from it, the tree's window selected last is selected.
     pub fn other_window(&mut self, count: isize) {
+        if self.side_selected() {
+            self.select_window(self.tree_id());
+            return;
+        }
         let me = self.tiled_id();
-        let shown = |(_, regions): &&(WindowId, crate::frame::WindowRegions)| regions.has_cells();
+        let side = self.side_window();
+        let shown = |(id, regions): &&(WindowId, crate::frame::WindowRegions)| {
+            regions.has_cells() && Some(*id) != side
+        };
         let windows = self.frame.windows();
         let len = windows.iter().filter(shown).count();
         let Some(at) = windows.iter().filter(shown).position(|(id, _)| *id == me) else {
@@ -315,11 +349,14 @@ impl Editor {
     /// # Errors
     ///
     /// [`CannotResize`] when nothing moved. Nothing changes.
+    ///
+    /// While the side window is selected, the tree's window selected last resizes, and is
+    /// selected (ADR 0121).
     pub fn resize_window(&mut self, way: Way, cells: isize) -> Result<(), CannotResize> {
         if cells == 0 {
             return Ok(());
         }
-        let id = self.tiled_id();
+        let id = self.tree_id();
         self.set_split_gutter();
         if self.splits.resize(id, way, cells, &self.frame) == 0 {
             return Err(if cells > 0 {
@@ -328,6 +365,7 @@ impl Editor {
                 CannotResize::Shrink
             });
         }
+        self.leave_side();
         self.lay_out(self.frame.size());
         Ok(())
     }

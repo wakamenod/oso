@@ -122,6 +122,9 @@ pub enum UiOp {
         at: WheelAt,
         shift: bool,
     },
+    /// Take the keyboard's focus, or lose it, as the window system would say: a display with
+    /// no window manager, such as Xvfb, may never give it (ADR 0121's seen sessions).
+    Focus(bool),
 }
 
 /// Where `wheel` puts the pointer: a place on the surface, in physical pixels, or the middle
@@ -228,6 +231,12 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "clipboard" => UiOp::Clipboard(parse_clipboard(params).map_err(|m| bad(&id, m))?),
         "wheel" => parse_wheel(params).map_err(|m| bad(&id, m))?,
         "mouse" => parse_mouse(params).map_err(|m| bad(&id, m))?,
+        "focus" => UiOp::Focus(
+            params
+                .get("focused")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| bad(&id, "focus needs a boolean \"focused\"".into()))?,
+        ),
         "export-state" => UiOp::ExportState,
         "export-text" | "import-text" | "dev-message" => {
             parse_for_oso_dev(method, params).map_err(|m| bad(&id, m))?
@@ -718,6 +727,22 @@ mod tests {
         ] {
             assert!(mouse(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn focus_takes_whether_the_window_has_it() {
+        let focus = |params: &str| parse(&format!(r#"{{"method": "focus", "params": {params}}}"#));
+        for (params, focused) in [
+            (r#"{"focused": true}"#, true),
+            (r#"{"focused": false}"#, false),
+        ] {
+            assert_eq!(
+                focus(params).unwrap().method,
+                Method::Ui(UiOp::Focus(focused))
+            );
+        }
+        assert!(focus(r#"{"focused": 1}"#).is_err());
+        assert!(focus("{}").is_err());
     }
 
     #[test]

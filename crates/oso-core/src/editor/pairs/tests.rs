@@ -13,7 +13,7 @@ use crate::selection::SelectionSet;
 /// The bytes a line of `lines` takes.
 pub(super) const LINE: usize = "line 000\n".len();
 
-pub(super) fn lines(n: usize) -> String {
+pub(in crate::editor) fn lines(n: usize) -> String {
     (0..n).map(|i| format!("line {i:03}\n")).collect()
 }
 
@@ -34,7 +34,7 @@ pub(super) fn selected(editor: &Editor) -> WindowId {
 
 /// A window on `lines(200)` paired side by side with one on `other`, in a frame of 24 by 161,
 /// with `map`. Returns the editor, the first window and the second.
-pub(super) fn pair(other: &str, map: RowMap) -> (Editor, WindowId, WindowId) {
+pub(in crate::editor) fn pair(other: &str, map: RowMap) -> (Editor, WindowId, WindowId) {
     let mut editor = on(&lines(200), (24, 161));
     let buffer = editor.add_buffer(Buffer::from_text("other", other));
     let first = selected(&editor);

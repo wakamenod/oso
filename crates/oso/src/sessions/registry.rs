@@ -47,7 +47,7 @@ pub const PROC_START_SLACK: Duration = Duration::from_secs(2);
 pub const STARTED_AT_SLACK: Duration = Duration::from_secs(10);
 
 /// One registry entry: the fields oso reads, each `None` if missing or out of bounds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Entry {
     /// The process, as its file's name gives it too.
     pub pid: u32,
@@ -132,6 +132,17 @@ pub fn list(dir: &Path) -> Listing {
         .filter_map(|(pid, path)| read_entry(&path, pid))
         .collect();
     Listing { entries, cut }
+}
+
+/// The entry in the file called `name` in `dir`, if `name` is one [`read`] opens and the file
+/// passes its checks.
+pub fn read_file(dir: &Path, name: &std::ffi::OsStr) -> Option<Entry> {
+    read_entry(&dir.join(name), pid_of(name)?)
+}
+
+/// Whether a file called `name` is one [`read`] opens: `<digits>.json`.
+pub fn is_entry_name(name: &std::ffi::OsStr) -> bool {
+    pid_of(name).is_some()
 }
 
 /// The process id a file called `name` is for, if it is `<digits>.json`.

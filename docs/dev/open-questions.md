@@ -452,8 +452,13 @@ item notes when it must be settled.
   only a thread paused for 3 ms (`KEY_TIME`) fails them. They fail with `KEY_TIME` at 0; the
   dispatcher's search tests do not since they run the worker's jobs first. Finish them the same
   way if one ever flakes.
-- Notification banners once oso ships as an app bundle, and Desktop's coordinator routing,
-  suggested threads and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
+- Notification banners: on macOS they need an app bundle (and `objc2-user-notifications`), on
+  Linux a D-Bus notification client; oso has neither, so a notice is the echo area and the Dock
+  bounce or the window's urgency for now. Also Desktop's coordinator routing, suggested threads
+  and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
+- A row's branch in `*Sessions*`, which needs git on a trusted project off the UI thread; and
+  finding a session's trusted project without one of its buffers open
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 3).
 - An option for East Asian Ambiguous characters to take 2 cells
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.

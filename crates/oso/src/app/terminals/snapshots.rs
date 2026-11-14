@@ -109,11 +109,11 @@ impl App {
                     Event::PasteRefused { lines } => said.push(format!(
                         "{lines} lines not pasted: the program turned bracketed paste off"
                     )),
+                    Event::Progress(progress) => hosted.progress = Some(progress),
                     // Step 6 and after (ADR 0120).
                     Event::Bell
                     | Event::Directory(_)
                     | Event::Notification { .. }
-                    | Event::Progress(_)
                     | Event::Prompt(_)
                     | Event::ClipboardWrite(_) => {}
                 }
@@ -148,6 +148,9 @@ impl App {
         // The frame being drawn shows the notes; a program may have asked for every motion.
         self.note_terminals();
         self.want_pointer_motion();
+        if again {
+            self.feed_sessions();
+        }
         again
     }
 }
