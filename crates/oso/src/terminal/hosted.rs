@@ -55,8 +55,8 @@ pub(crate) struct Hosted {
     pub note: String,
     /// The title or the end changed since the note was made.
     pub note_stale: bool,
-    /// The input mode the note was made with.
-    pub noted_input: Input,
+    /// The marks the note was made with.
+    pub noted: Marks,
     /// What was typed or pasted while the shell is found, sent once it starts.
     pub waiting: Vec<ToProgram>,
 }
@@ -78,7 +78,7 @@ impl Hosted {
             session_note: String::new(),
             note: String::new(),
             note_stale: false,
-            noted_input: Input::SemiChar,
+            noted: Marks::default(),
             waiting: Vec::new(),
         }
     }
@@ -111,9 +111,10 @@ impl Hosted {
     }
 
     /// What the modeline says after `Terminal`: oso's own marks (an agent session's state,
-    /// the input mode and how the program ended), then the program's title last and in
-    /// quotes, so that a title can never pass for one of them.
-    pub(crate) fn note_text(&self, input: Input) -> String {
+    /// the input mode, a password prompt, the agent's leave to read and how the program
+    /// ended), then the program's title last and in quotes, so that a title can never pass for
+    /// one of them.
+    pub(crate) fn note_text(&self, marks: Marks) -> String {
         let mut note = String::new();
         let mut push = |part: &str| {
             if !note.is_empty() {
@@ -124,8 +125,14 @@ impl Hosted {
         if !self.session_note.is_empty() {
             push(&self.session_note);
         }
-        if input == Input::Char {
+        if marks.input == Input::Char {
             push("char");
+        }
+        if marks.secret {
+            push("secret");
+        }
+        if marks.agent_reads {
+            push("agent reads");
         }
         if let Some(ended) = &self.ended {
             push(ended);
@@ -138,6 +145,16 @@ impl Hosted {
         }
         note
     }
+}
+
+/// What oso's own marks in a terminal's modeline say, from the dispatcher and the buffer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Marks {
+    pub input: Input,
+    /// Its program reads a password (ADR 0120, Q17).
+    pub secret: bool,
+    /// The person let agents read it (Q16).
+    pub agent_reads: bool,
 }
 
 /// Every hosted terminal.
@@ -347,7 +364,7 @@ mod tests {
 
     use oso_platform::process::pty::Size;
 
-    use super::{Input, Terminals, ToProgram};
+    use super::{Input, Marks, Terminals, ToProgram};
 
     fn ids() -> (BufferId, BufferId) {
         let mut editor = Editor::default();
@@ -395,24 +412,36 @@ mod tests {
         let (a, _) = ids();
         let mut terminals = Terminals::default();
         let hosted = terminals.add(a);
-        assert_eq!(hosted.note_text(Input::SemiChar), "");
+        let marks = |input| Marks {
+            input,
+            ..Marks::default()
+        };
+        assert_eq!(hosted.note_text(marks(Input::SemiChar)), "");
         hosted.title = "vim".into();
         hosted.ended = Some("exited 1".into());
         assert_eq!(
-            hosted.note_text(Input::Char),
+            hosted.note_text(marks(Input::Char)),
             "char  exited 1  \u{201c}vim\u{201d}"
+        );
+        assert_eq!(
+            hosted.note_text(Marks {
+                input: Input::Char,
+                secret: true,
+                agent_reads: true,
+            }),
+            "char  secret  agent reads  exited 1  \u{201c}vim\u{201d}"
         );
         // A title that reads as oso's own mark stays a title.
         hosted.ended = None;
         hosted.title = "exited 0".into();
         assert_eq!(
-            hosted.note_text(Input::SemiChar),
+            hosted.note_text(marks(Input::SemiChar)),
             "\u{201c}exited 0\u{201d}"
         );
         // Nor can it close oso's quotes to put a mark of its own after them.
         hosted.title = "x\u{201d}  exited 0  \u{201c}y".into();
         assert_eq!(
-            hosted.note_text(Input::SemiChar),
+            hosted.note_text(marks(Input::SemiChar)),
             "\u{201c}x\"  exited 0  \"y\u{201d}"
         );
     }

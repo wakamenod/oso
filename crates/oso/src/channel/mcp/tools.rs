@@ -97,7 +97,7 @@ fn reading_tools() -> Vec<Value> {
     vec![
         tool(
             "state",
-            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, open prompts, and `undoing`, how far an undo or a redo of a large step is. What a buffer that may hold secrets would show is left out.",
+            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, open prompts, and `undoing`, how far an undo or a redo of a large step is. What a buffer that may hold secrets would show is left out. A terminal's buffer has `kind` \"terminal\", `running`, and `agent_reads`, whether the person let agents read its rows.",
             json!({
                 "buffer_offset": { "type": "integer", "minimum": 0, "description": "Where the list of buffers starts, for more than one state holds." },
             }),
@@ -107,7 +107,7 @@ fn reading_tools() -> Vec<Value> {
         ),
         tool(
             "text",
-            "Whole rows of a buffer by its id, or the selected window's region. Never of a buffer that may hold secrets.",
+            "Whole rows of a buffer by its id, or the selected window's region. Never of a buffer that may hold secrets. A terminal's rows come only where the person let agents read it (terminal-allow-agent-read) and never while its program reads a password (refused with `echo off`); they are the rows its windows show, with `wraps` (which go on in the next row), `history` and `scrolled`.",
             json!({
                 "buffer": { "type": "integer", "description": "A buffer's id, from `state`." },
                 "start_row": { "type": "integer", "minimum": 0 },

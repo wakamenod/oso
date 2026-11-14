@@ -73,6 +73,9 @@ impl App {
             state: crate::app::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             terminal,
+            brief: None,
+            steer_worktrees: self.configuration.steer_worktrees(),
+            check_shared: false,
         });
     }
 

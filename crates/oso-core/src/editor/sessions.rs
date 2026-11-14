@@ -2,8 +2,8 @@
 //! for them: the side window (`side`) and the window trees of spaces (`trees`).
 //!
 //! Must not depend on: the host's threads or I/O. A command asks; the host takes the request
-//! after the command, does the work on its sessions worker, and fills an internal buffer with
-//! [`Editor::set_internal_text`].
+//! after the command, does the work on its sessions worker or its worktree jobs, and fills an
+//! internal buffer with [`Editor::set_internal_text`].
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -79,6 +79,26 @@ pub enum SessionRequest {
     /// Resume the conversation this `session-adopt` candidate names, which runs or ran outside
     /// oso, as a hosted session in a new buffer (`session-adopt`).
     Adopt(String),
+    /// Open `*Brief*` for a new worktree session on `branch`, a new one starting at `base`
+    /// (`session-worktree`).
+    Worktree {
+        branch: String,
+        base: Option<String>,
+    },
+    /// Send the brief in this `*Brief*` buffer: make the worktree and start its session
+    /// (`brief-send`, `C-c C-c`).
+    SendBrief(BufferId),
+    /// Drop this `*Brief*` buffer unsent (`brief-cancel`, `C-c C-k`).
+    CancelBrief(BufferId),
+    /// List the selected project's linked worktrees in `*Worktrees*` (`worktree-list`).
+    WorktreeList,
+    /// Remove a linked worktree once every check holds: this directory, else the row at point
+    /// in `*Worktrees*`, else the selected buffer's worktree (`worktree-remove`).
+    WorktreeRemove(Option<PathBuf>),
+    /// The person's `y` to the removal's question (`worktree-remove-confirmed`).
+    WorktreeRemoveConfirmed,
+    /// The person's `y` to "another session runs in this directory" (`session-start-shared`).
+    StartShared,
     /// Show `*Sessions*` in the side window and select it; select it if shown; hide it if
     /// selected (`sessions`).
     ShowList,

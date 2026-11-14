@@ -212,9 +212,11 @@ impl Buffer {
             Mode::Fundamental
             | Mode::CopyList
             | Mode::CopyView
+            | Mode::Brief
+            | Mode::Worktrees
             | Mode::Review
-            | Mode::Sessions
-            | Mode::Terminal => false,
+            | Mode::Terminal
+            | Mode::Sessions => false,
         };
         language && !self.internal && !self.is_secret()
     }

@@ -31,7 +31,7 @@
 mod batch;
 pub(crate) mod count;
 mod diff;
-mod git;
+pub(crate) mod git;
 mod id;
 mod index;
 mod list;
@@ -99,6 +99,18 @@ impl TrustedRoot {
         }
     }
 
+    /// The same trust for `path`, a linked worktree a worktree job just made in this root's
+    /// repository, which belongs with it as ADR 0114 has it (ADR 0121). Its revocation is this
+    /// root's. It looks at the disk, so the job calls it.
+    pub(crate) fn for_worktree(&self, path: PathBuf) -> TrustedRoot {
+        let identity = side::identity_of(&path);
+        TrustedRoot {
+            path,
+            identity,
+            revoked: Arc::clone(&self.revoked),
+        }
+    }
+
     /// Takes the trust back, as when the person no longer trusts the project: the review's
     /// thread runs nothing more for it.
     pub(crate) fn revoke(&self) {
@@ -108,6 +120,22 @@ impl TrustedRoot {
     /// Whether the trust was taken back.
     pub(crate) fn revoked(&self) -> bool {
         self.revoked.load(Ordering::SeqCst)
+    }
+
+    /// Whether git may still run for the root: it is not revoked, and is still the directory
+    /// that was trusted. It looks at the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// Why not, for a person.
+    pub(crate) fn check(&self) -> Result<(), String> {
+        if self.revoked() {
+            return Err("the project is no longer trusted".into());
+        }
+        if !self.still_there() {
+            return Err("the project's root is no longer the directory that was trusted".into());
+        }
+        Ok(())
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -417,13 +445,7 @@ fn serve(
             return;
         }
         let asked = asked(&request);
-        if root.revoked() {
-            let why = "the project is no longer trusted".into();
-            send(Report::Failed { asked, why });
-            continue;
-        }
-        if !root.still_there() {
-            let why = "the project's root is no longer the directory that was trusted".into();
+        if let Err(why) = root.check() {
             send(Report::Failed { asked, why });
             continue;
         }

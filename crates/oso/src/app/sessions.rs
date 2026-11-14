@@ -1,6 +1,7 @@
 //! Agent sessions in the app (ADR 0121): the sessions worker, what commands ask of it, the
-//! hosted sessions (`hosting`), the rules the configuration's thread compiled, and what the
-//! worker found, carried out on the UI thread. Nothing here reads a file or judges a screen.
+//! hosted sessions (`hosting`), worktree sessions and their jobs (`worktrees`), the rules the
+//! configuration's thread compiled, and what the worker and the jobs found, carried out on the
+//! UI thread. Nothing here reads a file or judges a screen.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -12,6 +13,7 @@ use oso_core::editor::{Editor, SessionRequest};
 mod feed;
 mod hosting;
 mod watch;
+mod worktrees;
 pub(super) use hosting::Hosting;
 pub(super) use watch::Watch;
 
@@ -59,6 +61,16 @@ impl App {
                 }
                 SessionRequest::Adopt(pick) => {
                     self.adopt_session(&pick);
+                    continue;
+                }
+                SessionRequest::Worktree { .. }
+                | SessionRequest::SendBrief(_)
+                | SessionRequest::CancelBrief(_)
+                | SessionRequest::WorktreeList
+                | SessionRequest::WorktreeRemove(_)
+                | SessionRequest::WorktreeRemoveConfirmed
+                | SessionRequest::StartShared => {
+                    self.worktree_request(request);
                     continue;
                 }
                 // The list, spaces and live explain (ADR 0121 step 3).
@@ -265,10 +277,10 @@ mod tests {
             rows: 1,
         };
         assert!(
-            crate::channel::text::start(&editor, rows).is_err(),
+            crate::channel::text::start(&editor, &|_, _| None, rows).is_err(),
             "its rows"
         );
-        let Err(why) = crate::channel::text::start(&editor, TextOf::Region) else {
+        let Err(why) = crate::channel::text::start(&editor, &|_, _| None, TextOf::Region) else {
             panic!("its region was read");
         };
         assert!(why.contains("only the person"), "{why}");

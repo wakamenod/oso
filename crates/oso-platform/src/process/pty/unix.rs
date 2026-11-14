@@ -216,7 +216,7 @@ impl Master {
         }
     }
 
-    pub(super) fn echoes(&self) -> io::Result<bool> {
+    pub(super) fn reads_secret(&self) -> io::Result<bool> {
         let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
         // SAFETY: `tcgetattr` fills the `termios` it is given, which `termios` has
         // room for.
@@ -225,7 +225,7 @@ impl Master {
         }
         // SAFETY: `tcgetattr` succeeded, so it filled `termios`.
         let termios = unsafe { termios.assume_init() };
-        Ok(termios.c_lflag & libc::ECHO != 0)
+        Ok(reads_secret(termios.c_lflag))
     }
 
     pub(super) fn foreground_group(&self) -> io::Result<Option<u32>> {
@@ -367,6 +367,12 @@ impl Wakeup {
         self.wake.pending.store(false, Ordering::Release);
         Ok(())
     }
+}
+
+/// Whether local flags `lflag` are a password prompt's: echo off while the line is edited by
+/// the terminal (canonical mode). Raw reads clear both, and do not count (ADR 0120).
+pub(super) fn reads_secret(lflag: libc::tcflag_t) -> bool {
+    lflag & libc::ECHO == 0 && lflag & libc::ICANON != 0
 }
 
 /// The group `hang_up` signals by number, given the terminal's foreground group

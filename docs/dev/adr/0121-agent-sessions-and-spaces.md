@@ -495,7 +495,8 @@ A **project** in Desktop's sense, without a coordinator model:
 - **`oso-core`'s frame** gains saving and restoring a window tree, for spaces, and a window flag that
   `other-window` skips, for the side window. No new module.
 - **One sessions worker thread,** `oso-sessions`, holds the registry poll, the rules, the transcript
-  reads and the queue of `git` and `gh` jobs (at most 2 at once). It sends the UI thread only
+  reads and the queue of `git` and `gh` jobs (at most 2 at once) (see Step 4, as built: the queue
+  is a pool beside the worker). It sends the UI thread only
   changes: a session's state, a list row, a finished job.
 
 ### Cost
@@ -952,6 +953,10 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
     Raw-mode password prompts depend on it, and its step 4 settles it with the author.
   - This step does not narrow it. The engine's signal may differ from it, and is chosen with
     the host API.
+  - ADR 0120's step 4b-1 narrowed the snapshot's flag to that shape (the author's definition,
+    2026-11-13). The screen feed sends the worker `Evidence::echo_off`, with no rows, while the
+    buffer's verdict says its program reads a password, so the engine's hold and the
+    terminal's secret are the same signal.
 - **The feed for step 3.** Today the app owns the worker's one sender, which is not `Clone`.
   Step 3 should give each terminal's thread a feed of its own that clones, taking only
   `Screen` and `Exited` jobs, so that screens never pass through the UI thread.
@@ -1074,6 +1079,140 @@ approved these points:
   buffers open. Echo off is still open: `Evidence::echo_off` holds a session's state, but
   nothing feeds it yet. It waits for ADR 0120 step 4b's echo signal, which must tell a
   password prompt from the raw mode every TUI runs in (see "Step 2, as built").
+
+## Step 4, as built
+
+Step 4 was built on 2026-11-13, on step 1's code and before step 3. The author answered its
+questions through the coordinator, (a) for each, and the coordinator approved these points:
+
+- **No hook of the repository runs, `git worktree add` included (the author's choice).** Every
+  git run for worktrees is ADR 0122's runner: `core.hooksPath` an empty private directory,
+  `core.fsmonitor=false`, `GIT_TERMINAL_PROMPT=0`, output bounded, 10 s. This differs from
+  "`git worktree add` runs the repository's hooks" above. An agent that can write files could
+  plant a hook that runs outside its sandbox. Clean and smudge filters still run. A setup the
+  repository does in `post-checkout` is the person's to run in the worktree's terminal. Worktrees
+  still need a trusted project: git writes there, and runs the filters the repository's
+  configuration names (ADR 0011).
+- **Worktree commands run only when the main repository is trusted too (the author's choice,
+  2026-11-13),** as ADR 0114 has worktrees take their trust from it. Each job compares the main
+  checkout git names with the record of trusted projects, and otherwise refuses: "Worktree
+  sessions need the main repository trusted: trust-project it first".
+- **Each job takes the project's trust as it is when it is asked for.** `*Brief*`,
+  `*Worktrees*` and a removal keep the project, not its trust, and a job checks the root again
+  before it runs git: a project no longer trusted, or whose root is no longer the directory that
+  was trusted, runs nothing. Making a worktree checks it again between its steps.
+- **The checks are an accident guard, not a boundary.** They keep the person from losing work
+  by mistake; an agent that can write the repository's `.git` can make them pass. The person's
+  `y` runs every check again, in the job that removes the worktree, and refuses when git ignores
+  more there than the question named.
+- **`worktree-list` is `Person`, not `Look` (the author's choice):** it runs git and `gh`. Step
+  6's `worktree_list` tool stays a read-only channel method, as decided above.
+- **A listing looks at every row without `gh`, then asks `gh`** only for the rows ancestry
+  leaves open whose branch went to a remote: a remote branch of the same name, or an upstream.
+  A branch never pushed is "not merged: never pushed", with no `gh`. What git ignores is read
+  only for a removal. A newer listing stops an older one between rows. The repository's
+  remotes, main branches, GitHub repository and the registry's sessions are read once a job.
+- **The shared-directory warning is the y/n question** "Another session runs in this directory.
+  A worktree keeps their changes apart (C-x a w). Start here anyway?", not `w` and `RET`. `y`
+  runs `session-start-shared`. The hosted table is checked on the UI thread, and the registry on
+  the start thread. A resume is not checked, as it is the same session.
+- **A branch with no commit of its own is not merged** (the author's choice), so a fresh,
+  clean worktree is refused by check 5. ADR 0126's `C-u` removal is for that case.
+- **"Busy" in check 4:** a hosted session in the worktree counts as busy unless its state is
+  idle or done *and* the registry's `status` is `idle` (the author's choice). A failed or
+  stopped session is never busy. A rule for the TUI's background-task footer comes when a
+  screen showing it is saved for `session-explain-file`.
+  - The UI thread sends each running hosted session's process id and whether its state is idle
+    or done with the job. The job reads the registry once, as it reads it for external
+    sessions, and combines the two halves. A process with no live registry entry is busy.
+  - The UI thread looks at its own half again after the job's checks and before the removal;
+    the job's half is shown in `*Worktrees*` as the job found it.
+- **The squash test.** "A merged pull request whose merge commit contains the tip" is read as
+  "whose head commit is the tip, or a commit here that the tip leads to". With nothing fetched,
+  a squash's merge commit never contains the tip.
+  - `gh pr list --repo HOST/OWNER/REPO --head B --state merged --json number,headRefOid,baseRefName`
+    names the repository from the first remote whose address is a GitHub one, `origin` first.
+    That is `github.com`, or the host `GH_HOST` names in oso's environment; `gh` is asked about
+    no other host.
+  - The base must be `main`, `master`, `develop` or the branch the remote's `HEAD` points to.
+- **`gh` runs in the empty private directory,** so it never runs git in the repository. It
+  takes `GH_CONFIG_DIR`, `XDG_CONFIG_HOME`, the proxy variables and
+  `SSL_CERT_FILE`/`SSL_CERT_DIR` by name, and the tokens of the one host it is asked about:
+  `GH_TOKEN` and `GITHUB_TOKEN` for `github.com`, `GH_HOST` and the enterprise tokens for
+  another. It is told
+  `GH_PROMPT_DISABLED=1`, the two update notifiers off, no spinner and `NO_COLOR`. It has 10 s
+  and 256 KiB.
+- **A linked worktree is run in only after its claim is checked,** as ADR 0114's detection
+  checks one (`project::linked_worktree`), and only when its `.git` is the person's or root's. Git then gets `GIT_DIR` and `GIT_WORK_TREE`, so it
+  looks for no repository. A worktree whose claim fails is listed, but nothing runs in it.
+- **`.worktreeinclude`:**
+  - The patterns are read without following a link, at most 64 KiB and 1,000 patterns, and
+    compiled with the `ignore` crate.
+  - "Ignored by git" is `git ls-files --others --ignored --exclude-standard --directory`. An
+    ignored directory listed whole is copied when it matches. Otherwise it is searched, after
+    the listed files, at most 100,000 entries and 64 levels deep, skipping nested repositories.
+  - Each file is created new in the worktree, and the directories leading to it are made or
+    opened, all without following a link. So a link the checkout holds never takes a copy
+    outside it.
+  - The caps are 1,000 files and 256 MiB, counted as copied. Setuid, setgid and sticky bits
+    are dropped. Each directory searched gets an equal share of the entries left.
+  - On Unix a file with more than one name is not copied.
+- **`oso-platform` gained `Directory::create_directory(&self, name: &OsStr) ->
+  io::Result<Option<Directory>>` and `Directory::create_file(&self, name: &OsStr, mode: u32) ->
+  io::Result<File>`,** with 2 `unsafe` blocks on Unix (`mkdirat`, `openat` with
+  `O_CREAT|O_EXCL|O_NOFOLLOW`), each with its `// SAFETY:` comment.
+- **`.claude/worktrees` is made or opened without following a link, and must be the person's,**
+  so a repository cannot send a worktree outside itself through a link there. It is opened so
+  again right before `git worktree add`, and the worktree's place is checked again after git
+  made it: the directory reached from the repository without following a link, inside the
+  repository. Otherwise nothing is copied and no session starts. The brief and hand-off facts are
+  put together before anything is made.
+- **The jobs** run on `oso-sessions-git`, at most 2 threads, started when a job waits and ended
+  after 30 s with none. The app hands jobs to this pool directly, beside the sessions worker,
+  not through it: the worker's rules never wait on git. A branch listing a prompt waits for goes
+  ahead of the other jobs. What the jobs make that touches the disk, such as the new worktree's
+  trust, is made on them, never on the UI thread.
+- **`*Brief*` is withheld from agents** (the author's choice), as `*Session explain*` is. An
+  agent cannot read or rewrite the person's brief before `C-c C-c` sends it.
+- **The steering hook's reason** names `session-worktree (C-x a w)` until step 6 gives agents
+  `start_worktree_session`. `[sessions] steer_worktrees` puts it into the session's
+  `--settings`, which is built from parts, so ADR 0126's `statusLine` can join it. `oso hook
+  deny-worktree` reads at most 64 KiB of standard input and always exits 0. It allows what it
+  cannot read: it steers, and is no boundary.
+- **`oso-core` gained** `SessionRequest::{Worktree { branch, base }, SendBrief(BufferId),
+  CancelBrief(BufferId), WorktreeList, WorktreeRemove(Option<PathBuf>), WorktreeRemoveConfirmed,
+  StartShared}`, `ArgSpec::BranchAndBaseOnPrefix { prompt, base_prompt, history }`,
+  `Ctx::branch_and_base(&self) -> Option<(&str, Option<&str>)>` and `Mode::{Brief, Worktrees}`.
+  The dispatcher waits for the project's branches, which the pool lists, before the branch
+  prompt opens, as it waits for the clipboard. Only the listing the newest wait asked for opens
+  a prompt, and a command the person runs meanwhile, `C-g` included, drops the wait.
+- **Wired to step 3 and ADR 0120's terminal** (2026-11-13, after step 3's part A and 4a, and
+  again once step 3 was done):
+  - A worktree session's space opens, nested under its repository's, when its worktree is made
+    and its session starts. It is one of step 3's spaces, which the app keeps beside
+    `*Sessions*`: the list's rows, `C-x a b` and `space-switch` name it, and showing the session
+    enters it. The space is added, not entered, when the session starts, as for `claude`.
+  - `*Worktrees*` names a worktree's space, as `space: NAME`, when it has one.
+  - Check 4 and the list take each running session's live state as the sessions worker last
+    told it (`Out::Changed`), while that agrees that its process runs. A session still
+    starting, or one no look has judged yet, counts as busy, and the list says `running`.
+  - **The removal clears the worktree in the job that removes it.** Once every check holds
+    again after the person's `y`, the job asks the app to clear the worktree and waits at most
+    10 s for its word. The app looks at what it holds once more, stops the idle sessions there
+    as `session-stop` stops one that is not busy, then says go. Each is hung up as ended by
+    oso, so it becomes stopped, not failed, and keeps its buffer, read-only; the job does not
+    wait for its process to end. A refusal, or no word, keeps the worktree. `git worktree
+    remove` itself still refuses a worktree with changes by then. The coordinator approved this
+    order on 2026-11-13: it keeps "stop, then remove" without the UI thread waiting.
+  - The end-to-end flows, with a fake `claude` (`tests/e2e/worktrees.rs`).
+- **The removal closes the worktree's space** (the coordinator's call, 2026-11-13: ADR 0121
+  says so, and step 4 carries it). `Spaces::remove`, crate-private in step 3's module, enters
+  the repository's space first when the worktree's is in the frame, else the first other one,
+  and moves the later spaces down one place with the current one. With a prompt open the
+  frame's tree cannot change, so that space then stays until oso starts again.
+- **Left open (a follow-up, not before the PR):**
+  - A worktree session recalled after a restart gets a space of its own, not nested under its
+    repository's: nesting needs ADR 0114's claim, which only making the worktree checks now.
 
 ## Adopting a session started outside oso, as built
 

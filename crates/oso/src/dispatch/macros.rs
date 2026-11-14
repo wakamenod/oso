@@ -9,6 +9,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
+use oso_core::buffer::BufferId;
 use oso_core::command::{Args, CommandId, Effects, Invocation, Registry};
 use oso_core::editor::{Editor, MacroEvent};
 use oso_core::key::{KeyPress, KeySequence};
@@ -16,6 +17,9 @@ use oso_core::keymap::is_cancel;
 use oso_core::minibuffer::Kind;
 
 use super::{Dispatcher, Step};
+
+/// What is said when input that reached a password prompt drops a macro (ADR 0120, Q17).
+const DROPPED: &str = "Keyboard macro not recorded: typed in a buffer that may hold secrets";
 
 /// The macro commands, whose own keys are never recorded.
 const MACRO_COMMANDS: [&str; 3] = [
@@ -31,6 +35,14 @@ pub(super) struct MacroInput {
     ids: Vec<CommandId>,
     /// `kmacro-end-and-call-macro`'s, which `e` runs again right after it.
     call: Option<CommandId>,
+    /// `kmacro-start-macro`'s, which begins a recording.
+    start: Option<CommandId>,
+    /// The terminals the recording sent keys or text to, in case one turns out to have read
+    /// a password then (ADR 0120, Q17).
+    terminals: Vec<BufferId>,
+    /// Those of the last macro, until each has sent its first snapshot since the recording
+    /// ended: a password prompt it says it saw may have been open while it was recorded.
+    unheard: Vec<BufferId>,
     /// What the current command's input took so far: its keys, a prefix argument's among them.
     group: Vec<MacroEvent>,
     /// A macro command ran for this input, so it is not recorded.
@@ -53,6 +65,7 @@ impl MacroInput {
                 .filter_map(|name| registry.lookup(name))
                 .collect(),
             call: registry.lookup("kmacro-end-and-call-macro"),
+            start: registry.lookup("kmacro-start-macro"),
             ..Self::default()
         }
     }
@@ -96,8 +109,16 @@ impl Dispatcher {
         if self.hold_text(text, commit) {
             return Effects::default();
         }
-        // Text for a terminal's program goes as a key does, and no macro records it (ADR 0120).
+        // Text for a terminal's program goes as a key does, and is recorded as text is
+        // (ADR 0120).
         if self.text_to_terminal(editor, text) {
+            if editor.macro_recording()
+                && !self.macros.replaying
+                && editor.macro_takes_text(text.len())
+            {
+                self.macros.group.push(event());
+            }
+            self.macro_after(editor);
             return Effects::default();
         }
         if editor.macro_recording() && !self.macros.replaying && editor.macro_takes_text(text.len())
@@ -117,6 +138,13 @@ impl Dispatcher {
     /// Notes that the command `id` ran, and how it ended, for a recording and a replay.
     pub(super) fn macro_ran(&mut self, id: CommandId, failed: bool, editor: &Editor) {
         self.macros.failed |= failed;
+        if Some(id) == self.macros.start {
+            self.macros.terminals.clear();
+        }
+        // A recording that ended became the last macro, with the terminals it typed into.
+        if self.macros.ids.contains(&id) && !failed && !editor.macro_recording() {
+            self.macros.unheard = std::mem::take(&mut self.macros.terminals);
+        }
         if self.macros.ids.contains(&id) {
             self.macros.command_ran = true;
             if !failed && Some(id) == self.macros.call && !editor.macro_recording() {
@@ -179,10 +207,53 @@ impl Dispatcher {
         }
     }
 
-    /// Drops what the current input noted for a recording: keys that went to a terminal's
-    /// program, which a macro never holds (ADR 0120).
-    pub(super) fn macro_forget_input(&mut self) {
-        self.macros.group.clear();
+    /// Notes that the recording sent input to the terminal `buffer`'s program.
+    pub(super) fn macro_typed_into(&mut self, editor: &Editor, buffer: BufferId) {
+        if editor.macro_recording()
+            && !self.macros.replaying
+            && !self.macros.terminals.contains(&buffer)
+        {
+            self.macros.terminals.push(buffer);
+        }
+    }
+
+    /// The terminal `buffer` sent a snapshot, which says whether its program read a password
+    /// since the one before (ADR 0120, Q17). Input that reached a password prompt drops what
+    /// holds it, as input that reaches any buffer that may hold secrets does (ADR 0113): the
+    /// recording that sent it anything, or the last macro, if this is the terminal's first
+    /// snapshot since that recording ended. So keys typed before the host heard of the prompt
+    /// are caught too.
+    pub fn terminal_reported(&mut self, editor: &mut Editor, buffer: BufferId, echo_off: bool) {
+        let first = self.macros.unheard.iter().position(|id| *id == buffer);
+        if let Some(at) = first {
+            self.macros.unheard.swap_remove(at);
+        }
+        if !echo_off {
+            return;
+        }
+        if editor.macro_recording() && self.macros.terminals.contains(&buffer) {
+            editor.macro_cancel(DROPPED);
+        }
+        if first.is_some() {
+            self.macros.unheard.clear();
+            editor.macro_forget_last(DROPPED);
+        }
+    }
+
+    /// Whether a replay's input is about to reach the terminal `buffer` while its program
+    /// reads a password: the replay stops instead, so a macro never types a password.
+    pub(super) fn replay_meets_a_password(
+        &mut self,
+        editor: &mut Editor,
+        buffer: BufferId,
+    ) -> bool {
+        if !self.macros.replaying || !editor.buffer(buffer).is_some_and(|b| b.is_secret()) {
+            return false;
+        }
+        editor.macro_stop(Some(
+            "Keyboard macro stopped: the terminal's program reads a password",
+        ));
+        true
     }
 
     /// After input from the window was taken: once its command has run, what it took goes into
@@ -256,6 +327,9 @@ impl Dispatcher {
             self.macros.replaying = true;
             self.macros.failed = false;
             let ran = self.feed(editor, &event);
+            // What a command of the replay asked of a terminal is bound to it as part of the
+            // replay, so a send to a password prompt stops it too (ADR 0120, Q17).
+            self.take_key_requests(editor);
             self.macros.replaying = false;
             effects = effects.union(ran);
             if effects.exit {

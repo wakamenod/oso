@@ -5,8 +5,9 @@
 //! Must not depend on: `app` or the terminal's thread. What goes to a program waits here, each
 //! send bound to the terminal it was meant for, until the host takes it after the event, so that
 //! a batch of keys that moves to another window sends nothing to the wrong one. Keys sent to a
-//! program are not recorded into a keyboard macro (the author's choice on 2026-11-13): until
-//! echo off is told apart, a password typed at `sudo` would enter it.
+//! program are recorded into a keyboard macro as any key is, but input typed at a password
+//! prompt drops the recording, and a replay stops before it would type at one (the author's
+//! choice, 2026-11-14; ADR 0120, Q17).
 
 use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
@@ -40,10 +41,7 @@ impl Dispatcher {
         {
             self.resolver.reset();
             self.forget_keys(editor);
-            // The `C-c` a recording noted went to the program too.
-            self.macro_forget_input();
-            self.terminal_sends
-                .push((id, ToProgram::Keys(vec![route::C_C, key])));
+            self.send_to_program(editor, id, ToProgram::Keys(vec![route::C_C, key]));
             return Some(Effects::default());
         }
         let busy = self.oso_busy(editor);
@@ -62,7 +60,7 @@ impl Dispatcher {
         match routed {
             Route::Oso => None,
             Route::Send(keys) => {
-                self.terminal_sends.push((id, ToProgram::Keys(keys)));
+                self.send_to_program(editor, id, ToProgram::Keys(keys));
                 Some(Effects::default())
             }
             Route::Hold => {
@@ -104,18 +102,17 @@ impl Dispatcher {
         }
         let id = window.buffer();
         let state = self.terminal_keys.entry(id).or_default();
-        if state.held_c_c {
-            self.terminal_sends
-                .push((id, ToProgram::Keys(vec![route::C_C])));
-        }
-        state.held_c_c = false;
+        let held_c_c = std::mem::take(&mut state.held_c_c);
         state.quoted = false;
+        if held_c_c && !self.send_to_program(editor, id, ToProgram::Keys(vec![route::C_C])) {
+            return true;
+        }
         let clean: String = text
             .chars()
             .filter(|c| *c == '\t' || !c.is_control())
             .collect();
         if !clean.is_empty() {
-            self.terminal_sends.push((id, ToProgram::Text(clean)));
+            self.send_to_program(editor, id, ToProgram::Text(clean));
         }
         true
     }
@@ -135,17 +132,29 @@ impl Dispatcher {
                 TerminalRequest::QuoteNext => self.quote_next(selected),
                 TerminalRequest::ToggleCharMode => self.toggle_char_mode(selected),
                 TerminalRequest::Keys(keys) => {
-                    self.terminal_sends.push((selected, ToProgram::Keys(keys)))
+                    self.send_to_program(editor, selected, ToProgram::Keys(keys));
                 }
                 TerminalRequest::Paste { text } => {
-                    self.terminal_sends.push((selected, ToProgram::Paste(text)));
+                    self.send_to_program(editor, selected, ToProgram::Paste(text));
                 }
                 TerminalRequest::PasteLines => {
-                    self.terminal_sends.push((selected, ToProgram::PasteLines));
+                    self.send_to_program(editor, selected, ToProgram::PasteLines);
                 }
                 TerminalRequest::Open { .. } => editor.request_terminal(request),
             }
         }
+    }
+
+    /// Queues `send` for the terminal `id`'s program. Every send goes through here: a replay
+    /// stops before it reaches a terminal whose program reads a password, and a recording
+    /// notes the terminal (ADR 0120, Q17). Returns whether it was queued.
+    fn send_to_program(&mut self, editor: &mut Editor, id: BufferId, send: ToProgram) -> bool {
+        if self.replay_meets_a_password(editor, id) {
+            return false;
+        }
+        self.macro_typed_into(editor, id);
+        self.terminal_sends.push((id, send));
+        true
     }
 
     /// What waits to go to terminals' programs, each with its terminal, oldest first. What

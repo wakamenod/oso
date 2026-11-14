@@ -176,6 +176,22 @@ impl App {
         self.give_preedit_layout();
     }
 
+    /// A terminal's program began or stopped reading a password between events (ADR 0120,
+    /// Q17): what follows a buffer that may hold secrets follows it at once, as after an event
+    /// that selected one. A composition in it ends, the log is gated, no excerpt is held and
+    /// secure input is asked for while it is selected.
+    pub(super) fn secret_changed(&mut self) {
+        if self.composing() && self.editor.current().1.is_secret() {
+            self.end_composition();
+            if let Some(view) = &self.view {
+                view.window.discard_composition();
+            }
+        }
+        self.note_logging();
+        self.give_excerpt();
+        self.sync_secure_input();
+    }
+
     /// Asks the window for secure input while the selected buffer may hold secrets, as a
     /// password field has it (ADR 0073). Only the verdict crosses: no text, name or place of
     /// the buffer. The window holds it only while oso is in front with the keyboard, and does

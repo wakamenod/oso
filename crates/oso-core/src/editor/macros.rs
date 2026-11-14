@@ -151,6 +151,16 @@ impl Editor {
         }
     }
 
+    /// Drops the last macro, stopping a replay of it, and says `why`: input it holds turned out
+    /// to have reached a buffer that may hold secrets, which the host heard of only after the
+    /// recording ended, such as a terminal's password prompt (ADR 0120, Q17).
+    pub fn macro_forget_last(&mut self, why: &str) {
+        if self.macros.last.take().is_some() {
+            self.macro_stop(None);
+            self.echo(why.to_owned());
+        }
+    }
+
     /// Whether a keyboard macro is being recorded.
     pub fn macro_recording(&self) -> bool {
         self.macros.recording.is_some()

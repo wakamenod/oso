@@ -36,6 +36,15 @@ pub struct External {
     pub working: bool,
 }
 
+impl External {
+    /// The name `*Sessions*` lists it by: the registry's, else `claude PID`.
+    pub fn listed_name(&self) -> String {
+        self.name
+            .clone()
+            .unwrap_or_else(|| format!("claude {}", self.pid))
+    }
+}
+
 /// The poll's state.
 #[derive(Debug, Default)]
 pub struct Poll {

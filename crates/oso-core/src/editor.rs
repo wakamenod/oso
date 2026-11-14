@@ -250,6 +250,7 @@ pub struct Editor {
     agent: agent::Agent,
     /// Agent sessions' requests, side window, marks and lists (ADR 0121).
     sessions: sessions::Sessions,
+    /// What commands asked of the host about terminals (ADR 0120).
     terminal_requests: Vec<TerminalRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
