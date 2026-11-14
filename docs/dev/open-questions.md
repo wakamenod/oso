@@ -460,10 +460,9 @@ item notes when it must be settled.
   finding a session's trusted project without one of its buffers open
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 3). [ADR
   0131](adr/0131-an-orca-style-sessions-pane.md) puts the branch on worktree rows from
-  `git worktree list` on the git pool.
-- Whether Claude Code pushes the kitty keyboard flags in oso's terminal, so that Shift-Enter and
-  Ctrl-Enter reach it, and whether `C-z` leaves a session suspended with nothing to resume it
-  ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md); checked with its step 1).
+  `git worktree list` on the git pool, and since [ADR
+  0132](adr/0132-a-session-mode-for-hosted-sessions.md) a session's own buffer is in its project,
+  so only a session with no buffer still lacks one.
 - An option for East Asian Ambiguous characters to take 2 cells
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.
@@ -479,7 +478,8 @@ item notes when it must be settled.
   ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 - A right-to-left file in the `just perf` inputs, so its rows are measured
   ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
-- Exact command subsets for the directory editor and org.
+- Exact command subset for org. The directory editor's is decided in
+  [ADR 0134](adr/0134-a-directory-editor.md).
 - PDF engine and isolation (pdfium, a pure-Rust renderer, a separate
   process); image decoders.
 - OS-level sandboxing of child processes such as language servers.

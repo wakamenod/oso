@@ -130,6 +130,7 @@ pub fn oso_core::buffer::Buffer::opened_by_agent(&self) -> bool
 pub fn oso_core::buffer::Buffer::set_agent_pending(&mut self, bool)
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::agent_reads(&self) -> bool
+pub fn oso_core::buffer::Buffer::hosts_session(&self) -> bool
 pub fn oso_core::buffer::Buffer::is_running(&self) -> bool
 pub fn oso_core::buffer::Buffer::is_terminal(&self) -> bool
 pub fn oso_core::buffer::Buffer::mode_note(&self) -> &str
@@ -1513,6 +1514,7 @@ pub oso_core::editor::SessionRequest::FollowMessage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::NextDone
 pub oso_core::editor::SessionRequest::NextWaiting
+pub oso_core::editor::SessionRequest::OnBuffer(oso_core::buffer::BufferId, oso_core::editor::RowAction)
 pub oso_core::editor::SessionRequest::QuestionDetails
 pub oso_core::editor::SessionRequest::Refresh
 pub oso_core::editor::SessionRequest::Regroup
@@ -1726,6 +1728,7 @@ pub fn oso_core::editor::Editor::request_terminal(&mut self, oso_core::editor::T
 pub fn oso_core::editor::Editor::running_terminals(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
 pub fn oso_core::editor::Editor::set_agent_reads(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::set_echo_off(&mut self, oso_core::buffer::BufferId, bool)
+pub fn oso_core::editor::Editor::set_hosts_session(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::set_mode_note(&mut self, oso_core::buffer::BufferId, alloc::string::String)
 pub fn oso_core::editor::Editor::set_running(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::take_terminal_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::TerminalRequest>
@@ -2103,6 +2106,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::project(&self, oso_core::project::ProjectId) -> core::option::Option<&oso_core::project::Project>
 pub fn oso_core::editor::Editor::project_found(&mut self, &oso_core::editor::ProjectRequest, core::option::Option<oso_core::project::Found>)
 pub fn oso_core::editor::Editor::project_trusted(&self, oso_core::project::ProjectId) -> bool
+pub fn oso_core::editor::Editor::request_directory_project(&mut self, oso_core::buffer::BufferId, &std::path::Path)
 pub fn oso_core::editor::Editor::request_project(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::set_trust_list(&mut self, core::option::Option<oso_core::project::TrustList>)
 pub fn oso_core::editor::Editor::take_project_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ProjectRequest>
@@ -4749,6 +4753,7 @@ pub oso_core::syntax::Highlight::Outdated
 pub oso_core::syntax::Highlight::Property
 pub oso_core::syntax::Highlight::SessionAlert
 pub oso_core::syntax::Highlight::SessionDone
+pub oso_core::syntax::Highlight::SessionFront
 pub oso_core::syntax::Highlight::SessionQuiet
 pub oso_core::syntax::Highlight::SessionWorking
 pub oso_core::syntax::Highlight::String

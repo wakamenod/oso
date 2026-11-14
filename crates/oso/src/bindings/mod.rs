@@ -2,7 +2,9 @@
 //! follow vanilla Emacs (ADR 0019). Each feature with default keys has a module
 //! here, named as in `commands`, with its own table, and [`TABLES`] lists them.
 //!
-//! Must not depend on: `dispatch`, `app` or winit; bindings are data.
+//! Must not depend on: `dispatch`, `app` or winit; bindings are data. `session_help` words what
+//! a session's keys run, for `C-c ?`, as `menus` words its toggles: below both `config` and
+//! `dispatch`, which each build it (ADR 0132).
 
 mod agent_sessions;
 mod buffers;
@@ -29,6 +31,7 @@ mod review;
 mod save;
 mod scroll;
 mod session;
+mod session_help;
 mod terminal;
 mod theme;
 mod view;
@@ -74,6 +77,9 @@ const TABLES: &[&[(&str, &str)]] = &[
 ];
 
 pub use menus::built_in_menus;
+#[cfg(test)]
+pub use session_help::MAX_HELP;
+pub use session_help::session_help;
 
 /// The default global keymap, over the commands in `registry`, with the built-in menus' keys.
 ///
@@ -224,6 +230,30 @@ pub fn terminal_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, terminal::TERMINAL).unwrap_or_default()
 }
 
+/// The keymap of a terminal's buffer that hosts an agent session (ADR 0132): the terminal's own
+/// keys and session mode's, which share no key, so one keymap looks up as a minor mode's over
+/// the terminal's would. Empty for a registry without their commands, as in tests that bring
+/// their own.
+pub fn session_keymap(registry: &Registry) -> Keymap {
+    let Ok(mut keymap) = Keymap::from_table(
+        registry,
+        &[terminal::TERMINAL, agent_sessions::SESSION].concat(),
+    ) else {
+        return Keymap::default();
+    };
+    let built_in = built_in_menus(registry);
+    for (keys, name) in agent_sessions::SESSION_MENUS {
+        let sequence: KeySequence = keys.parse().unwrap_or_else(|e| panic!("{keys}: {e}"));
+        let Some(id) = built_in.lookup(name) else {
+            panic!("no built-in menu {name} for {keys}");
+        };
+        keymap
+            .bind_menu(&sequence.0, id)
+            .unwrap_or_else(|e| panic!("{keys}: {e}"));
+    }
+    keymap
+}
+
 /// The commands the layer of `C-x TAB` runs rather than closes for.
 pub fn rigid_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
     indent::RIGID
@@ -243,10 +273,11 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 #[cfg(test)]
 mod tests {
     use super::{
-        TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
-        jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
-        recovery, recovery_keymaps, review, review_keymap, rigid_commands, rigid_keymap, terminal,
-        terminal_keymap, worktree_keymaps, worktrees,
+        TABLES, agent_sessions, complete, global_keymap, indent, isearch, isearch_commands,
+        isearch_keymap, jump, jump_keymap, markdown, markdown_keymap, minibuffer, prefix,
+        prefix_keymaps, prompt_keymaps, recovery, recovery_keymaps, review, review_keymap,
+        rigid_commands, rigid_keymap, session_keymap, terminal, terminal_keymap, worktree_keymaps,
+        worktrees,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -313,6 +344,42 @@ mod tests {
                 panic!("{keys} is not bound to a command");
             };
             assert_eq!(registry.get(id).unwrap().name, *name);
+        }
+    }
+
+    #[test]
+    fn the_session_keymap_binds_the_terminal_s_rows_and_its_own() {
+        let registry = commands::registry();
+        let keymap = session_keymap(&registry);
+        for (keys, name) in [terminal::TERMINAL, agent_sessions::SESSION].concat() {
+            let keys: KeySequence = keys.parse().unwrap();
+            let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
+                panic!("{keys} is not bound to a command");
+            };
+            assert_eq!(registry.get(id).unwrap().name, name);
+        }
+        for (keys, _) in agent_sessions::SESSION_MENUS {
+            let keys: KeySequence = keys.parse().unwrap();
+            assert!(
+                matches!(keymap.lookup(&keys.0), Some(Binding::Menu(_))),
+                "{keys}"
+            );
+        }
+    }
+
+    /// In a session, `C-c` and a key runs what `C-x a` and the same key runs elsewhere
+    /// (ADR 0132, Q1), so the two tables cannot drift apart.
+    #[test]
+    fn every_c_x_a_key_has_its_c_c_twin_in_a_session() {
+        let twin = |keys: &str| {
+            agent_sessions::SESSION
+                .iter()
+                .find(|(session, _)| *session == keys)
+                .map(|(_, name)| *name)
+        };
+        for (keys, name) in agent_sessions::BINDINGS {
+            let key = keys.strip_prefix("C-x a ").unwrap();
+            assert_eq!(twin(&format!("C-c {key}")), Some(*name), "{keys}");
         }
     }
 

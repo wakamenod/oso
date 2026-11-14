@@ -61,7 +61,6 @@ fn outside_the_list_they_refuse_and_ask_nothing() {
     for name in [
         "sessions-show",
         "sessions-pin",
-        "session-stop",
         "sessions-refresh",
         "sessions-regroup",
         "sessions-next",
@@ -70,6 +69,12 @@ fn outside_the_list_they_refuse_and_ask_nothing() {
         assert_eq!(result, Err("Not in *Sessions*".to_owned()), "{name}");
         assert!(!effects.redraw, "{name}");
     }
+    // `session-stop` acts on a session's own terminal too (ADR 0132).
+    let (result, _) = run(&mut editor, "session-stop", Args::NONE);
+    assert_eq!(
+        result,
+        Err("Not in *Sessions* or a session's buffer".to_owned())
+    );
     assert!(editor.take_session_requests().is_empty());
 }
 

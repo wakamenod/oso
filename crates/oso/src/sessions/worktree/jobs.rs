@@ -100,6 +100,11 @@ pub struct Trust {
 /// What a job found.
 #[derive(Debug)]
 pub enum Report {
+    /// The worktrees of the repository at `root`, for the tree of `*Sessions*` (ADR 0131).
+    Tree {
+        root: PathBuf,
+        result: Result<Vec<crate::sessions::list::Worktree>, String>,
+    },
     /// The local branches, for `session-worktree`'s completion.
     Branches {
         token: u64,
@@ -550,6 +555,8 @@ fn cleared(token: u64, path: &Path, send: &dyn Fn(Report)) -> Result<(), String>
     word.recv_timeout(CLEAR_WAIT)
         .map_err(|_| "the removal was called off".to_owned())
 }
+
+mod tree;
 
 #[cfg(test)]
 mod tests {

@@ -437,7 +437,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - A question it opens starts with `Agent:`, is answered by the person, and takes no answer
     until 500 ms pass with no key. Its kills never reach the OS clipboard, and its text enters
     no prompt history.
-  - Screenshots, the restart handoff, timings and hot reload stay dev-only.
+  - Screenshots, the dev socket's restart handoff, timings and hot reload stay dev-only. A
+    release build's handoff runs only from the person's `oso-restart`, over a socket pair with
+    its child ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)).
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits the files oso has open. Any save of a buffer the person did not visit asks the person.
     `C-x C-f`, `C-x C-w`, `C-x p f`, `M-s r` and `kill-buffer` are the person's only. The channel switches buffers by

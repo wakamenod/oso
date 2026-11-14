@@ -119,11 +119,9 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     assert!(!recap.is_empty());
     // The list says it under the row, as the person has something to do.
     let list = sessions(&state)["list"].as_str().unwrap();
+    let start: String = recap.chars().take(8).collect();
     assert!(
-        list.contains(&format!(
-            "\n  {}",
-            recap.chars().take(8).collect::<String>()
-        )),
+        list.lines().any(|row| row.trim_start().starts_with(&start)),
         "{list}"
     );
 
@@ -186,8 +184,10 @@ fn spins(app: &mut App) {
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        let row = list.lines().find(|row| row.contains("proj"))?.to_owned();
-        row.chars().next().filter(|c| SPINNER.contains(*c))
+        // The session's row, and its worktree's, which spins with it.
+        list.lines()
+            .filter_map(|row| row.trim_start().chars().next())
+            .find(|c| SPINNER.contains(*c))
     };
     let first = app.wait_for("a spinning mark", |state| mark(state).is_some());
     let first = mark(&first);
@@ -202,8 +202,18 @@ fn stop_asks_first(app: &mut App) {
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Sessions*"
     });
-    // Point to the session's row: the first that starts with a state's mark.
-    app.send_keys("n");
+    // Point to the session's row, under its project's and its worktree's, which spin with it.
+    let working = |state: &Value| {
+        let rows: Vec<&str> = sessions(state)["list"].as_str()?.lines().collect();
+        rows.iter().rposition(|row| {
+            row.trim_start()
+                .chars()
+                .next()
+                .is_some_and(|c| SPINNER.contains(c))
+        })
+    };
+    let state = app.wait_for("the session's row", |state| working(state).is_some());
+    crate::sessions_tree::point_at(app, working(&state).unwrap());
     app.send_keys("k");
     let state = app.wait_for("the question", |state| super::asks(state).is_some());
     let question = super::asks(&state).unwrap();
@@ -239,11 +249,15 @@ fn another_programs_session_in_the_registry_is_listed() {
         .as_millis();
     let registry = flow.home.join(".claude").join("sessions");
     fs::create_dir_all(&registry).unwrap();
+    // Below the project, which holds it, and not in it, where `claude` would ask first.
+    let below = flow.project.join("below");
+    fs::create_dir(&below).unwrap();
     fs::write(
         registry.join(format!("{}.json", outside.id())),
         format!(
-            r#"{{"pid":{},"startedAt":{now},"name":"elsewhere","kind":"interactive","status":"busy","statusUpdatedAt":{}}}"#,
+            r#"{{"pid":{},"cwd":"{}","startedAt":{now},"name":"elsewhere","kind":"interactive","status":"busy","statusUpdatedAt":{}}}"#,
             outside.id(),
+            below.display(),
             now - 5 * 60 * 1000
         ),
     )
@@ -256,7 +270,8 @@ fn another_programs_session_in_the_registry_is_listed() {
     let list = sessions(&state)["list"].as_str().unwrap().to_owned();
     let row = list.lines().find(|row| row.contains("elsewhere")).unwrap();
     assert!(
-        row.starts_with("▶ elsewhere") && (row.ends_with(" 5m") || row.ends_with(" 6m")),
+        row.trim_start().starts_with("▶ elsewhere")
+            && (row.ends_with(" 5m") || row.ends_with(" 6m")),
         "{list}"
     );
     let _ = outside.kill();

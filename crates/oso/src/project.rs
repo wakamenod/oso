@@ -95,7 +95,8 @@ impl Detector {
                 for (request, trusted) in received {
                     // A panic leaves the file in no project, and the thread goes on.
                     let found = std::panic::catch_unwind(|| {
-                        detect(&request.location, home.as_deref(), &trusted)
+                        let location = real_place(&request.location)?;
+                        detect(&location, home.as_deref(), &trusted)
                     })
                     .ok()
                     .flatten();
@@ -116,6 +117,25 @@ impl Detector {
                 None
             }
         }
+    }
+}
+
+/// The name oso-core asks a session's directory under (ADR 0132), which names no file.
+const DIRECTORY_STANDIN: &str = "*session*";
+
+/// `location` with its directory resolved to the real place it leads, on this thread. A
+/// file's already is, and a new file's directories may not exist yet, so it stays as it is if
+/// they do not. A session's directory (ADR 0132) is a path as typed or remembered: one that does
+/// not exist, or does not resolve, is in no project, as the walk would pass over what is missing.
+fn real_place(location: &Path) -> Option<PathBuf> {
+    let resolved = location
+        .parent()
+        .and_then(|dir| fs::canonicalize(dir).ok())
+        .zip(location.file_name());
+    match resolved {
+        Some((dir, name)) => Some(dir.join(name)),
+        None if location.file_name() == Some(DIRECTORY_STANDIN.as_ref()) => None,
+        None => Some(location.to_path_buf()),
     }
 }
 

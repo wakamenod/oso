@@ -194,6 +194,10 @@ impl Core {
                 self.poll.set(on.then(registry_directory).flatten(), now);
                 return Vec::new();
             }
+            Job::Watch(watched) => {
+                self.poll.watch(watched);
+                return Vec::new();
+            }
             Job::Recall(directory) => {
                 return vec![Out::Recalled(super::super::record::read(&directory))];
             }
@@ -226,6 +230,10 @@ impl Core {
             .map(Out::Externals)
             .into_iter()
             .collect();
+        let moved = self.poll.take_moved();
+        if !moved.is_empty() {
+            found.push(Out::WorktreesMoved(moved));
+        }
         let Self {
             rules,
             sessions,

@@ -38,6 +38,7 @@ mod review;
 mod secure;
 mod session_tools;
 mod sessions;
+mod sessions_tree;
 mod terminal;
 mod undo;
 mod windows;

@@ -152,6 +152,8 @@ pub enum Face {
     /// What `*Sessions*` says quietly: idle and stopped marks, places, reasons, and the rows
     /// of sessions run outside oso.
     SessionQuiet,
+    /// The name of the worktree whose space is in front, in an accent of its own.
+    SessionFront,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -213,6 +215,7 @@ impl Face {
             Highlight::SessionWorking => Self::SessionWorking,
             Highlight::SessionDone => Self::SessionDone,
             Highlight::SessionQuiet => Self::SessionQuiet,
+            Highlight::SessionFront => Self::SessionFront,
         }
     }
 

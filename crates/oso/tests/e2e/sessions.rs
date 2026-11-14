@@ -457,4 +457,5 @@ fn quit(app: &mut App) {
 
 mod adopt;
 mod attention;
+mod mode;
 mod send;

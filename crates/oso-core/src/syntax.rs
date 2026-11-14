@@ -80,4 +80,6 @@ pub enum Highlight {
     /// What is said quietly in `*Sessions*`: an idle or stopped session's mark, a place, a
     /// reason, and a whole row of a session run outside oso.
     SessionQuiet,
+    /// The name of the worktree whose space is in front.
+    SessionFront,
 }

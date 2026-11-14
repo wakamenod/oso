@@ -120,6 +120,9 @@ pub enum SessionRequest {
     Explain(BufferId),
     /// Act on what line `line` of `*Sessions*`, from 0, shows.
     Row { line: usize, action: RowAction },
+    /// Act on the session whose terminal is this buffer, as on its row (`C-c K`, `C-c P`,
+    /// `C-c A` in session mode, ADR 0132).
+    OnBuffer(BufferId, RowAction),
     /// Group `*Sessions*` by state, or by space.
     Regroup,
     /// Render `*Sessions*` again, with its ages as of now.

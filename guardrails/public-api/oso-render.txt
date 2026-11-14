@@ -108,6 +108,7 @@ pub oso_render::Face::SearchMatch
 pub oso_render::Face::SecondaryCursor
 pub oso_render::Face::SessionAlert
 pub oso_render::Face::SessionDone
+pub oso_render::Face::SessionFront
 pub oso_render::Face::SessionQuiet
 pub oso_render::Face::SessionWorking
 pub oso_render::Face::SyntaxComment

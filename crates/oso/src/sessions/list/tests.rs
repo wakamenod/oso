@@ -5,6 +5,7 @@
 //! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window.
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::{Entry, Group, Key, Line, List, age, cells, cut, cut_middle};
@@ -25,6 +26,8 @@ fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
         pinned: false,
         archived: false,
         parent: None,
+        dir: Some(PathBuf::from("/w/oso")),
+        repo: None,
     }
 }
 
@@ -33,7 +36,7 @@ fn headers(lines: &[Line]) -> Vec<Group> {
         .iter()
         .filter_map(|line| match line {
             Line::Header(group) => Some(group.clone()),
-            Line::Session(_) => None,
+            _ => None,
         })
         .collect()
 }
@@ -63,7 +66,7 @@ fn groups_follow_the_taxonomy_and_pins_and_waits_order_a_group() {
         entry(6, "failed", State::Failed, t),
     ];
     entries[4].pinned = true;
-    let list = List::default();
+    let list = List::by_state();
     let shown = list.render(&entries, 32, t + Duration::from_secs(60));
     assert_eq!(
         headers(&shown.lines),
@@ -83,43 +86,6 @@ fn groups_follow_the_taxonomy_and_pins_and_waits_order_a_group() {
 }
 
 #[test]
-fn by_space_groups_by_name_and_archived_come_last_folded() {
-    let t = Instant::now();
-    let mut entries = vec![
-        entry(1, "a", State::Idle, t),
-        entry(2, "b", ASK, t),
-        entry(3, "old", State::Stopped, t),
-    ];
-    entries[0].space = "web".to_owned();
-    entries[2].archived = true;
-    let mut list = List::default();
-    list.regroup();
-    let shown = list.render(&entries, 80, t);
-    assert_eq!(
-        headers(&shown.lines),
-        [
-            Group::Space("oso".to_owned()),
-            Group::Space("web".to_owned()),
-            Group::Archived
-        ]
-    );
-    assert_eq!(
-        order(&shown.lines),
-        [2, 1].map(Key::Hosted),
-        "archived is folded"
-    );
-    assert!(shown.text.ends_with("▸ Archived 1\n"));
-    list.fold(&Line::Header(Group::Archived));
-    let opened = list.render(&entries, 80, t);
-    assert_eq!(order(&opened.lines), [2, 1, 3].map(Key::Hosted));
-    list.fold(&Line::Header(Group::Space("oso".to_owned())));
-    assert_eq!(
-        order(&list.render(&entries, 80, t).lines),
-        [1, 3].map(Key::Hosted)
-    );
-}
-
-#[test]
 fn sessions_nest_under_their_parent_which_counts_those_that_need_input() {
     let t = Instant::now();
     let mut entries = vec![
@@ -131,14 +97,27 @@ fn sessions_nest_under_their_parent_which_counts_those_that_need_input() {
     for (child, parent) in [(1, 1), (2, 1), (3, 3)] {
         entries[child].parent = Some(Key::Hosted(parent));
     }
+    // In the tree, under their worktree.
     let mut list = List::default();
-    list.regroup();
+    list.set_tree(super::Tree {
+        projects: vec![super::Project {
+            root: PathBuf::from("/w/oso"),
+            name: "oso".to_owned(),
+            worktrees: vec![super::Worktree {
+                path: PathBuf::from("/w/oso"),
+                branch: Some("main".to_owned()),
+                primary: true,
+                ..super::Worktree::default()
+            }],
+        }],
+        ..super::Tree::default()
+    });
     let shown = list.render(&entries, 32, t);
     assert_eq!(order(&shown.lines), [1, 2, 3, 4].map(Key::Hosted));
     let text: Vec<&str> = shown.text.lines().collect();
     // The lead works, so only its nested sessions give it a reason line.
-    assert_eq!(text[2], "  2 nested need input", "{text:?}");
-    assert!(text[3].starts_with("  ⚠ child-a"), "indented: {text:?}");
+    assert_eq!(text[3], "      2 nested need input", "{text:?}");
+    assert!(text[4].starts_with("      ⚠ child-a"), "indented: {text:?}");
     list.fold(&Line::Session(Key::Hosted(1)));
     assert_eq!(order(&list.render(&entries, 32, t).lines), [Key::Hosted(1)]);
     // By state the children wait in their own group, at the top level.
@@ -153,7 +132,7 @@ fn a_cycle_of_parents_ends() {
     let mut entries = vec![entry(1, "a", ASK, t), entry(2, "b", ASK, t)];
     entries[0].parent = Some(Key::Hosted(2));
     entries[1].parent = Some(Key::Hosted(1));
-    let shown = List::default().render(&entries, 32, t);
+    let shown = List::by_state().render(&entries, 32, t);
     assert_eq!(
         order(&shown.lines),
         [1, 2].map(Key::Hosted),
@@ -169,7 +148,7 @@ fn a_session_takes_one_line_and_a_reason_only_when_it_needs_the_person() {
     long.branch = Some("feature/界面".to_owned());
     let mut quiet = entry(2, "quiet", State::Working, t);
     quiet.recap = "Design the pane".to_owned();
-    let shown = List::default().render(&[long, quiet], 32, t + Duration::from_secs(720));
+    let shown = List::by_state().render(&[long, quiet], 32, t + Duration::from_secs(720));
     let text: Vec<&str> = shown.text.lines().collect();
     assert_eq!(text.len(), 5, "{text:?}");
     // The name is cut in the middle, so its end shows; the age is at the right edge.
@@ -183,7 +162,7 @@ fn a_session_takes_one_line_and_a_reason_only_when_it_needs_the_person() {
     assert_eq!(shown.lines.len(), 5);
     assert_eq!(shown.lines[2], Line::Session(Key::Hosted(1)));
     // As wide as it may be, a session keeps to one line.
-    let wide = List::default().render(&[entry(3, "a", State::Idle, t)], 120, t);
+    let wide = List::by_state().render(&[entry(3, "a", State::Idle, t)], 120, t);
     assert_eq!(wide.text.lines().count(), 2);
 }
 
@@ -194,7 +173,7 @@ fn an_external_row_is_quiet_throughout_and_never_spins() {
     external.key = Key::External(4242);
     external.space = "a-space-name-long-enough-to-be-cut".to_owned();
     external.branch = None;
-    let mut list = List::default();
+    let mut list = List::by_state();
     list.set_spin(Some(3));
     let shown = list.render(&[external], 60, t);
     let row = shown.text.lines().nth(1).unwrap().to_owned();
@@ -218,7 +197,7 @@ fn marks_take_their_states_face_and_a_working_one_spins() {
         entry(2, "work", State::Working, t),
         entry(3, "done", State::Done, t),
     ];
-    let mut list = List::default();
+    let mut list = List::by_state();
     let still = list.render(&entries, 32, t);
     assert!(still.spinning.is_empty());
     assert!(still.text.contains("▶ work"), "{}", still.text);
@@ -285,7 +264,7 @@ fn two_hundred_fifty_six_sessions_render_within_the_budget() {
             entry
         })
         .collect();
-    let list = List::default();
+    let list = List::by_state();
     let mut best = Duration::MAX;
     for _ in 0..10 {
         let start = Instant::now();
@@ -303,12 +282,12 @@ fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
     let mut idle = entry(1, "proj", State::Idle, now);
     idle.recap = "  ⚠ deploy-prod                2s".into();
     idle.space = "▸● repo".into();
-    let shown = List::default().render(&[idle], 32, now);
+    let shown = List::by_state().render(&[idle], 32, now);
     let rows: Vec<&str> = shown.text.lines().collect();
     assert!(rows[1].starts_with("○ proj  repo"), "{}", shown.text);
     let mut asking = entry(2, "ask", ASK, now);
     asking.recap = "  ⚠ deploy-prod                2s".into();
-    let shown = List::default().render(&[asking], 32, now);
+    let shown = List::by_state().render(&[asking], 32, now);
     let rows: Vec<&str> = shown.text.lines().collect();
     assert!(
         rows[2].trim_start().starts_with("deploy-prod"),
@@ -333,7 +312,7 @@ fn a_spinner_tick_with_twenty_spinning_rows_stays_within_its_budget() {
         .collect();
     let mut editor = Editor::default();
     let id = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
-    let mut list = List::default();
+    let mut list = List::by_state();
     let mut best = Duration::MAX;
     for frame in 0..30 {
         // What a tick does on the UI thread: the list with the next frame, its text and its
