@@ -373,6 +373,11 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   `[x, y]`, with the pointer `at` a pixel (`x`, `y`) or the middle of a cell (`row`,
   `column`), or nowhere. It says which window it scrolled, by id, and whether its view
   moved, null for a buffer that may hold secrets ([ADR 0112](adr/0112-window-splits.md)).
+- `focus` with `focused` gives the window the keyboard's focus, or takes it away, as the
+  window system would. Xvfb on CI has no window manager, and may say oso's window lost the
+  focus and never give it back; a session counts as seen only in a focused window
+  ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `get-state`'s `sessions.focused`
+  says what oso believes.
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.

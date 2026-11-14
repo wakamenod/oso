@@ -1,7 +1,8 @@
 //! Terminals (ADR 0120, step 4a): `terminal` starts the configured shell in a PTY, its output
 //! is drawn, keys go to it but for oso's own, the PTY takes its window's size, the input method
 //! commits into it, a paste asks without bracketed paste, and its end, a kill, an exit and a
-//! restart treat a running program as at risk. The agent channel reads and types nothing there.
+//! restart treat a running program as at risk. The agent channel reads and types nothing there,
+//! but rows the person let it read (step 4b-1); a password prompt is a secret, a raw read is not.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the key
 //! routing, the encoder and the policy have their own tests.
@@ -198,6 +199,18 @@ fn the_input_method_commits_into_the_program_at_its_cursor() {
     assert_eq!(state["ime"]["wanted"], true);
     app.visual_aids_off();
     type_line(&mut app, "printf '\\033[?25l'");
+    // The next prompt first: keys typed ahead are echoed before a shell that reads lines
+    // (dash) prints it, and the row would end with the prompt instead.
+    app.wait_for("the prompt after printf", |state| {
+        let rows = rows(state);
+        rows.iter()
+            .rposition(|row| row.contains("printf"))
+            .is_some_and(|at| {
+                rows[at + 1..]
+                    .iter()
+                    .any(|row| row.trim_end().ends_with('$'))
+            })
+    });
     app.send_keys("e c h o SPC x");
     let state = app.wait_for("the typed text", |state| {
         rows(state).iter().any(|row| row.ends_with("echo x"))
@@ -363,4 +376,97 @@ fn the_agent_channel_reads_and_types_nothing_in_a_terminal() {
             .iter()
             .any(|row| row.contains("typed-by-an-agent"))
     );
+}
+
+/// Whether `state`'s first terminal is at a password prompt, as its last snapshot said.
+fn echo_off(state: &Value) -> bool {
+    terminal(state)["echo_off"] == true
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_password_prompt_is_a_secret_and_a_raw_read_is_not() {
+    let (_scratch, mut app) = start("terminal-echo-off");
+    open_terminal(&mut app);
+    type_line(&mut app, "stty -echo; read x; stty echo; echo pw-done");
+    let state = app.wait_for("the password prompt", echo_off);
+    assert_eq!(state["buffer"]["secret"], true, "{}", state["buffer"]);
+    // Dev tooling withholds its rows, and the modeline too, as around any buffer that may
+    // hold secrets; the modeline's `secret` mark has unit tests.
+    assert!(terminal(&state)["rows"].is_null());
+    assert!(state["modeline"].is_null());
+    if let Some(wanted) = state["secure_input"]["wanted"].as_bool() {
+        assert!(wanted, "secure input is asked for while it is selected");
+    }
+    type_line(&mut app, "hunter2");
+    let state = app.wait_for("the prompt's end", |state| {
+        shows_row(state, "pw-done") && !echo_off(state)
+    });
+    assert_eq!(state["buffer"]["secret"], false);
+    assert!(!rows(&state).iter().any(|row| row.contains("hunter2")));
+
+    // A program that reads keys raw turns echo off too, and is no password prompt.
+    type_line(
+        &mut app,
+        "stty raw -echo; echo raw-ready; dd bs=1 count=1 >/dev/null 2>&1; stty sane; echo raw-done",
+    );
+    let state = wait_for_row(&mut app, "raw-ready");
+    assert!(!echo_off(&state), "{}", terminal(&state));
+    assert_eq!(state["buffer"]["secret"], false);
+    app.send_keys("x");
+    // Raw output's new line has no carriage return, so the row may start indented.
+    app.wait_for("raw-done", |state| {
+        rows(state).iter().any(|row| row.trim_start() == "raw-done")
+    });
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agent_reads_a_terminal_only_once_let_and_never_a_password_prompt() {
+    let (_scratch, mut app) = start("terminal-agent-read");
+    open_terminal(&mut app);
+    type_line(&mut app, "echo shown-to-the-agent");
+    wait_for_row(&mut app, "shown-to-the-agent");
+    let mut agent = let_in(&mut app);
+    let buffer = app.state()["buffer"]["id"].clone();
+    let listed = agent.call("state", None).unwrap()["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|listed| listed["id"] == buffer)
+        .cloned()
+        .unwrap();
+    assert_eq!(listed["kind"], "terminal", "{listed}");
+    assert_eq!(listed["running"], true, "{listed}");
+    assert_eq!(listed["agent_reads"], false, "{listed}");
+    let text = || json!({ "buffer": buffer, "start_row": 0, "rows": 100 });
+    let refused = agent.call("text", Some(text())).unwrap_err();
+    assert!(refused.contains("terminal-allow-agent-read"), "{refused}");
+    // Only the person gives the leave.
+    let ran = agent.run("terminal-allow-agent-read", None, "change");
+    assert!(ran.is_err_and(|e| e.contains("needs a person")));
+
+    app.run_command("terminal-allow-agent-read", None).unwrap();
+    let state = app.wait_for("the mark", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("agent reads"))
+    });
+    assert!(state["modeline"].is_string());
+    let read = agent.call("text", Some(text())).unwrap();
+    assert!(read.to_string().contains("shown-to-the-agent"), "{read}");
+
+    // At a password prompt the rows are withheld, and the channel waits for the person.
+    type_line(&mut app, "stty -echo; read x; stty echo");
+    app.wait_for("the password prompt", echo_off);
+    let withheld = agent.call("text", Some(text())).unwrap_err();
+    assert!(withheld.contains("echo off"), "{withheld}");
+    let waits = agent.run("forward-char", None, "look").unwrap_err();
+    assert!(waits.contains("may hold secrets"), "{waits}");
+    type_line(&mut app, "x");
+    app.wait_for("the prompt's end", |state| !echo_off(state));
+
+    app.run_command("terminal-deny-agent-read", None).unwrap();
+    let refused = agent.call("text", Some(text())).unwrap_err();
+    assert!(refused.contains("terminal-allow-agent-read"), "{refused}");
 }

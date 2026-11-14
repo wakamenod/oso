@@ -121,6 +121,45 @@ pub enum SessionRequest {
     Regroup,
     /// Render `*Sessions*` again, with its ages as of now.
     Refresh,
+    /// Paste `parts` into a session as the person's bracketed paste, not submitted
+    /// (`session-send`, `session-mention`). The host puts them together against the session's
+    /// directory, and refuses while the session needs input or does not run.
+    Send { to: SendTo, parts: Vec<SendPart> },
+    /// Show the session that sent the newest message to the session whose terminal is this
+    /// buffer (`session-follow-message`).
+    FollowMessage(BufferId),
+}
+
+/// Which session a send goes to (ADR 0121).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SendTo {
+    /// The session whose buffer has this name, as the send list completes it.
+    Named(String),
+    /// The session whose terminal is this buffer.
+    Buffer(BufferId),
+}
+
+/// One part of what is sent to a session (ADR 0121).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SendPart {
+    /// Text the person wrote, sent as it is.
+    Note(String),
+    /// Lines of a buffer: `@region` with their text, `@file:L-L` without it.
+    Excerpt(SendExcerpt),
+}
+
+/// Lines `first..=last`, counted from 1, of a buffer (ADR 0121).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendExcerpt {
+    /// The file the buffer visits; `None` for a buffer that visits none.
+    pub path: Option<PathBuf>,
+    /// The buffer's name.
+    pub buffer: String,
+    pub first: usize,
+    pub last: usize,
+    /// The lines' text; `None` sends the place only: with `C-u`, or from a buffer that may
+    /// hold secrets.
+    pub text: Option<String>,
 }
 
 /// What a key of `*Sessions*` does to the row it is on.

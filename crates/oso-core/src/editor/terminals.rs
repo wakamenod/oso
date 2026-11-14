@@ -66,6 +66,24 @@ impl Editor {
         }
     }
 
+    /// Notes whether the program in the terminal buffer `id` reads a password (ADR 0120,
+    /// Q17): while it does, the buffer counts as secret, so the agent channel waits while it
+    /// is shown and secure input is on while it is selected. Nothing happens to a buffer that
+    /// is not a terminal's.
+    pub fn set_echo_off(&mut self, id: BufferId, echo_off: bool) {
+        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+            buffer.set_echo_off(echo_off);
+        }
+    }
+
+    /// Lets the agent channel read the terminal buffer `id`'s rows, or takes it back
+    /// (ADR 0120, Q16). Nothing happens to a buffer that is not a terminal's.
+    pub fn set_agent_reads(&mut self, id: BufferId, reads: bool) {
+        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+            buffer.set_agent_reads(reads);
+        }
+    }
+
     /// A command asks the host for `request`.
     pub fn request_terminal(&mut self, request: TerminalRequest) {
         self.terminal_requests.push(request);

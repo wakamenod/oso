@@ -5,7 +5,7 @@
 //! Must not depend on: `app`, `dispatch` or the UI thread; the caller gives an [`Order`] and
 //! takes [`Report`]s through the function it gives.
 //!
-//! - A new session's id is made from 16 bytes of `/dev/urandom`; a fork gets a new one too.
+//! - A new session's id is made from 16 random bytes from the system; a fork gets a new one too.
 //! - A resume first reads Claude Code's registry: a live process with the id refuses, naming
 //!   its process and directory, and the person is offered a fork. Five seconds after the
 //!   resume, the registry is read again, and two live processes with the id give a warning.

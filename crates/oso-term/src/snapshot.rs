@@ -19,7 +19,9 @@ pub struct Snapshot {
     pub rows: Vec<Row>,
     pub cursor: Cursor,
     pub modes: Modes,
-    /// The PTY does not echo: a password prompt (ADR 0120, Q17).
+    /// The program reads a password: the PTY has echo off with line editing on, now or at a
+    /// moment since the last snapshot, so one typed and entered between two is still seen
+    /// (ADR 0120, Q17). A program that reads keys raw does not count.
     pub echo_off: bool,
     /// Lines in the scrollback, above the screen.
     pub history: usize,

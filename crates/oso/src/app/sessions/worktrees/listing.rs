@@ -11,7 +11,7 @@ use oso_core::project::ProjectId;
 use oso_core::selection::SelectionSet;
 
 use super::super::super::App;
-use super::{LIST, Listing};
+use super::{LIST, Listing, hosted_state};
 use crate::sessions::worktree::checks::Looked;
 use crate::sessions::worktree::list::{self, Row, Shown};
 use crate::sessions::worktree::merged::Merged;
@@ -142,8 +142,7 @@ impl App {
             .iter()
             .filter(|session| session.directory.starts_with(path))
             .map(|session| {
-                let state = self
-                    .hosted_state(session)
+                let state = hosted_state(session, &self.watch)
                     .map_or_else(|| session.run.label().to_owned(), |s| s.to_string());
                 format!("{} ({state})", session.name)
             })

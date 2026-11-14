@@ -99,6 +99,33 @@ A recap never decides whether a rule matches. A wrong `recap` or `recap_region` 
 named in `*Messages*`, and its rule stays. A recap counts among the file's 256 patterns. Finding
 it gets 5 ms of its own after the rules' verdict; past that, the recap stays as it was.
 
+### Messages
+
+When another session's `SendMessage` arrives, the TUI shows a line such as
+`› Message from @api-fix: …`. A `[[message]]` table finds that line and its sender, so that
+the receiving session's row in `*Sessions*` says "message from api-fix" until you see the
+session, and `C-x a f` (`session-follow-message`) shows the sender:
+
+```toml
+[[message]]
+name = "message-from"                                # unique among all the file's tables
+region = "bottom(40)"                                # optional; bottom(40) if left out
+pattern = '^\s*›\s*Message from @(?P<from>[^\s:]+)'  # needs a capture named from
+```
+
+- The pattern is matched against each line of the region. The capture `from` is the sender's
+  name, cleaned as a recap is and cut at 64 bytes; an empty one is dropped.
+- Only lines that were not on the previous look count, so a message stays found once, even as
+  it scrolls up. One look finds at most 8 senders.
+- A message table never decides a state. A wrong one, a pattern with no `from` capture
+  included, is skipped and named in `*Messages*`; the state rules stay.
+- It replaces and is disabled by name like a rule, `[[message]]` with `disable = true`.
+- Finding senders shares the recap's 5 ms after the rules' verdict, checked before each line;
+  past that, the lines are looked for again at the next look. Only the newest sender of a look
+  is kept.
+- The line is screen text, which any program in the terminal could print. A sender found only
+  sets the row's note and the session `C-x a f` shows; it is never proof of who wrote.
+
 ### Replacing and disabling
 
 - A rule in your file replaces the bundled rule of the same name.
@@ -115,7 +142,8 @@ disable = true
 A file holds at most:
 - 256 KiB;
 - 128 rules;
-- 256 patterns;
+- 16 `[[message]]` tables;
+- 256 patterns, message patterns included;
 - 64 matchers in a rule.
 
 Each pattern or string is at most 4 KiB, and each compiled pattern at most 128 KiB.

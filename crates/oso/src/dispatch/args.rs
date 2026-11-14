@@ -53,7 +53,7 @@ pub fn map(
             "{name} reads a theme's name, which only its prompt takes, from keys"
         )),
         // The host's lists, of sessions and spaces, are read only in their prompt (ADR 0121).
-        (ArgSpec::Listed { .. }, _) => Err(format!(
+        (ArgSpec::Listed { .. } | ArgSpec::ListedAndNoteUnlessRegion { .. }, _) => Err(format!(
             "{name} reads one of a list, which only its prompt takes, from keys"
         )),
         // A menu reads keys, and no channel opens one (ADR 0117).
@@ -210,6 +210,21 @@ mod tests {
             history: "command",
         };
         assert!(refused(command, Given::Text("forward-char")).contains("command's name"));
+        // A list the host keeps holds what an agent must not read, such as sessions' recaps.
+        for list in ["sessions", "spaces"] {
+            let listed = ArgSpec::Listed {
+                list,
+                prompt: "Session: ",
+                history: "session",
+            };
+            assert!(map("cmd", listed, Given::Text("x"), None).is_err());
+            assert!(map("cmd", listed, Given::Nothing, None).is_err());
+        }
+    }
+
+    #[test]
+    fn refuses_what_only_the_keyboard_reads() {
+        let refused = |spec, given| map("cmd", spec, given, None).unwrap_err();
         let buffer = ArgSpec::Buffer {
             prompt: "Switch to buffer: ",
             history: "buffer",
@@ -247,21 +262,6 @@ mod tests {
         };
         assert!(refused(project_search, Given::Text("fn main")).contains("searches"));
         assert!(refused(project_search, Given::Nothing).contains("searches"));
-    }
-
-    #[test]
-    fn refuses_what_only_the_keyboard_or_the_host_gives() {
-        let refused = |spec, given| map("cmd", spec, given, None).unwrap_err();
-        // A list the host keeps holds what an agent must not read, such as sessions' recaps.
-        for list in ["sessions", "spaces"] {
-            let listed = ArgSpec::Listed {
-                list,
-                prompt: "Session: ",
-                history: "session",
-            };
-            assert!(map("cmd", listed, Given::Text("x"), None).is_err());
-            assert!(map("cmd", listed, Given::Nothing, None).is_err());
-        }
         let branch = ArgSpec::BranchAndBaseOnPrefix {
             prompt: "Worktree branch:",
             base_prompt: "Base:",

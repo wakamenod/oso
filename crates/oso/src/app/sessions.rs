@@ -138,11 +138,15 @@ impl App {
             }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
+                self.sending_changed(key, change.state);
                 self.session_changed(key, change);
             }
             // Its text is the screen's: never logged.
             Out::Recap(key, recap) => self.session_recapped(key, recap),
             Out::Externals(live) => self.externals_found(live),
+            // Its text is the screen's too: never logged.
+            Out::Message(key, from) => self.message_from(key, from),
+            Out::Judged(key, held) => self.session_judged(key, held),
         }
     }
 
@@ -275,10 +279,10 @@ mod tests {
             rows: 1,
         };
         assert!(
-            crate::channel::text::start(&editor, rows).is_err(),
+            crate::channel::text::start(&editor, &|_, _| None, rows).is_err(),
             "its rows"
         );
-        let Err(why) = crate::channel::text::start(&editor, TextOf::Region) else {
+        let Err(why) = crate::channel::text::start(&editor, &|_, _| None, TextOf::Region) else {
             panic!("its region was read");
         };
         assert!(why.contains("only the person"), "{why}");

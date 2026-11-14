@@ -54,9 +54,6 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) trusts: HashMap<SessionKey, TrustedRoot>,
     /// The agents' session tools (ADR 0121 step 6).
     pub(in crate::app) tools: super::tools::Tools,
-    /// The spaces (ADR 0121, Q8): step 4 opens a worktree session's, nested under its
-    /// repository's.
-    pub(in crate::app) spaces: crate::sessions::spaces::Spaces,
 }
 
 /// What a new session starts with.
@@ -103,7 +100,6 @@ impl Hosting {
             worktrees: super::worktrees::Worktrees::default(),
             trusts: HashMap::new(),
             tools: super::tools::Tools::default(),
-            spaces: crate::sessions::spaces::Spaces::default(),
         }
     }
 }

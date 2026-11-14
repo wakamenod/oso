@@ -72,8 +72,8 @@ impl App {
     }
 
     /// The checks of the agent's removal `token` held again in its job: what the UI holds is
-    /// looked at once more, then the worktree's idle sessions are stopped before the job goes
-    /// on, as for the person's removal. Not saying [`Go`] calls the removal off, which its
+    /// looked at once more, then the worktree's idle sessions are stopped and its space closed
+    /// before the job goes on, as for the person's removal. Not saying [`Go`] calls the removal off, which its
     /// [`Report::Removed`] then says.
     pub(super) fn tool_clear(&mut self, token: u64, path: &Path, go: Go) {
         if let Some(check) = checks::held_refusal(&self.held_at(path)) {
@@ -86,6 +86,7 @@ impl App {
             return;
         }
         self.stop_idle_sessions_in(path);
+        self.close_worktree_space(path);
         go.proceed();
     }
 

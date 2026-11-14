@@ -97,18 +97,10 @@ impl Evidence {
 
     /// The evidence while echo is off: no rows, as the terminal withholds them.
     ///
-    /// The engine's own hold signal, not what makes a terminal secret, which is ADR 0120's to
-    /// settle. Claude Code's TUI runs in raw mode, with ECHO and ICANON both clear, so a signal
-    /// of plain "ECHO clear" would hold every session's state for good: it needs a narrower
-    /// one, such as a password prompt's shape, ECHO clear while ICANON is set (ADR 0121, step 2
-    /// as built).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the terminal's host API feeds it (ADR 0121 step 3)"
-        )
-    )]
+    /// The engine's own hold signal: the feed sends it, with no rows, while the terminal's
+    /// program reads a password, ECHO clear while ICANON is set (ADR 0120, step 4b-1). Claude
+    /// Code's TUI runs in raw mode, with ECHO and ICANON both clear, which does not count, so a
+    /// session's state is not held for good (ADR 0121, step 2 as built).
     pub fn echo_off(title: &str, progress: Option<Progress>) -> Self {
         Self {
             echo_off: true,

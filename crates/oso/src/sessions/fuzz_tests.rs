@@ -1,7 +1,8 @@
 //! The rules engine's fuzz target (ADR 0121): rules files and screens made at random, from
 //! parts that reach every branch of the format and the regions, and from arbitrary text.
-//! Whatever they are, parsing and judging never panic, keep within their limits, and say what
-//! they matched truly.
+//! Whatever they are, parsing, judging and finding message senders never panic, keep within
+//! their limits, and say what they matched truly; a screen looked at twice gives no sender
+//! again.
 //!
 //! Must not depend on: `app` or `dispatch`; these tests drive the sessions' own
 //! parts, with no window and no terminal.
@@ -14,10 +15,12 @@
 
 use proptest::prelude::*;
 
+use std::time::Duration;
+
 use super::engine::evaluate;
 use super::explain;
-
-use super::rules::{MAX_PROBLEMS, MAX_RULES, RuleSet, Source, parse};
+use super::messages::{MAX_FROM_BYTES, MAX_SENDERS, Seen, senders};
+use super::rules::{Deadline, MAX_MESSAGES, MAX_PROBLEMS, MAX_RULES, RuleSet, Source, parse};
 use super::screen::{Evidence, MAX_ROW_BYTES, MAX_ROWS, MAX_TITLE_BYTES, Progress};
 
 /// Text that looks like the TUI's: its marks, rules, dialogs' words, wide and odd characters.
@@ -34,6 +37,8 @@ fn screen_text() -> impl Strategy<Value = String> {
         Just("✶ Nucleating…".to_owned()),
         Just("4. Chat about this".to_owned()),
         Just("showing detailed transcript".to_owned()),
+        Just("› Message from @sender: ping (ctrl+o to expand)".to_owned()),
+        "› Message from @\\PC{0,80}: [a-z ]{0,10}",
         "\\PC{0,20}",
         any::<String>(),
         "[─╌é\u{7}\u{1b}\t]{0,2000}",
@@ -134,12 +139,58 @@ fn rule() -> impl Strategy<Value = String> {
     })
 }
 
+/// A message line's pattern: with the sender's capture or without, ordinary or costly.
+fn message_pattern() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just(r"Message from @(?P<from>[\w.-]+):".to_owned()),
+        Just(r"(?P<from>.*)".to_owned()),
+        Just(r"(?P<from>(a*)*b)".to_owned()),
+        Just(r"(?P<from>\w{1,200}\W{1,200})".to_owned()),
+        Just(r"(?P<other>\w+)".to_owned()),
+        pattern().prop_map(|p| format!("(?P<from>{p})")),
+        pattern(),
+    ]
+}
+
+/// One `[[message]]`, its fields right or wrong.
+fn message() -> impl Strategy<Value = String> {
+    let parts = (
+        prop_oneof![
+            Just("message-from"),
+            Just("m"),
+            Just("a"),
+            Just("bad name"),
+            Just("")
+        ],
+        prop_oneof![
+            Just(String::new()),
+            Just("region = \"bottom(3)\"\n".to_owned()),
+            Just("region = \"bottom(99)\"\n".to_owned()),
+            Just("region = \"title\"\n".to_owned()),
+            Just("region = \"prompt_box\"\n".to_owned()),
+            Just("region = \"nowhere\"\n".to_owned()),
+        ],
+        prop::option::of(message_pattern()),
+        prop_oneof![8 => Just(""), 1 => Just("disable = true\n"), 1 => Just("unknown = 1\n")],
+    );
+    parts.prop_map(|(name, region, pattern, extra)| {
+        let pattern = pattern.map_or_else(String::new, |p| format!("pattern = {}\n", literal(&p)));
+        format!(
+            "[[message]]\nname = {}\n{region}{pattern}{extra}",
+            literal(name)
+        )
+    })
+}
+
 fn rules_file() -> impl Strategy<Value = String> {
     let parts = (
         prop_oneof![8 => Just("version = 1\n"), 1 => Just("version = 9\n"), 1 => Just("")],
         prop::collection::vec(rule(), 0..8),
+        prop::collection::vec(message(), 0..20),
     );
-    parts.prop_map(|(version, rules)| format!("{version}{}", rules.concat()))
+    parts.prop_map(|(version, rules, messages)| {
+        format!("{version}{}{}", rules.concat(), messages.concat())
+    })
 }
 
 fn evidence() -> impl Strategy<Value = Evidence> {
@@ -164,8 +215,11 @@ fn check(local: &str, evidence: &Evidence) -> Result<(), TestCaseError> {
     let parsed = parse(local, Source::Local);
     prop_assert!(parsed.rules.len() <= MAX_RULES);
     prop_assert!(parsed.problems.len() <= MAX_PROBLEMS);
+    prop_assert!(parsed.messages.len() <= MAX_MESSAGES);
     if parsed.refused {
-        prop_assert!(parsed.rules.is_empty() && parsed.disabled.is_empty());
+        prop_assert!(
+            parsed.rules.is_empty() && parsed.disabled.is_empty() && parsed.messages.is_empty()
+        );
     }
     let rules = RuleSet::merged(super::rules::bundled(), parsed);
     prop_assert!(evidence.rows().len() <= MAX_ROWS);
@@ -182,6 +236,28 @@ fn check(local: &str, evidence: &Evidence) -> Result<(), TestCaseError> {
     let shown = explain::text("fuzz", &rules, evidence, &verdict);
     let bound = MAX_ROWS * (MAX_ROW_BYTES + 8) + MAX_TITLE_BYTES + 1024;
     prop_assert!(shown.len() <= bound, "{} bytes", shown.len());
+    check_senders(&rules, evidence)
+}
+
+/// Finds the senders twice over the same screen: the first look keeps to its bounds, and the
+/// second finds nothing new.
+fn check_senders(rules: &RuleSet, evidence: &Evidence) -> Result<(), TestCaseError> {
+    prop_assert!(rules.messages().len() <= MAX_MESSAGES + 1);
+    let deadline = Deadline::after(Duration::from_secs(60));
+    let mut seen = Seen::default();
+    let Ok(first) = senders(rules.messages(), evidence, &mut seen, &deadline) else {
+        return Err(TestCaseError::fail("a minute was not enough"));
+    };
+    prop_assert!(first.len() <= MAX_SENDERS);
+    for (n, from) in first.iter().enumerate() {
+        prop_assert!(!from.is_empty() && from.len() <= MAX_FROM_BYTES);
+        prop_assert!(!from.chars().any(char::is_control));
+        prop_assert!(!first[..n].contains(from));
+    }
+    let Ok(again) = senders(rules.messages(), evidence, &mut seen, &deadline) else {
+        return Err(TestCaseError::fail("a minute was not enough"));
+    };
+    prop_assert!(again.is_empty(), "found again: {again:?}");
     Ok(())
 }
 

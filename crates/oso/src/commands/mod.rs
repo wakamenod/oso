@@ -104,8 +104,9 @@ const TABLES: &[&[Command]] = &[
     scroll::COMMANDS,
     session::COMMANDS,
     agent_sessions::COMMANDS,
-    terminal::COMMANDS,
     agent_sessions::LIST_COMMANDS,
+    agent_sessions::SEND_COMMANDS,
+    terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
@@ -290,17 +291,13 @@ mod tests {
         // A hosted session's `claude`, a process the person starts (ADR 0121).
         "claude",
         "session-fork",
+        // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
+        "session-follow-message",
+        "session-mention",
         "session-resume",
-        // Worktree sessions, which run git, gh and a session (ADR 0121).
-        "brief-cancel",
-        "brief-send",
-        "session-start-shared",
-        "session-worktree",
-        "worktree-list",
-        "worktree-remove",
-        "worktree-list-refresh",
-        "worktree-list-remove",
-        "worktree-remove-confirmed",
+        "session-send",
+        "session-stop",
+        "sessions-resume",
         // What puts a session's terminal or `*Sessions*` in front of the person's keys, and
         // what changes which sessions ask for them (ADR 0121, step 3).
         "sessions",
@@ -311,15 +308,27 @@ mod tests {
         "sessions-show",
         "space-switch",
         "space-zoom",
+        // Worktree sessions, which run git, gh and a session (ADR 0121).
+        "brief-cancel",
+        "brief-send",
+        "session-start-shared",
+        "session-worktree",
+        "worktree-list",
+        "worktree-remove",
+        "worktree-list-refresh",
+        "worktree-list-remove",
+        "worktree-remove-confirmed",
         // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",
+        // Letting an agent read a terminal is the person's to give and to take back
+        // (ADR 0120, Q16).
+        "terminal-allow-agent-read",
         "terminal-char-mode",
+        "terminal-deny-agent-read",
         "terminal-paste-lines",
         "terminal-send-interrupt",
         "terminal-send-next-key",
         "terminal-yank",
-        "session-stop",
-        "sessions-resume",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

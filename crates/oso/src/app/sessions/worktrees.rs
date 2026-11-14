@@ -25,6 +25,7 @@ use super::super::{App, Loop, UserEvent};
 mod listing;
 mod removal;
 use super::hosting::Begin;
+use super::watch::Watch;
 use crate::review::TrustedRoot;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
@@ -375,8 +376,9 @@ impl App {
             printable(&created.path.display().to_string(), 200),
             printable(&created.branch, 80),
         ));
-        // Its space, nested under the repository's (ADR 0121, Q8).
-        let spaces = &mut self.hosting.spaces;
+        // Its space, nested under the repository's (ADR 0121, Q8), among step 3's: the one
+        // `*Sessions*` and `space-switch` show, which places the session by its root.
+        let spaces = self.watch.spaces_mut();
         spaces.add(&created.main, None);
         spaces.add(&created.path, Some(&created.main));
         self.begin_session(Begin {
@@ -405,8 +407,7 @@ impl App {
             .values()
             .chain(worktrees.creating.values())
             .any(|brief| brief.place.starts_with(path));
-        let busy = self
-            .running_sessions()
+        let busy = running_sessions(self.hosting.table.all(), &self.watch)
             .into_iter()
             .filter(|session| !session.settled && session.directory.starts_with(path))
             .map(|session| session.name)
@@ -438,53 +439,55 @@ impl App {
         Snapshot {
             unsaved,
             briefs,
-            sessions: self.running_sessions(),
+            sessions: running_sessions(sessions, &self.watch),
             hosted: hosted_pids(sessions),
         }
     }
 
-    /// A hosted session's state as the UI thread knows it, or `None` while its live state is
-    /// not known: a session that runs then counts as busy.
-    pub(in crate::app) fn hosted_state(&self, session: &Hosted) -> Option<State> {
-        match session.run {
-            Run::Stopped => Some(State::Stopped),
-            Run::Failed => Some(State::Failed),
-            Run::Starting | Run::Running { .. } => self.live_state(session).map(|(state, _)| state),
-        }
-    }
-
-    /// The hosted sessions that run, neither failed nor stopped, each with whether its
-    /// screen's state is idle or done: check 4's half that the UI thread knows.
-    fn running_sessions(&self) -> Vec<HostedSession> {
-        self.hosting
-            .table
-            .all()
-            .iter()
-            .filter(|session| session.runs())
-            .filter_map(|session| {
-                let state = self.hosted_state(session);
-                if matches!(state, Some(State::Failed | State::Stopped)) {
-                    return None;
-                }
-                Some(HostedSession {
-                    directory: session.directory.clone(),
-                    name: session.name.clone(),
-                    pid: match session.run {
-                        Run::Running { child } => child,
-                        _ => None,
-                    },
-                    settled: matches!(state, Some(State::Idle | State::Done)),
-                })
-            })
-            .collect()
-    }
-
     /// The name of the space of the worktree at `path`, if it has one.
     fn space_of(&self, path: &Path) -> Option<String> {
-        let spaces = &self.hosting.spaces;
+        let spaces = self.watch.spaces();
         let at = spaces.find(path)?;
         spaces.get(at).map(|space| space.name.clone())
     }
+}
+
+/// A hosted session's state as the UI thread knows it: a running session's as the sessions
+/// worker last told it (ADR 0121 step 3), while that agrees that it runs. `None` while a
+/// session starts or its live state is not known: a session that runs then counts as busy.
+pub(in crate::app) fn hosted_state(session: &Hosted, watch: &Watch) -> Option<State> {
+    match session.run {
+        Run::Stopped => Some(State::Stopped),
+        Run::Failed => Some(State::Failed),
+        Run::Starting => None,
+        Run::Running { .. } => watch
+            .state(session.key)
+            .filter(|state| !matches!(state, State::Stopped | State::Failed)),
+    }
+}
+
+/// The hosted sessions that run, neither failed nor stopped, each with whether its screen's
+/// state is idle or done: check 4's half that the UI thread knows.
+fn running_sessions(sessions: &[Hosted], watch: &Watch) -> Vec<HostedSession> {
+    sessions
+        .iter()
+        .filter(|session| session.runs())
+        .filter_map(|session| {
+            let state = hosted_state(session, watch);
+            if matches!(state, Some(State::Failed | State::Stopped)) {
+                return None;
+            }
+            Some(HostedSession {
+                directory: session.directory.clone(),
+                name: session.name.clone(),
+                pid: match session.run {
+                    Run::Running { child } => child,
+                    _ => None,
+                },
+                settled: matches!(state, Some(State::Idle | State::Done)),
+            })
+        })
+        .collect()
 }
 
 /// The process ids of the `claude`s oso hosts.

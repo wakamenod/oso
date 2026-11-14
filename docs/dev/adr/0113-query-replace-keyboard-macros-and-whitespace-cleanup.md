@@ -365,7 +365,8 @@ coordinator.
 - **Nothing is recorded in a buffer that may hold secrets.** Input that goes to one, or to a
   prompt opened over one, drops the recording with a message, as a passphrase prompt does, and
   the old macro stays (the author's choice on 2026-11-12, in place of Q10's mark). A replay
-  still works there. `Debug` never prints events; nothing logs them.
+  still works there, but for a terminal whose program reads a password, where a replay stops
+  ([ADR 0120](0120-the-terminal.md), Q17, step 4b-1). `Debug` never prints events; nothing logs them.
 - **`oso dev` does not carry the macro,** secret or not, and a restart waits while one is recorded
   or replayed, as for a prompt. ADR 0090's handoff stays as it is.
 - **`get-state` gains `macro`:** `recording` and `replaying`, booleans. No events, no count.

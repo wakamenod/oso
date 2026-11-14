@@ -43,7 +43,9 @@ crates/
 │                   only the tip crate uses it (ADR 0120)
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
-                    clipboard, filesystem and paths, process spawning, PTY
+                    clipboard, filesystem and paths (the home
+                    directory among them), process spawning, PTY,
+                    random bytes
 ```
 
 Commands live in the tip crate because it changes most often and rebuilds
@@ -642,7 +644,7 @@ The UI thread never blocks on I/O or parsing:
   fresh tree on a review's thread (ADR 0122) to find changes. The worker looks at Claude
   Code's registry once a second for other programs' sessions (`sessions/worker/externals.rs`).
 - A hosted session (`claude`, ADR 0121 step 1) gets ready on a short `oso-session-start`
-  thread of its own (`sessions/start.rs`): the id from `/dev/urandom`, the directory and
+  thread of its own (`sessions/start.rs`): the id from `oso_platform::random`, the directory and
   `[sessions] claude` checked, Claude Code's registry read before a resume and again 5 s after
   (`sessions/registry.rs`, liveness by `oso_platform::process::start_time`), the shell found, and
   in a trusted project ADR 0122's baseline, waited for at most 2 s. Its command line is built by
@@ -655,6 +657,15 @@ The UI thread never blocks on I/O or parsing:
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
   judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
   asks (`Event::Claims`).
+- Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
+  delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
+  refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
+  the terminal's own paste, never submitted, and shows the session. Commands only describe
+  what to send (`SessionRequest::Send`); the text is put together by pure functions
+  (`sessions/send.rs::compose`). ADR 0122's review comments and ADR 0127's drafts call the
+  same path. The worker finds message lines' senders with `[[message]]` rules
+  (`sessions/messages.rs`) after each verdict, and tells the app when a session is first judged
+  and when a hold rule starts or stops matching (`Out::Judged`).
 - Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`,
   [ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 4) run as jobs on `oso-sessions-git`,
   at most 2 threads, beside the sessions worker so that its rules never wait on git.

@@ -12,10 +12,11 @@ use serde_json::{Value, json};
 
 use super::super::super::App;
 use super::super::hosting::now_ms;
+use super::super::worktrees::hosted_state;
 use super::{Caller, Job, Lister, Pending, shown};
 use crate::channel::Reply;
 use crate::channel::protocol::sessions::JOB_ANSWER_WITHIN;
-use crate::sessions::hosted::Hosted;
+use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
 use crate::sessions::worktree::checks::{self, Held, Looked};
 use crate::sessions::worktree::jobs::{Report, Trust};
@@ -131,12 +132,15 @@ impl App {
         caller: Option<&SessionId>,
         now: (Instant, u64),
     ) -> Value {
-        let live = self.live_state(session);
-        let state = self
-            .hosted_state(session)
-            .map_or_else(|| session.run.label().to_owned(), |state| state.to_string());
-        let age_s = match live {
-            Some((_, since)) => now.0.saturating_duration_since(since).as_secs(),
+        let known = hosted_state(session, &self.watch);
+        let state = known.map_or_else(|| session.run.label().to_owned(), |state| state.to_string());
+        // The time in its state, while the worker's word on it holds; else since it last
+        // changed in the table.
+        let since = matches!(session.run, Run::Running { .. })
+            .then(|| known.and(self.watch.since(session.key)))
+            .flatten();
+        let age_s = match since {
+            Some(since) => now.0.saturating_duration_since(since).as_secs(),
             None => now.1.saturating_sub(session.changed) / 1000,
         };
         json!({
@@ -147,7 +151,7 @@ impl App {
             "messaging_name": session.name,
             "directory": shown(&session.directory),
             "project": session.root.as_deref().map(shown),
-            "space": self.session_space(session.key),
+            "space": self.watch.space_name(session.key),
             "state": state,
             "age_s": age_s,
             "pinned": session.pinned,

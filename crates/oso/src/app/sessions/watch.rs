@@ -10,6 +10,8 @@ mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
 mod requests;
+mod sending;
+mod shared;
 mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -73,6 +75,8 @@ pub(in crate::app) struct Watch {
     aging: bool,
     /// Each hosted session's space's name.
     placed: HashMap<SessionKey, String>,
+    /// Who messaged each session, and which can take a paste (step 5).
+    sending: sending::Sending,
     /// How many notices asked for attention, for end-to-end flows: the Dock cannot be seen.
     #[cfg(feature = "dev")]
     asked: u32,
@@ -117,9 +121,15 @@ impl App {
                 scrolled: terminal.grid.scrolled(),
             };
             if self.watch.feed.look(session.key, screen, now) {
-                let rows = terminal.grid.row_texts();
-                let evidence =
-                    Evidence::new(rows.iter().map(String::as_str), &terminal.title, progress);
+                // While its program reads a password, no row leaves the UI thread: the worker
+                // hears only that, and holds the state (ADR 0120, Q17; ADR 0121).
+                let secret = session.buffer.and_then(|id| self.editor.buffer(id));
+                let evidence = if secret.is_some_and(crate::app::terminals::reads_a_password) {
+                    Evidence::echo_off(&terminal.title, progress)
+                } else {
+                    let rows = terminal.grid.row_texts();
+                    Evidence::new(rows.iter().map(String::as_str), &terminal.title, progress)
+                };
                 worker.send_screen(session.key, evidence);
             }
         }
@@ -252,6 +262,7 @@ impl App {
             self.editor.set_listed(SESSIONS_LIST, candidates);
             self.editor
                 .set_listed(SPACES_LIST, self.watch.spaces.candidates());
+            self.sending_lists(&entries);
         }
         visible |= self.note_sessions(&entries, now);
         visible |= self.show_sessions_list(&entries, now);
@@ -294,6 +305,10 @@ impl App {
     /// The worker found the live sessions of Claude Code's registry: those that are not
     /// oso's own are listed, never shown.
     pub(in crate::app) fn externals_found(&mut self, live: Vec<External>) {
+        // A look the worker made before it was told to stop: the list keeps none.
+        if !self.watch.polling {
+            return;
+        }
         let now = Instant::now();
         let table = self.hosting.table();
         let ids: HashSet<&SessionId> = table.iter().map(|session| &session.id).collect();
@@ -327,7 +342,10 @@ impl App {
                 .as_deref()
                 .and_then(|dir| self.watch.spaces.of_path(dir))
                 .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(|| "external".to_owned(), |space| space.name.clone());
+                .map_or_else(
+                    || crate::sessions::list::EXTERNAL.to_owned(),
+                    |space| space.name.clone(),
+                );
             let state = if external.working {
                 State::Working
             } else {
@@ -369,6 +387,7 @@ impl App {
             self.watch.known.remove(&key);
             self.watch.attention.forget(key);
         }
+        self.forget_sending(&keys);
     }
 
     /// Each hosted session's space, added if new; the frame's tree is the first space's.
@@ -436,11 +455,7 @@ impl App {
                     branch: None,
                     state,
                     since,
-                    recap: self
-                        .watch
-                        .known
-                        .get(&session.key)
-                        .map_or_else(String::new, |known| known.recap.clone()),
+                    recap: self.row_recap(session.key),
                     pinned: session.pinned,
                     archived: session.archived,
                     parent,
@@ -454,9 +469,13 @@ impl App {
     /// Session `session`'s state and since when: as the worker told it, while that agrees
     /// with whether its process runs.
     fn state_of(&self, session: &Hosted, now: Instant) -> (State, Instant) {
-        match self.live_state(session) {
-            Some(known) => known,
-            None => {
+        let ended = !session.runs();
+        let known = self.watch.known.get(&session.key);
+        match known {
+            Some(known) if ended == matches!(known.state, State::Stopped | State::Failed) => {
+                (known.state, known.since)
+            }
+            _ => {
                 let since = since_ms(session.changed, now);
                 let state = match session.run {
                     Run::Failed => State::Failed,
@@ -466,22 +485,6 @@ impl App {
                 (state, since)
             }
         }
-    }
-
-    /// Session `session`'s state as the worker told it, and since when, while that agrees
-    /// with whether its process runs; `None` while it is not known.
-    pub(in crate::app) fn live_state(&self, session: &Hosted) -> Option<(State, Instant)> {
-        let ended = !session.runs();
-        self.watch
-            .known
-            .get(&session.key)
-            .filter(|known| ended == matches!(known.state, State::Stopped | State::Failed))
-            .map(|known| (known.state, known.since))
-    }
-
-    /// The name of the space session `key` is in, as `*Sessions*` shows it.
-    pub(in crate::app) fn session_space(&self, key: SessionKey) -> Option<&str> {
-        self.watch.placed.get(&key).map(String::as_str)
     }
 
     /// The candidates of `session-switch`: each hosted session with a buffer, by its buffer's
