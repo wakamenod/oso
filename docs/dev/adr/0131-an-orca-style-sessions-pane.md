@@ -488,8 +488,10 @@ band and the spinner. The coordinator accepted each point below that differs fro
   otherwise. `[sessions] spinner = false` keeps every mark still.
 - **The `just perf` flow** is `sessions_spinning_frame_p99_ms` and `sessions_spinning_ui_ms_per_s`
   in `bench/sessions.rs`: the 20 sessions of the printing flow, each showing a working screen,
-  over 5 s. It reports, with no threshold, and measures frames rather than typing, which the
-  other flows time. `bench.rs` did not change.
+  over 5 s. It reports, with no threshold. **A deviation:** the decision's flow types in a tree
+  window while 20 rows spin; this one measures the frames alone (their time on the UI thread,
+  and in all a second), and leaves key-to-photon to the flows that time typing. `bench.rs` did
+  not change.
 
 ## Changes to accepted ADRs
 
