@@ -502,6 +502,23 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - So a crafted local file can still delay the sessions worker, and its sessions' states, by
     one pattern's run per look, and it costs memory when it loads. The file is the person's
     own, and nothing else waits on that thread.
+- Sending to a hosted session (`session-send`, `session-mention`,
+  [ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) is the person's typing, `Person`:
+  the agent channel never writes to a terminal. It goes through one path, which pastes as a
+  bracketed paste, cleaned as any paste is, and never sends Enter.
+  - A session that is not running, not judged since it started, asking for input or held by a
+    full-screen view is refused, as a paste into a dialog could choose an option. The check
+    reads the last verdict, which can be some 100 to 200 ms old when the paste lands, and waits
+    for a look judged in time while looks run out of time; a dialog
+    that opens in that window receives the paste, which still carries no Enter.
+  - A buffer that may hold secrets sends its path and lines only, never its text, and the echo
+    area says so. A note goes as typed or yanked. A send is at most 256 KiB.
+  - Following a message selects the sender's terminal, so it is `Person` too. Names that other
+    programs give in Claude Code's registry are offered for a mention only without spaces,
+    control or invisible characters.
+  - A message's sender is read from a line of the screen, which any program in the terminal
+    can print. It only sets the row's note and the session `session-follow-message` shows, and
+    authorises nothing.
 - `*Session explain*` shows
   screen text and is withheld from the agent channel, which can neither read it nor switch to
   it; what the channel's commands say or kill while it is shown stays out of its reach.

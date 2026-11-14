@@ -305,6 +305,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::Command { .. }
                     | ArgSpec::Theme { .. }
                     | ArgSpec::Listed { .. }
+                    | ArgSpec::ListedAndNoteUnlessRegion { .. }
                     | ArgSpec::Menu { .. }
                     | ArgSpec::Buffer { .. }
                     | ArgSpec::Mark { .. }

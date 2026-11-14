@@ -175,3 +175,9 @@ visible = true
 priority = 400
 region = "progress"
 regex = ['^0$']
+
+# A message from another session's `SendMessage`: the line names its sender, which the session's
+# row shows until it is seen. It is screen text, so a pointer for the person, not proof.
+[[message]]
+name = "message-from"
+pattern = '^\s*›\s*Message from @(?P<from>[^\s:]+)'

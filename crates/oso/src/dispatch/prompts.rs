@@ -21,9 +21,11 @@ use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
 use super::branches::BasePrompt;
 use super::{Dispatcher, Step, buffers, extended};
 
+mod note;
 mod paths;
 mod replace;
 
+use note::ListedAndNote;
 use replace::ReplaceStage;
 
 /// A command waiting for the answer of the prompt `prompt`.
@@ -52,10 +54,11 @@ enum Then {
     Directory(ProjectPrompt),
     /// The menu it names, in the command's place, as `open-menu` does (ADR 0117).
     OpenMenu,
-    /// The directory a `DirectoryAndTextOnPrefix` command read first; its text prompt follows
-    /// (ADR 0121).
+    /// The directory a `DirectoryAndTextOnPrefix` command read first, or the session a
+    /// `ListedAndNoteUnlessRegion` command read; its text prompt follows (ADR 0121).
     DirectoryThenText(TextPrompt),
-    /// The text a `DirectoryAndTextOnPrefix` command reads after this directory.
+    /// The text a `DirectoryAndTextOnPrefix` or `ListedAndNoteUnlessRegion` command reads
+    /// after this first answer.
     TextAfter(String),
     /// The branch a `BranchAndBaseOnPrefix` command read after a prefix argument; its base
     /// prompt follows (ADR 0121).
@@ -184,6 +187,25 @@ impl Dispatcher {
                     (directory, directory_history),
                     then,
                 );
+            }
+            Some(ArgSpec::ListedAndNoteUnlessRegion {
+                list,
+                prompt,
+                history,
+                note_prompt,
+                note_history,
+            }) => {
+                let read = ListedAndNote {
+                    list,
+                    prompt,
+                    history,
+                    note: TextPrompt {
+                        prompt: note_prompt,
+                        history: note_history,
+                    },
+                };
+                let effects = self.read_listed_and_note(editor, id, args.raw(), read);
+                return (effects, Ok(()));
             }
             // The branches are listed off the UI thread before its prompt opens (ADR 0121).
             Some(ArgSpec::BranchAndBaseOnPrefix { .. }) => {
