@@ -632,6 +632,8 @@ mod review_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]
+mod sessions_send_tests;
+#[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]
 mod status_tests;

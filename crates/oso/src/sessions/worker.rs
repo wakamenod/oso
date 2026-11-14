@@ -96,6 +96,13 @@ pub enum Out {
     Externals(Vec<externals::External>),
     /// A session's recap changed (ADR 0121, step 3): cleaned and cut, the screen's text.
     Recap(SessionKey, String),
+    /// Whether a hold rule matched a session's newest look changed, or `None`, the newest
+    /// look ran out of time and its state holds the last (ADR 0121, step 5): a send waits
+    /// for a look judged in time, and is refused while a full-screen view holds the state.
+    Judged(SessionKey, Option<bool>),
+    /// A session's screen shows a message from the session of this name that the last look
+    /// did not (ADR 0121, step 5): cleaned and cut, the screen's text.
+    Message(SessionKey, String),
     /// The explanation of a saved screen, for `*Session explain*`.
     Explained(String),
     /// A saved screen could not be read, and why, for the echo area. It names no path: what

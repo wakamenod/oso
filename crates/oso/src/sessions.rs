@@ -24,6 +24,8 @@
 //! - `attention`: when a session's state asks for the person's attention.
 //! - `list`: `*Sessions*`, grouped, nested and folded, rendered to a width.
 //! - `spaces`: each project's window tree, zoom and last buffers.
+//! - `messages`: who sent a session a message, from its screen.
+//! - `send`: what the person sends to a session, and why a send is refused.
 
 pub mod attention;
 pub mod bridge;
@@ -34,11 +36,13 @@ pub mod hosted;
 pub mod identity;
 pub mod launch;
 pub mod list;
+pub mod messages;
 pub mod recap;
 pub mod record;
 pub mod registry;
 pub mod rules;
 pub mod screen;
+pub mod send;
 pub mod spaces;
 pub mod start;
 pub mod state;

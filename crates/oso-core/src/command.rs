@@ -255,8 +255,8 @@ pub struct Invocation<'a> {
     /// What a prompt read for the command, as its [`ArgSpec`] asked (ADR 0072).
     pub answer: Option<&'a str>,
     /// What a second prompt read, for [`ArgSpec::Replace`] (ADR 0113),
-    /// [`ArgSpec::DirectoryAndTextOnPrefix`] and, after a prefix argument, the base of
-    /// [`ArgSpec::BranchAndBaseOnPrefix`] (ADR 0121).
+    /// [`ArgSpec::DirectoryAndTextOnPrefix`], [`ArgSpec::ListedAndNoteUnlessRegion`] and,
+    /// after a prefix argument, the base of [`ArgSpec::BranchAndBaseOnPrefix`] (ADR 0121).
     pub second: Option<&'a str>,
     /// It runs because the person answered `y` to a question it asked.
     pub confirmed: bool,
@@ -342,6 +342,13 @@ impl<'a> Ctx<'a> {
     /// no prompt read them: with no prefix argument.
     pub fn directory_and_text(&self) -> Option<(&'a str, &'a str)> {
         Some((self.answer()?, self.invocation.second.unwrap_or_default()))
+    }
+
+    /// The candidate and the note two prompts read for a command whose [`ArgSpec`] is
+    /// `ListedAndNoteUnlessRegion` (ADR 0121): the note is `None` when a region was shown, so
+    /// no note was read. `None` when no prompt read them.
+    pub fn listed_and_note(&self) -> Option<(&'a str, Option<&'a str>)> {
+        Some((self.answer()?, self.invocation.second))
     }
 
     /// The branch and, after a prefix argument, the base an `ArgSpec::BranchAndBaseOnPrefix`
