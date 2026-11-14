@@ -1,6 +1,6 @@
 # 0132. A session mode for hosted sessions
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-14
 
 ## Context
@@ -307,6 +307,19 @@ builds them, `C-c C-j` copy mode and `C-c RET` the link at point.
 10. **`[keys.session]` in `config.toml`.**
     (a) Yes, with this step's second part: `C-c` sequences only, `C-c C-c` and `C-c C-k` refused.
     (b) Not yet: it stays reserved, as every name under `[keys]` but `global` is (ADR 0110).
+
+## The author's choices
+
+The author answered every question on 2026-11-14, through the coordinator: (a) for each. So, in a
+session, `C-c` and a key mirrors `C-x a` and the key, commands on the session take capitals and
+punctuation, and `C-c` and a control key stays the terminal's (Q1). A `C-c` key no layer binds is
+undefined and sends nothing (Q2). The mode is a minor mode of a hosted session's buffer, from its
+start, adopt, fork, resume or restore until the buffer is killed, and off in char mode (Q3).
+`C-c K`, `C-c P` and `C-c A` stop, pin and archive this session, and renaming waits (Q4). The
+modeline says `Session` (Q5). `C-s`, `M-p` and `M-n` go to Claude Code, and the live search is
+`C-c C-s` (Q6). `C-z` is held back only if the running app shows that it freezes a session (Q7). A
+session's buffer is in its session's project (Q8). `C-x a o` and `C-c o` show ADR 0131's pane at
+the project's row (Q9). `[keys.session]` comes in step 2, for `C-c` sequences only (Q10).
 
 ## Changes to accepted ADRs
 
