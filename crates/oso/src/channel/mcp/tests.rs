@@ -116,7 +116,19 @@ fn initializes_without_connecting_and_lists_its_tools() {
     assert_eq!(
         names,
         [
-            "state", "text", "commands", "look", "change", "open", "cancel"
+            "state",
+            "text",
+            "commands",
+            "session_list",
+            "session_state",
+            "worktree_list",
+            "look",
+            "change",
+            "open",
+            "cancel",
+            "worktree_remove",
+            "start_worktree_session",
+            "session_start",
         ]
     );
     let hint = |name: &str, hint: &str| {
@@ -130,6 +142,12 @@ fn initializes_without_connecting_and_lists_its_tools() {
     assert_eq!(hint("change", "destructiveHint"), true);
     assert_eq!(hint("cancel", "readOnlyHint"), false);
     assert_eq!(hint("cancel", "destructiveHint"), false);
+    // The session tools' hints follow their table, which `sessions::tools`' tests check.
+    for read in ["session_list", "session_state", "worktree_list"] {
+        assert_eq!(hint(read, "readOnlyHint"), true, "{read}");
+    }
+    assert_eq!(hint("worktree_remove", "destructiveHint"), true);
+    assert_eq!(hint("start_worktree_session", "readOnlyHint"), false);
     assert_eq!(
         asked.borrow().connects,
         0,

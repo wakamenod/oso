@@ -1,5 +1,5 @@
 //! Hosted sessions in the app (ADR 0121): starting, resuming and forking them at the person's
-//! command, the start thread's reports, the remembered set, and the bridge connections that
+//! command, the start thread's reports and the remembered set; `bridge`: the connections that
 //! hold a session. The work that touches files and processes is on the start thread and the
 //! sessions worker; this only decides and carries out.
 //!
@@ -12,10 +12,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use oso_core::buffer::BufferId;
 use oso_core::minibuffer::PromptId;
 use oso_core::project::ProjectId;
-use oso_platform::control::Peer;
 
 use super::super::{App, UserEvent};
-use crate::channel::Connection;
 use crate::review::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
 use crate::sessions::identity::SessionId;
@@ -23,6 +21,7 @@ use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
 mod adopt;
+mod bridge;
 mod fork;
 mod terminal;
 
@@ -57,6 +56,11 @@ pub(in crate::app) struct Hosting {
     shared: Option<Begin>,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
     pub(in crate::app) worktrees: super::worktrees::Worktrees,
+    /// The trust each session started under, for its agent's worktree tools (step 6), until
+    /// it is forgotten.
+    pub(in crate::app) trusts: HashMap<SessionKey, TrustedRoot>,
+    /// The agents' session tools (ADR 0121 step 6).
+    pub(in crate::app) tools: super::tools::Tools,
 }
 
 /// What a new session starts with.
@@ -102,6 +106,8 @@ impl Hosting {
             parents: HashMap::new(),
             shared: None,
             worktrees: super::worktrees::Worktrees::default(),
+            trusts: HashMap::new(),
+            tools: super::tools::Tools::default(),
         }
     }
 }
@@ -118,7 +124,7 @@ struct Baseline {
 }
 
 /// Now, in ms since the epoch, for a session's last change.
-fn now_ms() -> u64 {
+pub(in crate::app) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| {
@@ -203,12 +209,13 @@ impl App {
         });
     }
 
-    /// Starts a new session as `begin` says.
-    pub(in crate::app) fn begin_session(&mut self, begin: Begin) {
+    /// Starts a new session as `begin` says, and returns the key it starts under, unless it
+    /// was refused at once or waits for the person's answer.
+    pub(in crate::app) fn begin_session(&mut self, begin: Begin) -> Option<SessionKey> {
         let directory = match begin.directory.clone() {
             Some(directory) if !directory.is_absolute() => {
                 self.editor.message("Name the session's directory whole");
-                return;
+                return None;
             }
             Some(directory) => directory,
             None => self
@@ -217,7 +224,7 @@ impl App {
         };
         if begin.check_shared && self.hosting.table.runs_in(&directory) {
             self.ask_shared(begin);
-            return;
+            return None;
         }
         // The selected buffer's project, if the session runs at its root.
         let project = self.editor.current().1.project().filter(|id| {
@@ -254,6 +261,9 @@ impl App {
                 (trusted, root)
             }
         };
+        if let Some(trusted) = &trusted {
+            self.hosting.trusts.insert(key, trusted.clone());
+        }
         self.order_session(Order {
             token: key,
             kind: Kind::New,
@@ -268,6 +278,7 @@ impl App {
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
         });
+        Some(key)
     }
 
     /// Asks before `begin` starts a session where another live one runs (ADR 0121).
@@ -284,10 +295,12 @@ impl App {
     /// The person's `y` to starting where another session runs.
     pub(in crate::app) fn start_shared(&mut self) {
         match self.hosting.shared.take() {
-            Some(begin) => self.begin_session(Begin {
-                check_shared: false,
-                ..begin
-            }),
+            Some(begin) => {
+                self.begin_session(Begin {
+                    check_shared: false,
+                    ..begin
+                });
+            }
             None => self.editor.message("No session waits to start"),
         }
     }
@@ -358,6 +371,7 @@ impl App {
                 self.take_adoption(token);
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
+                self.session_tool_started(token, Err(why.clone()));
                 self.editor.message(why);
             }
             Report::Live {
@@ -377,6 +391,7 @@ impl App {
                 }
             }
             Report::Shared { token } => {
+                self.session_tool_started(token, Err("another session runs there".into()));
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
                 if let Some(begin) = self.hosting.shared.take() {
@@ -418,8 +433,9 @@ impl App {
     fn session_not_started(&mut self, token: SessionKey) {
         self.session_terminal_not_started(token);
         self.hosting.baselines.remove(&token);
-        if self.hosting.table.release(token).is_none()
-            && let Some(session) = self.hosting.table.get_mut(token)
+        if self.hosting.table.release(token).is_some() {
+            self.hosting.trusts.remove(&token);
+        } else if let Some(session) = self.hosting.table.get_mut(token)
             && session.run == Run::Starting
         {
             session.run = Run::Stopped;
@@ -457,63 +473,26 @@ impl App {
             }
             session.changed = now_ms();
         }
-        if !self.session_terminal_started(key, ready) {
+        let started = self.session_terminal_started(key, ready);
+        // An agent that asked for it hears how it went, while the session is still listed.
+        self.session_tool_started(
+            key,
+            if started {
+                Ok(())
+            } else {
+                Err("its buffer went while it started".into())
+            },
+        );
+        if !started {
             // Its buffer went while it started: the terminal is dropped, which hangs it up.
             if new {
                 self.hosting.table.forget(key);
+                self.hosting.trusts.remove(&key);
             } else if let Some(session) = self.hosting.table.get_mut(key) {
                 session.run = Run::Stopped;
             }
         }
         self.remember_sessions();
-    }
-
-    /// Whether the connection of `peer` that claims the session `claim` is that hosted
-    /// session's bridge (ADR 0121), answered with `answer`, which says whether the answer
-    /// reached the server: then it holds the session, and its name is given.
-    pub(in crate::app) fn session_bridge(
-        &mut self,
-        connection: Connection,
-        peer: &Peer,
-        claim: &str,
-        answer: impl FnOnce(bool) -> bool,
-    ) -> Option<String> {
-        let Some(id) = SessionId::parse(claim) else {
-            answer(false);
-            return None;
-        };
-        // Each running `claude`'s id as its terminal has it now: set once the child started,
-        // cleared before it is reaped.
-        let children: Vec<(SessionKey, Option<u32>)> = self
-            .hosting
-            .table
-            .iter()
-            .filter(|session| matches!(session.run, Run::Running { .. }))
-            .map(|session| {
-                let child = session
-                    .buffer
-                    .and_then(|buffer| self.terminals.map.get(buffer))
-                    .and_then(|hosted| hosted.terminal.as_ref())
-                    .and_then(oso_term::Terminal::pid);
-                (session.key, child)
-            })
-            .collect();
-        for (key, child) in children {
-            if let Some(session) = self.hosting.table.get_mut(key) {
-                session.run = Run::Running { child };
-            }
-        }
-        self.hosting
-            .table
-            .answer_claim(connection, peer, Some(&id), answer)
-    }
-
-    /// The bridge connection `connection` went, or every one did, when it is `None`.
-    pub(in crate::app) fn session_bridge_gone(&mut self, connection: Option<Connection>) {
-        match connection {
-            Some(connection) => self.hosting.table.bridge_gone(connection),
-            None => self.hosting.table.bridges_gone(),
-        }
     }
 }
 

@@ -159,18 +159,6 @@ impl Repo {
         Ok(porcelain::names(&out, MAX_NAMES))
     }
 
-    /// The commit `revision` names, as a person typed it, or `None` if it names none.
-    ///
-    /// # Errors
-    ///
-    /// If the revision is refused before git sees it, or git fails otherwise.
-    pub fn commit(&self, revision: &str) -> Result<Option<String>, String> {
-        self.git
-            .resolve(revision, "commit")
-            .map(|id| id.map(|id| id.as_str().to_owned()))
-            .map_err(|e| said(&e))
-    }
-
     /// The remotes' names, `origin` first.
     pub fn remotes(&self) -> Vec<String> {
         let Ok(out) = self.run(&["remote"], MAX_SHORT * 4) else {

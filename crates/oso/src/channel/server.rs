@@ -16,6 +16,9 @@
 //!   keeps to. Anything else goes on as above.
 //! - Once let in, a connection sends at most [`MAX_RATE`] requests a second, one at a time,
 //!   with no idle limit.
+//! - A reply waits for the UI for [`REPLY_TIMEOUT`], except where its method holds it longer
+//!   (`held`): a worktree job's for as long as the job is given, and a session tool's that
+//!   asks, as the connection's question, until the person answers or the client goes.
 
 use std::io::{self, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -26,7 +29,7 @@ use std::time::{Duration, Instant};
 use oso_platform::control::{ControlListener, ControlStream, Peer};
 use serde_json::{Value, json};
 
-use super::protocol::{self, Method, Op, PROTOCOL_VERSION};
+use super::protocol::{self, Method, Op, PROTOCOL_VERSION, sessions::Hold};
 use super::wire::{MAX_LINE, bounded, failure, read_line_within, success};
 
 /// The most connections open at once that have sent a request.
@@ -355,7 +358,11 @@ where
             break;
         }
         let response = if rate.take(Instant::now()) {
-            respond(&text, connection, send)
+            match respond(&text, connection, send, (&lines, &mut writer, shared)) {
+                Some(response) => response,
+                // The client went, or the channel stopped, while the person had not answered.
+                None => break,
+            }
         } else {
             failure(&Value::Null, "too many requests; slow down")
         };
@@ -471,62 +478,50 @@ where
     if !send(asks) {
         return Err(Asked::Refused("the editor is shutting down".into()));
     }
-    let gone = || {
-        send(Request {
-            connection,
-            event: Event::Gone,
-            reply: None,
-        });
-        Err(Asked::Gone)
-    };
-    let mut extra = 0;
-    loop {
-        match replied.recv_timeout(POLL) {
-            Ok(Ok(_)) => return Ok(()),
-            Ok(Err(why)) => return Err(Asked::Refused(why)),
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(Asked::Refused("the editor dropped the request".into()));
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-        }
-        if shared.stop.load(Ordering::Acquire) {
-            return gone();
-        }
-        match lines.try_recv() {
-            Ok(Line::Text(_)) if extra >= MAX_WAITING_LINES => return gone(),
-            Ok(Line::Text(text)) => {
-                extra += 1;
-                let id = protocol::parse(&text).map_or_else(|bad| bad.id, |request| request.id);
-                let waiting = failure(&id, "wait: the person has not answered yet");
-                if writeln!(writer, "{waiting}").is_err() {
-                    return gone();
-                }
-            }
-            Ok(Line::TooLong | Line::End) | Err(mpsc::TryRecvError::Disconnected) => return gone(),
-            Err(mpsc::TryRecvError::Empty) => {}
+    match held::watching(&replied, None, held::PERSON, (lines, writer, shared)) {
+        Waited::Replied(Ok(Ok(_))) => Ok(()),
+        Waited::Replied(Ok(Err(why))) => Err(Asked::Refused(why)),
+        Waited::Replied(Err(why)) => Err(Asked::Refused(why.into())),
+        Waited::Gone => {
+            send(Request {
+                connection,
+                event: Event::Gone,
+                reply: None,
+            });
+            Err(Asked::Gone)
         }
     }
 }
 
-/// The response line for one request line of a connection the person let in.
-fn respond<S>(line: &str, connection: Connection, send: &S) -> String
+/// The response line for one request line of a connection the person let in, or `None` if
+/// the client went, or the channel stopped, while the request waited for the person.
+fn respond<S>(
+    line: &str,
+    connection: Connection,
+    send: &S,
+    (lines, writer, shared): (&mpsc::Receiver<Line>, &mut ControlStream, &Shared),
+) -> Option<String>
 where
     S: Fn(Request) -> bool,
 {
     let request = match protocol::parse(line) {
         Ok(request) => request,
-        Err(bad) => return bounded(&bad.id, failure(&bad.id, &bad.message)),
+        Err(bad) => return Some(bounded(&bad.id, failure(&bad.id, &bad.message))),
     };
     let op = match request.method {
-        Method::Version { .. } => return success(&request.id, version()),
+        Method::Version { .. } => return Some(success(&request.id, version())),
         Method::Ui(op) => op,
+    };
+    let hold = match &op {
+        Op::Session(call) => call.hold(),
+        _ => Hold::Usual,
     };
     // Only a file that is there opens: the channel starts no new file (ADR 0085). Looked at
     // here, as the UI thread never waits on the file system.
     if let Op::Open { path, .. } = &op
         && let Err(why) = may_open(path)
     {
-        return failure(&request.id, why);
+        return Some(failure(&request.id, why));
     }
     let (reply, replied) = mpsc::channel();
     let asked = Request {
@@ -535,18 +530,14 @@ where
         reply: Some(reply),
     };
     if !send(asked) {
-        return failure(&request.id, "the editor is shutting down");
+        return Some(failure(&request.id, "the editor is shutting down"));
     }
-    match replied.recv_timeout(REPLY_TIMEOUT) {
-        Ok(Ok(result)) => bounded(&request.id, success(&request.id, result)),
-        Ok(Err(message)) => bounded(&request.id, failure(&request.id, &message)),
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            failure(&request.id, "the editor did not reply in time")
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            failure(&request.id, "the editor dropped the request")
-        }
-    }
+    Some(match held::wait(&replied, hold, lines, writer, shared) {
+        Waited::Gone => return None,
+        Waited::Replied(Ok(Ok(result))) => bounded(&request.id, success(&request.id, result)),
+        Waited::Replied(Ok(Err(message))) => bounded(&request.id, failure(&request.id, &message)),
+        Waited::Replied(Err(why)) => failure(&request.id, why),
+    })
 }
 
 /// The largest file the channel opens, in bytes: an agent reads what it opens, and memory
@@ -580,8 +571,10 @@ fn version() -> Value {
     })
 }
 
+mod held;
 mod limits;
 
+use held::Waited;
 use limits::{Gate, Rate, Slot, gate};
 
 // The tests need a socket, which only Unix has (ADR 0032).

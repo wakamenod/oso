@@ -14,7 +14,7 @@ use super::{QUESTION_NAMES, Removing, hosted_state};
 use crate::sessions::state::State;
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::checks::{self, Check};
-use crate::sessions::worktree::jobs::Go;
+use crate::sessions::worktree::jobs::{Asked, Go};
 use crate::sessions::worktree::list;
 use crate::sessions::worktree::porcelain::printable;
 
@@ -136,8 +136,13 @@ impl App {
         };
         let token = self.worktree_token();
         let snapshot = self.worktree_snapshot();
-        self.worktree_jobs()
-            .remove(token, trust, removing.path.clone(), snapshot, asked);
+        self.worktree_jobs().remove(
+            token,
+            trust,
+            removing.path.clone(),
+            snapshot,
+            Asked::Named(asked),
+        );
         self.editor.message(format!("Removing worktree {shown}…"));
         self.hosting.worktrees.removing = Some(Removing { token, ..removing });
     }
@@ -170,7 +175,7 @@ impl App {
     /// Closes the space of the worktree at `path`, entering its repository's first if it is
     /// the one in the frame (ADR 0121). With a prompt open, the frame's tree cannot change, so
     /// the space stays until oso starts again, and the removal goes on.
-    fn close_worktree_space(&mut self, path: &Path) {
+    pub(in crate::app) fn close_worktree_space(&mut self, path: &Path) {
         let spaces = self.watch.spaces();
         let at = spaces.find(path).or_else(|| {
             spaces
@@ -195,7 +200,7 @@ impl App {
     /// `session-stop` stops one that is not busy: a hang-up oso made, so that each becomes
     /// stopped, not failed, and keeps its buffer, read-only. The job goes on without waiting
     /// for their processes to end.
-    fn stop_idle_sessions_in(&mut self, path: &Path) {
+    pub(in crate::app) fn stop_idle_sessions_in(&mut self, path: &Path) {
         let idle: Vec<SessionKey> = self
             .hosting
             .table
@@ -215,7 +220,12 @@ impl App {
         }
     }
 
-    pub(super) fn worktree_removed(&mut self, token: u64, path: &Path, result: Result<(), String>) {
+    pub(super) fn worktree_removed(
+        &mut self,
+        token: u64,
+        path: &Path,
+        result: Result<Vec<PathBuf>, String>,
+    ) {
         if self
             .hosting
             .worktrees
@@ -228,7 +238,7 @@ impl App {
         self.hosting.worktrees.removing = None;
         let shown = printable(&path.display().to_string(), 200);
         match result {
-            Ok(()) => {
+            Ok(_) => {
                 self.editor
                     .message(format!("Removed worktree {shown}; its branch is kept"));
                 let listing = self.hosting.worktrees.list.as_ref().map(|l| l.buffer);

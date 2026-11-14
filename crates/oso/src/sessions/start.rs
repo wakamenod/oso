@@ -250,14 +250,19 @@ fn held_back(order: &Order) -> Option<Report> {
     }
 }
 
-/// The names a session's terminal passes on: a terminal's, `[sessions] env`'s, and
-/// `CLAUDE_CONFIG_DIR`, so that the session's registry is the one oso reads.
+/// Where oso's sockets are on Linux (`oso-platform::control`): a session's `oso mcp` needs it
+/// to find the channel, and a terminal does not pass it on.
+const CONTROL_VARIABLE: &str = "XDG_RUNTIME_DIR";
+
+/// The names a session's terminal passes on: a terminal's, `[sessions] env`'s,
+/// `CLAUDE_CONFIG_DIR`, so that the session's registry is the one oso reads, and
+/// [`CONTROL_VARIABLE`], so that its bridge reaches this oso.
 fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
     let mut names = shell::inherit(terminal);
     for name in sessions
         .iter()
         .map(String::as_str)
-        .chain([registry::CONFIG_VARIABLE])
+        .chain([registry::CONFIG_VARIABLE, CONTROL_VARIABLE])
     {
         if !names.iter().any(|known| known == name) {
             names.push(name.to_owned());
@@ -395,17 +400,26 @@ mod tests {
     use crate::sessions::identity::SessionId;
 
     #[test]
-    fn a_session_passes_on_a_terminals_names_its_own_and_the_config_directory_once_each() {
+    fn a_session_passes_on_its_names_and_the_config_and_socket_directories_once_each() {
         let names = inherit(
             &["LANG".to_owned()],
             &["HTTPS_PROXY".to_owned(), "LANG".to_owned()],
         );
         assert_eq!(
             names,
-            ["SSH_AUTH_SOCK", "LANG", "HTTPS_PROXY", "CLAUDE_CONFIG_DIR"]
+            [
+                "SSH_AUTH_SOCK",
+                "LANG",
+                "HTTPS_PROXY",
+                "CLAUDE_CONFIG_DIR",
+                "XDG_RUNTIME_DIR"
+            ]
         );
         let named = inherit(&[], &["CLAUDE_CONFIG_DIR".to_owned()]);
-        assert_eq!(named, ["SSH_AUTH_SOCK", "CLAUDE_CONFIG_DIR"]);
+        assert_eq!(
+            named,
+            ["SSH_AUTH_SOCK", "CLAUDE_CONFIG_DIR", "XDG_RUNTIME_DIR"]
+        );
     }
 
     #[test]

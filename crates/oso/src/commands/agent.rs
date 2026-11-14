@@ -1,5 +1,6 @@
-//! Turning the agent channel on and off, and letting a connection in (ADR 0085). Each is
-//! `Person`: only someone at the keyboard decides who may drive the editor.
+//! Turning the agent channel on and off, letting a connection in, and allowing what an agent's
+//! session tool asks (ADR 0085, ADR 0121). Each is `Person`: only someone at the keyboard
+//! decides who may drive the editor, and what an agent may start.
 //!
 //! Must not depend on: the channel's socket or threads, or `bindings`; a command asks the
 //! host through the editor, and the host starts or stops the channel.
@@ -26,13 +27,35 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "agent-channel-allow",
-        doc: "Let in the agent whose connection waits, as `y` to its question does.\n\nRun on its own, it says that the question answers this.",
+        doc: "Let in the agent whose connection waits, or allow what an agent's session tool asks, as `y` to its question does.\n\nRun on its own, it says that the question answers this.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: allow,
         state: None,
     },
+    Command {
+        name: "agent-question-details",
+        doc: "Show what the agent's open question would run, as `?` in it does: the session that asks, and the whole brief it would start a session with.\n\nThe question stays open; answer it with `y` or `n`. `*Agent request*` is read-only, and no agent reads it.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: question_details,
+        state: None,
+    },
 ];
+
+fn question_details(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if !ctx
+        .editor
+        .prompt()
+        .is_some_and(oso_core::minibuffer::Prompt::from_agent)
+    {
+        return Err(CommandError::new("No question of an agent's is open"));
+    }
+    ctx.editor
+        .request_session(oso_core::editor::SessionRequest::QuestionDetails);
+    ctx.request_redraw();
+    Ok(())
+}
 
 fn start(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ctx.editor.request_agent_channel(true);
@@ -60,6 +83,7 @@ fn allow(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 mod tests {
     use super::super::tests::{editor, run};
     use oso_core::command::Args;
+    use oso_core::editor::SessionRequest;
 
     #[test]
     fn start_and_stop_ask_the_host() {
@@ -71,6 +95,30 @@ mod tests {
         assert_eq!(editor.take_agent_channel_request(), Some(true));
         assert_eq!(run(&mut editor, "agent-channel-stop", Args::NONE).0, Ok(()));
         assert_eq!(editor.take_agent_channel_request(), Some(false));
+    }
+
+    #[test]
+    fn question_details_need_an_agents_question_open() {
+        let mut editor = editor("");
+        let (result, _) = run(&mut editor, "agent-question-details", Args::NONE);
+        assert!(result.is_err(), "no question is open");
+        assert!(editor.take_session_requests().is_empty());
+        editor
+            .ask_for_agent(
+                "let session \"a\" start a session?",
+                "agent-channel-allow",
+                ["allow", "refuse"],
+            )
+            .unwrap();
+        assert_eq!(
+            run(&mut editor, "agent-question-details", Args::NONE).0,
+            Ok(())
+        );
+        assert_eq!(
+            editor.take_session_requests(),
+            [SessionRequest::QuestionDetails]
+        );
+        assert!(editor.prompt().is_some(), "the question stays open");
     }
 
     #[test]

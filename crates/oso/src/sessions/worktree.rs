@@ -19,6 +19,7 @@
 //! - `merged`: whether a branch is merged (check 5).
 //! - `checks`: what is known of a worktree, and the five checks of a removal.
 //! - `create`: making a worktree for a session.
+//! - `prepare`: what an agent's session tool needs to know before the person is asked.
 //! - `pool`: the `oso-sessions-git` threads, and `jobs`: the jobs the app asks for on them.
 //! - `list`: the text of `*Worktrees*`.
 
@@ -33,6 +34,7 @@ pub mod list;
 pub mod merged;
 pub mod pool;
 pub mod porcelain;
+pub mod prepare;
 pub mod slug;
 pub mod steer;
 pub mod transcript;

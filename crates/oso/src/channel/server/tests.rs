@@ -13,7 +13,7 @@ use oso_platform::control::{ControlDir, ControlStream, Socket};
 use serde_json::{Value, json};
 
 use super::{Connection, Event, REFUSED_BY_THE_PERSON, Request, Shared, spawn};
-use crate::channel::protocol::Op;
+use crate::channel::protocol::{Op, PROTOCOL_VERSION};
 use crate::channel::wire::{request, response_result};
 
 /// A scratch control directory with the channel listening in it, and what reaches the UI.
@@ -120,7 +120,7 @@ fn a_probe_asks_nothing_and_a_first_request_asks_the_person() {
     let connection = running.answer(true);
     assert_eq!(connection.number, 1, "the probe raised no event");
     let version = client.reply().unwrap();
-    assert_eq!(version["protocol"], 1);
+    assert_eq!(version["protocol"], PROTOCOL_VERSION);
     assert_eq!(version["pid"], std::process::id());
 }
 
@@ -183,7 +183,7 @@ fn one_connection_waits_at_a_time() {
     first.send("state", None);
     assert!(first.reply().unwrap_err().contains("not answered yet"));
     asking.reply.unwrap().send(Ok(Value::Null)).unwrap();
-    assert_eq!(first.reply().unwrap()["protocol"], 1);
+    assert_eq!(first.reply().unwrap()["protocol"], PROTOCOL_VERSION);
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn a_client_that_leaves_while_it_waits_locks_no_one_out() {
     let mut next = running.connect();
     next.send("version", None);
     running.answer(true);
-    assert_eq!(next.reply().unwrap()["protocol"], 1);
+    assert_eq!(next.reply().unwrap()["protocol"], PROTOCOL_VERSION);
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn connections_that_say_nothing_keep_no_agent_out() {
     let mut client = running.connect();
     client.send("version", None);
     running.answer(true);
-    assert_eq!(client.reply().unwrap()["protocol"], 1);
+    assert_eq!(client.reply().unwrap()["protocol"], PROTOCOL_VERSION);
     drop(silent);
 }
 
@@ -338,7 +338,7 @@ fn a_hosted_sessions_bridge_is_let_in_unasked_and_beside_the_others() {
     let mut bridge = running.connect();
     bridge.send("version", Some(session.clone()));
     let connection = claim(&running, "s-1", true);
-    assert_eq!(bridge.reply().unwrap()["protocol"], 1);
+    assert_eq!(bridge.reply().unwrap()["protocol"], PROTOCOL_VERSION);
     bridge.send("state", None);
     let request = running.next();
     assert_eq!(request.connection, connection);
@@ -353,4 +353,53 @@ fn a_hosted_sessions_bridge_is_let_in_unasked_and_beside_the_others() {
     claim(&running, "s-1", false);
     assert!(other.reply().unwrap_err().contains("too many agents"));
     drop(held);
+}
+
+/// A session tool that asks the person holds its reply past the usual wait, answers "wait" to
+/// what the client sends meanwhile, and ends when the client goes, so that the UI closes the
+/// question (ADR 0121, step 6).
+#[test]
+fn a_call_that_asks_the_person_waits_for_them_and_ends_with_its_client() {
+    let running = Running::new();
+    let mut client = running.connect();
+    client.send("version", None);
+    let connection = running.answer(true);
+    client.reply().unwrap();
+    client.send(
+        "start_worktree_session",
+        Some(json!({ "branch": "x", "brief": "do it" })),
+    );
+    let call = running.next();
+    assert!(
+        matches!(call.event, Event::Op(Op::Session(_))),
+        "{:?}",
+        call.event
+    );
+    // The UI holds the reply, as the person has not answered.
+    client.send("session_list", None);
+    let waiting = client.reply().unwrap_err();
+    assert!(waiting.starts_with("wait:"), "{waiting}");
+    drop(client);
+    let gone = running.next();
+    assert_eq!(gone.connection, connection);
+    assert!(matches!(gone.event, Event::Gone), "{:?}", gone.event);
+    drop(call);
+}
+
+/// The person's answer comes in time, however long they took.
+#[test]
+fn a_call_that_asks_the_person_replies_with_what_the_ui_says() {
+    let running = Running::new();
+    let mut client = running.connect();
+    client.send("version", None);
+    running.answer(true);
+    client.reply().unwrap();
+    client.send("session_start", None);
+    let call = running.next();
+    std::thread::sleep(Duration::from_millis(300));
+    call.reply
+        .unwrap()
+        .send(Ok(json!({ "session": { "name": "x" } })))
+        .unwrap();
+    assert_eq!(client.reply().unwrap()["session"]["name"], "x");
 }

@@ -20,6 +20,7 @@
 //! - `bridge`: whether a connection is a hosted session's bridge.
 //! - `start`: getting a session ready and starting its terminal, on a thread of its own.
 //! - `worktree`: worktree sessions, their briefs, the list and safe removal.
+//! - `tools`: the agents' session tools: reach, questions, the loop guard and refusals.
 //! - `recap`: a session's one-line recap, from a rule's `recap` pattern or the title.
 //! - `attention`: when a session's state asks for the person's attention.
 //! - `list`: `*Sessions*`, grouped, nested and folded, rendered to a width.
@@ -49,6 +50,7 @@ pub mod send;
 pub mod spaces;
 pub mod start;
 pub mod state;
+pub mod tools;
 pub mod transcripts;
 pub mod worker;
 pub mod worktree;

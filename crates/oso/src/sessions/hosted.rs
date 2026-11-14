@@ -30,6 +30,18 @@ pub enum Run {
     Failed,
 }
 
+impl Run {
+    /// How lists show it: `*Worktrees*` and the agents' session tools alike.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Starting => "starting",
+            Self::Running { .. } => "running",
+            Self::Stopped => "stopped",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 /// One hosted session.
 #[derive(Debug, Clone)]
 pub struct Hosted {
@@ -237,13 +249,6 @@ impl Table {
     }
 
     /// The session the bridge connection `connection` holds.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a review names its agent's session by it (ADR 0122 step 7), and so do step 6's tools"
-        )
-    )]
     pub fn by_connection(&self, connection: Connection) -> Option<&Hosted> {
         self.sessions
             .iter()

@@ -149,7 +149,7 @@ pub(super) fn let_in(app: &mut App) -> Agent {
     assert!(hasty.unwrap_err().contains("takes no answer yet"));
     answer_after_quiet(app, "y", refused);
     let (agent, result) = version.join().unwrap();
-    assert_eq!(result.unwrap()["protocol"], 1);
+    assert_eq!(result.unwrap()["protocol"], 2);
     thread::sleep(AFTER_TYPING);
     agent
 }
@@ -525,7 +525,11 @@ fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
         "no response to the notification: {output}"
     );
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "oso");
-    assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 7);
+    // The editor's 7 and the session tools of ADR 0121 step 6a.
+    assert_eq!(
+        responses[1]["result"]["tools"].as_array().unwrap().len(),
+        13
+    );
     let text = |response: &Value| {
         response["result"]["content"][0]["text"]
             .as_str()

@@ -1513,6 +1513,7 @@ pub oso_core::editor::SessionRequest::FollowMessage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::NextDone
 pub oso_core::editor::SessionRequest::NextWaiting
+pub oso_core::editor::SessionRequest::QuestionDetails
 pub oso_core::editor::SessionRequest::Refresh
 pub oso_core::editor::SessionRequest::Regroup
 pub oso_core::editor::SessionRequest::Resume(oso_core::buffer::BufferId)

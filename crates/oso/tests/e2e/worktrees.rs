@@ -52,16 +52,16 @@ const BRIEF: &str = "Fix the parser";
 const SESSION: &str = "*claude: e2e-work*";
 
 /// How long a fake may take to start, and a listing to show its rows.
-const DEADLINE: Duration = Duration::from_secs(30);
+pub(super) const DEADLINE: Duration = Duration::from_secs(30);
 
 /// One run of the fake: the directory it ran in, and its arguments.
 type Run = (String, Vec<String>);
 
 /// A flow's files: the scratch directory, the repository the instance starts in, its home and
 /// its configuration.
-struct Flow {
-    scratch: Scratch,
-    repo: PathBuf,
+pub(super) struct Flow {
+    pub(super) scratch: Scratch,
+    pub(super) repo: PathBuf,
     home: PathBuf,
     config: PathBuf,
 }
@@ -70,6 +70,12 @@ impl Flow {
     /// A committed repository, `repo`, with `.env` ignored and named by `.worktreeinclude`, and
     /// `main` pushed to a bare `origin`. `sessions` is added to the `[sessions]` table.
     fn new(test: &str, sessions: &str) -> Flow {
+        Flow::with_fake(test, sessions, FAKE)
+    }
+
+    /// As [`Flow::new`], with `fake` as the fake `claude`, in which `DIR` is the scratch
+    /// directory.
+    pub(super) fn with_fake(test: &str, sessions: &str, fake: &str) -> Flow {
         let scratch = Scratch::new(test);
         let repo = scratch.path().join("repo");
         let home = scratch.path().join("home");
@@ -80,7 +86,7 @@ impl Flow {
         scratch.write("repo/.env", ENV.as_bytes());
         let fake = scratch.write(
             "fake-claude",
-            FAKE.replace("DIR", &scratch.path().display().to_string())
+            fake.replace("DIR", &scratch.path().display().to_string())
                 .as_bytes(),
         );
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
@@ -109,7 +115,7 @@ impl Flow {
 
     /// Starts an instance in the repository with `README.md` shown, and trusts the project as
     /// a person does. Returns it and `README.md`'s buffer id.
-    fn start(&self) -> (App, Value) {
+    pub(super) fn start(&self) -> (App, Value) {
         let mut app = App::start_with_config_and_env(
             &self.repo,
             &self.config,
@@ -135,7 +141,7 @@ impl Flow {
 
     /// Runs git in `dir` with `args`, which must succeed, with a fixed identity and kept from
     /// the person's configuration and hooks. Returns what it printed.
-    fn git(&self, dir: &Path, args: &[&str]) -> String {
+    pub(super) fn git(&self, dir: &Path, args: &[&str]) -> String {
         let git = Executable::from_path("git", None).expect("git is on PATH");
         let hooks = self.scratch.path().join("hooks");
         fs::create_dir_all(&hooks).expect("cannot make the hooks directory");
@@ -175,7 +181,7 @@ impl Flow {
     }
 
     /// The fake's next run exits with `code` once it is there.
-    fn exit_with(&self, code: u8) {
+    pub(super) fn exit_with(&self, code: u8) {
         self.scratch.write("go", code.to_string().as_bytes());
     }
 
@@ -222,7 +228,7 @@ impl Flow {
 }
 
 /// The keys that type `text`.
-fn keys(text: &str) -> String {
+pub(super) fn keys(text: &str) -> String {
     let keys: Vec<String> = text
         .chars()
         .map(|c| match c {
@@ -234,14 +240,14 @@ fn keys(text: &str) -> String {
 }
 
 /// What the open prompt or question says, if one is open.
-fn asks(state: &Value) -> Option<String> {
+pub(super) fn asks(state: &Value) -> Option<String> {
     state["prompts"].as_array()?.first()?["prompt"]
         .as_str()
         .map(str::to_owned)
 }
 
 /// The terminal of the buffer named `name`.
-fn terminal<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
+pub(super) fn terminal<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
     state["terminals"]
         .as_array()?
         .iter()

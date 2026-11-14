@@ -7,10 +7,11 @@
 
 use std::fs;
 use std::path::Path;
-use std::sync::mpsc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
-use super::super::jobs::{Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
+use super::super::jobs::{Asked, Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
 use super::{Scratch, order};
 use crate::review::TrustedRoot;
 
@@ -126,25 +127,49 @@ fn a_removal_runs_every_check_again() {
     }
     // A file made after the question.
     fs::write(made.path.join("new.txt"), "n").unwrap();
-    jobs.remove(2, trust(), made.path.clone(), Snapshot::default(), 0);
+    jobs.remove(
+        2,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(0),
+    );
     let why = removed(2).unwrap_err();
     assert!(why.contains("untracked"), "{why}");
     fs::remove_file(made.path.join("new.txt")).unwrap();
     // A file git ignores, which the question did not name.
     fs::write(made.path.join(".env"), "x").unwrap();
-    jobs.remove(3, trust(), made.path.clone(), Snapshot::default(), 0);
+    jobs.remove(
+        3,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(0),
+    );
     let why = removed(3).unwrap_err();
     assert!(why.contains("ignores more"), "{why}");
     assert!(made.path.is_dir(), "nothing was removed");
     // The checks hold: the app is asked to clear it, and calls it off.
-    jobs.remove(4, trust(), made.path.clone(), Snapshot::default(), 1);
+    jobs.remove(
+        4,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(1),
+    );
     match next(&got) {
         Report::Clear { token: 4, go, .. } => drop(go),
         other => panic!("{other:?}"),
     }
     assert!(removed(4).unwrap_err().contains("called off"));
     assert!(made.path.is_dir(), "nothing was removed");
-    jobs.remove(5, trust(), made.path.clone(), Snapshot::default(), 1);
+    jobs.remove(
+        5,
+        trust(),
+        made.path.clone(),
+        Snapshot::default(),
+        Asked::Named(1),
+    );
     match next(&got) {
         Report::Clear { token: 5, path, go } => {
             assert_eq!(path, made.path);
@@ -152,6 +177,23 @@ fn a_removal_runs_every_check_again() {
         }
         other => panic!("{other:?}"),
     }
-    assert_eq!(removed(5), Ok(()));
+    assert_eq!(removed(5), Ok(vec![std::path::PathBuf::from(".env")]));
     assert!(!made.path.exists());
+}
+
+/// An agent's listing ends with a report saying so, and one stopped before it ran lists
+/// nothing (ADR 0121, step 6).
+#[test]
+fn an_agents_listing_says_when_it_ends_and_stops_when_told() {
+    let s = Scratch::new("agent-listing");
+    s.create("one").unwrap();
+    let (jobs, got) = jobs(&s);
+    let go = Arc::new(AtomicBool::new(false));
+    jobs.list_for_agent(1, trust(&s.root, &[&s.root]), Snapshot::default(), go);
+    assert!(matches!(next(&got), Report::Listed { result: Ok(1), .. }));
+    assert!(matches!(next(&got), Report::Row { token: 1, .. }));
+    assert!(matches!(next(&got), Report::ListEnded { token: 1 }));
+    let stopped = Arc::new(AtomicBool::new(true));
+    jobs.list_for_agent(2, trust(&s.root, &[&s.root]), Snapshot::default(), stopped);
+    assert!(matches!(next(&got), Report::ListEnded { token: 2 }));
 }
