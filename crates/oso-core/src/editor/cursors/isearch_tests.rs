@@ -89,29 +89,15 @@ fn a_match_from_a_search_is_taken_on_whole_clusters_in_the_searchs_direction() {
 
 #[test]
 fn every_match_waits_for_the_search_to_count_them() {
+    // The key finds the match, as a key with no time limit does in oso-core's tests; one out of
+    // time is in `key_time_tests`.
     let mut editor = editor("ab ab");
     editor.isearch_begin(false, false);
     editor.isearch_add("ab");
-    // The key finds the match within its time, or leaves it to the worker with the count if
-    // the time ran out: the worker reports the match before the count, so its reports are taken
-    // in one at a time until the match is known, and the count is not yet.
-    let job = editor
-        .take_isearch_job()
-        .expect("the count is the worker's");
-    let mut reports = Vec::new();
-    job.run(|report| reports.push(report));
-    let mut reports = reports.into_iter();
-    while editor.isearch_current_match().is_none() {
-        editor.isearch_reported(reports.next().expect("the worker finds the match"));
-    }
     assert_eq!(editor.isearch_mark(None), Err(CursorError::Counting));
     assert!(editor.isearch().is_some(), "the search goes on");
-    for report in reports {
-        editor.isearch_reported(report);
-    }
     drain(&mut editor);
     editor.isearch_mark(None).unwrap();
-    drain(&mut editor);
     assert_eq!(cursors(&editor), [2, 5]);
 }
 
