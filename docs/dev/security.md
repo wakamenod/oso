@@ -385,8 +385,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   character is refused, and nothing is typed unless the shell is in the foreground and its prompt is
   empty.
 - An agent never types into a terminal, and reads or searches one only where the person allowed it
-  for that terminal. While echo is off, the terminal is treated as secret. Terminal text never
-  reaches the disk.
+  for that terminal (`terminal-allow-agent-read`). While the PTY has echo off with line editing on,
+  as a password prompt has it, the terminal is treated as secret: the channel waits while it is
+  shown, its rows are withheld, secure input is on while it is selected, and input typed there
+  drops a keyboard macro's recording. Terminal text never reaches the disk.
 - A terminal parses on its own thread, reads at most 64 KiB at a time and queues at most 16 MiB of
   writes, so neither bulk output nor a large paste reaches the UI thread.
 

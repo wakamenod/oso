@@ -215,6 +215,8 @@ pub struct Buffer {
     running: bool,
     /// What the modeline says after the mode, as the host sets it: a terminal's title.
     mode_note: String,
+    /// Whether the person let the agent channel read this terminal (ADR 0120, Q16).
+    agent_reads: bool,
     /// The agent channel is opening it and has not shown it yet.
     agent_pending: bool,
     /// The state of the content now.
@@ -276,6 +278,7 @@ impl Buffer {
             terminal: false,
             running: false,
             mode_note: String::new(),
+            agent_reads: false,
             agent_pending: false,
             content: ContentId(0),
             saved: ContentId(0),
@@ -379,7 +382,7 @@ impl Buffer {
     pub fn verdict(&self) -> Verdict {
         match self.verdict {
             // These say more than a yank does, and a passphrase's rules are its own.
-            Verdict::SecretName | Verdict::Passphrase => self.verdict,
+            Verdict::SecretName | Verdict::Passphrase | Verdict::EchoOff => self.verdict,
             _ if self.yanked_secret => Verdict::Yanked,
             verdict => verdict,
         }

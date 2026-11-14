@@ -302,7 +302,11 @@ mod tests {
         "space-zoom",
         // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",
+        // Letting an agent read a terminal is the person's to give and to take back
+        // (ADR 0120, Q16).
+        "terminal-allow-agent-read",
         "terminal-char-mode",
+        "terminal-deny-agent-read",
         "terminal-paste-lines",
         "terminal-send-interrupt",
         "terminal-send-next-key",

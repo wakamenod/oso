@@ -292,10 +292,10 @@ pub mod oso_platform::process
 pub mod oso_platform::process::pty
 pub struct oso_platform::process::pty::Master(_)
 impl oso_platform::process::pty::Master
-pub fn oso_platform::process::pty::Master::echoes(&self) -> std::io::error::Result<bool>
 pub fn oso_platform::process::pty::Master::foreground_group(&self) -> std::io::error::Result<core::option::Option<u32>>
 pub fn oso_platform::process::pty::Master::hang_up(&self) -> std::io::error::Result<()>
 pub fn oso_platform::process::pty::Master::read(&self, &mut [u8]) -> std::io::error::Result<usize>
+pub fn oso_platform::process::pty::Master::reads_secret(&self) -> std::io::error::Result<bool>
 pub fn oso_platform::process::pty::Master::resize(&self, oso_platform::process::pty::Size) -> std::io::error::Result<()>
 pub fn oso_platform::process::pty::Master::wait(&self, &oso_platform::process::pty::Wakeup, bool, core::option::Option<core::time::Duration>) -> std::io::error::Result<oso_platform::process::pty::Ready>
 pub fn oso_platform::process::pty::Master::write(&self, &[u8]) -> std::io::error::Result<usize>
