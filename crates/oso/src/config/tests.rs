@@ -25,6 +25,8 @@ const THEMES: &[&str] = &["dark", "light", "dusk"];
 pub(super) struct Fixture {
     pub(super) registry: Registry,
     pub(super) defaults: Keymap,
+    /// A session's terminal's default keys (ADR 0132).
+    pub(super) session: Keymap,
     pub(super) menus: oso_core::menu::Menus,
 }
 
@@ -32,10 +34,12 @@ impl Fixture {
     pub(super) fn new() -> Self {
         let registry = commands::registry();
         let defaults = bindings::global_keymap(&registry);
+        let session = bindings::session_keymap(&registry);
         let menus = bindings::built_in_menus(&registry);
         Self {
             registry,
             defaults,
+            session,
             menus,
         }
     }
@@ -44,6 +48,7 @@ impl Fixture {
         let builtin = Builtin {
             registry: &self.registry,
             defaults: &self.defaults,
+            session: &self.session,
             menus: &self.menus,
             themes: THEMES,
         };

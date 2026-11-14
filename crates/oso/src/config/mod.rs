@@ -40,6 +40,8 @@ use oso_core::menu::Menus;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
+use crate::bindings;
+
 pub use agent_rules::RulesReport;
 pub use checked::read_checked;
 pub use in_force::{InForce, JUMP_TIMEOUT, Look};
@@ -62,6 +64,9 @@ pub struct Loaded {
     /// The user's keymap, empty if the file binds no keys. `None` if the file was rejected, and
     /// then nothing in it applies: what was in force stays (ADR 0108).
     pub keys: Option<Keymap>,
+    /// The user's keys of a session's terminal, from `[keys.session]` (ADR 0132). `None` if the
+    /// file was rejected.
+    pub session: Option<SessionKeys>,
     /// The menus in force: the built-in ones with what the file adds, replaces and removes
     /// (ADR 0117). `None` if the file was rejected.
     pub menus: Option<Menus>,
@@ -72,6 +77,15 @@ pub struct Loaded {
     pub problems: Vec<Problem>,
     /// How many problems there were after those.
     pub more: usize,
+}
+
+/// The user's keys of a session's terminal, and what `C-c ?` says with them (ADR 0132).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SessionKeys {
+    /// The keys from `[keys.session]`, empty without any.
+    pub keys: Keymap,
+    /// What `C-c ?` says with them over the defaults; `None` says the default line.
+    pub help: Option<String>,
 }
 
 impl Loaded {
@@ -89,6 +103,9 @@ pub struct Builtin<'b> {
     pub registry: &'b Registry,
     /// The default keys its keys are checked against.
     pub defaults: &'b Keymap,
+    /// A session's terminal's default keys, which its `[keys.session]` is checked against
+    /// (ADR 0132).
+    pub session: &'b Keymap,
     /// The built-in menus it may replace or remove.
     pub menus: &'b Menus,
     /// The built-in themes' names.
@@ -99,20 +116,27 @@ pub struct Builtin<'b> {
 /// built in. Never panics, whatever the text.
 pub fn parse(text: &str, builtin: Builtin<'_>) -> Loaded {
     let mut found = Found::default();
-    let (keys, menus, settings) = match DeTable::parse(text) {
+    let (keys, session, menus, settings) = match DeTable::parse(text) {
         Ok(root) => {
             let (keys, menus, settings) = apply(root.get_ref(), builtin, &mut found);
             tear_down(root.into_inner());
-            (Some(keys), Some(menus), settings)
+            let help =
+                bindings::session_help(builtin.session, &keys.session, builtin.registry, &menus);
+            let session = SessionKeys {
+                keys: keys.session,
+                help: Some(help),
+            };
+            (Some(keys.global), Some(session), Some(menus), settings)
         }
         Err(first) => {
             syntax_errors(text, &first, &mut found);
-            (None, None, Settings::default())
+            (None, None, None, Settings::default())
         }
     };
     let (problems, more) = found.placed(text);
     Loaded {
         keys,
+        session,
         menus,
         settings,
         problems,
@@ -156,16 +180,25 @@ fn syntax_errors(text: &str, first: &toml::de::Error, found: &mut Found) {
     tear_down(root.into_inner());
 }
 
-/// The user's keymap, the menus and the settings from the tables of a file that parsed. The
+/// The user's keymaps, the menus and the settings from the tables of a file that parsed. The
 /// menus come first, so that a key can name one whatever the order of the tables.
-fn apply(root: &DeTable<'_>, builtin: Builtin<'_>, found: &mut Found) -> (Keymap, Menus, Settings) {
+fn apply(
+    root: &DeTable<'_>,
+    builtin: Builtin<'_>,
+    found: &mut Found,
+) -> (keys::UserKeymaps, Menus, Settings) {
     let Builtin {
         registry,
         defaults,
+        session,
         themes,
         ..
     } = builtin;
-    let mut user = Keymap::new();
+    let defaults = keys::Defaults {
+        global: defaults,
+        session,
+    };
+    let mut user = keys::UserKeymaps::default();
     let mut settings = Settings::default();
     let menus = root
         .iter()
@@ -194,7 +227,8 @@ fn apply(root: &DeTable<'_>, builtin: Builtin<'_>, found: &mut Found) -> (Keymap
             ),
         }
     }
-    menus::unbind_removed_menus(&mut user, &menus, defaults);
+    menus::unbind_removed_menus(&mut user.global, &menus, defaults.global);
+    menus::unbind_removed_menus(&mut user.session, &menus, defaults.session);
     (user, menus, settings)
 }
 
@@ -272,6 +306,8 @@ mod keys_tests;
 mod menus_tests;
 #[cfg(test)]
 mod search_tests;
+#[cfg(test)]
+mod session_keys_tests;
 #[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]

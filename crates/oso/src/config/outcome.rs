@@ -6,13 +6,15 @@
 
 use oso_core::keymap::Keymap;
 
-use super::{Report, Settings};
+use super::{Report, SessionKeys, Settings};
 
 /// What the app does with a [`Report`].
 #[derive(Debug, PartialEq, Eq)]
 pub struct Outcome {
     /// The user's keys to put in, in place of those in force; `None` keeps them.
     pub keys: Option<Keymap>,
+    /// The user's keys of a session's terminal to put in; `None` keeps them (ADR 0132).
+    pub session: Option<SessionKeys>,
     /// The settings to put in, all unset for no file; `None` keeps those in force.
     pub settings: Option<Settings>,
     /// Whether other users in a group can change the file, or the way to it.
@@ -44,6 +46,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
             log::info!("no configuration file: the defaults apply");
             Outcome {
                 keys: Some(Keymap::new()),
+                session: Some(SessionKeys::default()),
                 settings: Some(Settings::default()),
                 group_writes: false,
                 notes: Vec::new(),
@@ -53,6 +56,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
         }
         Report::Refused(why) => Outcome {
             keys: None,
+            session: None,
             settings: None,
             group_writes: false,
             notes: Vec::new(),
@@ -95,6 +99,7 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
                 settings: applied.then_some(loaded.settings),
                 group_writes,
                 keys: loaded.keys,
+                session: loaded.session,
                 notes,
                 said,
                 troubled: !applied || count > 0,
@@ -117,7 +122,7 @@ mod tests {
     use oso_core::keymap::Keymap;
 
     use super::{Outcome, outcome};
-    use crate::config::{Loaded, Problem, Report, Settings};
+    use crate::config::{Loaded, Problem, Report, SessionKeys, Settings};
 
     fn read(keys: Option<Keymap>, problems: usize, more: usize, group_writes: bool) -> Report {
         let problem = |line| Problem {
@@ -127,6 +132,7 @@ mod tests {
         };
         Report::Read {
             loaded: Box::new(Loaded {
+                session: keys.as_ref().map(|_| SessionKeys::default()),
                 keys,
                 menus: None,
                 settings: Settings::default(),
@@ -144,6 +150,7 @@ mod tests {
             quiet,
             Outcome {
                 keys: Some(Keymap::new()),
+                session: Some(SessionKeys::default()),
                 settings: Some(Settings::default()),
                 group_writes: false,
                 notes: Vec::new(),
@@ -199,7 +206,7 @@ mod tests {
     #[test]
     fn a_rejected_or_refused_file_keeps_what_is_in_force_and_a_missing_one_drops_it() {
         let rejected = outcome(read(None, 1, 0, false), "config.toml", false);
-        assert_eq!(rejected.keys, None);
+        assert_eq!((rejected.keys, rejected.session), (None, None));
         assert_eq!(
             rejected.settings, None,
             "nothing in a rejected file applies"
@@ -211,10 +218,16 @@ mod tests {
         assert!(rejected.troubled);
         let refused = outcome(Report::Refused("why".to_owned()), "config.toml", false);
         assert_eq!((refused.keys, refused.settings), (None, None));
+        assert_eq!(refused.session, None);
         assert_eq!(refused.said.as_deref(), Some("Configuration not read: why"));
         assert!(refused.troubled);
         let missing = outcome(Report::Missing, "config.toml", true);
         assert_eq!(missing.keys, Some(Keymap::new()));
+        assert_eq!(
+            missing.session,
+            Some(SessionKeys::default()),
+            "no session keys, and the default line"
+        );
         assert_eq!(
             missing.settings,
             Some(Settings::default()),

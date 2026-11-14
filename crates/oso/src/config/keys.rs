@@ -1,6 +1,7 @@
-//! The user's keymap from the file's `[keys]` table: each entry under `[keys.global]` binds a key
-//! sequence to a command or leaves it undefined, checked against the default keys it would
-//! shadow (ADR 0108, ADR 0110).
+//! The user's keymaps from the file's `[keys]` table: each entry under `[keys.global]` binds a
+//! key sequence to a command or leaves it undefined, checked against the default keys it would
+//! shadow (ADR 0108, ADR 0110). `[keys.session]` does the same for a session's terminal, over
+//! its default keys, for `C-c` sequences only (ADR 0132, step 2).
 //!
 //! Must not depend on: `app` or `dispatch`; it builds a [`Keymap`] for the dispatcher to take,
 //! from the registry and default keymap it is given.
@@ -8,7 +9,7 @@
 use std::collections::HashSet;
 
 use oso_core::command::{CommandId, Registry};
-use oso_core::key::KeyPress;
+use oso_core::key::{Key, KeyPress, Modifiers};
 use oso_core::keymap::{
     BindError, KeyResolver, Keymap, Layers, Resolution, display_keys, is_cancel,
 };
@@ -20,7 +21,7 @@ use super::defaults::Shadows;
 use super::problems::{Found, quoted};
 use super::{TableName, table, type_name};
 
-/// The most entries `[keys.global]` may have. A file with more binds none of them, so that a
+/// The most entries `[keys.global]` may have, and `[keys.session]`. A file with more binds none of them, so that a
 /// file of any size builds in bounded time (ADR 0110).
 pub const MAX_ENTRIES: usize = 10_000;
 
@@ -36,7 +37,54 @@ enum Target {
     Menu(MenuId),
 }
 
-/// One entry of `[keys.global]` whose keys parse and may be configured.
+/// `C-c`, the only key that begins a session's keys (ADR 0132).
+const C_C: KeyPress = control('c');
+
+/// The control key of `c`.
+const fn control(c: char) -> KeyPress {
+    KeyPress {
+        modifiers: Modifiers::CONTROL,
+        key: Key::Char(c),
+    }
+}
+
+/// Which table under `[keys]` entries are in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Table {
+    /// `[keys.global]`, just above the global keymap.
+    Global,
+    /// `[keys.session]`, above a session's terminal's keys (ADR 0132).
+    Session,
+}
+
+impl Table {
+    /// The table's name, as the file writes it.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Global => "[keys.global]",
+            Self::Session => "[keys.session]",
+        }
+    }
+}
+
+/// The user's keymaps from `[keys]`: `[keys.global]`'s and `[keys.session]`'s, each empty
+/// without its table.
+#[derive(Default)]
+pub(super) struct UserKeymaps {
+    pub(super) global: Keymap,
+    pub(super) session: Keymap,
+}
+
+/// The default keymaps the user's keys are checked against.
+#[derive(Clone, Copy)]
+pub(super) struct Defaults<'d> {
+    /// The global keymap.
+    pub(super) global: &'d Keymap,
+    /// A session's terminal's keymap (ADR 0132).
+    pub(super) session: &'d Keymap,
+}
+
+/// One entry of `[keys.global]` or `[keys.session]` whose keys parse and may be configured.
 pub(super) struct Entry<'t> {
     /// The keys as the file spells them.
     pub(super) spelled: &'t str,
@@ -45,23 +93,30 @@ pub(super) struct Entry<'t> {
     pub(super) keys: Vec<KeyPress>,
 }
 
-/// The user's keymap from the `[keys]` table `value`, whose name is at `at`. Entries with a
-/// problem are skipped, with a message in `found`.
+/// The user's keymaps from the `[keys]` table `value`. Entries with a problem are skipped,
+/// with a message in `found`.
 pub(super) fn keys(
     value: &Spanned<DeValue<'_>>,
     registry: &Registry,
     menus: &Menus,
-    defaults: &Keymap,
+    defaults: Defaults<'_>,
     found: &mut Found,
-) -> Keymap {
-    let mut keymap = Keymap::new();
-    let Some(keymaps) = table(value, "[keys]", found) else {
-        return keymap;
+) -> UserKeymaps {
+    let mut keymaps = UserKeymaps::default();
+    let Some(tables) = table(value, "[keys]", found) else {
+        return keymaps;
     };
-    for (name, value) in keymaps {
+    for (name, value) in tables {
         let at = name.span().start;
         match name.get_ref().as_ref() {
-            "global" => keymap = global(value, at, registry, menus, defaults, found),
+            "global" => {
+                let (kind, defaults) = (Table::Global, defaults.global);
+                keymaps.global = layer(value, at, kind, registry, menus, defaults, found);
+            }
+            "session" => {
+                let (kind, defaults) = (Table::Session, defaults.session);
+                keymaps.session = layer(value, at, kind, registry, menus, defaults, found);
+            }
             "question" => found.at(
                 at,
                 format_args!(
@@ -72,40 +127,43 @@ pub(super) fn keys(
             other => found.at(
                 at,
                 format_args!(
-                    "[keys.{}] is not configurable yet; only [keys.global] is",
+                    "[keys.{}] is not configurable yet; only [keys.global] and [keys.session] are",
                     TableName(other)
                 ),
             ),
         }
     }
-    keymap
+    keymaps
 }
 
-/// The user's keymap from `[keys.global]`, whose name is at `at`. Unbinding comes first, so
-/// that the order of the entries, which TOML does not keep, changes nothing.
-fn global(
+/// The user's keymap from `table`, whose name is at `at`, over the default keys `defaults`.
+/// Unbinding comes first, so that the order of the entries, which TOML does not keep, changes
+/// nothing.
+fn layer(
     value: &Spanned<DeValue<'_>>,
     at: usize,
+    kind: Table,
     registry: &Registry,
     menus: &Menus,
     defaults: &Keymap,
     found: &mut Found,
 ) -> Keymap {
     let mut keymap = Keymap::new();
-    let Some(entries) = table(value, "[keys.global]", found) else {
+    let name = kind.name();
+    let Some(entries) = table(value, name, found) else {
         return keymap;
     };
     if entries.len() > MAX_ENTRIES {
         found.at(
             at,
             format_args!(
-                "[keys.global] has {} entries, more than {MAX_ENTRIES}; none of its keys apply",
+                "{name} has {} entries, more than {MAX_ENTRIES}; none of its keys apply",
                 entries.len()
             ),
         );
         return keymap;
     }
-    let (mut unbinds, mut binds) = read(entries, registry, menus, found);
+    let (mut unbinds, mut binds) = read(entries, kind, registry, menus, found);
     // Shorter sequences first, so that of two entries that conflict the longer one is skipped,
     // whatever the file's order.
     unbinds.sort_unstable_by(|a, b| (a.keys.len(), a.spelled).cmp(&(b.keys.len(), b.spelled)));
@@ -140,7 +198,11 @@ fn global(
     }
     super::menus::unbind_removed_menus(&mut keymap, menus, defaults);
     for entry in &unbinds {
-        warn_if_shift_finds_more(&keymap, entry, defaults, found);
+        // In a session's terminal, `C-c` and a key left undefined is undefined before any
+        // keymap is read, so Shift finds nothing there (ADR 0132).
+        if kind == Table::Global || entry.keys.len() > 2 {
+            warn_if_shift_finds_more(&keymap, entry, defaults, found);
+        }
     }
     keymap
 }
@@ -148,6 +210,7 @@ fn global(
 /// The entries that unbind and those that bind, each checked on its own.
 fn read<'t>(
     entries: &'t DeTable<'_>,
+    kind: Table,
     registry: &Registry,
     menus: &Menus,
     found: &mut Found,
@@ -158,6 +221,9 @@ fn read<'t>(
             continue;
         };
         let (spelled, at) = (entry.spelled, value.span().start);
+        if kind == Table::Session && !reaches_a_session(&entry, found) {
+            continue;
+        }
         let unbinds_one_key =
             entry.keys.len() == 1 && matches!(value.get_ref(), DeValue::Boolean(false));
         // A typing key that began a sequence would become a prefix, and swallow the next key
@@ -205,6 +271,25 @@ fn read<'t>(
         }
     }
     (unbinds, binds)
+}
+
+/// Whether `entry` of `[keys.session]` may be configured: a `C-c` sequence, as no other key
+/// reaches a keymap in a terminal, but `C-c` alone, the prefix, `C-c C-c`, how `C-c` reaches
+/// the program, and `C-c C-k`, how char mode ends (ADR 0132, Q10).
+fn reaches_a_session(entry: &Entry<'_>, found: &mut Found) -> bool {
+    let why = match entry.keys[..] {
+        [first, ..] if first != C_C => "only C-c keys reach a session's keys",
+        [_] => "C-c alone begins a session's keys; put a key after it, such as \"C-c g\"",
+        [_, second, ..] if second == C_C => {
+            "C-c C-c is not configurable in a session; it sends C-c to Claude Code"
+        }
+        [_, second, ..] if second == control('k') => {
+            "C-c C-k is not configurable in a session; it ends char mode"
+        }
+        _ => return true,
+    };
+    found.about(entry.at, entry.spelled, format_args!("{why}"));
+    false
 }
 
 /// The entry for the keys `spelled`, if they are a sequence a person can type and may

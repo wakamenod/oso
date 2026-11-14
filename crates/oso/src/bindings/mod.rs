@@ -29,6 +29,7 @@ mod review;
 mod save;
 mod scroll;
 mod session;
+mod session_help;
 mod terminal;
 mod theme;
 mod view;
@@ -74,6 +75,9 @@ const TABLES: &[&[(&str, &str)]] = &[
 ];
 
 pub use menus::built_in_menus;
+#[cfg(test)]
+pub use session_help::MAX_HELP;
+pub use session_help::session_help;
 
 /// The default global keymap, over the commands in `registry`, with the built-in menus' keys.
 ///

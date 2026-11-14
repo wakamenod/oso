@@ -377,6 +377,33 @@ the project's row (Q9). `[keys.session]` comes in step 2, for `C-c` sequences on
 - **e2e:** `sessions::mode`, with a fake `claude` that reads its terminal raw and keeps every
   byte, so the flow checks exactly what reached the program.
 
+## Step 2, as built
+
+- **A user layer (the author's choice, 2026-11-15).** `[keys.session]` is read on the
+  configuration thread into a keymap of its own, as `[keys.global]` is, and checked against a
+  session's terminal's default keys (`bindings::session_keymap`). In a session's buffer it is a
+  minor mode layer above them (`Keymaps::user_session`, among the keymaps `reading` gives, after a
+  prefix argument's, so `C-c C-u` reaches it too). `false` leaves a key undefined there, which the
+  lower layers then never answer. oso-core and `Layers` are unchanged.
+- **The rules.** Only a sequence that starts with `C-c` is taken; any other says
+  `only C-c keys reach a session's keys`. `C-c` alone is refused, and so are `C-c C-c` and `C-c
+  C-k`, with or without keys after them, each with its own line. The rest are `[keys.global]`'s, against the
+  session's defaults: `"C-c s x"` needs `"C-c s" = false`, as `C-c s` runs `sessions`. A menu that
+  `[menus]` removes leaves its session key undefined too (`C-c V` without `review`). Shift's
+  warning is left out for a two-key entry: in a session's terminal an undefined `C-c` key is
+  undefined before any keymap is read, so Shift finds nothing.
+- **The terminal's `C-c` check** reads the layer first: a key it leaves undefined says
+  `is undefined`, one it binds is oso's, and the session's keymap answers the rest. A
+  `[keys.global]` `C-c` key still reaches no terminal.
+- **`C-c ?`** says the user's keys over the defaults, hiding those they replace or unbind. The
+  line is built where the keys are, on the configuration thread, by `bindings::session_help`,
+  moved out of `dispatch` so that both build it, and ends in `…` after 480 bytes
+  (`bindings::session_help::MAX_HELP`), as a file may bind 10,000 keys there.
+- **The swap** waits for a pending prefix key, as the user's global keys do, and the keymap it
+  replaces is dropped on the freeing thread.
+- **e2e:** a second `sessions::mode` flow binds `C-c g` and unbinds `C-c s`, checks both and
+  `C-c ?`, then writes the file without the table and waits for the defaults.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.

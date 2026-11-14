@@ -71,13 +71,13 @@ y = "undo"
     assert_eq!(
         messages(&loaded),
         [
-            "1:7: [keys.minibuffer] is not configurable yet; only [keys.global] is",
-            "3:7: [keys.completion] is not configurable yet; only [keys.global] is",
-            "4:7: [keys.isearch] is not configurable yet; only [keys.global] is",
-            "5:7: [keys.rust] is not configurable yet; only [keys.global] is",
+            "1:7: [keys.minibuffer] is not configurable yet; only [keys.global] and [keys.session] are",
+            "3:7: [keys.completion] is not configurable yet; only [keys.global] and [keys.session] are",
+            "4:7: [keys.isearch] is not configurable yet; only [keys.global] and [keys.session] are",
+            "5:7: [keys.rust] is not configurable yet; only [keys.global] and [keys.session] are",
             "6:7: [keys.question] is never configurable: its keys answer the agent channel's \
              questions",
-            r#"8:7: [keys."a b"] is not configurable yet; only [keys.global] is"#,
+            r#"8:7: [keys."a b"] is not configurable yet; only [keys.global] and [keys.session] are"#,
         ]
     );
     assert!(keys(&loaded).is_empty());
