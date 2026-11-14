@@ -50,6 +50,7 @@ a = false
 "C-c C-k" = false
 "C-c C-g" = "undo"
 "C-c s x" = "undo"
+"C-c C-k x" = "undo"
 "#,
     );
     let messages = messages(&loaded);
@@ -72,7 +73,11 @@ a = false
         "{}",
         messages[7]
     );
-    assert_eq!(messages.len(), 8);
+    assert_eq!(
+        messages[8],
+        r#"10:1: "C-c C-k x": C-c C-k is not configurable in a session; it ends char mode"#
+    );
+    assert_eq!(messages.len(), 9);
     assert!(session(&loaded).keys.is_empty());
 }
 
@@ -146,4 +151,41 @@ fn a_long_session_table_ends_its_line_and_a_too_long_one_applies_nothing() {
             MAX_ENTRIES + 1
         )]
     );
+}
+
+#[test]
+fn a_session_s_new_prefix_hides_the_global_keys_under_it() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        r#"[keys.session]
+"C-c x y" = "undo"
+"C-c Q y" = { menu = "review" }
+"#,
+    );
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    let user = &session(&loaded).keys;
+    assert_eq!(f.bound(user, "C-c x y"), Some("undo"));
+    // `C-c x z` is undefined there, so `[keys.global]`'s `C-c x z` cannot run under it.
+    assert_eq!(f.bound(user, "C-c x z"), Some("undefined"));
+    assert_eq!(f.bound(user, "C-c Q z"), Some("undefined"));
+    // `C-c` itself still lets the session's defaults answer.
+    assert_eq!(f.bound(user, "C-c s"), None);
+}
+
+#[test]
+fn a_full_session_table_of_long_keys_applies_and_its_line_ends() {
+    let f = Fixture::new();
+    let mut text = String::from("[keys.session]\n");
+    for n in 0..MAX_ENTRIES {
+        let digits: Vec<String> = format!("{n:013}").chars().map(String::from).collect();
+        writeln!(text, "\"C-c y {} a\" = \"undo\"", digits.join(" ")).unwrap();
+    }
+    let loaded = f.parse(&text);
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    let session = session(&loaded);
+    assert_eq!(
+        f.bound(&session.keys, "C-c y 0 0 0 0 0 0 0 0 0 9 9 9 9 a"),
+        Some("undo")
+    );
+    assert!(session.help.as_deref().unwrap().ends_with("  …"));
 }

@@ -96,3 +96,99 @@ fn session_keys_wait_for_a_pending_prefix_key() {
     assert_eq!(dispatcher.take_replaced_keymap(), Some(Keymap::new()));
     assert_eq!(dispatcher.take_replaced_keymap(), None);
 }
+
+#[test]
+fn session_keys_that_would_take_c_c_c_c_or_c_c_c_k_are_not_put_in() {
+    for keymap in [
+        user(
+            &[
+                ("C-c C-c", "session-next-done"),
+                ("C-c g", "session-next-done"),
+            ],
+            &[],
+        ),
+        user(&[("C-c g", "session-next-done")], &["C-c C-k"]),
+    ] {
+        let (mut dispatcher, mut editor) = in_session();
+        dispatcher.set_session_keys(keymap, Some("C-c then:  g next-done".to_owned()));
+        send(&mut dispatcher, &mut editor, "C-c C-c");
+        assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c"));
+        send(&mut dispatcher, &mut editor, "C-c g");
+        assert_eq!(echo(&editor), "C-c g is undefined (C-c C-c sends C-c)");
+        send(&mut dispatcher, &mut editor, "C-c ?");
+        assert!(
+            echo(&editor).starts_with("C-c then:  a adopt"),
+            "the default line"
+        );
+        assert!(editor.take_session_requests().is_empty());
+    }
+}
+
+#[test]
+fn in_char_mode_the_user_s_session_keys_go_to_the_program() {
+    let (mut dispatcher, mut editor) = in_session();
+    dispatcher.set_session_keys(mine(), None);
+    send(&mut dispatcher, &mut editor, "C-c C-k C-c g");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c g"));
+    assert!(editor.take_session_requests().is_empty());
+}
+
+#[test]
+fn a_user_s_session_key_replaces_a_default_and_opens_a_menu() {
+    let (mut dispatcher, mut editor) = in_session();
+    let registry = commands::registry();
+    let mut keymap = user(&[("C-c d", "session-next-waiting")], &[]);
+    let review = crate::bindings::built_in_menus(&registry)
+        .lookup("review")
+        .unwrap();
+    keymap.bind_menu(&keys("C-c R"), review).unwrap();
+    dispatcher.set_session_keys(keymap, None);
+    send(&mut dispatcher, &mut editor, "C-c d");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::NextWaiting]
+    );
+    send(&mut dispatcher, &mut editor, "C-c R");
+    assert!(dispatcher.menu_open());
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+}
+
+#[test]
+fn a_key_the_user_unbinds_is_undefined_after_c_c_c_u_too() {
+    let (mut dispatcher, mut editor) = in_session();
+    dispatcher.set_session_keys(mine(), None);
+    send(&mut dispatcher, &mut editor, "C-c C-u C-c n");
+    assert_eq!(echo(&editor), "C-c n is undefined (C-c C-c sends C-c)");
+    assert!(editor.take_session_requests().is_empty());
+    assert!(!dispatcher.keys_in_progress());
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+}
+
+#[test]
+fn the_user_s_global_c_c_keys_reach_no_session_beside_its_own() {
+    let (mut dispatcher, mut editor) = in_session();
+    dispatcher.set_user_keymap(user(
+        &[
+            ("C-c t", "session-next-done"),
+            ("C-c x z", "session-next-done"),
+        ],
+        &[],
+    ));
+    // As the configuration makes it: a prefix of the user's session keys hides what is under
+    // it.
+    dispatcher.set_session_keys(
+        user(&[("C-c x y", "session-next-waiting")], &["C-c x"]),
+        None,
+    );
+    send(&mut dispatcher, &mut editor, "C-c t");
+    assert_eq!(echo(&editor), "C-c t is undefined (C-c C-c sends C-c)");
+    send(&mut dispatcher, &mut editor, "C-c x z");
+    assert_eq!(echo(&editor), "C-c x z is undefined");
+    assert!(editor.take_session_requests().is_empty());
+    send(&mut dispatcher, &mut editor, "C-c x y");
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::NextWaiting]
+    );
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+}

@@ -2,7 +2,9 @@
 //! follow vanilla Emacs (ADR 0019). Each feature with default keys has a module
 //! here, named as in `commands`, with its own table, and [`TABLES`] lists them.
 //!
-//! Must not depend on: `dispatch`, `app` or winit; bindings are data.
+//! Must not depend on: `dispatch`, `app` or winit; bindings are data. `session_help` words what
+//! a session's keys run, for `C-c ?`, as `menus` words its toggles: below both `config` and
+//! `dispatch`, which each build it (ADR 0132).
 
 mod agent_sessions;
 mod buffers;

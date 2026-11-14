@@ -1,5 +1,5 @@
-//! The user configuration file, `config.toml`, from its text to the user's keymap and settings
-//! (ADR 0108, ADR 0110). Only what the file says: nothing in it can run anything, and it names
+//! The user configuration file, `config.toml`, from its text to the user's keymaps and settings
+//! (ADR 0108, ADR 0110), with the line `C-c ?` says of a session's keys (ADR 0132). Only what the file says: nothing in it can run anything, and it names
 //! only registered commands, built-in themes and values of the types below.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; the dispatcher takes the keymap it builds.

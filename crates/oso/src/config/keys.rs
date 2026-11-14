@@ -9,9 +9,9 @@
 use std::collections::HashSet;
 
 use oso_core::command::{CommandId, Registry};
-use oso_core::key::{Key, KeyPress, Modifiers};
+use oso_core::key::KeyPress;
 use oso_core::keymap::{
-    BindError, KeyResolver, Keymap, Layers, Resolution, display_keys, is_cancel,
+    BindError, Binding, KeyResolver, Keymap, Layers, Resolution, display_keys, is_cancel,
 };
 use oso_core::menu::{MenuId, Menus};
 use toml::Spanned;
@@ -20,6 +20,7 @@ use toml::de::{DeTable, DeValue};
 use super::defaults::Shadows;
 use super::problems::{Found, quoted};
 use super::{TableName, table, type_name};
+use crate::terminal::route::{C_C, C_K};
 
 /// The most entries `[keys.global]` may have, and `[keys.session]`. A file with more binds none of them, so that a
 /// file of any size builds in bounded time (ADR 0110).
@@ -35,17 +36,6 @@ enum Target {
     Command(CommandId),
     /// `{ menu = "<name>" }` (ADR 0117).
     Menu(MenuId),
-}
-
-/// `C-c`, the only key that begins a session's keys (ADR 0132).
-const C_C: KeyPress = control('c');
-
-/// The control key of `c`.
-const fn control(c: char) -> KeyPress {
-    KeyPress {
-        modifiers: Modifiers::CONTROL,
-        key: Key::Char(c),
-    }
 }
 
 /// Which table under `[keys]` entries are in.
@@ -197,6 +187,9 @@ fn layer(
         }
     }
     super::menus::unbind_removed_menus(&mut keymap, menus, defaults);
+    if kind == Table::Session {
+        hide_new_prefixes(&mut keymap, defaults);
+    }
     for entry in &unbinds {
         // In a session's terminal, `C-c` and a key left undefined is undefined before any
         // keymap is read, so Shift finds nothing there (ADR 0132).
@@ -221,7 +214,7 @@ fn read<'t>(
             continue;
         };
         let (spelled, at) = (entry.spelled, value.span().start);
-        if kind == Table::Session && !reaches_a_session(&entry, found) {
+        if kind == Table::Session && !session_may_bind(&entry, found) {
             continue;
         }
         let unbinds_one_key =
@@ -273,17 +266,39 @@ fn read<'t>(
     (unbinds, binds)
 }
 
+/// Makes each prefix after `C-c` that the user's session keys `keymap` make, and the session's
+/// defaults do not have, hide what lower layers bind under it: those are the global keys and
+/// `[keys.global]`, whose `C-c` keys reach no terminal (ADR 0132). Without it, `C-c x z` would
+/// run `[keys.global]`'s under a `[keys.session]` prefix `C-c x`.
+fn hide_new_prefixes(keymap: &mut Keymap, defaults: &Keymap) {
+    let mut prefixes: HashSet<KeyPress> = HashSet::new();
+    let mut note = |keys: &[KeyPress]| {
+        if keys.len() > 2 {
+            prefixes.insert(keys[1]);
+        }
+    };
+    keymap.bindings(|keys, _| note(keys));
+    keymap.menu_bindings(|keys, _| note(keys));
+    for key in prefixes {
+        let keys = [C_C, key];
+        if !matches!(defaults.lookup(&keys), Some(Binding::Prefix(_))) {
+            // A prefix of the keymap's own, so unbinding it only makes it hide.
+            let _ = keymap.unbind(&keys);
+        }
+    }
+}
+
 /// Whether `entry` of `[keys.session]` may be configured: a `C-c` sequence, as no other key
 /// reaches a keymap in a terminal, but `C-c` alone, the prefix, `C-c C-c`, how `C-c` reaches
 /// the program, and `C-c C-k`, how char mode ends (ADR 0132, Q10).
-fn reaches_a_session(entry: &Entry<'_>, found: &mut Found) -> bool {
+fn session_may_bind(entry: &Entry<'_>, found: &mut Found) -> bool {
     let why = match entry.keys[..] {
         [first, ..] if first != C_C => "only C-c keys reach a session's keys",
         [_] => "C-c alone begins a session's keys; put a key after it, such as \"C-c g\"",
         [_, second, ..] if second == C_C => {
             "C-c C-c is not configurable in a session; it sends C-c to Claude Code"
         }
-        [_, second, ..] if second == control('k') => {
+        [_, second, ..] if second == C_K => {
             "C-c C-k is not configurable in a session; it ends char mode"
         }
         _ => return true,

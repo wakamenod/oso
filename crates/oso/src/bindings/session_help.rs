@@ -11,6 +11,7 @@ use oso_core::keymap::{Binding, Keymap, display_keys};
 use oso_core::menu::Menus;
 
 use crate::commands::agent_sessions::SESSION_HELP;
+use crate::terminal::route::C_C;
 
 /// The longest line, in bytes, before the keys after it are left out. A file's
 /// `[keys.session]` may bind thousands of keys; the echo area shows one line.
@@ -63,10 +64,6 @@ fn rows_of(
     help: Option<CommandId>,
     rows: &mut Vec<(Vec<KeyPress>, String)>,
 ) {
-    let c_c = KeyPress {
-        modifiers: Modifiers::CONTROL,
-        key: Key::Char('c'),
-    };
     let hidden = |keys: &[KeyPress]| {
         over.is_some_and(|over| {
             (1..=keys.len()).any(|len| match over.lookup(&keys[..len]) {
@@ -76,7 +73,7 @@ fn rows_of(
             })
         })
     };
-    let shown = |keys: &[KeyPress]| keys.len() > 1 && keys[0] == c_c && !hidden(keys);
+    let shown = |keys: &[KeyPress]| keys.len() > 1 && keys[0] == C_C && !hidden(keys);
     keymap.bindings(|keys, id| {
         let Some(command) = registry.get(id).filter(|_| Some(id) != help) else {
             return;

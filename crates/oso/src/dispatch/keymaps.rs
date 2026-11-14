@@ -1,7 +1,8 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
 //! argument's, the layer `C-x TAB` opens, a prompt's, a completion's, a review comment's
-//! draft's or a question's, a jump's, isearch's, a mode's, the user's and the global one
-//! (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108, ADR 0115, ADR 0116, ADR 0121, ADR 0122).
+//! draft's or a question's, a jump's, isearch's, a mode's, a session's terminal's with the
+//! user's `[keys.session]` over it, the user's and the global one (ADR 0034, ADR 0072,
+//! ADR 0076, ADR 0082, ADR 0108, ADR 0115, ADR 0116, ADR 0121, ADR 0122, ADR 0132).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
@@ -15,6 +16,7 @@ use oso_core::keymap::{Keymap, Layers};
 use oso_core::minibuffer::Kind;
 
 use crate::bindings;
+use crate::terminal::route;
 
 use super::Dispatcher;
 use super::session_help::SessionHelp;
@@ -196,16 +198,15 @@ impl Keymaps {
         if editor.replace().is_some() {
             return Layers::global(&self.replace);
         }
+        let buffer = editor.current().1;
         // The user's session keys come after the prefix argument's, which bind no `C-c` key.
         let session = usize::from(
-            !self.user_session.is_empty()
-                && editor.prompt().is_none()
-                && editor.current().1.hosts_session(),
+            !self.user_session.is_empty() && editor.prompt().is_none() && buffer.hosts_session(),
         );
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => &reading[..2 + session],
             Some(prefix) if prefix.reads_digits() => &reading[1..2 + session],
-            _ if editor.indent_rigidly_layer() => &reading[3..],
+            _ if editor.indent_rigidly_layer() => &reading[3 - session..],
             _ => &reading[2..2 + session],
         };
         let major = if let Some(prompt) = editor.prompt() {
@@ -216,7 +217,7 @@ impl Keymaps {
                 _ => Some(&self.minibuffer),
             }
         } else {
-            match editor.current().1.mode() {
+            match buffer.mode() {
                 Mode::Fundamental | Mode::Rust | Mode::Toml => None,
                 Mode::Review => Some(&self.review),
                 Mode::Markdown => Some(&self.markdown),
@@ -225,7 +226,7 @@ impl Keymaps {
                 Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
-                Mode::Terminal => Some(self.terminal_keys(editor.current().1)),
+                Mode::Terminal => Some(self.terminal_keys(buffer)),
             }
         };
         Layers {
@@ -296,7 +297,18 @@ impl Dispatcher {
     /// before, with `help`, what `C-c ?` says of them, or `None` for the default line
     /// (ADR 0132). They wait for a pending prefix key as [`Dispatcher::set_user_keymap`]'s do,
     /// and the keymap this replaces now is returned in the same way.
+    ///
+    /// Keys that would take `C-c C-c` or `C-c C-k` from the terminal are not put in, as the
+    /// configuration refuses them: `C-c` would no longer reach the program, or char mode
+    /// would not switch. The default line is said then.
     pub fn set_session_keys(&mut self, keys: Keymap, help: Option<String>) -> Option<Keymap> {
+        let takes = |key| keys.lookup(&[route::C_C, key]).is_some();
+        let (keys, help) = if takes(route::C_C) || takes(route::C_K) {
+            log::warn!("session keys that bind C-c C-c or C-c C-k were not put in");
+            (Keymap::new(), None)
+        } else {
+            (keys, help)
+        };
         if self.resolver.pending().is_empty() {
             if let Some((stale, _)) = self.session_waiting.take() {
                 self.replaced.push(stale);

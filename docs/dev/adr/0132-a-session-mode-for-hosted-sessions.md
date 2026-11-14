@@ -394,7 +394,13 @@ the project's row (Q9). `[keys.session]` comes in step 2, for `C-c` sequences on
   undefined before any keymap is read, so Shift finds nothing.
 - **The terminal's `C-c` check** reads the layer first: a key it leaves undefined says
   `is undefined`, one it binds is oso's, and the session's keymap answers the rest. A
-  `[keys.global]` `C-c` key still reaches no terminal.
+  `[keys.global]` `C-c` key still reaches no terminal: each prefix after `C-c` that
+  `[keys.session]` makes and the defaults do not have hides what lower layers bind under it, so
+  with `"C-c x y"` there, `[keys.global]`'s `"C-c x z"` is undefined in a session, as found in
+  review.
+- **The dispatcher refuses** session keys that bind or unbind `C-c C-c` or `C-c C-k`, and keeps
+  none of them then, though the configuration never gives such keys: `C-c` has to reach Claude
+  Code, and char mode has to end.
 - **`C-c ?`** says the user's keys over the defaults, hiding those they replace or unbind. The
   line is built where the keys are, on the configuration thread, by `bindings::session_help`,
   moved out of `dispatch` so that both build it, and ends in `…` after 480 bytes
@@ -421,6 +427,8 @@ Each passage stays in its ADR as written; what holds now follows it.
   same key inside a session's buffer; `C-x a o` shows ADR 0131's pane at the project's row.
 - ADR 0121, "The overview: `*Sessions*` filtered to one repository (`C-x a o`)": the pane at the
   repository's row.
+- [ADR 0108](0108-the-user-configuration-file.md), "version 1 has `global` only": `session` too,
+  whose layer sits above a session's terminal's keys, not just above the global keymap.
 - [ADR 0110](0110-adr-0108-as-built.md), "so does every other name under `[keys]` but `global`":
   but `global` and `session`.
 - [ADR 0131](0131-an-orca-style-sessions-pane.md), step 2, "the keys (`c`, `M-n`/`M-p`, `RET` on a
