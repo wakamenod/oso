@@ -33,6 +33,12 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
   both and re-reads each linked package; any change to the lock is fuzzed again (`just fuzz-term`, ReleaseFast and
   ReleaseSafe, an hour each, on the Mac mini, and on Linux) before it lands. `build.rs` never
   downloads; `just ghostty-vt` fetches and checks the tarballs.
+- `build.rs` keeps the archive Zig built in the profile directory (`ghostty-vt-cache/<key>`,
+  `build/archive_cache.rs`), as cargo runs it once per feature set. The key is the sha256 of
+  the lock, `build.rs`, the optimize mode, the target, the host and Zig's version: change any
+  of them, or what decides Zig's arguments, only in those. The archive is reused only through
+  plain directories and files and when its recorded sha256 matches; every other check runs
+  each time.
 - oso's patch to the library is in `patches/`, with its sha256 and the sha256 of each file it
   changes in the lock. A bump drops a patch the release makes needless, or rebases it and
   updates the hashes. Change the library only through a patch there, never in `OUT_DIR`.

@@ -1499,6 +1499,12 @@ public items.
   master); `oso-term` gains `Terminal::{library, export, resume, resumes, release, adopt, attach,
   abandon}` with `Adopt`, `Encoding`, `Exported` and `NotExported`. All of it is behind the `dev`
   features.
+- **The library's archive is built once per key.** The `dev` feature gives oso-term a second
+  set of features, and cargo runs a build script once per set, so `build.rs` keeps the archive
+  in the target's profile directory, keyed by the sha256 of the lock, `build.rs`, the optimize
+  mode, the target, the host and Zig's version. It is reused only through plain directories and
+  files, and only when its sha256 matches the one recorded beside it; the tarballs, the patches
+  and the packages are checked each time.
 - **Not done:** the floating terminal's position and the token carry once steps 9 and 10 exist;
   the snapshot decoder's fuzz pass on the Mac mini and Linux is the step's follow-up.
 
