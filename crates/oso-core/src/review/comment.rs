@@ -68,14 +68,15 @@ pub enum CommentError {
 pub struct Comment {
     pub(super) id: CommentId,
     pub(super) author: Author,
-    pub(super) path: Box<[u8]>,
+    /// Shared, so that a copy of the comment for the review view costs a count.
+    pub(super) path: Arc<[u8]>,
     pub(super) anchor: Anchor,
     /// The reading the anchor is in: the one the comment was last placed in. `None` once that
     /// reading was let go: the comment then stays outdated for good.
     pub(super) shape: Option<Arc<Shape>>,
     /// The count of the file's readings when it was last placed, to tell old readings apart.
     pub(super) reading: u64,
-    pub(super) text: String,
+    pub(super) text: Arc<str>,
     pub(super) reply_to: Option<CommentId>,
     pub(super) sent: bool,
     pub(super) resolved: bool,

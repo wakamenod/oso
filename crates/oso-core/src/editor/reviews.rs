@@ -12,11 +12,17 @@
 //! - A new text waits while [`Editor::review_waits`], as a file read again does, so nothing a
 //!   prompt or a search acts on moves under it. The host keeps the texts that wait, in order.
 //! - What a line is comes from its [`Rows`], never from its text.
+//! - A file whose shown reading the model has not caught up with is marked behind by the host
+//!   ([`Editor::set_review_file_behind`]) until its carry is applied, and commands that write a
+//!   comment on it refuse meanwhile.
 //! - What a new text or paint replaces comes back as a [`ReviewLeftover`], for the host to
 //!   free off the UI thread, as a 64 MiB text's highlights take milliseconds to drop.
 
 mod cells;
+mod draft;
 mod menu;
+
+use std::collections::BTreeSet;
 
 use super::Editor;
 use crate::buffer::{BufferId, Mode, Rewrap};
@@ -27,6 +33,7 @@ use crate::sum_tree::Bias;
 use crate::syntax::Highlights;
 
 pub use cells::ReviewCells;
+pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
 
 /// A review's id, never reused while the editor runs.
@@ -113,6 +120,8 @@ struct Open {
     agents_folded: bool,
     /// The files read and listed while a request reads them.
     reading: Option<(usize, usize)>,
+    /// The files whose reading shown is newer than the model's, until their carry is applied.
+    behind: BTreeSet<Box<[u8]>>,
 }
 
 /// Every open review, what commands asked of the host, and the menu's state per project.
@@ -122,6 +131,8 @@ pub(super) struct Reviews {
     open: Vec<Open>,
     requests: Vec<ReviewRequest>,
     menus: Vec<(ProjectId, ScopeMenu)>,
+    /// The open draft, if any.
+    draft: Option<draft::Draft>,
 }
 
 impl Reviews {
@@ -212,6 +223,7 @@ impl Editor {
             rows: Rows::default(),
             agents_folded: false,
             reading: None,
+            behind: BTreeSet::new(),
         });
         (id, buffer)
     }
@@ -431,6 +443,32 @@ impl Editor {
         }
         out.sort_unstable();
         out.dedup();
+    }
+
+    /// Marks the file at `path` of the review `id` as shown at a reading the model does not
+    /// hold yet, as when its carry was taken before an earlier reading was applied, or clears
+    /// the mark once the model caught up, when the file left the review, or for good when the
+    /// review closes. While marked, the comment commands refuse on the file, as a line of the
+    /// text shown may not be the model's. Costs a lookup among the files marked.
+    pub fn set_review_file_behind(&mut self, id: ReviewId, path: &[u8], behind: bool) {
+        let Some(open) = self.reviews.get_mut(id) else {
+            return;
+        };
+        if behind {
+            if !open.behind.contains(path) {
+                open.behind.insert(path.into());
+            }
+        } else {
+            open.behind.remove(path);
+        }
+    }
+
+    /// Whether the file at `path` of the review `id` is marked as shown at a reading the model
+    /// does not hold yet ([`Editor::set_review_file_behind`]). False for a review not open.
+    pub fn review_file_behind(&self, id: ReviewId, path: &[u8]) -> bool {
+        self.reviews
+            .get(id)
+            .is_some_and(|open| open.behind.contains(path))
     }
 
     /// Says how many of the files listed the review `id`'s running request has read, for its

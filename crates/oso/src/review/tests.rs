@@ -138,7 +138,7 @@ impl Answers {
 
 fn ask(reader: &mut Reader, request: Request) -> Answers {
     let mut answers = Answers::default();
-    reader.answer(request, &|| false, &mut |report| {
+    reader.answer(request, &|| false, &mut || None, &mut |report| {
         match report {
             Report::Listed { entries, .. } => answers.entries = entries.to_vec(),
             Report::File { reading, .. } => answers.readings.push(reading),
@@ -549,4 +549,40 @@ fn the_branch_base_is_not_the_branchs_own_upstream() {
         reader.branch_base().unwrap().as_deref(),
         Some("origin/release")
     );
+}
+
+#[test]
+fn a_carry_waiting_during_a_refresh_is_answered_between_files_and_stops_nothing() {
+    let repo = Repo::new("carry-between");
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        repo.write(name, b"1\n");
+    }
+    repo.commit("root");
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        repo.write(name, b"1\n2\n");
+    }
+    let mut reader = repo.reader();
+    let first = open(&mut reader, Scope::Uncommitted);
+    let Content::Text { shape, .. } = &first.reading("a.txt").content else {
+        panic!()
+    };
+    let mut carry = Some(Review::new().carry(b"a.txt", Arc::clone(shape)));
+    repo.write("b.txt", b"1\n2\n3\n");
+    let mut said = Vec::new();
+    reader.answer(
+        Request::Refresh { first: Vec::new() },
+        &|| false,
+        &mut || carry.take(),
+        &mut |report| {
+            said.push(match report {
+                Report::Listed { .. } => "listed",
+                Report::File { .. } => "file",
+                Report::Carried { .. } => "carried",
+                Report::Read { stopped: false, .. } => "read",
+                _ => "other",
+            });
+            true
+        },
+    );
+    assert_eq!(said, ["listed", "carried", "file", "read"]);
 }

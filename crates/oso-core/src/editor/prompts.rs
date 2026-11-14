@@ -450,12 +450,18 @@ impl Editor {
                     (candidates.total(), cut),
                     candidates.previews(),
                 ),
+                // A draft's answer grows with its text (ADR 0122).
+                None if prompt.kind == Kind::Draft => {
+                    self.draft_prompt_layout(&prompt.label, message)
+                }
                 None => minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message),
             }
         });
         if let Some(layout) = &self.prompt_layout {
-            let size = ViewSize::new(1, layout.input.columns);
+            let rows = self.draft_window_rows(layout);
+            let size = ViewSize::new(rows, layout.input.columns);
             self.windows[self.selected].set_size(size);
+            self.follow_draft();
         }
         self.keep_selection_in_view();
     }
@@ -475,6 +481,7 @@ impl Editor {
         self.forget_project_files(prompt.id);
         self.forget_project_search(prompt.id);
         self.forget_completion_work(prompt.id);
+        self.forget_draft(prompt.id);
         // A list of 100,000 is dropped on the worker (ADR 0096).
         self.free_prompts_list(&mut prompt);
         self.windows.pop();
@@ -507,6 +514,8 @@ impl Editor {
             if prompt.kind.is_question() {
                 self.reset_exit_guard();
             }
+            // A draft's text is not lost: it goes to the kill ring (ADR 0122).
+            self.kill_draft_text();
             self.close_innermost();
             return Quit::Prompt;
         }

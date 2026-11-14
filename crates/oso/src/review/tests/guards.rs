@@ -102,14 +102,19 @@ fn a_request_told_to_stop_reads_no_file() {
     let mut reader = repo.reader();
     let mut stopped = None;
     let mut files = 0;
-    reader.answer(Request::Open(Scope::Uncommitted), &|| true, &mut |report| {
-        match report {
-            Report::File { .. } => files += 1,
-            Report::Read { stopped: s, .. } => stopped = Some(s),
-            _ => {}
-        }
-        true
-    });
+    reader.answer(
+        Request::Open(Scope::Uncommitted),
+        &|| true,
+        &mut || None,
+        &mut |report| {
+            match report {
+                Report::File { .. } => files += 1,
+                Report::Read { stopped: s, .. } => stopped = Some(s),
+                _ => {}
+            }
+            true
+        },
+    );
     assert_eq!((files, stopped), (0, Some(true)));
     // The next refresh reads what the stopped one left.
     let again = ask(&mut reader, Request::Refresh { first: Vec::new() });
@@ -286,7 +291,7 @@ fn a_baseline_stopped_between_its_runs_of_git_writes_no_tree_and_says_nothing() 
     let mut reader = repo.reader();
     let mut said = Vec::new();
     // As a root revoked while git ran: stopped from the first look on.
-    reader.answer(Request::Baseline, &|| true, &mut |report| {
+    reader.answer(Request::Baseline, &|| true, &mut || None, &mut |report| {
         said.push(format!("{report:?}"));
         true
     });

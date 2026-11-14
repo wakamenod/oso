@@ -177,6 +177,9 @@ or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
   past a break fills to the row's text width. A preedit's line is laid out again
   with it in, as if inserted, and the view follows its caret
   ([ADR 0104](adr/0104-soft-wrap-drawn-in-view-rows.md)).
+- A review comment's draft prompt wraps as a tiled window does, and its answer takes as many
+  rows as its wrap makes, up to 10 ([ADR 0122](adr/0122-agent-review.md)). No other prompt
+  wraps.
 
 ## Decorations
 

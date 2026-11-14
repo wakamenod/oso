@@ -622,8 +622,19 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - [ADR 0047](0047-process-spawning-and-restart-handoff.md), "Standard input is closed": a caller
   may pipe standard input; and "the names the caller gives": a caller may also set variables by
   value. Each spawn's log line names the variables set, without their values.
+- [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md), "The answer is one row and
+  scrolls sideways" and `RET` giving the answer: a review comment's draft is a prompt whose answer
+  takes up to 10 rows, as many as its text wraps into, and `RET` breaks a line in it; `C-c C-c`
+  keeps it (step 3). And the `C-g` chain: `C-g` in a draft copies its text to the kill ring
+  before it closes the draft (step 3).
+- [ADR 0074](0074-the-kill-ring-and-the-clipboard.md), what goes to the OS clipboard: a removed
+  thread that holds an agent's text stays in oso's kill ring and goes to no clipboard (the
+  author's Q-G (a)), and a draft's `C-g` copy goes to no clipboard either, as an entry of its own
+  that no kill appends to (step 3).
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "What the channel can do" and the `oso mcp` tool
   list: the review methods and tools above join them, with the reach given for each.
+- [ADR 0103](0103-soft-wrap-in-a-window.md), "A prompt's window never wraps": a review comment's
+  draft's window wraps, as a tiled window does (step 3).
 - [ADR 0111](0111-tree-sitter-highlighting.md), "the worker a tree per buffer": the workers also
   parse documents no buffer owns, a review's sides, under the same limits and secret rules.
 - [ADR 0112](0112-window-splits.md), the window tree: it gains a pair of windows that scroll
@@ -966,6 +977,90 @@ replaced (below). What the first PR built:
   the commands; text-grid snapshots of a review buffer (its bands marked, every note, paths
   that would pass for another row); the glue's choices; and an end-to-end flow that trusts a
   project, opens a review over the window's keys, moves, refreshes and quits.
+
+### Step 3: the unified view, part two
+
+The second PR adds comments, drafts and cards. The author approved its plan and its public items
+on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a). What it built:
+
+- **Public items:** `minibuffer::Kind::Draft`; `editor::DraftFor` (`Comment { path, anchor }`,
+  `Reply { to }`, `Edit { comment }`); `Editor::open_draft(review, draft, text)`;
+  `Editor::draft()`, the innermost prompt's draft; `Editor::kill_review_comment(review,
+  comment)`; `Review::comments_on(path)`; `Carried::placed()`; and
+  `Editor::set_review_file_behind(review, path, behind)` with `Editor::review_file_behind(review,
+  path)`, approved on 2026-11-14 for a stale carry (below). A comment's text and path are
+  shared (`Arc`) inside the model, so the copy of a file's comments the view thread gets costs a
+  count per comment.
+- **The draft is a prompt in the top float, as the author chose (Q3 (a)), in place of "a draft
+  buffer in a float under the line".** It replaces too the Decision's "a draft is a buffer of its
+  own ... if its line goes, it stays open and says it will be kept as outdated": review texts
+  wait while the draft is open, so its line cannot go under it, and a target gone by the time it
+  is kept, as a comment removed, leaves the draft open, saying that `C-g` keeps its text in the
+  kill ring. Its label says what it is for:
+  `Comment on <path> L42 (new)`, `Comment on <path> hunk 3`, `Reply to #7` or `Edit #7`, the
+  path on one line, what the display map boxes shown as `?`, and cut to 80 characters. Its text wraps, and its answer grows with it up to 10 rows, then scrolls
+  (Q-D (a)); it is the only prompt whose window wraps. `RET` breaks a line, `C-c C-c` keeps it
+  (`review-keep-draft`) and `C-g` drops it, copying a draft that holds text to the kill ring as
+  an entry of its own, never appended to a kill before it, that goes to no OS clipboard, secret
+  when a kill from the draft would be.
+  A draft opens only when no prompt is open, and it keeps no history. Review texts wait while it
+  is open, as under any prompt, so the line it is on cannot move under it. Keeping it refuses
+  text over 64 KiB, and a draft turned secret, as a yank of a secret entry turns it, leaving it
+  open (`C-g` then makes a secret entry of it); a target gone meanwhile, as a comment removed, or
+  a comment the review refuses leaves it open too, saying why and that `C-g` keeps the text in
+  the kill ring, so a draft's text never reaches the clipboard. Its rows are counted as its window's wrap breaks them, at
+  most 10 read.
+- **Keys:** `c` comments on a line, on a hunk's header, or replies on a card (Q15); `e` edits the
+  person's own comment; `k` removes the person's own comment with its whole thread at once, with
+  no question, putting the thread in the kill ring as text, each comment after its label line,
+  `You  #7` or `Agent  #12` (Q-A (a)). The author answered two more on 2026-11-14, each (a):
+  a thread an agent wrote in stays in oso's kill ring and never goes to the OS clipboard (Q-G),
+  and the text is cut at 1 MiB, a last line saying `… N more comments not copied` (Q-H); `r` resolves the thread or opens it again; `a` folds every agent card to its label
+  and first line; `{`/`}` move between comments, with a count, on every cursor. All but the
+  motions are `Person`, so no agent channel command touches the person's comments (Q11). `a`
+  is taken by folding here; accepting a hunk gets its key with step 5.
+- **Cards** are rows of the review buffer's text, laid out on the view thread: every row starts
+  with four spaces and a bar in its author's face; the label row says `You  #7` or `Agent  #12`,
+  with `· new` while an agent's comment is unread; the text follows, one row per line of it,
+  under the label; replies go two columns further in, at most three deep. What a row is comes
+  from the rows alone, so an agent's text shaped like a label still stands after the agent's
+  bar, indented as text. A line comment goes under its line, an old side's under its removed
+  row, a hunk comment after the hunk's last line, and outdated comments above the first hunk,
+  saying `· outdated, was L42 (new)`. A resolved thread folds to one row. A file's header counts
+  its comments, the agent's and the unread. Cards hold their whole text (Q-B (a)) and count
+  toward the text's 64 MiB; past it, cards show their label alone.
+- **Carrying and refresh:** a file with no comments is carried on the view thread, as in part
+  one; a file with comments on the review's own thread, which reads old sides, and the view keeps
+  its last section until the result comes (Q-C (a)). **A carry is no newer request:** carries wait
+  in a queue of their own, answered between the files of a running request and when nothing
+  runs, so a file's comments never stop a refresh. Before each, the root is checked as before a
+  request, and a newer request stops a run of them, the rest answered between its files, or
+  failed if the root was revoked, which carries them on the view thread instead. A carry that
+  panics is answered as failed, and its time is not taken from the request's. Its 1 s limit is
+  its own run, counted from when it starts, not its wait in the queue. The result is applied as the text that shows
+  it goes in, so the model's reading of a file is always the one on screen.
+- **A stale carry is caught:** with two readings of a file in flight, as texts held under a
+  prompt across two refreshes, the newer one's carry may be taken before the older one is
+  applied, and then changes nothing as its text goes in. The file then waits as "being read
+  again": the host marks it behind (`Editor::set_review_file_behind`) and carries it again from
+  the model as it is now, and the mark goes when a later text's carry makes the model's reading
+  the one shown, when the file leaves the listing, or when the review closes. Meanwhile `c`,
+  `e` and `C-c C-c` refuse on it, saying `This file is being read again: try in a moment`, the
+  draft staying open, so that no comment is placed by another reading's lines.
+- **A file that leaves the listing** with comments is taken out of the model, its comments
+  outdated, and stays under the listed files as `no longer changed  <path>` with its cards
+  (Q-E (a)), or with its count alone if its last reading was withheld. A listing cut short, at
+  10,000 files or by git's output, tells nothing of the files it left out: one with comments
+  stays in the model and on screen as it was, after the listed files.
+- **Read:** an agent comment is marked read once its label and every row of its text shown were
+  in the selected window after the person's own input, a key, typed text or the wheel (Q7 (a));
+  its label then loses `· new`. What the agent channel brings into view is not read, and the
+  rows are looked at only when the view or its text changed since. None is read while agent
+  cards fold, or while the text shown was built folded, nor one whose label shows alone, past
+  the text's room or in a resolved thread.
+- **Closing** counts an open draft as a comment of the person's not sent.
+- A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
+  it on `RET` comes with part three.
 
 ### Step 8: documents no buffer owns
 

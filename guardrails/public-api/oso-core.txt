@@ -1174,6 +1174,22 @@ impl core::fmt::Display for oso_core::editor::CursorError
 pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CursorError
 impl core::marker::StructuralPartialEq for oso_core::editor::CursorError
+pub enum oso_core::editor::DraftFor
+pub oso_core::editor::DraftFor::Comment
+pub oso_core::editor::DraftFor::Comment::anchor: oso_core::review::Anchor
+pub oso_core::editor::DraftFor::Comment::path: alloc::boxed::Box<[u8]>
+pub oso_core::editor::DraftFor::Edit
+pub oso_core::editor::DraftFor::Edit::comment: oso_core::review::CommentId
+pub oso_core::editor::DraftFor::Reply
+pub oso_core::editor::DraftFor::Reply::to: oso_core::review::CommentId
+impl core::clone::Clone for oso_core::editor::DraftFor
+pub fn oso_core::editor::DraftFor::clone(&self) -> oso_core::editor::DraftFor
+impl core::cmp::Eq for oso_core::editor::DraftFor
+impl core::cmp::PartialEq for oso_core::editor::DraftFor
+pub fn oso_core::editor::DraftFor::eq(&self, &oso_core::editor::DraftFor) -> bool
+impl core::fmt::Debug for oso_core::editor::DraftFor
+pub fn oso_core::editor::DraftFor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::DraftFor
 pub enum oso_core::editor::IndentError
 pub oso_core::editor::IndentError::Edit(oso_core::buffer::EditError)
 pub oso_core::editor::IndentError::NoMark
@@ -1689,11 +1705,13 @@ pub fn oso_core::editor::Editor::remove_review(&mut self, oso_core::editor::Revi
 pub fn oso_core::editor::Editor::request_review(&mut self, oso_core::editor::ReviewRequest)
 pub fn oso_core::editor::Editor::review(&self, oso_core::editor::ReviewId) -> core::option::Option<&oso_core::review::Review>
 pub fn oso_core::editor::Editor::review_buffer(&self, oso_core::editor::ReviewId) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::review_file_behind(&self, oso_core::editor::ReviewId, &[u8]) -> bool
 pub fn oso_core::editor::Editor::review_mut(&mut self, oso_core::editor::ReviewId) -> core::option::Option<&mut oso_core::review::Review>
 pub fn oso_core::editor::Editor::review_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::editor::ReviewId>
 pub fn oso_core::editor::Editor::review_rows(&self, oso_core::editor::ReviewId) -> core::option::Option<&oso_core::review::Rows>
 pub fn oso_core::editor::Editor::review_waits(&self) -> bool
 pub fn oso_core::editor::Editor::reviews(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::editor::ReviewId, oso_core::project::ProjectId)>
+pub fn oso_core::editor::Editor::set_review_file_behind(&mut self, oso_core::editor::ReviewId, &[u8], bool)
 pub fn oso_core::editor::Editor::set_review_paint(&mut self, oso_core::editor::ReviewId, oso_core::review::Rows, oso_core::syntax::Highlights) -> core::result::Result<oso_core::editor::ReviewLeftover, oso_core::editor::ReviewLeftover>
 pub fn oso_core::editor::Editor::set_review_reading(&mut self, oso_core::editor::ReviewId, core::option::Option<(usize, usize)>)
 pub fn oso_core::editor::Editor::set_review_text(&mut self, oso_core::editor::ReviewId, oso_core::load::Reloaded, oso_core::review::Rows, oso_core::syntax::Highlights) -> oso_core::editor::ReviewLeftover
@@ -1883,6 +1901,10 @@ pub fn oso_core::editor::Editor::trim_failed(&mut self, oso_core::editor::TrimId
 pub fn oso_core::editor::Editor::trim_reported(&mut self, oso_core::editor::TrimReport) -> core::option::Option<oso_core::editor::TrimOutcome>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::draft(&self) -> core::option::Option<(oso_core::editor::ReviewId, &oso_core::editor::DraftFor)>
+pub fn oso_core::editor::Editor::kill_review_comment(&mut self, oso_core::editor::ReviewId, oso_core::review::CommentId) -> core::result::Result<usize, oso_core::review::CommentError>
+pub fn oso_core::editor::Editor::open_draft(&mut self, oso_core::editor::ReviewId, oso_core::editor::DraftFor, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::isearch_mark(&mut self, core::option::Option<oso_core::editor::Toward>) -> core::result::Result<(), oso_core::editor::CursorError>
@@ -3762,6 +3784,7 @@ pub mod oso_core::minibuffer
 pub enum oso_core::minibuffer::Kind
 pub oso_core::minibuffer::Kind::Complete
 pub oso_core::minibuffer::Kind::Complete::history: &'static str
+pub oso_core::minibuffer::Kind::Draft
 pub oso_core::minibuffer::Kind::Number
 pub oso_core::minibuffer::Kind::Number::history: core::option::Option<&'static str>
 pub oso_core::minibuffer::Kind::Passphrase
@@ -4234,6 +4257,8 @@ impl core::fmt::Debug for oso_core::review::BaseHunk
 pub fn oso_core::review::BaseHunk::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::review::BaseHunk
 pub struct oso_core::review::Carried
+impl oso_core::review::Carried
+pub fn oso_core::review::Carried::placed(&self) -> &[(oso_core::review::CommentId, core::option::Option<oso_core::review::Anchor>)]
 impl core::clone::Clone for oso_core::review::Carried
 pub fn oso_core::review::Carried::clone(&self) -> oso_core::review::Carried
 impl core::fmt::Debug for oso_core::review::Carried
@@ -4308,6 +4333,7 @@ pub fn oso_core::review::Review::carry(&self, &[u8], alloc::sync::Arc<oso_core::
 pub fn oso_core::review::Review::clear_dropped(&mut self, &[u8])
 pub fn oso_core::review::Review::comment(&self, oso_core::review::CommentId) -> core::option::Option<&oso_core::review::Comment>
 pub fn oso_core::review::Review::comments(&self) -> impl core::iter::traits::iterator::Iterator<Item = &oso_core::review::Comment>
+pub fn oso_core::review::Review::comments_on(&self, &[u8]) -> impl core::iter::traits::iterator::Iterator<Item = &oso_core::review::Comment>
 pub fn oso_core::review::Review::decide(&mut self, &[u8], usize, core::option::Option<oso_core::review::Decision>) -> bool
 pub fn oso_core::review::Review::decision(&self, &[u8], usize) -> core::option::Option<oso_core::review::Decision>
 pub fn oso_core::review::Review::dropped(&self, &[u8]) -> usize
