@@ -70,4 +70,14 @@ pub enum Highlight {
     CommentAgent,
     /// A comment whose line went, or what says so.
     Outdated,
+    /// A session's mark that needs the person: needs input or failed (ADR 0131). Only the
+    /// host's `*Sessions*` gives these four; no parser does.
+    SessionAlert,
+    /// A working session's mark.
+    SessionWorking,
+    /// The mark of a session done or ready for review.
+    SessionDone,
+    /// What is said quietly in `*Sessions*`: an idle or stopped session's mark, a place, a
+    /// reason, and a whole row of a session run outside oso.
+    SessionQuiet,
 }

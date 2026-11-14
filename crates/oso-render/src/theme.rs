@@ -254,7 +254,7 @@ pub(crate) const SYNTAX_FILLS: [Face; 5] = [
 ];
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 74] = [
+const FACES: [Face; 78] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -329,6 +329,10 @@ const FACES: [Face; 74] = [
     Face::TerminalColor13,
     Face::TerminalColor14,
     Face::TerminalColor15,
+    Face::SessionAlert,
+    Face::SessionWorking,
+    Face::SessionDone,
+    Face::SessionQuiet,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -409,6 +413,10 @@ const fn index(face: Face) -> usize {
         Face::TerminalColor13 => 71,
         Face::TerminalColor14 => 72,
         Face::TerminalColor15 => 73,
+        Face::SessionAlert => 74,
+        Face::SessionWorking => 75,
+        Face::SessionDone => 76,
+        Face::SessionQuiet => 77,
     }
 }
 
@@ -501,6 +509,20 @@ fn faces(face: Face) -> (Name, Name) {
         Face::TerminalColor13 => (Terminal(13), BgMain),
         Face::TerminalColor14 => (Terminal(14), BgMain),
         Face::TerminalColor15 => (Terminal(15), BgMain),
+        Face::SessionAlert | Face::SessionWorking | Face::SessionDone | Face::SessionQuiet => {
+            (session(face), BgMain)
+        }
+    }
+}
+
+/// A session's state's colour (ADR 0131): red, amber or green, and quiet in a prompt's dim
+/// colour, each on the text's background.
+fn session(face: Face) -> Name {
+    match face {
+        Face::SessionAlert => Name::Terminal(9),
+        Face::SessionWorking => Name::Warning,
+        Face::SessionDone => Name::Terminal(10),
+        _ => Name::FgPrompt,
     }
 }
 
@@ -731,6 +753,18 @@ pub(crate) mod tests {
                 &[(Face::ReviewCommentPerson, READ)]
             }
             Face::ReviewOutdated => &[(Face::ReviewCommentPerson, LABEL), (Face::Text, LABEL)],
+            // A session's marks and quiet text, on the list's background and on the band of the
+            // row at point, and the modeline's counts of those that need the person or are done
+            // (ADR 0131).
+            Face::SessionAlert | Face::SessionDone => &[
+                (Face::Text, LABEL),
+                (Face::CurrentLine, LABEL),
+                (Face::Modeline, LABEL),
+                (Face::ModelineInactive, LABEL),
+            ],
+            Face::SessionWorking | Face::SessionQuiet => {
+                &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
+            }
             // A terminal's colours are read on the text's background, as highlighted text is,
             // but its blacks, greys and whites, which programs draw on one another (ADR 0120).
             Face::TerminalColor1

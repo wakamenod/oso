@@ -1247,6 +1247,32 @@ mod tests {
     }
 
     #[test]
+    fn no_cursor_draws_no_box_and_leaves_the_glyphs_as_they_are() {
+        let buffer = Buffer::from_text("t", "abc");
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            screen: screen_of(&buffer.display(), ViewTop::default()),
+            cursor: DisplayPoint::new(0, 1),
+            cursor_style: CursorStyle::None,
+            others: &[],
+            preedit: None,
+            fills: &[],
+            labels: &[],
+            whitespace: false,
+            flash: None,
+            highlights: None,
+        });
+        let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
+        let mut scene = Scene::new(LIMITS, theme());
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let cursor = theme().background(Face::Cursor);
+        assert!(scene.rects().iter().all(|r| r.color != cursor));
+        assert_eq!(scene.quads().len(), 3, "every glyph still shows");
+    }
+
+    #[test]
     fn a_masked_row_draws_what_stands_for_the_text_and_a_cursor_box() {
         let content = PaneContent::Masked(Masked {
             text: "***",

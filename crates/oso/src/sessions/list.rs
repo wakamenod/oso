@@ -14,15 +14,18 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use oso_core::display_map::cell::classify;
+use oso_core::syntax::Highlight;
 
 use super::state::State;
 use super::worker::SessionKey;
 
-/// What an external session's place says first.
-pub const EXTERNAL: &str = "external";
+/// The frames of a working session's spinning mark, in turn (ADR 0131, Q12): each one cell
+/// wide, in the place of `▶`.
+pub const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /// The marks a row of the list begins with, after its indent: `n` and `p` move between them.
 pub use crate::commands::agent_sessions::ROW_MARKS as MARKS;
@@ -96,6 +99,10 @@ enum Fold {
 pub struct Rendered {
     pub text: String,
     pub lines: Vec<Line>,
+    /// What each range of the text is drawn as, by its bytes, in order (ADR 0131).
+    pub highlights: Vec<(Range<usize>, Highlight)>,
+    /// The lines whose mark spins.
+    pub spinning: Vec<usize>,
 }
 
 /// The list's own state: its grouping and what the person folded.
@@ -104,9 +111,16 @@ pub struct List {
     grouping: Grouping,
     /// Folds toggled from their default: the archived group starts folded, the rest open.
     toggled: HashSet<Fold>,
+    /// The spinner's frame, while working marks spin.
+    spin: Option<usize>,
 }
 
 impl List {
+    /// Working marks spin, showing frame `frame` of [`SPINNER`], or stand still with `None`.
+    pub fn set_spin(&mut self, frame: Option<usize>) {
+        self.spin = frame.map(|frame| frame % SPINNER.len());
+    }
+
     /// `s`: by state, or by space.
     pub fn regroup(&mut self) {
         self.grouping = match self.grouping {
@@ -158,6 +172,7 @@ impl List {
                 let row = Row {
                     entry: parent,
                     indent: "",
+                    spin: self.spin,
                     waiting,
                 };
                 row.render(&mut out, width, now);
@@ -168,6 +183,7 @@ impl List {
                     let row = Row {
                         entry,
                         indent: NESTED,
+                        spin: self.spin,
                         waiting: 0,
                     };
                     row.render(&mut out, width, now);
@@ -333,6 +349,8 @@ pub fn age_of(ago: Duration) -> String {
 struct Row<'e> {
     entry: &'e Entry,
     indent: &'static str,
+    /// The spinner's frame, while working marks spin.
+    spin: Option<usize>,
     /// How many sessions nested under it need input.
     waiting: usize,
 }
@@ -341,19 +359,42 @@ impl Row<'_> {
     fn render(&self, out: &mut Rendered, width: usize, now: Instant) {
         let entry = self.entry;
         let line = Line::Session(entry.key);
+        let external = matches!(entry.key, Key::External(_));
         let age = age(entry.since, now);
-        let head = format!("{}{} ", self.indent, mark(entry.state));
+        let spinning = !external && entry.state == State::Working && self.spin.is_some();
+        let mark = match self.spin.filter(|_| spinning) {
+            Some(frame) => SPINNER[frame],
+            None => mark(entry.state),
+        };
+        let head = format!("{}{mark} ", self.indent);
         // The name first, then its place where there is room, then the age at the right edge.
         let room = width.saturating_sub(cells(&head) + cells(&age) + 1);
         let name = cut_middle(&entry.name, room);
         let mut text = format!("{head}{name}");
         let left = room.saturating_sub(cells(&name) + 2);
+        let mut place = None;
         if left >= PLACE_FROM {
             text.push_str("  ");
+            let start = text.len();
             text.push_str(&cut_middle(unmarked(&self.place()), left));
+            place = Some(start..text.len());
         }
         let text = pad(&text, width.saturating_sub(cells(&age))) + &age;
-        out.push(&cut(&text, width), line.clone());
+        let age_at = text.len() - age.len()..text.len();
+        // A session run outside oso is quiet throughout: oso can mention it, never show it.
+        let spans = if external {
+            vec![(0..text.len(), Highlight::SessionQuiet)]
+        } else {
+            let at = self.indent.len();
+            let mut spans = vec![(at..at + mark.len_utf8(), face(entry.state))];
+            spans.extend(place.map(|place| (place, Highlight::SessionQuiet)));
+            spans.push((age_at, Highlight::SessionQuiet));
+            spans
+        };
+        if spinning {
+            out.spinning.push(out.lines.len());
+        }
+        out.push_drawn(&cut(&text, width), line.clone(), &spans);
         // A reason only where the person has something to do.
         let own = matches!(entry.state, State::NeedsInput(_) | State::Failed)
             .then_some(entry.recap.as_str())
@@ -365,17 +406,15 @@ impl Row<'_> {
             (n, own) => joined(&format!("{n} nested need input"), own),
         };
         let under = format!("{}  ", self.indent);
-        out.push(&cut(&format!("{under}{}", unmarked(&reason)), width), line);
+        let text = cut(&format!("{under}{}", unmarked(&reason)), width);
+        let quiet = [(under.len()..text.len(), Highlight::SessionQuiet)];
+        out.push_drawn(&text, line, &quiet);
     }
 
-    /// Where the session runs: its space and branch, and whether it is pinned. An external
-    /// session's says so first.
+    /// Where the session runs: its space and branch, and whether it is pinned.
     fn place(&self) -> String {
         let entry = self.entry;
-        let mut place = match entry.key {
-            Key::External(_) => format!("{EXTERNAL} · {}", entry.space),
-            Key::Hosted(_) => entry.space.clone(),
-        };
+        let mut place = entry.space.clone();
         if let Some(branch) = &entry.branch {
             let _ = write!(place, " · {branch}");
         }
@@ -386,6 +425,17 @@ impl Row<'_> {
     }
 }
 
+/// What a state's mark is drawn as (ADR 0131, Q5): the person's attention, work under way,
+/// work to look at, or nothing to do.
+pub fn face(state: State) -> Highlight {
+    match state {
+        State::NeedsInput(_) | State::Failed => Highlight::SessionAlert,
+        State::Working => Highlight::SessionWorking,
+        State::ReadyForReview | State::Done => Highlight::SessionDone,
+        State::Idle | State::Stopped => Highlight::SessionQuiet,
+    }
+}
+
 /// `first`, then ` · ` and `then` if there is one.
 fn joined(first: &str, then: Option<&str>) -> String {
     then.map_or_else(|| first.to_owned(), |then| format!("{first} · {then}"))
@@ -393,7 +443,22 @@ fn joined(first: &str, then: Option<&str>) -> String {
 
 impl Rendered {
     fn push(&mut self, text: &str, line: Line) {
-        self.text.push_str(text.trim_end());
+        self.push_drawn(text, line, &[]);
+    }
+
+    /// Pushes `text` as a line, with `spans` of it, by its bytes, drawn as each says. A span
+    /// is cut to the text kept.
+    fn push_drawn(&mut self, text: &str, line: Line, spans: &[(Range<usize>, Highlight)]) {
+        let text = text.trim_end();
+        let base = self.text.len();
+        for (range, highlight) in spans {
+            let range = range.start.min(text.len())..range.end.min(text.len());
+            if !range.is_empty() {
+                self.highlights
+                    .push((base + range.start..base + range.end, *highlight));
+            }
+        }
+        self.text.push_str(text);
         self.text.push('\n');
         self.lines.push(line);
     }

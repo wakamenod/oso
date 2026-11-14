@@ -6,15 +6,18 @@
 //!
 //! `*Sessions*` is an internal buffer, read-only, and withheld from agents: its recaps are
 //! sessions' screen text (Q7). While it is shown, the agent channel's commands answer in the
-//! echo area only.
+//! echo area only. Its marks and quiet text are drawn in the state faces, as highlights the
+//! list gives with its text, and a working mark spins while one is in view (ADR 0131).
 
 use std::time::Instant;
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::selection::SelectionSet;
+use oso_core::syntax::Highlights;
 
 use crate::app::App;
-use crate::sessions::list::{Entry, Key, Line};
+use crate::sessions::list::{Entry, Key, Line, Rendered};
+use crate::sessions::spinner::Spinner;
 
 /// The side window's width, in columns (Q1).
 pub(in crate::app) const SIDE_COLUMNS: usize = 32;
@@ -35,6 +38,18 @@ pub(super) struct View {
     pub(super) hidden: bool,
     /// The text it was last given, so that the same text is not set again.
     text: String,
+    /// The spinner of working marks.
+    pub(super) spinner: Spinner,
+    /// oso's window is hidden: nothing spins.
+    occluded: bool,
+}
+
+impl super::Watch {
+    /// `[sessions] spinner` in force (ADR 0131, Q14).
+    pub(in crate::app) fn set_spinner(&mut self, on: bool) {
+        self.view.spinner.set_on(on);
+        self.stale = true;
+    }
 }
 
 impl App {
@@ -102,8 +117,35 @@ impl App {
         }
         if self.sessions_list_shown() {
             changed |= self.render_sessions(entries, now);
+        } else {
+            self.watch.view.spinner.stop();
         }
         changed
+    }
+
+    /// When the spinner's next frame is due, while it runs.
+    pub(super) fn sessions_spin_due(&self) -> Option<Instant> {
+        self.watch.view.spinner.due()
+    }
+
+    /// The spinner's next frame, if due at `now`: the list is drawn again with it, as its
+    /// ages are, so that no candidate is made again.
+    pub(super) fn spin_sessions(&mut self, now: Instant) {
+        if self.watch.view.spinner.due().is_some_and(|due| now >= due) {
+            self.watch.stale = true;
+            self.watch.aging = true;
+        }
+    }
+
+    /// oso's window was hidden, or shown again: the spinner stops while it is hidden, and
+    /// starts again with the next drawing of the list.
+    pub(in crate::app) fn sessions_occluded(&mut self, occluded: bool) {
+        self.watch.view.occluded = occluded;
+        if occluded {
+            self.watch.view.spinner.stop();
+        } else {
+            self.watch.stale = true;
+        }
     }
 
     /// Renders `*Sessions*` to the side window's width, point kept on what its row showed.
@@ -123,7 +165,24 @@ impl App {
             .buffer(buffer)
             .map(|text| text.text().offset_to_point(cursor).row);
         let was = on.and_then(|line| self.watch.view.lines.get(line).cloned());
+        let frame = (!self.watch.view.occluded)
+            .then(|| self.watch.view.spinner.frame(now))
+            .flatten();
+        self.watch.list.set_spin(frame);
         let rendered = self.watch.list.render(entries, width, now);
+        let top = scroll.start;
+        let rows = window.size().rows;
+        let first = self.editor.buffer(buffer).map_or(0, |text| {
+            text.text().offset_to_point(top.min(text.text().len())).row
+        });
+        let in_view = rendered
+            .spinning
+            .iter()
+            .any(|&line| (first..first + rows).contains(&line));
+        self.watch
+            .view
+            .spinner
+            .drawn(frame.is_some() && in_view, now);
         let same = rendered.text == self.watch.view.text
             && self
                 .editor
@@ -134,6 +193,8 @@ impl App {
             return false;
         }
         self.editor.set_internal_text(buffer, &rendered.text);
+        self.editor
+            .set_internal_highlights(buffer, highlights_of(&rendered));
         let line = was
             .and_then(|was| rendered.lines.iter().position(|line| *line == was))
             .or(on.filter(|&line| line < rendered.lines.len()));
@@ -156,4 +217,13 @@ impl App {
     pub(super) fn sessions_line(&self, line: usize) -> Option<&Line> {
         self.watch.view.lines.get(line)
     }
+}
+
+/// The highlights of the list's text, as it gives them (ADR 0131).
+fn highlights_of(rendered: &Rendered) -> Highlights {
+    let mut highlights = Highlights::new(rendered.text.len());
+    for (range, highlight) in &rendered.highlights {
+        highlights.replace(range.clone(), [(range.len(), Some(*highlight))]);
+    }
+    highlights
 }

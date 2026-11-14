@@ -143,6 +143,15 @@ pub enum Face {
     ReviewCommentAgent,
     /// What says a comment is outdated, dim.
     ReviewOutdated,
+    /// A session's mark that needs the person (ADR 0131): needs input or failed, in red.
+    SessionAlert,
+    /// A working session's mark, in amber.
+    SessionWorking,
+    /// The mark of a session done or ready for review, in green.
+    SessionDone,
+    /// What `*Sessions*` says quietly: idle and stopped marks, places, reasons, and the rows
+    /// of sessions run outside oso.
+    SessionQuiet,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -200,6 +209,10 @@ impl Face {
             Highlight::CommentPerson => Self::ReviewCommentPerson,
             Highlight::CommentAgent => Self::ReviewCommentAgent,
             Highlight::Outdated => Self::ReviewOutdated,
+            Highlight::SessionAlert => Self::SessionAlert,
+            Highlight::SessionWorking => Self::SessionWorking,
+            Highlight::SessionDone => Self::SessionDone,
+            Highlight::SessionQuiet => Self::SessionQuiet,
         }
     }
 
@@ -262,6 +275,9 @@ pub enum CursorStyle {
     /// The box's outline, over glyphs as they are: a window that is not selected, such as
     /// the one beneath a prompt (ADR 0072).
     Hollow,
+    /// No cursor at all: a list that marks the row at point with a band instead, as
+    /// `*Sessions*` in the side window (ADR 0131).
+    None,
 }
 
 /// A window's view of a buffer.

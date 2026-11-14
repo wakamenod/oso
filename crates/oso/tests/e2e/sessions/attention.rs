@@ -15,6 +15,9 @@ use serde_json::{Value, json};
 use super::{Flow, terminal};
 use crate::harness::App;
 
+/// The frames of a working mark that spins (ADR 0131).
+const SPINNER: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+
 /// The fake: it prints `screen` each time a flow writes it, cleared first, and exits with
 /// the status the flow writes to `go`. `DIR` is the flow's scratch directory.
 const FAKE: &str = r#"#!/bin/sh
@@ -132,6 +135,7 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     app.wait_for("working", |state| {
         state_of(state, "proj").as_deref() == Some("working")
     });
+    spins(&mut app);
     let asked = |state: &Value| sessions(state)["asked"].as_u64().unwrap_or(0);
     let before = asked(&app.state());
     print(&flow, DONE);
@@ -173,6 +177,23 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
 
     stop_asks_first(&mut app);
     super::quit(&mut app);
+}
+
+/// The working session's mark spins in the list, a frame every 125 ms (ADR 0131).
+fn spins(app: &mut App) {
+    let mark = |state: &Value| {
+        let list = sessions(state)["list"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let row = list.lines().find(|row| row.contains("proj"))?.to_owned();
+        row.chars().next().filter(|c| SPINNER.contains(*c))
+    };
+    let first = app.wait_for("a spinning mark", |state| mark(state).is_some());
+    let first = mark(&first);
+    app.wait_for("the mark turned", |state| {
+        mark(state).is_some_and(|now| Some(now) != first)
+    });
 }
 
 /// `k` on a working session asks; `y` hangs it up, and it is stopped.
