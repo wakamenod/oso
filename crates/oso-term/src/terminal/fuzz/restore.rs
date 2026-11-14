@@ -1,11 +1,16 @@
 //! The snapshot decoder's fuzz target (ADR 0120, step 11): what the next instance restores a
-//! terminal from, damaged. A terminal fed by the grammar is written as the library's snapshot;
-//! its records are then changed (payload bytes, lengths, tags, records dropped, repeated,
-//! swapped or taken from the snapshot before), their CRC32C written again so the damage
-//! reaches the record decoders, and the engine restored from it. A restored terminal is fed
-//! and drawn on, and sometimes written again. An unchanged snapshot must restore.
+//! terminal from. A terminal fed by the grammar is written as the library's snapshot, or now
+//! and then as escape sequences, and an engine is restored from it, at its size or another.
+//! The restored terminal is fed and drawn on, and sometimes written again. Every snapshot must
+//! restore.
 //!
 //! Must not depend on: the thread or a PTY; it drives the engine directly.
+//!
+//! With `OSO_TERM_FUZZ_DAMAGE` set, most snapshots are damaged first: their records are
+//! changed (payload bytes, lengths, tags, records dropped, repeated, swapped or taken from the
+//! snapshot before) and their CRC32C written again, so the damage reaches the record decoders.
+//! The next instance reads only snapshots its parent's instance wrote, so damaged ones are not
+//! an input oso gives the library; the switch is for work on the decoder.
 //!
 //! `restore_long` takes `long`'s settings but `_INPUT` and `_SCRIPT`; `restore_smoke` runs a
 //! few dozen in `just test` when the `dev` feature is on.
@@ -180,6 +185,9 @@ struct Source {
     /// Damaged snapshots, and those of them the library restored.
     damaged: u64,
     taken: u64,
+    /// Snapshots restored unchanged.
+    unchanged: u64,
+    damages: bool,
 }
 
 impl Source {
@@ -192,6 +200,8 @@ impl Source {
             before: Vec::new(),
             damaged: 0,
             taken: 0,
+            unchanged: 0,
+            damages: env::var_os("OSO_TERM_FUZZ_DAMAGE").is_some(),
         }
     }
 
@@ -213,7 +223,7 @@ impl Source {
         let Ok(bytes) = self.driver.engine.encode(encoding, &budget) else {
             return 0;
         };
-        let kept = escapes || rng.chance(5);
+        let kept = escapes || rng.chance(5) || !self.damages;
         let state = if kept {
             bytes.clone()
         } else {
@@ -229,7 +239,9 @@ impl Source {
         if !escapes {
             self.before = bytes;
         }
-        if !kept {
+        if kept {
+            self.unchanged += u64::from(restored.is_some());
+        } else {
             self.damaged += 1;
             self.taken += u64::from(restored.is_some());
         }
@@ -281,11 +293,13 @@ fn restore_long() {
     let deadline = Instant::now() + Duration::from_secs(seconds);
     let mut iteration = setting("FIRST").unwrap_or(0);
     let (mut bytes, mut slow, first) = (0u64, 0u64, iteration);
-    let (mut damaged, mut taken) = (0u64, 0u64);
+    let (mut damaged, mut taken, mut unchanged) = (0u64, 0u64, 0u64);
     let mut source = Source::new(iteration);
     while Instant::now() < deadline {
         if iteration.is_multiple_of(BLOCK) {
-            (damaged, taken) = (damaged + source.damaged, taken + source.taken);
+            damaged += source.damaged;
+            taken += source.taken;
+            unchanged += source.unchanged;
             source = Source::new(iteration);
         }
         state.seek(SeekFrom::Start(0)).expect("the state file");
@@ -305,9 +319,10 @@ fn restore_long() {
         iteration += 1;
     }
     let (damaged, taken) = (damaged + source.damaged, taken + source.taken);
+    let unchanged = unchanged + source.unchanged;
     let done = format!(
-        "done: iterations {first}..{iteration}, {} MB restored from, {damaged} damaged \
-         ({taken} restored), {slow} slow, seed {seed}\n",
+        "done: iterations {first}..{iteration}, {} MB restored from, {unchanged} restored \
+         unchanged, {damaged} damaged ({taken} restored), {slow} slow, seed {seed}\n",
         bytes / 1_000_000
     );
     report.write_all(done.as_bytes()).expect("the report");
