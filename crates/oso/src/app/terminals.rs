@@ -218,11 +218,11 @@ impl App {
                     Event::PasteRefused { lines } => said.push(format!(
                         "{lines} lines not pasted: the program turned bracketed paste off"
                     )),
+                    Event::Progress(progress) => hosted.progress = Some(progress),
                     // Step 6 and after (ADR 0120).
                     Event::Bell
                     | Event::Directory(_)
                     | Event::Notification { .. }
-                    | Event::Progress(_)
                     | Event::Prompt(_)
                     | Event::ClipboardWrite(_) => {}
                 }
@@ -244,6 +244,9 @@ impl App {
         }
         // The frame being drawn shows the notes.
         self.note_terminals();
+        if again {
+            self.feed_sessions();
+        }
         again
     }
 
@@ -441,7 +444,7 @@ impl App {
 
     /// Puts each terminal's mode, end and title in its modeline, when one of them changed.
     /// Returns whether a note changed, which the frame being drawn already shows.
-    fn note_terminals(&mut self) -> bool {
+    pub(in crate::app) fn note_terminals(&mut self) -> bool {
         let mut changed = false;
         let ids: Vec<BufferId> = self.terminals.map.iter().map(|(id, _)| id).collect();
         for id in ids {

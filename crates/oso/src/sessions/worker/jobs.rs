@@ -14,7 +14,8 @@ use oso_platform::file_meta::open_for_reading;
 use super::{DROP_AFTER, EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey};
 use crate::sessions::engine::{Fallback, evaluate, evaluate_within};
 use crate::sessions::explain;
-use crate::sessions::rules::{BUDGET, RuleSet, Source};
+use crate::sessions::recap::recap;
+use crate::sessions::rules::{BUDGET, Deadline, RuleSet, Source};
 use crate::sessions::screen::Evidence;
 use crate::sessions::state::{Target, Tracker};
 
@@ -36,6 +37,8 @@ struct Session {
     last: Option<Target>,
     /// How many looks in a row ran out of time: each doubles the wait before the next.
     late: u32,
+    /// The recap last told the app; none is told yet while it is empty.
+    recap: String,
 }
 
 impl Session {
@@ -64,6 +67,8 @@ pub struct Core {
     streak: Option<(String, u32)>,
     /// The local rules no longer used, until the rules load again.
     dropped: HashSet<String>,
+    /// The look at Claude Code's registry.
+    poll: super::externals::Poll,
 }
 
 impl Core {
@@ -75,6 +80,7 @@ impl Core {
             budget: BUDGET,
             streak: None,
             dropped: HashSet::new(),
+            poll: super::externals::Poll::default(),
         }
     }
 
@@ -90,7 +96,8 @@ impl Core {
     /// When the worker must wake with no job: the soonest a session's new screen may be judged,
     /// or its tracker waits for. `None` while nothing waits.
     pub fn due(&self) -> Option<Instant> {
-        self.sessions
+        let sessions = self
+            .sessions
             .values()
             .filter_map(|session| {
                 let screen = session.fresh.then(|| {
@@ -103,7 +110,8 @@ impl Core {
                     (a, b) => a.or(b),
                 }
             })
-            .min()
+            .min();
+        [sessions, self.poll.due()].into_iter().flatten().min()
     }
 
     /// Does `job` at `now`.
@@ -129,6 +137,7 @@ impl Core {
                     judged: None,
                     last: None,
                     late: 0,
+                    recap: String::new(),
                 };
                 self.sessions.insert(key, session);
                 return Vec::new();
@@ -143,11 +152,18 @@ impl Core {
                 }
                 return Vec::new();
             }
+            // The thread takes the slot's screens itself.
+            Job::Screens => return Vec::new(),
             Job::Forget(key) => {
                 self.sessions.remove(&key);
                 return Vec::new();
             }
             Job::ExplainFile(path) => return vec![self.explain_file(&path)],
+            Job::Explain(key) => return vec![self.explain(key)],
+            Job::Externals(on) => {
+                self.poll.set(on.then(registry_directory).flatten(), now);
+                return Vec::new();
+            }
             Job::Recall(directory) => {
                 return vec![Out::Recalled(super::super::record::read(&directory))];
             }
@@ -174,7 +190,12 @@ impl Core {
 
     /// Judges each session whose new screen is due, or whose tracker waits, at `now`.
     pub fn tick(&mut self, now: Instant) -> Vec<Out> {
-        let mut found = Vec::new();
+        let mut found: Vec<Out> = self
+            .poll
+            .tick(now)
+            .map(Out::Externals)
+            .into_iter()
+            .collect();
         let Self {
             rules,
             sessions,
@@ -182,6 +203,7 @@ impl Core {
             budget,
             streak,
             dropped,
+            ..
         } = self;
         for (&key, session) in sessions {
             let screen_due =
@@ -190,6 +212,7 @@ impl Core {
             if !(screen_due || tracker_due) {
                 continue;
             }
+            let mut recapped = None;
             let target = if screen_due {
                 let Some(evidence) = &session.evidence else {
                     continue;
@@ -215,6 +238,12 @@ impl Core {
                 } else {
                     session.late = 0;
                     *streak = None;
+                    let deadline = Deadline::after(*budget);
+                    let found = recap(rules, &verdict, evidence, dropped, &deadline);
+                    if let Some(found) = found.filter(|found| *found != session.recap) {
+                        session.recap.clone_from(&found);
+                        recapped = Some(found);
+                    }
                 }
                 session.last = Some(verdict.target);
                 verdict.target
@@ -226,6 +255,9 @@ impl Core {
             };
             if let Some(change) = session.tracker.verdict(target, now) {
                 found.push(Out::Changed(key, change));
+            }
+            if let Some(recap) = recapped {
+                found.push(Out::Recap(key, recap));
             }
         }
         found
@@ -242,6 +274,22 @@ impl Core {
     }
 
     /// Reads the saved screen at `path` and explains it with the rules in force.
+    /// The explanation of session `key`'s last look, judged again with the rules in force.
+    fn explain(&self, key: SessionKey) -> Out {
+        match self.sessions.get(&key).and_then(|s| s.evidence.as_ref()) {
+            Some(evidence) => {
+                let verdict = evaluate(&self.rules, evidence);
+                Out::Explained(explain::text(
+                    "the session's screen",
+                    &self.rules,
+                    evidence,
+                    &verdict,
+                ))
+            }
+            None => Out::Unexplained("Nothing of that session's screen was looked at yet".into()),
+        }
+    }
+
     fn explain_file(&self, path: &Path) -> Out {
         match read_screen(path) {
             Ok(text) => {
@@ -252,6 +300,15 @@ impl Core {
             }
             Err(why) => Out::Unexplained(format!("Cannot explain that screen file: {why}")),
         }
+    }
+}
+
+/// Claude Code's registry, or none in tests, which must not read the person's.
+fn registry_directory() -> Option<std::path::PathBuf> {
+    if cfg!(test) {
+        None
+    } else {
+        crate::sessions::registry::directory()
     }
 }
 

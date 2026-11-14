@@ -681,7 +681,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   terminal. Under `oso dev`, a running terminal holds the restart, until terminals are handed
   over: run long-lived programs in an oso that is not rebuilt.
 - The agent channel reads no terminal's text, types nothing into one, and never selects one:
-  switching to a terminal is the person's.
+  switching to a terminal, or to a list with keys of its own such as `*Sessions*`, is the
+  person's.
 
 ## Input method (IME)
 
@@ -797,3 +798,53 @@ a switch made with its command stands until that setting changes in the file
 - A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
   where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
   runs elsewhere.
+- Which states ask for attention, in `config.toml`:
+
+  ```toml
+  [sessions.notify]
+  needs_input = true        # the defaults
+  done = true
+  failed = true
+  ready_for_review = false
+  ```
+
+  A session that enters one of these while it is not shown in the selected window of a focused
+  oso window, and is still in it 1 s later, gets an echo-area line naming it, and on macOS a
+  Dock bounce: repeated until oso is focused for needs input and failed, once otherwise. On
+  Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
+  sessions need input"). A notification names the session and its state, never screen text.
+- `*Sessions*` lists every session in a side window, 32 columns wide at the frame's left, shown
+  by itself while oso has a session that is not archived. Each session takes three lines: its
+  state's mark (⚠ needs input, ✗ failed, ▶ working, ◆ ready for review, ● done, ○ idle,
+  ■ stopped), name and age; its space and branch; its recap, the dialog's question or the
+  status line. Sessions are grouped by state, pinned ones first, sessions a session started
+  nested under it; archived ones last, folded. In a window 60 columns wide or more, each takes
+  one line. The list is withheld from agents: while it is shown, the agent channel's commands
+  answer in the echo area only.
+  - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
+    if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
+    for again. `C-x o` skips it, and so does `C-x 0` in another window; a click or
+    `windmove-left` reaches it. While it is selected, `C-x 2`, `C-x 3`, `C-x 1`, `M-,`, `M-/`,
+    `*Messages*` and showing a buffer act on the window selected before it, and select it.
+  - The commands that show a session or the list, and pinning and archiving, need a person at
+    the keyboard: the agent channel cannot run them.
+  - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
+    renders again with fresh ages, `s` groups by space instead, `P` pins, `A` archives or
+    brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
+    explains its state.
+- `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and
+  recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
+  that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
+  session's state in `*Session explain*`.
+- A space is a project with its sessions, and keeps its own windows. `C-x a j` (`space-switch`)
+  switches to another; showing a session of another space switches to it first. A space
+  entered for the first time shows its last file and its last session side by side.
+  `C-x a z` (`space-zoom`) shows the selected window alone, and back. Under `oso dev`, a
+  restart keeps only the windows in front: the other spaces' windows go, and a zoomed
+  window stays alone.
+- The selected window's modeline counts `⚠ N` sessions that need input and `● N` done or
+  ready for review. A session's own modeline says its state and age, `needs input
+  (permission) 3m`, before its title. A session counts as seen after 2 s in the selected window
+  of a focused oso window: done becomes idle.
+- Sessions of Claude Code run outside oso, from its registry, are listed too, as working or
+  idle; they are never shown.

@@ -52,6 +52,10 @@ pub fn map(
         (ArgSpec::Theme { .. }, _) => Err(format!(
             "{name} reads a theme's name, which only its prompt takes, from keys"
         )),
+        // The host's lists, of sessions and spaces, are read only in their prompt (ADR 0121).
+        (ArgSpec::Listed { .. }, _) => Err(format!(
+            "{name} reads one of a list, which only its prompt takes, from keys"
+        )),
         // A menu reads keys, and no channel opens one (ADR 0117).
         (ArgSpec::Menu { .. }, _) => Err(format!(
             "{name} reads a menu's name, which only its prompt takes, from keys"
@@ -202,6 +206,16 @@ mod tests {
             history: "command",
         };
         assert!(refused(command, Given::Text("forward-char")).contains("command's name"));
+        // A list the host keeps holds what an agent must not read, such as sessions' recaps.
+        for list in ["sessions", "spaces"] {
+            let listed = ArgSpec::Listed {
+                list,
+                prompt: "Session: ",
+                history: "session",
+            };
+            assert!(map("cmd", listed, Given::Text("x"), None).is_err());
+            assert!(map("cmd", listed, Given::Nothing, None).is_err());
+        }
         let buffer = ArgSpec::Buffer {
             prompt: "Switch to buffer: ",
             history: "buffer",

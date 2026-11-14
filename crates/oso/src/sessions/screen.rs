@@ -36,13 +36,6 @@ pub struct Progress {
 impl Progress {
     /// The progress a terminal reported, `None` for a state past 4, with the value cut to 100:
     /// the bytes came from the session.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the terminal's host API reports progress (ADR 0121 step 3)"
-        )
-    )]
     pub fn new(state: u8, value: Option<u8>) -> Option<Self> {
         (state <= 4).then(|| Self {
             state,
@@ -113,7 +106,7 @@ impl Evidence {
         not(test),
         expect(
             dead_code,
-            reason = "the terminal's host API feeds it (ADR 0121 step 3)"
+            reason = "open: ADR 0120 step 4b's echo signal will feed it (ADR 0121 step 3 as built)"
         )
     )]
     pub fn echo_off(title: &str, progress: Option<Progress>) -> Self {

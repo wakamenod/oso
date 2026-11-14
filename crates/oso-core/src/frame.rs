@@ -7,7 +7,10 @@
 //! nothing here draws.
 //!
 //! A frame is a grid of whole cells. From the top: the tiled windows, then the echo area.
-//! [`Splits`] divides the tiled area among the windows (ADR 0112): each has its text area,
+//! The side window, while there is one, takes the tiled area's left columns, outside the
+//! tree, with a divider at its right (ADR 0121), and gets none while the rest would be
+//! narrower than a split leaves a window.
+//! [`Splits`] divides the rest of the tiled area among the windows (ADR 0112): each has its text area,
 //! with a gutter for line numbers at its left (ADR 0097), its modeline below, and a divider
 //! column at its right while a window is to its right. A frame too small for all of them
 //! gives up the modeline first and the echo area next, so the text keeps a row
@@ -36,6 +39,7 @@ pub use cells::{cursor_rect, match_cells, other_cursor_cells, region_cells};
 pub(crate) use float::completion_regions;
 pub use float::{FloatRegions, MIN_LIST_COLUMNS, float_regions};
 pub(crate) use splits::Splits;
+use splits::window_regions;
 pub use splits::{BadTiling, Side, Tiling, TooSmall, Way};
 
 /// The rows a frame reserves below the text area: the modeline and the echo
@@ -181,8 +185,9 @@ impl FrameLayout {
         self.size
     }
 
-    /// Each tiled window's regions, in the tree's order: left to right, top to bottom. A
-    /// window the frame has no room for has none.
+    /// Each tiled window's regions: the side window's first, while there is one (ADR 0121),
+    /// then the tree's in its order, left to right, top to bottom. A window the frame has no
+    /// room for has none.
     pub fn windows(&self) -> &[(WindowId, WindowRegions)] {
         &self.windows
     }
@@ -269,6 +274,14 @@ pub fn fitting_gutter(size: FrameSize, gutter: usize) -> usize {
     if gutter < size.columns { gutter } else { 0 }
 }
 
+/// The side window a frame lays out at its left, outside the tree (ADR 0121).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SideColumns {
+    pub(crate) window: WindowId,
+    /// Its columns, gutter and text, without the divider at its right.
+    pub(crate) columns: usize,
+}
+
 /// Divides a frame of `size` into regions: the echo area at the bottom, and the tiled area
 /// above it among the windows of `splits`, each with a gutter of `gutter(window)` columns at
 /// its left while its text area keeps a column, and none otherwise. A window the frame has
@@ -285,15 +298,17 @@ pub(crate) fn layout(
         by_id: Vec::new(),
         echo: CellRect::EMPTY,
     };
-    layout_into(&mut frame, size, splits, keep, gutter);
+    layout_into(&mut frame, size, (splits, None), keep, gutter);
     frame
 }
 
-/// [`layout`] into `frame`, reusing its room.
+/// [`layout`] into `frame`, reusing its room, with `side` at the tiled area's left: `columns`
+/// and a divider, while the tree keeps the narrowest a split leaves beside it, and no cells
+/// otherwise, `keep` or not.
 pub(crate) fn layout_into(
     frame: &mut FrameLayout,
     size: FrameSize,
-    splits: &Splits,
+    (splits, side): (&Splits, Option<SideColumns>),
     keep: WindowId,
     gutter: impl Fn(WindowId) -> usize,
 ) {
@@ -308,7 +323,26 @@ pub(crate) fn layout_into(
     frame.size = size;
     frame.echo = rows(tiled_rows, echo_rows);
     frame.windows.clear();
-    splits.lay_out(rows(0, tiled_rows), keep, &gutter, &mut frame.windows);
+    let mut tree = rows(0, tiled_rows);
+    if let Some(side) = side {
+        let fits = side
+            .columns
+            .checked_add(1 + splits.least_columns())
+            .is_some_and(|needs| side.columns > 0 && needs <= tree.columns);
+        let regions = if fits {
+            let area = CellRect {
+                columns: side.columns + 1,
+                ..tree
+            };
+            tree.column += area.columns;
+            tree.columns -= area.columns;
+            window_regions(area, true, gutter(side.window))
+        } else {
+            WindowRegions::EMPTY
+        };
+        frame.windows.push((side.window, regions));
+    }
+    splits.lay_out(tree, keep, &gutter, &mut frame.windows);
     frame.by_id.clear();
     let places = frame.windows.iter().enumerate();
     frame.by_id.extend(places.map(|(at, (id, _))| (*id, at)));

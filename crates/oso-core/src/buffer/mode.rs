@@ -19,6 +19,8 @@ pub enum Mode {
     CopyList,
     /// The text of one emergency copy, or how it differs from its file.
     CopyView,
+    /// The list of agent sessions, `*Sessions*` (ADR 0121).
+    Sessions,
     /// Rust source.
     Rust,
     /// Markdown.
@@ -62,6 +64,7 @@ impl Mode {
             Self::Fundamental => "Fundamental",
             Self::CopyList => "Emergency Copies",
             Self::CopyView => "Emergency Copy",
+            Self::Sessions => "Sessions",
             Self::Rust => "Rust",
             Self::Markdown => "Markdown",
             Self::Toml => "TOML",
@@ -76,7 +79,8 @@ impl Mode {
     }
 
     /// The rules its lines are indented by (ADR 0115), or none for the emergency copies'
-    /// buffers, whose text is not the person's to indent, and for a terminal, which has none.
+    /// buffers and the sessions' list, whose text is not the person's to indent, and for a
+    /// terminal, which has none.
     #[expect(
         clippy::type_complexity,
         reason = "the rules' own signature, which naming would make a public item of its own"
@@ -87,7 +91,9 @@ impl Mode {
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
             Self::Fundamental => Some(indent::fundamental),
-            Self::CopyList | Self::CopyView | Self::Review | Self::Terminal => None,
+            Self::CopyList | Self::CopyView | Self::Review | Self::Sessions | Self::Terminal => {
+                None
+            }
         }
     }
 }
@@ -115,6 +121,7 @@ mod tests {
         assert!(modes.iter().all(|mode| mode.indent_rules().is_some()));
         assert!(Mode::CopyList.indent_rules().is_none());
         assert!(Mode::CopyView.indent_rules().is_none());
+        assert!(Mode::Sessions.indent_rules().is_none());
         assert!(Mode::Terminal.indent_rules().is_none());
     }
 

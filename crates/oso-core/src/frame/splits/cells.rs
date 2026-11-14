@@ -10,7 +10,11 @@ use super::super::{CellRect, FrameSize, WindowRegions, fitting_gutter};
 /// modeline at its bottom, and its gutter at the left of the text while the text keeps a
 /// column. A window that has all the tiled area lays out as the one window always has
 /// (ADR 0057).
-pub(super) fn window_regions(area: CellRect, right: bool, gutter: usize) -> WindowRegions {
+pub(in crate::frame) fn window_regions(
+    area: CellRect,
+    right: bool,
+    gutter: usize,
+) -> WindowRegions {
     let divider = (right && area.columns >= 2).then(|| CellRect {
         column: area.column + area.columns - 1,
         columns: 1,

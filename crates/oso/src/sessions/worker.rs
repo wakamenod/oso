@@ -8,13 +8,17 @@
 //!
 //! Nothing runs while nothing changes: the thread waits for a job, and wakes on its own only
 //! while a session's debounce or grace period waits. A session's screen is judged at most every
-//! [`EVALUATE_EVERY`]; screens that come faster are coalesced, the newest kept.
+//! [`EVALUATE_EVERY`]; screens that come faster are coalesced, the newest kept. The app's
+//! screens wait in a slot of their own, one a session, so a busy worker never queues more
+//! than one screen of each.
 
+pub mod externals;
 mod jobs;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -47,34 +51,18 @@ pub enum Job {
     Rules(Arc<RuleSet>),
     /// A session started or was resumed.
     Start(SessionKey),
-    /// A session's screen, title or progress changed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the terminal's host API feeds it (ADR 0121 step 3)"
-        )
-    )]
+    /// A session's screen, title or progress changed. The app gives screens with
+    /// [`Worker::send_screen`], which keeps one a session.
     Screen(SessionKey, Evidence),
+    /// Screens wait in the slot: [`Worker::send_screen`] sends it, and the thread takes them.
+    Screens,
     /// A session's process ended.
     Exited(SessionKey, Exit),
     /// The person has seen a session.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the 2 s seen timer sends it (ADR 0121 step 3)")
-    )]
     Seen(SessionKey),
     /// What `git diff` found after a session's turn ended.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the `git diff` call sends it (ADR 0121 step 3)")
-    )]
     Changes(SessionKey, bool),
     /// A review of a session was opened.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "opening a review sends it (ADR 0121 step 3)")
-    )]
     ReviewOpened(SessionKey),
     /// A session is gone from oso.
     #[cfg_attr(
@@ -84,6 +72,10 @@ pub enum Job {
     Forget(SessionKey),
     /// Explain the saved screen in this file.
     ExplainFile(PathBuf),
+    /// Explain the last look at a hosted session's screen (`session-explain`).
+    Explain(SessionKey),
+    /// Look at Claude Code's registry once a second for other programs' sessions, or stop.
+    Externals(bool),
     /// Read the sessions an earlier oso remembered in this state directory (ADR 0121).
     Recall(PathBuf),
     /// Remember these sessions in this state directory, keeping those of another instance:
@@ -100,6 +92,10 @@ pub enum Job {
 pub enum Out {
     /// A session's state changed.
     Changed(SessionKey, Change),
+    /// The live sessions of Claude Code's registry changed: all of them, the app's own too.
+    Externals(Vec<externals::External>),
+    /// A session's recap changed (ADR 0121, step 3): cleaned and cut, the screen's text.
+    Recap(SessionKey, String),
     /// The explanation of a saved screen, for `*Session explain*`.
     Explained(String),
     /// A saved screen could not be read, and why, for the echo area. It names no path: what
@@ -115,9 +111,13 @@ pub enum Out {
     Dropped(String),
 }
 
+/// The screens the app gave that the thread has not taken, one a session, the newest.
+type Slot = Arc<Mutex<HashMap<SessionKey, Evidence>>>;
+
 /// The worker, which stops when this is dropped.
 pub struct Worker {
     jobs: Sender<Job>,
+    screens: Slot,
 }
 
 impl Worker {
@@ -125,14 +125,30 @@ impl Worker {
     /// in the log, if the thread cannot start.
     pub fn start(out: impl Fn(Out) + Send + 'static) -> Option<Self> {
         let (jobs, receiver) = mpsc::channel();
+        let screens = Slot::default();
+        let slot = Arc::clone(&screens);
         let spawned = thread::Builder::new()
             .name("oso-sessions".into())
-            .spawn(move || run(&receiver, &out));
+            .spawn(move || run(&receiver, &slot, &out));
         if let Err(e) = spawned {
             log::warn!("cannot start the sessions worker: {e}");
             return None;
         }
-        Some(Self { jobs })
+        Some(Self { jobs, screens })
+    }
+
+    /// Hands session `key`'s new screen to the thread, in place of one it has not taken yet.
+    pub fn send_screen(&self, key: SessionKey, evidence: Evidence) {
+        let first = {
+            let mut screens = self.screens.lock().unwrap_or_else(PoisonError::into_inner);
+            let empty = screens.is_empty();
+            screens.insert(key, evidence);
+            empty
+        };
+        // The thread takes every screen in the slot at once: one job wakes it.
+        if first {
+            self.send(Job::Screens);
+        }
     }
 
     /// Hands `job` to the thread. A thread that ended takes nothing, which its end logged.
@@ -143,7 +159,7 @@ impl Worker {
 
 /// The thread: waits for jobs, and for the next time a session is due, until the worker is
 /// dropped. A panic in one job is logged and the thread goes on, its sessions as they were.
-fn run(jobs: &Receiver<Job>, out: &dyn Fn(Out)) {
+fn run(jobs: &Receiver<Job>, screens: &Slot, out: &dyn Fn(Out)) {
     let mut core = Core::new(Arc::new(RuleSet::bundled()));
     loop {
         let job = match core.due() {
@@ -165,13 +181,16 @@ fn run(jobs: &Receiver<Job>, out: &dyn Fn(Out)) {
         let mut found = Vec::new();
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let now = Instant::now();
-            if let Some(job) = job {
-                found.extend(core.handle(job, now));
-            }
             // Every job waiting goes in before a tick, so that screens queued while the last
             // tick ran are coalesced, the newest kept, and judged once.
-            while let Ok(job) = jobs.try_recv() {
-                found.extend(core.handle(job, now));
+            for job in job
+                .into_iter()
+                .chain(std::iter::from_fn(|| jobs.try_recv().ok()))
+            {
+                match job {
+                    Job::Screens => take_screens(&mut core, screens, now),
+                    job => found.extend(core.handle(job, now)),
+                }
             }
             found.extend(core.tick(now));
         }));
@@ -179,5 +198,14 @@ fn run(jobs: &Receiver<Job>, out: &dyn Fn(Out)) {
         if done.is_err() {
             log::error!("the sessions worker failed a job");
         }
+    }
+}
+
+/// Hands the screens in the slot to `core`, emptying it.
+fn take_screens(core: &mut Core, screens: &Slot, now: Instant) {
+    let taken = std::mem::take(&mut *screens.lock().unwrap_or_else(PoisonError::into_inner));
+    for (key, evidence) in taken {
+        // A screen changes nothing to report until a tick judges it.
+        core.handle(Job::Screen(key, evidence), now);
     }
 }

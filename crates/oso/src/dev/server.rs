@@ -256,6 +256,7 @@ mod tests {
             | UiOp::Ime(_)
             | UiOp::Clipboard(_)
             | UiOp::Wheel { .. }
+            | UiOp::Focus(_)
             | UiOp::ExportText { .. }
             | UiOp::ImportText(_)
             | UiOp::DevMessage(_) => Err("not in this fake".to_owned()),

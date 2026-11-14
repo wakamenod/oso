@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 
+use super::recap::Recap;
 use super::screen::Region;
 use super::state::Target;
 
@@ -71,6 +72,8 @@ pub struct Rule {
     pub priority: i64,
     pub region: Region,
     pub source: Source,
+    /// What the recap of a session in the rule's state shows (ADR 0121, step 3).
+    pub recap: Option<Recap>,
     test: Test,
 }
 
@@ -179,7 +182,7 @@ impl Deadline {
         }
     }
 
-    fn check(&self) -> Result<(), Late> {
+    pub(super) fn check(&self) -> Result<(), Late> {
         if Instant::now() >= self.at {
             return Err(Late);
         }

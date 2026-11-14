@@ -128,6 +128,9 @@ pub enum UserEvent {
     Sessions(crate::sessions::worker::Out),
     /// A hosted session's start thread found something (ADR 0121).
     SessionStart(crate::sessions::start::Report),
+    /// A look for a session's changes after its turn ended: whether its tree differs from its
+    /// baseline, `None` if git failed (ADR 0121 step 3).
+    SessionChanges(crate::sessions::worker::SessionKey, Option<bool>),
     /// The thread that reads migemo's dictionary read it, or could not (ADR 0116).
     Migemo(Box<migemo::DictionaryRead>),
     /// A review's threads, or the review menu's counts, reported (ADR 0122).
@@ -233,6 +236,9 @@ pub struct App {
     /// The sessions oso hosts and remembers, and the internal `*Session explain*` buffer
     /// (ADR 0121).
     hosting: sessions::Hosting,
+    /// What step 3 of ADR 0121 keeps of hosted sessions: the screen feed, their states, the
+    /// `*Sessions*` list, spaces and attention.
+    watch: sessions::Watch,
     /// The open reviews' threads and the review menu's counts (ADR 0122).
     reviews: reviews::Reviews,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
@@ -361,6 +367,7 @@ impl App {
             completer: completions::Completer::default(),
             theme_read: Some(theme_read),
             hosting: sessions::Hosting::new(theme_directory.clone()),
+            watch: sessions::Watch::default(),
             theme_writer: theme_file::Writer::start(theme_directory),
             themes,
             remembered_theme,
