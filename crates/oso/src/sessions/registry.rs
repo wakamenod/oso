@@ -62,6 +62,8 @@ pub struct Entry {
     pub kind: Option<String>,
     /// The CLI's own status, such as `busy` or `idle`.
     pub status: Option<String>,
+    /// When the CLI last changed its status, in milliseconds since the epoch.
+    pub status_updated_at: Option<u64>,
 }
 
 /// Whether an entry's process still runs.
@@ -194,6 +196,7 @@ fn parse(bytes: &[u8]) -> Option<Entry> {
         name: text("name", MAX_FIELD),
         kind: text("kind", MAX_FIELD),
         status: text("status", MAX_FIELD),
+        status_updated_at: object.get("statusUpdatedAt").and_then(Value::as_u64),
     })
 }
 
@@ -361,7 +364,7 @@ mod tests {
 
     fn entry_json(pid: u32, proc_start: &str) -> String {
         format!(
-            r#"{{"pid":{pid},"sessionId":"{ID}","cwd":"/work/oso","procStart":"{proc_start}","startedAt":1794512815000,"name":"oso","kind":"interactive","status":"idle","messagingSocketPath":"/x","version":"2.1.322"}}"#
+            r#"{{"pid":{pid},"sessionId":"{ID}","cwd":"/work/oso","procStart":"{proc_start}","startedAt":1794512815000,"name":"oso","kind":"interactive","status":"idle","statusUpdatedAt":1794512900000,"messagingSocketPath":"/x","version":"2.1.322"}}"#
         )
     }
 
@@ -375,6 +378,7 @@ mod tests {
             name: None,
             kind: None,
             status: None,
+            status_updated_at: None,
         }
     }
 
@@ -554,6 +558,7 @@ mod tests {
                 name: Some("oso".into()),
                 kind: Some("interactive".into()),
                 status: Some("idle".into()),
+                status_updated_at: Some(1_794_512_900_000),
             }]
         );
     }

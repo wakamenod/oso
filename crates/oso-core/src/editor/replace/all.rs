@@ -120,6 +120,21 @@ impl Editor {
         }
     }
 
+    /// The time each slice of `!` has: [`SLICE_TIME`], or what a test gave.
+    fn slice_time(&self) -> std::time::Duration {
+        #[cfg(test)]
+        if let Some(time) = self.replacing.slice_time {
+            return time;
+        }
+        SLICE_TIME
+    }
+
+    /// Gives each slice of `!` `time` instead of [`SLICE_TIME`].
+    #[cfg(test)]
+    pub(in crate::editor) fn set_replace_slice_time(&mut self, time: std::time::Duration) {
+        self.replacing.slice_time = Some(time);
+    }
+
     /// The matches of `!`'s next slice from `from`, within a key's budget of work and at most
     /// [`ALL_SLICE`] of them, where the slice after starts, and the line it ended in. A line
     /// longer than a slice's budget gets a slice of its own: read whole, and a budget of work
@@ -138,7 +153,7 @@ impl Editor {
         };
         let snapshot = (buffer.text(), buffer.invalid_bytes());
         let mut matches = Vec::new();
-        let until = Instant::now() + SLICE_TIME;
+        let until = Instant::now() + self.slice_time();
         let mut scan = state.needle.scan(snapshot, &ranges, from, KEY_BUDGET, kept);
         scan.until(until);
         let mut whole_line = false;
@@ -159,7 +174,7 @@ impl Editor {
                         .needle
                         .scan(snapshot, &ranges, place, MAX_LINE + KEY_BUDGET, line);
                     // Its line is read whole, and then it goes on for the slice's time.
-                    scan.until(Instant::now() + SLICE_TIME);
+                    scan.until(Instant::now() + self.slice_time());
                     whole_line = true;
                 }
                 Ok(Found::Stopped { .. }) => break Next::From(scan.place()),

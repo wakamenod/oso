@@ -66,6 +66,10 @@ pub(super) struct Replacing {
     last: [Option<(String, String)>; 2],
     /// The regexp its prompt last compiled, and its pattern, for the session to take.
     checked: Option<(String, search::Regexp)>,
+    /// A time for each slice of `!` other than `SLICE_TIME`, for the tests of a slice out of
+    /// time.
+    #[cfg(test)]
+    slice_time: Option<std::time::Duration>,
 }
 
 impl fmt::Debug for Replacing {
@@ -79,9 +83,6 @@ impl fmt::Debug for Replacing {
             .finish()
     }
 }
-
-/// The most time a key's search for the next match takes on the UI thread.
-const KEY_TIME: std::time::Duration = std::time::Duration::from_millis(3);
 
 /// The most answers kept while a worker looks for the next match.
 const MOST_PENDING: usize = 16;
@@ -253,8 +254,11 @@ impl Editor {
         };
         let snapshot = (buffer.text(), buffer.invalid_bytes());
         let mut scan = needle.scan(snapshot, &ranges, from, KEY_BUDGET, None);
-        // A pattern can read far past each place it looks; past this, the worker goes on.
-        scan.until(std::time::Instant::now() + KEY_TIME);
+        // A pattern can read far past each place it looks; past a key's time, the worker goes
+        // on.
+        if let Some(until) = self.key_until(std::time::Instant::now()) {
+            scan.until(until);
+        }
         let found = scan.next(&|| false);
         let place = scan.place();
         match found {

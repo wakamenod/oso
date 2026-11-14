@@ -17,6 +17,9 @@ use oso_core::selection::SelectionSet;
 /// state's. The list draws them, and never begins another line with one.
 pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■";
 
+/// What `?` says in `*Sessions*` (ADR 0131): the marks, then the keys.
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  TAB fold  s group  k stop  e explain";
+
 /// The commands of `*Sessions*`.
 pub const COMMANDS: &[Command] = &[
     row(
@@ -87,6 +90,14 @@ pub const COMMANDS: &[Command] = &[
         Reach::Person,
         stop,
     ),
+    Command {
+        name: "sessions-help",
+        doc: "Say what the marks of `*Sessions*` mean, and its keys, in the echo area.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: help,
+        state: None,
+    },
     row(
         "sessions-explain",
         "Explain the last look at the screen of the session on this row, as `session-explain` does.",
@@ -160,6 +171,12 @@ fn explain(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     in_list(ctx)?;
     ctx.editor.request_session(SessionRequest::Refresh);
+    Ok(())
+}
+
+fn help(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    in_list(ctx)?;
+    ctx.editor.message(LEGEND);
     Ok(())
 }
 

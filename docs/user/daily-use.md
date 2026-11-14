@@ -3,8 +3,8 @@
 Install a release build of oso for daily work, and keep developing oso with `just dev` beside
 it. The installed oso is a copy: rebuilding the repository does not change it while it runs.
 
-A terminal in oso holds `oso dev`'s restarts until the restart handoff exists (ADR 0120, step
-11). So run `claude` and other long-lived programs in the installed oso, not in `oso dev`.
+A terminal in oso holds `oso dev`'s restarts until the restart handoff exists. So run agent
+sessions and other long-lived programs in the installed oso, not in `oso dev`.
 
 ## Prerequisites
 
@@ -45,15 +45,217 @@ oso            # or: oso FILE
 
 Start it from a shell. `oso --no-config` starts without your configuration file.
 
-## Claude Code in a terminal
+## Trust a project
 
-In the installed oso, `M-x terminal` opens a terminal with your shell. Run `claude` in it.
+oso opens any project restricted: none of its code runs. Worktree sessions and reviews run git
+there, so they wait until you trust the project. A session itself runs in a restricted project
+too, and Claude Code asks its own trust question.
 
-While a program in it asks for a password (`sudo`, `ssh`), the modeline says `secret`: the
-agent channel waits while that terminal is shown, and on macOS secure input is on while it is
-selected. An agent reads a terminal only after you run
-`M-x terminal-allow-agent-read` in it (the modeline says `agent reads`), and never while it asks
-for a password; `M-x terminal-deny-agent-read` takes that back.
+Visit a file of the project, then run `M-x trust-project` and answer `y`. It works on the project
+of the current buffer's file, so run it from a file buffer, not from a terminal or `*Sessions*`.
+A git worktree is trusted while its main repository is. `M-x untrust-project` takes it back.
+
+## Agent sessions
+
+A session is Claude Code running in an oso terminal, in a buffer named `*claude: NAME*`. oso
+tracks its state (needs input, working, done, stopped and so on), and gives it oso's own tools
+through `oso mcp`.
+
+| Key | Command | What it does |
+|---|---|---|
+| `C-x a c` | `claude` | Start a session in the current project. With `C-u`, it asks for a directory and a name. |
+| `C-x a w` | `session-worktree` | Start a session in a new git worktree (see below). |
+| `C-x a a` | `session-adopt` | Bring a session started outside oso into oso. |
+| `C-x a r` | `session-resume` | Resume the stopped session whose buffer this is. |
+| `C-x a s` | `sessions` | Show, select or hide the `*Sessions*` list. |
+| `C-x a b` | `session-switch` | Show a session, picked by name. |
+| `C-x a n` | `session-next-waiting` | Show the session that has waited for input longest. |
+| `C-x a d` | `session-next-done` | Show the session that has been done longest. |
+| `C-x a m` | `session-send` | Paste the region, or a note, into a session. |
+| `C-x a @` | `session-mention` | Insert a session's name as `@NAME`. |
+| `C-x a f` | `session-follow-message` | Show the session that sent this one its newest message. |
+| `C-x a j` | `space-switch` | Switch to another space. |
+| `C-x a z` | `space-zoom` | Show the selected window alone, and back. |
+| `C-x a e` | `session-explain` | Explain why this session has the state it shows. |
+
+`C-x a` stays oso's inside a terminal, so these keys work from a session's own buffer too.
+
+A session starts in the mode your own Claude Code settings give it: oso passes no permission
+option. It starts the agent channel, which its tools need.
+
+### The sessions list
+
+`*Sessions*` shows in a narrow window at the frame's left while you have sessions. It groups
+them by state, the most urgent first, one line each: its mark, its name, its space where there
+is room, and how long since it last changed state (`now` under a minute). A session that needs
+you takes a second line with the question it asks. Sessions run outside oso are listed too,
+their space beginning `external`. The
+modeline shows `⚠ N` while sessions need input and `● N` while sessions are done or ready for
+review. When a session needs you and you are looking elsewhere, oso says so in the echo area
+and asks the desktop for your attention.
+
+In `*Sessions*`:
+
+| Key | What it does |
+|---|---|
+| `RET` | Show the session on this row. |
+| `n`, `p` | Next and previous row. |
+| `TAB` | Fold or unfold a group. |
+| `g` | Refresh. |
+| `s` | Group by state or by space. |
+| `P` | Pin or unpin: pinned sessions come first. |
+| `A` | Archive, or bring an archived session back. |
+| `r` | Resume a stopped session. |
+| `k` | Stop the session. It asks first while the session works or needs input. |
+| `e` | Explain its state. |
+| `?` | Say what the marks mean, and these keys. |
+
+`C-x o` skips the list, and `C-x a s` hides it when it is selected. `C-x k` in a session's
+buffer stops and archives the session.
+
+### Spaces
+
+A space is a project and its sessions, with its own windows. `C-x a j` switches spaces, and the
+windows of the space you leave are kept for when you come back. Showing a session of another
+space switches to that space. A worktree session gets a space of its own, under its
+repository's. The modeline names the space.
+
+### Send work to a session
+
+Select a region and press `C-x a m`, then pick the session. The region goes as its path, its
+lines and its text. With `C-u`, only the path and lines go (`path:10-20`), and the agent reads
+the file itself. With no region, oso asks for a one-line note. The paste is not submitted:
+oso shows the session, and you read the paste and press Enter. A session that is asking a
+question is refused until you answer it.
+
+`C-x a @` gives a session's name as `@NAME`, which an agent uses to message that session.
+
+### Adopt a session started elsewhere
+
+`C-x a a` lists the Claude Code sessions oso does not host: those still running elsewhere, then
+those of the last 30 days. Pick one, and oso resumes it in a new session buffer. Stop it in the
+other program first: oso cannot move a running process, so it refuses a live one and offers a
+fork instead. If the session was in the middle of a turn when it stopped, ask it to go on.
+
+## Worktree sessions
+
+A worktree session works on its own branch in its own directory, so parallel sessions do not
+change the same files. The project must be trusted, and so must its main repository.
+
+1. With a file of the project selected, press `C-x a w`.
+2. Give a branch: an existing local one, or a new name. A new branch starts at `HEAD`. With
+   `C-u`, oso asks for its base too.
+3. Write the task in `*Brief*`. `C-c C-c` sends it, and `C-c C-k` drops it.
+
+oso makes the worktree in `.claude/worktrees/` of the repository and starts a session there with
+the brief as its first prompt. It copies the git-ignored files that `.worktreeinclude` names,
+such as a local `.env`. No hook of the repository runs, so run any setup the repository needs
+yourself, in the worktree's terminal.
+
+`M-x worktree-list` lists the repository's worktrees in `*Worktrees*`: each one's branch, its
+changes, whether its branch is merged, and its sessions. In it, `g` lists them again and `D`
+removes the worktree at point. `M-x worktree-remove` removes a worktree only when:
+
+- it has no uncommitted or untracked files,
+- no buffer under it has unsaved changes and no brief for it is unsent,
+- no session in it is busy,
+- and its branch is merged. A pull request merged on GitHub counts, when `gh` is set up. A
+  branch with no commit of its own does not.
+
+It asks first, naming the git-ignored files that go with the worktree. It stops the idle
+sessions there, never forces, and never deletes the branch.
+
+## Review changes
+
+`C-x v r` opens the review menu for the current file's project:
+
+| Key | Reviews |
+|---|---|
+| `D` | What changed since the baseline (see below) |
+| `w` | Uncommitted changes, untracked files included |
+| `u` | Unstaged changes |
+| `s` | Staged changes |
+| `b` | The branch against its base |
+| `c` | One commit |
+| `r` | A range of commits, `FROM..TO` |
+| `B` | Take a new baseline now |
+
+Each is a command too, such as `M-x review-uncommitted`. Reviews run git, so the project must
+be trusted. `C-x a c` takes a baseline when it starts a session at the root of a trusted
+project, so `D` shows what that session changed.
+
+In a review buffer:
+
+| Key | What it does |
+|---|---|
+| `n`, `p` | Next and previous hunk |
+| `N`, `P` | Next and previous file |
+| `c` | Comment on the line or hunk at point, or reply to the comment at point |
+| `e` | Edit your comment at point |
+| `k` | Remove your comment at point, with its replies |
+| `r` | Resolve the thread, or open it again |
+| `}`, `{` | Next and previous comment |
+| `a` | Fold the agent's comments, or show them whole |
+| `g` | Read the files again now |
+| `q` | Bury the review |
+| `?` | List these keys |
+
+A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
+it into the kill ring. `C-x k` closes the review, and asks first while it holds comments you
+have not sent. Sending comments to a session is not built yet.
+
+## What an agent in oso can do
+
+A session oso started connects to oso without a question. Its `oso mcp` server gives it these
+tools besides oso's editing ones:
+
+| Tool | What it does |
+|---|---|
+| `session_list`, `session_state` | Read the sessions oso hosts and their states. |
+| `session_start` | Start a session in the repository or one of its worktrees. Asks you first. |
+| `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
+| `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
+| `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
+
+A tool that starts a session asks you in oso first. The question names the session that asks
+and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief. A refusal
+holds for the same request for a minute. After 20 such calls, a session's tools wait until you
+type in its terminal.
+
+Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
+`oso mcp` as an MCP server yourself, it reaches oso only after `M-x agent-channel-start`, and
+each connection asks you first. Of the session tools, it gets only the reading ones.
+
+## Claude Code in a plain terminal
+
+`M-x terminal` opens a terminal with your shell.
+
+While a program in a terminal asks for a password (`sudo`, `ssh`), the modeline says `secret`:
+the agent channel waits while that terminal is shown, and on macOS secure input is on while it
+is selected. An agent reads a terminal only after you run `M-x terminal-allow-agent-read` in it
+(the modeline says `agent reads`), and never while it asks for a password;
+`M-x terminal-deny-agent-read` takes that back.
+
+## Session settings
+
+In `config.toml`:
+
+```toml
+[sessions]
+claude = "/usr/local/bin/claude"  # the executable, by absolute path; else found on PATH
+env = ["AWS_PROFILE"]                # more variables a session takes from oso's environment
+steer_worktrees = true               # point the agent to start_worktree_session (off by default)
+
+[sessions.notify]                    # which states ask for your attention
+needs_input = true
+done = true
+failed = true
+ready_for_review = false
+```
+
+`steer_worktrees` gives each new session a hook that turns down Claude Code's own worktree
+tools and points the agent to `start_worktree_session`, so its worktrees show in oso. The
+`[sessions.notify]` values shown are the defaults.
 
 ## Developing beside it
 
@@ -73,7 +275,10 @@ Both share your configuration file and your per-user state, so a change to
 
 - Configuration: `~/.config/oso/config.toml`, or `$XDG_CONFIG_HOME/oso/config.toml` when that is
   set. oso never writes this file.
-- State that oso keeps by itself (emergency copies, the theme chosen last):
+- Trusted projects: `trusted-projects`, next to `config.toml`. oso writes it when you trust or
+  untrust a project.
+- State that oso keeps by itself (emergency copies, the theme chosen last, the sessions to bring
+  back):
   `~/Library/Application Support/oso` on macOS, `$XDG_STATE_HOME/oso` or `~/.local/state/oso` on
   Linux.
 
@@ -84,5 +289,8 @@ git pull
 just install
 ```
 
-The running oso keeps the old binary. Quit it and start `oso` again when convenient; quitting
-ends its terminals and what runs in them.
+The running oso keeps the old binary. Quit it and start `oso` again when convenient.
+
+Quitting ends oso's terminals and its sessions' `claude` processes. The next start brings each
+session back stopped, with its buffer and its place in `*Sessions*`, and starts nothing. Press
+`C-x a r` in its buffer, or `r` on its row, to resume it. A session you archived stays away.

@@ -180,6 +180,7 @@ mod tests {
             name: None,
             kind: None,
             status: Some(status.to_owned()),
+            status_updated_at: None,
         }
     }
 
