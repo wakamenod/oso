@@ -222,9 +222,10 @@ impl Editor {
         // would go to its program (ADR 0120).
         let agent = self.runs_for_agent();
         for id in shown_before.chain(rest) {
-            let kept = self
-                .buffer(id)
-                .is_some_and(|buffer| !(buffer.is_internal() || (agent && buffer.is_terminal())));
+            let kept = self.buffer(id).is_some_and(|buffer| {
+                let users = !buffer.is_internal() || super::listings::is_listing(buffer);
+                users && !(agent && buffer.is_terminal())
+            });
             if kept && !ring.contains(&id) {
                 ring.push(id);
             }
@@ -267,6 +268,7 @@ impl Editor {
     /// reads, `*Messages*`, the list of emergency copies and `*Agent*` (ADR 0088).
     fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
         !buffer.is_internal()
+            || super::listings::is_listing(buffer)
             || id == self.messages_buffer
             || Some(id) == self.copies_buffer
             || Some(id) == self.agent_log_buffer()
@@ -396,7 +398,8 @@ impl Editor {
     /// Why it stays.
     pub fn kill_by_person(&mut self, id: BufferId, anyway: bool) -> Result<(), KillRefused> {
         let buffer = self.buffer(id).ok_or(KillRefused::Gone)?;
-        if buffer.is_internal() {
+        // A directory's listing is killed as a person's buffer is, as dired's are (ADR 0134).
+        if buffer.is_internal() && !super::listings::is_listing(buffer) {
             return Err(KillRefused::Internal);
         }
         if buffer.is_saving() {
@@ -427,7 +430,10 @@ impl Editor {
     /// `*scratch*`, which is created again if needed. An internal buffer stays. What it held is
     /// kept for [`Editor::take_freed`], so that the host frees it off the UI thread.
     pub fn kill_buffer(&mut self, id: BufferId) {
-        if self.buffer(id).is_some_and(Buffer::is_internal) {
+        if self
+            .buffer(id)
+            .is_some_and(|buffer| buffer.is_internal() && !super::listings::is_listing(buffer))
+        {
             return;
         }
         self.remove_buffer(id);

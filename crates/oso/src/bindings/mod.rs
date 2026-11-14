@@ -10,6 +10,7 @@ mod agent_sessions;
 mod buffers;
 mod complete;
 mod cursors;
+mod dired;
 mod edit;
 mod files;
 mod indent;
@@ -51,6 +52,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     agent_sessions::BINDINGS,
     complete::BINDINGS,
     cursors::BINDINGS,
+    dired::BINDINGS,
     edit::BINDINGS,
     files::BINDINGS,
     indent::BINDINGS,
@@ -203,6 +205,12 @@ pub fn rigid_keymap(registry: &Registry) -> Keymap {
 /// its commands, as in tests that bring their own.
 pub fn review_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, review::REVIEW).unwrap_or_default()
+}
+
+/// A directory listing's own keymap, above the global one in it (ADR 0134). Empty for a
+/// registry without its commands, as in tests that bring their own.
+pub fn dired_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, dired::LISTING).unwrap_or_default()
 }
 
 /// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry

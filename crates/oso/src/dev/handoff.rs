@@ -45,15 +45,17 @@ use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
 pub mod carry;
 mod format;
 mod layout;
+mod listings;
+use listings::{behind_internal, handed_over};
 mod look;
 mod restore;
 
 use carry::{Exported, Item, MAX_CARRIED};
 
+pub use format::{ListingEntry, MAX_ITEMS, State, parse};
 #[cfg(test)]
 use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
 use format::{MAX_HISTORIES, MAX_HISTORY_NAME, MAX_KILL_PIECES, facts_state, selections_state};
-pub use format::{MAX_ITEMS, State, parse};
 use layout::MAX_WINDOWS;
 pub use layout::Windows;
 pub(crate) use look::aids_state;
@@ -102,6 +104,7 @@ pub fn export(
     {
         buffers.push(buffer_state(id, buffer, &mut items)?);
     }
+    buffers.extend(listings::states(editor));
     // Internal buffers are not handed over (ADR 0051). A window on one with nothing to go
     // back to comes back on `*scratch*`, which this entry stands for.
     // Once each, however many windows show it.
@@ -110,8 +113,9 @@ pub fn export(
         let id = window.buffer();
         let shown = editor.shown(window);
         // So does a window on an ended terminal, which is not handed over.
+        let listed = editor.listing(id).is_some();
         if (shown.is_terminal()
-            || (shown.is_internal() && behind_internal(editor, window).is_none()))
+            || (shown.is_internal() && !listed && behind_internal(editor, window).is_none()))
             && !stand_ins.contains(&id)
         {
             stand_ins.push(id);
@@ -208,36 +212,6 @@ fn windows_state(editor: &Editor, restores: &[Restore]) -> (Vec<Value>, usize) {
         .position(|window| window.id() == editor.tiled().0.id())
         .unwrap_or(0);
     (windows, selected)
-}
-
-/// Where `window` goes back to, if it is on an internal buffer and has somewhere to go that
-/// cannot hold secrets.
-fn behind_internal<'a>(
-    editor: &'a Editor,
-    window: &Window,
-) -> Option<(BufferId, &'a SelectionSet, Scroll)> {
-    // One that may hold secrets is not shown again by a restart: the window comes back on
-    // `*scratch*`, and the buffer is handed over unshown.
-    editor
-        .shown(window)
-        .is_internal()
-        .then(|| editor.place_behind_internal_of(window.id()))
-        .flatten()
-        .filter(|(buffer, ..)| {
-            editor
-                .buffer(*buffer)
-                .is_some_and(|buffer| !buffer.is_secret())
-        })
-}
-
-/// What `window` hands over: what it shows, or from an internal buffer, where it goes back
-/// to, since no key could reach that again otherwise.
-fn handed_over<'a>(editor: &'a Editor, window: &'a Window) -> (BufferId, &'a SelectionSet, Scroll) {
-    behind_internal(editor, window).unwrap_or((
-        window.buffer(),
-        &window.selections,
-        window.scroll(),
-    ))
 }
 
 fn buffer_state(id: BufferId, buffer: &Buffer, items: &mut Vec<Item>) -> Result<Value, String> {
@@ -611,6 +585,8 @@ fn export_value(
 
 #[cfg(test)]
 mod internal_tests;
+#[cfg(test)]
+mod listing_tests;
 
 #[cfg(test)]
 mod tests;

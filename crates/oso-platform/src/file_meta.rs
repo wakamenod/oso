@@ -21,10 +21,34 @@ use macos as backend;
 mod other;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use other as backend;
+mod clock;
 mod directory;
 mod posix_list;
+mod users;
 
-pub use directory::{Directory, Entries, Entry, EntryKind};
+pub use directory::{Directory, Entries, Entry, EntryKind, EntryMeta};
+
+/// The name of the user `uid`, if the system's user database has one: a listing's owner
+/// (ADR 0134). It may read a file or ask a directory service, so it belongs off the UI thread.
+#[must_use]
+pub fn user_name(uid: u32) -> Option<String> {
+    users::user_name(uid)
+}
+
+/// The local time zone's offset from UTC at `time`, in seconds east, for a listing's dates
+/// (ADR 0134); `None` where it is not read, Windows for now, and dates show in UTC. It may read
+/// the time zone's file once, so it belongs off the UI thread.
+#[must_use]
+pub fn utc_offset_at(time: std::time::SystemTime) -> Option<i32> {
+    clock::utc_offset_at(time)
+}
+
+/// The name of the group `gid`, if the system's group database has one, as for
+/// [`user_name`].
+#[must_use]
+pub fn group_name(gid: u32) -> Option<String> {
+    users::group_name(gid)
+}
 
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use macos::test_list;

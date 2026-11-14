@@ -22,7 +22,7 @@ const NOT_COVERED: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/oso/src/dispatch/prompts.rs",
-        3,
+        4,
         "patterns after `|` inside parentheses sit with the first one",
     ),
     (

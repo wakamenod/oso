@@ -192,6 +192,13 @@ impl App {
         let mut scratch_text = None;
         for (entry, carried) in std::mem::take(&mut state.buffers).into_iter().zip(carried) {
             let (opened_by_agent, wraps) = (entry.opened_by_agent, entry.wraps);
+            // A directory listing is listed again (ADR 0134).
+            if let Some(listing) = entry.listing {
+                let buffer = self.listing_handed_over(listing);
+                added.push(buffer);
+                named.push(buffer);
+                continue;
+            }
             let buffer = match (entry.path, carried) {
                 // The old instance held it, so it opens without asking, whatever its size
                 // (ADR 0087).

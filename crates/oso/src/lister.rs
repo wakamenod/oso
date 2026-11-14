@@ -1,4 +1,5 @@
-//! Listing directories for `C-x C-f` and `C-x C-w` on worker threads (ADR 0087).
+//! Listing directories for `C-x C-f` and `C-x C-w` (ADR 0087), and for the directory editor
+//! (ADR 0134), on worker threads.
 //!
 //! Must not depend on: `app`, winit or the GPU; the caller supplies the wake-up.
 //!
@@ -9,7 +10,9 @@
 //! and at most one request per directory is in flight: a directory on a file system that hangs
 //! stalls only its own thread, and its next requests wait without holding others up. A newer
 //! request for a directory replaces one still waiting, and a prompt that closes drops what it
-//! left waiting. Nothing listed is opened.
+//! left waiting. Nothing listed is opened. A listing for the directory editor is kept by its
+//! buffer: a newer one for that buffer replaces one still waiting, and a closing prompt leaves
+//! it be. Its thread hands back a partial listing every 50 ms while it reads, then the whole.
 #![cfg_attr(
     not(test),
     expect(
@@ -104,6 +107,15 @@ pub enum Answer {
         looks: Vec<Look>,
         missed: Vec<OsString>,
     },
+    /// A listing for the directory editor (ADR 0134).
+    Dired(Box<crate::dired::Answer>),
+}
+
+impl Answer {
+    /// Whether it answers the prompt that reads a path, which a closing prompt drops.
+    fn for_a_prompt(&self) -> bool {
+        !matches!(self, Self::Dired(_))
+    }
 }
 
 /// What a worker is asked.
@@ -111,21 +123,32 @@ pub enum Answer {
 enum Request {
     List(PathBuf, u64),
     Look(PathBuf, Vec<OsString>, u64),
+    Dired(Box<crate::dired::Request>),
 }
 
 impl Request {
     fn directory(&self) -> &Path {
         match self {
             Self::List(directory, _) | Self::Look(directory, ..) => directory,
+            Self::Dired(request) => &request.directory,
         }
     }
 
-    /// Whether `self`, asked later, makes `other` of no use.
+    /// Whether `self`, asked later, makes `other` of no use: a prompt's for the same directory,
+    /// or a listing's for the same buffer.
     fn replaces(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (Self::List(..), Self::List(..)) | (Self::Look(..), Self::Look(..))
-        ) && self.directory() == other.directory()
+        match (self, other) {
+            (Self::Dired(new), Self::Dired(old)) => new.buffer == old.buffer,
+            (Self::List(..), Self::List(..)) | (Self::Look(..), Self::Look(..)) => {
+                self.directory() == other.directory()
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the prompt that reads a path asked for it, which a closing prompt drops.
+    fn for_a_prompt(&self) -> bool {
+        !matches!(self, Self::Dired(_))
     }
 }
 
@@ -209,6 +232,12 @@ impl Lister {
         self.ask(Request::List(directory, generation));
     }
 
+    /// Asks for a directory editor's listing (ADR 0134), answered with partial listings while
+    /// it reads and then the whole one.
+    pub fn list_for_dired(&self, request: crate::dired::Request) {
+        self.ask(Request::Dired(Box::new(request)));
+    }
+
     /// Asks for a look at `names` in `directory`, at most [`MAX_LOOKS`] of them.
     pub fn look(&self, directory: PathBuf, mut names: Vec<OsString>, generation: u64) {
         names.truncate(MAX_LOOKS);
@@ -220,11 +249,14 @@ impl Lister {
         std::mem::take(&mut *lock(&self.shared.answers))
     }
 
-    /// Drops every request still waiting, and every answer not taken, as a prompt that asked
-    /// closes. A request a worker has begun runs to its end, and its answer is dropped later.
+    /// Drops every request of the prompt's still waiting, and every answer of its not taken, as
+    /// the prompt that asked closes. A request a worker has begun runs to its end, and its
+    /// answer is dropped later. Listings for the directory editor stay.
     pub fn forget(&self) {
-        lock(&self.shared.queue).waiting.clear();
-        lock(&self.shared.answers).clear();
+        lock(&self.shared.queue)
+            .waiting
+            .retain(|request| !request.for_a_prompt());
+        lock(&self.shared.answers).retain(|answer| !answer.for_a_prompt());
     }
 
     /// Queues `request`, and starts a thread for it if one would find it.
@@ -269,10 +301,26 @@ fn serve(shared: &Shared, wake: &(dyn Fn() -> bool + Send + Sync)) {
             return;
         };
         let directory = request.directory().to_path_buf();
+        // A listing hands back what it builds as it goes, waking the UI for each.
+        if let Request::Dired(request) = request {
+            let listed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::dired::list(&request, &mut |answer| {
+                    lock(&shared.answers).push(Answer::Dired(Box::new(answer)));
+                    if !wake() {
+                        lock(&shared.queue).waiting.clear();
+                    }
+                });
+            }));
+            if listed.is_err() {
+                log::warn!("listing a directory failed");
+            }
+            lock(&shared.queue).done(&directory);
+            continue;
+        }
         // A look that panics answers each of its names as not looked at, so nothing waits.
         let asked = match &request {
             Request::Look(_, names, generation) => Some((names.clone(), *generation)),
-            Request::List(..) => None,
+            Request::List(..) | Request::Dired(_) => None,
         };
         let answer = std::panic::catch_unwind(|| answer(request));
         lock(&shared.queue).done(&directory);
@@ -295,6 +343,17 @@ fn serve(shared: &Shared, wake: &(dyn Fn() -> bool + Send + Sync)) {
 
 fn answer(request: Request) -> Answer {
     match request {
+        // `serve` hands a listing's partial answers back as they come; here only the last.
+        Request::Dired(request) => {
+            let mut last = None;
+            crate::dired::list(&request, &mut |answer| last = Some(answer));
+            let last = last.unwrap_or_else(|| crate::dired::Answer {
+                buffer: request.buffer,
+                generation: request.generation,
+                built: Err("nothing was listed".to_owned()),
+            });
+            Answer::Dired(Box::new(last))
+        }
         Request::List(directory, generation) => {
             let (entries, truncated, partial) = match list(&directory, MAX_NAMES) {
                 Ok(listed) => (Ok(listed.entries.into()), listed.truncated, listed.partial),

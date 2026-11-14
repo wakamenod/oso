@@ -217,6 +217,7 @@ fn many_requests_use_at_most_four_threads_and_all_are_answered() {
         .into_iter()
         .map(|answer| match answer {
             Answer::Listed { generation, .. } | Answer::Looked { generation, .. } => generation,
+            Answer::Dired(answer) => answer.generation,
         })
         .collect();
     generations.sort_unstable();

@@ -35,6 +35,8 @@ pub enum Mode {
     Review,
     /// A terminal (ADR 0120): its keys go to the program in it, but for oso's own.
     Terminal,
+    /// A directory's listing, as Emacs's dired shows it (ADR 0134).
+    Directory,
 }
 
 impl Mode {
@@ -76,6 +78,7 @@ impl Mode {
             Self::Worktrees => "Worktrees",
             Self::Review => "Review",
             Self::Terminal => "Terminal",
+            Self::Directory => "Dired",
         }
     }
 
@@ -102,6 +105,7 @@ impl Mode {
             | Self::Worktrees
             | Self::Review
             | Self::Terminal
+            | Self::Directory
             | Self::Sessions => None,
         }
     }
@@ -138,6 +142,7 @@ mod tests {
         assert!(Mode::CopyView.indent_rules().is_none());
         assert!(Mode::Worktrees.indent_rules().is_none());
         assert!(Mode::Terminal.indent_rules().is_none());
+        assert!(Mode::Directory.indent_rules().is_none());
         assert!(Mode::Sessions.indent_rules().is_none());
     }
 

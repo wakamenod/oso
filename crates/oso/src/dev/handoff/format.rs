@@ -101,6 +101,18 @@ pub struct BufferEntry {
     pub opened_by_agent: bool,
     /// Whether its long lines wrap (ADR 0100), said only when they do.
     pub wraps: bool,
+    /// A directory listing, which is listed again (ADR 0134).
+    pub listing: Option<ListingEntry>,
+}
+
+/// A directory listing to list again: its directory, whether it shows details, whether it is
+/// ordered by date, and the line its cursor was on (ADR 0134).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListingEntry {
+    pub directory: PathBuf,
+    pub details: bool,
+    pub by_date: bool,
+    pub line: usize,
 }
 
 /// The text a buffer held unsaved, and what it knew of its file.
@@ -368,11 +380,39 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         Some(Value::Bool(wraps)) => *wraps,
         Some(_) => return Err("a buffer's wraps is not true or false".into()),
     };
+    let listing = match entry.get("listing") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(listing)) => Some(parse_listing(listing)?),
+        Some(_) => return Err("a buffer's listing is not an object".into()),
+    };
+    if listing.is_some() && (path.is_some() || carried.is_some()) {
+        return Err("a listing has a path or a text".into());
+    }
     Ok(BufferEntry {
         path,
         carried,
         opened_by_agent,
         wraps,
+        listing,
+    })
+}
+
+fn parse_listing(listing: &Map<String, Value>) -> Result<ListingEntry, String> {
+    let directory = optional_path(listing, "directory")?.ok_or("a listing has no directory")?;
+    let flag = |name: &str| match listing.get(name) {
+        Some(Value::Bool(on)) => Ok(*on),
+        _ => Err(format!("a listing's {name} is not true or false")),
+    };
+    let line = listing
+        .get("line")
+        .and_then(Value::as_u64)
+        .and_then(|line| usize::try_from(line).ok())
+        .ok_or("a listing's line is not a number")?;
+    Ok(ListingEntry {
+        directory,
+        details: flag("details")?,
+        by_date: flag("by_date")?,
+        line,
     })
 }
 

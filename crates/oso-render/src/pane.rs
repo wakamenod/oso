@@ -154,6 +154,20 @@ pub enum Face {
     SessionQuiet,
     /// The name of the worktree whose space is in front, in an accent of its own.
     SessionFront,
+    /// A directory listing's header, its path (ADR 0134), as a heading.
+    DiredHeader,
+    /// A directory's name in a listing.
+    DiredDirectory,
+    /// A link's name in a listing.
+    DiredSymlink,
+    /// The name of a link that leads nowhere, in red.
+    DiredBrokenSymlink,
+    /// The name of a file someone may run, in green.
+    DiredExecutable,
+    /// The name of a pipe, a socket or a device.
+    DiredSpecial,
+    /// A row's mode, owner, size and time, dim.
+    DiredDetails,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -216,6 +230,13 @@ impl Face {
             Highlight::SessionDone => Self::SessionDone,
             Highlight::SessionQuiet => Self::SessionQuiet,
             Highlight::SessionFront => Self::SessionFront,
+            Highlight::DiredHeader => Self::DiredHeader,
+            Highlight::DiredDirectory => Self::DiredDirectory,
+            Highlight::DiredSymlink => Self::DiredSymlink,
+            Highlight::DiredBrokenSymlink => Self::DiredBrokenSymlink,
+            Highlight::DiredExecutable => Self::DiredExecutable,
+            Highlight::DiredSpecial => Self::DiredSpecial,
+            Highlight::DiredDetails => Self::DiredDetails,
         }
     }
 

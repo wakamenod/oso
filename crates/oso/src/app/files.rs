@@ -52,6 +52,10 @@ impl App {
         let now = SystemTime::now();
         for answer in self.lister.take() {
             let (directory, entries, truncated) = match answer {
+                Answer::Dired(answer) => {
+                    changed |= self.dired_answered(*answer);
+                    continue;
+                }
                 Answer::Listed {
                     directory,
                     entries,
