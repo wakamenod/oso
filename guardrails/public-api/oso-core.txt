@@ -1832,6 +1832,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::carry_kills(&mut self, alloc::vec::Vec<alloc::vec::Vec<oso_core::kill::Piece>>)
 pub fn oso_core::editor::Editor::forget_kills(&mut self)
 pub fn oso_core::editor::Editor::kill(&mut self, impl core::iter::traits::collect::IntoIterator<Item = core::ops::range::Range<usize>>, oso_core::kill::Direction, bool) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::kill_new(&mut self, &str, bool)
 pub fn oso_core::editor::Editor::kill_ring(&self) -> &oso_core::kill::KillRing
 pub fn oso_core::editor::Editor::note_clipboard_written(&mut self, u64, oso_core::kill::Fingerprint)
 pub fn oso_core::editor::Editor::note_command_ended(&mut self, bool)

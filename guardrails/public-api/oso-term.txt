@@ -3,6 +3,23 @@ pub mod oso_term::limits
 pub const oso_term::limits::INPUT_QUEUE_MAX: usize
 pub const oso_term::limits::SCROLLBACK_DEFAULT: usize
 pub const oso_term::limits::SCROLLBACK_MAX: usize
+pub enum oso_term::Button
+pub oso_term::Button::Left
+pub oso_term::Button::Middle
+pub oso_term::Button::Right
+pub oso_term::Button::WheelDown
+pub oso_term::Button::WheelLeft
+pub oso_term::Button::WheelRight
+pub oso_term::Button::WheelUp
+impl core::clone::Clone for oso_term::Button
+pub fn oso_term::Button::clone(&self) -> oso_term::Button
+impl core::cmp::Eq for oso_term::Button
+impl core::cmp::PartialEq for oso_term::Button
+pub fn oso_term::Button::eq(&self, &oso_term::Button) -> bool
+impl core::fmt::Debug for oso_term::Button
+pub fn oso_term::Button::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::Button
+impl core::marker::StructuralPartialEq for oso_term::Button
 pub enum oso_term::Color
 pub oso_term::Color::Default
 pub oso_term::Color::Indexed(u8)
@@ -71,6 +88,19 @@ impl core::fmt::Debug for oso_term::Mouse
 pub fn oso_term::Mouse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_term::Mouse
 impl core::marker::StructuralPartialEq for oso_term::Mouse
+pub enum oso_term::PointerAction
+pub oso_term::PointerAction::Motion
+pub oso_term::PointerAction::Press(oso_term::Button)
+pub oso_term::PointerAction::Release(oso_term::Button)
+impl core::clone::Clone for oso_term::PointerAction
+pub fn oso_term::PointerAction::clone(&self) -> oso_term::PointerAction
+impl core::cmp::Eq for oso_term::PointerAction
+impl core::cmp::PartialEq for oso_term::PointerAction
+pub fn oso_term::PointerAction::eq(&self, &oso_term::PointerAction) -> bool
+impl core::fmt::Debug for oso_term::PointerAction
+pub fn oso_term::PointerAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::PointerAction
+impl core::marker::StructuralPartialEq for oso_term::PointerAction
 pub enum oso_term::Progress
 pub oso_term::Progress::Error(core::option::Option<u8>)
 pub oso_term::Progress::Indeterminate
@@ -195,6 +225,7 @@ impl core::marker::Copy for oso_term::Cursor
 impl core::marker::StructuralPartialEq for oso_term::Cursor
 pub struct oso_term::Modes
 pub oso_term::Modes::alternate_screen: bool
+pub oso_term::Modes::alternate_scroll: bool
 pub oso_term::Modes::application_cursor: bool
 pub oso_term::Modes::bracketed_paste: bool
 pub oso_term::Modes::focus_reports: bool
@@ -226,6 +257,22 @@ impl core::fmt::Debug for oso_term::Palette
 pub fn oso_term::Palette::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_term::Palette
 impl core::marker::StructuralPartialEq for oso_term::Palette
+pub struct oso_term::Pointer
+pub oso_term::Pointer::action: oso_term::PointerAction
+pub oso_term::Pointer::column: u16
+pub oso_term::Pointer::modifiers: oso_core::key::Modifiers
+pub oso_term::Pointer::row: u16
+pub oso_term::Pointer::x: u32
+pub oso_term::Pointer::y: u32
+impl core::clone::Clone for oso_term::Pointer
+pub fn oso_term::Pointer::clone(&self) -> oso_term::Pointer
+impl core::cmp::Eq for oso_term::Pointer
+impl core::cmp::PartialEq for oso_term::Pointer
+pub fn oso_term::Pointer::eq(&self, &oso_term::Pointer) -> bool
+impl core::fmt::Debug for oso_term::Pointer
+pub fn oso_term::Pointer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::Pointer
+impl core::marker::StructuralPartialEq for oso_term::Pointer
 pub struct oso_term::QueueFull
 impl core::clone::Clone for oso_term::QueueFull
 pub fn oso_term::QueueFull::clone(&self) -> oso_term::QueueFull
@@ -306,6 +353,7 @@ pub fn oso_term::Terminal::resize(&self, oso_platform::process::pty::Size)
 pub fn oso_term::Terminal::scroll(&self, oso_term::Scroll)
 pub fn oso_term::Terminal::send(&self, alloc::vec::Vec<u8>) -> core::result::Result<(), oso_term::QueueFull>
 pub fn oso_term::Terminal::send_key(&self, oso_core::key::KeyPress) -> core::result::Result<(), oso_term::QueueFull>
+pub fn oso_term::Terminal::send_pointer(&self, oso_term::Pointer) -> core::result::Result<(), oso_term::QueueFull>
 pub fn oso_term::Terminal::set_focused(&self, bool)
 pub fn oso_term::Terminal::set_palette(&self, oso_term::Palette)
 pub fn oso_term::Terminal::start(oso_term::Start, alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>) -> std::io::error::Result<oso_term::Terminal>

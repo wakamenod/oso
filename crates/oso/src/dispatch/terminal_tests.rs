@@ -106,6 +106,20 @@ fn a_prompt_takes_its_keys() {
     assert!(sent(&mut dispatcher, &mut editor).is_empty());
 }
 
+#[test]
+fn the_mouse_is_held_from_a_program_while_its_keys_are() {
+    let (mut dispatcher, mut editor) = in_terminal();
+    assert!(!dispatcher.holds_the_mouse(&editor));
+    send(&mut dispatcher, &mut editor, "C-x");
+    assert!(dispatcher.holds_the_mouse(&editor), "a key sequence");
+    send(&mut dispatcher, &mut editor, "C-g");
+    assert!(!dispatcher.holds_the_mouse(&editor));
+    send(&mut dispatcher, &mut editor, "M-x");
+    assert!(dispatcher.holds_the_mouse(&editor), "a prompt");
+    send(&mut dispatcher, &mut editor, "C-g");
+    assert!(!dispatcher.holds_the_mouse(&editor));
+}
+
 /// Runs the last macro to its end.
 fn replay(dispatcher: &mut Dispatcher, editor: &mut Editor) {
     send(dispatcher, editor, "C-x e");

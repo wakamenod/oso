@@ -34,7 +34,7 @@ mod terminal;
 
 pub use event::{End, Event, Progress, Prompt};
 pub use snapshot::{
-    Attrs, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Rgb, Row, Scroll, Snapshot,
-    Underline,
+    Attrs, Button, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Pointer, PointerAction,
+    Rgb, Row, Scroll, Snapshot, Underline,
 };
 pub use terminal::{QueueFull, Start, Terminal};

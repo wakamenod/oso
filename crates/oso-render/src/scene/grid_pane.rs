@@ -158,7 +158,9 @@ impl Draws {
     fn fill_grid_row(&mut self, row: &RowDraw<'_, '_>, shaped: &ShapedRow) {
         let has = |flag: GridStyle| move |cell: &GridCell| cell.style.contains(flag);
         let filled = |cell: &GridCell| {
-            cell.bg != crate::pane::GridColor::Default || cell.style.contains(GridStyle::INVERSE)
+            cell.bg != crate::pane::GridColor::Default
+                || cell.style.contains(GridStyle::INVERSE)
+                || cell.style.contains(GridStyle::SELECTED)
         };
         self.fill_runs(
             row,

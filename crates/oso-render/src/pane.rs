@@ -424,6 +424,9 @@ impl GridStyle {
     pub const WIDE_SPACER: Self = Self(1 << 9);
     /// The cell's text is more than one code point, in the row's `graphemes`.
     pub const GRAPHEME: Self = Self(1 << 10);
+    /// Selected with the mouse: drawn in [`Face::Region`]'s colours, whatever the cell's
+    /// own (ADR 0120, step 4b-2).
+    pub const SELECTED: Self = Self(1 << 11);
 
     /// Whether every flag of `other` is set.
     pub const fn contains(self, other: Self) -> bool {

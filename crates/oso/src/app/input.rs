@@ -1,4 +1,5 @@
-//! Input: key presses and the mouse wheel, from the window to the editor.
+//! Input: key presses and the mouse wheel, from the window to the editor. The mouse's buttons
+//! are `terminals::mouse`'s.
 //!
 //! Must not depend on: the render pipeline, beyond the size of a cell, or loading
 //! files. Input changes the editor and asks for a frame; what a key does is
@@ -178,7 +179,7 @@ impl App {
         }
         let (rows, columns) = wheeling.remainder.add(rows, columns);
         // Over a terminal, the wheel scrolls its scrollback, on its thread (ADR 0120).
-        if self.wheel_terminal(window, rows) {
+        if self.wheel_terminal(window, (rows, columns), at) {
             return Some((window, false));
         }
         if crate::dispatch::holds_input(&self.editor) {

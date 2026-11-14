@@ -120,6 +120,8 @@ struct Now {
     /// The person has a menu open (ADR 0117).
     in_menu: bool,
     keys_in_progress: bool,
+    /// A mouse button is held: a drag or a click goes on (ADR 0120, step 4b-2).
+    button_held: bool,
     composing: bool,
     /// An isearch, a jump or a query-replace is on (ADR 0082, ADR 0113, ADR 0116).
     searching: bool,
@@ -147,6 +149,9 @@ fn waits(now: &Now) -> Option<&'static str> {
     }
     if now.keys_in_progress {
         return Some("the person is in the middle of a key sequence");
+    }
+    if now.button_held {
+        return Some("the person is holding a mouse button");
     }
     if now.composing {
         return Some("the person is composing text");
@@ -502,6 +507,7 @@ impl App {
             persons_prompt: !prompts.is_empty(),
             in_menu: self.dispatcher.menu_open(),
             keys_in_progress: self.dispatcher.keys_in_progress(),
+            button_held: self.terminals.button_held(),
             composing: self.composing(),
             searching: self.editor.isearch().is_some()
                 || self.editor.jump().is_some()
@@ -577,6 +583,15 @@ mod tests {
             ..Now::default()
         };
         assert_eq!(waits(&now), Some("the person is in a menu"));
+    }
+
+    #[test]
+    fn the_channel_waits_while_a_mouse_button_is_held() {
+        let now = Now {
+            button_held: true,
+            ..Now::default()
+        };
+        assert_eq!(waits(&now), Some("the person is holding a mouse button"));
     }
 
     #[test]
