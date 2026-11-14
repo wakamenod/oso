@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::sessions::identity::SessionId;
+use crate::sessions::recap;
 use crate::sessions::registry::{self, Live};
 
 /// The most names of the registry's directory looked at, entries or not.
@@ -51,11 +52,14 @@ pub struct Poll {
 }
 
 impl Poll {
-    /// Starts looking at `dir`, or stops with `None`.
+    /// Starts looking at `dir`, or stops with `None`. What was read and told is forgotten, so
+    /// that a poll started again tells the app what it finds, as the app forgot it.
     pub fn set(&mut self, dir: Option<PathBuf>, now: Instant) {
         self.next = dir.as_ref().map(|_| now);
         self.dir = dir;
         self.stamps.clear();
+        self.entries.clear();
+        self.told = None;
     }
 
     pub fn due(&self) -> Option<Instant> {
@@ -123,7 +127,7 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
         .filter(|entry| registry::liveness(entry, started) == Live::Yes)
         .map(|entry| External {
             pid: entry.pid,
-            name: entry.name.clone(),
+            name: shown_name(entry),
             directory: entry.cwd.clone(),
             working: entry.status.as_deref() == Some("busy"),
             session_id: entry.session_id.clone(),
@@ -131,6 +135,40 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
         .collect();
     live.sort_by_key(|external| external.pid);
     live
+}
+
+/// The name `*Sessions*` lists for `entry`, if it has one. It is the registry's text, so it is
+/// cleaned as a recap is, that it cannot reorder or break the line it is drawn on.
+/// Characters that draw nothing, or a blank, are dropped too: a name of them alone would show
+/// as no name, and among others they would make a copy of another session's name.
+fn shown_name(entry: &registry::Entry) -> Option<String> {
+    entry
+        .name
+        .as_deref()
+        .map(|name| {
+            let drawn: String = name.chars().filter(|&c| !draws_nothing(c)).collect();
+            recap::clean(&drawn)
+        })
+        .filter(|name| !name.is_empty())
+}
+
+/// Whether `c` draws nothing, or a blank that is not white space.
+fn draws_nothing(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{115F}'
+            | '\u{1160}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200D}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2800}'
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+    )
 }
 
 #[cfg(test)]
@@ -164,6 +202,29 @@ mod tests {
         assert_eq!(poll.tick(now + super::POLL_EVERY * 3), None);
         poll.set(None, now);
         assert_eq!(poll.due(), None);
+        // Started again, it tells what it finds, though that did not change.
+        poll.set(Some(dir.clone()), now);
+        assert_eq!(poll.tick(now), Some(Vec::new()));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_name_is_listed_clean_on_one_line() {
+        let named = |name: Option<&str>| crate::sessions::registry::Entry {
+            pid: 42,
+            name: name.map(str::to_owned),
+            ..Default::default()
+        };
+        let shown = super::shown_name(&named(Some("fix\u{202E}txt.exe\tnow\nx")));
+        assert_eq!(shown.as_deref(), Some("fixtxt.exe now x"));
+        // No name is left: `*Sessions*` lists it as `claude PID`.
+        assert_eq!(super::shown_name(&named(Some("\u{2066}\t"))), None);
+        assert_eq!(super::shown_name(&named(None)), None);
+        let blank = named(Some("\u{200B}\u{2800}\u{3164}\u{FEFF}"));
+        assert_eq!(super::shown_name(&blank), None);
+        assert_eq!(
+            super::shown_name(&named(Some("fi\u{200B}x"))).as_deref(),
+            Some("fix")
+        );
     }
 }

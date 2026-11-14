@@ -294,6 +294,10 @@ impl App {
     /// The worker found the live sessions of Claude Code's registry: those that are not
     /// oso's own are listed, never shown.
     pub(in crate::app) fn externals_found(&mut self, live: Vec<External>) {
+        // A look the worker made before it was told to stop: the list keeps none.
+        if !self.watch.polling {
+            return;
+        }
         let now = Instant::now();
         let table = self.hosting.table();
         let ids: HashSet<&SessionId> = table.iter().map(|session| &session.id).collect();
@@ -327,7 +331,10 @@ impl App {
                 .as_deref()
                 .and_then(|dir| self.watch.spaces.of_path(dir))
                 .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(|| "external".to_owned(), |space| space.name.clone());
+                .map_or_else(
+                    || crate::sessions::list::EXTERNAL.to_owned(),
+                    |space| space.name.clone(),
+                );
             let state = if external.working {
                 State::Working
             } else {

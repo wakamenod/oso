@@ -4,7 +4,8 @@
 //! Must not depend on: threads, the UI or `app`; the caller reads the random bytes, on a thread
 //! of its own, and gives them here.
 //!
-//! - The id is made from 16 bytes of `/dev/urandom`, read by [`random_bytes`] off the UI thread.
+//! - The id is made from 16 random bytes from the system, read by [`random_bytes`] off the UI
+//!   thread.
 //! - A name is the project's directory name, cleaned to letters, digits, `.`, `_` and `-`, at
 //!   most [`MAX_NAME`] bytes, then `-2`, `-3` against the names already taken in that directory.
 //!   A name the person types is cleaned the same way.
@@ -69,23 +70,12 @@ impl fmt::Display for SessionId {
     }
 }
 
-/// 16 bytes from `/dev/urandom`, for an id. It reads a file, so never on the UI thread.
-#[cfg(unix)]
+/// 16 random bytes from the system, for an id (`oso_platform::random`). It reads a file, so
+/// never on the UI thread.
 pub fn random_bytes() -> io::Result<[u8; 16]> {
-    use std::io::Read as _;
-
     let mut bytes = [0; 16];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    oso_platform::random::fill(&mut bytes)?;
     Ok(bytes)
-}
-
-/// Windows has no `/dev/urandom`, and no hosted sessions yet (ADR 0120).
-#[cfg(not(unix))]
-pub fn random_bytes() -> io::Result<[u8; 16]> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "sessions are not supported on this system yet",
-    ))
 }
 
 /// `raw` cleaned to a name: each character that is not an ASCII letter or digit, `.`, `_` or

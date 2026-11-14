@@ -103,3 +103,20 @@ fn a_recap_is_one_clean_line_cut_to_its_length() {
     let spaced = format!("{} b", "a".repeat(MAX_CHARS - 1));
     assert_eq!(clean(&spaced), format!("{}…", "a".repeat(MAX_CHARS - 1)));
 }
+
+#[test]
+fn the_titles_spinner_is_no_part_of_the_recap() {
+    let rules = RuleSet::bundled();
+    let deadline = Deadline::after(Duration::from_secs(5));
+    let screen = include_str!("../screens/done.txt");
+    let recaps: Vec<Option<String>> = ["\u{2802} Date to now.txt", "\u{2810} Date to now.txt"]
+        .into_iter()
+        .map(|title| {
+            let evidence = Evidence::new(screen.lines(), title, None);
+            let verdict = evaluate(&rules, &evidence);
+            recap(&rules, &verdict, &evidence, &HashSet::new(), &deadline)
+        })
+        .collect();
+    let done = Some("Date to now.txt".to_owned());
+    assert_eq!(recaps, [done.clone(), done]);
+}

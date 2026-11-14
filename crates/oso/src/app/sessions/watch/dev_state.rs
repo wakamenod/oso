@@ -52,6 +52,7 @@ impl App {
                 .and_then(|at| self.watch.spaces.get(at))
                 .map(|space| space.name.clone()),
             "asked": self.watch.asked,
+            "focused": self.terminals.focused,
         })
     }
 }
