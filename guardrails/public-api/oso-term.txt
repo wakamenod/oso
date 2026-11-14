@@ -51,6 +51,18 @@ impl core::fmt::Debug for oso_term::CursorShape
 pub fn oso_term::CursorShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_term::CursorShape
 impl core::marker::StructuralPartialEq for oso_term::CursorShape
+pub enum oso_term::Encoding
+pub oso_term::Encoding::Escapes
+pub oso_term::Encoding::Snapshot
+impl core::clone::Clone for oso_term::Encoding
+pub fn oso_term::Encoding::clone(&self) -> oso_term::Encoding
+impl core::cmp::Eq for oso_term::Encoding
+impl core::cmp::PartialEq for oso_term::Encoding
+pub fn oso_term::Encoding::eq(&self, &oso_term::Encoding) -> bool
+impl core::fmt::Debug for oso_term::Encoding
+pub fn oso_term::Encoding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_term::Encoding
+impl core::marker::StructuralPartialEq for oso_term::Encoding
 pub enum oso_term::End
 pub oso_term::End::Closed
 pub oso_term::End::Exited(std::process::ExitStatus)
@@ -88,6 +100,12 @@ impl core::fmt::Debug for oso_term::Mouse
 pub fn oso_term::Mouse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_term::Mouse
 impl core::marker::StructuralPartialEq for oso_term::Mouse
+pub enum oso_term::NotExported
+pub oso_term::NotExported::Ended
+pub oso_term::NotExported::Failed(std::io::error::Error)
+pub oso_term::NotExported::TooLarge
+impl core::fmt::Debug for oso_term::NotExported
+pub fn oso_term::NotExported::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_term::PointerAction
 pub oso_term::PointerAction::Motion
 pub oso_term::PointerAction::Press(oso_term::Button)
@@ -161,6 +179,16 @@ impl core::fmt::Debug for oso_term::Underline
 pub fn oso_term::Underline::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_term::Underline
 impl core::marker::StructuralPartialEq for oso_term::Underline
+pub struct oso_term::Adopt
+pub oso_term::Adopt::encoding: oso_term::Encoding
+pub oso_term::Adopt::palette: oso_term::Palette
+pub oso_term::Adopt::pid: core::option::Option<u32>
+pub oso_term::Adopt::scrollback: usize
+pub oso_term::Adopt::size: oso_platform::process::pty::Size
+pub oso_term::Adopt::started: core::option::Option<std::time::SystemTime>
+pub oso_term::Adopt::state: alloc::vec::Vec<u8>
+impl core::fmt::Debug for oso_term::Adopt
+pub fn oso_term::Adopt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_term::Attrs(_)
 impl oso_term::Attrs
 pub const oso_term::Attrs::BLINK: oso_term::Attrs
@@ -223,6 +251,16 @@ impl core::fmt::Debug for oso_term::Cursor
 pub fn oso_term::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_term::Cursor
 impl core::marker::StructuralPartialEq for oso_term::Cursor
+pub struct oso_term::Exported
+pub oso_term::Exported::echo_off: bool
+pub oso_term::Exported::encoding: oso_term::Encoding
+pub oso_term::Exported::master: std::os::fd::owned::OwnedFd
+pub oso_term::Exported::pid: core::option::Option<u32>
+pub oso_term::Exported::size: oso_platform::process::pty::Size
+pub oso_term::Exported::started: core::option::Option<std::time::SystemTime>
+pub oso_term::Exported::state: alloc::vec::Vec<u8>
+impl core::fmt::Debug for oso_term::Exported
+pub fn oso_term::Exported::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_term::Modes
 pub oso_term::Modes::alternate_screen: bool
 pub oso_term::Modes::alternate_scroll: bool
@@ -344,6 +382,15 @@ pub fn oso_term::Start::clone(&self) -> oso_term::Start
 impl core::fmt::Debug for oso_term::Start
 pub fn oso_term::Start::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_term::Terminal
+impl oso_term::Terminal
+pub fn oso_term::Terminal::abandon(&self)
+pub fn oso_term::Terminal::adopt(oso_term::Adopt, alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>) -> std::io::error::Result<oso_term::Terminal>
+pub fn oso_term::Terminal::attach(&self, std::os::fd::owned::OwnedFd)
+pub fn oso_term::Terminal::export(&self, &str, alloc::sync::Arc<core::sync::atomic::AtomicUsize>) -> std::sync::mpsc::Receiver<core::result::Result<oso_term::Exported, oso_term::NotExported>>
+pub fn oso_term::Terminal::library() -> alloc::string::String
+pub fn oso_term::Terminal::release(self)
+pub fn oso_term::Terminal::resume(&self)
+pub fn oso_term::Terminal::resumes(&self) -> u64
 impl oso_term::Terminal
 pub fn oso_term::Terminal::hang_up(&self)
 pub fn oso_term::Terminal::paste(&self, alloc::string::String, bool) -> core::result::Result<(), oso_term::QueueFull>
