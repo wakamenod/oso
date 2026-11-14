@@ -302,9 +302,13 @@ pub(crate) fn layout(
     frame
 }
 
+/// The fewest columns the side window narrows to where the frame has no room for its own
+/// (ADR 0131): below them it takes no cells.
+const SIDE_LEAST: usize = 24;
+
 /// [`layout`] into `frame`, reusing its room, with `side` at the tiled area's left: `columns`
-/// and a divider, while the tree keeps the narrowest a split leaves beside it, and no cells
-/// otherwise, `keep` or not.
+/// and a divider, or fewer down to [`SIDE_LEAST`], while the tree keeps the narrowest a split
+/// leaves beside it, and no cells otherwise, `keep` or not.
 pub(crate) fn layout_into(
     frame: &mut FrameLayout,
     size: FrameSize,
@@ -325,13 +329,14 @@ pub(crate) fn layout_into(
     frame.windows.clear();
     let mut tree = rows(0, tiled_rows);
     if let Some(side) = side {
-        let fits = side
-            .columns
-            .checked_add(1 + splits.least_columns())
-            .is_some_and(|needs| side.columns > 0 && needs <= tree.columns);
+        // Narrower than asked where the frame has no room for it, down to `SIDE_LEAST`
+        // (ADR 0131), and on no cells below that.
+        let room = tree.columns.saturating_sub(1 + splits.least_columns());
+        let columns = side.columns.min(room);
+        let fits = side.columns > 0 && columns >= SIDE_LEAST.min(side.columns);
         let regions = if fits {
             let area = CellRect {
-                columns: side.columns + 1,
+                columns: columns + 1,
                 ..tree
             };
             tree.column += area.columns;

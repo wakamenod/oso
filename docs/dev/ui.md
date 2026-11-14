@@ -851,6 +851,7 @@ a switch made with its command stands until that setting changes in the file
   claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
   steer_worktrees = true             # sessions oso starts are steered to C-x a w
+  pane_width = 44                    # *Sessions*' pane, 24 to 80 columns
   ```
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
@@ -878,7 +879,13 @@ a switch made with its command stands until that setting changes in the file
   Dock bounce: repeated until oso is focused for needs input and failed, once otherwise. On
   Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
   sessions need input"). A notification names the session and its state, never screen text.
-- `*Sessions*` lists every session in a side window, 32 columns wide at the frame's left, shown
+- `*Sessions*` lists every session in a side window at the frame's left, 44 columns wide unless
+  `[sessions] pane_width` (24 to 80) says otherwise, and narrower, down to 24, where the frame
+  has no room for that beside the tree's narrowest window; below 24 it takes no cells. `<` and
+  `>` in it make it 4 columns narrower or wider, times the count, within 24 to 80, for this
+  oso: never written to the configuration, and back to `pane_width` after an `oso dev`
+  restart; a changed `pane_width` replaces it. Under 36 columns a row drops its age before its
+  name is cut below 12 cells. It is shown
   by itself while oso has a session that is not archived. Each session takes one line: its
   state's mark (⚠ needs input, ✗ failed, ▶ working, ◆ ready for review, ● done, ○ idle,
   ■ stopped), its name, cut in the middle when long so that its end shows, its space and

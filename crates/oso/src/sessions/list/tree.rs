@@ -216,8 +216,13 @@ impl List {
         } else {
             String::new()
         };
-        let age = self.worktree_age(worktree, sessions, now);
         let head = format!("{WORKTREE}{mark} ");
+        let age = super::shown_age(
+            self.worktree_age(worktree, sessions, now),
+            width,
+            cells(&head) + cells(&count),
+            &name,
+        );
         let room = width.saturating_sub(cells(&head) + cells(&age) + cells(&count) + 1);
         let name = cut_middle(&name, room);
         let mut text = format!("{head}{name}");

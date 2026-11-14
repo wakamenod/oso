@@ -3,7 +3,8 @@
 //! git outside oso shows once the sessions worker sees it; an external session in it is
 //! counted on its folded row and listed under it after `TAB`, and one elsewhere in `Other
 //! projects`; `s` shows the list by state and back. Step 2b's keys: `M-n` to a worktree, `RET`
-//! on it, `c` and `w` there, and a click on the list that was not selected.
+//! on it, `c` and `w` there, and a click on the list that was not selected. Step 3's width:
+//! `[sessions] pane_width`, `<` and `>`.
 //!
 //! Must not depend on: the app's internals, or what the tree's own tests cover: its order,
 //! its folds and its faces.
@@ -325,5 +326,41 @@ fn the_trees_keys_and_clicks_start_and_enter_worktrees() {
     });
     click(&mut app, 0, 0);
     app.wait_for("the project folded", |state| has_row(state, "▸ repo"));
+    flow.exit_with(0);
+}
+
+/// The columns of the side window's text.
+fn side_columns(state: &Value) -> Option<u64> {
+    let side = &state["sessions"]["side"];
+    state["windows"]
+        .as_array()?
+        .iter()
+        .find(|window| window["id"] == *side)?["columns"]
+        .as_u64()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_pane_starts_at_pane_width_and_takes_4_columns_a_step_down_to_24() {
+    let flow = Flow::new("sessions-tree-width", "pane_width = 30\n");
+    let (mut app, _) = flow.start();
+    app.send_keys("C-x a c");
+    app.wait_for("the pane at pane_width", |state| {
+        side_columns(state) == Some(30)
+    });
+    select_list(&mut app);
+    app.send_keys(">");
+    app.wait_for("4 columns wider", |state| {
+        side_columns(state) == Some(34)
+            && state["echo"].as_str() == Some("Sessions pane: 34 columns")
+    });
+    // Three steps narrower, kept at the narrowest.
+    app.send_keys("C-u 3 <");
+    app.wait_for("at 24", |state| side_columns(state) == Some(24));
+    app.send_keys("<");
+    app.wait_for("said to be the narrowest", |state| {
+        state["echo"].as_str() == Some("The sessions pane is at its narrowest, 24 columns")
+    });
+    assert_eq!(side_columns(&app.state()), Some(24));
     flow.exit_with(0);
 }

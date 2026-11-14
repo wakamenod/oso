@@ -1515,6 +1515,7 @@ pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::NextDone
 pub oso_core::editor::SessionRequest::NextWaiting
 pub oso_core::editor::SessionRequest::OnBuffer(oso_core::buffer::BufferId, oso_core::editor::RowAction)
+pub oso_core::editor::SessionRequest::PaneWidth(isize)
 pub oso_core::editor::SessionRequest::QuestionDetails
 pub oso_core::editor::SessionRequest::Refresh
 pub oso_core::editor::SessionRequest::Regroup

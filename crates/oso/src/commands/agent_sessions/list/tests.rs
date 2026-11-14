@@ -174,3 +174,28 @@ fn by_state_the_headings_are_the_groups_not_nested_sessions() {
     let refused = run(&mut elsewhere, "sessions-next-heading", Args::NONE).0;
     assert_eq!(refused, Err("Not in *Sessions*".to_owned()));
 }
+
+#[test]
+fn wider_and_narrower_ask_for_4_columns_a_step() {
+    let mut list = listing();
+    assert_eq!(run(&mut list, "sessions-wider", Args::NONE).0, Ok(()));
+    assert_eq!(
+        run(&mut list, "sessions-narrower", Args::numeric(3)).0,
+        Ok(())
+    );
+    assert_eq!(
+        run(&mut list, "sessions-wider", Args::numeric(isize::MIN)).0,
+        Ok(())
+    );
+    assert_eq!(
+        list.take_session_requests(),
+        [
+            SessionRequest::PaneWidth(4),
+            SessionRequest::PaneWidth(-12),
+            SessionRequest::PaneWidth(isize::MIN),
+        ]
+    );
+    let mut elsewhere = editor("text");
+    let refused = run(&mut elsewhere, "sessions-wider", Args::NONE).0;
+    assert_eq!(refused, Err("Not in *Sessions*".to_owned()));
+}
