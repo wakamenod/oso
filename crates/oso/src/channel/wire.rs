@@ -207,6 +207,18 @@ pub fn parse_response(line: &str) -> Result<Result<Value, String>, String> {
     }
 }
 
+/// A connection whose reads can be given a deadline: a control stream, or the dev socket's
+/// reader that keeps the descriptors passed with the bytes (ADR 0120, step 11).
+pub trait ReadTimeout: Read {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+}
+
+impl ReadTimeout for ControlStream {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        ControlStream::set_read_timeout(self, timeout)
+    }
+}
+
 /// Reads up to a newline into `line`, at most [`MAX_LINE`] + 1 bytes, and returns how many,
 /// with no time limit: for a client, which waits as long as the other end takes.
 ///
@@ -232,8 +244,8 @@ pub fn request(id: u64, method: &str, params: Option<Value>) -> String {
 /// Reads up to a newline into `line`, at most [`MAX_LINE`] + 1 bytes, and returns how many.
 /// Times out if the whole line takes longer than `within`, so a client cannot hold its slot
 /// by sending a byte now and then.
-pub fn read_line_within(
-    reader: &mut BufReader<ControlStream>,
+pub fn read_line_within<R: ReadTimeout>(
+    reader: &mut BufReader<R>,
     line: &mut Vec<u8>,
     within: Duration,
 ) -> io::Result<usize> {

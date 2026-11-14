@@ -9,6 +9,9 @@
 )]
 
 mod peer;
+// Passing descriptors, for `oso dev`'s restart of terminals (ADR 0120, step 11).
+#[cfg(feature = "dev")]
+mod rights;
 
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};

@@ -102,7 +102,13 @@ pub enum Event {
     /// Its first request names a hosted session, as the bridge gave it: is this process that
     /// session's bridge (ADR 0121)? An `Ok(true)` reply lets it in without asking, as that
     /// session's; anything else and it asks as any connection.
-    Claims { peer: Peer, session: String },
+    Claims {
+        peer: Peer,
+        session: String,
+        /// When the peer's parent started, as the system says, read here, off the UI
+        /// thread: a carried session's `claude` must match it (ADR 0120, step 11).
+        parent_started: Option<std::time::SystemTime>,
+    },
     /// A request from a connection the person let in.
     Op(Op),
     /// It closed, or the channel stopped.
@@ -439,6 +445,11 @@ where
         event: Event::Claims {
             peer: peer.clone(),
             session,
+            parent_started: peer.parent.as_ref().and_then(|parent| {
+                oso_platform::process::start_time(parent.pid())
+                    .ok()
+                    .flatten()
+            }),
         },
         reply: Some(reply),
     };

@@ -17,6 +17,12 @@ use crate::terminal::colors;
 use crate::terminal::hosted::{self, Terminals};
 
 #[cfg(feature = "dev")]
+mod adopt;
+#[cfg(feature = "dev")]
+pub(super) use adopt::Coming;
+#[cfg(feature = "dev")]
+pub(crate) mod carry;
+#[cfg(feature = "dev")]
 mod dev_state;
 mod ime;
 mod input;
@@ -339,4 +345,31 @@ pub(super) fn retheme(
 /// Whether `buffer` is a terminal whose program reads a password (ADR 0120, Q17).
 pub(crate) fn reads_a_password(buffer: &Buffer) -> bool {
     buffer.verdict() == oso_core::buffer::Verdict::EchoOff
+}
+
+impl App {
+    /// Before the event loop waits: what `oso dev`'s restart of terminals waits for, which
+    /// goes on or gives up once its moment came (ADR 0120, step 11).
+    pub(super) fn handover_due(&mut self) {
+        #[cfg(feature = "dev")]
+        {
+            self.carried_terminals_due();
+            self.coming_terminals_due();
+        }
+    }
+
+    /// When the event loop wakes for `oso dev`'s restart of terminals.
+    pub(super) fn handover_deadline(&self) -> Option<Instant> {
+        #[cfg(feature = "dev")]
+        let deadline = [
+            self.carried_terminals_deadline(),
+            self.coming_terminals_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        #[cfg(not(feature = "dev"))]
+        let deadline = None;
+        deadline
+    }
 }

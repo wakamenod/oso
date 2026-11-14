@@ -13,6 +13,8 @@
 
 mod callbacks;
 mod mouse;
+#[cfg(feature = "dev")]
+pub(super) mod snapshot;
 
 use std::ffi::{c_int, c_void};
 use std::marker::PhantomData;
@@ -88,11 +90,20 @@ pub(super) struct Vt {
 impl Vt {
     /// A terminal of `columns` × `rows`, with oso's settings and callbacks installed, or
     /// `None` when the library cannot allocate one.
-    pub fn new(
+    pub fn new(columns: u16, rows: u16, lines: usize, xtversion: &'static str) -> Option<Vt> {
+        Vt::make(columns, rows, lines, xtversion, |terminal| {
+            // SAFETY: a NULL allocator is the library's default; `terminal` is set on success.
+            unsafe { ffi::ghostty_terminal_new(ptr::null(), terminal, columns, rows) }
+        })
+    }
+
+    /// `new`, with the terminal `terminal` makes (a new one, or one a snapshot restored).
+    fn make(
         columns: u16,
         rows: u16,
         scrollback_lines: usize,
         xtversion: &'static str,
+        terminal: impl FnOnce(&mut ffi::Terminal) -> ffi::GResult,
     ) -> Option<Vt> {
         let sink = Box::new(Sink::new(xtversion, columns, rows));
         let mut vt = Vt {
@@ -108,13 +119,10 @@ impl Vt {
             sink: NonNull::from(Box::leak(sink)),
             _thread: PhantomData,
         };
-        // SAFETY: a NULL allocator is the library's default; `terminal` is written on success.
-        let made =
-            unsafe { ffi::ghostty_terminal_new(ptr::null(), &mut vt.terminal, columns, rows) };
-        if made != ffi::SUCCESS {
+        if terminal(&mut vt.terminal) != ffi::SUCCESS {
             return None;
         }
-        // SAFETY: as above, for the render state.
+        // SAFETY: a NULL allocator is the library's default; `render` is written on success.
         let made = unsafe { ffi::ghostty_render_state_new(ptr::null(), &mut vt.render) };
         if made != ffi::SUCCESS {
             return None;

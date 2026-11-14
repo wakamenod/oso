@@ -13,17 +13,20 @@
 use crate::lexer::{Token, tokenize};
 
 /// The files outside `oso-platform` that may declare `extern` blocks.
-pub const EXTERN_ALLOWED: [&str; 2] = [
+pub const EXTERN_ALLOWED: [&str; 3] = [
     "crates/oso-term/src/engine/ghostty/ffi.rs",
     "crates/oso-term/src/engine/ghostty/ffi/mouse.rs",
+    "crates/oso-term/src/engine/ghostty/ffi/snapshot.rs",
 ];
 /// The files of `oso-term` that may hold `unsafe`, and silence the crate's ban on it.
-pub const UNSAFE_ALLOWED: [&str; 5] = [
+pub const UNSAFE_ALLOWED: [&str; 7] = [
     "crates/oso-term/src/engine/ghostty/ffi.rs",
     "crates/oso-term/src/engine/ghostty/ffi/mouse.rs",
+    "crates/oso-term/src/engine/ghostty/ffi/snapshot.rs",
     "crates/oso-term/src/engine/ghostty/raw.rs",
     "crates/oso-term/src/engine/ghostty/raw/callbacks.rs",
     "crates/oso-term/src/engine/ghostty/raw/mouse.rs",
+    "crates/oso-term/src/engine/ghostty/raw/snapshot.rs",
 ];
 /// The one crate whose manifest may name a native library to link, or a build script.
 pub const LINKS_ALLOWED: &str = "crates/oso-term/Cargo.toml";

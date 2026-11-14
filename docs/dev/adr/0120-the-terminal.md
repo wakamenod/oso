@@ -1408,3 +1408,125 @@ keep them apart from this ADR's.
   never reaches the app. The winit adapter, used on Linux and Windows, passes it through as a
   press, and sends 1003's moves while the window is not in front; both follow the routing
   above.
+
+### Step 11: the restart handoff under `oso dev`
+
+Built on 2026-11-14. The author answered its six questions through the coordinator, (a) for
+each, and approved the plan, the guarded edits (oso-term's `dev` feature, which `oso/dev`
+enables; the files the architecture test lets hold `unsafe` and `extern` blocks) and the new
+public items.
+
+- **The order** (`dev/restart.rs`): the check, the new window, the export, the texts, the import,
+  then `hand-over-terminals {generation}`, whose reply carries a descriptor for each PTY's master
+  with `SCM_RIGHTS`, then the `exit` that lets the terminals go, and only once the old instance has
+  gone `import-terminals {count}` with the masters. So one instance reads each PTY at a time.
+  The supervisor asks with `terminals` only when the new instance's `version` names its terminal
+  library; an instance or a supervisor from before this step hands over as before, and a running
+  terminal holds the restart. Its first check asks with `terminals` before it knows the new
+  build, so a new build from before this step opens a window that then closes.
+  - An exit answered but not done within the supervisor's 5 s has let the terminals go, so
+    their masters go to the new instance anyway; one unanswered is waited for 10 s more, and
+    if it has not gone then, the new instance is told the terminals stay.
+- **The old instance** (`app/terminals/carry.rs`): `export-state {terminals: {library}}` asks each
+  running terminal's thread to stop reading at a chunk's end and write its state, within what
+  the buffers' texts and the histories leave of ADR 0090's 64 MiB, which the terminals share: the
+  one that passes it stops writing at once. A thread puts the states in base64, as items after
+  the texts, in the order of the terminals whatever order they answered in, and the state is
+  then made again, the kills filling what the texts and the terminals leave. The reply waits
+  for them, at most 8 s. A state that cannot be made frees what it held off the UI thread. While exported, a terminal reads nothing and
+  applies no resize, but writes the person's input and serves the UI; what the program writes
+  waits in the kernel. It reads again on a refused hand-over or exit, at the next export, 10 s
+  after the last request about the restart, 5 s after a hand-over with no exit, and, on its
+  thread, after 60 s whatever happens. Reading again refuses that export's hand-over and exit.
+  An exit with a generation refuses while terminals were exported but not handed over, and
+  while any terminal runs that it would not let go. The thread reads the PTY's flags every
+  250 ms meanwhile, so a password prompt opened after the export refuses the hand-over and the
+  exit too. A
+  released terminal's thread ends with nothing hung up and its child not waited for; the system
+  takes the child over when the instance exits.
+- **The state** is version 5 (a reader takes 2 to 5), of at most 64 items more than before. `terminals` lists each carried terminal:
+  its item, `snapshot` or `escapes`, its buffer's name, its size, the child's pid and start time,
+  whether agents may read it and whether it is in char mode, and its hosted session's id, name,
+  directory, root, parent, baseline, pin and last change. A window on one names it by its place
+  (`"terminal": k` in the buffer's entry). `pid` and `follows` name the instance and those it
+  took over from.
+- **How a terminal is written (Q1, the author's choice):** libghostty-vt's snapshot, not the
+  formatter that "As built" first named. The formatter writes only the screen in use, so a
+  full-screen program's shell screen and scrollback would be lost; the snapshot keeps both
+  screens, every mode and a sequence the program had not finished, about as fast and as large
+  (10,000 lines of 200 columns: 2 to 3.5 MB in about 1 ms; 100,000: 20 MB in 9 ms, read back in
+  18 ms). Its format is not the library's promise, so across a change of the lock (the version
+  and a hash of `ghostty-vt.lock`) the formatter's escape sequences go instead, with every
+  extra. To carry an unfinished sequence, dev builds keep up to 2 MiB of one
+  (`GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES`), which cost nothing measurable; a longer one is
+  ended with CAN at the export.
+- **The new instance** (`app/terminals/adopt.rs`): the import makes each terminal's buffer, or
+  takes the one its session came back in stopped, once nothing else can fail; a thread decodes
+  the base64 and restores the engine (`Terminal::adopt`), which sends its first snapshot at once
+  and keeps what is asked until its master comes (`Terminal::attach`). Input typed meanwhile
+  waits. The PTY is resized only when the window's size differs from the carried one; the
+  snapshot is exact, so no redraw is forced. Masters that never come (30 s, or
+  `import-terminals {abandon: true}`) leave the terminals ended, their last screen kept. The child
+  is not this instance's: its end comes from the PTY's end, with no status, and a session then
+  counts as stopped.
+- **What holds the restart now:** a terminal whose program reads a password (Q2, ADR 0079's
+  rule), one still starting, more than 64 terminals, states past 64 MiB with the texts (naming the
+  largest), and terminals carried in that still wait for their masters.
+- **The agent channel's reads (Q3)** carry: `terminal-allow-agent-read` holds in the new
+  instance. **The channel (Q4)** is turned on in the new instance when a carried hosted session
+  runs, as `claude` turns it on.
+- **The bridge (Q5):** a hosted session's `oso mcp` is pinned with `--pid`. A dev instance that
+  took terminals over writes `<pid>-follows` beside its socket, the instances it took over from,
+  at most 16, newest last; a bridge whose pid has gone connects to the instance whose record
+  names it, with the same checks of the program and the socket's owner. Bridges started before
+  this step follow nothing, so their sessions need one `session-resume`. On Linux the program is
+  compared by its file, and a rebuilt binary is another, so a bridge does not follow across a
+  rebuild there.
+- **The bridge's proof:** a carried session's `claude` is no longer oso's child, so its id could
+  be another process's once it ends. A claim is then believed only if the parent also started
+  when that `claude` did, as `oso_platform::process::start_time` read it before the restart; the
+  channel's server reads the parent's start off the UI thread. A carried session whose start
+  the system did not say lets no bridge in unasked.
+- **Only the parent (Q6):** the dev socket gives terminals, their states and their masters only
+  to the process that started the instance, `oso dev`'s supervisor or the end-to-end harness,
+  by the connection's peer; a terminal's state stays the parent's to read for as long as its
+  export can be read. Only the parent's import says which instances a bridge follows. The
+  record is read only as a plain file, not through a link, each instance in it once.
+- **Descriptors** pass only on the dev socket, read through `recvmsg` (`dev/fds.rs`): at most 64
+  a message, close-on-exec, those that come with any request but `import-terminals` closed as it
+  is answered. `oso-platform` gains `ControlStream::{send_with_fds, recv_with_fds, MAX_FDS}` and
+  `pty::Master::{try_clone_fd, from_fd}` (`from_fd` refuses a descriptor that is not a terminal's
+  master); `oso-term` gains `Terminal::{library, export, resume, resumes, release, adopt, attach,
+  abandon}` with `Adopt`, `Encoding`, `Exported` and `NotExported`. All of it is behind the `dev`
+  features.
+- **The snapshot is off until a patch to the library.** Until oso's third patch to
+  libghostty-vt lands ([ADR 0133](0133-keeping-terminals-over-an-update.md)'s prerequisite),
+  every terminal travels as the formatter's escape sequences, whatever the library
+  (`SNAPSHOTS` in `terminal/thread/handoff.rs`). The screen in use and its scrollback come
+  across, and a full-screen program's screen is redrawn from them; its other screen and a
+  sequence it had not finished do not. The snapshot's code stays, for the patch and its tests.
+- **The decoder's fuzz target** is `terminal::fuzz::restore` in oso-term: a terminal fed by
+  the grammar is written as the snapshot, restored at its size or another, then fed, drawn on
+  and sometimes written again. `OSO_TERM_FUZZ_DAMAGE` damages the records first, with their
+  CRC32C written again. On macOS, 30 minutes of ReleaseFast restored 129,200 snapshots
+  unchanged, with no stop.
+- **The library's archive is built once per key.** The `dev` feature gives oso-term a second
+  set of features, and cargo runs a build script once per set, so `build.rs` keeps the archive
+  in the target's profile directory, keyed by the sha256 of the lock, `build.rs`, the optimize
+  mode, the target, the host and Zig's version. It is reused only through plain directories and
+  files, and only when its sha256 matches the one recorded beside it; the tarballs, the patches
+  and the packages are checked each time.
+- **Not done:** the floating terminal's position and the token carry once steps 9 and 10 exist;
+  the snapshot's return, with the library patch and its fuzz runs on macOS and Linux.
+
+Changes to accepted ADRs, each staying as written:
+
+- This ADR's "As built", "Step 11: … come from the library's formatter": from its snapshot, the
+  formatter only across a change of the library. "Restarts under `oso dev`": a resize happens
+  only on a change of size.
+- [ADR 0121](0121-agent-sessions-and-spaces.md), the bridge's proof, "whose process id oso holds as
+  its child": or, for a session carried over `oso dev`'s restart, whose start time the parent's
+  matches.
+- [ADR 0085](0085-agent-channel-and-oso-mcp.md), "so does the bridge's after an oso restart": a
+  hosted session's bridge is let in without asking after `oso dev`'s restart too, by ADR 0121's
+  proof.

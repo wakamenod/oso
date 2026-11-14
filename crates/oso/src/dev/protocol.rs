@@ -79,10 +79,17 @@ pub enum UiOp {
     /// Show a buffer in the selected window.
     ShowBuffer(u64),
     /// Report the generation, or why this instance's text would not survive a
-    /// restart.
-    CheckHandover,
-    /// Report what a new instance needs to take over.
-    ExportState,
+    /// restart; with `terminals`, a running terminal holds nothing (ADR 0120, step 11).
+    CheckHandover { terminals: bool },
+    /// Report what a new instance needs to take over; with `terminals`, the name of the
+    /// terminal library the new instance reads, its terminals too.
+    ExportState { terminals: Option<String> },
+    /// Give the masters of the terminals the latest export carries, if the generation is
+    /// still this one; the `exit` that follows lets them go (ADR 0120, step 11).
+    HandOverTerminals { generation: u64 },
+    /// Take the masters of the terminals the import carried, in their order; `None` gives
+    /// them up, as the instance before kept them.
+    ImportTerminals { count: Option<usize> },
     /// Take over from the instance that exported this state.
     ImportState(Box<State>),
     /// Give the piece of an item of the latest export from `offset` (ADR 0090).
@@ -224,7 +231,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
             rows: parse_size(params, "get-text", "rows").map_err(|m| bad(&id, m))?,
         },
         "show-buffer" => UiOp::ShowBuffer(parse_buffer(params).map_err(|m| bad(&id, m))?),
-        "check-handover" => UiOp::CheckHandover,
+        "check-handover" => UiOp::CheckHandover {
+            terminals: handoff::terminals::asked(params).map_err(|m| bad(&id, m))?,
+        },
         "dev-panic" => UiOp::Panic,
         "dev-end-unasked" => UiOp::EndUnasked,
         "ime" => UiOp::Ime(parse_ime(params).map_err(|m| bad(&id, m))?),
@@ -237,7 +246,15 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                 .and_then(Value::as_bool)
                 .ok_or_else(|| bad(&id, "focus needs a boolean \"focused\"".into()))?,
         ),
-        "export-state" => UiOp::ExportState,
+        "export-state" => UiOp::ExportState {
+            terminals: handoff::terminals::library(params).map_err(|m| bad(&id, m))?,
+        },
+        "hand-over-terminals" => UiOp::HandOverTerminals {
+            generation: parse_u64(params, method, "generation").map_err(|m| bad(&id, m))?,
+        },
+        "import-terminals" => UiOp::ImportTerminals {
+            count: handoff::terminals::count(params).map_err(|m| bad(&id, m))?,
+        },
         "export-text" | "import-text" | "dev-message" => {
             parse_for_oso_dev(method, params).map_err(|m| bad(&id, m))?
         }
@@ -967,8 +984,37 @@ mod tests {
     fn parses_the_handoff_methods() {
         assert_eq!(
             parsed(r#"{"method": "export-state"}"#).method,
-            Method::Ui(UiOp::ExportState)
+            Method::Ui(UiOp::ExportState { terminals: None })
         );
+        assert_eq!(
+            parsed(r#"{"method": "export-state", "params": {"terminals": {"library": "x"}}}"#)
+                .method,
+            Method::Ui(UiOp::ExportState {
+                terminals: Some("x".into())
+            })
+        );
+        assert_eq!(
+            parsed(r#"{"method": "hand-over-terminals", "params": {"generation": 9}}"#).method,
+            Method::Ui(UiOp::HandOverTerminals { generation: 9 })
+        );
+        assert_eq!(
+            parsed(r#"{"method": "import-terminals", "params": {"count": 2}}"#).method,
+            Method::Ui(UiOp::ImportTerminals { count: Some(2) })
+        );
+        assert_eq!(
+            parsed(r#"{"method": "import-terminals", "params": {"abandon": true}}"#).method,
+            Method::Ui(UiOp::ImportTerminals { count: None })
+        );
+        for bad in [
+            r#"{"method": "import-terminals", "params": {"count": 65}}"#,
+            r#"{"method": "import-terminals", "params": {}}"#,
+            r#"{"method": "hand-over-terminals", "params": {}}"#,
+            r#"{"method": "export-state", "params": {"terminals": {}}}"#,
+            r#"{"method": "export-state", "params": {"terminals": 3}}"#,
+            r#"{"method": "check-handover", "params": {"terminals": "yes"}}"#,
+        ] {
+            assert!(!error(bad).1.is_empty(), "{bad}");
+        }
         let state = json!({
             "version": crate::dev::handoff::STATE_VERSION,
             "buffers": [{ "id": 0, "path": null }],
@@ -1005,7 +1051,11 @@ mod tests {
         );
         assert_eq!(
             parsed(r#"{"method": "check-handover"}"#).method,
-            Method::Ui(UiOp::CheckHandover)
+            Method::Ui(UiOp::CheckHandover { terminals: false })
+        );
+        assert_eq!(
+            parsed(r#"{"method": "check-handover", "params": {"terminals": true}}"#).method,
+            Method::Ui(UiOp::CheckHandover { terminals: true })
         );
     }
 

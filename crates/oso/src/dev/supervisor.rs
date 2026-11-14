@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 
 use super::build_errors;
 use super::ctl;
+use super::fds::{self, Fd};
 use super::protocol::{self, EXIT_REFUSED};
 use super::restart::{CHECK, Instance, Instances, NotStopped, restart, tell};
 use super::watch::Sources;
@@ -351,11 +352,12 @@ impl Running {
     /// anything. It is never killed: it may hold text that nothing else does.
     fn stop_within(&mut self, generation: u64, limit: Duration) -> Result<(), NotStopped> {
         let params = json!({ "generation": generation });
-        if let Err(message) = self.call("exit", Some(params))
-            && message.starts_with(EXIT_REFUSED)
-        {
-            return Err(NotStopped::Refused(message));
-        }
+        let agreed = match self.call("exit", Some(params)) {
+            Err(message) if message.starts_with(EXIT_REFUSED) => {
+                return Err(NotStopped::Refused(message));
+            }
+            answer => answer.is_ok(),
+        };
         let started = Instant::now();
         while started.elapsed() < limit {
             if self.exited().is_some() {
@@ -363,10 +365,15 @@ impl Running {
             }
             thread::sleep(START_POLL);
         }
-        Err(NotStopped::Unknown(format!(
+        let reason = format!(
             "instance {} did not exit within {limit:?}, so it is left running",
             self.child.id()
-        )))
+        );
+        Err(if agreed {
+            NotStopped::Agreed(reason)
+        } else {
+            NotStopped::Unknown(reason)
+        })
     }
 }
 
@@ -379,6 +386,24 @@ impl Instance for Running {
         let pid = Some(self.child.id());
         let line = ctl::exchange(&self.dir, pid, method, params).map_err(|e| e.to_string())?;
         protocol::response_result(&line)
+    }
+
+    fn call_passing(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+        fds: Vec<Fd>,
+    ) -> Result<(Value, Vec<Fd>), String> {
+        let (line, fds) = fds::exchange(
+            &self.dir,
+            self.child.id(),
+            method,
+            params,
+            &fds,
+            ctl::RESPONSE_TIMEOUT,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok((protocol::response_result(&line)?, fds))
     }
 
     fn check_briefly(&mut self) -> Result<Value, String> {
@@ -406,6 +431,17 @@ impl Instance for Running {
     }
 
     fn gone(&mut self) -> bool {
+        self.exited().is_some()
+    }
+
+    fn gone_within(&mut self, limit: Duration) -> bool {
+        let started = Instant::now();
+        while started.elapsed() < limit {
+            if self.exited().is_some() {
+                return true;
+            }
+            thread::sleep(START_POLL);
+        }
         self.exited().is_some()
     }
 
@@ -644,7 +680,7 @@ mod tests {
             answer(&running, &dir, Ok(()));
             let stopped = running.stop_within(1, LIMIT);
             assert!(
-                matches!(&stopped, Err(NotStopped::Unknown(_))),
+                matches!(&stopped, Err(NotStopped::Agreed(_))),
                 "{stopped:?}"
             );
             assert!(!running.gone(), "it runs on");

@@ -6,6 +6,8 @@
 //!
 //! Must not depend on: the policy or the thread. This file is safe code over `raw`.
 
+#[cfg(feature = "dev")]
+pub(crate) mod carry;
 mod ffi;
 mod keys;
 mod pointers;
@@ -73,10 +75,17 @@ impl Ghostty {
     /// allocate one. `size` is clamped to the limits already.
     /// `xtversion` is what `XTVERSION` answers (the policy's).
     pub(crate) fn new(size: Size, scrollback: usize, xtversion: &'static str) -> Option<Ghostty> {
-        let mut vt = Vt::new(size.columns, size.rows, scrollback, xtversion)?;
+        Vt::new(size.columns, size.rows, scrollback, xtversion).map(|vt| Ghostty::around(vt, size))
+    }
+
+    /// The engine over `vt`, sized to `size`.
+    fn around(mut vt: Vt, size: Size) -> Ghostty {
+        // So that `oso dev`'s restart can carry a sequence the program has not finished.
+        #[cfg(feature = "dev")]
+        vt.track_continuation();
         let (width, height) = cell_pixels(size);
         vt.resize(size.columns, size.rows, width, height);
-        Some(Ghostty {
+        Ghostty {
             vt,
             size,
             full: true,
@@ -88,7 +97,7 @@ impl Ghostty {
             grapheme: [0; limits::GRAPHEME_MAX],
             styles: [(0, Cell::default()); STYLES_CACHED],
             warned_plain_copies: false,
-        })
+        }
     }
 
     /// Warns once per terminal when the library copied rows without their styles, links or

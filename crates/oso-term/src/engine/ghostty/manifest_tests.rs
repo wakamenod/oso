@@ -10,6 +10,7 @@ mod mouse;
 #[path = "../../../build/patch_check.rs"]
 mod patch_check;
 mod patches;
+mod snapshot;
 
 use std::ffi::c_int;
 use std::mem::offset_of;
