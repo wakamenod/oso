@@ -303,8 +303,14 @@ fn serve(shared: &Shared, wake: &(dyn Fn() -> bool + Send + Sync)) {
         let directory = request.directory().to_path_buf();
         // A listing hands back what it builds as it goes, waking the UI for each.
         if let Request::Dired(request) = request {
+            let stamp = fs::metadata(&request.directory)
+                .ok()
+                .and_then(|metadata| crate::loader::stamp_of(&metadata).ok());
             let listed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::dired::list(&request, &mut |answer| {
+                crate::dired::list(&request, &mut |mut answer| {
+                    if let Ok(built) = &mut answer.built {
+                        built.stamp = stamp;
+                    }
                     lock(&shared.answers).push(Answer::Dired(Box::new(answer)));
                     if !wake() {
                         lock(&shared.queue).waiting.clear();

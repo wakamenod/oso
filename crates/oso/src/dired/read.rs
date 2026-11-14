@@ -200,6 +200,7 @@ impl<'a> Reading<'a> {
             name_column: shown.name_column,
             resolved: self.resolved.clone(),
             done,
+            stamp: None,
         }
     }
 }

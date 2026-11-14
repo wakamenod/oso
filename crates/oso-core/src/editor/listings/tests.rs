@@ -77,6 +77,8 @@ fn a_window_keeps_the_line_the_host_found() {
 fn a_listing_inside_ssh_is_withheld() {
     let mut editor = Editor::default();
     let id = editor.add_listing(".ssh/", PathBuf::from("/home/me/.ssh"));
+    // Before its text comes, by its path's words.
+    assert_eq!(editor.buffer(id).unwrap().verdict(), Verdict::SecretName);
     let text = decode_all(TEXT.as_bytes(), Default::default());
     editor.set_listing_text(id, text, shown("/home/me/.ssh", 1, Vec::new()));
     assert_eq!(editor.buffer(id).unwrap().verdict(), Verdict::SecretName);

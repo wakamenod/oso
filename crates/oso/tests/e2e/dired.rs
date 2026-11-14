@@ -31,10 +31,11 @@ fn row_of(rows: &[String], name: &str) -> usize {
         .unwrap_or_else(|| panic!("no row for {name} in {rows:?}"))
 }
 
-/// Waits for the listing named `name` to show with a row ending in `last`.
+/// Waits for the listing named `name` to show with a row ending in `last`, and returns the
+/// state then.
 fn listed(app: &mut App, name: &str, last: &str) -> Value {
     let name = name.to_owned();
-    let state = app.wait_for("a listing", |state| {
+    app.wait_for("a listing", |state| {
         state["buffer"]["name"] == name.as_str()
     });
     let started = std::time::Instant::now();
@@ -45,7 +46,7 @@ fn listed(app: &mut App, name: &str, last: &str) -> Value {
         );
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    state
+    app.state()
 }
 
 /// Moves point by rows from where it is to `row`, with `n` and `p`.

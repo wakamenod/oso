@@ -106,6 +106,9 @@ pub(crate) struct Built {
     pub(crate) resolved: Option<Vec<PathBuf>>,
     /// Whether every entry is in; a listing still reading shows those read so far.
     pub(crate) done: bool,
+    /// What the directory's metadata said just before it was read, which the lister sets, so
+    /// that a change the watcher sees later is one since the listing.
+    pub(crate) stamp: Option<oso_core::buffer::FileStamp>,
 }
 
 impl std::fmt::Debug for Built {

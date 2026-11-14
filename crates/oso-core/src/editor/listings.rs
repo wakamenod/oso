@@ -93,8 +93,12 @@ impl Editor {
     /// Adds an empty listing buffer named `name`, shown in no window yet, which does not wrap.
     pub fn add_listing(&mut self, name: impl Into<String>, directory: PathBuf) -> BufferId {
         let id = self.add_internal_buffer(name, Mode::Directory);
+        // Judged by its path's words until its real place is known, so that no text of it shows
+        // before then.
+        let verdict = secret::judge_name(&directory);
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_wraps(false);
+            buffer.set_listing_verdict(verdict);
         }
         let record = Listing {
             directory,

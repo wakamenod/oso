@@ -49,8 +49,10 @@ struct Listing {
     point: Option<OsString>,
     /// The line point goes to once the next listing comes, as a restart carried it.
     line: Option<usize>,
-    /// What the watcher last saw of the directory.
+    /// What the directory's metadata said when the listing shown was read, once it is whole.
     stamp: Option<Option<FileStamp>>,
+    /// What the watcher last saw of it.
+    seen: Option<Option<FileStamp>>,
 }
 
 impl Listing {
@@ -128,6 +130,7 @@ impl App {
             point,
             line: None,
             stamp: None,
+            seen: None,
         };
         self.dired.by_buffer.insert(id, listing);
         self.list_again(id);
@@ -161,6 +164,7 @@ impl App {
             point: None,
             line: Some(entry.line),
             stamp: None,
+            seen: None,
         };
         self.dired.by_buffer.insert(id, listing);
         self.list_again(id);
@@ -234,6 +238,7 @@ impl App {
             listing.directory = directory;
             listing.point = point;
             listing.stamp = None;
+            listing.seen = None;
         }
         self.list_again(buffer);
     }
@@ -395,9 +400,13 @@ impl App {
             })
             .collect();
         // What was asked for holds until the whole listing is in.
+        let mut stale = false;
         if built.done {
             listing.point = None;
             listing.line = None;
+            listing.stamp = Some(built.stamp);
+            // The watcher saw it change while it was read.
+            stale = listing.seen.is_some_and(|seen| seen != built.stamp);
         }
         let record = Record {
             directory: listing.directory.clone(),
@@ -428,6 +437,9 @@ impl App {
         // What the listing replaced is freed off this thread.
         self.freer.free((old_text, refused, old_rows));
         self.buffers_changed();
+        if stale {
+            self.list_again(answer.buffer);
+        }
         true
     }
 
@@ -449,16 +461,18 @@ impl App {
         Some(sorted)
     }
 
-    /// What the watcher saw of the shown listings' directories: one that changed is listed
-    /// again, keeping each window's point on its name.
+    /// What the watcher saw of the shown listings' directories: one that changed since it was
+    /// listed is listed again, keeping each window's point on its name.
     pub(super) fn listings_watched(&mut self, seen: Vec<(BufferId, Option<FileStamp>)>) {
         let mut changed = Vec::new();
         for (id, stamp) in seen {
             let Some(listing) = self.dired.by_buffer.get_mut(&id) else {
                 continue;
             };
-            let before = listing.stamp.replace(stamp);
-            if before.is_some_and(|before| before != stamp) {
+            listing.seen = Some(stamp);
+            // Once, until the listing asked for comes whole.
+            if listing.stamp.is_some_and(|listed| listed != stamp) {
+                listing.stamp = None;
                 changed.push(id);
             }
         }
