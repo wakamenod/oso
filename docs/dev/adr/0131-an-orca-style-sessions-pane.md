@@ -533,6 +533,42 @@ each point below that differs from the decision, through the coordinator.
 - **Until step 2b,** `RET` on a project's or a worktree's row folds it, as `TAB` does; the
   pane's own modeline is not built.
 
+## Step 2b, as built
+
+Built on 2026-11-15: the tree's keys, the mouse and the pane's modeline. The author approved the
+plan and chose (a) for each question, through the coordinator.
+
+- **`c` and `w` are `claude` and `session-worktree`** themselves, bound in the list. While
+  `*Sessions*` is selected, "here" is the row at point (`app/sessions/watch/pane/rows.rs`), for
+  `C-x a c` and `C-x a w` too (Q1 of the plan):
+  - a project's row is its main checkout, and a new worktree starts at `HEAD`;
+  - a worktree's row is that worktree, and a new one starts at its branch; on no branch, at
+    `HEAD`, which the echo area says (Q3);
+  - a session's row is its worktree, and `w` makes that session the new one's parent, its brief
+    saying what it left;
+  - an `Other projects` directory's row is that directory; other group rows have no place, and
+    say so.
+  `w` reads the branches of the row's repository, under the trust of a buffer in it, as the
+  tree's listing does. `claude` takes the project of a buffer whose root is the row's directory
+  for its review baseline; with none, it starts as `C-u claude` into a directory does.
+- **A deviation, fewer items than approved:** `RowAction::Start` and `RowAction::Worktree` are
+  not needed, and oso-core's public API is unchanged. The new names are two commands,
+  `sessions-next-heading` and `sessions-previous-heading` (`M-n`, `M-p`).
+- **`M-n` and `M-p`** read the list's text, as `n` and `p` do: a heading is a row whose mark is
+  a fold's, or a row at a worktree's indent under a project's. By state, that is the groups,
+  not nested sessions. So that only headings take a worktree's indent, archived sessions in the
+  tree take a session's.
+- **`RET` on a worktree's row** enters its space and selects the tree's window, or opens
+  `find-file`'s prompt in the worktree when no space is there (`Dispatcher::find_file_in`).
+  `k` there says that `worktree-remove` removes worktrees. `/` is `session-switch` until
+  ADR 0126's `jump-anywhere` exists; `B` waits for the board.
+- **The mouse** (`app/sessions/watch/pane/mouse.rs`): a left press on the list's text in the
+  side window moves point to the row and does what `RET` does there, or folds on a fold's mark.
+  It acts whether the list was selected or not (Q2), and waits, as every press does, while a
+  prompt or a key sequence holds input. The wheel was already the window's.
+- **The pane's modeline** says `*Sessions*` and `tree · ? keys` or `by state · ? keys`: oso-core
+  writes a `Mode::Sessions` buffer's mode note in place of a position, as a terminal's.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.

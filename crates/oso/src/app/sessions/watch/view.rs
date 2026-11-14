@@ -163,6 +163,14 @@ impl App {
         };
         let tree = self.sessions_tree();
         self.watch.list.set_tree(tree);
+        let note = self.watch.list.modeline_note();
+        if self
+            .editor
+            .buffer(buffer)
+            .is_some_and(|b| b.mode_note() != note)
+        {
+            self.editor.set_mode_note(buffer, note.to_owned());
+        }
         let Some(window) = self.editor.window_by_id(side) else {
             return false;
         };

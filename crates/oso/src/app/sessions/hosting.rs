@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{BufferId, Mode};
 use oso_core::minibuffer::PromptId;
 use oso_core::project::ProjectId;
 
@@ -241,20 +241,13 @@ impl App {
                 return None;
             }
             Some(directory) => directory,
-            None => self
-                .buffer_directory()
-                .unwrap_or_else(|| self.editor.start_directory().to_path_buf()),
+            None => self.session_directory_here()?,
         };
         if begin.check_shared && self.hosting.table.runs_in(&directory) {
             self.ask_shared(begin);
             return None;
         }
-        // The selected buffer's project, if the session runs at its root.
-        let project = self.editor.current().1.project().filter(|id| {
-            self.editor
-                .project(*id)
-                .is_some_and(|project| project.root() == directory)
-        });
+        let project = self.project_at_root(&directory);
         let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         if let Some(parent) = begin.parent.clone() {
@@ -308,6 +301,44 @@ impl App {
             check_shared: begin.check_shared,
         });
         Some(key)
+    }
+
+    /// Where `claude` starts with no directory given: in `*Sessions*`, where the row at point
+    /// is (ADR 0131, step 2b), and none on a row with no place, which the echo area says; else
+    /// the selected buffer's project root or directory, else the directory oso started in.
+    fn session_directory_here(&mut self) -> Option<PathBuf> {
+        match self.sessions_row_place() {
+            Some(Ok(place)) => Some(place.directory),
+            Some(Err(why)) => {
+                self.editor.message(why);
+                None
+            }
+            None => Some(
+                self.buffer_directory()
+                    .unwrap_or_else(|| self.editor.start_directory().to_path_buf()),
+            ),
+        }
+    }
+
+    /// The project whose root `directory` is: the selected buffer's, or in `*Sessions*` any
+    /// buffer's, as no buffer there is in one.
+    fn project_at_root(&self, directory: &Path) -> Option<ProjectId> {
+        let at_root = |id: &ProjectId| {
+            self.editor
+                .project(*id)
+                .is_some_and(|project| project.root() == directory)
+        };
+        let current = self.editor.current().1;
+        current.project().filter(at_root).or_else(|| {
+            (current.mode() == Mode::Sessions)
+                .then(|| {
+                    self.editor
+                        .buffers()
+                        .filter_map(|(_, buffer)| buffer.project())
+                        .find(at_root)
+                })
+                .flatten()
+        })
     }
 
     /// Asks before `begin` starts a session where another live one runs (ADR 0121).
