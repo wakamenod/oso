@@ -188,6 +188,21 @@ impl Table {
         self.sessions.iter_mut().find(|session| session.key == key)
     }
 
+    /// Whether a session oso hosts runs, or is being started, in `directory`.
+    pub fn runs_in(&self, directory: &Path) -> bool {
+        self.sessions.iter().any(|session| {
+            session.runs() && oso_core::project::same_place(&session.directory, directory)
+        }) || self
+            .pending
+            .iter()
+            .any(|(_, pending, _)| oso_core::project::same_place(pending, directory))
+    }
+
+    /// The sessions, in the order they came.
+    pub fn all(&self) -> &[Hosted] {
+        &self.sessions
+    }
+
     /// Keeps at most [`MAX_SESSIONS`](super::record::MAX_SESSIONS) sessions, so that the table
     /// and each record written stay bounded in a long-running oso: past that, the ones that do
     /// not run go, archived ones first, then unpinned ones, each the one that changed longest

@@ -102,8 +102,13 @@ fn fake(dir: &TempDir, scratch: &Path) -> Result<std::path::PathBuf, String> {
 /// Starts [`SESSIONS`] sessions, the last one shown, has them all print for [`PRINTING`], and
 /// gives the UI thread's time on each frame meanwhile, in ms.
 fn printing(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
-    for _ in 0..SESSIONS {
+    for n in 0..SESSIONS {
         app.call("run-command", Some(serde_json::json!({ "name": "claude" })))?;
+        if n > 0 {
+            // Another session runs here, so starting one more is asked first, and `y` starts it
+            // (ADR 0121 step 4).
+            app.send_keys("y")?;
+        }
     }
     wait_for_sessions(app, SESSIONS)?;
     let print = scratch.join("print");

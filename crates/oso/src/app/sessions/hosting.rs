@@ -29,7 +29,7 @@ mod terminal;
 pub(in crate::app) struct Hosting {
     pub(in crate::app) table: Table,
     /// oso's own state directory, where the record is kept.
-    directory: Option<PathBuf>,
+    pub(in crate::app) directory: Option<PathBuf>,
     /// The buffer each session being started has, by its key, until the start thread reports.
     starting: HashMap<SessionKey, BufferId>,
     /// The trusted project each new session takes a baseline of, and the root its baseline
@@ -44,6 +44,30 @@ pub(in crate::app) struct Hosting {
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
+    /// The sessions being started by another session's hand-off, by key: their parent.
+    parents: HashMap<SessionKey, SessionId>,
+    /// A start the person was asked about, as another session runs in its directory.
+    shared: Option<Begin>,
+    /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
+    pub(in crate::app) worktrees: super::worktrees::Worktrees,
+}
+
+/// What a new session starts with.
+#[derive(Debug, Clone, Default)]
+pub(in crate::app) struct Begin {
+    /// Its name's base, else its directory's name.
+    pub name: Option<String>,
+    /// Its directory, else the selected buffer's project root, else its file's directory, else
+    /// the directory oso started in.
+    pub directory: Option<PathBuf>,
+    /// Its first prompt (ADR 0121 step 4).
+    pub brief: Option<String>,
+    /// The session that started it.
+    pub parent: Option<SessionId>,
+    /// Whether to ask first when another live session runs in its directory.
+    pub check_shared: bool,
+    /// The trust of its directory, when it is no open project's: a worktree just made.
+    pub trusted: Option<TrustedRoot>,
 }
 
 impl Hosting {
@@ -67,6 +91,9 @@ impl Hosting {
             unsaved: false,
             fork_offered: None,
             explain: None,
+            parents: HashMap::new(),
+            shared: None,
+            worktrees: super::worktrees::Worktrees::default(),
         }
     }
 }
@@ -163,7 +190,17 @@ impl App {
         name: Option<String>,
         directory: Option<PathBuf>,
     ) {
-        let directory = match directory {
+        self.begin_session(Begin {
+            name,
+            directory,
+            check_shared: true,
+            ..Begin::default()
+        });
+    }
+
+    /// Starts a new session as `begin` says.
+    pub(in crate::app) fn begin_session(&mut self, begin: Begin) {
+        let directory = match begin.directory.clone() {
             Some(directory) if !directory.is_absolute() => {
                 self.editor.message("Name the session's directory whole");
                 return;
@@ -173,23 +210,40 @@ impl App {
                 .buffer_directory()
                 .unwrap_or_else(|| self.editor.start_directory().to_path_buf()),
         };
+        if begin.check_shared && self.hosting.table.runs_in(&directory) {
+            self.ask_shared(begin);
+            return;
+        }
         // The selected buffer's project, if the session runs at its root.
         let project = self.editor.current().1.project().filter(|id| {
             self.editor
                 .project(*id)
                 .is_some_and(|project| project.root() == directory)
         });
-        let base = name.unwrap_or_else(|| base_name(&directory));
+        let base = begin.name.clone().unwrap_or_else(|| base_name(&directory));
         let (key, name) = self.hosting.table.reserve(&directory, &base);
+        if let Some(parent) = begin.parent.clone() {
+            self.hosting.parents.insert(key, parent);
+        }
+        if begin.check_shared {
+            self.hosting.shared = Some(begin.clone());
+        }
         self.turn_agent_channel_on_for_a_session();
         let terminal = self.session_terminal(key, &name, None);
-        let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
-        if let (Some(id), Some(root)) = (project, &trusted) {
-            self.hosting.baselines.insert(key, (id, root.clone()));
-        }
-        let root = project
-            .and_then(|id| self.editor.project(id))
-            .map(|project| project.root().to_path_buf());
+        let (trusted, root) = match begin.trusted.clone() {
+            // A worktree just made, which no buffer opened yet: its own root and trust.
+            Some(trusted) => (Some(trusted), Some(directory.clone())),
+            None => {
+                let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
+                if let (Some(id), Some(root)) = (project, &trusted) {
+                    self.hosting.baselines.insert(key, (id, root.clone()));
+                }
+                let root = project
+                    .and_then(|id| self.editor.project(id))
+                    .map(|project| project.root().to_path_buf());
+                (trusted, root)
+            }
+        };
         self.order_session(Order {
             token: key,
             kind: Kind::New,
@@ -200,7 +254,32 @@ impl App {
             state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             terminal,
+            brief: begin.brief,
+            steer_worktrees: self.configuration.steer_worktrees(),
+            check_shared: begin.check_shared,
         });
+    }
+
+    /// Asks before `begin` starts a session where another live one runs (ADR 0121).
+    fn ask_shared(&mut self, begin: Begin) {
+        self.hosting.shared = Some(begin);
+        let question = "Another session runs in this directory. A worktree keeps their changes \
+                        apart (C-x a w). Start here anyway?";
+        if let Err(e) = self.editor.ask(question, "session-start-shared") {
+            self.hosting.shared = None;
+            self.editor.message(e.to_string());
+        }
+    }
+
+    /// The person's `y` to starting where another session runs.
+    pub(in crate::app) fn start_shared(&mut self) {
+        match self.hosting.shared.take() {
+            Some(begin) => self.begin_session(Begin {
+                check_shared: false,
+                ..begin
+            }),
+            None => self.editor.message("No session waits to start"),
+        }
     }
 
     /// `session-resume`: the stopped session whose terminal is `buffer`, in the same buffer.
@@ -237,6 +316,9 @@ impl App {
             state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             terminal,
+            brief: None,
+            steer_worktrees: self.configuration.steer_worktrees(),
+            check_shared: false,
         });
     }
 
@@ -272,6 +354,9 @@ impl App {
             state: super::super::reviews::state(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
             terminal,
+            brief: None,
+            steer_worktrees: self.configuration.steer_worktrees(),
+            check_shared: false,
         });
     }
 
@@ -312,6 +397,7 @@ impl App {
             Report::Ready(ready) => self.session_ready(ready),
             Report::Refused { token, why } => {
                 self.session_not_started(token);
+                self.hosting.parents.remove(&token);
                 self.editor.message(why);
             }
             Report::Live {
@@ -346,6 +432,13 @@ impl App {
                 if let Some(session) = self.hosting.table.get_mut(token) {
                     session.baseline = Some(tree);
                     self.remember_sessions();
+                }
+            }
+            Report::Shared { token } => {
+                self.session_not_started(token);
+                self.hosting.parents.remove(&token);
+                if let Some(begin) = self.hosting.shared.take() {
+                    self.ask_shared(begin);
                 }
             }
             Report::Twice { token } => {
@@ -402,7 +495,7 @@ impl App {
                 New {
                     id: ready.id.clone(),
                     root: ready.project.clone(),
-                    parent: None,
+                    parent: self.hosting.parents.remove(&key),
                     changed: now_ms(),
                 },
             );

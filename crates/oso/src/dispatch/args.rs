@@ -77,6 +77,10 @@ pub fn map(
         (ArgSpec::DirectoryAndTextOnPrefix { .. }, _) => Err(format!(
             "{name} reads a directory and a name, which only its prompts take, from keys"
         )),
+        // A branch is read only in a prompt over the branches the host listed (ADR 0121).
+        (ArgSpec::BranchAndBaseOnPrefix { .. }, _) => {
+            Err(format!("{name} reads its branch from the keyboard"))
+        }
         // query-replace asks at each match, from keys (ADR 0113).
         (ArgSpec::Replace { .. }, _) => Err(format!(
             "{name} reads two strings, which only its prompts take, from keys"
@@ -216,6 +220,11 @@ mod tests {
             assert!(map("cmd", listed, Given::Text("x"), None).is_err());
             assert!(map("cmd", listed, Given::Nothing, None).is_err());
         }
+    }
+
+    #[test]
+    fn refuses_what_only_the_keyboard_reads() {
+        let refused = |spec, given| map("cmd", spec, given, None).unwrap_err();
         let buffer = ArgSpec::Buffer {
             prompt: "Switch to buffer: ",
             history: "buffer",
@@ -253,5 +262,14 @@ mod tests {
         };
         assert!(refused(project_search, Given::Text("fn main")).contains("searches"));
         assert!(refused(project_search, Given::Nothing).contains("searches"));
+        let branch = ArgSpec::BranchAndBaseOnPrefix {
+            prompt: "Worktree branch:",
+            base_prompt: "Base:",
+            history: "worktree-branch",
+        };
+        for given in [Given::Nothing, Given::Text("main"), Given::Count(4)] {
+            let said = refused(branch, given);
+            assert_eq!(said, "cmd reads its branch from the keyboard");
+        }
     }
 }

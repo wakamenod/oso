@@ -1,8 +1,9 @@
-//! Running `git` for a review (ADR 0122): oso's own arguments and environment, every read
-//! bounded, and a run past [`RUN_LIMIT`] killed.
+//! Running `git` for a review (ADR 0122) and for worktree sessions (ADR 0121): oso's own
+//! arguments and environment, every read bounded, and a run past [`RUN_LIMIT`] killed.
 //!
-//! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the review's
-//! thread and waits for git.
+//! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on a review's
+//! thread, `oso-review`, and on the worktree jobs' threads, `oso-sessions-git`, and waits for
+//! git.
 //!
 //! - Every run starts `git --no-pager -c core.quotePath=false -c core.fsmonitor=false
 //!   -c core.hooksPath=HOOKS`, where `HOOKS` is an empty private directory, so that no hook
@@ -21,9 +22,9 @@
 //!   or holds a control character, then resolved to an object id; only ids go further.
 //! - What git writes is read as bytes, up to a limit per run; past it the run is killed.
 //!   Standard error is kept up to [`MAX_STDERR`] for the message a failure gives.
-//! - Its output is read on threads of their own, and a run past [`RUN_LIMIT`] is killed and
-//!   left: a process git started may still hold its output open, and the review does not wait
-//!   for it.
+//! - Its output is read on threads of their own, `oso-git-read` and `oso-git-write`, and a run
+//!   past [`RUN_LIMIT`] is killed and left: a process git started may still hold its output
+//!   open, and the caller does not wait for it.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -39,11 +40,11 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use super::id::{Id, trim_line};
 
 /// How long one run of git may take before it is killed.
-pub(super) const RUN_LIMIT: Duration = Duration::from_secs(10);
+pub(crate) const RUN_LIMIT: Duration = Duration::from_secs(10);
 /// The most bytes of standard error kept for a failure's message.
-pub(super) const MAX_STDERR: usize = 4 * 1024;
+pub(crate) const MAX_STDERR: usize = 4 * 1024;
 /// The most bytes a short answer (an id, a path) may take.
-pub(super) const MAX_SHORT: usize = 4 * 1024;
+pub(crate) const MAX_SHORT: usize = 4 * 1024;
 
 /// The arguments every run starts with, before the hooks directory.
 const PREFIX: [&str; 5] = [
@@ -88,7 +89,7 @@ impl fmt::Display for GitError {
             Self::Spawn(e) => write!(f, "cannot run git: {e}"),
             Self::Io(e) => write!(f, "cannot talk to git: {e}"),
             Self::TimedOut => write!(f, "git took more than {} s", RUN_LIMIT.as_secs()),
-            Self::TooLong => f.write_str("git wrote more than a review reads"),
+            Self::TooLong => f.write_str("git wrote more than oso reads"),
             Self::NoCeiling => write!(
                 f,
                 "git cannot be kept from looking above the project, as its parent's path holds \
@@ -108,11 +109,11 @@ impl fmt::Display for GitError {
 
 /// What a run wrote: its standard output, whether that was cut at the limit, its status and
 /// the start of its standard error.
-pub(super) struct Output {
-    pub(super) stdout: Vec<u8>,
-    pub(super) cut: bool,
-    pub(super) status: ExitStatus,
-    pub(super) stderr: String,
+pub(crate) struct Output {
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) cut: bool,
+    pub(crate) status: ExitStatus,
+    pub(crate) stderr: String,
 }
 
 /// git, found once, run in one work tree.
@@ -125,13 +126,16 @@ pub(crate) struct Git {
     ceiling: OsString,
     /// `core.hooksPath=` an empty directory.
     hooks: OsString,
+    /// `GIT_DIR` and `GIT_WORK_TREE` of a linked worktree whose claim was checked, so that git
+    /// finds no repository of its own (ADR 0121).
+    worktree: Option<(OsString, OsString)>,
 }
 
 impl Git {
     /// git from `PATH`, leaving out `project` and what is under it, run in `project`, never
     /// finding a repository above it, and looking for hooks only in `hooks`, an empty private
     /// directory.
-    pub(super) fn new(project: &Path, hooks: &Path) -> Result<Git, GitError> {
+    pub(crate) fn new(project: &Path, hooks: &Path) -> Result<Git, GitError> {
         let ceiling = project
             .parent()
             .map_or_else(OsString::new, |parent| for_git(parent).into_os_string());
@@ -146,7 +150,22 @@ impl Git {
             top: for_git(project),
             ceiling,
             hooks: hooks_path,
+            worktree: None,
         })
+    }
+
+    /// The same git, run in the linked worktree at `work_tree`, whose own directory in the main
+    /// repository is `git_dir`: both are given to git, so that it looks for no repository. The
+    /// caller has checked the worktree's claim and the main repository's record of it.
+    pub(crate) fn for_worktree(&self, git_dir: &Path, work_tree: &Path) -> Git {
+        Git {
+            top: for_git(work_tree),
+            worktree: Some((
+                for_git(git_dir).into_os_string(),
+                for_git(work_tree).into_os_string(),
+            )),
+            ..self.clone()
+        }
     }
 
     /// The same git, run in `top` instead.
@@ -158,7 +177,7 @@ impl Git {
     }
 
     /// The top of the work tree.
-    pub(super) fn top(&self) -> &Path {
+    pub(crate) fn top(&self) -> &Path {
         &self.top
     }
 
@@ -187,6 +206,10 @@ impl Git {
         if !self.ceiling.is_empty() {
             variables.push(("GIT_CEILING_DIRECTORIES", &self.ceiling));
         }
+        if let Some((git_dir, work_tree)) = &self.worktree {
+            variables.push(("GIT_DIR", git_dir));
+            variables.push(("GIT_WORK_TREE", work_tree));
+        }
         variables.extend_from_slice(set);
         spawn(&Spawn {
             executable: &self.executable,
@@ -206,7 +229,7 @@ impl Git {
 
     /// Runs git with `args` and `set`, keeping at most `limit` bytes of its output. Past the
     /// limit it is killed, and the output says it was cut.
-    pub(super) fn output(
+    pub(crate) fn output(
         &self,
         args: &[&OsStr],
         set: &[(&str, &OsStr)],
@@ -230,61 +253,12 @@ impl Git {
         } else {
             Source::Closed
         };
-        let mut child = self.start(args, set, stdin, Sink::Piped)?;
-        let deadline = Instant::now() + RUN_LIMIT;
-        let streams = (child.stdout.take(), child.stderr.take());
-        let (Some(stdout), Some(stderr)) = streams else {
-            stop(&mut child);
-            return Err(GitError::Unexpected("no output streams"));
-        };
-        if let Some(input) = input
-            && let Err(e) = write_away(&mut child, input)
-        {
-            stop(&mut child);
-            return Err(e);
-        }
-        let (sent, got) = mpsc::channel();
-        let sent_too = sent.clone();
-        let started = reader(move || Stream::Out(read(stdout)), sent).and_then(|()| {
-            reader(
-                move || Stream::Err(keep_start(stderr, MAX_STDERR)),
-                sent_too,
-            )
-        });
-        if let Err(e) = started {
-            stop(&mut child);
-            return Err(GitError::Io(e));
-        }
-        let (mut out, mut err) = (None, None);
-        while out.is_none() || err.is_none() {
-            match got.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(Stream::Out(read)) => {
-                    if matches!(read, Ok((_, true))) {
-                        let _ = child.kill();
-                    }
-                    out = Some(read);
-                }
-                Ok(Stream::Err(kept)) => err = Some(kept),
-                Err(_) => {
-                    stop(&mut child);
-                    return Err(GitError::TimedOut);
-                }
-            }
-        }
-        let status = exited(&mut child, deadline)?;
-        let (stdout, cut) = out
-            .unwrap_or_else(|| Ok((Vec::new(), false)))
-            .map_err(GitError::Io)?;
-        Ok(Output {
-            stdout,
-            cut,
-            status,
-            stderr: String::from_utf8_lossy(&err.unwrap_or_default()).into_owned(),
-        })
+        let child = self.start(args, set, stdin, Sink::Piped)?;
+        collect(child, input, read)
     }
 
     /// Runs git and gives its output if it succeeded and fit in `limit`.
-    pub(super) fn run(
+    pub(crate) fn run(
         &self,
         args: &[&OsStr],
         set: &[(&str, &OsStr)],
@@ -305,7 +279,7 @@ impl Git {
 
     /// Resolves `revision`, as a person or an agent gave it, to the id of the object `peel`
     /// names (`commit` or `tree`), or `None` if there is no such object.
-    pub(super) fn resolve(&self, revision: &str, peel: &str) -> Result<Option<Id>, GitError> {
+    pub(crate) fn resolve(&self, revision: &str, peel: &str) -> Result<Option<Id>, GitError> {
         check_revision(revision)?;
         let spec = OsString::from(format!("{revision}^{{{peel}}}"));
         let args = [
@@ -332,6 +306,67 @@ impl Git {
     }
 }
 
+/// Waits for `child`, started with piped standard output and error, writing `input` to its
+/// standard input if there is one, and keeping what `read` keeps of its output, which says
+/// whether it cut it, and the start of its standard error. A cut run is killed; a run past
+/// [`RUN_LIMIT`] is killed and left. `gh` is run this way too (ADR 0121).
+pub(crate) fn collect(
+    mut child: Child,
+    input: Option<Vec<u8>>,
+    read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
+) -> Result<Output, GitError> {
+    let deadline = Instant::now() + RUN_LIMIT;
+    let streams = (child.stdout.take(), child.stderr.take());
+    let (Some(stdout), Some(stderr)) = streams else {
+        stop(&mut child);
+        return Err(GitError::Unexpected("no output streams"));
+    };
+    if let Some(input) = input
+        && let Err(e) = write_away(&mut child, input)
+    {
+        stop(&mut child);
+        return Err(e);
+    }
+    let (sent, got) = mpsc::channel();
+    let sent_too = sent.clone();
+    let started = reader(move || Stream::Out(read(stdout)), sent).and_then(|()| {
+        reader(
+            move || Stream::Err(keep_start(stderr, MAX_STDERR)),
+            sent_too,
+        )
+    });
+    if let Err(e) = started {
+        stop(&mut child);
+        return Err(GitError::Io(e));
+    }
+    let (mut out, mut err) = (None, None);
+    while out.is_none() || err.is_none() {
+        match got.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Stream::Out(read)) => {
+                if matches!(read, Ok((_, true))) {
+                    let _ = child.kill();
+                }
+                out = Some(read);
+            }
+            Ok(Stream::Err(kept)) => err = Some(kept),
+            Err(_) => {
+                stop(&mut child);
+                return Err(GitError::TimedOut);
+            }
+        }
+    }
+    let status = exited(&mut child, deadline)?;
+    let (stdout, cut) = out
+        .unwrap_or_else(|| Ok((Vec::new(), false)))
+        .map_err(GitError::Io)?;
+    Ok(Output {
+        stdout,
+        cut,
+        status,
+        stderr: String::from_utf8_lossy(&err.unwrap_or_default()).into_owned(),
+    })
+}
+
 /// What one of a run's reading threads read.
 enum Stream {
     Out(io::Result<(Vec<u8>, bool)>),
@@ -345,7 +380,7 @@ fn reader(
     sent: mpsc::Sender<Stream>,
 ) -> io::Result<()> {
     thread::Builder::new()
-        .name("oso-review-read".into())
+        .name("oso-git-read".into())
         .spawn(move || {
             let _ = sent.send(read());
         })
@@ -360,7 +395,7 @@ fn write_away(child: &mut Child, input: Vec<u8>) -> Result<(), GitError> {
         .take()
         .ok_or(GitError::Unexpected("no input stream"))?;
     thread::Builder::new()
-        .name("oso-review-write".into())
+        .name("oso-git-write".into())
         .spawn(move || {
             let _ = writer.write_all(&input);
         })
@@ -391,7 +426,7 @@ fn exited(child: &mut Child, deadline: Instant) -> Result<ExitStatus, GitError> 
 
 /// `path` as git can take it: on Windows, without the verbatim `\\?\` prefix that
 /// `canonicalize` gives, which git cannot open a lock beside; elsewhere as it is.
-pub(super) fn for_git(path: &Path) -> PathBuf {
+pub(crate) fn for_git(path: &Path) -> PathBuf {
     #[cfg(windows)]
     {
         use std::path::{Component, Prefix};
@@ -428,7 +463,7 @@ pub(super) fn for_git(path: &Path) -> PathBuf {
 }
 
 /// Refuses a revision git could read as an option or that holds a control character.
-pub(super) fn check_revision(revision: &str) -> Result<(), GitError> {
+pub(crate) fn check_revision(revision: &str) -> Result<(), GitError> {
     if revision.is_empty() || revision.starts_with('-') || revision.chars().any(char::is_control) {
         return Err(GitError::BadRevision);
     }
@@ -436,7 +471,7 @@ pub(super) fn check_revision(revision: &str) -> Result<(), GitError> {
 }
 
 /// Reads `from` to its end, keeping at most `limit` bytes. `true` if there was more.
-pub(super) fn read_at_most(mut from: impl Read, limit: usize) -> io::Result<(Vec<u8>, bool)> {
+pub(crate) fn read_at_most(mut from: impl Read, limit: usize) -> io::Result<(Vec<u8>, bool)> {
     let mut kept = Vec::new();
     let cap = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
     (&mut from).take(cap).read_to_end(&mut kept)?;

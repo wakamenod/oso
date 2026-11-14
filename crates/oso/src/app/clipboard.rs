@@ -95,9 +95,9 @@ fn is_memory(_: &Clipboard) -> bool {
 }
 
 impl App {
-    /// Hands the clipboard what a command killed, and starts a read a yank waits for.
-    /// Returns what a yank did that was answered at once: with no clipboard, or for input
-    /// from the dev socket, which never reads the system's.
+    /// Hands the clipboard what a command killed, and starts a read a yank waits for. Returns
+    /// what a yank did that was answered at once: with no clipboard, or for input from the dev
+    /// socket, which never reads the system's.
     pub(super) fn sync_clipboard(&mut self) -> Effects {
         self.write_clipboard();
         let mut effects = Effects::default();
