@@ -1189,6 +1189,8 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     // focus, not anything the bystander did.
     let mut changed = changed_fields(&before, &bystander.state());
     changed.retain(|field| field != "ime.current_input_context");
+    // Whether the window is focused, which the sessions report (ADR 0121), follows focus too.
+    changed.retain(|field| field != "sessions.focused");
     changed.retain(|field| on_ci() || field == "buffers");
     assert!(
         changed.is_empty(),

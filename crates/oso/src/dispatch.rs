@@ -192,49 +192,6 @@ impl Dispatcher {
         }
     }
 
-    /// The keys of the pending prefix, empty if none is pending.
-    #[cfg(any(test, feature = "dev"))]
-    pub fn pending(&self) -> &[KeyPress] {
-        self.resolver.pending()
-    }
-
-    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
-    /// takes no more digits, which the next command would take.
-    pub fn keys_in_progress(&self) -> bool {
-        !self.resolver.pending().is_empty() || self.prefix.is_some()
-    }
-
-    /// Whether the next key is read as a key rather than typed: a prefix key is
-    /// pending, a prefix argument reads digits or a minus, or a menu is open. The input method
-    /// stays off then, as a letter or a digit would start a composition (ADR 0069, ADR 0117).
-    pub fn reads_keys(&self) -> bool {
-        self.menu_open()
-            || !self.resolver.pending().is_empty()
-            || self
-                .prefix
-                .is_some_and(|prefix| prefix.reads_digits() || prefix.reads_minus())
-    }
-
-    /// Whether text would go in as typed now: no prefix key or prefix argument waits, no
-    /// question or menu is open, and what is active takes text. A commit the window layer makes
-    /// unasked waits otherwise, so that it neither takes a prefix argument nor is lost
-    /// (ADR 0077).
-    pub fn types_text(&self, editor: &Editor) -> bool {
-        let question = editor
-            .prompt()
-            .is_some_and(|prompt| prompt.kind().is_question());
-        if question
-            || self.prefix.is_some()
-            || !self.resolver.pending().is_empty()
-            || self.menu_open()
-        {
-            return false;
-        }
-        let reading = self.keymaps.reading();
-        let active = self.keymaps.active(&reading, self.prefix, editor);
-        active.text_command().is_some()
-    }
-
     /// Runs `work` as one input, as Emacs does a key: the echo area empties first,
     /// but for what waits behind keys in progress, and then shows the keys it left in
     /// progress (ADR 0063). Every input comes through here, so here alone it is asked
@@ -482,8 +439,11 @@ impl Dispatcher {
         if self.hold_key(key) {
             return Effects::default();
         }
-        // Before a macro records it: a key for a terminal's program is not recorded.
+        // A key for a terminal's program is recorded as any key is; one typed at a password
+        // prompt drops the recording (ADR 0120, Q17).
         if let Some(effects) = self.route_to_terminal(editor, key) {
+            self.macro_key(editor, key);
+            self.macro_after(editor);
             return effects;
         }
         self.macro_key(editor, key);

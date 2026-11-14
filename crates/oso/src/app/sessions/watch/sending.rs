@@ -115,9 +115,12 @@ impl App {
         let standing = Standing {
             running: session.runs(),
             state: judged.map(|_| self.state_of(session, Instant::now()).0),
-            // ADR 0120's step 4b tells a password prompt; Claude Code's TUI keeps echo off
-            // in raw mode, so the PTY's own flag would refuse every session.
-            echo_off: false,
+            // A password prompt, as ADR 0120's step 4b tells it: echo off with line editing
+            // on, not the raw mode Claude Code's TUI runs in.
+            echo_off: self
+                .editor
+                .buffer(buffer)
+                .is_some_and(crate::app::terminals::reads_a_password),
             held: judged == Some(true),
         };
         if let Some(why) = send::refusal(&name, standing) {
@@ -187,8 +190,9 @@ impl App {
     }
 
     /// What session `key`'s row says under its name: who messaged it, while the person has
-    /// not seen it since, then `recap`.
-    pub(super) fn row_recap(&self, key: SessionKey, recap: &str) -> String {
+    /// not seen it since, then its recap.
+    pub(super) fn row_recap(&self, key: SessionKey) -> String {
+        let recap = self.watch.known.get(&key).map_or("", |known| &known.recap);
         match self.watch.sending.from.get(&key) {
             Some((from, true)) if recap.is_empty() => format!("message from {from}"),
             Some((from, true)) => format!("message from {from} · {recap}"),

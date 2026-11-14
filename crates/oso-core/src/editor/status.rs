@@ -203,7 +203,11 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             }
             out.push_str(GAP);
         }
-        Verdict::Unresolved | Verdict::SecretName | Verdict::Passphrase | Verdict::Yanked => {
+        Verdict::Unresolved
+        | Verdict::SecretName
+        | Verdict::Passphrase
+        | Verdict::Yanked
+        | Verdict::EchoOff => {
             out.push_str(NO_POSITION);
             out.push_str(GAP);
         }

@@ -44,6 +44,7 @@ pub(super) struct Seen {
     pub screen: Vec<String>,
     pub events: Vec<Event>,
     echo_off: bool,
+    pub cursor: crate::snapshot::Cursor,
     size: (u16, u16),
     pub scrolled: usize,
     /// Snapshots taken.
@@ -68,6 +69,7 @@ impl Seen {
             screen: Vec::new(),
             events: Vec::new(),
             echo_off: false,
+            cursor: crate::snapshot::Cursor::default(),
             size: (0, 0),
             scrolled: 0,
             snapshots: 0,
@@ -117,6 +119,7 @@ impl Seen {
                 }
             }
             self.echo_off = snapshot.echo_off;
+            self.cursor = snapshot.cursor;
             self.size = (snapshot.size.columns, snapshot.size.rows);
             self.events.append(&mut snapshot.events);
             self.terminal.recycle(snapshot);
@@ -201,6 +204,116 @@ fn a_size_is_clamped_to_the_limits() {
 fn echo_off_is_reported() {
     let mut seen = Seen::start(sh("stty -echo; printf 'ready\\n'; read x"));
     seen.until(|s| s.shows("ready") && s.echo_off);
+}
+
+#[test]
+fn a_program_reading_keys_raw_is_not_a_password_prompt() {
+    let mut seen = Seen::start(sh(
+        "stty raw -echo; printf 'raw\\n'; read x; stty -raw; printf 'done\\n'; read y",
+    ));
+    seen.until(|s| s.shows("raw"));
+    assert!(!seen.echo_off);
+    // Raw, a carriage return is not a new line.
+    seen.terminal.send(b"\n".to_vec()).expect("queued");
+    seen.until(|s| s.shows("done"));
+}
+
+/// A file a script makes once a step of it is done, which a test waits for instead of timing
+/// it: what the thread sees must not hang on how fast a runner forks.
+struct Marker(std::path::PathBuf);
+
+impl Marker {
+    fn new(name: &str) -> Marker {
+        let path = std::env::temp_dir().join(format!("oso-term-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        Marker(path)
+    }
+
+    /// The shell command that makes it.
+    fn touch(&self) -> String {
+        format!(": > '{}'", self.0.display())
+    }
+
+    fn wait(&self) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !self.0.exists() {
+            assert!(Instant::now() < deadline, "no {}", self.0.display());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+impl Drop for Marker {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[test]
+fn echo_turned_off_after_the_last_output_is_seen_at_the_next_key() {
+    // Nothing is printed after `stty`: the look before the next key's write finds it, however
+    // long the step took, and before the key goes.
+    let off = Marker::new("off-after-output");
+    let mut seen = Seen::start(sh(&format!(
+        "printf 'ready\\n'; stty -echo; {}; read x",
+        off.touch()
+    )));
+    seen.until(|s| s.shows("ready"));
+    off.wait();
+    seen.terminal.send(b"s".to_vec()).expect("queued");
+    seen.until(|s| s.echo_off);
+}
+
+#[test]
+fn a_synchronized_update_never_holds_a_password_prompt_back() {
+    // The hold would last a minute: only the prompt itself lets the snapshot go.
+    let off = Marker::new("held-off");
+    let mut seen = Seen::start_holding(
+        sh(&format!(
+            "printf '\\033[?2026h'; stty -echo; {}; read x",
+            off.touch()
+        )),
+        Duration::from_secs(60),
+    );
+    off.wait();
+    // A key's look sees the prompt whenever `stty` ran.
+    seen.terminal.send(b"s".to_vec()).expect("queued");
+    seen.until(|s| s.echo_off);
+}
+
+#[test]
+fn echo_back_on_with_no_output_is_seen() {
+    let mut seen = Seen::start(sh(
+        "stty -echo; printf 'ready\\n'; read x; stty echo; read y",
+    ));
+    seen.until(|s| s.shows("ready") && s.echo_off);
+    seen.terminal.send(b"secret\r".to_vec()).expect("queued");
+    seen.until(|s| !s.echo_off);
+    assert!(!seen.shows("secret"), "{:?}", seen.screen);
+    // A snapshot sent for the flags alone still says where the cursor is: below `ready`.
+    assert_eq!((seen.cursor.row, seen.cursor.column), (1, 0));
+}
+
+#[test]
+fn a_prompt_that_came_and_went_while_a_snapshot_waited_is_said_over_after() {
+    let (off, on) = (Marker::new("came-off"), Marker::new("came-on"));
+    let mut seen = Seen::start(sh(&format!(
+        "printf 'ready\\n'; read a; stty -echo; {}; read x; stty echo; {}; read y",
+        off.touch(),
+        on.touch()
+    )));
+    seen.until(|s| s.shows("ready"));
+    // The UI takes nothing while the prompt opens and ends: the snapshot of `a`'s echo waits.
+    seen.terminal.send(b"a\r".to_vec()).expect("queued");
+    off.wait();
+    // The look before this write sees the prompt.
+    seen.terminal.send(b"x\r".to_vec()).expect("queued");
+    on.wait();
+    // Time for the thread's last looks, so that it has seen the prompt end before the UI takes
+    // anything: only the follow-up then says it is over. Passing never hangs on this.
+    std::thread::sleep(Duration::from_millis(600));
+    seen.until(|s| s.echo_off);
+    seen.until(|s| !s.echo_off);
 }
 
 #[test]

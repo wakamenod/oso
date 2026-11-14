@@ -133,7 +133,8 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 - **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
   directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
-- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
+- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 random bytes of the system's
+  (`oso_platform::random`, `/dev/urandom` on Unix), and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for
   it. The name is passed with `--name`: the project's name, then `-2`, `-3` for more in it. The
   registry entry for the child's process id gives the inbox socket's path and the CLI's own status;
@@ -710,7 +711,7 @@ For the author, the recommended option first. Each is answered on its own.
 
 - `objc2-user-notifications` for banners on macOS, only once oso ships as an app bundle (Q9 a).
 - Nothing else: `toml`, `regex` and `ignore` are already dependencies of the tip crate, and the
-  UUID comes from `/dev/urandom`.
+  UUID comes from `oso_platform::random`, which reads `/dev/urandom`.
 
 ## The author's choices
 
@@ -806,6 +807,17 @@ points:
   result on macOS, and `sysconf(_SC_CLK_TCK)` on Linux. `Ok(None)` is no such process; an error
   is a process the system does not say the start of, such as another user's, or any process on
   a system it does not support, and the registry reader counts it as live.
+- **`oso-platform` gained, in the first follow-up, `privacy::home() -> Option<PathBuf>` and a
+  module `random` with `fill(bytes: &mut [u8]) -> io::Result<()>`, with no `unsafe`** (the
+  author's approval, 2026-11-13), so that the tip crate reads neither the environment's home nor
+  `/dev/urandom` itself. `home` is `$HOME` on Unix and `%USERPROFILE%` on Windows, only an
+  absolute path, from the environment and not the disk; the registry's `~/.claude` and the app's
+  `~` both take it, so a relative or empty `HOME` is no home for either. `random::fill` reads
+  `/dev/urandom` on Unix and is `ErrorKind::Unsupported` elsewhere for now, where a session
+  refuses to start with that error. `random` is on the lowest line of `[oso-platform]` in
+  `guardrails/layers.txt`. One exception is intentional: `oso-term`'s build script still reads
+  `HOME` for its vendor cache, as a build script cannot use `oso-platform` without a
+  build-dependency, which is not worth it there.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
@@ -940,6 +952,10 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
     Raw-mode password prompts depend on it, and its step 4 settles it with the author.
   - This step does not narrow it. The engine's signal may differ from it, and is chosen with
     the host API.
+  - ADR 0120's step 4b-1 narrowed the snapshot's flag to that shape (the author's definition,
+    2026-11-13). The screen feed sends the worker `Evidence::echo_off`, with no rows, while the
+    buffer's verdict says its program reads a password, so the engine's hold and the
+    terminal's secret are the same signal.
 - **The feed for step 3.** Today the app owns the worker's one sender, which is not `Clone`.
   Step 3 should give each terminal's thread a feed of its own that clones, taking only
   `Screen` and `Exited` jobs, so that screens never pass through the UI thread.
@@ -964,9 +980,18 @@ approved these points:
 - **The side window is outside the window tree** (`editor/sessions/side.rs`): one window at
   the frame's left, 32 columns wide, with a divider. `tiling()`, a space's tree, a restart's
   layout and `C-x +` never see it. `C-x o` skips it; a click and `windmove-left` reach it.
-  While it is selected, the tree's commands (`C-x 2`, `C-x 3`, `C-x 1`, a resize, and showing
-  a buffer) act on the tree's window selected last, and select it, so that no session's own
-  command shows anything in it. `C-x 0` in it hides it, and `C-x 1` keeps it.
+  While it is selected, the tree's commands (`C-x 2`, `C-x 3`, `C-x 1`, a resize, `M-,` and
+  `M-/`, `*Messages*` and the list of emergency copies with their way back, and showing a
+  buffer, `show_in` the side window too) act on the tree's window selected last, and select
+  it, so that no command shows anything in it. `C-x 0` in it hides it, and `C-x 1` keeps it.
+  `C-x 0` in a tree's window never selects it, and the side window goes if the buffer it
+  shows does.
+  - The agent channel never selects it, nor a window whose buffer has keys of its own: after
+    an agent's command, the dispatcher selects again the window it had, and says why, as it
+    does for a terminal (ADR 0120); if that window has no room left, a window or buffer with
+    the ordinary keys is put in front. An agent's `delete-window` is refused in the side
+    window, and while another tree's window shows such a buffer. An external session's row
+    says `external` first, and its name loses what draws nothing.
   - It shows by itself while oso has a session that is not archived. `C-x a s` shows and
     selects it when hidden, selects it when shown, and hides it when selected. Once the
     person hides it, by `C-x a s` or `C-x 0`, it stays hidden for that oso instance.
@@ -974,7 +999,10 @@ approved these points:
   cursors, scroll, kept places and ADR 0122 pair. `swap_window_tree` refuses while a prompt
   is open and gives the tree back. `space-zoom` swaps in a tree of one window like the
   selected one, and back. Showing a session of another space switches to that space first.
-  A space is a project root; worktrees' spaces get their repository with step 4.
+  A space is a project root; worktrees' spaces get their repository with step 4. A zoom made
+  before the first session is the first space's, and a space entered with nothing to show
+  takes the frame's tree with its zoom. The buffer a space left keeps as its last is the
+  tree's window's, never `*Sessions*`.
 - **What the editor keeps for sessions is one field, `Sessions`**, in
   `editor/sessions.rs`: the requests, the side window, the modeline's marks
   (`SessionMarks`, drawn as `⚠ N` and `● N` on the selected window's modeline only) and the
@@ -987,7 +1015,9 @@ approved these points:
 - **Recaps come from the rules**: an optional `recap` pattern on each rule, and
   `recap_region` for where it looks (see [agent-rules.md](../agent-rules.md)). The worker
   finds the recap after each verdict, within its own 5 ms deadline, and sends `Out::Recap`
-  only when it changed. A recap that cannot be found leaves the title.
+  only when it changed. A recap that cannot be found leaves the title, without the Braille
+  spinner a CLI puts before it while it works, so that the list is not drawn again each time
+  the spinner turns.
 - **`*Sessions*` is an internal buffer, withheld from agents** (step 2's flag), in
   `Mode::Sessions`. While it is shown, the channel's commands answer in the echo area only.
   It is rendered only while shown, to the window's width, with point kept on its row. Ages
@@ -1012,7 +1042,8 @@ approved these points:
 - **Other programs' sessions:** once oso has a session, the worker looks at Claude Code's
   registry once a second: a listing and a `stat` of each `<pid>.json`, read again with step
   1's reader only when one changed, and each process's start time. Live entries that are not
-  oso's own are listed as working or idle, never shown.
+  oso's own are listed as working or idle, never shown. Their names are cleaned as recaps
+  are.
 - **`k` in the list hangs up a session's terminal**, asking first while it works or needs
   input. The question is the app's, as only the app knows the state; its yes runs
   `session-stop` again, which finds it answered.
@@ -1035,13 +1066,19 @@ approved these points:
 - **The list's untrusted lines never begin with a mark:** a space or recap that does loses
   its leading blanks and marks, so that it never reads as a row, and `n`/`p` never stop on it.
 - **A restart leaves the side window out** of the handed-over windows, as the layout is the
-  tree's; it comes back by itself while sessions exist. A project no longer trusted revokes
+  tree's; it comes back by itself while sessions exist. `oso dev`'s handoff hands over only
+  the tree in the frame: the other spaces' trees and a zoom are lost, and the spaces start
+  again from their last buffers. A project no longer trusted revokes
   the root of a running look for a session's changes, as it does a review's.
 - **The registry poll runs while a session of oso's runs,** and stops when none does. It looks
-  at most at 1,024 names, and reads a file again only when it changed.
+  at most at 1,024 names, and reads a file again only when it changed. A look made before
+  the poll stopped is dropped, and a poll started again tells what it finds anew.
 - **Not done in step 3:** the branch in each row (it needs git on a trusted project, and
   comes with step 4's worktrees); finding a session's trusted project needs one of its
-  buffers open.
+  buffers open. Echo off is still open: `Evidence::echo_off` holds a session's state, but
+  nothing feeds it yet. It waits for ADR 0120 step 4b's echo signal, which must tell a
+  password prompt from the raw mode every TUI runs in (see "Step 2, as built").
+
 ## Step 4, as built
 
 Step 4 was built on 2026-11-13, on step 1's code and before step 3. The author answered its
@@ -1148,26 +1185,33 @@ questions through the coordinator, (a) for each, and the coordinator approved th
   The dispatcher waits for the project's branches, which the pool lists, before the branch
   prompt opens, as it waits for the clipboard. Only the listing the newest wait asked for opens
   a prompt, and a command the person runs meanwhile, `C-g` included, drops the wait.
-- **Wired to step 3 and ADR 0120's terminal** (2026-11-13, after step 3's part A and 4a):
+- **Wired to step 3 and ADR 0120's terminal** (2026-11-13, after step 3's part A and 4a, and
+  again once step 3 was done):
   - A worktree session's space opens, nested under its repository's, when its worktree is made
-    and its session starts. The app holds the spaces (`sessions::spaces`).
+    and its session starts. It is one of step 3's spaces, which the app keeps beside
+    `*Sessions*`: the list's rows, `C-x a b` and `space-switch` name it, and showing the session
+    enters it. The space is added, not entered, when the session starts, as for `claude`.
   - `*Worktrees*` names a worktree's space, as `space: NAME`, when it has one.
-  - Check 4 takes the live states as above, and the list shows each session's state.
+  - Check 4 and the list take each running session's live state as the sessions worker last
+    told it (`Out::Changed`), while that agrees that its process runs. A session still
+    starting, or one no look has judged yet, counts as busy, and the list says `running`.
   - **The removal clears the worktree in the job that removes it.** Once every check holds
     again after the person's `y`, the job asks the app to clear the worktree and waits at most
     10 s for its word. The app looks at what it holds once more, stops the idle sessions there
-    and closes the space, then says go. A refusal, or no word, keeps the worktree. `git
-    worktree remove` itself still refuses a worktree with changes by then. The coordinator
-    approved this order on 2026-11-13: it keeps "stop, close, then remove" without the UI
-    thread waiting.
-- **Left to step 3's part B:**
-  - Keeping each hosted session's live state on the UI thread (`Out::Changed`). Until then a
-    running session's state is not known: it counts as busy, and the list says `running`.
-  - Stopping a hosted session (`session-stop`), which the removal's clearing calls for each
-    idle session in the worktree, as ended by oso. Its buffer stays, read-only.
-  - Closing a space, which the removal's clearing calls: entering the repository's space first
-    if the worktree's is the one in the frame.
-  - The end-to-end flows, which need the terminal that `claude` runs in.
+    as `session-stop` stops one that is not busy, then says go. Each is hung up as ended by
+    oso, so it becomes stopped, not failed, and keeps its buffer, read-only; the job does not
+    wait for its process to end. A refusal, or no word, keeps the worktree. `git worktree
+    remove` itself still refuses a worktree with changes by then. The coordinator approved this
+    order on 2026-11-13: it keeps "stop, then remove" without the UI thread waiting.
+  - The end-to-end flows, with a fake `claude` (`tests/e2e/worktrees.rs`).
+- **The removal closes the worktree's space** (the coordinator's call, 2026-11-13: ADR 0121
+  says so, and step 4 carries it). `Spaces::remove`, crate-private in step 3's module, enters
+  the repository's space first when the worktree's is in the frame, else the first other one,
+  and moves the later spaces down one place with the current one. With a prompt open the
+  frame's tree cannot change, so that space then stays until oso starts again.
+- **Left open (a follow-up, not before the PR):**
+  - A worktree session recalled after a restart gets a space of its own, not nested under its
+    repository's: nesting needs ADR 0114's claim, which only making the worktree checks now.
 
 ## Step 5, as built
 
@@ -1195,8 +1239,8 @@ through the coordinator:
 - **At most 256 KiB (Q8).** A region over that is refused from its bounds, before any text is
   copied, and the echo area suggests `C-u C-x a m`. The host checks the whole composed text
   against the same limit.
-- **The refusals:** a session that is not running, one at an echo-off prompt (from ADR 0120's
-  step 4b, once it exists), one no look has judged since it started, one that needs input,
+- **The refusals:** a session that is not running, one at a password prompt (ADR 0120's
+  step 4b), one no look has judged since it started, one that needs input,
   worded by its reason, and one a full-screen view holds (a `hold` rule matched last), where a
   paste could reach a picker or a setting.
 - **`@diagnostics` and `session-fix-error` are deferred (Q5)** to the language-server step: oso
@@ -1224,8 +1268,9 @@ through the coordinator:
     the app could not tell a session not judged yet, nor a full-screen view.
   - A terminal whose program has bracketed paste off is refused too: a paste of several
     lines would ask first and be no paste yet. Claude Code's TUI keeps it on.
-  - The password refusal waits for ADR 0120's step 4b. The PTY's own echo flag cannot serve:
-    Claude Code's TUI keeps echo off in raw mode, so it would refuse every session.
+  - The password refusal reads ADR 0120's step 4b signal, the terminal buffer's echo-off
+    verdict: echo off with line editing on. The PTY's own echo flag cannot serve, as Claude
+    Code's TUI keeps echo off in raw mode.
   - `session-send` completes over the running hosted sessions by their buffers' names, the
     session this space showed last first. `session-mention` completes over the live sessions,
     hosted and other programs', by name, each annotated with its space and whether it runs in

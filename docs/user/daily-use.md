@@ -49,8 +49,11 @@ Start it from a shell. `oso --no-config` starts without your configuration file.
 
 In the installed oso, `M-x terminal` opens a terminal with your shell. Run `claude` in it.
 
-The `terminal` command arrives with ADR 0120's step 4; before that, the installed oso has no
-terminal.
+While a program in it asks for a password (`sudo`, `ssh`), the modeline says `secret`: the
+agent channel waits while that terminal is shown, and on macOS secure input is on while it is
+selected. An agent reads a terminal only after you run
+`M-x terminal-allow-agent-read` in it (the modeline says `agent reads`), and never while it asks
+for a password; `M-x terminal-deny-agent-read` takes that back.
 
 ## Developing beside it
 

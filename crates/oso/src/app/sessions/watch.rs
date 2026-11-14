@@ -11,6 +11,7 @@ mod alerts;
 mod dev_state;
 mod requests;
 mod sending;
+mod shared;
 mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -120,9 +121,15 @@ impl App {
                 scrolled: terminal.grid.scrolled(),
             };
             if self.watch.feed.look(session.key, screen, now) {
-                let rows = terminal.grid.row_texts();
-                let evidence =
-                    Evidence::new(rows.iter().map(String::as_str), &terminal.title, progress);
+                // While its program reads a password, no row leaves the UI thread: the worker
+                // hears only that, and holds the state (ADR 0120, Q17; ADR 0121).
+                let secret = session.buffer.and_then(|id| self.editor.buffer(id));
+                let evidence = if secret.is_some_and(crate::app::terminals::reads_a_password) {
+                    Evidence::echo_off(&terminal.title, progress)
+                } else {
+                    let rows = terminal.grid.row_texts();
+                    Evidence::new(rows.iter().map(String::as_str), &terminal.title, progress)
+                };
                 worker.send_screen(session.key, evidence);
             }
         }
@@ -298,6 +305,10 @@ impl App {
     /// The worker found the live sessions of Claude Code's registry: those that are not
     /// oso's own are listed, never shown.
     pub(in crate::app) fn externals_found(&mut self, live: Vec<External>) {
+        // A look the worker made before it was told to stop: the list keeps none.
+        if !self.watch.polling {
+            return;
+        }
         let now = Instant::now();
         let table = self.hosting.table();
         let ids: HashSet<&SessionId> = table.iter().map(|session| &session.id).collect();
@@ -331,7 +342,10 @@ impl App {
                 .as_deref()
                 .and_then(|dir| self.watch.spaces.of_path(dir))
                 .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(|| "external".to_owned(), |space| space.name.clone());
+                .map_or_else(
+                    || crate::sessions::list::EXTERNAL.to_owned(),
+                    |space| space.name.clone(),
+                );
             let state = if external.working {
                 State::Working
             } else {
@@ -441,10 +455,7 @@ impl App {
                     branch: None,
                     state,
                     since,
-                    recap: self.row_recap(
-                        session.key,
-                        self.watch.known.get(&session.key).map_or("", |k| &k.recap),
-                    ),
+                    recap: self.row_recap(session.key),
                     pinned: session.pinned,
                     archived: session.archived,
                     parent,

@@ -203,7 +203,8 @@ impl Editor {
     }
 
     /// Takes the window `id` out of the editor, once the tree no longer holds it, and selects
-    /// the window selected most recently instead of it if it was selected.
+    /// the window selected most recently instead of it if it was selected: never the side
+    /// window, which only a click, `windmove` or its own command selects (ADR 0121).
     pub(super) fn drop_window(&mut self, id: WindowId) {
         let Some(index) = self.window_index(id) else {
             return;
@@ -220,7 +221,9 @@ impl Editor {
         if self.selected > index {
             self.selected -= 1;
         }
-        if was_tiled && let Some(&next) = self.recent.first() {
+        let side = self.side_window();
+        let next = self.recent.iter().find(|other| Some(**other) != side);
+        if was_tiled && let Some(&next) = next {
             self.make_tiled(next);
         }
     }

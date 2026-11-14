@@ -39,6 +39,13 @@ pub(super) fn is_this_users(_: &fs::Metadata) -> bool {
     true
 }
 
+/// `%USERPROFILE%`, if it is an absolute path.
+pub(super) fn home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    var("USERPROFILE")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+}
+
 /// `%LOCALAPPDATA%`, if it is an absolute path.
 pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     var("LOCALAPPDATA")

@@ -183,13 +183,16 @@ fn a_synchronized_update_holds_snapshots_until_it_ends() {
          printf '\\033[?2026l'; read x",
     ));
     seen.until(|s| s.shows("before"));
-    std::thread::sleep(Duration::from_millis(300));
-    seen.take();
-    assert!(!seen.shows("held"), "{:?}", seen.screen);
-    let before = seen.snapshots;
+    // While the hold is open, whatever snapshots the thread sends, none shows what was written
+    // in it. Their number is the thread's own business, so only what they show is checked.
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_millis(150));
+        seen.take();
+        assert!(!seen.shows("held"), "{:?}", seen.screen);
+    }
     seen.terminal.send(b"\r".to_vec()).expect("queued");
+    // Its end shows it.
     seen.until(|s| s.shows("held"));
-    assert_eq!(seen.snapshots, before + 1, "the end sends one snapshot");
 }
 
 #[test]

@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::editor::TerminalRequest;
 use oso_core::key::KeyPress;
 use oso_platform::process::pty::Size;
@@ -187,6 +187,8 @@ impl App {
     pub(super) fn take_terminal_snapshots(&mut self) -> bool {
         let mut ended = Vec::new();
         let mut said = Vec::new();
+        let mut secret = Vec::new();
+        let mut reported = Vec::new();
         let mut again = false;
         for (id, hosted) in self.terminals.map.iter_mut() {
             if !hosted.ready {
@@ -204,6 +206,18 @@ impl App {
             // looks again, so that this one takes one only.
             again = true;
             hosted.grid.apply(&snapshot);
+            // The buffer's verdict is the one record of a password prompt. A program that
+            // ended reads none, whatever its last snapshot saw.
+            let ends = snapshot
+                .events
+                .iter()
+                .any(|event| matches!(event, Event::Ended(_)));
+            let echo_off = snapshot.echo_off && !ends;
+            reported.push((id, echo_off));
+            if echo_off != self.editor.buffer(id).is_some_and(reads_a_password) {
+                hosted.note_stale = true;
+                secret.push((id, echo_off));
+            }
             for event in snapshot.events.drain(..) {
                 match event {
                     Event::Title(title) => {
@@ -238,6 +252,18 @@ impl App {
             self.editor.set_running(id, false);
             // A hosted session's end, which its modeline says differently (ADR 0121).
             self.session_terminal_ended(id, &end);
+        }
+        // A password prompt is a secret from the snapshot on: secure input, the log and the
+        // input method follow at once, between events (ADR 0120, Q17).
+        for (id, echo_off) in &secret {
+            self.editor.set_echo_off(*id, *echo_off);
+        }
+        for (id, echo_off) in reported {
+            self.dispatcher
+                .terminal_reported(&mut self.editor, id, echo_off);
+        }
+        if !secret.is_empty() {
+            self.secret_changed();
         }
         for text in said {
             self.editor.message(text);
@@ -442,6 +468,53 @@ impl App {
         }
     }
 
+    /// A terminal started over in its buffer runs another program: what the last left, a
+    /// password prompt and the agent's leave to read, is taken back (ADR 0120, Q16, Q17).
+    pub(super) fn terminal_restarted(&mut self, buffer: BufferId) {
+        self.editor.set_agent_reads(buffer, false);
+        if self.editor.buffer(buffer).is_some_and(reads_a_password) {
+            self.editor.set_echo_off(buffer, false);
+            self.secret_changed();
+        }
+    }
+
+    /// The rows of the terminal `buffer`'s screen that `ask` names, as the UI keeps them, for
+    /// the agent channel's `text`, which checks first that the person let agents read it and
+    /// that its program reads no password (ADR 0120, Q16, Q17). Only those rows are copied, up
+    /// to the budget.
+    pub(super) fn terminal_screen(
+        &self,
+        buffer: BufferId,
+        ask: crate::channel::text::ScreenAsk,
+    ) -> Option<crate::channel::text::TerminalScreen> {
+        let hosted = self.terminals.map.get(buffer)?;
+        let grid = &hosted.grid;
+        let row_count = grid.row_count();
+        let end = ask.start_row.saturating_add(ask.rows).min(row_count);
+        let start_row = ask.start_row.min(end);
+        let (mut rows, mut wraps, mut truncated) = (Vec::new(), Vec::new(), false);
+        let mut budget = ask.budget;
+        for row in start_row..end {
+            let text = grid.row_text(row).unwrap_or_default();
+            if text.len() > budget {
+                truncated = true;
+                break;
+            }
+            budget -= text.len();
+            rows.push(text);
+            wraps.push(grid.row_wraps(row));
+        }
+        Some(crate::channel::text::TerminalScreen {
+            row_count,
+            start_row,
+            rows,
+            wraps,
+            truncated,
+            history: grid.history(),
+            scrolled: grid.scrolled(),
+        })
+    }
+
     /// Puts each terminal's mode, end and title in its modeline, when one of them changed.
     /// Returns whether a note changed, which the frame being drawn already shows.
     pub(in crate::app) fn note_terminals(&mut self) -> bool {
@@ -449,15 +522,21 @@ impl App {
         let ids: Vec<BufferId> = self.terminals.map.iter().map(|(id, _)| id).collect();
         for id in ids {
             let input = self.dispatcher.terminal_input(id);
+            let buffer = self.editor.buffer(id);
+            let marks = hosted::Marks {
+                input,
+                secret: buffer.is_some_and(reads_a_password),
+                agent_reads: buffer.is_some_and(Buffer::agent_reads),
+            };
             let Some(hosted) = self.terminals.map.get_mut(id) else {
                 continue;
             };
-            if !hosted.note_stale && hosted.noted_input == input {
+            if !hosted.note_stale && hosted.noted == marks {
                 continue;
             }
             hosted.note_stale = false;
-            hosted.noted_input = input;
-            let note = hosted.note_text(input);
+            hosted.noted = marks;
+            let note = hosted.note_text(marks);
             if note != hosted.note {
                 hosted.note.clone_from(&note);
                 self.editor.set_mode_note(id, note);
@@ -490,4 +569,9 @@ pub(super) fn retheme(
             terminal.set_palette(palette);
         }
     }
+}
+
+/// Whether `buffer` is a terminal whose program reads a password (ADR 0120, Q17).
+pub(crate) fn reads_a_password(buffer: &Buffer) -> bool {
+    buffer.verdict() == oso_core::buffer::Verdict::EchoOff
 }

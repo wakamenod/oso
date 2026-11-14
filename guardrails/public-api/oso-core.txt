@@ -90,6 +90,7 @@ pub fn oso_core::buffer::ReadOnly::hash<__H: core::hash::Hasher>(&self, &mut __H
 impl core::marker::Copy for oso_core::buffer::ReadOnly
 impl core::marker::StructuralPartialEq for oso_core::buffer::ReadOnly
 pub enum oso_core::buffer::Verdict
+pub oso_core::buffer::Verdict::EchoOff
 pub oso_core::buffer::Verdict::Ordinary
 pub oso_core::buffer::Verdict::Passphrase
 pub oso_core::buffer::Verdict::SecretName
@@ -127,6 +128,11 @@ pub fn oso_core::buffer::Buffer::mark_opened_by_agent(&mut self)
 pub fn oso_core::buffer::Buffer::name_may_hold_secrets(&std::path::Path) -> bool
 pub fn oso_core::buffer::Buffer::opened_by_agent(&self) -> bool
 pub fn oso_core::buffer::Buffer::set_agent_pending(&mut self, bool)
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::agent_reads(&self) -> bool
+pub fn oso_core::buffer::Buffer::is_running(&self) -> bool
+pub fn oso_core::buffer::Buffer::is_terminal(&self) -> bool
+pub fn oso_core::buffer::Buffer::mode_note(&self) -> &str
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::apply_carried(&mut self, oso_core::load::LoadSnapshot, oso_core::buffer::FileFacts)
 pub fn oso_core::buffer::Buffer::file_facts(&self) -> oso_core::buffer::FileFacts
@@ -184,10 +190,6 @@ pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Opti
 pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
-impl oso_core::buffer::Buffer
-pub fn oso_core::buffer::Buffer::is_running(&self) -> bool
-pub fn oso_core::buffer::Buffer::is_terminal(&self) -> bool
-pub fn oso_core::buffer::Buffer::mode_note(&self) -> &str
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
@@ -1701,6 +1703,8 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_terminal_buffer(&mut self, &str) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::request_terminal(&mut self, oso_core::editor::TerminalRequest)
 pub fn oso_core::editor::Editor::running_terminals(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
+pub fn oso_core::editor::Editor::set_agent_reads(&mut self, oso_core::buffer::BufferId, bool)
+pub fn oso_core::editor::Editor::set_echo_off(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::set_mode_note(&mut self, oso_core::buffer::BufferId, alloc::string::String)
 pub fn oso_core::editor::Editor::set_running(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::take_terminal_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::TerminalRequest>
@@ -2028,6 +2032,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::macro_call(&mut self, core::option::Option<usize>) -> core::result::Result<(), oso_core::editor::MacroError>
 pub fn oso_core::editor::Editor::macro_cancel(&mut self, &str)
 pub fn oso_core::editor::Editor::macro_end(&mut self) -> core::result::Result<(), oso_core::editor::MacroError>
+pub fn oso_core::editor::Editor::macro_forget_last(&mut self, &str)
 pub fn oso_core::editor::Editor::macro_next(&mut self) -> core::option::Option<oso_core::editor::MacroEvent>
 pub fn oso_core::editor::Editor::macro_record(&mut self, impl core::iter::traits::collect::IntoIterator<Item = oso_core::editor::MacroEvent>)
 pub fn oso_core::editor::Editor::macro_recording(&self) -> bool

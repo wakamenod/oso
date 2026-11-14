@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 
 use proptest::prelude::*;
 
-use super::{MAX_TOUCHED, TAIL, Touched, config_dir, find, read_tail, touched};
+#[cfg(unix)]
+use super::Touched;
+use super::{MAX_TOUCHED, TAIL, config_dir, find, read_tail, touched};
 
 const ID: &str = "0b5c7a5e-1f2d-4c3b-9a8e-7d6c5b4a3f21";
 
@@ -124,12 +126,15 @@ fn a_long_file_is_cut() {
     assert!(read.iter().all(|&b| b == b'b'));
 }
 
+#[cfg(unix)]
 fn edit(name: &str, key: &str, path: &str) -> String {
     format!(
         r#"{{"type":"assistant","message":{{"content":[{{"type":"tool_use","name":"{name}","input":{{"{key}":"{path}"}}}}]}}}}"#
     )
 }
 
+// Absolute paths in these lines are Unix ones; the parser is the same everywhere.
+#[cfg(unix)]
 #[test]
 fn touched_files_and_plans() {
     let lines = [
@@ -171,6 +176,8 @@ fn touched_files_and_plans() {
     );
 }
 
+// Absolute paths in these lines are Unix ones; the parser is the same everywhere.
+#[cfg(unix)]
 #[test]
 fn a_cut_tail_skips_its_first_line() {
     let tail = format!(
@@ -187,6 +194,8 @@ fn a_cut_tail_skips_its_first_line() {
     assert_eq!(touched(b"no line break", true, plans), Touched::default());
 }
 
+// Absolute paths in these lines are Unix ones; the parser is the same everywhere.
+#[cfg(unix)]
 #[test]
 fn touched_is_bounded() {
     let tail: Vec<String> = (0..MAX_TOUCHED + 50)

@@ -462,8 +462,9 @@ These are for oso's own code. What an agent may read through the channel is belo
   the channel: refused where reading is not allowed, as a search is a probe of the text. An echo-area
   message that carries a terminal's text (a link target, a notification) is withheld from `state` the
   same way.
-- **Echo off is a secret (Q17).** While the PTY does not echo (a password prompt, `sudo`, `ssh`), keys
-  typed there are not recorded into a keyboard macro, `C-k` copies nothing, the modeline says
+- **Echo off is a secret (Q17).** While the PTY has echo off with line editing on (a password prompt,
+  `sudo`, `ssh`; the author's definition, see step 4a's As built), input typed there drops a
+  keyboard macro's recording and a replay stops before it, `C-k` copies nothing, the modeline says
   `secret`, the channel waits as for a secret buffer shown, its rows are withheld even where reading
   was allowed, and on macOS secure input is on while that terminal is shown and selected
   ([ADR 0073](0073-secure-input-in-secret-buffers.md)).
@@ -557,7 +558,9 @@ for OSC 133), and may go in any order.
      the questions at a kill, an exit and a restart, the channel's safe minimum (it reads and
      types nothing in a terminal), and end-to-end flows.
    - **4b, the rest:** the mouse, echo off, the channel's full rules (listing,
-     `terminal-allow-agent-read` and the rows it reads), and the `just perf` flows.
+     `terminal-allow-agent-read` and the rows it reads), and the `just perf` flows, in three pull
+     requests (the author's choice, 2026-11-14): 4b-1 echo off, the channel's rules and macros;
+     4b-2 the mouse; 4b-3 the `just perf` flows.
 5. **The live search and the author's keys:** `C-s` on the terminal's thread, `C-k`'s copy, `M-p` and
    `M-n`, and the search's `just perf` flow.
 6. **Copy mode,** links, OSC 7 and 133, OSC 52 writes, notifications, progress, the bell, and the shell
@@ -1227,3 +1230,83 @@ Step 4 is split in two pull requests (see Steps); this is the first.
   updates between the output. One hour of `just fuzz-term` with `ReleaseSafe` on the Mac mini,
   with the new calls into the library: 1,179,736 inputs, no stop, 1,074 slow (over 500 ms), as
   in step 3.
+
+### Step 4b-1: echo off, the channel's rules and macros
+
+The author approved the plan for step 4b on 2026-11-14, through the coordinator, with the first
+option on each of its nine questions. Step 4b is three pull requests; this is the first.
+
+- **The public items,** as approved: `oso-platform`'s `Master::reads_secret`, which replaces
+  `Master::echoes`; `oso-core`'s `Verdict::EchoOff`, `Editor::set_echo_off`,
+  `Buffer::agent_reads` and `Editor::set_agent_reads`, and `Editor::macro_forget_last`, which
+  the author added in review (2026-11-14).
+
+- **Echo off** is read through `oso_platform::process::pty::Master::reads_secret`, which replaces
+  `echoes`: echo off with line editing (canonical mode) on. A failed read counts as a password
+  prompt.
+  - **When the thread looks:** before it writes each piece of input, after it reads output, 20 ms
+    and 250 ms after either, and every 250 ms while echo is off. An idle terminal with echo on is
+    never looked at. A look is one `tcgetattr`. A wake that only looked builds no snapshot unless
+    the flags changed.
+  - **`Snapshot::echo_off`** says off now, or off at a look since the last snapshot said it was
+    on. So a password typed and entered between two frames is still seen once. A change of it is
+    sent even while a synchronized update holds snapshots back.
+  - Before this step the flag was echo alone, so it was set for every program that reads keys
+    raw, `claude` among them. ADR 0121's screen feed now sends a session's worker only that its
+    program reads a password, by the buffer's verdict, and no rows: its engine holds there, the
+    narrower signal that ADR asked for.
+  - **What it does not see:**
+    - A program that turns echo off long after its last output, with nothing typed since, is
+      seen at the next key, before that key is written. That key reaches the system before
+      secure input is asked for.
+    - A prompt that reads a password raw does not count, by the author's definition. That
+      takes in a local prompt that prints a mark per key, as it must read each key as it comes,
+      and prompt libraries that mask what is typed. Nothing run behind another terminal counts
+      either (`ssh` to a host, `tmux`, `screen`, `docker exec -it`): the local PTY reads raw
+      there. At those prompts the keys are recorded into a macro, typed without secure input,
+      and the modeline does not say `secret`.
+- **The secret:** a new `Verdict::EchoOff`, set and taken back by the host through
+  `Editor::set_echo_off`. Every rule for a buffer that may hold secrets then applies with no
+  code of its own:
+  - the channel waits while one is shown, and secure input is on while one is selected;
+  - the log is gated, no excerpt goes to the input method, and a composition in it ends;
+  - its kills count as secret (ADR 0074), and it is never copied in an emergency.
+
+  The buffer's verdict is the one record: the host sets it from each snapshot and follows a
+  change as soon as it takes the snapshot, between events. A program that ended reads no
+  password, and a session started over in its buffer starts with none. ADR 0121's sending asks
+  the verdict.
+- **Macros (Q2, the author's refinement on 2026-11-14):** keys and text sent to a program are
+  recorded again, as Emacs's `term` records them.
+  - Input that reaches a terminal reading a password drops the whole recording, as input that
+    reaches any buffer that may hold secrets does (ADR 0113).
+  - So does a terminal the recording typed into whose snapshot later says it read a password: the
+    keys may have gone before the host heard of it. If the recording has ended by then, the first
+    snapshot each of its terminals sends since decides, and the macro it became is dropped
+    (`Editor::macro_forget_last`).
+  - A replay stops before it would send a key, text or a command's paste or keys to a terminal
+    reading a password, with "Keyboard macro stopped: the terminal's program reads a password".
+    Every send to a program goes through one place that checks this. It sees what the last
+    snapshot said, so a prompt that opens within the frame of the replay is not caught.
+  - Replaying is `Person`, so the channel never types into a terminal through a macro.
+- **The channel's rules (Q16):**
+  - `state` lists a terminal's buffer with `kind`, `running` and `agent_reads`, and nothing of its
+    title or rows. It leaves out the `secret` and `wrapped` other buffers have, so that no agent
+    learns when a password prompt opens in a terminal not shown, or how long it stays. A shown
+    one makes the channel wait, which the agent sees.
+  - `terminal-allow-agent-read` and `terminal-deny-agent-read`, both `Person`, give and take back
+    the leave to read the selected terminal. It is kept on its buffer until the buffer is killed
+    or a session starts over in it, and the modeline says `agent reads`.
+  - Where leave is given, `text` gives the rows the terminal's windows show, from the screen the
+    UI keeps, each with its trailing blanks dropped. `wraps` says which rows go on in the next,
+    and `history` and `scrolled` say where the view is.
+  - While the program reads a password, `text` is refused with `echo off`, and only the rows
+    asked are copied, within the 512 KiB budget.
+  - Its region is never read. Nothing the channel runs selects a terminal (step 4a's R1).
+  - Scrollback for agents comes with copy mode (step 6), whose buffer follows its terminal's
+    leave (Q3). The echo area's terminal text comes with step 6 too, where the first of it
+    appears (Q4).
+- **The modeline** says, after `Terminal`: `char`, `secret`, `agent reads`, how the program ended,
+  and the title last, in quotes.
+- **The dev socket** withholds a terminal's rows while its program reads a password, as it
+  withholds the text of any buffer that may hold secrets (ADR 0044).

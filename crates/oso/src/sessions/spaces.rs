@@ -20,10 +20,6 @@ pub struct Space {
     /// `repo`, or `repo/slug` for a worktree.
     pub name: String,
     /// The repository a worktree's space is nested under.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "step 4 gives worktrees' spaces their repository")
-    )]
     pub repo: Option<PathBuf>,
     /// Its window tree while another space's is in the frame.
     tree: Option<WindowTree>,
@@ -114,19 +110,23 @@ impl Spaces {
         self.current
     }
 
-    /// Space `at` is the one whose tree is in the frame, as it is: oso's first space.
+    /// Space `at` is the one whose tree is in the frame, as it is: oso's first space. A zoom
+    /// made before there was a space is the space's.
     pub fn adopt(&mut self, at: usize) {
         if let Some(space) = self.spaces.get_mut(at) {
             space.entered = true;
+            if self.current.is_none() && space.zoom.is_none() {
+                space.zoom = self.zoom.take();
+            }
             self.current = Some(at);
         }
     }
 
     /// Shows space `at`'s tree, keeping the frame's in the space it leaves. A space entered for
     /// the first time shows its last file buffer and its last session side by side, or the one
-    /// of them it has; with neither, the frame's tree becomes its own, and the space left gets
-    /// one from its last buffers when it is entered again. With no space yet, the frame's tree
-    /// becomes `at`'s.
+    /// of them it has; with neither, the frame's tree becomes its own, with its zoom, and the
+    /// space left gets one from its last buffers when it is entered again. With no space yet,
+    /// the frame's tree becomes `at`'s.
     ///
     /// # Errors
     ///
@@ -169,11 +169,45 @@ impl Spaces {
             None => {
                 let from = &mut self.spaces[from];
                 from.entered = false;
-                from.zoom = None;
+                let zoom = from.zoom.take();
+                self.spaces[at].zoom = zoom;
             }
         }
         self.spaces[at].entered = true;
         self.current = Some(at);
+        Ok(())
+    }
+
+    /// Closes space `at`, as `worktree-remove` does for the worktree it removed (ADR 0121). If its
+    /// tree is in the frame, its repository's space is entered first, else the first other space;
+    /// with no other space, no space is current and the frame keeps its tree. Each later space
+    /// moves down one place, and the current one with it.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`] while a prompt is open and the space to close is in the frame: nothing
+    /// changed.
+    pub(crate) fn remove(&mut self, editor: &mut Editor, at: usize) -> Result<(), Refused> {
+        let Some(space) = self.spaces.get(at) else {
+            return Ok(());
+        };
+        if self.current == Some(at) {
+            let parent = space.repo.as_deref().and_then(|repo| self.find(repo));
+            let fallback = parent
+                .filter(|&to| to != at)
+                .or_else(|| (0..self.spaces.len()).find(|&to| to != at));
+            match fallback {
+                Some(to) => self.enter(editor, to)?,
+                None => {
+                    self.current = None;
+                    self.zoom = self.spaces[at].zoom.take();
+                }
+            }
+        }
+        self.spaces.remove(at);
+        if let Some(current) = self.current.filter(|&current| current > at) {
+            self.current = Some(current - 1);
+        }
         Ok(())
     }
 

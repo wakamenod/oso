@@ -7,10 +7,12 @@
 
 use std::path::{Path, PathBuf};
 
-use oso_core::project::ProjectId;
+use oso_core::project::{ProjectId, same_place};
 
 use super::super::super::App;
-use super::{QUESTION_NAMES, Removing, running_sessions};
+use super::{QUESTION_NAMES, Removing, hosted_state};
+use crate::sessions::state::State;
+use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::checks::{self, Check};
 use crate::sessions::worktree::jobs::Go;
 use crate::sessions::worktree::list;
@@ -141,8 +143,8 @@ impl App {
     }
 
     /// The checks held again in the job that removes the worktree: what the UI holds is looked
-    /// at once more, then its idle sessions are stopped and its space closed before the job
-    /// goes on. Not saying [`Go`] calls the removal off.
+    /// at once more, then its idle sessions are stopped before the job goes on. Not saying
+    /// [`Go`] calls the removal off.
     pub(super) fn worktree_clear(&mut self, token: u64, path: &Path, go: Go) {
         if self
             .hosting
@@ -161,29 +163,55 @@ impl App {
                 .message(format!("Worktree {shown} kept: {}", check.why()));
         }
         self.stop_idle_sessions_in(path);
-        // ADR 0121 step 3 part B: close the worktree's space here, entering its repository's
-        // first if it is the one in the frame. `Spaces` has no way to close one yet.
+        self.close_worktree_space(path);
         go.proceed();
     }
 
-    /// Stops the idle hosted sessions in the worktree at `path`, which check 4 let through:
-    /// their buffers stay, read-only, as a stopped session's do.
+    /// Closes the space of the worktree at `path`, entering its repository's first if it is
+    /// the one in the frame (ADR 0121). With a prompt open, the frame's tree cannot change, so
+    /// the space stays until oso starts again, and the removal goes on.
+    fn close_worktree_space(&mut self, path: &Path) {
+        let spaces = self.watch.spaces();
+        let at = spaces.find(path).or_else(|| {
+            spaces
+                .of_path(path)
+                .filter(|&at| spaces.get(at).is_some_and(|s| same_place(&s.root, path)))
+        });
+        let Some(at) = at else {
+            return;
+        };
+        if self
+            .watch
+            .spaces_mut()
+            .remove(&mut self.editor, at)
+            .is_err()
+        {
+            log::debug!("a removed worktree's space stays while a prompt is open");
+        }
+        self.request_redraw();
+    }
+
+    /// Stops the idle hosted sessions in the worktree at `path`, which check 4 let through, as
+    /// `session-stop` stops one that is not busy: a hang-up oso made, so that each becomes
+    /// stopped, not failed, and keeps its buffer, read-only. The job goes on without waiting
+    /// for their processes to end.
     fn stop_idle_sessions_in(&mut self, path: &Path) {
-        let idle: Vec<String> = running_sessions(self.hosting.table.all())
-            .into_iter()
-            .filter(|session| session.settled && session.directory.starts_with(path))
-            .map(|session| session.name)
+        let idle: Vec<SessionKey> = self
+            .hosting
+            .table
+            .all()
+            .iter()
+            .filter(|session| session.runs() && session.directory.starts_with(path))
+            .filter(|session| {
+                matches!(
+                    hosted_state(session, &self.watch),
+                    Some(State::Idle | State::Done)
+                )
+            })
+            .map(|session| session.key)
             .collect();
-        // ADR 0121 step 3 part B: stop each one as `session-stop` does, as ended by oso so
-        // that it becomes stopped, not failed, and keeps its buffer. Nothing stops a hosted
-        // session so yet: `C-x k` archives it with its buffer, and a hang-up alone ends by a
-        // signal, which reads as failed. None is idle here yet either: until the app keeps
-        // live states, a running session is busy and check 4 refused it.
-        if !idle.is_empty() {
-            log::warn!(
-                "{} idle sessions are not stopped before a removal",
-                idle.len()
-            );
+        for key in idle {
+            self.hang_up_session(key);
         }
     }
 

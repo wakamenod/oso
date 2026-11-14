@@ -273,10 +273,10 @@ mod tests {
             rows: 1,
         };
         assert!(
-            crate::channel::text::start(&editor, rows).is_err(),
+            crate::channel::text::start(&editor, &|_, _| None, rows).is_err(),
             "its rows"
         );
-        let Err(why) = crate::channel::text::start(&editor, TextOf::Region) else {
+        let Err(why) = crate::channel::text::start(&editor, &|_, _| None, TextOf::Region) else {
             panic!("its region was read");
         };
         assert!(why.contains("only the person"), "{why}");

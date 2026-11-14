@@ -6,7 +6,8 @@
 //!
 //! Must not depend on: how a frame is drawn, or key presses.
 
-use oso_core::editor::{RowAction, SessionRequest};
+use oso_core::buffer::BufferId;
+use oso_core::editor::{Editor, RowAction, SessionRequest};
 
 use crate::app::App;
 use crate::sessions::list::{Key, Line};
@@ -152,7 +153,7 @@ impl App {
 
     /// Switches to space `at`, keeping the file buffer shown last in the space left.
     fn enter_space(&mut self, at: usize) {
-        let shown = self.editor.tiled().0.buffer();
+        let shown = tree_buffer(&mut self.editor);
         let is_session = self.hosting.table().by_buffer(shown).is_some();
         if let Some(from) = self.watch.spaces.current()
             && let Some(space) = self.watch.spaces.get_mut(from)
@@ -252,7 +253,8 @@ impl App {
     }
 
     /// Sends the hang-up to session `key`'s terminal: oso stopped it, so its end is no failure.
-    fn hang_up_session(&mut self, key: SessionKey) {
+    /// A worktree's removal stops the worktree's idle sessions so too (ADR 0121 step 4).
+    pub(in crate::app) fn hang_up_session(&mut self, key: SessionKey) {
         let Some(buffer) = self.hosting.table().get(key).and_then(|s| s.buffer) else {
             return self.editor.message("That session does not run");
         };
@@ -277,4 +279,16 @@ impl App {
             self.watch.stop = None;
         }
     }
+}
+
+/// The buffer the tree's window shows, never the side window's `*Sessions*`: from the side
+/// window, the tree's window selected last is selected first, as the tree's commands do
+/// (ADR 0121). With a prompt open, the window beneath it.
+pub(super) fn tree_buffer(editor: &mut Editor) -> BufferId {
+    let side = editor.side_window();
+    if editor.prompt().is_none() && side.is_some() && side == Some(editor.tiled().0.id()) {
+        // From the side window, `C-x o` selects the tree's window selected last.
+        editor.other_window(1);
+    }
+    editor.tiled().0.buffer()
 }

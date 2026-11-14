@@ -11,8 +11,8 @@
 //! - A listing looks at every row without `gh` first, then asks `gh` only for the rows that
 //!   need it. A newer listing stops an older one between rows.
 //! - A removal runs every check again, in the same job as `git worktree remove`. Once they hold,
-//!   it asks the app to clear the worktree (stop its idle sessions, close its space) and waits
-//!   for the app's word before git removes it.
+//!   it asks the app to clear the worktree (stop its idle sessions) and waits for the app's
+//!   word before git removes it.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

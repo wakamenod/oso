@@ -142,8 +142,8 @@ impl App {
             .iter()
             .filter(|session| session.directory.starts_with(path))
             .map(|session| {
-                let state =
-                    hosted_state(session).map_or_else(|| "running".to_owned(), |s| s.to_string());
+                let state = hosted_state(session, &self.watch)
+                    .map_or_else(|| "running".to_owned(), |s| s.to_string());
                 format!("{} ({state})", session.name)
             })
             .collect()
