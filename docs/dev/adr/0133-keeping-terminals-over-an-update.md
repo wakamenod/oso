@@ -1,6 +1,6 @@
 # 0133. Keeping terminals and sessions over an update of the installed oso
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-15
 
 ## Context
@@ -52,9 +52,9 @@ build, with security first.
 
 ## Decision
 
-Proposed: step 11's handoff ships in release builds behind a command the person runs, over a
-private socket pair, after the new binary is checked (option A below). With it, a quit offers to
-wait for running work (Q5). The questions are open until the author answers them.
+Step 11's handoff ships in release builds behind a command the person runs, over a private
+socket pair, after the new binary is checked (option A, Q1). With it, a quit offers to wait for
+running work (Q5).
 
 ### The command (Q2)
 
@@ -129,9 +129,18 @@ For the author, through the coordinator, with the recommended option first.
    "quit when idle".
    (b) As today: it asks once, with the unsaved text.
 
-## Changes to accepted ADRs
+## The author's choices
 
-If A is chosen:
+The author answered every question on 2026-11-15, through the coordinator: (a) for each. So step
+11's handoff ships in release builds behind `oso-restart` (`Person`), over a private socket pair,
+with no listening socket and no dev method in a release binary (Q1). Only the person restarts,
+and oso says when a new binary is in place (Q2). The new binary is the running one's own path,
+owned by the person or root with no other writer up to the root, and on macOS it has the same
+team identity when the running one has one (Q3). Everything step 11 and ADR 0090 carry travels
+(Q4). `C-x C-c` lists the turns under way and the running programs, and offers "quit when idle"
+(Q5).
+
+## Changes to accepted ADRs
 
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "Screenshots, the restart handoff, timings and
   hot reload stay dev-only": the dev control socket's handoff stays dev-only. A release build
@@ -143,8 +152,6 @@ If A is chosen:
   is carried over `oso-restart` too, with the same limits.
 
 ## Consequences
-
-If A is chosen:
 
 - Release builds gain one spawn of oso itself, from one command, after the file checks. The
   descriptor passing, the carried state and the snapshot decoder ship in release builds.
