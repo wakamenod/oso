@@ -123,6 +123,8 @@ pub(super) struct Effort {
     limit: usize,
     until: Option<Instant>,
     on_key: bool,
+    /// Whether the scan has looked for a match yet: `until` stops it only after one look.
+    pub(super) looked: bool,
 }
 
 impl Effort {
@@ -132,13 +134,18 @@ impl Effort {
             limit: limits.work,
             until: limits.until,
             on_key: limits.on_key,
+            looked: false,
         }
     }
 
     /// Whether to stop: past the limit or `until`, or as `stop` says, asked before each look,
-    /// as one look can read a whole line.
+    /// as one look can read a whole line. `until` counts only once the scan has looked, so
+    /// that a key or a slice whose time a preemption used up before it began still makes one
+    /// look of progress, instead of leaving the same place to the next for ever.
     pub(super) fn over(&self, stop: &dyn Fn() -> bool) -> bool {
-        self.work > self.limit || self.until.is_some_and(|until| Instant::now() >= until) || stop()
+        self.work > self.limit
+            || (self.looked && self.until.is_some_and(|until| Instant::now() >= until))
+            || stop()
     }
 
     /// Whether the regexps for a cut of `regexp` may be built here: on an isearch key, only

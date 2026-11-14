@@ -75,6 +75,7 @@ pub(super) fn find(
 ) -> Result<Option<Range<usize>>, Unbuilt> {
     let haystack = &text[..cut];
     let may_build = effort.may_build(regexp);
+    effort.looked = true;
     let work = &mut effort.work;
     loop {
         if from > cut {

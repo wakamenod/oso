@@ -268,10 +268,10 @@ pub struct Editor {
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
     search_job: Option<SearchJob>,
-    /// How long a key's search for isearch or for cursors runs on the UI thread before the
-    /// worker goes on with it: [`KEY_TIME`](crate::search::KEY_TIME), but none in oso-core's own
-    /// tests, so that what one key finds does not depend on the machine's speed. Tests of the
-    /// hand-off set it to zero.
+    /// How long a key's search for isearch, for cursors or for query-replace's next match runs
+    /// on the UI thread before the worker goes on with it:
+    /// [`KEY_TIME`](crate::search::KEY_TIME), but none in oso-core's own tests, so that what one
+    /// key finds does not depend on the machine's speed. Tests of the hand-off set it to zero.
     key_time: Option<std::time::Duration>,
     /// The query a window keeps for the keys that add cursors (ADR 0091).
     marking: Option<cursors::Marking>,
