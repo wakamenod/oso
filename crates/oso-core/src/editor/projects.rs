@@ -6,7 +6,7 @@
 //! trusted projects on another, and writes what a person changed of it.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::Editor;
 use crate::buffer::BufferId;
@@ -55,6 +55,11 @@ pub struct ProjectRequest {
     pub location: PathBuf,
 }
 
+/// The name a session's directory is asked about under: detection starts from a location's
+/// directory, and looks nothing up by this name (ADR 0132). The host resolves that directory
+/// to the real place it leads before it looks.
+const DIRECTORY_STANDIN: &str = "*session*";
+
 /// Adds `request` to `requests`, where only a buffer's newest stays.
 pub(super) fn ask(requests: &mut Vec<ProjectRequest>, request: ProjectRequest) {
     requests.retain(|asked| asked.buffer != request.buffer);
@@ -62,9 +67,16 @@ pub(super) fn ask(requests: &mut Vec<ProjectRequest>, request: ProjectRequest) {
 }
 
 impl Editor {
-    /// The request for `id`'s file, once where its path leads is known.
+    /// The request for `id`'s file, once where its path leads is known; for a session's
+    /// terminal, which has none, a stand-in file in the directory its session runs in
+    /// (ADR 0132).
     pub(super) fn file_request(&self, id: BufferId) -> Option<ProjectRequest> {
-        let location = self.buffer(id)?.baseline()?.location.clone();
+        let buffer = self.buffer(id)?;
+        let location = match buffer.baseline() {
+            Some(baseline) => baseline.location.clone(),
+            None if buffer.hosts_session() => buffer.session_directory()?.join(DIRECTORY_STANDIN),
+            None => return None,
+        };
         Some(ProjectRequest {
             buffer: id,
             location,
@@ -79,6 +91,20 @@ impl Editor {
         }
     }
 
+    /// Asks the host to find the project of `directory`, for the terminal buffer `id` whose
+    /// session runs there (ADR 0132), as a file's project is found. Only a buffer that hosts a
+    /// session takes the answer; it has no file of its own.
+    ///
+    /// The buffer keeps the directory, so that it is asked again as a file is, when the record
+    /// of trusted projects changes.
+    pub fn request_directory_project(&mut self, id: BufferId, directory: &Path) {
+        let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.hosts_session()) else {
+            return;
+        };
+        buffer.set_session_directory(directory.to_path_buf());
+        self.request_project(id);
+    }
+
     /// The files whose project the host should find, the oldest first.
     pub fn take_project_requests(&mut self) -> Vec<ProjectRequest> {
         std::mem::take(&mut self.project_requests)
@@ -87,10 +113,10 @@ impl Editor {
     /// The host found `request`'s file in the project `found`, or in none. It is taken only if
     /// the buffer's path still leads where it did when asked.
     pub fn project_found(&mut self, request: &ProjectRequest, found: Option<Found>) {
+        // A session's terminal: still in the directory its session runs in (ADR 0132).
         let current = self
-            .buffer(request.buffer)
-            .and_then(|buffer| buffer.baseline())
-            .is_some_and(|baseline| baseline.location == request.location);
+            .file_request(request.buffer)
+            .is_some_and(|now| now.location == request.location);
         if current {
             self.set_buffer_project(request.buffer, found);
         }
@@ -163,7 +189,7 @@ impl Editor {
             .iter()
             .filter(|(_, buffer)| match buffer.project() {
                 Some(id) => self.project(id).is_some_and(claims_changed),
-                None => buffer.baseline().is_some(),
+                None => buffer.baseline().is_some() || buffer.hosts_session(),
             })
             .map(|(id, _)| *id)
             .collect();
@@ -530,5 +556,38 @@ mod tests {
         assert_eq!(editor.take_project_requests().len(), 1, "made again");
         editor.set_trust_list(None);
         assert_eq!(editor.take_project_requests().len(), 1, "refused");
+    }
+
+    /// A session's terminal is asked again as a file is, by its session's directory
+    /// (ADR 0132): a worktree session found before its main repository was trusted becomes
+    /// trusted with it.
+    #[cfg(unix)]
+    #[test]
+    fn a_session_s_terminal_is_asked_again_by_its_directory() {
+        let mut editor = Editor::default();
+        let terminal = editor.add_terminal_buffer("*claude: wt*");
+        editor.set_hosts_session(terminal, true);
+        editor.request_directory_project(terminal, std::path::Path::new("/w/wt"));
+        let request = editor.take_project_requests().pop().unwrap();
+        let mut worktree = found("/w/wt", 8);
+        worktree.worktree_of = Some(PathBuf::from("/w/oso"));
+        editor.project_found(&request, Some(worktree));
+        assert!(editor.buffer(terminal).unwrap().project().is_some());
+        editor.set_trust_list(Some(TrustList::parse("/w/oso\tdev=1 ino=7\n").0));
+        let again = editor.take_project_requests();
+        assert_eq!(
+            again,
+            std::slice::from_ref(&request),
+            "its main repository's line came"
+        );
+        // An answer for a directory it no longer runs in is dropped.
+        editor.request_directory_project(terminal, std::path::Path::new("/w/elsewhere"));
+        editor.project_found(&request, None);
+        assert!(editor.buffer(terminal).unwrap().project().is_some(), "kept");
+        // Unmarked, it is a plain terminal: no request, and an answer in flight is dropped.
+        editor.set_hosts_session(terminal, false);
+        assert!(editor.take_project_requests().is_empty());
+        editor.project_found(&request, Some(found("/w/wt", 8)));
+        assert!(editor.buffer(terminal).unwrap().project().is_none());
     }
 }

@@ -121,6 +121,18 @@ impl Table {
         (key, name)
     }
 
+    /// The directory session `key` runs in, or will once it is ready.
+    pub fn directory(&self, key: SessionKey) -> Option<&Path> {
+        self.get(key)
+            .map(|session| session.directory.as_path())
+            .or_else(|| {
+                self.pending
+                    .iter()
+                    .find(|(k, ..)| *k == key)
+                    .map(|(_, directory, _)| directory.as_path())
+            })
+    }
+
     /// The name `key` holds, and lets it go: its start was refused.
     pub fn release(&mut self, key: SessionKey) -> Option<(PathBuf, String)> {
         let index = self.pending.iter().position(|(k, ..)| *k == key)?;
@@ -462,7 +474,10 @@ mod tests {
         assert_eq!(name, "oso");
         let (second, name) = table.reserve(Path::new("/p/oso"), "oso");
         assert_eq!(name, "oso-2", "held while the first gets ready");
+        // Its directory is known while it is only reserved, and once it is added.
+        assert_eq!(table.directory(second), Some(Path::new("/p/oso")));
         table.add(first, new(1)).unwrap();
+        assert_eq!(table.directory(first), Some(Path::new("/p/oso")));
         assert_eq!(table.reserve(Path::new("/q/oso"), "oso").1, "oso");
         table.release(second);
         assert_eq!(table.reserve(Path::new("/p/oso"), "oso").1, "oso-2");

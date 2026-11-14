@@ -87,7 +87,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     row(
         "session-stop",
-        "Hang up the terminal of the session on this row.\n\nIt asks first while the session works or needs input.",
+        "Hang up the terminal of the session on this row of `*Sessions*`, or of the session whose terminal is this buffer.\n\nIt asks first while the session works or needs input.",
         Reach::Person,
         stop,
     ),
@@ -161,8 +161,16 @@ fn resume(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     on_row(ctx, RowAction::Resume)
 }
 
+/// On a row of `*Sessions*`, or in a session's own terminal (`C-c K`, ADR 0132).
 fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    on_row(ctx, RowAction::Stop)
+    if ctx.editor.current().1.mode() == Mode::Sessions {
+        return on_row(ctx, RowAction::Stop);
+    }
+    let buffer = super::mode::session_buffer(ctx)
+        .map_err(|_| CommandError::new("Not in *Sessions* or a session's buffer"))?;
+    ctx.editor
+        .request_session(SessionRequest::OnBuffer(buffer, RowAction::Stop));
+    Ok(())
 }
 
 fn explain(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

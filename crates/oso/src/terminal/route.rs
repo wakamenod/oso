@@ -1,6 +1,8 @@
 //! Which keys in a terminal are oso's and which go to its program (ADR 0120, Q12): semi-char
 //! mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y`; char mode keeps only `C-c C-k`,
 //! which leaves it, and `C-c C-c`, which sends one `C-c` there too. Anything of oso's that is open, a prompt or a key sequence, takes every key.
+//! In a session's terminal, semi-char mode also keeps `C-z` from the program, which would
+//! suspend it with nothing to resume it (ADR 0132, Q7).
 //!
 //! Must not depend on: `app`, `dispatch` or the terminal's thread; this is a pure decision.
 
@@ -38,6 +40,9 @@ pub(crate) enum Route {
     Hold,
     /// Char mode's `C-c C-k`: back to semi-char mode.
     LeaveCharMode,
+    /// `C-z` in a session's terminal, kept from its program (ADR 0132, Q7): Claude Code would
+    /// suspend itself, and as its process group has no shell, nothing would resume it.
+    SuspendKept,
 }
 
 /// What the route of a key depends on besides the key.
@@ -51,12 +56,20 @@ pub(crate) struct State {
     pub quoted: bool,
     /// Char mode's `C-c` came, and waits for the next key.
     pub held_c_c: bool,
+    /// The terminal hosts an agent session (ADR 0132).
+    pub session: bool,
 }
 
 /// `C-c`.
 pub(crate) const C_C: KeyPress = KeyPress {
     modifiers: Modifiers::CONTROL,
     key: Key::Char('c'),
+};
+
+/// `C-z`.
+const C_Z: KeyPress = KeyPress {
+    modifiers: Modifiers::CONTROL,
+    key: Key::Char('z'),
 };
 
 /// The keys semi-char mode keeps for oso: `C-x` and `M-x`, the `C-c` prefix, `C-q`, which sends
@@ -86,6 +99,7 @@ pub(crate) fn route(state: State, key: KeyPress) -> Route {
     }
     match state.input {
         Input::SemiChar if oso_keeps(key) => Route::Oso,
+        Input::SemiChar if state.session && key == C_Z => Route::SuspendKept,
         Input::SemiChar => Route::Send(vec![key]),
         Input::Char if state.held_c_c => {
             let c_k = KeyPress {
@@ -174,6 +188,43 @@ mod tests {
                     "{name}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_session_keeps_c_z_from_its_program_and_sends_claude_code_s_keys() {
+        let session = State {
+            session: true,
+            ..semi()
+        };
+        assert_eq!(route(session, key("C-z")), Route::SuspendKept);
+        assert_eq!(route(semi(), key("C-z")), Route::Send(vec![key("C-z")]));
+        // `C-q C-z` sends it, and char mode sends it as every key (ADR 0132, Q7).
+        let quoted = State {
+            quoted: true,
+            ..session
+        };
+        assert_eq!(route(quoted, key("C-z")), Route::Send(vec![key("C-z")]));
+        let char_session = State {
+            session: true,
+            ..char_mode()
+        };
+        assert_eq!(
+            route(char_session, key("C-z")),
+            Route::Send(vec![key("C-z")])
+        );
+        // The stash, the model picker and history go to Claude Code (Q6).
+        for name in [
+            "C-s", "M-p", "M-n", "C-u", "S-RET", "C-RET", "ESC", "S-TAB", "C-g",
+        ] {
+            assert_eq!(
+                route(session, key(name)),
+                Route::Send(vec![key(name)]),
+                "{name}"
+            );
+        }
+        for name in ["C-x", "M-x", "C-c", "C-q", "C-y"] {
+            assert_eq!(route(session, key(name)), Route::Oso, "{name}");
         }
     }
 

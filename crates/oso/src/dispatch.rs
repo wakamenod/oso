@@ -42,6 +42,7 @@ pub use menus::{Described, HeadNow, OpenMenu};
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
 mod run_command;
+mod session_help;
 mod shown;
 mod terminal;
 
@@ -390,7 +391,11 @@ impl Dispatcher {
         editor.note_command_ended(effects.prefix.is_some());
         self.prefix = effects.prefix.take();
         match &result {
-            Ok(()) => editor.end_undo_group(),
+            Ok(()) => {
+                editor.end_undo_group();
+                // `session-help` says the keys the dispatcher holds (ADR 0132).
+                self.keymaps.session_help.answer(id, editor);
+            }
             Err(ExecuteError::Failed { error, .. }) => {
                 editor.end_undo_group();
                 editor.message(error.message());

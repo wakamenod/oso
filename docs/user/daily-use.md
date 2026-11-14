@@ -52,7 +52,8 @@ there, so they wait until you trust the project. A session itself runs in a rest
 too, and Claude Code asks its own trust question.
 
 Visit a file of the project, then run `M-x trust-project` and answer `y`. It works on the project
-of the current buffer's file, so run it from a file buffer, not from a terminal or `*Sessions*`.
+of the current buffer's file, or of a session's own buffer, so run it from one of those, not from
+a plain terminal or `*Sessions*`.
 A git worktree is trusted while its main repository is. `M-x untrust-project` takes it back.
 
 ## Agent sessions
@@ -79,6 +80,28 @@ through `oso mcp`.
 | `C-x a e` | `session-explain` | Explain why this session has the state it shows. |
 
 `C-x a` stays oso's inside a terminal, so these keys work from a session's own buffer too.
+
+Inside a session's own buffer, the modeline says `Session`, and `C-c` and a key does what
+`C-x a` and the same key does: `C-c n` is `C-x a n`. A few keys act on that session itself:
+
+| Key | What it does |
+|---|---|
+| `C-c K` | Stop it. It asks first while the session works or needs input. |
+| `C-c P` | Pin or unpin it. |
+| `C-c A` | Archive it, or bring it back. |
+| `C-c v` | Review what changed in its project since its baseline. `C-c V` opens the review menu. |
+| `C-c +`, `C-c -` | Let the agent channel read its screen, or take that back. |
+| `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c m` sends the place only. |
+| `C-c ?` | Say these keys in the echo area. |
+
+`C-c C-c` sends Claude Code a `Ctrl-C`, and `C-c C-k` switches char mode, where every key goes to
+Claude Code. Any other `C-c` key that is not listed here sends nothing. `C-z` would suspend
+Claude Code with nothing to resume it, so oso keeps it back; `C-q C-z` sends it. Every other key
+Claude Code uses reaches it as you type it, but `C-x` and `C-y`, which stay oso's: `C-q C-x C-e`
+sends Claude Code's `Ctrl-X Ctrl-E`, and `C-q C-y` its own yank.
+
+A session's buffer belongs to the project its session runs in, so `C-x v r`, `C-x p f` and
+`C-x a w` work from it.
 
 A session starts in the mode your own Claude Code settings give it: oso passes no permission
 option. It starts the agent channel, which its tools need.
