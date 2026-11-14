@@ -984,7 +984,9 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
 - **Public items:** `minibuffer::Kind::Draft`; `editor::DraftFor` (`Comment { path, anchor }`,
   `Reply { to }`, `Edit { comment }`); `Editor::open_draft(review, draft, text)`;
   `Editor::draft()`, the innermost prompt's draft; `Editor::kill_review_comment(review,
-  comment)`; `Review::comments_on(path)`; and `Carried::placed()`. A comment's text and path are
+  comment)`; `Review::comments_on(path)`; `Carried::placed()`; and
+  `Editor::set_review_file_behind(review, path, behind)` with `Editor::review_file_behind(review,
+  path)`, approved on 2026-11-14 for a stale carry (below). A comment's text and path are
   shared (`Arc`) inside the model, so the copy of a file's comments the view thread gets costs a
   count per comment.
 - **The draft is a prompt in the top float, as the author chose (Q3 (a)), in place of "a draft
@@ -1035,6 +1037,14 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
   panics is answered as failed, and its time is not taken from the request's. Its 1 s limit is
   its own run, counted from when it starts, not its wait in the queue. The result is applied as the text that shows
   it goes in, so the model's reading of a file is always the one on screen.
+- **A stale carry is caught:** with two readings of a file in flight, as texts held under a
+  prompt across two refreshes, the newer one's carry may be taken before the older one is
+  applied, and then changes nothing as its text goes in. The file then waits as "being read
+  again": the host marks it behind (`Editor::set_review_file_behind`) and carries it again from
+  the model as it is now, and the mark goes when a later text's carry makes the model's reading
+  the one shown, when the file leaves the listing, or when the review closes. Meanwhile `c`,
+  `e` and `C-c C-c` refuse on it, saying `This file is being read again: try in a moment`, the
+  draft staying open, so that no comment is placed by another reading's lines.
 - **A file that leaves the listing** with comments is taken out of the model, its comments
   outdated, and stays under the listed files as `no longer changed  <path>` with its cards
   (Q-E (a)), or with its count alone if its last reading was withheld. A listing cut short, at

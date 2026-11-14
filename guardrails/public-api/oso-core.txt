@@ -1620,11 +1620,13 @@ pub fn oso_core::editor::Editor::remove_review(&mut self, oso_core::editor::Revi
 pub fn oso_core::editor::Editor::request_review(&mut self, oso_core::editor::ReviewRequest)
 pub fn oso_core::editor::Editor::review(&self, oso_core::editor::ReviewId) -> core::option::Option<&oso_core::review::Review>
 pub fn oso_core::editor::Editor::review_buffer(&self, oso_core::editor::ReviewId) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::review_file_behind(&self, oso_core::editor::ReviewId, &[u8]) -> bool
 pub fn oso_core::editor::Editor::review_mut(&mut self, oso_core::editor::ReviewId) -> core::option::Option<&mut oso_core::review::Review>
 pub fn oso_core::editor::Editor::review_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::editor::ReviewId>
 pub fn oso_core::editor::Editor::review_rows(&self, oso_core::editor::ReviewId) -> core::option::Option<&oso_core::review::Rows>
 pub fn oso_core::editor::Editor::review_waits(&self) -> bool
 pub fn oso_core::editor::Editor::reviews(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::editor::ReviewId, oso_core::project::ProjectId)>
+pub fn oso_core::editor::Editor::set_review_file_behind(&mut self, oso_core::editor::ReviewId, &[u8], bool)
 pub fn oso_core::editor::Editor::set_review_paint(&mut self, oso_core::editor::ReviewId, oso_core::review::Rows, oso_core::syntax::Highlights) -> core::result::Result<oso_core::editor::ReviewLeftover, oso_core::editor::ReviewLeftover>
 pub fn oso_core::editor::Editor::set_review_reading(&mut self, oso_core::editor::ReviewId, core::option::Option<(usize, usize)>)
 pub fn oso_core::editor::Editor::set_review_text(&mut self, oso_core::editor::ReviewId, oso_core::load::Reloaded, oso_core::review::Rows, oso_core::syntax::Highlights) -> oso_core::editor::ReviewLeftover

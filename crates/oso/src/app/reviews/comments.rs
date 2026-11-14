@@ -8,7 +8,9 @@
 //! after the person's own input moved the view or the text changed.
 //!
 //! - The model's current reading of a file is the one the review buffer shows: a carry's result
-//!   is applied only as the text that holds it goes in.
+//!   is applied only as the text that holds it goes in. A carry taken before an earlier reading
+//!   was applied changes nothing as its text goes in: the file is marked behind, and the comment
+//!   commands refuse on it, until the carry taken again from the model is applied.
 //! - A file with no comments is carried on the view thread, which only hashes; one with
 //!   comments on the review's own thread, which reads old sides, in order, so each result is
 //!   the oldest carry asked.
@@ -17,11 +19,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use oso_core::editor::ReviewId;
-use oso_core::review::{Author, Comment, CommentId, Review, RowKind, Rows};
+use oso_core::review::{Applied, Author, Comment, CommentId, Review, RowKind, Rows};
 
 use super::super::App;
 use crate::review::view::{Carrying, Tell};
-use crate::review::{Entry, Reading, Request};
+use crate::review::{Content, Entry, Reading, Request};
 
 impl App {
     /// Tells the view the review's file has a new reading, its comments carried at once when
@@ -76,6 +78,29 @@ impl App {
             carried,
             cut_short,
         });
+    }
+
+    /// The text showing `reading` went in, and its carry was applied as `applied`. A carry
+    /// taken before an earlier reading was applied changed nothing, so the model lags the rows
+    /// shown: the file is marked behind and carried again from the model as it is now, which
+    /// applies with the next text unless yet another reading came, and the mark goes once the
+    /// model holds the reading shown.
+    pub(super) fn carry_applied(&mut self, index: usize, reading: Arc<Reading>, applied: &Applied) {
+        let id = self.reviews.open[index].id;
+        let path = &reading.entry.path;
+        let behind =
+            (self.editor.review(id)).is_some_and(|model| behind_after_apply(model, &reading));
+        self.editor.set_review_file_behind(id, path, behind);
+        // A stale carry asks again too.
+        let again = applied.again || behind;
+        // The view placed the file's cards by this carry, as the model now does, unless some
+        // went outdated, which the model may say otherwise, or came meanwhile.
+        if applied.outdated > 0 || again {
+            self.tell_cards(index, path);
+        }
+        if again {
+            self.carry_again(index, reading);
+        }
     }
 
     /// Carries the file's comments to `reading` again, as applying the last carry asked: on the
@@ -168,11 +193,15 @@ impl App {
         };
         let gone = unlisted(model, entries);
         let mut commented = Vec::new();
-        for path in gone {
-            model.remove_file(&path);
-            if model.comments_on(&path).next().is_some() {
-                commented.push(path);
+        for path in &gone {
+            model.remove_file(path);
+            if model.comments_on(path).next().is_some() {
+                commented.push(path.clone());
             }
+        }
+        // A file gone takes no comment, so it waits for no carry.
+        for path in &gone {
+            self.editor.set_review_file_behind(id, path, false);
         }
         for path in commented {
             self.tell_cards(index, &path);
@@ -250,6 +279,20 @@ impl App {
                 self.tell_cards(index, &path);
             }
         }
+    }
+}
+
+/// Whether the model's reading of the file lags `reading`, which the text that just went in
+/// shows: for a text reading, whether the model holds another; for one with no text, whether it
+/// holds any. A model with no reading of the file is not behind: the file left the review after
+/// the carry was taken, so it takes no comment, and its next listing reads it again.
+fn behind_after_apply(model: &Review, reading: &Reading) -> bool {
+    let Some(held) = model.file(&reading.entry.path) else {
+        return false;
+    };
+    match &reading.content {
+        Content::Text { shape, .. } => !Arc::ptr_eq(shape, held),
+        _ => true,
     }
 }
 

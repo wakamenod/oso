@@ -535,15 +535,7 @@ impl App {
                 break;
             };
             let applied = model.apply(carried);
-            let again = applied.again;
-            // The view placed the file's cards by this carry, as the model now does, unless
-            // some went outdated, which the model may say otherwise, or came meanwhile.
-            if applied.outdated > 0 || again {
-                self.tell_cards(index, &reading.entry.path);
-            }
-            if again {
-                self.carry_again(index, reading);
-            }
+            self.carry_applied(index, reading, &applied);
         }
         self.editor.set_review_reading(id, reading);
         #[cfg(feature = "dev")]

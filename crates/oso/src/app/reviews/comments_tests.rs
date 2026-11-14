@@ -1,5 +1,5 @@
 //! The tests of a review's comments in the app: which agent comments count as read from the
-//! rows in view, and which files left a listing.
+//! rows in view, which files left a listing, and when a file's model lags the reading shown.
 //!
 //! Must not depend on: key presses, how a frame is drawn, git or the threads.
 
@@ -9,8 +9,8 @@ use oso_core::review::{
     Anchor, Author, Base, CommentId, Hunk, Review, RowKind, Rows, Section, Shape, Side,
 };
 
-use super::{read_in_view, unlisted};
-use crate::review::{Entry, Id, Status};
+use super::{behind_after_apply, read_in_view, unlisted};
+use crate::review::{Content, Entry, Id, Reading, Status};
 
 const FILE: &[u8] = b"a.rs";
 
@@ -131,4 +131,75 @@ fn files_a_listing_no_longer_names_are_found() {
         unlisted(&review, &entries),
         [Box::<[u8]>::from(b"b.rs".as_slice())]
     );
+}
+
+/// A text reading of [`FILE`] whose one hunk adds `added` lines at line 1.
+fn reading_adding(added: usize) -> Reading {
+    let hunk = Hunk {
+        old_start: 1,
+        new_start: 1,
+        removed: Vec::new(),
+        added: (0..added).map(|_| b"x".as_slice().into()).collect(),
+    };
+    Reading {
+        entry: entry(FILE),
+        content: Content::Text {
+            shape: Arc::new(Shape::new(Base::Unknown, vec![hunk]).unwrap()),
+            old: Arc::from(&b""[..]),
+            new: Arc::from(&b""[..]),
+        },
+    }
+}
+
+fn shape_of(reading: &Reading) -> Arc<Shape> {
+    let Content::Text { shape, .. } = &reading.content else {
+        unreachable!("a text reading");
+    };
+    Arc::clone(shape)
+}
+
+#[test]
+fn a_carry_taken_before_an_earlier_reading_went_in_leaves_the_file_behind_until_carried_again() {
+    let mut review = review_of(&[FILE]);
+    // Readings N-1 and N in flight: both carries are taken before either applies.
+    let earlier = reading_adding(2);
+    let shown = reading_adding(3);
+    let run = |carry: oso_core::review::Carry| carry.run(|_, _| None, |_, _| Vec::new());
+    let first = run(review.carry(FILE, shape_of(&earlier)));
+    let second = run(review.carry(FILE, shape_of(&shown)));
+    assert!(!review.apply(first).again);
+    assert!(!behind_after_apply(&review, &earlier));
+    // N's text goes in, but its carry changes nothing: the model still holds N-1.
+    assert!(review.apply(second).again);
+    assert!(behind_after_apply(&review, &shown));
+    // So a comment on N's third line, which the rows show, is not the model's to take.
+    assert!(
+        review
+            .add_comment(Author::Person, FILE, line(3), "here".into())
+            .is_err()
+    );
+    // Carried again from the model as it is now, it applies with the next text.
+    let again = run(review.carry(FILE, shape_of(&shown)));
+    assert!(!review.apply(again).again);
+    assert!(!behind_after_apply(&review, &shown));
+    review
+        .add_comment(Author::Person, FILE, line(3), "here".into())
+        .unwrap();
+}
+
+#[test]
+fn a_file_gone_from_the_model_or_shown_with_no_text_is_judged_by_what_the_model_holds() {
+    let mut review = review_of(&[FILE]);
+    let binary = Reading {
+        entry: entry(FILE),
+        content: Content::Binary { old: 1, new: 2 },
+    };
+    assert!(
+        behind_after_apply(&review, &binary),
+        "the model holds a text reading"
+    );
+    review.remove_file(FILE);
+    assert!(!behind_after_apply(&review, &binary));
+    // Gone after the carry was taken: it takes no comment, so it waits for nothing.
+    assert!(!behind_after_apply(&review, &reading_adding(2)));
 }

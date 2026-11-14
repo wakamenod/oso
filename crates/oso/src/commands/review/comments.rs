@@ -12,6 +12,9 @@
 //! - What a draft holds is never lost: a draft that cannot be kept stays open, and `C-g` copies
 //!   it to oso's kill ring, never to the clipboard. No comment's text reaches a message or the
 //!   log.
+//! - `c`, `e` and keeping a draft refuse on a file the host marked behind, whose rows shown are
+//!   of a reading the model does not hold yet, so that no comment lands by another reading's
+//!   lines; the draft stays open.
 //! - A draft whose buffer turned secret, as a yank of a secret entry turns it, is not kept: its
 //!   text stays out of the review, whose comments the agent reads.
 
@@ -78,6 +81,9 @@ const TOO_LONG: &str = "Too long: a comment holds 64 KiB at most";
 
 /// What a draft whose buffer may hold secrets says.
 const SECRET: &str = "Secret text is not kept as a comment: C-g puts it in the kill ring";
+
+/// What `c`, `e` and keeping a draft say on a file whose reading shown the model lags.
+const BEHIND: &str = "This file is being read again: try in a moment";
 
 /// What the line at the primary cursor of a review buffer is, for a comment.
 enum Point {
@@ -165,6 +171,22 @@ fn path_of(ctx: &Ctx<'_>, review: ReviewId, comment: CommentId) -> Option<Box<[u
     Some(model.comment(comment)?.path().into())
 }
 
+/// The path of the file `draft` of `review` writes on: the target comment's for a reply or an
+/// edit.
+fn draft_path(ctx: &Ctx<'_>, review: ReviewId, draft: &DraftFor) -> Option<Box<[u8]>> {
+    match draft {
+        DraftFor::Comment { path, .. } => Some(path.clone()),
+        DraftFor::Reply { to: comment } | DraftFor::Edit { comment } => {
+            path_of(ctx, review, *comment)
+        }
+    }
+}
+
+/// Whether `draft` of `review` writes on a file the host marked behind.
+fn behind(ctx: &Ctx<'_>, review: ReviewId, draft: &DraftFor) -> bool {
+    draft_path(ctx, review, draft).is_some_and(|path| ctx.editor.review_file_behind(review, &path))
+}
+
 fn review_comment(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let (review, point) = point(ctx)?;
     let draft = match point {
@@ -175,6 +197,9 @@ fn review_comment(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         Point::Comment(to) => DraftFor::Reply { to },
         Point::Other => return Err(CommandError::new("Comment on a line or a hunk's header")),
     };
+    if behind(ctx, review, &draft) {
+        return Err(CommandError::new(BEHIND));
+    }
     open(ctx, review, draft, "")
 }
 
@@ -187,8 +212,12 @@ fn review_edit_comment(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if found.author() != Author::Person {
         return Err(CommandError::new(NOT_YOURS));
     }
+    let draft = DraftFor::Edit { comment };
+    if behind(ctx, review, &draft) {
+        return Err(CommandError::new(BEHIND));
+    }
     let text = found.text().to_owned();
-    open(ctx, review, DraftFor::Edit { comment }, &text)
+    open(ctx, review, draft, &text)
 }
 
 fn review_remove_comment(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -326,6 +355,11 @@ fn review_keep_draft(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let text = buffer.text().to_string();
     if text.trim().is_empty() {
         ctx.editor.prompt_says("Type a comment, or C-g");
+        ctx.request_redraw();
+        return Ok(());
+    }
+    if behind(ctx, review, &draft) {
+        ctx.editor.prompt_says(BEHIND);
         ctx.request_redraw();
         return Ok(());
     }

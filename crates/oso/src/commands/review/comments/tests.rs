@@ -1,6 +1,6 @@
 //! The comment commands of a review buffer on an editor with a review that holds comments:
-//! what each key does on each kind of row, what it refuses, the motions by comment, keeping a
-//! draft, and the questions that count an open draft.
+//! what each key does on each kind of row, what it refuses, on a file marked behind too, the
+//! motions by comment, keeping a draft, and the questions that count an open draft.
 //!
 //! Must not depend on: `bindings`, `dispatch`, `app` or winit; these run commands through the
 //! registry.
@@ -474,4 +474,82 @@ fn a_secret_draft_stays_open_and_c_g_puts_it_in_the_kill_ring_as_a_secret() {
     let newest = editor.kill_ring().get(0).unwrap();
     assert_eq!(newest.joined(), "see: hunter");
     assert!(newest.is_secret());
+}
+
+/// What `c`, `e` and keeping a draft say on a file marked behind.
+const BEHIND: &str = "This file is being read again: try in a moment";
+
+#[test]
+fn c_and_e_refuse_on_a_file_marked_behind() {
+    let (mut editor, review, _) = at(lines::OLD);
+    editor.set_review_file_behind(review, b"a", true);
+    for (line, name) in [
+        (lines::OLD, "review-comment"),
+        (lines::HUNK, "review-comment"),
+        // A reply, on the target comment's file.
+        (lines::AGENTS_CARD, "review-comment"),
+        (lines::MINE_CARD, "review-edit-comment"),
+    ] {
+        put_at(&mut editor, &[line]);
+        assert_eq!(
+            run(&mut editor, name, Args::NONE).0,
+            Err(BEHIND.into()),
+            "{name} at {line}"
+        );
+        assert!(editor.prompt().is_none(), "{name} at {line}");
+    }
+    // Another file is not held up.
+    editor.set_review_file_behind(review, b"a", false);
+    editor.set_review_file_behind(review, b"b", true);
+    put_at(&mut editor, &[lines::OLD]);
+    assert_eq!(run(&mut editor, "review-comment", Args::NONE).0, Ok(()));
+    assert!(drafted(&mut editor).is_some());
+    put_at(&mut editor, &[lines::MINE_CARD]);
+    assert_eq!(
+        run(&mut editor, "review-edit-comment", Args::NONE).0,
+        Ok(())
+    );
+    assert!(drafted(&mut editor).is_some());
+}
+
+#[test]
+fn keeping_a_draft_on_a_file_marked_behind_leaves_it_open_until_the_file_caught_up() {
+    let (mut editor, review, comments) = at(lines::OLD);
+    let before = editor.review(review).unwrap().comments().count();
+    for line in [lines::OLD, lines::AGENTS, lines::MINE] {
+        put_at(&mut editor, &[line]);
+        let name = if line == lines::MINE {
+            "review-edit-comment"
+        } else {
+            "review-comment"
+        };
+        assert_eq!(run(&mut editor, name, Args::NONE).0, Ok(()), "{line}");
+        type_in(&mut editor, " later");
+        let count = editor.review(review).unwrap().comments().count();
+        // Marked while the draft was open, as by a text that went in just before it opened.
+        editor.set_review_file_behind(review, b"a", true);
+        assert_eq!(run(&mut editor, "review-keep-draft", Args::NONE).0, Ok(()));
+        assert!(editor.draft().is_some(), "still open at {line}");
+        assert_eq!(
+            editor.prompt().and_then(|prompt| prompt.message()),
+            Some(BEHIND),
+            "{line}"
+        );
+        assert_eq!(
+            editor.review(review).unwrap().comments().count(),
+            count,
+            "{line}"
+        );
+        assert!(editor.take_review_requests().is_empty());
+        editor.set_review_file_behind(review, b"a", false);
+        assert_eq!(run(&mut editor, "review-keep-draft", Args::NONE).0, Ok(()));
+        assert!(editor.draft().is_none(), "kept at {line}");
+        assert_eq!(editor.take_review_requests(), [redraw_of(b"a", review)]);
+    }
+    let model = editor.review(review).unwrap();
+    assert_eq!(model.comments().count(), before + 2);
+    assert_eq!(
+        model.comment(comments.mine).unwrap().text(),
+        "fix this later"
+    );
 }
