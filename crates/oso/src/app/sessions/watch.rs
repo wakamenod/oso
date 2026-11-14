@@ -342,20 +342,16 @@ impl App {
                 .as_deref()
                 .and_then(|dir| self.watch.spaces.of_path(dir))
                 .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(
-                    || crate::sessions::list::EXTERNAL.to_owned(),
-                    |space| space.name.clone(),
-                );
+                .map_or_else(|| external.directory_name(), |space| space.name.clone());
             let state = if external.working {
                 State::Working
             } else {
                 State::Idle
             };
-            // Its age counts from when oso first saw it in this state.
-            let since = before
-                .get(&external.pid)
-                .filter(|(kept, _)| *kept == state)
-                .map_or(now, |(_, since)| *since);
+            // Its age counts from the registry's change of status, else from oso's first look.
+            let seen = before.get(&external.pid).filter(|(kept, _)| *kept == state);
+            let since = (external.since(now, std::time::SystemTime::now()))
+                .unwrap_or_else(|| seen.map_or(now, |(_, since)| *since));
             externals.push(Entry {
                 key: Key::External(external.pid),
                 name: external.listed_name(),

@@ -868,13 +868,16 @@ a switch made with its command stands until that setting changes in the file
   Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
   sessions need input"). A notification names the session and its state, never screen text.
 - `*Sessions*` lists every session in a side window, 32 columns wide at the frame's left, shown
-  by itself while oso has a session that is not archived. Each session takes three lines: its
+  by itself while oso has a session that is not archived. Each session takes one line: its
   state's mark (⚠ needs input, ✗ failed, ▶ working, ◆ ready for review, ● done, ○ idle,
-  ■ stopped), name and age; its space and branch; its recap, the dialog's question or the
-  status line. Sessions are grouped by state, pinned ones first, sessions a session started
-  nested under it; archived ones last, folded. In a window 60 columns wide or more, each takes
-  one line. The list is withheld from agents: while it is shown, the agent channel's commands
-  answer in the echo area only.
+  ■ stopped), its name, cut in the middle when long so that its end shows, its space and
+  branch where there is room, and its age at the right: the time since it last changed state,
+  `now` under a minute. A session that needs input or failed takes a second line, its reason:
+  the dialog's question. Sessions are grouped by state, pinned ones first, sessions a session
+  started nested under it; archived ones last, folded. The list is withheld from agents: while
+  it is shown, the agent channel's commands answer in the echo area only
+  ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md) makes it a tree of projects and
+  worktrees next).
   - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
     if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
     for again. `C-x o` skips it, and so does `C-x 0` in another window; a click or
@@ -885,7 +888,7 @@ a switch made with its command stands until that setting changes in the file
   - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
     renders again with fresh ages, `s` groups by space instead, `P` pins, `A` archives or
     brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
-    explains its state.
+    explains its state, `?` says what the marks mean and the keys.
 - `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and
   recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
   that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
@@ -901,7 +904,8 @@ a switch made with its command stands until that setting changes in the file
   (permission) 3m`, before its title. A session counts as seen after 2 s in the selected window
   of a focused oso window: done becomes idle.
 - Sessions of Claude Code run outside oso, from its registry, are listed too, as working or
-  idle; they are never shown.
+  idle, their place beginning `external`, aged from when the registry says their status last
+  changed; they are never shown.
 - `C-x a m` (`session-send`) pastes the region into a session read with completion, the
   session of this space shown last first. Each region goes as its path relative to the
   session's directory, its lines and its text in a fence. With no region it reads a one-line

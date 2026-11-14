@@ -1,7 +1,10 @@
 //! `*Sessions*` (ADR 0121, Q6, step 3): the sessions grouped by state, in the taxonomy's order,
 //! or by space; pinned ones first in a group; sessions nested under the session that started
 //! them; archived ones in a last group, folded. Rendered to the window's width, so wrapping
-//! never applies, with a map from each line to what it shows.
+//! never applies, with a map from each line to what it shows. A session takes one line at
+//! any width (ADR 0131): its mark, its name cut in the middle, its place where there is room,
+//! and its age at the right edge. Only a session that needs input or failed, or has nested
+//! sessions that need input, takes a second line, its reason.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data in, text out, so
 //! that the board ADR 0126 plans is a second renderer of the same model.
@@ -18,18 +21,14 @@ use oso_core::display_map::cell::classify;
 use super::state::State;
 use super::worker::SessionKey;
 
-/// What an external session's row says, and its space when no space of oso's holds it.
+/// What an external session's place says first.
 pub const EXTERNAL: &str = "external";
 
 /// The marks a row of the list begins with, after its indent: `n` and `p` move between them.
 pub use crate::commands::agent_sessions::ROW_MARKS as MARKS;
 
-/// The narrowest window that shows a session on one line; narrower ones take three.
-pub const WIDE_FROM: usize = 60;
-
-/// The columns of a wide line's name and of its space and branch.
-const NAME_CELLS: usize = 20;
-const PLACE_CELLS: usize = 28;
+/// The fewest cells a place is shown in after a name; with less room it is left out.
+const PLACE_FROM: usize = 6;
 
 /// How far a nested session is indented under its parent.
 const NESTED: &str = "  ";
@@ -136,7 +135,6 @@ impl List {
     pub fn render(&self, entries: &[Entry], width: usize, now: Instant) -> Rendered {
         let mut out = Rendered::default();
         let groups = self.groups(entries);
-        let wide = width >= WIDE_FROM;
         for (group, members) in &groups {
             let folded = self.folded(&Fold::Group(group.clone()));
             let header = format!(
@@ -161,9 +159,8 @@ impl List {
                     entry: parent,
                     indent: "",
                     waiting,
-                    nested: nested.len(),
                 };
-                row.render(&mut out, width, wide, now);
+                row.render(&mut out, width, now);
                 if self.folded(&Fold::Nested(parent.key)) {
                     continue;
                 }
@@ -172,9 +169,8 @@ impl List {
                         entry,
                         indent: NESTED,
                         waiting: 0,
-                        nested: 0,
                     };
-                    row.render(&mut out, width, wide, now);
+                    row.render(&mut out, width, now);
                 }
             }
         }
@@ -312,9 +308,14 @@ fn group_name(group: &Group) -> &str {
     }
 }
 
-/// An age as the list shows it: `12s`, `5m`, `3h`, `2d`.
+/// An age as the list shows it: `now` under a minute, then `5m`, `3h`, `2d` (ADR 0131), so
+/// that a row's text changes at most once a minute.
 pub fn age(since: Instant, now: Instant) -> String {
-    age_of(now.saturating_duration_since(since))
+    let ago = now.saturating_duration_since(since);
+    if ago < Duration::from_secs(60) {
+        return "now".to_owned();
+    }
+    age_of(ago)
 }
 
 /// A time gone by as the list shows it, as [`age`].
@@ -332,21 +333,48 @@ pub fn age_of(ago: Duration) -> String {
 struct Row<'e> {
     entry: &'e Entry,
     indent: &'static str,
-    /// How many sessions nested under it need input, and how many there are.
+    /// How many sessions nested under it need input.
     waiting: usize,
-    nested: usize,
 }
 
 impl Row<'_> {
-    fn render(&self, out: &mut Rendered, width: usize, wide: bool, now: Instant) {
+    fn render(&self, out: &mut Rendered, width: usize, now: Instant) {
         let entry = self.entry;
         let line = Line::Session(entry.key);
         let age = age(entry.since, now);
         let head = format!("{}{} ", self.indent, mark(entry.state));
-        // An external row says so first, as a place too long is cut at its end.
+        // The name first, then its place where there is room, then the age at the right edge.
+        let room = width.saturating_sub(cells(&head) + cells(&age) + 1);
+        let name = cut_middle(&entry.name, room);
+        let mut text = format!("{head}{name}");
+        let left = room.saturating_sub(cells(&name) + 2);
+        if left >= PLACE_FROM {
+            text.push_str("  ");
+            text.push_str(&cut_middle(unmarked(&self.place()), left));
+        }
+        let text = pad(&text, width.saturating_sub(cells(&age))) + &age;
+        out.push(&cut(&text, width), line.clone());
+        // A reason only where the person has something to do.
+        let own = matches!(entry.state, State::NeedsInput(_) | State::Failed)
+            .then_some(entry.recap.as_str())
+            .filter(|recap| !recap.is_empty());
+        let reason = match (self.waiting, own) {
+            (0, None) => return,
+            (0, Some(own)) => own.to_owned(),
+            (1, own) => joined("1 nested needs input", own),
+            (n, own) => joined(&format!("{n} nested need input"), own),
+        };
+        let under = format!("{}  ", self.indent);
+        out.push(&cut(&format!("{under}{}", unmarked(&reason)), width), line);
+    }
+
+    /// Where the session runs: its space and branch, and whether it is pinned. An external
+    /// session's says so first.
+    fn place(&self) -> String {
+        let entry = self.entry;
         let mut place = match entry.key {
-            Key::External(_) if entry.space != EXTERNAL => format!("{EXTERNAL} · {}", entry.space),
-            _ => entry.space.clone(),
+            Key::External(_) => format!("{EXTERNAL} · {}", entry.space),
+            Key::Hosted(_) => entry.space.clone(),
         };
         if let Some(branch) = &entry.branch {
             let _ = write!(place, " · {branch}");
@@ -354,35 +382,13 @@ impl Row<'_> {
         if entry.pinned {
             place.push_str(" · pinned");
         }
-        let recap = match (self.waiting, self.nested) {
-            (0, 0) => entry.recap.clone(),
-            (0, n) => format!("{n} nested · {}", entry.recap),
-            (1, _) => format!("1 nested needs input · {}", entry.recap),
-            (n, _) => format!("{n} nested need input · {}", entry.recap),
-        };
-        if wide {
-            let mut text = head;
-            text.push_str(&pad(&cut(&entry.name, NAME_CELLS), NAME_CELLS + 1));
-            text.push_str(&pad(&cut(&place, PLACE_CELLS), PLACE_CELLS + 1));
-            text.push_str(&pad(&age, 4));
-            text.push_str("  ");
-            text.push_str(&recap);
-            out.push(&cut(&text, width), line);
-            return;
-        }
-        // The name, then the age at the right edge.
-        let room = width.saturating_sub(cells(&head) + cells(&age) + 1);
-        let name = cut(&entry.name, room);
-        let first = format!("{head}{}{age}", pad(&name, room + 1));
-        out.push(&cut(&first, width), line.clone());
-        // A space or recap that began with a mark would read as a row of its own.
-        let under = format!("{}  ", self.indent);
-        out.push(
-            &cut(&format!("{under}{}", unmarked(&place)), width),
-            line.clone(),
-        );
-        out.push(&cut(&format!("{under}{}", unmarked(&recap)), width), line);
+        place
     }
+}
+
+/// `first`, then ` · ` and `then` if there is one.
+fn joined(first: &str, then: Option<&str>) -> String {
+    then.map_or_else(|| first.to_owned(), |then| format!("{first} · {then}"))
 }
 
 impl Rendered {
@@ -429,6 +435,40 @@ pub fn cut(text: &str, width: usize) -> String {
     if width > 0 {
         out.push('…');
     }
+    out
+}
+
+/// `text` cut to `width` cells in the middle, keeping its last third (ADR 0131), so that names
+/// that share a long start still differ: `chore-survey-r…lifecycle-hook`. A line break ends it.
+pub fn cut_middle(text: &str, width: usize) -> String {
+    let text = text.lines().next().unwrap_or_default();
+    if cells(text) <= width || width < 6 {
+        return cut(text, width);
+    }
+    let tail_room = (width - 1) / 3;
+    let mut tail = Vec::new();
+    let mut used = 0;
+    for c in text.chars().rev() {
+        let n = char_cells(c);
+        if used + n > tail_room {
+            break;
+        }
+        tail.push(c);
+        used += n;
+    }
+    let head_room = width - 1 - used;
+    let mut out = String::new();
+    let mut used = 0;
+    for c in text.chars() {
+        let n = char_cells(c);
+        if used + n > head_room {
+            break;
+        }
+        out.push(c);
+        used += n;
+    }
+    out.push('…');
+    out.extend(tail.into_iter().rev());
     out
 }
 

@@ -82,10 +82,12 @@ copy mode. Each row is cut at 1 KiB, and control characters become spaces.
 
 ### Recaps
 
-`*Sessions*` and `session-switch` show one line under each session: its recap.
+`session-switch` shows each session's recap, and `*Sessions*` shows it under a session that
+needs input or failed ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md)).
 - A session that needs input shows what the matched rule's `recap` finds: the dialog's question.
 - A working session shows what the matched rule's `recap` finds, or else the first other working
-  rule's whose recap finds something: the status line.
+  rule's whose recap finds something. The bundled rules give none, as the status line's word
+  means nothing, so a working session shows its title; a local rule may still set one.
 - Any other session, or one whose rule has no recap or finds nothing, shows the terminal's title.
 - While a hold rule matches, the recap stays as it was.
 

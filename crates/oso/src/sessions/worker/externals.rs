@@ -34,6 +34,8 @@ pub struct External {
     pub directory: Option<PathBuf>,
     /// The CLI says it is busy.
     pub working: bool,
+    /// When the CLI last changed its status, as its registry entry says.
+    pub status_changed: Option<SystemTime>,
 }
 
 impl External {
@@ -42,6 +44,22 @@ impl External {
         self.name
             .clone()
             .unwrap_or_else(|| format!("claude {}", self.pid))
+    }
+
+    /// Since when it is in its status, as an instant of `now`, whose wall-clock time is
+    /// `wall`: never later than `now`. `None` when the registry does not say.
+    pub fn since(&self, now: Instant, wall: SystemTime) -> Option<Instant> {
+        let ago = wall
+            .duration_since(self.status_changed?)
+            .unwrap_or_default();
+        Some(now.checked_sub(ago).unwrap_or(now))
+    }
+
+    /// Its directory's last name, cleaned as its name is, as its place in `*Sessions*` when
+    /// no space of oso's holds it.
+    pub fn directory_name(&self) -> String {
+        let name = self.directory.as_deref().and_then(Path::file_name);
+        name.map_or_else(String::new, |name| recap::clean(&name.to_string_lossy()))
     }
 }
 
@@ -140,6 +158,9 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
             directory: entry.cwd.clone(),
             working: entry.status.as_deref() == Some("busy"),
             session_id: entry.session_id.clone(),
+            status_changed: entry
+                .status_updated_at
+                .map(|ms| std::time::UNIX_EPOCH + Duration::from_millis(ms)),
         })
         .collect();
     live.sort_by_key(|external| external.pid);
@@ -215,6 +236,28 @@ mod tests {
         poll.set(Some(dir.clone()), now);
         assert_eq!(poll.tick(now), Some(Vec::new()));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn its_age_counts_from_the_registrys_change_of_status_and_never_from_the_future() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let external = |changed: Option<u64>| super::External {
+            pid: 42,
+            session_id: None,
+            name: None,
+            directory: Some("/work/a\u{202E}b".into()),
+            working: false,
+            status_changed: changed.map(|s| UNIX_EPOCH + Duration::from_secs(s)),
+        };
+        let now = Instant::now();
+        let wall = UNIX_EPOCH + Duration::from_secs(1_000);
+        assert_eq!(
+            external(Some(700)).since(now, wall),
+            now.checked_sub(Duration::from_secs(300))
+        );
+        assert_eq!(external(Some(2_000)).since(now, wall), Some(now));
+        assert_eq!(external(None).since(now, SystemTime::now()), None);
+        assert_eq!(external(None).directory_name(), "ab");
     }
 
     #[test]

@@ -33,6 +33,7 @@ fn entry(pid: u32, n: u8, status: &str) -> Entry {
         name: Some(format!("live-{n}")),
         kind: None,
         status: Some(status.to_owned()),
+        status_updated_at: None,
     }
 }
 
