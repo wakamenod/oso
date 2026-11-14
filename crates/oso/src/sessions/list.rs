@@ -18,6 +18,9 @@ use oso_core::display_map::cell::classify;
 use super::state::State;
 use super::worker::SessionKey;
 
+/// What an external session's row says, and its space when no space of oso's holds it.
+pub const EXTERNAL: &str = "external";
+
 /// The marks a row of the list begins with, after its indent: `n` and `p` move between them.
 pub use crate::commands::agent_sessions::ROW_MARKS as MARKS;
 
@@ -335,17 +338,16 @@ impl Row<'_> {
         let line = Line::Session(entry.key);
         let age = age(entry.since, now);
         let head = format!("{}{} ", self.indent, mark(entry.state));
-        let mut place = entry.space.clone();
+        // An external row says so first, as a place too long is cut at its end.
+        let mut place = match entry.key {
+            Key::External(_) if entry.space != EXTERNAL => format!("{EXTERNAL} · {}", entry.space),
+            _ => entry.space.clone(),
+        };
         if let Some(branch) = &entry.branch {
             let _ = write!(place, " · {branch}");
         }
-        for (on, word) in [
-            (entry.pinned, "pinned"),
-            (matches!(entry.key, Key::External(_)), "external"),
-        ] {
-            if on {
-                let _ = write!(place, " · {word}");
-            }
+        if entry.pinned {
+            place.push_str(" · pinned");
         }
         let recap = match (self.waiting, self.nested) {
             (0, 0) => entry.recap.clone(),

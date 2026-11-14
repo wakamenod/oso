@@ -47,7 +47,7 @@ pub const PROC_START_SLACK: Duration = Duration::from_secs(2);
 pub const STARTED_AT_SLACK: Duration = Duration::from_secs(10);
 
 /// One registry entry: the fields oso reads, each `None` if missing or out of bounds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Entry {
     /// The process, as its file's name gives it too.
     pub pid: u32,
@@ -81,18 +81,23 @@ pub const CONFIG_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 
 /// The registry's directory: `sessions` under `$CLAUDE_CONFIG_DIR`, else under `~/.claude`.
 /// `None` when it cannot be told: `$CLAUDE_CONFIG_DIR` is not an absolute path, which a
-/// session would read from its own directory, or there is no absolute home.
+/// session would read from its own directory, or there is no absolute home
+/// (`oso_platform::privacy::home`).
 pub fn directory() -> Option<PathBuf> {
-    directory_from(std::env::var_os(CONFIG_VARIABLE), std::env::var_os("HOME"))
+    directory_from(
+        std::env::var_os(CONFIG_VARIABLE),
+        oso_platform::privacy::home(),
+    )
 }
 
-fn directory_from(config_dir: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    let absolute = |dir: OsString| Some(PathBuf::from(dir)).filter(|dir| dir.is_absolute());
+/// `home` is absolute, as `oso_platform::privacy::home` gives it.
+fn directory_from(config_dir: Option<OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
     if let Some(dir) = config_dir {
-        return absolute(dir).map(|dir| dir.join("sessions"));
+        return Some(PathBuf::from(dir))
+            .filter(|dir| dir.is_absolute())
+            .map(|dir| dir.join("sessions"));
     }
-    home.and_then(absolute)
-        .map(|home| home.join(".claude").join("sessions"))
+    home.map(|home| home.join(".claude").join("sessions"))
 }
 
 /// The entries in `dir`, in no order. A directory that cannot be listed has none.
@@ -374,17 +379,18 @@ mod tests {
     #[test]
     fn the_directory_is_under_the_configuration_or_home() {
         let some = |text: &str| Some(OsString::from(text));
+        let home = Some(PathBuf::from("/h"));
         assert_eq!(
-            directory_from(some("/c"), some("/h")),
+            directory_from(some("/c"), home.clone()),
             Some(PathBuf::from("/c/sessions"))
         );
         // A session would read a relative one from its own directory: oso cannot tell where.
-        assert_eq!(directory_from(some("relative"), some("/h")), None);
+        assert_eq!(directory_from(some("relative"), home.clone()), None);
         assert_eq!(
-            directory_from(None, some("/h")),
+            directory_from(None, home),
             Some(PathBuf::from("/h/.claude/sessions"))
         );
-        assert_eq!(directory_from(None, some("h")), None);
+        // `oso_platform::privacy::home` gives no relative home: its own tests check that.
         assert_eq!(directory_from(None, None), None);
     }
 

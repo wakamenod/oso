@@ -41,7 +41,8 @@ migemo sum_tree
 # `notify` asks for the person's attention for agent sessions (ADR 0121).
 clipboard control notify process text window
 privacy
-file_meta
+# `random` reads the system's random bytes, for session ids (ADR 0121, step 1 as built).
+file_meta random
 
 [oso-render]
 capture

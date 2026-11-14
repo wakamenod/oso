@@ -10,7 +10,7 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::{Flow, terminal};
 use crate::harness::App;
@@ -135,6 +135,9 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     app.send_keys("C-x a d");
     let state = app.wait_for("shown", |state| state["buffer"]["name"] == "*claude: proj*");
     assert!(state["windows"].as_array().unwrap().len() >= 2);
+    // A display with no window manager, as Xvfb on CI, may say the window lost the keyboard
+    // and never give it back: the window takes it, as a click on it would.
+    app.call("focus", Some(json!({ "focused": true })));
     app.wait_for("seen", |state| {
         state_of(state, "proj").as_deref() == Some("idle")
     });

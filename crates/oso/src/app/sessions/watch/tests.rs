@@ -58,3 +58,21 @@ fn a_change_remembered_in_ms_is_as_far_back_as_it_was() {
     // One in the future, as a clock set back gives, is now.
     assert_eq!(since_ms(u64::MAX, now), now);
 }
+
+#[test]
+fn a_space_left_from_the_side_window_keeps_the_tree_windows_buffer() {
+    use oso_core::buffer::{Buffer, Mode};
+    use oso_core::editor::Editor;
+    use oso_core::frame::FrameSize;
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", "a"));
+    editor.set_frame_size(FrameSize {
+        rows: 24,
+        columns: 120,
+    });
+    let file = editor.window().buffer();
+    let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let side = editor.show_side_window(list, 32);
+    editor.select_window(side);
+    assert_eq!(super::requests::tree_buffer(&mut editor), file);
+    assert_ne!(editor.window().id(), side, "the tree's window is selected");
+}

@@ -96,7 +96,13 @@ pub fn recap(
         }
         _ => None,
     };
-    Some(found.unwrap_or_else(|| clean(&evidence.region(Region::Title))))
+    Some(found.unwrap_or_else(|| clean(without_spinner(&evidence.region(Region::Title)))))
+}
+
+/// `title` without the Braille spinner a CLI puts before it while it works: it turns several
+/// times a second, and a recap that changed with it would draw `*Sessions*` again each time.
+fn without_spinner(title: &str) -> &str {
+    title.trim_start_matches(|c: char| ('\u{2800}'..='\u{28FF}').contains(&c))
 }
 
 /// `text` on one line: control and bidirectional formatting characters dropped, runs of

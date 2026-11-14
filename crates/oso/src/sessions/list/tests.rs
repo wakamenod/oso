@@ -188,9 +188,20 @@ fn a_wide_window_takes_one_line_a_session_in_columns() {
     assert_eq!(text.len(), 2);
     assert_eq!(
         text[1],
-        "▶ other                oso · external               0s    o…"
+        "▶ other                external · oso               0s    o…"
     );
     assert!(cells(text[1]) <= WIDE_FROM);
+}
+
+#[test]
+fn an_external_row_says_so_whatever_its_space() {
+    let t = Instant::now();
+    let mut external = entry(9, "other", State::Working, t);
+    external.key = Key::External(4242);
+    external.space = "a-space-name-long-enough-to-be-cut".to_owned();
+    let shown = List::default().render(&[external], WIDE_FROM, t);
+    let row = shown.text.lines().nth(1).unwrap().to_owned();
+    assert!(row.contains("external · a-space"), "{row}");
 }
 
 #[test]

@@ -133,7 +133,8 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 - **`claude` (`Person`)** starts a session in the selected buffer's project root, else its file's
   directory, as a new terminal does, else the directory oso started in. With a prefix argument it asks for a name and a directory. The session's terminal is a
   buffer named `*claude: NAME*`.
-- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 bytes of `/dev/urandom`, and
+- **Identity (Q1):** oso makes the id itself, a version 4 UUID from 16 random bytes of the system's
+  (`oso_platform::random`, `/dev/urandom` on Unix), and
   passes `--session-id`. So oso knows the id before the CLI writes anything, and needs no hook for
   it. The name is passed with `--name`: the project's name, then `-2`, `-3` for more in it. The
   registry entry for the child's process id gives the inbox socket's path and the CLI's own status;
@@ -710,7 +711,7 @@ For the author, the recommended option first. Each is answered on its own.
 
 - `objc2-user-notifications` for banners on macOS, only once oso ships as an app bundle (Q9 a).
 - Nothing else: `toml`, `regex` and `ignore` are already dependencies of the tip crate, and the
-  UUID comes from `/dev/urandom`.
+  UUID comes from `oso_platform::random`, which reads `/dev/urandom`.
 
 ## The author's choices
 
@@ -806,6 +807,17 @@ points:
   result on macOS, and `sysconf(_SC_CLK_TCK)` on Linux. `Ok(None)` is no such process; an error
   is a process the system does not say the start of, such as another user's, or any process on
   a system it does not support, and the registry reader counts it as live.
+- **`oso-platform` gained, in the first follow-up, `privacy::home() -> Option<PathBuf>` and a
+  module `random` with `fill(bytes: &mut [u8]) -> io::Result<()>`, with no `unsafe`** (the
+  author's approval, 2026-11-13), so that the tip crate reads neither the environment's home nor
+  `/dev/urandom` itself. `home` is `$HOME` on Unix and `%USERPROFILE%` on Windows, only an
+  absolute path, from the environment and not the disk; the registry's `~/.claude` and the app's
+  `~` both take it, so a relative or empty `HOME` is no home for either. `random::fill` reads
+  `/dev/urandom` on Unix and is `ErrorKind::Unsupported` elsewhere for now, where a session
+  refuses to start with that error. `random` is on the lowest line of `[oso-platform]` in
+  `guardrails/layers.txt`. One exception is intentional: `oso-term`'s build script still reads
+  `HOME` for its vendor cache, as a build script cannot use `oso-platform` without a
+  build-dependency, which is not worth it there.
 - **`oso-term` gained `Terminal::pid(&self) -> Option<u32>`:** the child's process id from its
   start until it is reaped, cleared before the reap, so a reused id is never given.
 - **The remembered set** is `sessions` in oso's state directory, JSON lines of id, name,
@@ -964,9 +976,18 @@ approved these points:
 - **The side window is outside the window tree** (`editor/sessions/side.rs`): one window at
   the frame's left, 32 columns wide, with a divider. `tiling()`, a space's tree, a restart's
   layout and `C-x +` never see it. `C-x o` skips it; a click and `windmove-left` reach it.
-  While it is selected, the tree's commands (`C-x 2`, `C-x 3`, `C-x 1`, a resize, and showing
-  a buffer) act on the tree's window selected last, and select it, so that no session's own
-  command shows anything in it. `C-x 0` in it hides it, and `C-x 1` keeps it.
+  While it is selected, the tree's commands (`C-x 2`, `C-x 3`, `C-x 1`, a resize, `M-,` and
+  `M-/`, `*Messages*` and the list of emergency copies with their way back, and showing a
+  buffer, `show_in` the side window too) act on the tree's window selected last, and select
+  it, so that no command shows anything in it. `C-x 0` in it hides it, and `C-x 1` keeps it.
+  `C-x 0` in a tree's window never selects it, and the side window goes if the buffer it
+  shows does.
+  - The agent channel never selects it, nor a window whose buffer has keys of its own: after
+    an agent's command, the dispatcher selects again the window it had, and says why, as it
+    does for a terminal (ADR 0120); if that window has no room left, a window or buffer with
+    the ordinary keys is put in front. An agent's `delete-window` is refused in the side
+    window, and while another tree's window shows such a buffer. An external session's row
+    says `external` first, and its name loses what draws nothing.
   - It shows by itself while oso has a session that is not archived. `C-x a s` shows and
     selects it when hidden, selects it when shown, and hides it when selected. Once the
     person hides it, by `C-x a s` or `C-x 0`, it stays hidden for that oso instance.
@@ -974,7 +995,10 @@ approved these points:
   cursors, scroll, kept places and ADR 0122 pair. `swap_window_tree` refuses while a prompt
   is open and gives the tree back. `space-zoom` swaps in a tree of one window like the
   selected one, and back. Showing a session of another space switches to that space first.
-  A space is a project root; worktrees' spaces get their repository with step 4.
+  A space is a project root; worktrees' spaces get their repository with step 4. A zoom made
+  before the first session is the first space's, and a space entered with nothing to show
+  takes the frame's tree with its zoom. The buffer a space left keeps as its last is the
+  tree's window's, never `*Sessions*`.
 - **What the editor keeps for sessions is one field, `Sessions`**, in
   `editor/sessions.rs`: the requests, the side window, the modeline's marks
   (`SessionMarks`, drawn as `⚠ N` and `● N` on the selected window's modeline only) and the
@@ -987,7 +1011,9 @@ approved these points:
 - **Recaps come from the rules**: an optional `recap` pattern on each rule, and
   `recap_region` for where it looks (see [agent-rules.md](../agent-rules.md)). The worker
   finds the recap after each verdict, within its own 5 ms deadline, and sends `Out::Recap`
-  only when it changed. A recap that cannot be found leaves the title.
+  only when it changed. A recap that cannot be found leaves the title, without the Braille
+  spinner a CLI puts before it while it works, so that the list is not drawn again each time
+  the spinner turns.
 - **`*Sessions*` is an internal buffer, withheld from agents** (step 2's flag), in
   `Mode::Sessions`. While it is shown, the channel's commands answer in the echo area only.
   It is rendered only while shown, to the window's width, with point kept on its row. Ages
@@ -1012,7 +1038,8 @@ approved these points:
 - **Other programs' sessions:** once oso has a session, the worker looks at Claude Code's
   registry once a second: a listing and a `stat` of each `<pid>.json`, read again with step
   1's reader only when one changed, and each process's start time. Live entries that are not
-  oso's own are listed as working or idle, never shown.
+  oso's own are listed as working or idle, never shown. Their names are cleaned as recaps
+  are.
 - **`k` in the list hangs up a session's terminal**, asking first while it works or needs
   input. The question is the app's, as only the app knows the state; its yes runs
   `session-stop` again, which finds it answered.
@@ -1035,13 +1062,18 @@ approved these points:
 - **The list's untrusted lines never begin with a mark:** a space or recap that does loses
   its leading blanks and marks, so that it never reads as a row, and `n`/`p` never stop on it.
 - **A restart leaves the side window out** of the handed-over windows, as the layout is the
-  tree's; it comes back by itself while sessions exist. A project no longer trusted revokes
+  tree's; it comes back by itself while sessions exist. `oso dev`'s handoff hands over only
+  the tree in the frame: the other spaces' trees and a zoom are lost, and the spaces start
+  again from their last buffers. A project no longer trusted revokes
   the root of a running look for a session's changes, as it does a review's.
 - **The registry poll runs while a session of oso's runs,** and stops when none does. It looks
-  at most at 1,024 names, and reads a file again only when it changed.
+  at most at 1,024 names, and reads a file again only when it changed. A look made before
+  the poll stopped is dropped, and a poll started again tells what it finds anew.
 - **Not done in step 3:** the branch in each row (it needs git on a trusted project, and
   comes with step 4's worktrees); finding a session's trusted project needs one of its
-  buffers open.
+  buffers open. Echo off is still open: `Evidence::echo_off` holds a session's state, but
+  nothing feeds it yet. It waits for ADR 0120 step 4b's echo signal, which must tell a
+  password prompt from the raw mode every TUI runs in (see "Step 2, as built").
 
 ## Step 4, as built
 

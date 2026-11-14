@@ -10,6 +10,7 @@ mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
 mod requests;
+mod shared;
 mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -93,20 +94,6 @@ impl Watch {
     /// `[sessions.notify]` in force.
     pub(in crate::app) fn set_toggles(&mut self, toggles: Toggles) {
         self.attention.set_toggles(toggles);
-    }
-
-    /// The state the worker last told of session `key`, if it told one.
-    pub(in crate::app) fn state(&self, key: SessionKey) -> Option<State> {
-        self.known.get(&key).map(|known| known.state)
-    }
-
-    /// The spaces, which a worktree session's joins (ADR 0121 step 4).
-    pub(in crate::app) fn spaces(&self) -> &Spaces {
-        &self.spaces
-    }
-
-    pub(in crate::app) fn spaces_mut(&mut self) -> &mut Spaces {
-        &mut self.spaces
     }
 }
 
@@ -308,6 +295,10 @@ impl App {
     /// The worker found the live sessions of Claude Code's registry: those that are not
     /// oso's own are listed, never shown.
     pub(in crate::app) fn externals_found(&mut self, live: Vec<External>) {
+        // A look the worker made before it was told to stop: the list keeps none.
+        if !self.watch.polling {
+            return;
+        }
         let now = Instant::now();
         let table = self.hosting.table();
         let ids: HashSet<&SessionId> = table.iter().map(|session| &session.id).collect();
@@ -341,7 +332,10 @@ impl App {
                 .as_deref()
                 .and_then(|dir| self.watch.spaces.of_path(dir))
                 .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(|| "external".to_owned(), |space| space.name.clone());
+                .map_or_else(
+                    || crate::sessions::list::EXTERNAL.to_owned(),
+                    |space| space.name.clone(),
+                );
             let state = if external.working {
                 State::Working
             } else {
