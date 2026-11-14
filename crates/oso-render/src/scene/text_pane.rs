@@ -11,15 +11,19 @@ use oso_core::motion;
 use oso_platform::text::{CellMetrics, TextSystem};
 
 use super::{Covered, Draws, GlyphSource, RowFaces, line_width};
-use crate::pane::{Face, Pane, PaneContent, TextView};
+use crate::pane::{CursorStyle, Face, Pane, PaneContent, TextView};
 use crate::rows::Rows;
 use crate::text::Layout;
 use oso_core::window::ScreenRow;
 
 /// The frame's cells under the cursor box of `view` in `region`, if it shows.
 /// The box covers the whole character under it, two cells for a full-width one
-/// (ADR 0026), and goes where a preedit puts it (ADR 0069).
+/// (ADR 0026), and goes where a preedit puts it (ADR 0069). None with
+/// [`CursorStyle::None`] (ADR 0131).
 pub(super) fn cursor_cells(view: &TextView<'_>, region: CellRect) -> Option<CellRect> {
+    if view.cursor_style == CursorStyle::None {
+        return None;
+    }
     let (point, cells) = motion::cursor_box(&view.display, view.cursor, view.preedit);
     frame::cursor_rect(region, view.screen, point, cells)
 }

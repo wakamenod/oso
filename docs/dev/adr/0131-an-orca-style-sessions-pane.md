@@ -471,15 +471,19 @@ band and the spinner. The coordinator accepted each point below that differs fro
   4.5:1 on the text's background and on the band, and the alert and done faces on both
   modelines, which now draw `⚠ N` and `● N` in them.
 - **Highlights reach the list** through `Editor::set_internal_highlights`, a new public function
-  (the coordinator's approval, 2026-11-15): host-made highlights on an internal buffer in
+  (the author's approval, 2026-11-15): host-made highlights on an internal buffer in
   `Mode::Sessions`, as a review's are, refused unless they cover the text.
-- **The band:** `Editor::current_line_cells` also gives the side window's row at point while it
-  shows `*Sessions*`, whatever the visual aids say. No new public item.
+- **The band and no cursor:** `Editor::current_line_cells` also gives the side window's row at
+  point while it shows `*Sessions*`, whatever the visual aids say (a documented change of an
+  existing function), and the side window draws that list with `oso-render`'s new
+  `CursorStyle::None` (the author's approval, 2026-11-15), so no box sits over a mark.
 - **The spinner** (`sessions/spinner.rs`, pure; `app/sessions/watch/view.rs`): one deadline beside
   the attention's, 125 ms a frame, from the instant it started. A tick renders the list again
   with the next frame and sets its text whole, rather than editing one cell. `oso-render`'s
   shaping cache reuses every row whose text did not change, so only the spinning rows are
-  shaped again, and no edit API was needed. It runs only while the side window shows the list,
+  shaped again, and no edit API was needed. Such a tick, with 20 spinning rows among 40, takes
+  175 µs at best of 30 in a release build, within the 0.2 ms budget; a test keeps it
+  there. It runs only while the side window shows the list,
   a spinning row is in view, and oso's window is not occluded (`Event::Occluded`), and stops
   otherwise. `[sessions] spinner = false` keeps every mark still.
 - **The `just perf` flow** is `sessions_spinning_frame_p99_ms` and `sessions_spinning_ui_ms_per_s`

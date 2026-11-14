@@ -318,3 +318,38 @@ fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
     let first = rows[2].chars().find(|c| *c != ' ').unwrap();
     assert!(!super::MARKS.contains(first), "{}", rows[2]);
 }
+
+#[test]
+fn a_spinner_tick_with_twenty_spinning_rows_stays_within_its_budget() {
+    use oso_core::buffer::Mode;
+    use oso_core::editor::Editor;
+    use oso_core::syntax::Highlights;
+    let t = Instant::now();
+    let entries: Vec<Entry> = (0..40)
+        .map(|n| {
+            let state = if n < 20 { State::Working } else { State::Idle };
+            entry(n, &format!("m4-session-number-{n}"), state, t)
+        })
+        .collect();
+    let mut editor = Editor::default();
+    let id = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let mut list = List::default();
+    let mut best = Duration::MAX;
+    for frame in 0..30 {
+        // What a tick does on the UI thread: the list with the next frame, its text and its
+        // highlights set whole (ADR 0131, step 1 as built).
+        let start = Instant::now();
+        list.set_spin(Some(frame));
+        let shown = list.render(&entries, 44, t);
+        let mut highlights = Highlights::new(shown.text.len());
+        for (range, highlight) in &shown.highlights {
+            highlights.replace(range.clone(), [(range.len(), Some(*highlight))]);
+        }
+        editor.set_internal_text(id, &shown.text);
+        assert!(editor.set_internal_highlights(id, highlights).is_none());
+        best = best.min(start.elapsed());
+        assert_eq!(shown.spinning.len(), 20);
+    }
+    // A debug build is several times slower; the budget is a release build's (ADR 0131).
+    assert!(cfg!(debug_assertions) || best.as_micros() < 200, "{best:?}");
+}

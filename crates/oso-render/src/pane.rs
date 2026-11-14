@@ -275,6 +275,9 @@ pub enum CursorStyle {
     /// The box's outline, over glyphs as they are: a window that is not selected, such as
     /// the one beneath a prompt (ADR 0072).
     Hollow,
+    /// No cursor at all: a list that marks the row at point with a band instead, as
+    /// `*Sessions*` in the side window (ADR 0131).
+    None,
 }
 
 /// A window's view of a buffer.

@@ -9,7 +9,7 @@
 //! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, ReviewCells, Status};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
@@ -472,7 +472,10 @@ fn text<'a>(
         revision: buffer.revision(),
         screen,
         cursor,
-        cursor_style: if selected {
+        // `*Sessions*` in the side window marks point's row with the band (ADR 0131).
+        cursor_style: if editor.side_window() == Some(id) && buffer.mode() == Mode::Sessions {
+            CursorStyle::None
+        } else if selected {
             CursorStyle::Box
         } else {
             CursorStyle::Hollow
