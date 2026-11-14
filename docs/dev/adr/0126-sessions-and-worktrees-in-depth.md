@@ -1,6 +1,6 @@
 # 0126. Sessions and worktrees in depth
 
-- Status: Accepted
+- Status: Accepted, amended by 0131
 - Date: 2026-11-13
 
 ## Context
