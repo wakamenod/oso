@@ -45,6 +45,9 @@ const GAP: &str = "  ";
 const AGENT: &str = "Agent  ";
 /// Says that a keyboard macro is being recorded (ADR 0113).
 const DEFINING: &str = "  Def";
+/// What a terminal that hosts an agent session calls its mode (ADR 0132).
+const SESSION: &str = "Session";
+
 /// The most cells a project's name takes (ADR 0114).
 const PROJECT_CELLS: usize = 24;
 
@@ -176,9 +179,13 @@ fn push_encoding(out: &mut String, info: FileInfo, invalid: bool) {
 
 fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
     // A terminal has no position, no file and no encoding: its mode and what the host notes,
-    // such as its program's title (ADR 0120).
+    // such as its program's title (ADR 0120). A session's says `Session` (ADR 0132).
     if buffer.is_terminal() {
-        out.push_str(buffer.mode().name());
+        out.push_str(if buffer.hosts_session() {
+            SESSION
+        } else {
+            buffer.mode().name()
+        });
         if !buffer.mode_note().is_empty() {
             out.push_str(GAP);
             push_cut(out, buffer.mode_note(), NOTE_CELLS);
@@ -422,6 +429,39 @@ mod tests {
         let status = status(&editor);
         assert_eq!(status.name, "%% *terminal*  ");
         assert_eq!(status.state, "Terminal  vim");
+    }
+
+    #[test]
+    fn a_sessions_terminal_says_session_and_is_in_its_directorys_project() {
+        let mut editor = Editor::default();
+        let terminal = editor.add_terminal_buffer("*claude: oso*");
+        editor.show(terminal);
+        // Not yet a session's: no project is asked for.
+        editor.request_directory_project(terminal, std::path::Path::new("/work/oso"));
+        assert!(editor.take_project_requests().is_empty());
+        editor.set_hosts_session(terminal, true);
+        editor.set_mode_note(terminal, "working".to_owned());
+        assert_eq!(status(&editor).state, "Session  working");
+        editor.request_directory_project(terminal, std::path::Path::new("/work/oso"));
+        let request = editor.take_project_requests().pop().unwrap();
+        assert_eq!(
+            request.location.parent(),
+            Some(std::path::Path::new("/work/oso"))
+        );
+        let found = crate::project::Found {
+            root: crate::project::RootIdentity {
+                path: PathBuf::from("/work/oso"),
+                identity: Some((1, 2)),
+            },
+            worktree_of: None,
+            checked_main: None,
+        };
+        editor.project_found(&request, Some(found));
+        assert!(editor.current().1.project().is_some());
+        // A plain terminal again: no project, and `Terminal`.
+        editor.set_hosts_session(terminal, false);
+        assert!(editor.current().1.project().is_none());
+        assert_eq!(status(&editor).state, "Terminal  working");
     }
 
     /// `editor`'s shown buffer, put in the project rooted at `root`.

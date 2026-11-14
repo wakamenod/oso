@@ -8,13 +8,15 @@
 //! The default keymaps come from `bindings`. The user's keymap from the configuration goes in
 //! here too, once no prefix key waits for the one before.
 
-use oso_core::buffer::Mode;
+use oso_core::buffer::{Buffer, Mode};
 use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
-use oso_core::keymap::{Keymap, Layers};
+use oso_core::key::{Key, KeyPress, Modifiers};
+use oso_core::keymap::{Keymap, Layers, display_keys};
 use oso_core::minibuffer::Kind;
 
 use crate::bindings;
+use crate::commands::agent_sessions::SESSION_HELP;
 
 use super::Dispatcher;
 
@@ -59,6 +61,11 @@ pub(super) struct Keymaps {
     pub(super) review: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
     pub(super) terminal: Keymap,
+    /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
+    /// (ADR 0132).
+    pub(super) session: Keymap,
+    /// `session-help`, and what it says: session mode's keys, from its keymap.
+    pub(super) session_help: (Option<CommandId>, String),
 }
 
 impl Keymaps {
@@ -87,12 +94,23 @@ impl Keymaps {
             sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
+            session: bindings::session_keymap(registry),
+            session_help: (None, String::new()),
         }
+        .with_session_help(registry)
+    }
+
+    /// Writes what `session-help` says from the session keymap now (ADR 0132).
+    fn with_session_help(mut self, registry: &Registry) -> Self {
+        let id = registry.lookup(SESSION_HELP);
+        let text = session_help(&self.session, registry, id);
+        self.session_help = (id, text);
+        self
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 20] {
+    pub(super) fn all(&self) -> [&Keymap; 21] {
         let Self {
             global,
             user,
@@ -112,10 +130,13 @@ impl Keymaps {
             sessions,
             review,
             terminal,
+            session,
+            session_help: _,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, draft,
             isearch, jump, replace, rigid, markdown, brief, worktrees, sessions, review, terminal,
+            session,
         ]
     }
 
@@ -175,7 +196,7 @@ impl Keymaps {
                 Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
-                Mode::Terminal => Some(&self.terminal),
+                Mode::Terminal => Some(self.terminal_keys(editor.current().1)),
             }
         };
         Layers {
@@ -186,11 +207,69 @@ impl Keymaps {
         }
     }
 
+    /// The keymap of a terminal's buffer: session mode's over the terminal's in one that hosts
+    /// a session (ADR 0132), else the terminal's.
+    pub(super) fn terminal_keys(&self, buffer: &Buffer) -> &Keymap {
+        if buffer.hosts_session() {
+            &self.session
+        } else {
+            &self.terminal
+        }
+    }
+
     /// The user's keymap as a layer, none when it is empty, so that a key costs nothing more
     /// without user keys.
     pub(super) fn user(&self) -> Option<&Keymap> {
         Some(&self.user).filter(|user| !user.is_empty())
     }
+}
+
+/// What `session-help` says: each `C-c` key of session mode's keymap and what it runs, the
+/// command's name without `session-`, letters first, then capitals, signs and control keys
+/// (ADR 0132). `help` itself is left out.
+fn session_help(keymap: &Keymap, registry: &Registry, help: Option<CommandId>) -> String {
+    let mut rows: Vec<(Vec<KeyPress>, String)> = Vec::new();
+    let c_c = KeyPress {
+        modifiers: Modifiers::CONTROL,
+        key: Key::Char('c'),
+    };
+    keymap.bindings(|keys, id| {
+        let Some(command) = registry.get(id).filter(|_| Some(id) != help) else {
+            return;
+        };
+        if keys.first() == Some(&c_c) {
+            let name = command.name;
+            let label = ["session-", "sessions-", "terminal-"]
+                .iter()
+                .find_map(|prefix| name.strip_prefix(prefix))
+                .unwrap_or(name);
+            rows.push((keys[1..].to_vec(), label.to_owned()));
+        }
+    });
+    let menus = bindings::built_in_menus(registry);
+    keymap.menu_bindings(|keys, id| {
+        if keys.first() == Some(&c_c)
+            && let Some(menu) = menus.get(id)
+        {
+            rows.push((keys[1..].to_vec(), format!("{} menu", menu.name())));
+        }
+    });
+    let order = |keys: &[KeyPress]| match keys.first().map(|key| (key.modifiers, key.key)) {
+        Some((Modifiers::NONE, Key::Char(c))) if c.is_ascii_lowercase() => 0,
+        Some((Modifiers::NONE, Key::Char(c))) if c.is_ascii_uppercase() => 1,
+        Some((Modifiers::NONE, _)) => 2,
+        _ => 3,
+    };
+    let mut rows: Vec<(u8, String, String)> = rows
+        .into_iter()
+        .map(|(keys, label)| (order(&keys), display_keys(&keys).to_string(), label))
+        .collect();
+    rows.sort();
+    let mut text = String::from("C-c then:");
+    for (_, keys, label) in rows {
+        text.push_str(&format!("  {keys} {label}"));
+    }
+    text
 }
 
 /// The user's keymap from the configuration, which waits for a pending prefix key to go in

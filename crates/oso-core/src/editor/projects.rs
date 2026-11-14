@@ -6,10 +6,10 @@
 //! trusted projects on another, and writes what a person changed of it.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::Editor;
-use crate::buffer::BufferId;
+use crate::buffer::{Buffer, BufferId};
 use crate::project::{
     Found, NotRecordable, Project, ProjectId, RootIdentity, TrustChange, TrustList,
 };
@@ -55,6 +55,10 @@ pub struct ProjectRequest {
     pub location: PathBuf,
 }
 
+/// The name a session's directory is asked about under: detection starts from a location's
+/// directory, and looks nothing up by this name (ADR 0132).
+const DIRECTORY_STANDIN: &str = "*session*";
+
 /// Adds `request` to `requests`, where only a buffer's newest stays.
 pub(super) fn ask(requests: &mut Vec<ProjectRequest>, request: ProjectRequest) {
     requests.retain(|asked| asked.buffer != request.buffer);
@@ -79,6 +83,22 @@ impl Editor {
         }
     }
 
+    /// Asks the host to find the project of `directory`, for the terminal buffer `id` whose
+    /// session runs there (ADR 0132), as a file's project is found. Only a buffer that hosts a
+    /// session takes the answer; it has no file of its own.
+    pub fn request_directory_project(&mut self, id: BufferId, directory: &Path) {
+        if self.buffer(id).is_some_and(Buffer::hosts_session) {
+            let location = directory.join(DIRECTORY_STANDIN);
+            ask(
+                &mut self.project_requests,
+                ProjectRequest {
+                    buffer: id,
+                    location,
+                },
+            );
+        }
+    }
+
     /// The files whose project the host should find, the oldest first.
     pub fn take_project_requests(&mut self) -> Vec<ProjectRequest> {
         std::mem::take(&mut self.project_requests)
@@ -89,8 +109,14 @@ impl Editor {
     pub fn project_found(&mut self, request: &ProjectRequest, found: Option<Found>) {
         let current = self
             .buffer(request.buffer)
-            .and_then(|buffer| buffer.baseline())
-            .is_some_and(|baseline| baseline.location == request.location);
+            .is_some_and(|buffer| match buffer.baseline() {
+                Some(baseline) => baseline.location == request.location,
+                // A session's terminal: the directory its session runs in (ADR 0132).
+                None => {
+                    buffer.hosts_session()
+                        && request.location.file_name() == Some(DIRECTORY_STANDIN.as_ref())
+                }
+            });
         if current {
             self.set_buffer_project(request.buffer, found);
         }

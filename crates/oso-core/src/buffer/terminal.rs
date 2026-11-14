@@ -60,6 +60,17 @@ impl Buffer {
         self.agent_reads = reads;
     }
 
+    /// Whether its terminal hosts an agent session, as the host said: session mode's keys
+    /// apply, the modeline says `Session`, and the buffer is in its session's project
+    /// (ADR 0132). It stays so after the session's program ends, for `session-resume`.
+    pub fn hosts_session(&self) -> bool {
+        self.session
+    }
+
+    pub(crate) fn set_session(&mut self, session: bool) {
+        self.session = session;
+    }
+
     /// Counts the terminal as secret while its program reads a password, and as ordinary
     /// once it stops.
     pub(crate) fn set_echo_off(&mut self, echo_off: bool) {

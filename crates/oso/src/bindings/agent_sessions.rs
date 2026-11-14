@@ -1,5 +1,6 @@
-//! Default key bindings of the agent session commands (ADR 0121, Q7): `C-x a` and a key, and
-//! the keys of `*Sessions*`. `C-x a w` and `C-x a o` come with their commands, in later steps.
+//! Default key bindings of the agent session commands (ADR 0121, Q7): `C-x a` and a key, the
+//! keys of `*Sessions*`, and session mode's `C-c` and a key in a session's terminal (ADR 0132).
+//! `C-x a o` comes with its command, in a later step.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -20,6 +21,38 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("C-x a @", "session-mention"),
     ("C-x a f", "session-follow-message"),
 ];
+
+/// Session mode's keys, in a terminal's buffer that hosts a session, with the terminal's own
+/// (ADR 0132): `C-c` and a key runs what `C-x a` and the same key runs elsewhere, and the
+/// commands on the session itself take capitals and punctuation. `C-c` and a control key stays
+/// the terminal's, but `C-c C-u`, as `C-u` goes to the program.
+pub const SESSION: &[(&str, &str)] = &[
+    ("C-c c", "claude"),
+    ("C-c r", "session-resume"),
+    ("C-c a", "session-adopt"),
+    ("C-c w", "session-worktree"),
+    ("C-c s", "sessions"),
+    ("C-c b", "session-switch"),
+    ("C-c n", "session-next-waiting"),
+    ("C-c d", "session-next-done"),
+    ("C-c j", "space-switch"),
+    ("C-c z", "space-zoom"),
+    ("C-c e", "session-explain"),
+    ("C-c m", "session-send"),
+    ("C-c @", "session-mention"),
+    ("C-c f", "session-follow-message"),
+    ("C-c K", "session-stop"),
+    ("C-c P", "session-pin"),
+    ("C-c A", "session-archive"),
+    ("C-c v", "review-session"),
+    ("C-c +", "terminal-allow-agent-read"),
+    ("C-c -", "terminal-deny-agent-read"),
+    ("C-c ?", "session-help"),
+    ("C-c C-u", "universal-argument"),
+];
+
+/// Session mode's menu keys (ADR 0117, ADR 0132): the review menu, as `C-x v r` elsewhere.
+pub const SESSION_MENUS: &[(&str, &str)] = &[("C-c V", "review")];
 
 /// The keys of `*Sessions*`, above the global ones in it.
 pub const LIST: &[(&str, &str)] = &[

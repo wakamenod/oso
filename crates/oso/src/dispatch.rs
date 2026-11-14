@@ -390,6 +390,11 @@ impl Dispatcher {
         editor.note_command_ended(effects.prefix.is_some());
         self.prefix = effects.prefix.take();
         match &result {
+            // `session-help` says the keys the dispatcher holds (ADR 0132).
+            Ok(()) if Some(id) == self.keymaps.session_help.0 => {
+                editor.end_undo_group();
+                editor.message(self.keymaps.session_help.1.clone());
+            }
             Ok(()) => editor.end_undo_group(),
             Err(ExecuteError::Failed { error, .. }) => {
                 editor.end_undo_group();
