@@ -14,11 +14,18 @@
 //! The texts a state carries go from the old instance to the new one a piece at a
 //! time, between the export and the import, and only one piece is held here at once
 //! (ADR 0090). Why a restart waits goes to the old instance's echo area.
+//!
+//! Running terminals go too (ADR 0120, step 11). After the import, the old instance hands
+//! the supervisor a descriptor for each PTY's master, and the `exit` that follows lets the
+//! terminals go there; only once it has gone do the masters reach the new instance. So one
+//! instance reads each PTY at a time, and a restart that stops short leaves the terminals
+//! with the old one, which reads them again.
 
 use std::time::Instant;
 
 use serde_json::{Value, json};
 
+use super::fds::Fd;
 use super::protocol::MAX_DEV_MESSAGE as MAX_MESSAGE;
 
 /// The method that reports an instance's generation, or why its text would not
@@ -86,6 +93,13 @@ pub trait Instance {
     fn pid(&self) -> u32;
     /// Makes one control socket request.
     fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String>;
+    /// [`Instance::call`], with `fds` sent along, returning what came with the reply.
+    fn call_passing(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+        fds: Vec<Fd>,
+    ) -> Result<(Value, Vec<Fd>), String>;
     /// [`CHECK`], giving up soon, as this is for one that may never answer.
     fn check_briefly(&mut self) -> Result<Value, String>;
     /// Waits for its window to exist.
@@ -195,7 +209,7 @@ pub fn hand_over<I: Instance>(
     start: impl FnOnce() -> Result<I, String>,
 ) -> Handover<I> {
     let started = Instant::now();
-    if let Err(reason) = old.call(CHECK, None) {
+    if let Err(reason) = old.call(CHECK, Some(json!({ "terminals": true }))) {
         return Handover::Failed(reason);
     }
     if let Some(instance) = beside {
@@ -216,8 +230,14 @@ pub fn hand_over<I: Instance>(
         return no_window(new, reason);
     }
     let ready = started.elapsed();
+    // The terminals go too if the new instance says which library it reads them with.
+    let library = new
+        .call("version", None)
+        .ok()
+        .and_then(|version| version["terminal_library"].as_str().map(str::to_owned));
+    let params = library.map(|library| json!({ "terminals": { "library": library } }));
     let (state, generation) = match old
-        .call("export-state", None)
+        .call("export-state", params)
         .and_then(|state| generation_in(&state).map(|generation| (state, generation)))
     {
         Ok(exported) => exported,
@@ -250,23 +270,100 @@ pub fn hand_over<I: Instance>(
         }
     }
     let imported = started.elapsed();
+    let terminals = state["terminals"].as_array().map_or(0, Vec::len);
+    let replaced = stop_old(old, new, generation, terminals);
+    if matches!(replaced, Handover::Replaced(_)) {
+        log::info!(
+            "oso dev: checked {checked:?}, new window {:?}, export {:?}, import {:?}, \
+             old instance gone {:?}",
+            ready - checked,
+            exported - ready,
+            imported - exported,
+            started.elapsed() - imported,
+        );
+    }
+    replaced
+}
+
+/// Stops `old` once `new` has its state, and gives `new` the masters of the `terminals` it
+/// carried only once `old` has gone.
+fn stop_old<I: Instance>(
+    old: &mut I,
+    mut new: I,
+    generation: u64,
+    terminals: usize,
+) -> Handover<I> {
+    let masters = match take_masters(old, generation, terminals) {
+        Ok(masters) => masters,
+        Err(reason) => return give_up_terminals(new, reason, terminals),
+    };
     match old.stop(generation) {
         Ok(()) => {
-            log::info!(
-                "oso dev: checked {checked:?}, new window {:?}, export {:?}, import {:?}, \
-                 old instance gone {:?}",
-                ready - checked,
-                exported - ready,
-                imported - exported,
-                started.elapsed() - imported,
-            );
+            give_masters(&mut new, masters);
             Handover::Replaced(new)
         }
-        Err(NotStopped::Refused(reason)) => give_up(new, reason),
+        Err(NotStopped::Refused(reason)) => give_up_terminals(new, reason, terminals),
         // It may have agreed and be on its way out, and then the new one must be
-        // there. Whichever goes first, the other is what remains.
-        Err(NotStopped::Unknown(reason)) => Handover::Beside { new, reason },
+        // there. Whichever goes first, the other is what remains. Its terminals are the new
+        // one's only once it has gone; until then it may read them again.
+        Err(NotStopped::Unknown(reason)) => {
+            if old.gone() {
+                give_masters(&mut new, masters);
+            } else if terminals > 0 {
+                abandon_terminals(&mut new);
+            }
+            Handover::Beside { new, reason }
+        }
     }
+}
+
+/// The masters of the `count` terminals the export carries, from `old`, if the generation is
+/// still `generation`; none for none.
+fn take_masters<I: Instance>(
+    old: &mut I,
+    generation: u64,
+    count: usize,
+) -> Result<Vec<Fd>, String> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let params = json!({ "generation": generation });
+    let (_, masters) = old.call_passing("hand-over-terminals", Some(params), Vec::new())?;
+    if masters.len() != count {
+        return Err(format!(
+            "the old instance handed over {} masters for {count} terminals",
+            masters.len()
+        ));
+    }
+    Ok(masters)
+}
+
+/// Gives the new instance the masters of the terminals it took over, now that the old one
+/// has gone. If it does not take them they close, and the terminals end.
+fn give_masters<I: Instance>(new: &mut I, masters: Vec<Fd>) {
+    if masters.is_empty() {
+        return;
+    }
+    let params = json!({ "count": masters.len() });
+    if let Err(reason) = new.call_passing("import-terminals", Some(params), masters) {
+        log::warn!("oso dev: the new instance did not take the terminals: {reason:?}");
+    }
+}
+
+/// Tells the new instance that the terminals it took over stay with the old one.
+fn abandon_terminals<I: Instance>(new: &mut I) {
+    if let Err(reason) = new.call("import-terminals", Some(json!({ "abandon": true }))) {
+        log::debug!("oso dev: the new instance was not told the terminals stay: {reason:?}");
+    }
+}
+
+/// [`give_up`], after the new instance was told that the `terminals` it took over stay with
+/// the old one.
+fn give_up_terminals<I: Instance>(mut new: I, reason: String, terminals: usize) -> Handover<I> {
+    if terminals > 0 {
+        abandon_terminals(&mut new);
+    }
+    give_up(new, reason)
 }
 
 /// Moves each item `state` names from `old` to `new`, a piece at a time. A state with no
@@ -395,7 +492,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Handover, Instance, Instances, MAX_MESSAGE, NotStopped, hand_over, restart, tell};
+    use super::{
+        Fd, Handover, Instance, Instances, MAX_MESSAGE, NotStopped, hand_over, restart, tell,
+    };
     use serde_json::{Value, json};
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -425,6 +524,13 @@ mod tests {
         told: Vec<String>,
         /// The generation its import reported.
         generation_imported: Option<u64>,
+        /// The terminal library it says it reads, which has the old one export terminals.
+        library: Option<&'static str>,
+        /// How many masters `hand-over-terminals` gives.
+        masters: usize,
+        /// How many masters `import-terminals` brought, and whether it was told they stay.
+        given: Option<usize>,
+        abandoned: bool,
     }
 
     impl Fake {
@@ -442,6 +548,30 @@ mod tests {
                 imported: String::new(),
                 told: Vec::new(),
                 generation_imported: None,
+                library: None,
+                masters: 0,
+                given: None,
+                abandoned: false,
+            }
+        }
+
+        /// An instance whose export carries `count` terminals, and gives their masters.
+        fn with_terminals(name: &'static str, log: &Log, count: usize) -> Self {
+            Self {
+                export: Ok(json!({
+                    "version": 5, "generation": EXPORTED, "export": 3, "items": [],
+                    "terminals": vec![json!({}); count],
+                })),
+                masters: count,
+                ..Self::new(name, log)
+            }
+        }
+
+        /// A new instance that reads terminals.
+        fn reading_terminals(name: &'static str, log: &Log) -> Self {
+            Self {
+                library: Some("lib"),
+                ..Self::new(name, log)
             }
         }
 
@@ -491,8 +621,24 @@ mod tests {
         }
 
         fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {
+            if method == "version" {
+                return Ok(json!({ "terminal_library": self.library }));
+            }
             self.note(method);
             match method {
+                "export-state" if self.library.is_none() => {
+                    let asked = params.is_some_and(|p| p["terminals"]["library"] == "lib");
+                    let mut export = self.export.clone();
+                    if !asked && let Ok(state) = &mut export {
+                        state.as_object_mut().unwrap().remove("terminals");
+                    }
+                    export
+                }
+                "import-terminals" => {
+                    assert_eq!(params.unwrap()["abandon"], true);
+                    self.abandoned = true;
+                    Ok(Value::Null)
+                }
                 "check-handover" => self.check.clone(),
                 "export-state" => self.export.clone(),
                 "import-state" => {
@@ -519,6 +665,27 @@ mod tests {
                     self.told
                         .push(params.unwrap()["text"].as_str().unwrap().to_owned());
                     Ok(Value::Null)
+                }
+                other => panic!("{other}"),
+            }
+        }
+
+        fn call_passing(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+            fds: Vec<Fd>,
+        ) -> Result<(Value, Vec<Fd>), String> {
+            self.note(method);
+            match method {
+                "hand-over-terminals" => {
+                    let masters = (0..self.masters).map(|_| pipe_end()).collect();
+                    Ok((json!({ "terminals": self.masters }), masters))
+                }
+                "import-terminals" => {
+                    assert_eq!(params.unwrap()["count"], fds.len());
+                    self.given = Some(fds.len());
+                    Ok((Value::Null, Vec::new()))
                 }
                 other => panic!("{other}"),
             }
@@ -562,6 +729,109 @@ mod tests {
 
     fn log() -> Log {
         Rc::new(RefCell::new(Vec::new()))
+    }
+
+    /// A descriptor that stands for a master.
+    #[cfg(unix)]
+    fn pipe_end() -> Fd {
+        std::io::pipe().unwrap().0.into()
+    }
+
+    #[cfg(not(unix))]
+    fn pipe_end() -> Fd {
+        unreachable!("no descriptors pass here")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminals_reach_the_new_instance_only_once_the_old_one_has_stopped() {
+        let log = log();
+        let mut old = Fake::with_terminals("old", &log, 2);
+        let new = Fake::reading_terminals("new", &log);
+        let Handover::Replaced(new) = handed_over(&mut old, new) else {
+            panic!("not replaced");
+        };
+        assert_eq!(new.given, Some(2));
+        assert_eq!(
+            *log.borrow(),
+            [
+                "old check-handover",
+                "new ready?",
+                "old export-state",
+                "new import-state",
+                "old hand-over-terminals",
+                "old stop 8",
+                "new import-terminals",
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_instance_that_reads_no_terminals_gets_none() {
+        let log = log();
+        let mut old = Fake::with_terminals("old", &log, 2);
+        let new = Fake::new("new", &log);
+        let Handover::Replaced(new) = handed_over(&mut old, new) else {
+            panic!("not replaced");
+        };
+        assert_eq!(new.given, None);
+        assert!(
+            !log.borrow().iter().any(|l| l.contains("terminals")),
+            "{log:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_exit_keeps_the_terminals_with_the_old_instance() {
+        let log = log();
+        let mut old = Fake {
+            stop: Err(NotStopped::Refused("exit refused".into())),
+            ..Fake::with_terminals("old", &log, 1)
+        };
+        let new = Fake::reading_terminals("new", &log);
+        let outcome = handed_over(&mut old, new);
+        assert!(matches!(outcome, Handover::Failed(_)));
+        let log = log.borrow();
+        assert_eq!(
+            log.iter().filter(|l| *l == "new import-terminals").count(),
+            1
+        );
+        assert!(log.contains(&"old stop 8".to_owned()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn masters_short_of_the_terminals_stop_nothing() {
+        let log = log();
+        let mut old = Fake {
+            masters: 1,
+            ..Fake::with_terminals("old", &log, 2)
+        };
+        let new = Fake::reading_terminals("new", &log);
+        let outcome = handed_over(&mut old, new);
+        assert!(matches!(outcome, Handover::Failed(_)));
+        assert!(
+            !log.borrow().iter().any(|l| l.starts_with("old stop")),
+            "{log:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_old_instance_that_may_yet_exit_keeps_its_terminals() {
+        let log = log();
+        let mut old = Fake {
+            stop: Err(NotStopped::Unknown("no answer".into())),
+            ..Fake::with_terminals("old", &log, 1)
+        };
+        let new = Fake::reading_terminals("new", &log);
+        let Handover::Beside { new, .. } = handed_over(&mut old, new) else {
+            panic!("not beside");
+        };
+        assert!(new.abandoned, "the new one is told they stay");
+        assert_eq!(new.given, None);
     }
 
     /// Hands over with no instance beside the old one.

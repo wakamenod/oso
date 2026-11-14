@@ -37,4 +37,6 @@ pub use snapshot::{
     Attrs, Button, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Pointer, PointerAction,
     Rgb, Row, Scroll, Snapshot, Underline,
 };
+#[cfg(feature = "dev")]
+pub use terminal::{Adopt, Encoding, Exported, NotExported};
 pub use terminal::{QueueFull, Start, Terminal};

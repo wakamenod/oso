@@ -8,7 +8,6 @@
 //! Must not depend on: anything in oso; only `raw` calls these.
 
 #![expect(unsafe_code, reason = "the library's C API (ADR 0120)")]
-// Some declarations are here only so that `manifest_tests` checks them.
 #![cfg_attr(
     not(test),
     allow(dead_code, reason = "declarations that only manifest_tests reads")
@@ -19,6 +18,7 @@ use std::marker::{PhantomData, PhantomPinned};
 
 mod key;
 mod mouse;
+pub mod snapshot;
 pub use {key::*, mouse::*};
 
 /// An opaque library object, only ever behind a pointer.

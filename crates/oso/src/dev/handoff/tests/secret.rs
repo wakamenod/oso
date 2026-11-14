@@ -102,7 +102,7 @@ fn restarts_go_on_after_one_with_a_secret_file_behind_messages() {
         let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
         editor = imported(&state);
         assert!(!editor.shows_secret(), "restart {restart}");
-        assert!(check(&editor).is_ok(), "restart {restart}");
+        assert!(check(&editor, false).is_ok(), "restart {restart}");
         assert!(editor.buffers().any(|(_, buffer)| buffer.is_secret()));
     }
 }
@@ -113,7 +113,10 @@ fn a_file_not_judged_yet_holds_no_restart_for_being_shown() {
     let id = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
     editor.show(id);
     assert!(editor.shows_secret(), "it counts as secret until judged");
-    for message in [export(&editor, &[], None, None).err(), check(&editor).err()] {
+    for message in [
+        export(&editor, &[], None, None).err(),
+        check(&editor, false).err(),
+    ] {
         assert_ne!(message.as_deref(), Some(SECRET_SHOWN));
     }
 }
@@ -144,7 +147,7 @@ fn while_a_secret_file_is_shown_nothing_hands_over_for_one_reason() {
     let refusals = |editor: &Editor| {
         [
             export(editor, &[], None, None).unwrap_err(),
-            check(editor).unwrap_err(),
+            check(editor, false).unwrap_err(),
             exit_allowed(editor, Some(generation(editor))).unwrap_err(),
         ]
     };
@@ -184,7 +187,7 @@ fn a_modified_secret_file_off_the_screen_is_refused_the_same_way() {
     editor.toggle_messages();
     for message in [
         export(&editor, &[], None, None).unwrap_err(),
-        check(&editor).unwrap_err(),
+        check(&editor, false).unwrap_err(),
     ] {
         assert!(message.contains(".env"), "{message}");
         assert!(!message.contains("SECRET-VALUE"), "{message}");
@@ -206,7 +209,7 @@ fn a_saved_file_a_secret_kill_was_yanked_into_is_refused() {
     editor.toggle_messages();
     for message in [
         export(&editor, &[], None, None).unwrap_err(),
-        check(&editor).unwrap_err(),
+        check(&editor, false).unwrap_err(),
     ] {
         assert!(message.contains("notes.txt"), "{message}");
         assert!(!message.contains("KEY"), "{message}");
@@ -222,7 +225,7 @@ fn an_unsaved_secret_kill_yanked_in_holds_the_restart_and_no_kill_of_it_is_carri
     editor.toggle_messages();
     for message in [
         export(&editor, &[], None, None).unwrap_err(),
-        check(&editor).unwrap_err(),
+        check(&editor, false).unwrap_err(),
     ] {
         assert!(message.contains("notes.txt"), "{message}");
         assert!(message.contains("may hold secrets"), "{message}");
@@ -238,7 +241,7 @@ fn a_modified_file_not_judged_yet_holds_the_restart() {
     let id = editor.add_buffer(buffer);
     editor.show(id);
     type_text(&mut editor);
-    let message = check(&editor).unwrap_err();
+    let message = check(&editor, false).unwrap_err();
     assert!(message.contains("may hold secrets"), "{message}");
 }
 

@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 
 use super::build_errors;
 use super::ctl;
+use super::fds::{self, Fd};
 use super::protocol::{self, EXIT_REFUSED};
 use super::restart::{CHECK, Instance, Instances, NotStopped, restart, tell};
 use super::watch::Sources;
@@ -379,6 +380,24 @@ impl Instance for Running {
         let pid = Some(self.child.id());
         let line = ctl::exchange(&self.dir, pid, method, params).map_err(|e| e.to_string())?;
         protocol::response_result(&line)
+    }
+
+    fn call_passing(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+        fds: Vec<Fd>,
+    ) -> Result<(Value, Vec<Fd>), String> {
+        let (line, fds) = fds::exchange(
+            &self.dir,
+            self.child.id(),
+            method,
+            params,
+            &fds,
+            ctl::RESPONSE_TIMEOUT,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok((protocol::response_result(&line)?, fds))
     }
 
     fn check_briefly(&mut self) -> Result<Value, String> {

@@ -15,6 +15,10 @@ oso-core.workspace = true
 oso-platform.workspace = true
 log.workspace = true
 
+[features]
+# Carrying terminals over `oso dev`'s restart (ADR 0120, step 11). Enabled only by `oso/dev`.
+dev = ["oso-platform/dev"]
+
 [dev-dependencies]
 # Reads the library's type manifest in the layout test.
 serde_json.workspace = true

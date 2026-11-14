@@ -26,9 +26,6 @@
 //! Parsing changes nothing, so a state with another version or a bad field
 //! leaves the new instance clean, and the old one is kept.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use oso_core::buffer::{Buffer, BufferId, Verdict};
 use oso_core::editor::{Editor, SCRATCH};
 use oso_core::frame::Tiling;
@@ -40,13 +37,16 @@ use oso_core::selection::SelectionSet;
 use oso_core::window::{Scroll, Window};
 use serde_json::{Value, json};
 
-use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
+use super::protocol::{MAX_LINE, Reply};
 
+mod allowed;
 pub mod carry;
 mod format;
 mod layout;
 mod look;
 mod restore;
+pub mod terminals;
+pub use allowed::{exit_allowed, generation, import_allowed};
 
 use carry::{Exported, Item, MAX_CARRIED};
 
@@ -61,7 +61,7 @@ pub use restore::Restore;
 
 /// The version of the state format. Bump it on any change that the previous
 /// reader would get wrong, and keep reading the one before.
-pub const STATE_VERSION: u64 = 4;
+pub const STATE_VERSION: u64 = 5;
 
 /// The longest state, leaving room for the request line that carries it.
 const MAX_STATE: usize = MAX_LINE - 256;
@@ -79,17 +79,20 @@ pub struct Frame {
 /// `restores` are what the windows have yet to take from the previous instance: if a file
 /// is still loading, those positions are the real ones. `number` names this export. Every
 /// tiled window goes, in the tree's order, with the layout and which is selected (ADR 0112).
+/// `terminals` are the running terminals the state carries, in its terminals' order; the
+/// caller adds them (ADR 0120, step 11). Without them a running terminal holds the export.
 pub fn export(
     editor: &Editor,
     pending: &[KeyPress],
     frame: Option<Frame>,
     restores: &[Restore],
     number: u64,
+    terminals: Option<&[BufferId]>,
 ) -> Result<(Value, Exported), String> {
     if shows_judged_secret(editor) {
         return Err(SECRET_SHOWN.into());
     }
-    held(editor)?;
+    held(editor, terminals.is_some())?;
     carried_bytes(editor)?;
     let mut items = Vec::new();
     let mut buffers = Vec::new();
@@ -109,6 +112,15 @@ pub fn export(
     for window in editor.windows() {
         let id = window.buffer();
         let shown = editor.shown(window);
+        // A carried terminal's window shows it again.
+        let carried = terminals.and_then(|carried| carried.iter().position(|&t| t == id));
+        if let Some(terminal) = carried {
+            if !stand_ins.contains(&id) {
+                stand_ins.push(id);
+                buffers.push(json!({ "id": id.get(), "path": null, "terminal": terminal }));
+            }
+            continue;
+        }
         // So does a window on an ended terminal, which is not handed over.
         if (shown.is_terminal()
             || (shown.is_internal() && behind_internal(editor, window).is_none()))
@@ -155,13 +167,19 @@ pub fn export(
         "kills": kills,
         "histories": histories,
     });
+    fits(&state)?;
+    Ok((state, Exported::new(number, items)))
+}
+
+/// Whether `state` fits in the line that carries it.
+pub fn fits(state: &Value) -> Result<(), String> {
     let size = state.to_string().len();
     if size > MAX_STATE {
         return Err(format!(
             "the state takes {size} bytes, more than the {MAX_STATE} it may"
         ));
     }
-    Ok((state, Exported::new(number, items)))
+    Ok(())
 }
 
 /// Every window of the tree as the state keeps it, in the tree's order, and the selected one's
@@ -422,7 +440,8 @@ fn kill_state(entry: &KillEntry, items: &mut Vec<Item>) -> Value {
 /// buffers `export` would refuse, without building a state, so that the supervisor can
 /// ask before it opens a new window. One that holds such text can hand over, but must
 /// not be closed (ADR 0055).
-pub fn check(editor: &Editor) -> Reply {
+/// With `terminals`, a running terminal holds nothing here: the caller judges terminals.
+pub fn check(editor: &Editor, terminals: bool) -> Reply {
     if shows_judged_secret(editor) {
         return Err(SECRET_SHOWN.into());
     }
@@ -433,13 +452,13 @@ pub fn check(editor: &Editor) -> Reply {
     if editor.preedit().is_some() {
         return Err(COMPOSING.into());
     }
-    held(editor)?;
+    held(editor, terminals)?;
     Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
 }
 
 /// What holds a handover back whatever the buffers hold: a prompt, a search, or windows
 /// split deeper or into more than a state may say.
-fn held(editor: &Editor) -> Result<(), String> {
+fn held(editor: &Editor, terminals: bool) -> Result<(), String> {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
@@ -447,7 +466,11 @@ fn held(editor: &Editor) -> Result<(), String> {
         return Err(format!("cannot hand over: {why}"));
     }
     // A running terminal holds the restart until terminals are handed over (ADR 0120).
-    if let Some(buffer) = editor.running_terminals().find_map(|id| editor.buffer(id)) {
+    if let Some(buffer) = editor
+        .running_terminals()
+        .find_map(|id| editor.buffer(id))
+        .filter(|_| !terminals)
+    {
         return Err(format!(
             "cannot hand over {}: a program runs in it",
             buffer.name()
@@ -490,7 +513,7 @@ const JUMPING: &str = "a jump is under way";
 /// keyboard macro being recorded or run, or an undo or a redo of a large step (ADR 0082,
 /// ADR 0113, ADR 0116, ADR 0119). A restart and a guarded `exit` both say it after their own
 /// words.
-fn under_way(editor: &Editor) -> Option<&'static str> {
+pub(super) fn under_way(editor: &Editor) -> Option<&'static str> {
     if editor.crossing().is_some() {
         Some(UNDOING)
     } else if editor.jump().is_some() {
@@ -514,87 +537,16 @@ const MACRO: &str = "a keyboard macro is being recorded or run";
 
 /// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
 /// whatever that buffer holds.
-const SECRET_SHOWN: &str = "cannot hand over while a buffer that may hold secrets is shown";
+pub(super) const SECRET_SHOWN: &str =
+    "cannot hand over while a buffer that may hold secrets is shown";
 
 /// Whether a window shows a buffer judged to may hold secrets. A file not judged yet does not
 /// count: it is loading, and its positions are the ones it came in with.
-fn shows_judged_secret(editor: &Editor) -> bool {
+pub(super) fn shows_judged_secret(editor: &Editor) -> bool {
     editor.windows().any(|window| {
         let verdict = editor.shown(window).verdict();
         verdict.is_withheld() && verdict != Verdict::Unjudged
     })
-}
-
-/// Names what an instance holds that a file does not: which buffers exist, the
-/// content of each modified one, and the kill ring's newest entry and size. It is
-/// not a counter, as undoing an edit brings the old value back, and only the
-/// instance that made it compares it.
-///
-/// A buffer that is not modified counts only by its id, since each piece of a
-/// load gets a new content id and a large file may still be arriving. A save of a
-/// modified buffer changes it, as the buffer stops being modified. Marks, cursors
-/// and histories do not count: they change all the time in a window in use, and
-/// put no text at stake (ADR 0090).
-pub fn generation(editor: &Editor) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for (id, buffer) in editor.buffers() {
-        id.hash(&mut hasher);
-        buffer
-            .is_modified()
-            .then(|| buffer.content_id())
-            .hash(&mut hasher);
-    }
-    let ring = editor.kill_ring();
-    ring.len().hash(&mut hasher);
-    ring.get(0)
-        .map(|newest| (newest.id(), newest.len()))
-        .hash(&mut hasher);
-    hasher.finish()
-}
-
-/// Whether `exit` may go ahead. Without a generation it always may: that is a
-/// person or an agent saying so. With one, only if nothing has changed since and
-/// no save is running, as a new instance may already have read the old file, and not
-/// while a buffer that may hold secrets is shown.
-pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String> {
-    match expected {
-        Some(_) if shows_judged_secret(editor) => Err(format!("{EXIT_REFUSED}: {SECRET_SHOWN}")),
-        Some(_) if editor.buffers().any(|(_, buffer)| buffer.is_saving()) => {
-            Err(format!("{EXIT_REFUSED}: a save is running"))
-        }
-        Some(_) if editor.preedit().is_some() => {
-            Err(format!("{EXIT_REFUSED}: a composition is open"))
-        }
-        Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
-        Some(_) if under_way(editor).is_some() => Err(format!(
-            "{EXIT_REFUSED}: {}",
-            under_way(editor).unwrap_or_default()
-        )),
-        Some(expected) if expected != generation(editor) => Err(format!(
-            "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
-        )),
-        _ => Ok(()),
-    }
-}
-
-/// Whether this instance may take over from another. It may only if it has
-/// opened nothing and its `*scratch*` is empty, as the imported buffers would hide
-/// any text there. Internal buffers do not count, but one in view does, since the
-/// window then has no `*scratch*` to start from.
-pub fn import_allowed(editor: &Editor) -> Result<(), String> {
-    let (_, scratch) = editor.current();
-    if scratch.is_internal() {
-        return Err(format!("this instance's window has no {SCRATCH} in view"));
-    }
-    if editor.buffers().count() > 1 || scratch.name() != SCRATCH {
-        return Err("this instance has already opened something".into());
-    }
-    if !scratch.text().is_empty() {
-        return Err(format!(
-            "this instance has text in {SCRATCH}, which the import would hide"
-        ));
-    }
-    Ok(())
 }
 
 /// [`export`]'s state alone, for tests.
@@ -606,7 +558,7 @@ fn export_value(
     restore: Option<&Restore>,
 ) -> Reply {
     let restores = restore.map(std::slice::from_ref).unwrap_or_default();
-    export(editor, pending, frame, restores, 1).map(|(state, _)| state)
+    export(editor, pending, frame, restores, 1, None).map(|(state, _)| state)
 }
 
 #[cfg(test)]

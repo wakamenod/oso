@@ -143,6 +143,9 @@ pub enum UserEvent {
     Terminal(oso_core::buffer::BufferId),
     /// A terminal's start thread found the shell and started it, or could not.
     TerminalStarted(Box<crate::terminal::hosted::Started>),
+    /// A thread of `oso dev`'s restart of terminals found something (ADR 0120, step 11).
+    #[cfg(feature = "dev")]
+    Carry(terminals::carry::CarryEvent),
 }
 
 /// Top-level application state.

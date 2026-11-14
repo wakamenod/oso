@@ -13,7 +13,10 @@
 //!   server itself;
 //! - the id claimed is that session's;
 //! - the session's terminal has not ended;
-//! - no other connection holds that session already.
+//! - no other connection holds that session already;
+//! - for a session carried over `oso dev`'s restart, whose `claude` is no longer oso's child,
+//!   the parent also started when that `claude` did, so a process that took its id after it
+//!   ended is not believed (ADR 0120, step 11).
 
 use oso_platform::control::{Peer, PeerProcess};
 
@@ -27,6 +30,8 @@ pub struct Candidate<'a> {
     pub child: Option<u32>,
     /// A connection holds this session already.
     pub bridged: bool,
+    /// When its `claude` started, if it is not oso's child (a carried session's).
+    pub started: Option<std::time::SystemTime>,
 }
 
 /// The session among `sessions` that the connection of `peer`, claiming `claim`, belongs to,
@@ -34,6 +39,7 @@ pub struct Candidate<'a> {
 pub fn admit<'a>(
     peer: &Peer,
     claim: Option<&SessionId>,
+    parent_started: Option<std::time::SystemTime>,
     sessions: impl IntoIterator<Item = Candidate<'a>>,
 ) -> Option<usize> {
     let claim = claim?;
@@ -42,7 +48,12 @@ pub fn admit<'a>(
     }
     let parent = peer.parent.as_ref().map(PeerProcess::pid)?;
     sessions.into_iter().position(|session| {
-        session.id == claim && session.child == Some(parent) && !session.bridged
+        session.id == claim
+            && session.child == Some(parent)
+            && !session.bridged
+            && session
+                .started
+                .is_none_or(|started| parent_started == Some(started))
     })
 }
 
@@ -81,22 +92,26 @@ mod tests {
                 id: &a,
                 child: Some(100),
                 bridged: false,
+                started: None,
             },
             Candidate {
                 id: &b,
                 child: Some(200),
                 bridged: false,
+                started: None,
             },
         ];
         let ended = [Candidate {
             id: &a,
             child: None,
             bridged: false,
+            started: None,
         }];
         let bridged = [Candidate {
             id: &a,
             child: Some(100),
             bridged: true,
+            started: None,
         }];
         let cases: [Case<'_>; 9] = [
             (
@@ -141,10 +156,32 @@ mod tests {
         ];
         for (case, peer, claim, sessions, expected) in cases {
             assert_eq!(
-                admit(&peer, claim, sessions.iter().copied()),
+                admit(&peer, claim, None, sessions.iter().copied()),
                 expected,
                 "{case}"
             );
         }
+    }
+
+    #[test]
+    fn a_carried_sessions_bridge_must_have_the_parent_that_started_then() {
+        use std::time::{Duration, SystemTime};
+        let a = SessionId::from_random([1; 16]);
+        let then = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let carried = [Candidate {
+            id: &a,
+            child: Some(100),
+            bridged: false,
+            started: Some(then),
+        }];
+        let by = peer(true, Some(100));
+        let admitted = |started| admit(&by, Some(&a), started, carried.iter().copied());
+        assert_eq!(admitted(Some(then)), Some(0));
+        assert_eq!(
+            admitted(Some(then + Duration::from_secs(1))),
+            None,
+            "a later process with the same id"
+        );
+        assert_eq!(admitted(None), None, "a start the system did not say");
     }
 }

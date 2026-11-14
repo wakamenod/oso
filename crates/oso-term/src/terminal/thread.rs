@@ -8,8 +8,11 @@
 //! Must not depend on: the UI thread's state; it shares only the channels and `Shared`.
 
 mod echo;
+#[cfg(feature = "dev")]
+mod handoff;
 mod hold;
 mod inputs;
+mod judge;
 mod pointer;
 
 use std::collections::VecDeque;
@@ -28,11 +31,14 @@ use crate::engine::ghostty::Ghostty;
 use crate::engine::{Effect, Engine};
 use crate::event::{End, Event};
 use crate::limits;
-use crate::policy::{self, Verdict};
+use crate::policy;
 use crate::snapshot::{Row, Snapshot};
 use echo::EchoWatch;
+#[cfg(feature = "dev")]
+pub(super) use handoff::adopt;
 pub(super) use hold::Hold;
 pub(super) use inputs::Inputs;
+pub(super) use judge::{judge, keep};
 
 /// How often, and for how long, a child is looked for after the PTY ended.
 const REAP_EVERY: Duration = Duration::from_millis(50);
@@ -46,6 +52,9 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         let mut running = Running::open(start, size, hold_limit, channels)?;
         let end = running.run();
+        if running.released() {
+            return Ok(None);
+        }
         last = running.finish();
         if running.detached {
             // No one waits for the end: the child is left to a reaper at once.
@@ -54,13 +63,23 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
                 reap_later(child);
             }
         }
-        Ok(match end {
+        Ok(Some(match end {
             End::Closed => running.reap().map_or(End::Closed, End::Exited),
             other => other,
-        })
+        }))
     }));
+    send_end(outcome, last, channels);
+}
+
+/// Sends the end as the last snapshot's event, unless the terminal was released.
+fn send_end(
+    outcome: std::thread::Result<io::Result<Option<End>>>,
+    mut last: Snapshot,
+    channels: Channels<'_>,
+) {
     let end = match outcome {
-        Ok(Ok(end)) => end,
+        Ok(Ok(None)) => return,
+        Ok(Ok(Some(end))) => end,
         Ok(Err(error)) => End::Failed(error),
         Err(_) => End::Failed(io::Error::other("the terminal's thread failed")),
     };
@@ -69,67 +88,6 @@ pub(super) fn run(start: Start, hold_limit: Duration, channels: Channels<'_>) {
     // The end goes even with a snapshot in flight; nothing follows it.
     if channels.snapshots.send(last).is_ok() {
         (channels.wake)();
-    }
-}
-
-/// Judges the effects the output raised: replies queue, while 64 KiB wait at most; holds
-/// begin and end at `now`; events go into `next`. A title, a directory, a progress or a
-/// clipboard write replaces the one of its kind already there, and is never dropped, so a
-/// snapshot holds the latest of each; the rest, at most 256, are counted past that, a bell
-/// right after a bell joined to it. Returns whether an event came. The terminal's thread and
-/// the fuzz target both judge through this.
-pub(super) fn judge(
-    effects: &mut Vec<Effect>,
-    replies: &mut Vec<u8>,
-    next: &mut Snapshot,
-    hold: &mut Hold,
-    now: Instant,
-) -> bool {
-    let mut evented = false;
-    for effect in effects.drain(..) {
-        match policy::judge(effect) {
-            Verdict::Reply(bytes) => {
-                if replies.len() + bytes.len() <= limits::REPLIES_PENDING_MAX {
-                    replies.extend_from_slice(&bytes);
-                }
-            }
-            Verdict::Event(event) => {
-                evented = true;
-                keep(event, next);
-            }
-            Verdict::Hold(held) => hold.set(held, now),
-            Verdict::Drop => {}
-        }
-    }
-    evented
-}
-
-/// Keeps `event` in `next`, as `judge` says.
-fn keep(event: Event, next: &mut Snapshot) {
-    let kind = std::mem::discriminant(&event);
-    let latest = matches!(
-        event,
-        Event::Title(_) | Event::Directory(_) | Event::Progress(_) | Event::ClipboardWrite(_)
-    );
-    if latest {
-        if let Some(at) = next
-            .events
-            .iter_mut()
-            .find(|e| std::mem::discriminant(*e) == kind)
-        {
-            *at = event;
-        } else {
-            next.events.push(event);
-        }
-        return;
-    }
-    if matches!(event, Event::Bell) && matches!(next.events.last(), Some(Event::Bell)) {
-        return;
-    }
-    if next.events.len() < limits::EVENTS_MAX {
-        next.events.push(event);
-    } else {
-        next.dropped_events = next.dropped_events.saturating_add(1);
     }
 }
 
@@ -187,6 +145,10 @@ struct Running<'a> {
     touched: bool,
     /// The requests ended: the handle is gone.
     detached: bool,
+    /// `oso dev`'s restart: whether the thread stopped reading for it, and since when, and
+    /// what else it keeps for it (ADR 0120, step 11).
+    #[cfg(feature = "dev")]
+    handoff: handoff::Handoff,
 }
 
 impl<'a> Running<'a> {
@@ -225,9 +187,28 @@ impl<'a> Running<'a> {
         drop(slave);
         // Until the reap: `reap` and `reap_later` clear it first.
         channels.shared.pid.store(child.id(), Ordering::Release);
-        Ok(Running {
+        Ok(Running::with(
             master,
-            child: Some(child),
+            Some(child),
+            engine,
+            size,
+            hold_limit,
+            channels,
+        ))
+    }
+
+    /// A terminal over `master`, whose child is `child` if it is this instance's.
+    fn with(
+        master: Master,
+        child: Option<Child>,
+        engine: Ghostty,
+        size: Size,
+        hold_limit: Duration,
+        channels: Channels<'a>,
+    ) -> Running<'a> {
+        Running {
+            master,
+            child,
             engine,
             channels,
             replies: Vec::new(),
@@ -247,13 +228,22 @@ impl<'a> Running<'a> {
             fed: false,
             touched: true,
             detached: false,
-        })
+            #[cfg(feature = "dev")]
+            handoff: handoff::Handoff::default(),
+        }
     }
 
     /// Serves the terminal until its PTY ends or its handle is dropped.
     fn run(&mut self) -> End {
         loop {
             self.serve_requests();
+            if self.released() {
+                return End::Closed;
+            }
+            #[cfg(feature = "dev")]
+            if self.handoff.paused() && !self.pause() {
+                continue;
+            }
             if self.echo.due().is_some_and(|due| Instant::now() >= due) {
                 self.look();
             }
@@ -311,6 +301,10 @@ impl<'a> Running<'a> {
     }
 
     fn serve_requests(&mut self) {
+        // A released terminal is the next instance's: not even a hang-up is served.
+        if self.released() {
+            return;
+        }
         self.channels
             .shared
             .requested
@@ -319,22 +313,10 @@ impl<'a> Running<'a> {
             let request = self.channels.requests.try_recv();
             self.touched |= request.is_ok();
             match request {
-                Ok(Request::Input(input)) => self.serve_input(input),
-                Ok(Request::Scroll(scroll)) => {
-                    self.engine.scroll(scroll);
-                    self.changed = true;
-                }
-                Ok(Request::Resize(size)) => self.resize = Some(limits::clamp(size)),
-                Ok(Request::Palette(palette)) => {
-                    self.engine.set_palette(&palette);
-                    self.changed = true;
-                }
-                Ok(Request::Recycle(mut snapshot)) => {
-                    snapshot.clear(&mut self.spare);
-                    self.recycled = Some(snapshot);
-                }
-                Ok(Request::HangUp) => {
-                    let _ = self.master.hang_up();
+                Ok(request) => {
+                    if self.serve_request(request) {
+                        break;
+                    }
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -342,6 +324,11 @@ impl<'a> Running<'a> {
                     break;
                 }
             }
+        }
+        // What a restart carries is the terminal as it was when it stopped reading.
+        #[cfg(feature = "dev")]
+        if self.handoff.paused() {
+            return;
         }
         // Resizes coalesce: a drag asks many, and each makes the program redraw.
         if let Some(size) = self.resize.take()
@@ -352,6 +339,41 @@ impl<'a> Running<'a> {
             self.next.size = size;
             self.changed = true;
         }
+    }
+
+    /// Serves one request; returns whether nothing more may be served after it.
+    fn serve_request(&mut self, request: Request) -> bool {
+        match request {
+            Request::Input(input) => self.serve_input(input),
+            Request::Scroll(scroll) => {
+                self.engine.scroll(scroll);
+                self.changed = true;
+            }
+            Request::Resize(size) => self.resize = Some(limits::clamp(size)),
+            Request::Palette(palette) => {
+                self.engine.set_palette(&palette);
+                self.changed = true;
+            }
+            Request::Recycle(mut snapshot) => {
+                snapshot.clear(&mut self.spare);
+                self.recycled = Some(snapshot);
+            }
+            Request::HangUp => {
+                let _ = self.master.hang_up();
+            }
+            #[cfg(feature = "dev")]
+            Request::Handoff(request) => return self.serve_handoff(request),
+        }
+        false
+    }
+
+    /// Whether the thread let the terminal go to the next instance, untouched.
+    fn released(&self) -> bool {
+        #[cfg(feature = "dev")]
+        let released = self.handoff.released();
+        #[cfg(not(feature = "dev"))]
+        let released = false;
+        released
     }
 
     /// Encodes one input and queues its bytes, correcting what the handle held of the queue

@@ -186,6 +186,23 @@ fn set_non_blocking(file: &File) -> io::Result<()> {
     }
 }
 
+#[cfg(feature = "dev")]
+impl Master {
+    pub(super) fn try_clone_fd(&self) -> io::Result<OwnedFd> {
+        // `try_clone` duplicates with `F_DUPFD_CLOEXEC`.
+        self.0.try_clone().map(OwnedFd::from)
+    }
+
+    pub(super) fn from_fd(fd: OwnedFd) -> io::Result<Master> {
+        // Only a master has a slave's name.
+        slave_name(&fd)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "not a terminal's master"))?;
+        let master = Master(File::from(fd));
+        set_non_blocking(&master.0)?;
+        Ok(master)
+    }
+}
+
 impl Master {
     pub(super) fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         match (&self.0).read(buf) {

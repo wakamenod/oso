@@ -42,7 +42,9 @@ fn it_looks_through_the_instances_only_until_it_knows_one() {
     let mut target = Target::new(None);
     let now = Instant::now();
     for _ in 0..3 {
-        let (pid, ()) = target.connect(now, |pid| instances.connect(pid)).unwrap();
+        let (pid, ()) = target
+            .connect(now, |pid| instances.connect(pid), |_| None)
+            .unwrap();
         assert_eq!(pid, 41);
     }
     assert_eq!(instances.asked, [None, Some(41), Some(41)]);
@@ -54,18 +56,18 @@ fn it_looks_again_at_most_once_each_while_it_finds_none() {
     let mut target = Target::new(None);
     let start = Instant::now();
     let off = target
-        .connect(start, |pid| instances.connect(pid))
+        .connect(start, |pid| instances.connect(pid), |_| None)
         .unwrap_err();
     assert!(off.contains("agent-channel-start"), "{off}");
     instances.on = vec![41];
     let soon = start + PROBE_EVERY / 2;
-    let again = target.connect(soon, |pid| instances.connect(pid));
+    let again = target.connect(soon, |pid| instances.connect(pid), |_| None);
     assert_eq!(again.unwrap_err(), off, "told what it found last");
     assert_eq!(instances.asked, [None]);
     let later = start + PROBE_EVERY;
     assert_eq!(
         target
-            .connect(later, |pid| instances.connect(pid))
+            .connect(later, |pid| instances.connect(pid), |_| None)
             .unwrap()
             .0,
         41
@@ -77,16 +79,20 @@ fn an_instance_that_went_is_looked_past_unless_pid_named_it() {
     let mut instances = Instances::new(&[41]);
     let mut target = Target::new(None);
     let now = Instant::now();
-    target.connect(now, |pid| instances.connect(pid)).unwrap();
+    target
+        .connect(now, |pid| instances.connect(pid), |_| None)
+        .unwrap();
     // oso restarted, as another process.
     instances.on = vec![42];
-    let (pid, ()) = target.connect(now, |pid| instances.connect(pid)).unwrap();
+    let (pid, ()) = target
+        .connect(now, |pid| instances.connect(pid), |_| None)
+        .unwrap();
     assert_eq!(pid, 42);
 
     let mut given = Target::new(Some(41));
     let mut instances = Instances::new(&[42]);
     let refused = given
-        .connect(now, |pid| instances.connect(pid))
+        .connect(now, |pid| instances.connect(pid), |_| None)
         .unwrap_err();
     assert!(refused.contains("--pid"), "{refused}");
     assert_eq!(instances.asked, [Some(41)], "never another instance");
@@ -97,8 +103,36 @@ fn several_instances_are_named_without_their_ids() {
     let mut instances = Instances::new(&[1, 2]);
     let mut target = Target::new(None);
     let told = target
-        .connect(Instant::now(), |pid| instances.connect(pid))
+        .connect(Instant::now(), |pid| instances.connect(pid), |_| None)
         .unwrap_err();
     assert!(told.contains("several") && told.contains("--pid"), "{told}");
     assert!(!told.contains('1') && !told.contains('2'), "{told}");
+}
+
+#[test]
+fn a_named_instance_replaced_by_a_restart_is_followed_to_the_one_that_took_over() {
+    let mut instances = Instances::new(&[42]);
+    let mut given = Target::new(Some(41));
+    let now = Instant::now();
+    let (pid, ()) = given
+        .connect(
+            now,
+            |pid| instances.connect(pid),
+            |gone| (gone == 41).then_some(42),
+        )
+        .unwrap();
+    assert_eq!(pid, 42);
+    // It stays with that one, and never looks through the others.
+    let (pid, ()) = given
+        .connect(now, |pid| instances.connect(pid), |_| None)
+        .unwrap();
+    assert_eq!(pid, 42);
+    assert_eq!(instances.asked, [Some(41), Some(42), Some(42)]);
+    // A follower that does not answer is no follower.
+    let mut instances = Instances::new(&[]);
+    let mut given = Target::new(Some(41));
+    let refused = given
+        .connect(now, |pid| instances.connect(pid), |_| Some(42))
+        .unwrap_err();
+    assert!(refused.contains("--pid"), "{refused}");
 }

@@ -64,6 +64,16 @@ impl Exported {
         }
     }
 
+    /// The number of the export.
+    pub fn number(&self) -> u64 {
+        self.number
+    }
+
+    /// Adds `items` after those it has: the terminals' states (ADR 0120, step 11).
+    pub fn extend(&mut self, items: Vec<Item>) {
+        self.items.extend(items);
+    }
+
     /// Whether this is too old for `export-text`, and can go.
     pub fn is_stale(&self) -> bool {
         self.at.elapsed() > KEPT

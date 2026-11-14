@@ -49,6 +49,15 @@ pub(crate) const EFFECTS_PENDING_MAX: usize = 1024;
 pub(crate) const KITTY_APC_MAX: usize = 16 << 20;
 /// The largest OSC 52 write taken; a larger one is dropped.
 pub(crate) const CLIPBOARD_WRITE_MAX: usize = 1 << 20;
+/// The most of a sequence the program has not finished that a terminal keeps, so that `oso
+/// dev`'s restart carries it (ADR 0120, step 11): an OSC 52 write fits. A longer one is ended
+/// with CAN at the restart.
+#[cfg(feature = "dev")]
+pub(crate) const CONTINUATION_MAX: usize = 2 << 20;
+/// The longest a terminal reads nothing after an export for `oso dev`'s restart, if neither
+/// the restart nor its failure comes (ADR 0120, step 11).
+#[cfg(feature = "dev")]
+pub(crate) const PAUSE_MAX: std::time::Duration = std::time::Duration::from_secs(60);
 /// Text a sequence carries for oso to show is cut to this many bytes.
 pub(crate) const TEXT_MAX: usize = 256;
 /// The most events one snapshot carries; the rest are counted.

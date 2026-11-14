@@ -228,9 +228,13 @@ impl App {
             }
             // A hosted session's bridge is let in without the question, as that session's
             // (ADR 0121, Q19), and logged as any connection.
-            Event::Claims { peer, session } => {
+            Event::Claims {
+                peer,
+                session,
+                parent_started,
+            } => {
                 if let Some(reply) = reply {
-                    self.agent_claims(connection, &peer, &session, reply);
+                    self.agent_claims(connection, &peer, (&session, parent_started), reply);
                 }
             }
             Event::Gone => self.agent_gone(connection),
@@ -362,13 +366,13 @@ impl App {
         &mut self,
         connection: Connection,
         peer: &Peer,
-        session: &str,
+        (session, parent_started): (&str, Option<std::time::SystemTime>),
         reply: std::sync::mpsc::Sender<Reply>,
     ) {
         // An answer that comes after the server stopped waiting is undone: the server treats
         // the connection as any agent's, which asks the person, and it holds no session.
         let answer = |bridges: bool| reply.send(Ok(serde_json::Value::Bool(bridges))).is_ok();
-        if let Some(name) = self.session_bridge(connection, peer, session, answer) {
+        if let Some(name) = self.session_bridge(connection, peer, session, parent_started, answer) {
             self.agent.connected.push(connection);
             let pid = peer.process.as_ref().map_or(0, PeerProcess::pid);
             self.agent_log(&format!("pid {pid}: let in as session {name}'s bridge"));

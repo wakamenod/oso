@@ -5,9 +5,9 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-term]`).
-- It parses untrusted output in memory-unsafe code. All `unsafe` is in `engine/ghostty/ffi.rs` and
-  `ffi/mouse.rs`, `raw.rs`, `raw/callbacks.rs` and `raw/mouse.rs` (the architecture test checks
-  it): one operation per block,
+- It parses untrusted output in memory-unsafe code. All `unsafe` is in `engine/ghostty/ffi.rs`,
+  `ffi/mouse.rs` and `ffi/snapshot.rs`, `raw.rs`, `raw/callbacks.rs`, `raw/mouse.rs` and
+  `raw/snapshot.rs` (the architecture test checks it): one operation per block,
   each with its `// SAFETY:` comment. Everything else is safe code over `raw`. No `unwrap` or
   `expect` outside tests.
 - A callback runs inside the library's parse: it only pushes onto the sink, never calls back
