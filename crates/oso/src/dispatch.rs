@@ -482,8 +482,11 @@ impl Dispatcher {
         if self.hold_key(key) {
             return Effects::default();
         }
-        // Before a macro records it: a key for a terminal's program is not recorded.
+        // A key for a terminal's program is recorded as any key is; one typed at a password
+        // prompt drops the recording (ADR 0120, Q17).
         if let Some(effects) = self.route_to_terminal(editor, key) {
+            self.macro_key(editor, key);
+            self.macro_after(editor);
             return effects;
         }
         self.macro_key(editor, key);

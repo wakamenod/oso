@@ -952,6 +952,10 @@ recorded from Claude Code 2.1.322. The coordinator approved these points:
     Raw-mode password prompts depend on it, and its step 4 settles it with the author.
   - This step does not narrow it. The engine's signal may differ from it, and is chosen with
     the host API.
+  - ADR 0120's step 4b-1 narrowed the snapshot's flag to that shape (the author's definition,
+    2026-11-13). The screen feed sends the worker `Evidence::echo_off`, with no rows, while the
+    buffer's verdict says its program reads a password, so the engine's hold and the
+    terminal's secret are the same signal.
 - **The feed for step 3.** Today the app owns the worker's one sender, which is not `Clone`.
   Step 3 should give each terminal's thread a feed of its own that clones, taking only
   `Screen` and `Exited` jobs, so that screens never pass through the UI thread.

@@ -33,7 +33,8 @@ often, so it must rebuild within 2 s.
   `hosted::find_shell` and is put in its buffer by `app/terminals/start.rs`, as a terminal's. `oso-term` owns the PTY, the engine and the policy; the
   dispatcher holds each terminal's key-reading state (`dispatch/terminal.rs`), and
   `app/terminals.rs` carries out what commands and keys ask. Terminal text never reaches a
-  log, the disk or the agent channel.
+  log or the disk, and reaches the agent channel only as the rows of a terminal the person
+  let agents read (`terminal-allow-agent-read`), never while its program reads a password.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
   hosted session's state from its screen, the tracker, the `oso-sessions` worker, and worktree
   sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the

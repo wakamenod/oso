@@ -141,9 +141,14 @@ pub(crate) fn begin_a_large_undo(editor: &mut Editor) {
 /// A buffer's metadata, which says nothing that follows what a person does in a buffer that
 /// may hold secrets: whether it wraps, which a person toggles there, is withheld while one is
 /// shown (ADR 0079).
+///
+/// A terminal's says that it is one, whether a program runs in it and whether the person
+/// let agents read it, and nothing of its title or rows (ADR 0120, Q16). It leaves out
+/// `secret` and `wrapped`, which follow a password prompt there, so that no agent learns when
+/// one opens in a terminal not shown or how long it stays (Q17).
 fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     let shown = !(buffer.is_secret() && shows_secret);
-    json!({
+    let mut state = json!({
         "id": id.get(),
         "name": buffer.name(),
         "path": buffer.path().map(|path| path.to_string_lossy()),
@@ -151,7 +156,17 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "read_only": buffer.read_only().is_some(),
         "loading": buffer.loading().is_some(),
         "wrapped": shown.then(|| buffer.wraps()),
-    })
+    });
+    if buffer.is_terminal() {
+        if let Some(fields) = state.as_object_mut() {
+            fields.remove("secret");
+            fields.remove("wrapped");
+        }
+        state["kind"] = json!("terminal");
+        state["running"] = json!(buffer.is_running());
+        state["agent_reads"] = json!(buffer.agent_reads());
+    }
+    state
 }
 
 /// A tiled window, in the tree's order (ADR 0112): its id, its cells, gutter, text and
@@ -575,5 +590,70 @@ mod tests {
                 { "name": "save-buffer", "doc": "First line.", "arg": "none", "reach": "change" },
             ])
         );
+    }
+
+    #[test]
+    fn a_terminal_is_listed_by_kind_and_running_and_nothing_of_its_text() {
+        let mut editor = Editor::default();
+        let id = editor.add_terminal_buffer("*terminal*");
+        editor.set_running(id, true);
+        editor.set_mode_note(id, "\u{201c}a title\u{201d}".to_owned());
+        let state = state(&editor, None, 0);
+        let listed = state["buffers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|buffer| buffer["id"] == id.get())
+            .unwrap()
+            .clone();
+        assert_eq!(listed["kind"], "terminal");
+        assert_eq!(listed["running"], true);
+        assert_eq!(listed["agent_reads"], false);
+        assert!(!listed.to_string().contains("a title"), "{listed}");
+        assert!(listed.get("secret").is_none(), "{listed}");
+        editor.set_agent_reads(id, true);
+        let state = super::state(&editor, None, 0);
+        assert!(state.to_string().contains("\"agent_reads\":true"));
+    }
+
+    #[test]
+    fn a_hidden_terminals_password_prompt_is_not_told_while_another_secret_is_shown() {
+        let mut editor = Editor::default();
+        let shown = editor.add_terminal_buffer("*terminal*");
+        let hidden = editor.add_terminal_buffer("*terminal*");
+        editor.show(shown);
+        editor.set_echo_off(shown, true);
+        assert!(editor.shows_secret());
+        let listed = |editor: &Editor| {
+            state(editor, None, 0)["buffers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|buffer| buffer["id"] == hidden.get())
+                .cloned()
+                .unwrap()
+        };
+        let before = listed(&editor);
+        editor.set_echo_off(hidden, true);
+        assert_eq!(listed(&editor), before);
+    }
+
+    #[test]
+    fn a_password_prompt_in_a_terminal_not_shown_changes_nothing_in_the_state() {
+        let mut editor = Editor::default();
+        let id = editor.add_terminal_buffer("*terminal*");
+        let before = state(&editor, None, 0);
+        editor.set_echo_off(id, true);
+        assert_eq!(state(&editor, None, 0), before);
+    }
+
+    #[test]
+    fn a_terminal_reading_a_password_is_a_secret_shown_so_the_channel_waits() {
+        let mut editor = Editor::default();
+        let id = editor.add_terminal_buffer("*terminal*");
+        editor.show(id);
+        assert!(!editor.shows_secret());
+        editor.set_echo_off(id, true);
+        assert!(editor.shows_secret());
     }
 }
