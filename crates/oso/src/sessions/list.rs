@@ -145,6 +145,19 @@ impl List {
         }
     }
 
+    /// What the pane's modeline says of it (ADR 0131): its grouping and its help key.
+    pub fn modeline_note(&self) -> &'static str {
+        match self.grouping {
+            Grouping::Tree => "tree · ? keys",
+            Grouping::State => "by state · ? keys",
+        }
+    }
+
+    /// The projects and worktrees it shows, as last set.
+    pub fn tree(&self) -> &tree::Tree {
+        &self.tree
+    }
+
     /// The projects and worktrees the tree shows, and the space in front (ADR 0131).
     pub fn set_tree(&mut self, tree: tree::Tree) {
         self.tree = tree;

@@ -129,9 +129,13 @@ In `*Sessions*`:
 
 | Key | What it does |
 |---|---|
-| `RET` | Show the session on this row. |
+| `RET` | Show the session on this row. On a worktree, go to its space, or find a file in it when it has none. On a project or a group, fold it. |
 | `n`, `p` | Next and previous row. |
+| `M-n`, `M-p` | Next and previous project, worktree or group. |
 | `TAB` | Fold or unfold a project, a worktree or a group. |
+| `c` | Start a session in this row's worktree: a project's main checkout, the worktree, or the session's worktree. |
+| `w` | Start a session in a new worktree of this row's project. From a worktree, the new branch starts at its branch; from a session, it is also that session's child. |
+| `/` | Switch to a session by name, as `C-x a b`. |
 | `g` | Refresh. |
 | `s` | The tree, or grouped by state. |
 | `P` | Pin or unpin: pinned sessions come first. |
@@ -140,6 +144,10 @@ In `*Sessions*`:
 | `k` | Stop the session. It asks first while the session works or needs input. |
 | `e` | Explain its state. |
 | `?` | Say what the marks mean, and these keys. |
+
+A click on a row does what `RET` does there, even when the list is not selected; a click on a
+`▾` or `▸` folds. `C-x a c` and `C-x a w` in the list work as `c` and `w`.
+The list's modeline says how it is grouped and that `?` gives the keys.
 
 `C-x o` skips the list, and `C-x a s` hides it when it is selected. `C-x k` in a session's
 buffer stops and archives the session.

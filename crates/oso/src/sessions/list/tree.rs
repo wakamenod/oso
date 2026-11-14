@@ -14,8 +14,8 @@ use std::time::{Duration, Instant, SystemTime};
 use oso_core::syntax::Highlight;
 
 use super::{
-    Entry, Fold, Group, Key, Line, List, NESTED, PLACE_FROM, Rendered, Row, SPINNER, age, age_of,
-    cells, cut, cut_middle, face, mark, order, pad, rank,
+    Entry, Fold, Group, Key, Line, List, PLACE_FROM, Rendered, Row, SPINNER, age, age_of, cells,
+    cut, cut_middle, face, mark, order, pad, rank,
 };
 use crate::sessions::recap::clean;
 use crate::sessions::state::State;
@@ -365,9 +365,11 @@ impl List {
         let mut archived = archived.to_vec();
         archived.sort_by(|a, b| order(a).cmp(&order(b)));
         for entry in archived {
+            // At a session's indent, as every session row of the tree, so that only a heading
+            // takes a worktree's (`sessions-next-heading`).
             let row = Row {
                 entry,
-                indent: NESTED,
+                indent: SESSION,
                 spin: None,
                 waiting: 0,
                 place: true,
@@ -416,16 +418,34 @@ fn place<'e>(worktrees: &[(usize, usize, &[u8])], entry: &'e Entry) -> Place<'e>
         return Place::Other(entry.repo.as_deref().unwrap_or(Path::new("")));
     };
     let bytes = dir.as_os_str().as_encoded_bytes();
-    // A byte prefix that ends at a separator, as `Path::starts_with` has it, but cheaper.
-    let holds = |path: &[u8]| {
-        bytes.starts_with(path)
-            && (bytes.len() == path.len()
-                || path.ends_with(b"/")
-                || std::path::is_separator(char::from(bytes[path.len()])))
-    };
-    match worktrees.iter().find(|(.., path)| holds(path)) {
+    match worktrees.iter().find(|(.., path)| holds(path, bytes)) {
         Some(&(p, w, _)) => Place::Worktree(p, w),
         None => Place::Other(entry.repo.as_deref().unwrap_or(dir)),
+    }
+}
+
+/// Whether the path whose bytes are `path` holds the one whose bytes are `dir`: a byte prefix
+/// that ends at a separator, as `Path::starts_with` has it, but cheaper.
+fn holds(path: &[u8], dir: &[u8]) -> bool {
+    dir.starts_with(path)
+        && (dir.len() == path.len()
+            || path.ends_with(b"/")
+            || std::path::is_separator(char::from(dir[path.len()])))
+}
+
+impl Tree {
+    /// The project whose repository is `root`.
+    pub fn project(&self, root: &Path) -> Option<&Project> {
+        self.projects.iter().find(|project| project.root == root)
+    }
+
+    /// The deepest worktree that holds `dir`, with its project, as a session there is placed.
+    pub fn holding(&self, dir: &Path) -> Option<(&Project, &Worktree)> {
+        let bytes = dir.as_os_str().as_encoded_bytes();
+        by_depth(&self.projects)
+            .into_iter()
+            .find(|(.., path)| holds(path, bytes))
+            .map(|(p, w, _)| (&self.projects[p], &self.projects[p].worktrees[w]))
     }
 }
 

@@ -324,7 +324,8 @@ A panicking command is caught at the command boundary
   minor mode layer of digits while a prefix argument is typed, another while the layer of
   `C-x TAB` is open, whose arrows shift the region until another key closes it
   ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
-  copies, in a prompt, in a Markdown buffer (`M-RET`) and in a terminal, whose keymap holds session
+  copies, in a prompt, in a Markdown buffer (`M-RET`), in a directory listing
+  ([ADR 0134](adr/0134-a-directory-editor.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
@@ -487,7 +488,7 @@ loop. Render errors are logged and are never fatal.
 | Buffer kind | Backing | Examples |
 |---|---|---|
 | File | rope loaded from disk | source files, notes |
-| Generated | rope produced by a mode, read-only by default | git status, directory listings, compile output, help |
+| Generated | rope produced by a mode, read-only by default | git status, directory listings ([ADR 0134](adr/0134-a-directory-editor.md)), compile output, help |
 | Internal | rope the editor keeps for itself, not the user's work | `*Messages*`, `*Emergency Copies*` and a copy being looked at |
 | Terminal | `oso-term` cell grid, owned by the terminal's thread | shells, project terminals, the floating terminal, compile output |
 
@@ -595,6 +596,15 @@ The UI thread never blocks on I/O or parsing:
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- The directory editor's listings are read on the same threads, a request kept per listing
+  buffer (`crates/oso/src/dired.rs`, glue in `app/dired.rs`): each entry's metadata from the
+  descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` elsewhere), sorted, and
+  built there into a rope with its display map, highlights and a table of what each row names,
+  a partial one every 50 ms while a large directory is read. The UI swaps it in at O(1)
+  (`Editor::set_listing_text`), each window's point kept on its name. The watcher looks at the
+  directories of shown listings once a second, and a stamp that differs from the one read
+  before the listing lists it again
+  ([ADR 0134](adr/0134-a-directory-editor.md)).
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result

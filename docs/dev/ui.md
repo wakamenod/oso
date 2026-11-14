@@ -402,6 +402,28 @@ project and how long ago the baseline was taken. Only a trusted project runs git
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 
+## Directory listings
+
+`C-x d` reads a directory and `C-x C-j` lists the one of the buffer's file, with point on the
+file, in a listing buffer named after the directory, `crates/`, as Emacs's dired shows it
+([ADR 0134](adr/0134-a-directory-editor.md)). Listing runs nothing and opens no file.
+
+- The first line is the directory, the home directory as `~`. Each row is the mode as `ls -l`
+  writes it, the owner and group only when someone else owns a row, the size as `ls -h` (`-` for
+  a directory), the time as `ls` and the name, a link's target after `->`; directories first,
+  then by name or, with `s`, newest first. Backups ending in `~` are left out. `(` shows names
+  only. The modeline says `Dired by name` or `Dired by date`.
+- Names are in faces by kind: directories, links, broken links, files someone may run, and pipes,
+  sockets and devices; the details are dim. A line break in a name shows as `\n`.
+- A large directory shows what it has read every 50 ms, under `reading… N entries so far`; one
+  that cannot be read says why.
+- `n`/`p` (and `SPC`) go by rows to the name, `RET` (or `f`) opens a file or lists a directory in
+  the same buffer, `o` does it in another window, `^` lists the directory above with point on
+  the one left, `g` lists it again, `w` copies the names at the cursors (`0 w` their absolute
+  paths), `q` shows the buffer before. `C-x k` kills a listing, and `C-x b` goes back to one.
+- A shown listing is listed again within a second of its directory changing, each window's
+  point on the name it was on.
+
 ## Echo area
 
 - A single line at the bottom of the frame shows messages such as "Saved"
@@ -909,11 +931,24 @@ a switch made with its command stands until that setting changes in the file
     `*Messages*` and showing a buffer act on the window selected before it, and select it.
   - The commands that show a session or the list, and pinning and archiving, need a person at
     the keyboard: the agent channel cannot run them.
-  - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
+  - In the list: `RET` shows the session, `n`/`p` move between rows, `M-n`/`M-p` between
+    projects, worktrees and groups, `TAB` folds, `g`
     renders again with fresh ages and lists each project's worktrees again, `s` groups by
     state instead, `P` pins, `A` archives or
     brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
-    explains its state, `?` says what the marks mean and the keys.
+    explains its state, `?` says what the marks mean and the keys, `/` is `session-switch`.
+  - On a worktree's row, `RET` enters its space, or opens `C-x C-f`'s prompt in it when no
+    space is there; on a project's or a group's row it folds; `k` says that `worktree-remove`
+    removes worktrees.
+  - `c` (`claude`) and `w` (`session-worktree`) take the row at point for where they are, as
+    do `C-x a c` and `C-x a w` while the list is selected: a project's row is its main
+    checkout and `HEAD`; a worktree's row is that worktree and its branch, or `HEAD` and a note
+    when it is on none; a session's row is its worktree, and `w` makes it the new session's
+    parent. `w` reads the branch of the row's repository, under the trust of a buffer in it.
+  - A left click on the list's text moves point to the row under it and does what `RET` does,
+    whether the list was selected or not; on a fold's mark it folds. Presses wait while a prompt
+    or a key sequence holds input, as everywhere. The modeline says `tree · ? keys` or
+    `by state · ? keys`.
 - `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and
   recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
   that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
