@@ -282,6 +282,7 @@ mod tests {
 
     use super::{SessionState, TerminalState, entry, parse};
     use crate::dev::handoff::format::Items;
+    use crate::dev::handoff::tests::absolute;
 
     fn terminal(session: bool) -> TerminalState {
         TerminalState {
@@ -297,8 +298,8 @@ mod tests {
             session: session.then(|| SessionState {
                 id: "0b1c2d3e-0000-4000-8000-000000000000".into(),
                 name: "oso".into(),
-                directory: "/work/oso".into(),
-                root: Some("/work/oso".into()),
+                directory: absolute("/work/oso").into(),
+                root: Some(absolute("/work/oso").into()),
                 parent: None,
                 baseline: Some("abc".into()),
                 pinned: true,
