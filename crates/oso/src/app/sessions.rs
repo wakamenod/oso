@@ -9,8 +9,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, SessionRequest};
 
+mod feed;
 mod hosting;
+mod watch;
 pub(super) use hosting::Hosting;
+pub(super) use watch::Watch;
 
 use super::{App, UserEvent, Waker};
 use crate::config::RulesReport;
@@ -38,6 +41,7 @@ pub(super) fn worker(waker: &Waker, state: Option<&std::path::Path>) -> Option<W
 impl App {
     /// After each event: hands what commands asked about sessions to the worker.
     pub(super) fn sync_sessions(&mut self) {
+        let mut asked = false;
         for request in self.editor.take_session_requests() {
             let job = match request {
                 SessionRequest::ExplainFile(path) => Job::ExplainFile(path),
@@ -53,6 +57,14 @@ impl App {
                     self.fork_session(buffer);
                     continue;
                 }
+                // The list, spaces and live explain (ADR 0121 step 3).
+                request => {
+                    match self.session_request(request) {
+                        Some(other) => log::debug!("a session request not carried out: {other:?}"),
+                        None => asked = true,
+                    }
+                    continue;
+                }
             };
             match &self.sessions {
                 Some(worker) => worker.send(job),
@@ -62,6 +74,15 @@ impl App {
             }
         }
         self.drop_unanswered_fork_offer();
+        // After the requests, so that a `session-stop` that a question's yes ran finds its
+        // stop still asked.
+        self.drop_unasked_stop();
+        self.sync_seen();
+        // What the person asked shows at once; the worker's changes wait for the loop, so
+        // that many make the views once.
+        if asked {
+            self.refresh_sessions();
+        }
     }
 
     /// The configuration's thread read the agent rules file: what it says goes to
@@ -93,10 +114,17 @@ impl App {
                  until the rules reload. See agent-rules/claude.toml",
                 crate::sessions::worker::DROP_AFTER
             )),
-            Out::Recalled(remembered) => self.sessions_recalled(remembered),
+            Out::Recalled(remembered) => {
+                self.sessions_recalled(remembered);
+                self.sessions_touched();
+            }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
+                self.session_changed(key, change);
             }
+            // Its text is the screen's: never logged.
+            Out::Recap(key, recap) => self.session_recapped(key, recap),
+            Out::Externals(live) => self.externals_found(live),
         }
     }
 

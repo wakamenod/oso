@@ -423,3 +423,5 @@ fn quit(app: &mut App) {
     let status = app.wait_for_exit();
     assert!(status.success(), "{status:?}");
 }
+
+mod attention;

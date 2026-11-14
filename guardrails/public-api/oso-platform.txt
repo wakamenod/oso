@@ -230,6 +230,22 @@ pub fn oso_platform::file_meta::open_for_writing(&std::path::Path) -> std::io::e
 pub fn oso_platform::file_meta::open_regular_here(&std::path::Path) -> std::io::error::Result<core::option::Option<(std::fs::File, std::fs::Metadata)>>
 pub fn oso_platform::file_meta::path_of_opened(&std::fs::File) -> std::io::error::Result<core::option::Option<std::path::PathBuf>>
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
+pub mod oso_platform::notify
+pub enum oso_platform::notify::Kind
+pub oso_platform::notify::Kind::Done
+pub oso_platform::notify::Kind::Failed
+pub oso_platform::notify::Kind::NeedsInput
+pub oso_platform::notify::Kind::ReadyForReview
+impl core::clone::Clone for oso_platform::notify::Kind
+pub fn oso_platform::notify::Kind::clone(&self) -> oso_platform::notify::Kind
+impl core::cmp::Eq for oso_platform::notify::Kind
+impl core::cmp::PartialEq for oso_platform::notify::Kind
+pub fn oso_platform::notify::Kind::eq(&self, &oso_platform::notify::Kind) -> bool
+impl core::fmt::Debug for oso_platform::notify::Kind
+pub fn oso_platform::notify::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::notify::Kind
+impl core::marker::StructuralPartialEq for oso_platform::notify::Kind
+pub fn oso_platform::notify::attention(oso_platform::notify::Kind, &str, &str)
 pub mod oso_platform::privacy
 pub enum oso_platform::privacy::Writers
 pub oso_platform::privacy::Writers::Anyone

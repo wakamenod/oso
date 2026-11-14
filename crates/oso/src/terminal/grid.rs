@@ -99,6 +99,7 @@ impl Grid {
         self.modes
     }
 
+    /// Lines the view is scrolled back from the bottom.
     pub(crate) fn scrolled(&self) -> usize {
         self.scrolled
     }
@@ -122,10 +123,23 @@ impl Grid {
         self.size
     }
 
-    /// The text of row `index`, trailing blanks dropped, for the dev socket's state and the
-    /// agent channel's `text` where the person allowed it (ADR 0120, Q16).
-    /// One pass over the cells and the clusters, which come in column order, so a row of
-    /// clusters costs its length and not its length times their count.
+    /// Raised by every row that changes: the same number means the same rows.
+    pub(crate) fn generation(&self) -> u64 {
+        self.next
+    }
+
+    /// Each row's text from the top, trailing blanks dropped, for agent sessions' rules
+    /// (ADR 0121).
+    pub(crate) fn row_texts(&self) -> Vec<String> {
+        (0..self.rows.len())
+            .filter_map(|index| self.row_text(index))
+            .collect()
+    }
+
+    /// The text of row `index`, trailing blanks dropped, for the dev socket's state, agent
+    /// sessions, and the agent channel's `text` where the person allowed it (ADR 0120, Q16;
+    /// ADR 0121). One pass over the cells and the clusters, which come in column order, so a
+    /// row of clusters costs its length and not its length times their count.
     pub(crate) fn row_text(&self, index: usize) -> Option<String> {
         let kept = self.rows.get(index)?;
         let mut text = String::with_capacity(kept.cells.len());

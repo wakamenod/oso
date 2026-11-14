@@ -8,7 +8,7 @@
 //! host-owned state and does not know its keys.
 
 mod agent;
-mod agent_sessions;
+pub(crate) mod agent_sessions;
 mod aids;
 mod buffers;
 mod complete;
@@ -103,6 +103,7 @@ const TABLES: &[&[Command]] = &[
     scroll::COMMANDS,
     session::COMMANDS,
     agent_sessions::COMMANDS,
+    agent_sessions::LIST_COMMANDS,
     terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
@@ -287,6 +288,19 @@ mod tests {
         "claude",
         "session-fork",
         "session-resume",
+        "session-stop",
+        "sessions-resume",
+        // What puts a session's terminal or `*Sessions*` in front of the person's keys, and
+        // what changes which sessions ask for them (ADR 0121, step 3).
+        "sessions",
+        "session-next-done",
+        "session-next-waiting",
+        "sessions-archive",
+        "sessions-pin",
+        "sessions-show",
+        "space-switch",
+        "space-zoom",
+        // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",
         // Letting an agent read a terminal is the person's to give and to take back
         // (ADR 0120, Q16).

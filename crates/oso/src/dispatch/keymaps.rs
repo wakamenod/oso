@@ -48,6 +48,8 @@ pub(super) struct Keymaps {
     pub(super) rigid_commands: Vec<CommandId>,
     /// Markdown's own keys, above the global ones in a Markdown buffer.
     pub(super) markdown: Keymap,
+    /// `*Sessions*`'s own keys, above the global ones in it (ADR 0121).
+    pub(super) sessions: Keymap,
     /// A review buffer's own keys, above the global ones (ADR 0122).
     pub(super) review: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
@@ -75,6 +77,7 @@ impl Keymaps {
             rigid: bindings::rigid_keymap(registry),
             rigid_commands: bindings::rigid_commands(registry),
             markdown: bindings::markdown_keymap(registry),
+            sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
         }
@@ -82,7 +85,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 16] {
+    pub(super) fn all(&self) -> [&Keymap; 17] {
         let Self {
             global,
             user,
@@ -97,12 +100,13 @@ impl Keymaps {
             rigid,
             rigid_commands: _,
             markdown,
+            sessions,
             review,
             terminal,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            jump, replace, rigid, markdown, review, terminal,
+            jump, replace, rigid, markdown, sessions, review, terminal,
         ]
     }
 
@@ -155,6 +159,7 @@ impl Keymaps {
                 Mode::Fundamental | Mode::Rust | Mode::Toml => None,
                 Mode::Review => Some(&self.review),
                 Mode::Markdown => Some(&self.markdown),
+                Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
                 Mode::Terminal => Some(&self.terminal),

@@ -14,7 +14,8 @@
 
 use super::{CellRect, FrameLayout, WindowRegions};
 use crate::window::WindowId;
-use cells::{distribute, window_regions};
+use cells::distribute;
+pub(super) use cells::window_regions;
 pub use tiling::{BadTiling, Tiling};
 
 /// The fewest text rows each half of a split keeps, above its modeline.
@@ -93,11 +94,33 @@ impl Splits {
         }
     }
 
+    /// A frame of two windows side by side, `left` and `right`, sharing its columns (ADR 0121).
+    pub(crate) fn side_by_side(left: WindowId, right: WindowId) -> Self {
+        let child = |window| Child {
+            weight: 1,
+            node: Node::Window(window),
+        };
+        Self {
+            root: Node::Run(Run {
+                way: Way::Across,
+                children: vec![child(left), child(right)],
+                pair: false,
+            }),
+            gutter: 0,
+        }
+    }
+
     /// Counts a gutter of `columns` beside each window's 10 text columns in the smallest a
     /// split or a resize leaves: the narrowest gutter while line numbers are on, 0 while they
     /// are off.
     pub(crate) fn set_gutter(&mut self, columns: usize) {
         self.gutter = columns;
+    }
+
+    /// The fewest columns a window of the tree keeps beside the narrowest gutter, as a split
+    /// leaves it: what the side window leaves the tree (ADR 0121).
+    pub(super) fn least_columns(&self) -> usize {
+        self.gutter + SPLIT_COLUMNS
     }
 
     /// The windows in the tree's order: left to right, top to bottom.

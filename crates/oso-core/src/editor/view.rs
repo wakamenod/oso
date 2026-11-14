@@ -40,14 +40,23 @@ impl Editor {
         for (window, &(_, gutter)) in self.windows[..count].iter_mut().zip(&gutters) {
             window.set_gutter_floor(numbers.then_some((window.buffer(), gutter)));
         }
-        let tiled = self.tiled_index();
-        let keep = self.windows[tiled].id();
-        frame::layout_into(&mut self.frame, size, &self.splits, keep, |id| {
+        let keep = self.tree_id();
+        let tree = (&self.splits, self.side_columns());
+        frame::layout_into(&mut self.frame, size, tree, keep, |id| {
             gutters
                 .iter()
                 .find_map(|&(other, gutter)| (other == id).then_some(gutter))
                 .unwrap_or(0)
         });
+        // The selected window always has cells: the side window gives them up first.
+        if !self
+            .frame
+            .regions(self.tiled_id())
+            .is_some_and(WindowRegions::has_cells)
+        {
+            self.leave_side();
+        }
+        let tiled = self.tiled_index();
         let mut added = Vec::with_capacity(count);
         for window in &mut self.windows[..count] {
             let view = self

@@ -19,7 +19,12 @@
 //! - `hosted`: the table of the sessions oso hosts.
 //! - `bridge`: whether a connection is a hosted session's bridge.
 //! - `start`: getting a session ready and starting its terminal, on a thread of its own.
+//! - `recap`: a session's one-line recap, from a rule's `recap` pattern or the title.
+//! - `attention`: when a session's state asks for the person's attention.
+//! - `list`: `*Sessions*`, grouped, nested and folded, rendered to a width.
+//! - `spaces`: each project's window tree, zoom and last buffers.
 
+pub mod attention;
 pub mod bridge;
 pub mod command;
 pub mod engine;
@@ -27,10 +32,13 @@ pub mod explain;
 pub mod hosted;
 pub mod identity;
 pub mod launch;
+pub mod list;
+pub mod recap;
 pub mod record;
 pub mod registry;
 pub mod rules;
 pub mod screen;
+pub mod spaces;
 pub mod start;
 pub mod state;
 pub mod worker;
