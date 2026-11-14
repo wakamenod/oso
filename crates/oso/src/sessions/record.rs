@@ -160,13 +160,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         Some(parent) => Some(SessionId::parse(parent)?),
         None => None,
     };
-    // A line from before oso kept origins was the person's, unless another session started it:
-    // that one, or a line someone stripped of its origin, may not start sessions unasked.
-    let origin = match optional("origin")? {
-        Some(name) => Origin::named(name),
-        None if parent.is_some() => Origin::Unknown,
-        None => Origin::Person,
-    };
+    let origin = Origin::read(optional("origin")?, parent.is_some());
     let baseline = match optional("baseline")? {
         Some(tree) if is_tree_id(tree) => Some(tree.to_owned()),
         Some(_) => return None,

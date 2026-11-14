@@ -195,6 +195,9 @@ below and the oso-core variant.
   it, as for a question. Another agent's open question does not hold back a call that may start
   without asking; it does if the call asks after all. `app/sessions/tools/starting.rs` holds the
   decision's inputs and what runs once a call may, on `y` or without asking.
+- **`oso dev`'s restart** ([ADR 0120](0120-the-terminal.md), step 11) carries each running
+  session's origin in its state, read as the record's is; a brief is not carried, so
+  `session-explain` says it is not kept.
 - **Trust is taken as it is now (found in review):** a `session_start` in the caller's own
   directory starts without asking only if an open buffer has the project trusted now, the
   session's own among them (ADR 0132), never by the trust the session began with, which the

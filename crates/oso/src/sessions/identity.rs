@@ -43,6 +43,17 @@ impl Origin {
         }
     }
 
+    /// The origin a record or a dev restart's state gives by `name`. None from before oso kept
+    /// origins was the person's, unless another session started it: that one, or one stripped
+    /// of its origin, may not start sessions unasked.
+    pub fn read(name: Option<&str>, has_parent: bool) -> Self {
+        match name {
+            Some(name) => Self::named(name),
+            None if has_parent => Self::Unknown,
+            None => Self::Person,
+        }
+    }
+
     /// The origin a record's name gives; one oso does not know is [`Origin::Unknown`].
     pub fn named(name: &str) -> Self {
         match name {
