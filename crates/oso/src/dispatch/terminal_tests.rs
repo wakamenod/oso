@@ -401,6 +401,12 @@ fn c_c_c_u_gives_a_session_key_a_prefix_argument() {
     send(&mut dispatcher, &mut editor, "C-c n");
     assert!(!dispatcher.keys_in_progress());
     assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    // After it, the global keymap's `C-c` keys still do not apply: `C-c t` opens no menu.
+    send(&mut dispatcher, &mut editor, "C-c C-u C-c t");
+    assert!(!dispatcher.menu_open());
+    assert!(!dispatcher.keys_in_progress());
+    assert_eq!(echo(&editor), "C-c t is undefined (C-c C-c sends C-c)");
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
 }
 
 #[test]

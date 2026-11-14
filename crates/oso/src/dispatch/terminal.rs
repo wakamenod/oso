@@ -41,7 +41,10 @@ impl Dispatcher {
         // `C-c` and a key the terminal's keymap does not bind after it send both (ADR 0120). In a
         // session's terminal they send nothing: a `C-c` would interrupt Claude Code or clear
         // its draft (ADR 0132, Q2).
-        let pending_c_c = self.resolver.pending() == [route::C_C] && self.prefix.is_none();
+        // A prefix argument before it counts in a session only, where `C-c C-u` gives one
+        // (ADR 0132): its global and user `C-c` keys must not apply after it either.
+        let pending_c_c =
+            self.resolver.pending() == [route::C_C] && (self.prefix.is_none() || session);
         if pending_c_c
             && !is_cancel(key)
             && self
@@ -86,7 +89,7 @@ impl Dispatcher {
                 state.held_c_c = true;
                 Some(Effects::default())
             }
-            Route::KeptFromSession => {
+            Route::SuspendKept => {
                 editor.echo(KEPT_C_Z);
                 Some(Effects::default())
             }

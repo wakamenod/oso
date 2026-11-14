@@ -340,3 +340,46 @@ fn a_marker_is_what_the_walker_counts_as_one() {
         assert_eq!(here, marked, "{dir}");
     }
 }
+
+/// A session's directory reached through a link, or by `..`, is resolved before the walk,
+/// which stops at a link and goes up by the text; a missing one is in no project. A file's
+/// location, already real, and a new file's directory not made yet stay (ADR 0132).
+#[cfg(unix)]
+#[test]
+fn the_real_place_resolves_a_session_s_directory() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("real-place");
+    let real = scratch.dir("work/oso");
+    fs::create_dir(real.join(".git")).unwrap();
+    let plain = scratch.dir("work/plain");
+    let link = scratch.0.join("link");
+    symlink(&real, &link).unwrap();
+    let through = link.join(DIRECTORY_STANDIN);
+    assert_eq!(real_place(&through), Some(real.join(DIRECTORY_STANDIN)));
+    let found = detect(&real_place(&through).unwrap(), None, &[]).unwrap();
+    assert_eq!(found.root.path, real);
+    // `..` goes up by the real place, not past `oso` by the text.
+    let dotted = real.join("../plain").join(DIRECTORY_STANDIN);
+    assert_eq!(real_place(&dotted), Some(plain.join(DIRECTORY_STANDIN)));
+    // A directory gone, as a removed worktree's, is in no project, not its parent's.
+    let gone = real.join(".claude/worktrees/gone").join(DIRECTORY_STANDIN);
+    assert_eq!(real_place(&gone), None);
+    let file = real.join("notes.md");
+    assert_eq!(real_place(&file), Some(file.clone()));
+    let missing = scratch.0.join("not-yet/notes.md");
+    assert_eq!(real_place(&missing), Some(missing.clone()));
+}
+
+/// oso-core asks a session's directory under the name this thread knows it by.
+#[test]
+fn a_session_s_request_names_the_stand_in() {
+    let mut editor = Editor::default();
+    let terminal = editor.add_terminal_buffer("*claude: oso*");
+    editor.set_hosts_session(terminal, true);
+    editor.request_directory_project(terminal, Path::new("/work/oso"));
+    let request = editor.take_project_requests().pop().unwrap();
+    assert_eq!(
+        request.location,
+        Path::new("/work/oso").join(DIRECTORY_STANDIN)
+    );
+}

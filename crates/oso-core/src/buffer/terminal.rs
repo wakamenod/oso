@@ -69,6 +69,18 @@ impl Buffer {
 
     pub(crate) fn set_session(&mut self, session: bool) {
         self.session = session;
+        if !session {
+            self.session_directory = None;
+        }
+    }
+
+    /// The directory its session runs in, as the host gave it for finding its project.
+    pub(crate) fn session_directory(&self) -> Option<&std::path::Path> {
+        self.session_directory.as_deref()
+    }
+
+    pub(crate) fn set_session_directory(&mut self, directory: std::path::PathBuf) {
+        self.session_directory = Some(directory);
     }
 
     /// Counts the terminal as secret while its program reads a password, and as ordinary

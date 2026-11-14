@@ -219,6 +219,8 @@ pub struct Buffer {
     agent_reads: bool,
     /// Its terminal hosts an agent session, so session mode's keys apply (ADR 0132).
     session: bool,
+    /// The directory that session runs in, whose project the buffer is in, once asked.
+    session_directory: Option<std::path::PathBuf>,
     /// The agent channel is opening it and has not shown it yet.
     agent_pending: bool,
     /// The state of the content now.
@@ -282,6 +284,7 @@ impl Buffer {
             mode_note: String::new(),
             agent_reads: false,
             session: false,
+            session_directory: None,
             agent_pending: false,
             content: ContentId(0),
             saved: ContentId(0),

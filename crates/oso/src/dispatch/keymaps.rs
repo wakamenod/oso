@@ -11,14 +11,13 @@
 use oso_core::buffer::{Buffer, Mode};
 use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
-use oso_core::key::{Key, KeyPress, Modifiers};
-use oso_core::keymap::{Keymap, Layers, display_keys};
+use oso_core::keymap::{Keymap, Layers};
 use oso_core::minibuffer::Kind;
 
 use crate::bindings;
-use crate::commands::agent_sessions::SESSION_HELP;
 
 use super::Dispatcher;
+use super::session_help::SessionHelp;
 
 /// Every keymap a dispatcher holds.
 pub(super) struct Keymaps {
@@ -64,8 +63,8 @@ pub(super) struct Keymaps {
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
     /// (ADR 0132).
     pub(super) session: Keymap,
-    /// `session-help`, and what it says: session mode's keys, from its keymap.
-    pub(super) session_help: (Option<CommandId>, String),
+    /// What `session-help` says: session mode's keys, from its keymap (ADR 0132).
+    pub(super) session_help: SessionHelp,
 }
 
 impl Keymaps {
@@ -75,6 +74,7 @@ impl Keymaps {
         let (digits, minus) = bindings::prefix_keymaps(registry);
         let (list, copy) = bindings::recovery_keymaps(registry);
         let [minibuffer, question, completing, draft] = bindings::prompt_keymaps(registry);
+        let session = bindings::session_keymap(registry);
         Self {
             global,
             user: Keymap::new(),
@@ -94,18 +94,9 @@ impl Keymaps {
             sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
-            session: bindings::session_keymap(registry),
-            session_help: (None, String::new()),
+            session_help: SessionHelp::new(&session, registry),
+            session,
         }
-        .with_session_help(registry)
-    }
-
-    /// Writes what `session-help` says from the session keymap now (ADR 0132).
-    fn with_session_help(mut self, registry: &Registry) -> Self {
-        let id = registry.lookup(SESSION_HELP);
-        let text = session_help(&self.session, registry, id);
-        self.session_help = (id, text);
-        self
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
@@ -222,54 +213,6 @@ impl Keymaps {
     pub(super) fn user(&self) -> Option<&Keymap> {
         Some(&self.user).filter(|user| !user.is_empty())
     }
-}
-
-/// What `session-help` says: each `C-c` key of session mode's keymap and what it runs, the
-/// command's name without `session-`, letters first, then capitals, signs and control keys
-/// (ADR 0132). `help` itself is left out.
-fn session_help(keymap: &Keymap, registry: &Registry, help: Option<CommandId>) -> String {
-    let mut rows: Vec<(Vec<KeyPress>, String)> = Vec::new();
-    let c_c = KeyPress {
-        modifiers: Modifiers::CONTROL,
-        key: Key::Char('c'),
-    };
-    keymap.bindings(|keys, id| {
-        let Some(command) = registry.get(id).filter(|_| Some(id) != help) else {
-            return;
-        };
-        if keys.first() == Some(&c_c) {
-            let name = command.name;
-            let label = ["session-", "sessions-", "terminal-"]
-                .iter()
-                .find_map(|prefix| name.strip_prefix(prefix))
-                .unwrap_or(name);
-            rows.push((keys[1..].to_vec(), label.to_owned()));
-        }
-    });
-    let menus = bindings::built_in_menus(registry);
-    keymap.menu_bindings(|keys, id| {
-        if keys.first() == Some(&c_c)
-            && let Some(menu) = menus.get(id)
-        {
-            rows.push((keys[1..].to_vec(), format!("{} menu", menu.name())));
-        }
-    });
-    let order = |keys: &[KeyPress]| match keys.first().map(|key| (key.modifiers, key.key)) {
-        Some((Modifiers::NONE, Key::Char(c))) if c.is_ascii_lowercase() => 0,
-        Some((Modifiers::NONE, Key::Char(c))) if c.is_ascii_uppercase() => 1,
-        Some((Modifiers::NONE, _)) => 2,
-        _ => 3,
-    };
-    let mut rows: Vec<(u8, String, String)> = rows
-        .into_iter()
-        .map(|(keys, label)| (order(&keys), display_keys(&keys).to_string(), label))
-        .collect();
-    rows.sort();
-    let mut text = String::from("C-c then:");
-    for (_, keys, label) in rows {
-        text.push_str(&format!("  {keys} {label}"));
-    }
-    text
 }
 
 /// The user's keymap from the configuration, which waits for a pending prefix key to go in

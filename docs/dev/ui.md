@@ -797,6 +797,16 @@ a switch made with its command stands until that setting changes in the file
   selected by then. `session-fork` copies the conversation into a
   new session and buffer.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
+- A session's buffer has session mode ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)):
+  its modeline says `Session` in place of `Terminal`, and `C-c` and a key runs what `C-x a` and
+  the key runs elsewhere. `C-c K`, `C-c P` and `C-c A` stop, pin and archive the session, `C-c v`
+  and `C-c V` review it, `C-c +` and `C-c -` allow and deny the agent channel's reads, `C-c C-u` is
+  a prefix argument and `C-c ?` says the keys in the echo area. After `C-c`, only the session's and
+  the terminal's keys are read, never the global or the user's; any other key says
+  `C-c g is undefined (C-c C-c sends C-c)` and sends nothing. `C-z` says
+  `C-z would suspend Claude Code, and nothing here resumes it; C-q C-z sends it`. In char mode
+  every key but `C-c C-k` goes to Claude Code, as in any terminal. The buffer is in the project
+  of its session's directory, whose name its modeline shows.
 - `C-x a w` (`session-worktree`), in a trusted project whose main repository is trusted too,
   starts a session in a new git worktree.
   - It reads a branch, completing the project's local branches; a new name is a new branch from

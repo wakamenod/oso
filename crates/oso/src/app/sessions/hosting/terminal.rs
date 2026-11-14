@@ -4,6 +4,8 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn, beyond a window's size.
 
+use std::path::Path;
+
 use oso_core::buffer::BufferId;
 use oso_term::End;
 
@@ -177,7 +179,8 @@ impl App {
     /// `buffer` is session `key`'s terminal: session mode's keys apply in it, its modeline says
     /// `Session`, and it is in the project of the directory the session runs in (ADR 0132).
     fn mark_session_buffer(&mut self, key: SessionKey, buffer: BufferId) {
-        let Some(directory) = self.hosting.table.get(key).map(|s| s.directory.clone()) else {
+        // A new session is only reserved yet, with its directory.
+        let Some(directory) = self.hosting.table.directory(key).map(Path::to_path_buf) else {
             return;
         };
         self.editor.set_hosts_session(buffer, true);

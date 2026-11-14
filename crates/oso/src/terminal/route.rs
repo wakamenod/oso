@@ -42,7 +42,7 @@ pub(crate) enum Route {
     LeaveCharMode,
     /// `C-z` in a session's terminal, kept from its program (ADR 0132, Q7): Claude Code would
     /// suspend itself, and as its process group has no shell, nothing would resume it.
-    KeptFromSession,
+    SuspendKept,
 }
 
 /// What the route of a key depends on besides the key.
@@ -99,7 +99,7 @@ pub(crate) fn route(state: State, key: KeyPress) -> Route {
     }
     match state.input {
         Input::SemiChar if oso_keeps(key) => Route::Oso,
-        Input::SemiChar if state.session && key == C_Z => Route::KeptFromSession,
+        Input::SemiChar if state.session && key == C_Z => Route::SuspendKept,
         Input::SemiChar => Route::Send(vec![key]),
         Input::Char if state.held_c_c => {
             let c_k = KeyPress {
@@ -197,7 +197,7 @@ mod tests {
             session: true,
             ..semi()
         };
-        assert_eq!(route(session, key("C-z")), Route::KeptFromSession);
+        assert_eq!(route(session, key("C-z")), Route::SuspendKept);
         assert_eq!(route(semi(), key("C-z")), Route::Send(vec![key("C-z")]));
         // `C-q C-z` sends it, and char mode sends it as every key (ADR 0132, Q7).
         let quoted = State {
