@@ -1,6 +1,6 @@
 # 0135. Agents start sessions without asking
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-15
 
 ## Context
@@ -148,6 +148,18 @@ What the question guards today, and what still guards it without one:
 10. **Where the start is recorded.**
     (a) In the registry entry, so a restored session keeps its origin and mark.
     (b) In memory only: after a restart every restored session counts as the person's.
+
+## The author's choices
+
+The author answered every question on 2026-11-15, through the coordinator: (a) for each. So the
+setting is the boolean `[sessions] agents_start_without_asking` (Q1). It covers
+`start_worktree_session` and `session_start`, and `workers_start` once ADR 0128 builds it (Q2). It
+reaches only callers the person started, by a key or a `y` (Q3), in trusted projects only (Q4). At
+most 4 live unasked sessions per caller, `agents_start_limit` 1 to 8, and past that the call asks
+(Q5). The setting is read at oso's start only (Q6). Each start is said in the echo area,
+`*Messages*` and the `*Agent*` log, the row is marked and the brief is behind `session-explain`
+(Q7). `agent-starts-ask` and `agent-starts-allow` hold until oso restarts (Q8). The loop guard is
+unchanged (Q9), and the registry entry records how a session started (Q10).
 
 ## Changes to accepted ADRs
 
