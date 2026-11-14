@@ -119,11 +119,9 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     assert!(!recap.is_empty());
     // The list says it under the row, as the person has something to do.
     let list = sessions(&state)["list"].as_str().unwrap();
+    let start: String = recap.chars().take(8).collect();
     assert!(
-        list.contains(&format!(
-            "\n  {}",
-            recap.chars().take(8).collect::<String>()
-        )),
+        list.lines().any(|row| row.trim_start().starts_with(&start)),
         "{list}"
     );
 
@@ -186,8 +184,10 @@ fn spins(app: &mut App) {
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        let row = list.lines().find(|row| row.contains("proj"))?.to_owned();
-        row.chars().next().filter(|c| SPINNER.contains(*c))
+        // The session's row, and its worktree's, which spins with it.
+        list.lines()
+            .filter_map(|row| row.trim_start().chars().next())
+            .find(|c| SPINNER.contains(*c))
     };
     let first = app.wait_for("a spinning mark", |state| mark(state).is_some());
     let first = mark(&first);
@@ -242,8 +242,9 @@ fn another_programs_session_in_the_registry_is_listed() {
     fs::write(
         registry.join(format!("{}.json", outside.id())),
         format!(
-            r#"{{"pid":{},"startedAt":{now},"name":"elsewhere","kind":"interactive","status":"busy","statusUpdatedAt":{}}}"#,
+            r#"{{"pid":{},"cwd":"{}","startedAt":{now},"name":"elsewhere","kind":"interactive","status":"busy","statusUpdatedAt":{}}}"#,
             outside.id(),
+            flow.project.display(),
             now - 5 * 60 * 1000
         ),
     )
@@ -256,7 +257,8 @@ fn another_programs_session_in_the_registry_is_listed() {
     let list = sessions(&state)["list"].as_str().unwrap().to_owned();
     let row = list.lines().find(|row| row.contains("elsewhere")).unwrap();
     assert!(
-        row.starts_with("▶ elsewhere") && (row.ends_with(" 5m") || row.ends_with(" 6m")),
+        row.trim_start().starts_with("▶ elsewhere")
+            && (row.ends_with(" 5m") || row.ends_with(" 6m")),
         "{list}"
     );
     let _ = outside.kill();

@@ -9,6 +9,7 @@
 mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
+mod pane;
 mod requests;
 mod sending;
 mod shared;
@@ -26,7 +27,7 @@ use oso_core::minibuffer::PromptId;
 use super::feed::{self, Feed, Now};
 use crate::app::App;
 use crate::commands::agent_sessions::{SESSIONS_LIST, SPACES_LIST};
-use crate::sessions::attention::{Attention, Toggles};
+use crate::sessions::attention::Attention;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
 use crate::sessions::list::{Entry, Key, List};
@@ -92,11 +93,6 @@ impl Watch {
     /// Whether `k` hung session `key` up, which its end then answers.
     pub(in crate::app) fn take_hung_up(&mut self, key: SessionKey) -> bool {
         self.hung_up.remove(&key)
-    }
-
-    /// `[sessions.notify]` in force.
-    pub(in crate::app) fn set_toggles(&mut self, toggles: Toggles) {
-        self.attention.set_toggles(toggles);
     }
 }
 
@@ -365,6 +361,8 @@ impl App {
                 pinned: false,
                 archived: false,
                 parent: None,
+                dir: external.place.clone(),
+                repo: external.repo.clone(),
             });
         }
         let gone_from: Vec<u32> = before.keys().copied().collect();
@@ -459,6 +457,8 @@ impl App {
                     pinned: session.pinned,
                     archived: session.archived,
                     parent,
+                    dir: Some(session.directory.clone()),
+                    repo: None,
                 }
             })
             .collect();

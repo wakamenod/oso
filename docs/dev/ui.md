@@ -877,11 +877,20 @@ a switch made with its command stands until that setting changes in the file
   amber, ready for review and done green, idle and stopped grey; a working mark of a session
   oso hosts turns through ten Braille frames, 8 a second, while it is in view, unless
   `[sessions] spinner = false`. The row at point has the current line's band, whatever the
-  visual aids say. Sessions are grouped by state, pinned ones first, sessions a session
-  started nested under it; archived ones last, folded. The list is withheld from agents: while
-  it is shown, the agent channel's commands answer in the echo area only
-  ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md) makes it a tree of projects and
-  worktrees next).
+  visual aids say. The list is a tree ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md)):
+  each project with a space in this oso, `▾ name` with its most urgent state and how many are
+  in it; under it its worktrees, the main checkout first (its branch and `primary`), then the
+  newest made, as git lists them in a trusted project, each with its sessions' most urgent
+  mark (`·` for none), its branch where it differs from its directory's name, and its newest
+  session's age; under each worktree its sessions, the most urgent first, nested ones under
+  the session that started them. The worktree whose space is in front has its name in an
+  accent colour. A worktree with no session of oso's running is folded, with its count; one
+  with no session and no change for a week waits in a folded `N quiet` row. A worktree git
+  makes outside oso shows within a second or two. Sessions run outside oso are listed under
+  their worktree, grey; those in no project of the tree go in a folded `Other projects`, by
+  repository. Archived sessions come last, folded. `s` shows the list grouped by state
+  instead, pinned ones first, and back. The list is withheld from agents: while it is shown,
+  the agent channel's commands answer in the echo area only.
   - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
     if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
     for again. `C-x o` skips it, and so does `C-x 0` in another window; a click or
@@ -890,7 +899,8 @@ a switch made with its command stands until that setting changes in the file
   - The commands that show a session or the list, and pinning and archiving, need a person at
     the keyboard: the agent channel cannot run them.
   - In the list: `RET` shows the session, `n`/`p` move between rows, `TAB` folds, `g`
-    renders again with fresh ages, `s` groups by space instead, `P` pins, `A` archives or
+    renders again with fresh ages and lists each project's worktrees again, `s` groups by
+    state instead, `P` pins, `A` archives or
     brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
     explains its state, `?` says what the marks mean and the keys.
 - `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and

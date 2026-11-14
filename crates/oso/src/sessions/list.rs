@@ -15,9 +15,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use oso_core::display_map::cell::classify;
 use oso_core::syntax::Highlight;
 
 use super::state::State;
@@ -61,14 +61,21 @@ pub struct Entry {
     pub archived: bool,
     /// The session that started it.
     pub parent: Option<Key>,
+    /// The directory it runs in, as the tree places it (ADR 0131): a hosted session's own, an
+    /// external one's as the worker resolved it.
+    pub dir: Option<PathBuf>,
+    /// The repository root nearest above an external session's directory, for `Other
+    /// projects`.
+    pub repo: Option<PathBuf>,
 }
 
-/// How the list groups sessions; `s` switches.
+/// How the list groups sessions; `s` switches (ADR 0131).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Grouping {
+    /// Projects, their worktrees, and the sessions in each.
     #[default]
+    Tree,
     State,
-    Space,
 }
 
 /// A group of the list.
@@ -76,7 +83,12 @@ pub enum Grouping {
 pub enum Group {
     /// Sessions in one state, by its rank in the taxonomy.
     State(u8),
-    Space(String),
+    /// External sessions in no project of the tree.
+    Other,
+    /// Those of them in this directory.
+    OtherDir(PathBuf),
+    /// A project's worktrees with no session and no change for a week.
+    Quiet(PathBuf),
     Archived,
 }
 
@@ -85,13 +97,19 @@ pub enum Group {
 pub enum Line {
     Header(Group),
     Session(Key),
+    /// A project of the tree, by its root.
+    Project(PathBuf),
+    /// A worktree of the tree, by its directory.
+    Worktree(PathBuf),
 }
 
-/// What `TAB` folds: a group, or a session's nested sessions.
+/// What `TAB` folds: a group, a session's nested sessions, a project or a worktree.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Fold {
     Group(Group),
     Nested(Key),
+    Project(PathBuf),
+    Worktree(PathBuf),
 }
 
 /// The list, rendered: its text and, for each line, what it shows.
@@ -113,27 +131,46 @@ pub struct List {
     toggled: HashSet<Fold>,
     /// The spinner's frame, while working marks spin.
     spin: Option<usize>,
+    /// What the tree shows besides sessions.
+    tree: tree::Tree,
 }
 
 impl List {
+    /// The list grouped by state, as `s` shows it.
+    #[cfg(test)]
+    pub fn by_state() -> Self {
+        Self {
+            grouping: Grouping::State,
+            ..Self::default()
+        }
+    }
+
+    /// The projects and worktrees the tree shows, and the space in front (ADR 0131).
+    pub fn set_tree(&mut self, tree: tree::Tree) {
+        self.tree = tree;
+    }
+
     /// Working marks spin, showing frame `frame` of [`SPINNER`], or stand still with `None`.
     pub fn set_spin(&mut self, frame: Option<usize>) {
         self.spin = frame.map(|frame| frame % SPINNER.len());
     }
 
-    /// `s`: by state, or by space.
+    /// `s`: the tree, or by state.
     pub fn regroup(&mut self) {
         self.grouping = match self.grouping {
-            Grouping::State => Grouping::Space,
-            Grouping::Space => Grouping::State,
+            Grouping::Tree => Grouping::State,
+            Grouping::State => Grouping::Tree,
         };
     }
 
-    /// `TAB` on `line`: folds or opens its group, or the session's nested sessions.
+    /// `TAB` on `line`: folds or opens its group, project or worktree, or the session's nested
+    /// sessions.
     pub fn fold(&mut self, line: &Line) {
         let fold = match line {
             Line::Header(group) => Fold::Group(group.clone()),
             Line::Session(key) => Fold::Nested(*key),
+            Line::Project(root) => Fold::Project(root.clone()),
+            Line::Worktree(path) => Fold::Worktree(path.clone()),
         };
         if !self.toggled.remove(&fold) {
             self.toggled.insert(fold);
@@ -141,12 +178,24 @@ impl List {
     }
 
     fn folded(&self, fold: &Fold) -> bool {
-        let default = *fold == Fold::Group(Group::Archived);
+        let default = matches!(
+            fold,
+            Fold::Group(Group::Archived | Group::Other | Group::OtherDir(_) | Group::Quiet(_))
+        );
+        self.folded_as(fold, default)
+    }
+
+    /// Whether `fold` is folded, when it is `default` until the person toggles it.
+    fn folded_as(&self, fold: &Fold, default: bool) -> bool {
         default != self.toggled.contains(fold)
     }
 
-    /// The list of `entries` for a window `width` cells wide, ages as of `now`.
+    /// The list of `entries` for a window `width` cells wide, ages as of `now`: the tree, or
+    /// grouped by state.
     pub fn render(&self, entries: &[Entry], width: usize, now: Instant) -> Rendered {
+        if self.grouping == Grouping::Tree {
+            return self.render_tree(entries, width, now);
+        }
         let mut out = Rendered::default();
         let groups = self.groups(entries);
         for (group, members) in &groups {
@@ -174,6 +223,7 @@ impl List {
                     indent: "",
                     spin: self.spin,
                     waiting,
+                    place: true,
                 };
                 row.render(&mut out, width, now);
                 if self.folded(&Fold::Nested(parent.key)) {
@@ -185,6 +235,7 @@ impl List {
                         indent: NESTED,
                         spin: self.spin,
                         waiting: 0,
+                        place: true,
                     };
                     row.render(&mut out, width, now);
                 }
@@ -196,10 +247,9 @@ impl List {
     /// The groups in their order, each with its top-level sessions in order, and under each
     /// the sessions nested under it, in order.
     fn groups<'e>(&self, entries: &'e [Entry]) -> Vec<(Group, Vec<Family<'e>>)> {
-        let group_of = |entry: &Entry| match (entry.archived, self.grouping) {
-            (true, _) => Group::Archived,
-            (false, Grouping::State) => Group::State(rank(entry.state)),
-            (false, Grouping::Space) => Group::Space(entry.space.clone()),
+        let group_of = |entry: &Entry| match entry.archived {
+            true => Group::Archived,
+            false => Group::State(rank(entry.state)),
         };
         let by_key: HashMap<Key, &Entry> = entries.iter().map(|entry| (entry.key, entry)).collect();
         // A session nests under its oldest ancestor in the list and in its group, so that a
@@ -237,7 +287,7 @@ impl List {
                 }
             }
         }
-        groups.sort_by(|(a, _), (b, _)| group_order(a).cmp(&group_order(b)));
+        groups.sort_by_key(|(group, _)| group_order(group));
         groups
             .into_iter()
             .map(|(group, mut members)| {
@@ -275,12 +325,11 @@ fn order(entry: &Entry) -> (bool, u8, Instant, &str) {
     (!entry.pinned, rank(entry.state), entry.since, &entry.name)
 }
 
-/// The order of groups: states in the taxonomy's order, spaces by name, archived last.
-fn group_order(group: &Group) -> (u8, &str) {
+/// The order of groups by state: the taxonomy's, archived last.
+fn group_order(group: &Group) -> u8 {
     match group {
-        Group::State(rank) => (*rank, ""),
-        Group::Space(name) => (0, name),
-        Group::Archived => (u8::MAX, ""),
+        Group::State(rank) => *rank,
+        _ => u8::MAX,
     }
 }
 
@@ -319,7 +368,9 @@ fn group_name(group: &Group) -> &str {
         Group::State(4) => "Done",
         Group::State(5) => "Idle",
         Group::State(_) => "Stopped",
-        Group::Space(name) => name,
+        Group::Other => "Other projects",
+        Group::Quiet(_) => "quiet",
+        Group::OtherDir(_) => "",
         Group::Archived => "Archived",
     }
 }
@@ -353,6 +404,8 @@ struct Row<'e> {
     spin: Option<usize>,
     /// How many sessions nested under it need input.
     waiting: usize,
+    /// Whether it shows its place: not under its worktree in the tree.
+    place: bool,
 }
 
 impl Row<'_> {
@@ -373,7 +426,7 @@ impl Row<'_> {
         let mut text = format!("{head}{name}");
         let left = room.saturating_sub(cells(&name) + 2);
         let mut place = None;
-        if left >= PLACE_FROM {
+        if self.place && left >= PLACE_FROM {
             text.push_str("  ");
             let start = text.len();
             text.push_str(&cut_middle(unmarked(&self.place()), left));
@@ -464,85 +517,12 @@ impl Rendered {
     }
 }
 
-/// How many cells `text` takes, each character as oso draws it alone: a cluster of several
-/// characters takes at most this, so that a line cut by it never runs past its width.
-fn cells(text: &str) -> usize {
-    text.chars().map(char_cells).sum()
-}
+mod cells;
+use cells::{cells, pad};
+pub use cells::{cut, cut_middle, unmarked};
 
-fn char_cells(c: char) -> usize {
-    let mut buffer = [0; 4];
-    classify(c.encode_utf8(&mut buffer)).1
-}
-
-/// `text` without what it begins with that could pass for a row's start: blanks, marks and
-/// characters that take no cell.
-pub fn unmarked(text: &str) -> &str {
-    text.trim_start_matches(|c: char| c.is_whitespace() || MARKS.contains(c) || char_cells(c) == 0)
-}
-
-/// `text` cut to `width` cells, ending in `…` if cut; a line break ends it.
-pub fn cut(text: &str, width: usize) -> String {
-    let text = text.lines().next().unwrap_or_default();
-    if cells(text) <= width {
-        return text.to_owned();
-    }
-    let mut out = String::new();
-    let mut used = 0;
-    for c in text.chars() {
-        let n = char_cells(c);
-        if used + n + 1 > width {
-            break;
-        }
-        out.push(c);
-        used += n;
-    }
-    if width > 0 {
-        out.push('…');
-    }
-    out
-}
-
-/// `text` cut to `width` cells in the middle, keeping its last third (ADR 0131), so that names
-/// that share a long start still differ: `chore-survey-r…lifecycle-hook`. A line break ends it.
-pub fn cut_middle(text: &str, width: usize) -> String {
-    let text = text.lines().next().unwrap_or_default();
-    if cells(text) <= width || width < 6 {
-        return cut(text, width);
-    }
-    let tail_room = (width - 1) / 3;
-    let mut tail = Vec::new();
-    let mut used = 0;
-    for c in text.chars().rev() {
-        let n = char_cells(c);
-        if used + n > tail_room {
-            break;
-        }
-        tail.push(c);
-        used += n;
-    }
-    let head_room = width - 1 - used;
-    let mut out = String::new();
-    let mut used = 0;
-    for c in text.chars() {
-        let n = char_cells(c);
-        if used + n > head_room {
-            break;
-        }
-        out.push(c);
-        used += n;
-    }
-    out.push('…');
-    out.extend(tail.into_iter().rev());
-    out
-}
-
-/// `text` with spaces after it to `width` cells, if it is shorter.
-fn pad(text: &str, width: usize) -> String {
-    let mut out = text.to_owned();
-    out.extend(std::iter::repeat_n(' ', width.saturating_sub(cells(text))));
-    out
-}
+mod tree;
+pub use tree::{Project, Tree, Worktree};
 
 #[cfg(test)]
 mod tests;

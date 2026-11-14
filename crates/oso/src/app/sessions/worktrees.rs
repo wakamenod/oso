@@ -201,6 +201,7 @@ impl App {
                     .branches_answered(&mut self.editor, branches);
                 self.apply(event_loop, effects);
             }
+            Report::Tree { root, result } => self.tree_listed(root, result),
             Report::Step { token, step } => self.worktree_step(token, step),
             Report::Created { token, result } => self.worktree_created(token, result),
             Report::Listed { token, result } => self.worktrees_listed(token, result),

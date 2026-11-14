@@ -288,7 +288,10 @@ impl App {
             | Report::Merged { token, .. }
             | Report::ListEnded { token }
             | Report::Removed { token, .. } => *token,
-            Report::Branches { .. } | Report::Checked { .. } | Report::Clear { .. } => {
+            Report::Branches { .. }
+            | Report::Checked { .. }
+            | Report::Clear { .. }
+            | Report::Tree { .. } => {
                 return Some(report);
             }
         };

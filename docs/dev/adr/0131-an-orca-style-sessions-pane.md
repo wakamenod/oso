@@ -493,6 +493,43 @@ band and the spinner. The coordinator accepted each point below that differs fro
   and in all a second), and leaves key-to-photon to the flows that time typing. `bench.rs` did
   not change.
 
+## Step 2a, as built
+
+Built on 2026-11-15: the tree, shown; its keys and the mouse are step 2b. The author approved
+each point below that differs from the decision, through the coordinator.
+
+- **The model** (`sessions/list/tree.rs`, plain data in, text out, beside the list's by-state
+  renderer, which `s` shows): a project is the repository of a space of this oso, in the order
+  its first space was added; its worktrees are git's (`git worktree list --porcelain -z` on the
+  `oso-sessions-git` pool, `sessions/worktree/jobs/tree.rs`, paths resolved, when each was made
+  from its `.git` file and last changed from its index), or, until a trusted listing comes and in
+  a restricted project, its main checkout and its spaces' directories. `List::render` draws the
+  tree unless `s` asked for states.
+- **Placing a session:** under the deepest worktree whose path holds its directory, compared by
+  bytes at a separator; an external session's directory is resolved on the sessions worker once,
+  when first seen (`canonicalize`, then the nearest `.git` above it, at most 32 levels), and
+  goes in `Other projects` by that repository, else by its directory.
+- **Watching:** the worker's registry look also `stat`s each listed project's
+  `<root>/.git/worktrees` (`Job::Watch`), and says which changed (`Out::WorktreesMoved`); the app
+  lists those again, as it does on `g`. A worktree git makes outside oso shows within about a
+  second.
+- **Trust:** a project's listing runs only under the trust of a buffer in it or in one of its
+  worktrees, a file's or, once ADR 0132's step 1 puts session buffers in their project, a
+  session's; oso-core has no lookup of a project by its root.
+- **The space in front** is the worktree's name in a new accent face, `Highlight::SessionFront`
+  and `Face::SessionFront` (the author's choice (a), 2026-11-15), in the hue of an agent's
+  comment: Azure fell short of 4.5:1 on dusk's band. A faint background for its rows is not
+  built.
+- **A worktree with no session** has the mark `·`, one of the row marks, so that `n` and `p`
+  stop on it.
+- **Cost:** the tree of 20 worktrees, 40 sessions and 300 external sessions folded renders in
+  64 µs at best of 10 in a release build, within 0.5 ms; a release-only test keeps it there.
+  Paths are compared by their bytes, as comparing `Path`s by component took three times as
+  long. **A deviation:** the decision's `just perf` flow with 300 external registry entries
+  needs 300 live processes; the unit test stands for it (the author's choice).
+- **Until step 2b,** `RET` on a project's or a worktree's row folds it, as `TAB` does; the
+  pane's own modeline is not built.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.

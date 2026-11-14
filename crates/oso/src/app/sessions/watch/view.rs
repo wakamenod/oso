@@ -42,9 +42,16 @@ pub(super) struct View {
     pub(super) spinner: Spinner,
     /// oso's window is hidden: nothing spins.
     occluded: bool,
+    /// The tree's projects and their listings (ADR 0131).
+    pub(super) pane: super::pane::Pane,
 }
 
 impl super::Watch {
+    /// `[sessions.notify]` in force.
+    pub(in crate::app) fn set_toggles(&mut self, toggles: crate::sessions::attention::Toggles) {
+        self.attention.set_toggles(toggles);
+    }
+
     /// `[sessions] spinner` in force (ADR 0131, Q14).
     pub(in crate::app) fn set_spinner(&mut self, on: bool) {
         self.view.spinner.set_on(on);
@@ -154,6 +161,8 @@ impl App {
         let (Some(side), Some(buffer)) = (self.editor.side_window(), self.watch.view.buffer) else {
             return false;
         };
+        let tree = self.sessions_tree();
+        self.watch.list.set_tree(tree);
         let Some(window) = self.editor.window_by_id(side) else {
             return false;
         };
