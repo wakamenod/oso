@@ -1,6 +1,7 @@
 //! What a terminal writes to its program for the UI's input besides keys (ADR 0120's Input,
 //! Q13): a paste, cleaned and bracketed as the program's mode is when its thread writes it,
-//! and focus reports. Keys are the engine's, whose encoder reads the modes itself.
+//! and focus reports. Keys and the mouse's reports are the engine's, whose encoders read the
+//! modes themselves.
 //!
 //! Must not depend on: the engine, the thread or any state: each function sees its arguments.
 

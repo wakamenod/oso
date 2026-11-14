@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use oso_core::key::{KeyPress, KeySequence};
-use oso_platform::window::{Position, Wheel};
+use oso_platform::window::{MouseAction, MouseButton, Position, Wheel};
 use serde_json::{Map, Value};
 
 use crate::channel::wire::short;
@@ -115,6 +115,13 @@ pub enum UiOp {
     Clipboard(ClipboardOp),
     /// Scroll as the mouse wheel or the trackpad would, with the pointer there (ADR 0112).
     Wheel { delta: Wheel, at: Option<WheelAt> },
+    /// Press or release a mouse button, or move the pointer, there, with Shift held or not
+    /// (ADR 0120, step 4b-2).
+    Mouse {
+        action: MouseAction,
+        at: WheelAt,
+        shift: bool,
+    },
 }
 
 /// Where `wheel` puts the pointer: a place on the surface, in physical pixels, or the middle
@@ -220,6 +227,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "ime" => UiOp::Ime(parse_ime(params).map_err(|m| bad(&id, m))?),
         "clipboard" => UiOp::Clipboard(parse_clipboard(params).map_err(|m| bad(&id, m))?),
         "wheel" => parse_wheel(params).map_err(|m| bad(&id, m))?,
+        "mouse" => parse_mouse(params).map_err(|m| bad(&id, m))?,
         "export-state" => UiOp::ExportState,
         "export-text" | "import-text" | "dev-message" => {
             parse_for_oso_dev(method, params).map_err(|m| bad(&id, m))?
@@ -473,6 +481,20 @@ fn parse_wheel(params: &Map<String, Value>) -> Result<UiOp, String> {
         }
         _ => return Err(USAGE.into()),
     };
+    let at = parse_at(params, number, USAGE)?;
+    if params.len() != 1 + usize::from(params.contains_key("at")) {
+        return Err(USAGE.into());
+    }
+    Ok(UiOp::Wheel { delta, at })
+}
+
+/// Where `wheel` or `mouse` puts the pointer: `params`' "at", a pixel `{"x", "y"}` or a cell
+/// `{"row", "column"}`, or none; `number` reads a coordinate, and `usage` is the error.
+fn parse_at(
+    params: &Map<String, Value>,
+    number: impl Fn(Option<&Value>) -> Result<f64, &'static str>,
+    usage: &'static str,
+) -> Result<Option<WheelAt>, String> {
     let at = match params.get("at") {
         None | Some(Value::Null) => None,
         Some(Value::Object(at)) => Some(match (at.len(), at.get("x"), at.get("row")) {
@@ -485,21 +507,58 @@ fn parse_wheel(params: &Map<String, Value>) -> Result<UiOp, String> {
                     value
                         .and_then(Value::as_u64)
                         .and_then(|n| usize::try_from(n).ok())
-                        .ok_or(USAGE)
+                        .ok_or(usage)
                 };
                 WheelAt::Cell {
                     row: cell(Some(row))?,
                     column: cell(at.get("column"))?,
                 }
             }
-            _ => return Err(USAGE.into()),
+            _ => return Err(usage.into()),
         }),
+        Some(_) => return Err(usage.into()),
+    };
+    Ok(at)
+}
+
+/// `mouse`: one of "press" or "release" with "left", "middle" or "right", or "move": true,
+/// "at" a pixel or a cell, and an optional "shift": true (ADR 0120, step 4b-2).
+fn parse_mouse(params: &Map<String, Value>) -> Result<UiOp, String> {
+    const USAGE: &str = "mouse takes one of \"press\" or \"release\" with \"left\", \"middle\" \
+                         or \"right\", or \"move\": true; \"at\" of {\"x\", \"y\"} in pixels or \
+                         {\"row\", \"column\"}; and an optional \"shift\": true";
+    let button = |value: &Value| match value.as_str() {
+        Some("left") => Ok(MouseButton::Left),
+        Some("middle") => Ok(MouseButton::Middle),
+        Some("right") => Ok(MouseButton::Right),
+        _ => Err(USAGE),
+    };
+    let action = match (
+        params.get("press"),
+        params.get("release"),
+        params.get("move"),
+    ) {
+        (Some(pressed), None, None) => MouseAction::Press(button(pressed)?),
+        (None, Some(released), None) => MouseAction::Release(button(released)?),
+        (None, None, Some(Value::Bool(true))) => MouseAction::Moved,
+        _ => return Err(USAGE.into()),
+    };
+    let number = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_f64)
+            .filter(|n| n.abs() <= MAX_WHEEL)
+            .ok_or(USAGE)
+    };
+    let at = parse_at(params, number, USAGE)?.ok_or(USAGE)?;
+    let shift = match params.get("shift") {
+        None => false,
+        Some(Value::Bool(shift)) => *shift,
         Some(_) => return Err(USAGE.into()),
     };
-    if params.len() != 1 + usize::from(params.contains_key("at")) {
+    if params.len() != 2 + usize::from(params.contains_key("shift")) {
         return Err(USAGE.into());
     }
-    Ok(UiOp::Wheel { delta, at })
+    Ok(UiOp::Mouse { action, at, shift })
 }
 
 /// A required parameter that is a non-negative integer.
@@ -518,7 +577,7 @@ mod tests {
         WheelAt, failure, parse, request, success,
     };
     use crate::channel::wire::MAX_ID;
-    use oso_platform::window::{Position, Wheel};
+    use oso_platform::window::{MouseAction, MouseButton, Position, Wheel};
     use serde_json::{Value, json};
 
     fn parsed(line: &str) -> Request {
@@ -627,6 +686,38 @@ mod tests {
         }
         let long = json!({ "preedit": "a".repeat(super::MAX_PREEDIT + 1) }).to_string();
         assert!(ime(&long).unwrap_err().message.contains("at most"));
+    }
+
+    #[test]
+    fn mouse_takes_an_action_a_place_and_shift() {
+        let mouse = |params: &str| parse(&format!(r#"{{"method": "mouse", "params": {params}}}"#));
+        let op = |params: &str| match mouse(params).unwrap().method {
+            Method::Ui(UiOp::Mouse { action, at, shift }) => (action, at, shift),
+            other => panic!("{other:?}"),
+        };
+        let cell = WheelAt::Cell { row: 2, column: 5 };
+        assert_eq!(
+            op(r#"{"press": "left", "at": {"row": 2, "column": 5}}"#),
+            (MouseAction::Press(MouseButton::Left), cell, false)
+        );
+        assert_eq!(
+            op(r#"{"release": "right", "at": {"row": 2, "column": 5}, "shift": true}"#),
+            (MouseAction::Release(MouseButton::Right), cell, true)
+        );
+        assert_eq!(
+            op(r#"{"move": true, "at": {"x": 1.5, "y": 2}}"#).0,
+            MouseAction::Moved
+        );
+        for bad in [
+            r#"{"press": "left"}"#,
+            r#"{"press": "back", "at": {"row": 0, "column": 0}}"#,
+            r#"{"press": "left", "release": "left", "at": {"row": 0, "column": 0}}"#,
+            r#"{"move": false, "at": {"row": 0, "column": 0}}"#,
+            r#"{"press": "left", "at": {"row": 0, "column": 0}, "shift": 1}"#,
+            r#"{"press": "left", "at": {"row": 0, "column": 0}, "more": 1}"#,
+        ] {
+            assert!(mouse(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

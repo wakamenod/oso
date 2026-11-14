@@ -148,6 +148,16 @@ impl Window {
             .push(Request::Visible(visible));
     }
 
+    /// Whether the pointer's moves with no button held are reported, as `Event::Mouse`: only
+    /// while a terminal's program asks for every motion (mode 1003, ADR 0120), so that the
+    /// pointer otherwise costs nothing. Moves with a button held are always reported.
+    pub fn set_pointer_motion(&self, wanted: bool) {
+        self.state
+            .requests
+            .borrow_mut()
+            .push(Request::PointerMotion(wanted));
+    }
+
     /// Asks for the person's attention, without taking the keyboard from another app.
     pub fn request_attention(&self) {
         self.state.requests.borrow_mut().push(Request::Attention);

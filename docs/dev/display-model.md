@@ -257,6 +257,8 @@ output costs the UI one snapshot per frame.
   right-to-left character, or a control or invisible one, is shaped alone, and controls and
   invisible characters are boxed, so nothing reorders or joins across cells; a cell keeps the
   character budget text views have. The cursor is not drawn while the view is scrolled back.
+- The mouse's selection marks its cells `GridStyle::SELECTED`, drawn in the region face's
+  colours. Only the rows whose marks changed get a new count, and so are shaped again.
 - Shaped rows are kept by the row's place and a count of its changes: rows the program
   rewrites with the same text are not shaped again, but a scroll shapes every row it moved.
 - In split windows the PTY takes the size of the window that last selected the

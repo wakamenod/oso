@@ -1,11 +1,13 @@
 //! What the UI reads of a terminal: the rows that changed since the last snapshot, the
-//! cursor, the modes input depends on, and the events in between (ADR 0120, Q4). The grid is
+//! cursor, the modes input depends on, and the events in between (ADR 0120, Q4); and what it
+//! asks of the view and sends of the mouse (`Scroll`, `Pointer`). The grid is
 //! as the engine placed it; oso does not measure widths again.
 //!
 //! Must not depend on: the engine, the policy or the thread.
 
 use std::ops::Range;
 
+use oso_core::key::Modifiers;
 use oso_platform::process::pty::Size;
 
 use crate::event::Event;
@@ -190,8 +192,59 @@ pub struct Modes {
     pub focus_reports: bool,
     pub mouse: Mouse,
     pub sgr_mouse: bool,
+    /// On the alternate screen, the wheel is wanted as `↑` and `↓` while the program asked
+    /// for no mouse reports (mode 1007); the UI sends them as keys.
+    pub alternate_scroll: bool,
     /// The kitty keyboard protocol's flags the program pushed; 0 for none.
     pub kitty_keyboard: u8,
+}
+
+/// The mouse over a terminal, for its program (ADR 0120, step 4b-2). The terminal's thread
+/// encodes it against the modes the program has by then: a report in any mode and format
+/// libghostty-vt knows (9, 1000, 1002, 1003; 1005, 1006, 1015, 1016), and nothing while the
+/// program asked for none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pointer {
+    pub action: PointerAction,
+    /// The cell under the pointer, from the top left of the terminal's screen.
+    pub column: u16,
+    pub row: u16,
+    /// The pointer in pixels from the top left of the terminal's screen, for the pixel
+    /// format (1016). The thread keeps it inside the cell at `column` and `row`.
+    pub x: u32,
+    pub y: u32,
+    pub modifiers: Modifiers,
+}
+
+/// What the mouse did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerAction {
+    Press(Button),
+    Release(Button),
+    /// The pointer moved, with the buttons held as the presses and releases sent say.
+    Motion,
+}
+
+/// A mouse button, or a notch of the wheel, which is pressed and never released.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button {
+    Left,
+    Middle,
+    Right,
+    WheelUp,
+    WheelDown,
+    WheelLeft,
+    WheelRight,
+}
+
+impl Button {
+    /// Whether this is a notch of the wheel.
+    pub(crate) fn is_wheel(self) -> bool {
+        matches!(
+            self,
+            Button::WheelUp | Button::WheelDown | Button::WheelLeft | Button::WheelRight
+        )
+    }
 }
 
 /// How `Terminal::scroll` moves the view over the scrollback.
@@ -203,7 +256,8 @@ pub enum Scroll {
     Bottom,
 }
 
-/// Which mouse reports the program asked for (1000, 1002, 1003).
+/// Which mouse reports the program asked for: presses (9 and 1000), drags (1002) or every
+/// motion (1003).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mouse {
     #[default]

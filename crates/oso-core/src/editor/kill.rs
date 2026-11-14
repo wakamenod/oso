@@ -168,6 +168,22 @@ impl Editor {
         self.apply_edits(id, &edits)
     }
 
+    /// Puts `text`, copied from outside any buffer's text such as a terminal's cells, in the
+    /// ring as a new entry of one piece, and marks it for the OS clipboard, as `M-w` does
+    /// (ADR 0120, step 4b-2). It never appends, as Emacs's `kill-new` does not, and a kill
+    /// right after it does not append to it either. `secret` makes a secret entry
+    /// (ADR 0074): the ring cannot tell where `text` came from, so a caller passes true for
+    /// text from a secret buffer or a terminal reading a password, and any caller on the
+    /// agent channel's path must decide it the same way. Empty text puts nothing.
+    pub fn kill_new(&mut self, text: &str, secret: bool) {
+        if text.is_empty() {
+            return;
+        }
+        let entry = (self.kills.ring).push(vec![Piece::from(Rope::from(text))], secret);
+        self.kills.to_write = Some(entry);
+        self.forget_kills();
+    }
+
     /// Puts `pieces` in the ring, appended to the newest entry if this follows a kill.
     fn add_kill(&mut self, pieces: Vec<Piece>, direction: Direction, secret: bool) {
         let kills = &mut self.kills;
@@ -397,5 +413,37 @@ mod tests {
         assert_eq!(newest.joined(), "text");
         assert!(newest.is_secret(), "the agent's");
         assert!(!editor.current().1.is_secret(), "the buffer is no secret");
+    }
+
+    #[test]
+    fn kill_new_pushes_one_entry_for_the_clipboard_and_never_appends() {
+        use crate::kill::Direction;
+        let mut editor = Editor::with_buffer(crate::buffer::Buffer::new("*scratch*"));
+        editor.kill_new("", false);
+        assert!(editor.kill_ring().is_empty(), "empty text puts nothing");
+        assert!(editor.take_clipboard_write().is_none());
+        editor.kill_new("ls -l", false);
+        let write = editor.take_clipboard_write().expect("for the clipboard");
+        assert_eq!((write.text().as_str(), write.secret), ("ls -l", false));
+        editor.kill_new("hunter2", true);
+        assert!(editor.take_clipboard_write().expect("a write").secret);
+        assert!(editor.kill_ring().get(0).unwrap().is_secret());
+        // A kill after a kill appends; one after `kill_new` does not.
+        let id = editor.add_internal_buffer("*Report*", crate::buffer::Mode::Fundamental);
+        editor.set_internal_text(id, "ab");
+        editor.show(id);
+        let kill = |editor: &mut Editor, at: usize| {
+            editor
+                .kill(std::iter::once(at..at + 1), Direction::Forward, true)
+                .unwrap();
+            editor.note_command_ended(false);
+        };
+        kill(&mut editor, 0);
+        editor.kill_new("copied", false);
+        kill(&mut editor, 1);
+        let joined: Vec<String> = (editor.kill_ring().iter().take(3))
+            .map(|entry| entry.joined())
+            .collect();
+        assert_eq!(joined, ["b", "copied", "a"]);
     }
 }

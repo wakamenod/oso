@@ -1,5 +1,6 @@
-//! The safe layer over libghostty-vt's C API: one terminal, its render state, its key encoder
-//! and the one key event it encodes, and the callbacks, owned together by `Vt` (ADR 0120).
+//! The safe layer over libghostty-vt's C API: one terminal, its render state, its key and
+//! mouse encoders and the one event each encodes (`mouse`), and the callbacks, owned together
+//! by `Vt` (ADR 0120).
 //! Each foreign call sits in an `unsafe` block of its own with its `// SAFETY:` comment, and
 //! nothing outside this file and `ffi` holds `unsafe`. The library makes no threads and its
 //! handles are not thread-safe, so a `Vt` is neither `Send` nor `Sync`: it lives and dies on
@@ -11,6 +12,7 @@
 #![expect(unsafe_code, reason = "the library's C API (ADR 0120)")]
 
 mod callbacks;
+mod mouse;
 
 use std::ffi::{c_int, c_void};
 use std::marker::PhantomData;
@@ -21,6 +23,7 @@ use crate::limits;
 pub(super) use callbacks::Sink;
 #[cfg(test)]
 use callbacks::bytes;
+pub(super) use mouse::PointerInput;
 
 /// One key as the encoder takes it, made from a `KeyPress` by `keys`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +78,7 @@ pub(super) struct Vt {
     /// The event's text, which it borrows: boxed, so that it stays put until the event is
     /// freed.
     text: Box<[u8; 4]>,
+    mouse: mouse::Handles,
     at: Rows,
     sink: NonNull<Sink>,
     /// Neither `Send` nor `Sync`.
@@ -99,6 +103,7 @@ impl Vt {
             encoder: ptr::null_mut(),
             event: ptr::null_mut(),
             text: Box::new([0; 4]),
+            mouse: mouse::Handles::NONE,
             at: Rows::Unset,
             sink: NonNull::from(Box::leak(sink)),
             _thread: PhantomData,
@@ -136,7 +141,7 @@ impl Vt {
         }
         // SAFETY: the event is live, and `PRESS` is a `GhosttyKeyAction`.
         unsafe { ffi::ghostty_key_event_set_action(vt.event, ffi::KEY_ACTION_PRESS) };
-        vt.configure(scrollback_lines).then_some(vt)
+        (vt.mouse.make() && vt.configure(scrollback_lines)).then_some(vt)
     }
 
     /// oso's settings (ADR 0120's table and step 1's conditions) and its callbacks.

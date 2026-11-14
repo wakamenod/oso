@@ -49,6 +49,12 @@ impl App {
                     "scrolled": grid.scrolled(),
                     "history": grid.history(),
                     "bracketed_paste": modes.bracketed_paste,
+                    "mouse": match modes.mouse {
+                        oso_term::Mouse::Off => "off",
+                        oso_term::Mouse::Click => "click",
+                        oso_term::Mouse::Drag => "drag",
+                        oso_term::Mouse::Motion => "motion",
+                    },
                     "cursor": { "row": row, "column": column },
                     "pending_paste": hosted.pending_paste.is_some(),
                     "rows": rows,

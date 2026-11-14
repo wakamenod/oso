@@ -17,6 +17,7 @@ mod handles;
 mod input_source;
 mod key_text;
 mod keys;
+mod pointer;
 mod quit;
 mod runloop;
 mod secure;
@@ -41,7 +42,7 @@ use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
 };
 
-use super::{Event, Handler, QuitAnswer, QuitReason};
+use super::{Event, Handler, MouseAction, QuitAnswer, QuitReason};
 use delegates::{AppDelegate, WindowDelegate};
 pub use handles::{Control, RenderTarget, Waker, Window};
 use runloop::Hooks;
@@ -157,10 +158,12 @@ enum Request {
     AnswerQuit(bool),
     /// Whether the app wants the input source to type ASCII (ADR 0106).
     AsciiInput(bool),
+    /// Whether the pointer's moves with no button held are reported (ADR 0120, step 4b-2).
+    PointerMotion(bool),
 }
 
 /// An event that came while the handler ran. Only those that keep what the app knows of the
-/// window true can come then; they wait for it.
+/// window true, and a button's press or release, can come then; they wait for it.
 enum Pending {
     Resized,
     ScaleFactorChanged,
@@ -170,6 +173,8 @@ enum Pending {
     ModifiersChanged(super::Held),
     CloseRequested,
     InputSource(super::InputSource),
+    /// A press or a release, so that a drag never misses its end; moves are dropped.
+    Mouse(super::Mouse),
 }
 
 /// The window layer's state, on the main thread, for the rest of the process.
@@ -309,6 +314,9 @@ impl State {
             Delivery::Window(Event::InputSource(source)) => Pending::InputSource(source),
             Delivery::Window(Event::ModifiersChanged(held)) => Pending::ModifiersChanged(held),
             Delivery::Window(Event::CloseRequested) => Pending::CloseRequested,
+            Delivery::Window(Event::Mouse(mouse)) if mouse.action != MouseAction::Moved => {
+                Pending::Mouse(mouse)
+            }
             Delivery::Window(Event::RedrawRequested) => {
                 self.redraw.set(true);
                 return;
@@ -347,6 +355,7 @@ impl State {
                 Pending::ModifiersChanged(held) => Event::ModifiersChanged(held),
                 Pending::CloseRequested => Event::CloseRequested,
                 Pending::InputSource(source) => Event::InputSource(source),
+                Pending::Mouse(mouse) => Event::Mouse(mouse),
             };
             self.deliver(Delivery::Window(event));
         }
@@ -411,6 +420,7 @@ impl State {
                 }
             }
             Request::DiscardComposition => view.discard_marked(),
+            Request::PointerMotion(wanted) => window.setAcceptsMouseMovedEvents(wanted),
             // Answered above, with or without a window.
             Request::AnswerQuit(_) | Request::AsciiInput(_) => {}
         }

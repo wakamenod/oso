@@ -153,6 +153,11 @@ impl Window {
         self.0.set_ime_allowed(allowed);
     }
 
+    /// Whether the pointer's moves with no button held are wanted (ADR 0120, step 4b-2).
+    pub(super) fn set_pointer_motion(&self, wanted: bool) {
+        self.0.set_pointer_motion(wanted);
+    }
+
     /// Whether the app wants secure input (ADR 0073).
     pub(super) fn set_secure_input(&self, wanted: bool) {
         self.0.set_secure_input(wanted);

@@ -169,8 +169,9 @@ impl App {
                 self.look_at_configuration_again();
             }
 
-            // ---- Elsewhere: kept above, for a terminal's program that asks (ADR 0120) ----
-            Event::Unfocused => {}
+            // ---- Elsewhere: kept above, for a terminal's program that asks (ADR 0120); a
+            // drag ends, as its release may go to another program ----
+            Event::Unfocused => self.end_drag(),
 
             // ---- Redraw ----
             Event::RedrawRequested => self.draw_frame(),
@@ -178,6 +179,15 @@ impl App {
             // ---- Mouse wheel and trackpad ----
             Event::Wheel { delta, at } => {
                 self.handle_wheel(delta, at);
+            }
+
+            // ---- Mouse buttons and the pointer (ADR 0120, step 4b-2) ----
+            // A move that did nothing, as most do, needs nothing after it.
+            Event::Mouse(mouse) => {
+                if !self.handle_mouse(mouse) {
+                    self.note_logging();
+                    return;
+                }
             }
 
             // ---- Keyboard input ----

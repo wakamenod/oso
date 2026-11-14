@@ -6,6 +6,7 @@
 //! Must not depend on: anything but `ffi`, `raw`, `layout` and `build.rs`'s `patch_check`.
 
 mod enums;
+mod mouse;
 #[path = "../../../build/patch_check.rs"]
 mod patch_check;
 mod patches;
@@ -31,7 +32,7 @@ pub(super) fn number(value: &Value) -> u64 {
     value.as_u64().unwrap_or(u64::MAX)
 }
 
-fn check_struct<T>(types: &Value, name: &str, fields: &[(&str, usize)]) {
+pub(super) fn check_struct<T>(types: &Value, name: &str, fields: &[(&str, usize)]) {
     let ty = &types[name];
     assert!(ty.is_object(), "{name} is not in the manifest");
     assert_eq!(number(&ty["size"]), size_of::<T>() as u64, "{name}'s size");

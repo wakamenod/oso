@@ -322,6 +322,8 @@ that holds text.
 
 **What is still manual,** through the `verify-in-app` skill or by hand: resizing
 the window, a real mouse wheel and trackpad (the `wheel` method stands in for them),
+real mouse buttons and the click that brings the window to the front (the `mouse` method
+stands in for the buttons),
 real OS key events, the window's close button, leaving while a save runs, IME, and
 `oso dev`'s build loop, with Ctrl-C and closing the terminal.
 
@@ -373,6 +375,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   `[x, y]`, with the pointer `at` a pixel (`x`, `y`) or the middle of a cell (`row`,
   `column`), or nowhere. It says which window it scrolled, by id, and whether its view
   moved, null for a buffer that may hold secrets ([ADR 0112](adr/0112-window-splits.md)).
+- `mouse` presses or releases a button (`"press"` or `"release"`: `"left"`, `"middle"` or
+  `"right"`) or moves the pointer (`"move": true`), `at` a pixel or a cell as for `wheel`,
+  with `"shift": true` or not. A terminal's state in `get-state` says its program's `mouse`
+  mode ([ADR 0120](adr/0120-the-terminal.md), step 4b-2).
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.

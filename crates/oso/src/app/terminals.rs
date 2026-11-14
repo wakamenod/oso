@@ -9,18 +9,19 @@ use std::time::{Duration, Instant};
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::editor::TerminalRequest;
-use oso_core::key::KeyPress;
 use oso_platform::process::pty::Size;
-use oso_term::{Event, QueueFull, Scroll};
 
 use super::App;
 use crate::dispatch::TerminalSend;
+use crate::terminal::colors;
 use crate::terminal::hosted::{self, Terminals};
-use crate::terminal::{colors, paste};
 
 #[cfg(feature = "dev")]
 mod dev_state;
 mod ime;
+mod input;
+mod mouse;
+mod snapshots;
 mod start;
 
 /// How often terminals no window shows are looked at, for their end and their title.
@@ -38,6 +39,8 @@ pub(super) struct Host {
     pub(super) focused: bool,
     /// When terminals no window shows are looked at next, while one has sent something.
     pub(super) hidden_due: Option<Instant>,
+    /// The mouse, as presses, drags and reports follow it (step 4b-2).
+    pub(super) pointer: mouse::Pointing,
 }
 
 impl Host {
@@ -50,6 +53,7 @@ impl Host {
                 .collect(),
             focused: true,
             hidden_due: None,
+            pointer: mouse::Pointing::default(),
         }
     }
 }
@@ -88,12 +92,15 @@ impl App {
         self.note_terminal_selected();
         self.size_terminals();
         self.focus_terminals();
+        self.want_pointer_motion();
         if self.note_terminals() {
             self.request_redraw();
         }
     }
 
     pub(super) fn terminal_send(&mut self, buffer: BufferId, send: TerminalSend) {
+        // What is typed or pasted into a terminal clears its selection.
+        self.clear_terminal_selection(buffer);
         // Typed while the shell is found: it goes once the terminal starts.
         if let Some(hosted) = self.terminals.map.get_mut(buffer)
             && hosted.terminal.is_none()
@@ -135,248 +142,6 @@ impl App {
                 hosted.pending_paste = None;
             }
         }
-    }
-
-    /// A terminal's thread has a snapshot ready: the next frame takes it. A terminal no window
-    /// shows asks for no frame of its own: it is looked at a few times a second instead,
-    /// while its thread goes on parsing.
-    pub(super) fn terminal_ready(&mut self, buffer: BufferId) {
-        if let Some(hosted) = self.terminals.map.get_mut(buffer) {
-            hosted.ready = true;
-            let shown = (self.editor.frame().windows().iter()).any(|(id, _)| {
-                self.editor
-                    .window_by_id(*id)
-                    .is_some_and(|w| w.buffer() == buffer)
-            });
-            if shown {
-                self.request_redraw();
-            } else {
-                // Its end, or its title, is taken within a moment though no frame comes.
-                self.terminals
-                    .hidden_due
-                    .get_or_insert_with(|| Instant::now() + HIDDEN_PACE);
-            }
-        }
-    }
-
-    /// Before the event loop waits: once the moment for terminals no window shows has come,
-    /// takes what they sent, at most a few times a second (ADR 0120).
-    pub(super) fn take_hidden_snapshots(&mut self) {
-        if self
-            .terminals
-            .hidden_due
-            .is_some_and(|due| Instant::now() >= due)
-        {
-            self.terminals.hidden_due = None;
-            if self.take_terminal_snapshots() {
-                self.terminals.hidden_due = Some(Instant::now() + HIDDEN_PACE);
-            }
-            // A session that ended out of sight is remembered before the loop waits.
-            self.save_sessions();
-        }
-    }
-
-    /// When the event loop wakes for terminals no window shows, if it does.
-    pub(super) fn hidden_terminals_deadline(&self) -> Option<Instant> {
-        self.terminals.hidden_due
-    }
-
-    /// Before a frame: takes each ready terminal's snapshot, one per terminal, merges its rows
-    /// into what the UI keeps and gives its buffers back. Returns whether it took any, as
-    /// another may wait already.
-    pub(super) fn take_terminal_snapshots(&mut self) -> bool {
-        let mut ended = Vec::new();
-        let mut said = Vec::new();
-        let mut secret = Vec::new();
-        let mut reported = Vec::new();
-        let mut again = false;
-        for (id, hosted) in self.terminals.map.iter_mut() {
-            if !hosted.ready {
-                continue;
-            }
-            let Some(terminal) = &hosted.terminal else {
-                hosted.ready = false;
-                continue;
-            };
-            let Some(mut snapshot) = terminal.take_snapshot() else {
-                hosted.ready = false;
-                continue;
-            };
-            // Another may wait already, as the end does behind one in flight: the next frame
-            // looks again, so that this one takes one only.
-            again = true;
-            hosted.grid.apply(&snapshot);
-            // The buffer's verdict is the one record of a password prompt. A program that
-            // ended reads none, whatever its last snapshot saw.
-            let ends = snapshot
-                .events
-                .iter()
-                .any(|event| matches!(event, Event::Ended(_)));
-            let echo_off = snapshot.echo_off && !ends;
-            reported.push((id, echo_off));
-            if echo_off != self.editor.buffer(id).is_some_and(reads_a_password) {
-                hosted.note_stale = true;
-                secret.push((id, echo_off));
-            }
-            for event in snapshot.events.drain(..) {
-                match event {
-                    Event::Title(title) => {
-                        hosted.title = title;
-                        hosted.note_stale = true;
-                    }
-                    Event::Ended(end) => {
-                        hosted.ended = Some(hosted::ended(&end));
-                        hosted.note_stale = true;
-                        ended.push((id, end));
-                    }
-                    Event::PasteRefused { lines } => said.push(format!(
-                        "{lines} lines not pasted: the program turned bracketed paste off"
-                    )),
-                    // Step 6 and after (ADR 0120).
-                    Event::Bell
-                    | Event::Directory(_)
-                    | Event::Notification { .. }
-                    | Event::Progress(_)
-                    | Event::Prompt(_)
-                    | Event::ClipboardWrite(_) => {}
-                }
-            }
-            if hosted.ended.is_some() {
-                // Nothing follows the end; its handle goes.
-                hosted.terminal = None;
-            } else {
-                terminal.recycle(snapshot);
-            }
-        }
-        for (id, end) in ended {
-            self.editor.set_running(id, false);
-            // A hosted session's end, which its modeline says differently (ADR 0121).
-            self.session_terminal_ended(id, &end);
-        }
-        // A password prompt is a secret from the snapshot on: secure input, the log and the
-        // input method follow at once, between events (ADR 0120, Q17).
-        for (id, echo_off) in &secret {
-            self.editor.set_echo_off(*id, *echo_off);
-        }
-        for (id, echo_off) in reported {
-            self.dispatcher
-                .terminal_reported(&mut self.editor, id, echo_off);
-        }
-        if !secret.is_empty() {
-            self.secret_changed();
-        }
-        for text in said {
-            self.editor.message(text);
-        }
-        // The frame being drawn shows the notes.
-        self.note_terminals();
-        again
-    }
-
-    fn send_keys(&mut self, buffer: BufferId, keys: &[KeyPress]) {
-        let Some(terminal) = self
-            .terminals
-            .map
-            .get(buffer)
-            .and_then(|hosted| hosted.terminal.as_ref())
-        else {
-            return self.no_program(buffer);
-        };
-        for key in keys {
-            if terminal.send_key(*key) == Err(QueueFull) {
-                self.editor
-                    .message("The terminal's input is full; key dropped");
-                return;
-            }
-        }
-    }
-
-    /// Text the input method committed, or a key that types several characters, for the
-    /// terminal `buffer`'s program, as UTF-8.
-    fn send_text(&mut self, buffer: BufferId, text: &str) {
-        let Some(terminal) = self
-            .terminals
-            .map
-            .get(buffer)
-            .and_then(|hosted| hosted.terminal.as_ref())
-        else {
-            return self.no_program(buffer);
-        };
-        if terminal.send(text.as_bytes().to_vec()).is_err() {
-            self.editor
-                .message("The terminal's input is full; text dropped");
-        }
-    }
-
-    fn no_program(&mut self, buffer: BufferId) {
-        let said = match self.terminals.map.get(buffer) {
-            Some(hosted) if hosted.ended.is_some() => "No program runs in this terminal",
-            Some(_) => "The terminal is starting",
-            None => return,
-        };
-        self.editor.message(said);
-    }
-
-    /// `C-y` in a terminal: with bracketed paste off, text of several lines asks first
-    /// (ADR 0120, Q13).
-    fn paste(&mut self, buffer: BufferId, text: String) {
-        let Some(hosted) = self.terminals.map.get_mut(buffer) else {
-            return;
-        };
-        if paste::breaks(&text) && !hosted.grid.modes().bracketed_paste {
-            let lines = paste::lines(&text);
-            let question = format!("Paste {lines} lines into a program that may run them?");
-            match self
-                .editor
-                .ask_with(question, "terminal-paste-lines", ["paste", "keep"])
-            {
-                Ok(asked) => {
-                    if let Some(hosted) = self.terminals.map.get_mut(buffer) {
-                        hosted.pending_paste = Some((asked, text));
-                    }
-                }
-                Err(error) => self.editor.message(error.to_string()),
-            }
-            self.request_redraw();
-            return;
-        }
-        self.send_paste(buffer, text, false);
-    }
-
-    fn send_paste(&mut self, buffer: BufferId, text: String, lines_allowed: bool) {
-        let Some(terminal) = self
-            .terminals
-            .map
-            .get(buffer)
-            .and_then(|hosted| hosted.terminal.as_ref())
-        else {
-            return self.no_program(buffer);
-        };
-        if terminal.paste(text, lines_allowed).is_err() {
-            self.editor
-                .message("The terminal's input is full; nothing pasted");
-        }
-    }
-
-    /// The wheel over a terminal scrolls its scrollback, `rows` down. Returns whether the
-    /// window shows a terminal.
-    pub(super) fn wheel_terminal(
-        &mut self,
-        window: oso_core::window::WindowId,
-        rows: isize,
-    ) -> bool {
-        let Some(buffer) = self.editor.window_by_id(window).map(|w| w.buffer()) else {
-            return false;
-        };
-        let Some(hosted) = self.terminals.map.get(buffer) else {
-            return false;
-        };
-        if let Some(terminal) = &hosted.terminal
-            && rows != 0
-        {
-            terminal.scroll(Scroll::Lines(rows));
-        }
-        true
     }
 
     /// The window selected now owns its terminal's size (ADR 0120).

@@ -24,6 +24,7 @@ use oso_platform::process::pty::{self, Size, Waker};
 
 use crate::input;
 use crate::limits;
+use crate::snapshot::Pointer;
 use crate::snapshot::{Palette, Scroll, Snapshot};
 
 /// What a terminal starts: its child, as `oso_platform::process::spawn` takes it, and the
@@ -44,8 +45,8 @@ pub struct Start {
     pub palette: Palette,
 }
 
-/// `Terminal::send`, `send_key` or `paste` refused input: 16 MiB wait to be written already,
-/// counting what queued keys and pastes may take.
+/// `Terminal::send`, `send_key`, `send_pointer` or `paste` refused input: 16 MiB wait to be
+/// written already, counting what queued keys, pointers and pastes may take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueueFull;
 
@@ -71,6 +72,7 @@ enum Request {
 enum Input {
     Bytes(Vec<u8>),
     Key(KeyPress),
+    Pointer(Pointer),
     Paste { text: String, lines_allowed: bool },
     Focus(bool),
 }
@@ -82,7 +84,7 @@ impl Input {
     fn reserved(&self) -> usize {
         match self {
             Input::Bytes(bytes) => bytes.len(),
-            Input::Key(_) => limits::KEY_BYTES_MAX,
+            Input::Key(_) | Input::Pointer(_) => limits::KEY_BYTES_MAX,
             Input::Paste { text, .. } => input::paste_bound(text.len()),
             Input::Focus(_) => 0,
         }
@@ -197,6 +199,16 @@ impl Terminal {
     /// 128 bytes are free.
     pub fn send_key(&self, key: KeyPress) -> Result<(), QueueFull> {
         self.input(Input::Key(key))
+    }
+
+    /// Queues the mouse's `pointer` for the program. Its thread encodes it against the modes
+    /// the program has set by then: a report in the mode and format it asked for (9, 1000,
+    /// 1002, 1003; 1005, 1006, 1015, 1016), or nothing while it asked for none. The wheel's
+    /// `↑` and `↓` of mode 1007 are the caller's to send, as keys. One that sends anything
+    /// scrolls the view back to the bottom. Each holds 128 bytes of the 16 MiB
+    /// queue until it is encoded, as a key does.
+    pub fn send_pointer(&self, pointer: Pointer) -> Result<(), QueueFull> {
+        self.input(Input::Pointer(pointer))
     }
 
     /// Queues a paste. Its thread turns CRLF and CR into LF and removes every other control

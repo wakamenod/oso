@@ -514,6 +514,7 @@ These ADRs stay as they are; this one changes the following:
 - Floats stay where they are whatever the layout.
 - The handoff carries the layout.
 - The wheel reaches the window under the pointer; clicks and divider drags come with mouse focus.
+  A click selects the window under it since ADR 0120's step 4b-2; point does not move.
 - `FrameLayout` stops being `Copy`.
 - `oso-core` gains `WindowId`, `Splits`, `Way` and window methods on `Editor`, in existing modules.
 

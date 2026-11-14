@@ -1,7 +1,8 @@
 //! The UI's requests the fuzz target interleaves with output (ADR 0120, step 4): keys with
-//! any modifiers, pastes of crafted text with and without lines allowed, scrolls by any
-//! amount and focus changes. Each is made from the input's generator, and written to and read
-//! from a script line (`key`, `paste`, `scroll`, `focus`). What a paste wrote is checked here.
+//! any modifiers, pastes of crafted text with and without lines allowed, the mouse's pointers
+//! anywhere, scrolls by any amount and focus changes. Each is made from the input's generator,
+//! and written to and read from a script line (`key`, `paste`, `pointer`, `scroll`, `focus`).
+//! What a paste wrote is checked here.
 //!
 //! Must not depend on: the engine; `fuzz` serves what this makes, as the thread does.
 
@@ -11,6 +12,7 @@ use oso_core::key::{Key, KeyPress, Modifiers, NamedKey};
 
 use super::Rng;
 use crate::snapshot::Scroll;
+use crate::snapshot::{Button, Pointer, PointerAction};
 use crate::terminal::{Input, Request};
 
 const CHARS: &[char] = &[
@@ -77,14 +79,15 @@ const LINES: &[isize] = &[
 /// Up to three requests, as the UI might send them between two reads.
 pub(super) fn requests(rng: &mut Rng) -> Vec<Request> {
     (0..rng.below(4))
-        .filter_map(|_| match rng.below(8) {
+        .filter_map(|_| match rng.below(9) {
             0..=2 => key(rng).map(|key| Request::Input(Input::Key(key))),
             3 | 4 => Some(Request::Input(Input::Paste {
                 text: paste(rng),
                 lines_allowed: rng.chance(50),
             })),
             5 => Some(Request::Input(Input::Focus(rng.chance(50)))),
-            6 => Some(Request::Scroll(Scroll::Lines(*rng.pick(LINES)))),
+            6 => Some(Request::Input(Input::Pointer(pointer(rng)))),
+            7 => Some(Request::Scroll(Scroll::Lines(*rng.pick(LINES)))),
             _ => Some(Request::Scroll(Scroll::Bottom)),
         })
         .collect()
@@ -111,6 +114,55 @@ fn key(rng: &mut Rng) -> Option<KeyPress> {
     KeyPress::new(modifiers, key)
 }
 
+const BUTTONS: &[Button] = &[
+    Button::Left,
+    Button::Middle,
+    Button::Right,
+    Button::WheelUp,
+    Button::WheelDown,
+    Button::WheelLeft,
+    Button::WheelRight,
+];
+/// The modifiers a pointer's script line names by bit, in this order.
+const MODIFIERS: [Modifiers; 4] = [
+    Modifiers::CONTROL,
+    Modifiers::META,
+    Modifiers::SUPER,
+    Modifiers::SHIFT,
+];
+const PLACES: &[u32] = &[0, 1, 7, 79, 80, 222, 223, 999, 1000, 65_535, u32::MAX];
+
+/// A pointer anywhere, inside the screen or far past it.
+fn pointer(rng: &mut Rng) -> Pointer {
+    let action = match rng.below(3) {
+        0 => PointerAction::Press(*rng.pick(BUTTONS)),
+        1 => PointerAction::Release(*rng.pick(BUTTONS)),
+        _ => PointerAction::Motion,
+    };
+    let place = |rng: &mut Rng| {
+        if rng.chance(50) {
+            *rng.pick(PLACES)
+        } else {
+            rng.below(100) as u32
+        }
+    };
+    let column = u16::try_from(place(rng)).unwrap_or(u16::MAX);
+    let row = u16::try_from(place(rng)).unwrap_or(u16::MAX);
+    let (x, y) = (place(rng), place(rng));
+    let modifiers = MODIFIERS
+        .iter()
+        .filter(|_| rng.chance(25))
+        .fold(Modifiers::NONE, |all, &m| all | m);
+    Pointer {
+        action,
+        column,
+        row,
+        x,
+        y,
+        modifiers,
+    }
+}
+
 fn paste(rng: &mut Rng) -> String {
     let pieces = if rng.chance(3) { 5000 } else { 12 };
     (0..rng.below(pieces)).map(|_| *rng.pick(PASTED)).collect()
@@ -131,6 +183,19 @@ pub(super) fn line(request: &Request) -> String {
             line
         }
         Request::Input(Input::Focus(focused)) => format!("focus {}", u8::from(*focused)),
+        Request::Input(Input::Pointer(p)) => {
+            let (action, button) = match p.action {
+                PointerAction::Press(button) => ("press", Some(button)),
+                PointerAction::Release(button) => ("release", Some(button)),
+                PointerAction::Motion => ("motion", None),
+            };
+            let button = button.map_or(0, |b| BUTTONS.iter().position(|&o| o == b).unwrap_or(0));
+            let mods = (MODIFIERS.iter().enumerate())
+                .filter(|(_, m)| p.modifiers.contains(**m))
+                .fold(0, |all, (bit, _)| all | 1 << bit);
+            let (column, row, x, y) = (p.column, p.row, p.x, p.y);
+            format!("pointer {action} {button} {column} {row} {x} {y} {mods}")
+        }
         Request::Scroll(Scroll::Lines(lines)) => format!("scroll {lines}"),
         Request::Scroll(Scroll::Bottom) => "scroll bottom".to_owned(),
         _ => String::new(),
@@ -152,6 +217,26 @@ pub(super) fn parse(words: &[&str]) -> Option<Request> {
             })
         }
         ["focus", focused] => Request::Input(Input::Focus(*focused == "1")),
+        ["pointer", action, button, column, row, x, y, mods] => {
+            let button = BUTTONS[button.parse::<usize>().expect("a button")];
+            let action = match *action {
+                "press" => PointerAction::Press(button),
+                "release" => PointerAction::Release(button),
+                _ => PointerAction::Motion,
+            };
+            let mods: u8 = mods.parse().expect("modifiers");
+            let modifiers = (MODIFIERS.iter().enumerate())
+                .filter(|(bit, _)| mods & 1 << bit != 0)
+                .fold(Modifiers::NONE, |all, (_, &m)| all | m);
+            Request::Input(Input::Pointer(Pointer {
+                action,
+                column: column.parse().expect("column"),
+                row: row.parse().expect("row"),
+                x: x.parse().expect("x"),
+                y: y.parse().expect("y"),
+                modifiers,
+            }))
+        }
         ["scroll", "bottom"] => Request::Scroll(Scroll::Bottom),
         ["scroll", lines] => Request::Scroll(Scroll::Lines(lines.parse().expect("lines"))),
         _ => return None,

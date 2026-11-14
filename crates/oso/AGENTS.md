@@ -28,11 +28,15 @@ often, so it must rebuild within 2 s.
   parses the agent rules files (ADR 0121), use `toml`, which review keeps: no guard test checks
   it.
 - `src/terminal.rs` and `src/terminal/` host terminals (ADR 0120): which keys go to a program
-  (`route`), what a terminal starts (`shell`), the screen the UI keeps (`grid`, `colors`) and
-  the start thread (`hosted`). A hosted session's terminal finds its shell with
-  `hosted::find_shell` and is put in its buffer by `app/terminals/start.rs`, as a terminal's. `oso-term` owns the PTY, the engine and the policy; the
+  (`route`), what a terminal starts (`shell`), the screen the UI keeps (`grid`, `colors`), the
+  mouse's selection on it (`selection`) and the start thread (`hosted`). A hosted session's
+  terminal finds its shell with `hosted::find_shell` and is put in its buffer by
+  `app/terminals/start.rs`, as a terminal's. `oso-term` owns the PTY, the engine and the
+  policy; the
   dispatcher holds each terminal's key-reading state (`dispatch/terminal.rs`), and
-  `app/terminals.rs` carries out what commands and keys ask. Terminal text never reaches a
+  `app/terminals.rs` carries out what commands and keys ask, with `app/terminals/`: `input`
+  (keys, text and the wheel sent to a program), `mouse` (clicks, drags and their reports) and
+  `snapshots` (what each terminal's thread sent). Terminal text never reaches a
   log or the disk, and reaches the agent channel only as the rows of a terminal the person
   let agents read (`terminal-allow-agent-read`), never while its program reads a password.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a

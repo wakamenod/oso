@@ -16,13 +16,14 @@ use oso_platform::text::TextSystem;
 use oso_render::RenderState;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, MouseButton as WinitButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{self, ModifiersState};
 use winit::window::{UserAttentionType, WindowId};
 
 use oso_platform::window::{
-    Event, Held, ImeEvent, KeyInput, Position, SystemKey, SystemNamed, Wheel,
+    Event, Held, ImeEvent, KeyInput, Mouse, MouseAction, MouseButton, Position, SystemKey,
+    SystemNamed, Wheel,
 };
 
 use super::{App, UserEvent};
@@ -102,15 +103,21 @@ impl Loop<'_> {
         Window {
             window: Arc::new(self.0.create_window(attributes).unwrap()),
             pointer: Cell::new(None),
+            buttons: Cell::new(0),
+            motion: Cell::new(false),
         }
     }
 }
 
-/// The OS window, and where the pointer last was over it, which winit's wheel events do not
-/// say (ADR 0112). Sizes and places are physical pixels.
+/// The OS window, and where the pointer last was over it, which winit's wheel and button
+/// events do not say (ADR 0112). Sizes and places are physical pixels.
 pub(super) struct Window {
     window: Arc<winit::window::Window>,
     pointer: Cell<Option<Position>>,
+    /// The mouse buttons held, one bit each, as the moves they drag are reported.
+    buttons: Cell<u8>,
+    /// Moves with no button held are reported too (ADR 0120, step 4b-2).
+    motion: Cell<bool>,
 }
 
 impl Window {
@@ -180,6 +187,12 @@ impl Window {
             .window
             .request_inner_size(PhysicalSize::new(width, height))?;
         Some((size.width, size.height))
+    }
+
+    /// Whether the pointer's moves with no button held are reported, as `Event::Mouse`
+    /// (ADR 0120, step 4b-2). winit reports every move; the app sees only these.
+    pub(super) fn set_pointer_motion(&self, wanted: bool) {
+        self.motion.set(wanted);
     }
 
     pub(super) fn set_ime_allowed(&self, allowed: bool) {
@@ -284,6 +297,32 @@ impl ApplicationHandler<UserEvent> for App {
                 };
                 self.handle_window_event(&event_loop, Event::Key(input));
             }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let pressed = *state == ElementState::Pressed;
+                let mouse = (self.view.as_ref())
+                    .and_then(|view| pressed_or_released(&view.window, pressed, *button));
+                match mouse {
+                    Some((action, at)) => {
+                        let held = self.modifiers;
+                        let mouse = Mouse { action, at, held };
+                        self.handle_window_event(&event_loop, Event::Mouse(mouse));
+                    }
+                    None => self.handle_window_event(&event_loop, Event::Other),
+                }
+            }
+            WindowEvent::CursorMoved { .. } => {
+                let at = (self.view.as_ref())
+                    .filter(|view| view.window.buttons.get() != 0 || view.window.motion.get())
+                    .and_then(|view| view.window.pointer.get());
+                let event = at.map_or(Event::Other, |at| {
+                    Event::Mouse(Mouse {
+                        action: MouseAction::Moved,
+                        at,
+                        held: self.modifiers,
+                    })
+                });
+                self.handle_window_event(&event_loop, event);
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let at = self
                     .view
@@ -308,6 +347,33 @@ fn note_pointer(pointer: &Cell<Option<Position>>, event: &WindowEvent) {
         WindowEvent::CursorLeft { .. } => pointer.set(None),
         _ => {}
     }
+}
+
+/// A button oso tells apart, `pressed` or released, where the pointer last was, keeping
+/// which are held in `window`; `None` for another button or with no place known.
+fn pressed_or_released(
+    window: &Window,
+    pressed: bool,
+    button: WinitButton,
+) -> Option<(MouseAction, Position)> {
+    let (button, bit) = match button {
+        WinitButton::Left => (MouseButton::Left, 1),
+        WinitButton::Middle => (MouseButton::Middle, 1 << 1),
+        WinitButton::Right => (MouseButton::Right, 1 << 2),
+        _ => return None,
+    };
+    let buttons = window.buttons.get();
+    window.buttons.set(if pressed {
+        buttons | bit
+    } else {
+        buttons & !bit
+    });
+    let action = if pressed {
+        MouseAction::Press(button)
+    } else {
+        MouseAction::Release(button)
+    };
+    Some((action, window.pointer.get()?))
 }
 
 /// Whether a key event is a press the user made now: `pressed`, and not `synthetic`. On

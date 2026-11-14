@@ -310,10 +310,11 @@ The author chose both.
 - **Paste (Q13):** `C-y` and the OS paste send text. With bracketed paste on, oso removes `ESC [ 201 ~`
   and other control characters except tab and new line first. With it off, a paste that holds a new
   line asks `Paste N lines into a program that may run them? (y or n)`.
-- **The mouse (Q6):** while a program asks for mouse reports (1000, 1002, 1003, 1006), clicks, drags,
-  the wheel and motion go to it; with Shift held they are oso's. Otherwise a drag selects cells and the
-  wheel scrolls the scrollback. A click selects the window first, as oso's mouse support grows
-  ([`open-questions.md`](../open-questions.md)).
+- **The mouse (Q6):** while a program asks for mouse reports, in any mode and format libghostty-vt's
+  encoder knows (9, 1000, 1002, 1003; 1005, 1006, 1015, 1016), clicks, drags, the wheel and motion go
+  to it; with Shift held they are oso's. Otherwise a drag selects cells and the wheel scrolls the
+  scrollback, or on the alternate screen of the selected window sends `↑` and `↓` (mode 1007),
+  never while its program reads a password. A click selects the window first (step 4b-2).
 - **`ssh` and other programs** need nothing of their own: `TERM=xterm-256color` is in every remote
   terminfo, and `SSH_AUTH_SOCK` passes through (see the environment).
 
@@ -1309,3 +1310,91 @@ option on each of its nine questions. Step 4b is three pull requests; this is th
   and the title last, in quotes.
 - **The dev socket** withholds a terminal's rows while its program reads a password, as it
   withholds the text of any buffer that may hold secrets (ADR 0044).
+
+### Step 4b-2: the mouse
+
+The second of step 4b's three pull requests, built to the plan the author approved on
+2026-11-14 (all the first option). Its questions are labelled "plan Q1" and so on below, to
+keep them apart from this ADR's.
+
+- **The public items,** as approved: `oso-platform`'s `Event::Mouse`, `Mouse`, `MouseAction` and
+  `MouseButton`, and on macOS `Window::set_pointer_motion`; `oso-term`'s `Terminal::send_pointer`,
+  `Pointer`, `PointerAction`, `Button` and `Modes::alternate_scroll`; `oso-render`'s
+  `GridStyle::SELECTED`. The author added `oso-core`'s `Editor::kill_new` during the build
+  (2026-11-14): text from outside any buffer goes to the kill ring and the OS clipboard as `M-w`'s
+  does, and never appends.
+- **The platform** reports a button's press and release and the pointer's moves in the
+  drawable's pixels, with the modifiers held. On macOS, the view takes `mouseDown:`, `mouseUp:`,
+  `mouseDragged:`, the right button's three and the middle button's (`otherMouse*`, button 2
+  only), and `mouseMoved:`. Moves with no button held come only while `set_pointer_motion` asks
+  for them: while the selected window's program asked for every motion (1003). Otherwise the
+  pointer costs nothing. The winit adapter does the same from `MouseInput` and `CursorMoved`.
+- **Where a press goes**, in this order:
+  - while oso holds input (a prompt, isearch, a menu, a key sequence), it is dropped;
+  - on a window that is not selected, it selects it (plan Q5), and nothing more: the first click
+    on a terminal never reaches its program;
+  - point never moves in a text buffer, and a press outside a terminal's text does nothing;
+  - with reports asked for and Shift not held, the program gets it;
+  - otherwise the left button begins a selection.
+
+  The window under a press is the one `Editor::wheel_window` gives, as for the wheel: over a
+  float it is the tiled window beneath. The drag that follows goes where its press went, until
+  the release. One button at a time: a press during a drag ends that drag first.
+- **A drag ends early,** with no copy, when the window loses the focus, another press comes, a
+  key selects another window, or oso begins to hold input. A program that got the press gets
+  its release where its last report went, so neither it nor the terminal's thread still holds
+  the button. On macOS a press or release that comes while the app handles an event waits for
+  it, as a resize does; a move then is dropped. While a button is held, the agent channel runs
+  nothing, as during a key sequence, and a press or release counts as the person typing
+  (ADR 0085).
+- **Reports** are encoded on the terminal's thread by libghostty-vt's mouse encoder, against the
+  modes as they are by then (`set_from_terminal` each time), so one the program no longer wants
+  is dropped. The thread keeps which button is held, for drags (1002). The place is the cell
+  the UI found, with the pixel kept inside it, so the library's cell and the UI's agree whatever
+  their rounding. A motion goes once per cell. Each pointer holds 128 bytes of the input queue
+  until encoded, as a key does. Mode 9 shows as `Mouse::Click` in `Modes`. The library's
+  result for each setting is checked: when one fails, nothing is sent, so a report never goes
+  with a stale setting. The UI keeps its own drag, so the two can disagree when a full queue
+  drops a release; the thread's then holds the button until the next press or release that
+  reaches it.
+- **The wheel** over a terminal: with Shift held, or while oso holds input, it scrolls the
+  scrollback as before. Otherwise, if the program asked for reports, it sends a wheel report
+  per notch, at most 32 an event, and stops at the first a full queue drops, said once. Reports
+  go to the window under the pointer, selected or not, as the program asked for them. On the
+  alternate screen with none asked for and 1007 on, it sends `↑` or `↓` per notch (plan Q7),
+  but only in the selected window and never while its program reads a password: elsewhere the
+  wheel scrolls the scrollback (the author, 2026-11-14). They are keys the person did not
+  type, so the UI sends them as keys, from its last snapshot's modes, and the terminal's
+  thread never turns a pointer into one: output that turns reports off just then cannot make
+  a report into a key for another window. Mode 1007 is on by default in libghostty-vt.
+- **The selection (plan Q1)** is cells in reading order, from the cell pressed to the one under the
+  pointer, kept to the window's text and the PTY's screen as a drag goes past them.
+  - It is anchored to lines from the scrollback's top, so it stays on its text as output scrolls
+    it. Each line's text is kept when it is first selected, and output that changes a selected
+    line clears it, as do a new size, a press, and a key, text or paste sent to the program.
+    Once the scrollback is full, output scrolls lines away without its count growing, and the
+    anchor no longer follows its text; the next change to a selected line's text then clears
+    the selection.
+  - Its cells are drawn `GridStyle::SELECTED`, in the region face's colours.
+  - On release, its text goes to the kill ring and the OS clipboard through `Editor::kill_new`:
+    soft-wrapped rows joined, each other row's trailing blanks dropped, a wide character whole.
+    Lines scrolled out of sight are left out. A press with no drag copies nothing. A concealed
+    cell (SGR 8) is copied as a blank, as it is drawn, so the copy holds only what the person
+    saw; the agent channel's `text` still reads it, a separate decision.
+  - While the program reads a password the copy is a secret entry (ADR 0074).
+- **The dev socket** gains `mouse`, a button's press or release or a move at a pixel or a cell,
+  with Shift or not, and a terminal's `mouse` mode in `get-state`.
+- **Tests:** the encoder per mode and format (1000, 9, 1002, 1003, 1005, 1006, 1015, 1016, X10's
+  limit past column 222, the wheel's buttons, Control), nothing with reports off, the thread's
+  held button, the cursor-key mode of 1007's arrows, the press and wheel routing tables, the selection's text and its anchoring through
+  output, and the fuzz target's `pointer` requests anywhere on and past the screen. e2e: a click
+  selects a window and leaves point, a drag copies, a program gets SGR reports while Shift
+  selects, and a copy at a password prompt is secret.
+- **The split:** `app/terminals.rs` moved into `terminals/input.rs` and
+  `terminals/snapshots.rs`, beside the new `terminals/mouse.rs`, unchanged but for
+  `wheel_terminal`'s arguments; the wheel's code moved from the macOS view into
+  `appkit/pointer.rs`; the terminal thread's input serving moved into `thread/inputs.rs`.
+- **Focus clicks:** on macOS the click that brings oso's window to the front is AppKit's and
+  never reaches the app. The winit adapter, used on Linux and Windows, passes it through as a
+  press, and sends 1003's moves while the window is not in front; both follow the routing
+  above.

@@ -120,7 +120,7 @@ impl App {
     }
 
     /// Hands the clipboard the newest kill, if a command has killed since.
-    fn write_clipboard(&mut self) {
+    pub(super) fn write_clipboard(&mut self) {
         let write = self.editor.take_clipboard_write();
         if let (Some(write), Some(clipboard)) = (write, &self.clipboard) {
             let (id, concealed) = (write.id, write.secret);

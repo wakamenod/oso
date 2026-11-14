@@ -8,6 +8,7 @@
 
 mod ffi;
 mod keys;
+mod pointers;
 mod raw;
 
 #[cfg(test)]
@@ -24,6 +25,7 @@ use crate::snapshot::{
     Attrs, Cell, Color, Cursor, CursorShape, Modes, Mouse, Palette, Rgb, Row, Scroll, Snapshot,
     Underline,
 };
+use crate::snapshot::{Button, Pointer};
 use raw::Vt;
 
 /// Bit positions in a packed `GhosttyCell` (types.h's manifest), as (lowest bit, width).
@@ -46,7 +48,7 @@ mod layout {
 const STYLES_CACHED: usize = 16;
 
 /// The DEC private modes the snapshot reports, in `Modes`' order.
-const MODES: [u16; 7] = [1, 2004, 1004, 1000, 1002, 1003, 1006];
+const MODES: [u16; 9] = [1, 2004, 1004, 9, 1000, 1002, 1003, 1006, 1007];
 
 pub(crate) struct Ghostty {
     vt: Vt,
@@ -204,12 +206,22 @@ impl Ghostty {
     /// bottom.
     fn read_modes(&self) -> (Modes, usize, usize) {
         let state = self.vt.state();
-        let [cursor_keys, paste, focus, click, drag, motion, sgr] = self.vt.dec_modes(MODES);
+        let [
+            cursor_keys,
+            paste,
+            focus,
+            x10,
+            click,
+            drag,
+            motion,
+            sgr,
+            alternate_scroll,
+        ] = self.vt.dec_modes(MODES);
         let mouse = if motion {
             Mouse::Motion
         } else if drag {
             Mouse::Drag
-        } else if click {
+        } else if click || x10 {
             Mouse::Click
         } else {
             Mouse::Off
@@ -221,6 +233,7 @@ impl Ghostty {
             focus_reports: focus,
             mouse,
             sgr_mouse: sgr,
+            alternate_scroll,
             kitty_keyboard: state.kitty_keyboard,
         };
         let bar = state.scrollbar;
@@ -297,6 +310,16 @@ impl Engine for Ghostty {
 
     fn encode_key(&mut self, key: KeyPress, out: &mut [u8; limits::KEY_BYTES_MAX]) -> usize {
         self.vt.encode_key(&keys::input(key), out)
+    }
+
+    fn encode_pointer(
+        &mut self,
+        pointer: Pointer,
+        held: Option<Button>,
+        out: &mut [u8; limits::KEY_BYTES_MAX],
+    ) -> usize {
+        self.vt
+            .encode_pointer(&pointers::input(pointer, held, self.size), out)
     }
 
     fn scroll(&mut self, scroll: Scroll) {

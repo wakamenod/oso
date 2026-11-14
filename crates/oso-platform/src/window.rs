@@ -43,6 +43,9 @@ pub enum Event<'a> {
         delta: Wheel,
         at: Option<Position>,
     },
+    /// A mouse button was pressed or released, or the pointer moved over the drawable area:
+    /// with a button held, or, while the app asked for it, with none (ADR 0120, step 4b-2).
+    Mouse(Mouse),
     ModifiersChanged(Held),
     Key(KeyInput<'a>),
     Ime(ImeEvent),
@@ -71,6 +74,31 @@ pub enum Wheel {
     Lines { x: f32, y: f32 },
     /// Physical pixels, from a trackpad.
     Pixels { x: f64, y: f64 },
+}
+
+/// What the mouse did, where, with the modifiers held then.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mouse {
+    pub action: MouseAction,
+    /// The pointer on the drawable area; past its edges while a button drags there.
+    pub at: Position,
+    pub held: Held,
+}
+
+/// A mouse button pressed or released, or the pointer moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseAction {
+    Press(MouseButton),
+    Release(MouseButton),
+    Moved,
+}
+
+/// The mouse buttons oso tells apart; the others report nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
 }
 
 /// A place on the drawable area, in physical pixels from its top left.

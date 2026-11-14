@@ -275,8 +275,9 @@ impl Ink {
 
 /// What `cell` is drawn in, in `theme`. `INVERSE` swaps the text's colour and the
 /// background's, then `DIM` takes the text's halfway to the background's, in linear light as
-/// the GPU blends. A cell whose background is [`GridColor::Default`] and not swapped fills
-/// none: the pane's text background is behind it.
+/// the GPU blends, and `SELECTED` takes the region's colours instead. A cell whose background
+/// is [`GridColor::Default`] and not swapped fills none: the pane's text background is behind
+/// it.
 pub(crate) fn ink(cell: &GridCell, theme: &Theme, decode: &Decode) -> Ink {
     let color = |color: GridColor, default: [f32; 4]| match color {
         GridColor::Default => default,
@@ -294,6 +295,11 @@ pub(crate) fn ink(cell: &GridCell, theme: &Theme, decode: &Decode) -> Ink {
     if cell.style.contains(GridStyle::DIM) {
         let under = bg.unwrap_or(text_bg);
         fg = [0, 1, 2, 3].map(|i| (fg[i] + under[i]) / 2.0);
+    }
+    // The selection reads as the region does, so its colours are the theme's checked pair.
+    if cell.style.contains(GridStyle::SELECTED) {
+        fg = theme.foreground(Face::Region);
+        bg = Some(theme.background(Face::Region));
     }
     Ink {
         fg,
@@ -379,6 +385,19 @@ mod tests {
             &decode,
         );
         assert_eq!((swapped.fg, swapped.bg), (text.1, Some(text.0)));
+        let selected = ink(
+            &GridCell {
+                style: GridStyle::SELECTED.with(GridStyle::INVERSE),
+                ..red
+            },
+            &theme,
+            &decode,
+        );
+        let region = (
+            theme.foreground(Face::Region),
+            theme.background(Face::Region),
+        );
+        assert_eq!((selected.fg, selected.bg), (region.0, Some(region.1)));
         let dim = ink(
             &GridCell {
                 style: GridStyle::DIM,

@@ -1,10 +1,11 @@
 //! Where foreign code may be reached (ADR 0120): `extern` blocks only in `oso-platform`,
-//! which binds the operating system, and in `oso-term`'s `ffi`, which binds libghostty-vt;
-//! in `oso-term`, `unsafe` only in that `ffi` and the safe layer over it, `raw` with its
-//! callbacks; no `safe` item in an `extern` block, which would be callable without `unsafe`;
-//! and only `oso-term` with a build script, a `links` key, or the directives that link a
-//! native library. `deny.toml` cannot see the library, as it is
-//! no crate, so this check confines it, as `manifests` confines tree-sitter.
+//! which binds the operating system, and in `oso-term`'s `ffi` with its mouse part, which
+//! binds libghostty-vt; in `oso-term`, `unsafe` only in that `ffi` and the safe layer over
+//! it, `raw` with its callbacks and its mouse part; no `safe` item in an `extern` block,
+//! which would be callable without `unsafe`; and only `oso-term` with a build script, a
+//! `links` key, or the directives that link a native library. `deny.toml` cannot see the
+//! library, as it is no crate, so this check confines it, as `manifests` confines
+//! tree-sitter.
 //!
 //! Must not depend on: the file system or the other checks; it sees only tokens and
 //! manifest text.
@@ -12,12 +13,17 @@
 use crate::lexer::{Token, tokenize};
 
 /// The files outside `oso-platform` that may declare `extern` blocks.
-pub const EXTERN_ALLOWED: [&str; 1] = ["crates/oso-term/src/engine/ghostty/ffi.rs"];
-/// The files of `oso-term` that may hold `unsafe`, and silence the crate's ban on it.
-pub const UNSAFE_ALLOWED: [&str; 3] = [
+pub const EXTERN_ALLOWED: [&str; 2] = [
     "crates/oso-term/src/engine/ghostty/ffi.rs",
+    "crates/oso-term/src/engine/ghostty/ffi/mouse.rs",
+];
+/// The files of `oso-term` that may hold `unsafe`, and silence the crate's ban on it.
+pub const UNSAFE_ALLOWED: [&str; 5] = [
+    "crates/oso-term/src/engine/ghostty/ffi.rs",
+    "crates/oso-term/src/engine/ghostty/ffi/mouse.rs",
     "crates/oso-term/src/engine/ghostty/raw.rs",
     "crates/oso-term/src/engine/ghostty/raw/callbacks.rs",
+    "crates/oso-term/src/engine/ghostty/raw/mouse.rs",
 ];
 /// The one crate whose manifest may name a native library to link, or a build script.
 pub const LINKS_ALLOWED: &str = "crates/oso-term/Cargo.toml";
