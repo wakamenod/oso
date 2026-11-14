@@ -88,8 +88,10 @@ option. It starts the agent channel, which its tools need.
 `*Sessions*` shows in a narrow window at the frame's left while you have sessions. It groups
 them by state, the most urgent first, one line each: its mark, its name, its space where there
 is room, and how long since it last changed state (`now` under a minute). A session that needs
-you takes a second line with the question it asks. Sessions run outside oso are listed too,
-their space beginning `external`. The
+you takes a second line with the question it asks. Marks are coloured by what they ask of you:
+red needs you, amber works (its mark turns while it is in view), green is done, grey is idle.
+Sessions run outside oso are listed too, all in grey. The row at point has a band across it.
+The
 modeline shows `⚠ N` while sessions need input and `● N` while sessions are done or ready for
 review. When a session needs you and you are looking elsewhere, oso says so in the echo area
 and asks the desktop for your attention.
@@ -245,6 +247,7 @@ In `config.toml`:
 claude = "/usr/local/bin/claude"  # the executable, by absolute path; else found on PATH
 env = ["AWS_PROFILE"]                # more variables a session takes from oso's environment
 steer_worktrees = true               # point the agent to start_worktree_session (off by default)
+spinner = false                      # keep working marks in *Sessions* still (they spin by default)
 
 [sessions.notify]                    # which states ask for your attention
 needs_input = true
@@ -254,8 +257,9 @@ ready_for_review = false
 ```
 
 `steer_worktrees` gives each new session a hook that turns down Claude Code's own worktree
-tools and points the agent to `start_worktree_session`, so its worktrees show in oso. The
-`[sessions.notify]` values shown are the defaults.
+tools and points the agent to `start_worktree_session`, so its worktrees show in oso.
+`spinner = false` stops the working marks from turning, and with them the only timer the list
+runs. The `[sessions.notify]` values shown are the defaults.
 
 ## Developing beside it
 

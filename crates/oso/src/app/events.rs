@@ -168,7 +168,10 @@ impl App {
             Event::ScaleFactorChanged(scale_factor) => self.set_scale(scale_factor),
 
             // ---- Visible again: frames skipped while occluded need a redraw ----
-            Event::Occluded(false) => self.request_redraw(),
+            Event::Occluded(false) => {
+                self.sessions_occluded(false);
+                self.request_redraw();
+            }
 
             // ---- In front again: another program may have changed open files ----
             Event::Focused => {
@@ -208,7 +211,10 @@ impl App {
             }
 
             // A flash ends with the window out of sight (ADR 0097).
-            Event::Occluded(true) => self.end_flash(),
+            Event::Occluded(true) => {
+                self.sessions_occluded(true);
+                self.end_flash();
+            }
             Event::InputSource(source) => self.input_source_chosen(source),
             Event::Other => {}
         }

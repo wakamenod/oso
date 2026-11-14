@@ -873,7 +873,11 @@ a switch made with its command stands until that setting changes in the file
   ■ stopped), its name, cut in the middle when long so that its end shows, its space and
   branch where there is room, and its age at the right: the time since it last changed state,
   `now` under a minute. A session that needs input or failed takes a second line, its reason:
-  the dialog's question. Sessions are grouped by state, pinned ones first, sessions a session
+  the dialog's question. Marks take their state's face: needs input and failed red, working
+  amber, ready for review and done green, idle and stopped grey; a working mark of a session
+  oso hosts turns through ten Braille frames, 8 a second, while it is in view, unless
+  `[sessions] spinner = false`. The row at point has the current line's band, whatever the
+  visual aids say. Sessions are grouped by state, pinned ones first, sessions a session
   started nested under it; archived ones last, folded. The list is withheld from agents: while
   it is shown, the agent channel's commands answer in the echo area only
   ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md) makes it a tree of projects and
@@ -904,8 +908,8 @@ a switch made with its command stands until that setting changes in the file
   (permission) 3m`, before its title. A session counts as seen after 2 s in the selected window
   of a focused oso window: done becomes idle.
 - Sessions of Claude Code run outside oso, from its registry, are listed too, as working or
-  idle, their place beginning `external`, aged from when the registry says their status last
-  changed; they are never shown.
+  idle, their whole row grey and their marks still, aged from when the registry says their
+  status last changed; they are never shown.
 - `C-x a m` (`session-send`) pastes the region into a session read with completion, the
   session of this space shown last first. Each region goes as its path relative to the
   session's directory, its lines and its text in a fence. With no region it reads a one-line

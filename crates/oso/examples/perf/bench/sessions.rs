@@ -1,7 +1,9 @@
 //! The agent sessions benchmarks (ADR 0121, step 3), with a fake `claude`, a shell script the
 //! configuration names. `sessions_printing`: 20 hosted sessions printing at once, one shown,
 //! and the UI thread's time on each frame meanwhile. `session_state_to_photon`: from the fake
-//! printing a permission dialog to the frame whose modeline first counts it. Recorded, with no
+//! printing a permission dialog to the frame whose modeline first counts it.
+//! `sessions_spinning`: 20 hosted sessions working quietly, each mark spinning in `*Sessions*`
+//! (ADR 0131), and the UI thread's time on each frame and in all, a second. Recorded, with no
 //! threshold yet.
 //!
 //! Must not depend on: anything but the harness's own pacing, from the module above, and its
@@ -25,14 +27,18 @@ const WITHIN: Duration = Duration::from_secs(30);
 /// How many dialogs are timed in each run.
 const DIALOGS: usize = 5;
 
-/// The fake: it prints a line every 10 ms with `print` in its directory, and the screen a flow
-/// writes to `screen` otherwise, each time it is written. `DIR` is the scratch directory.
+/// The fake: it prints a line every 10 ms with `print` in its directory, the screen in `work`
+/// once while that file is there, and the screen a flow writes to `screen` otherwise, each time
+/// it is written. `DIR` is the scratch directory.
 const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 i=0
+shown=
 while :; do
   if [ -f "$dir/print" ]; then
     i=$((i+1)); printf 'line %s of a session that prints a lot of output\n' "$i"; sleep 0.01
+  elif [ -f "$dir/work" ]; then
+    if [ -z "$shown" ]; then printf '\033[2J\033[H'; cat "$dir/work"; shown=1; fi; sleep 0.05
   elif [ -f "$dir/screen" ]; then
     printf '\033[2J\033[H'; cat "$dir/screen"; rm -f "$dir/screen"
   else
@@ -44,8 +50,9 @@ done
 const PERMISSION: &str = include_str!("../../../src/sessions/screens/permission-bash.txt");
 const WORKING: &str = include_str!("../../../src/sessions/screens/working.txt");
 
-/// Both flows, in new processes, as `sessions_printing_frame_p50_ms`,
-/// `sessions_printing_frame_p99_ms` and `session_state_to_photon_ms`.
+/// The flows, in new processes, as `sessions_printing_frame_p50_ms`,
+/// `sessions_printing_frame_p99_ms`, `sessions_spinning_frame_p99_ms`,
+/// `sessions_spinning_ui_ms_per_s` and `session_state_to_photon_ms`.
 pub(super) fn sessions(exe: &Path, runs: usize, report: &mut Report) -> Result<(), String> {
     log_step("agent sessions");
     let dir = TempDir::new("sessions")
@@ -56,15 +63,19 @@ pub(super) fn sessions(exe: &Path, runs: usize, report: &mut Report) -> Result<(
         std::fs::create_dir(made).map_err(|e| format!("{}: {e}", made.display()))?;
     }
     let config = fake(&dir, &scratch)?;
-    let mut metrics: [Vec<f64>; 3] = Default::default();
+    let mut metrics: [Vec<f64>; 5] = Default::default();
     for _ in 0..runs {
         let notes = project.join("notes.txt");
         std::fs::write(&notes, "notes\n").map_err(|e| format!("{}: {e}", notes.display()))?;
         let mut app = App::start_with_config(exe, Some(&notes), Some(&config))?;
         let frames = printing(&mut app, &scratch)?;
-        app.stop();
         metrics[0].push(percentile(&frames, 50.0));
         metrics[1].push(percentile(&frames, 99.0));
+        // The same sessions, working quietly: only their marks move.
+        let frames = spinning(&mut app, &scratch)?;
+        app.stop();
+        metrics[3].push(percentile(&frames, 99.0));
+        metrics[4].push(frames.iter().sum::<f64>() / SPINNING.as_secs_f64());
         // One session alone, so that the dialog is the one the fake printed.
         let mut app = App::start_with_config(exe, Some(&notes), Some(&config))?;
         app.call("run-command", Some(serde_json::json!({ "name": "claude" })))?;
@@ -72,9 +83,11 @@ pub(super) fn sessions(exe: &Path, runs: usize, report: &mut Report) -> Result<(
         metrics[2].push(photon(&mut app, &scratch)?);
         app.stop();
     }
-    let [p50, p99, photon] = metrics;
+    let [p50, p99, photon, spin_p99, spin_load] = metrics;
     report.add("sessions_printing_frame_p50_ms", p50);
     report.add("sessions_printing_frame_p99_ms", p99);
+    report.add("sessions_spinning_frame_p99_ms", spin_p99);
+    report.add("sessions_spinning_ui_ms_per_s", spin_load);
     report.add("session_state_to_photon_ms", photon);
     Ok(())
 }
@@ -126,6 +139,46 @@ fn printing(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
         .collect();
     if frames.is_empty() {
         return Err("no frame was drawn while the sessions printed".into());
+    }
+    Ok(frames)
+}
+
+/// How long the working sessions' marks spin while frames are counted.
+const SPINNING: Duration = Duration::from_secs(5);
+
+/// Has every session show a working screen and stay there, waits until all are working, and
+/// gives the UI thread's time on each frame over [`SPINNING`], in ms: the spinner's frames.
+fn spinning(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
+    let work = scratch.join("work");
+    std::fs::write(&work, WORKING).map_err(|e| format!("{}: {e}", work.display()))?;
+    let deadline = Instant::now() + WITHIN;
+    loop {
+        let state = app.call("get-state", None)?;
+        let working = state["sessions"]["sessions"].as_array().map_or(0, |all| {
+            all.iter()
+                .filter(|session| session["state"] == "working")
+                .count()
+        });
+        if working >= SESSIONS {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("{working} of {SESSIONS} sessions worked"));
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    app.timings()?;
+    thread::sleep(SPINNING);
+    let timings = app.timings()?;
+    std::fs::remove_file(&work).map_err(|e| format!("{}: {e}", work.display()))?;
+    let frames: Vec<f64> = timings["ui_frame_us"]
+        .as_array()
+        .ok_or("no frame times: is this a dev build?")?
+        .iter()
+        .filter_map(us_to_ms)
+        .collect();
+    if frames.is_empty() {
+        return Err("no frame was drawn while the marks spun".into());
     }
     Ok(frames)
 }

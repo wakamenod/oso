@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use super::Editor;
-use crate::buffer::BufferId;
+use crate::buffer::{BufferId, Mode};
 use crate::display_map::DisplaySnapshot;
 use crate::frame::{self, CellRect};
 use crate::motion;
@@ -121,12 +121,22 @@ impl Editor {
     /// The cells of the band on the primary cursor's line of the tiled window `id`, as `screen`
     /// shows it ([`Editor::screen_of`]), if the current line is shown and some of it is in
     /// view: every view row the line takes, so a wrapped line has the band on each of its rows
-    /// (ADR 0097). Only the selected window has one, also beneath a prompt (ADR 0112).
+    /// (ADR 0097). Only the selected window has one, also beneath a prompt (ADR 0112). The
+    /// side window has one too while it shows `*Sessions*`, whatever the visual aids say: the
+    /// band is how its rows show where point is (ADR 0131).
     pub fn current_line_cells(&self, id: WindowId, screen: &Screen) -> Option<CellRect> {
-        if !self.aids.current_line {
+        let list = self.side_window() == Some(id)
+            && self
+                .window_in_tree(id)
+                .is_some_and(|(_, buffer, _)| buffer.mode() == Mode::Sessions);
+        if !self.aids.current_line && !list {
             return None;
         }
-        let (window, buffer, regions) = self.selected_in_tree(id)?;
+        let (window, buffer, regions) = if list {
+            self.window_in_tree(id)?
+        } else {
+            self.selected_in_tree(id)?
+        };
         // A terminal's grid is its program's to mark (ADR 0120).
         if buffer.is_terminal() {
             return None;

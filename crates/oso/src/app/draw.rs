@@ -630,8 +630,8 @@ mod tests {
         // `Agent` comes first while the agent channel is on, and is empty here (ADR 0085).
         assert_eq!(modeline[0], (String::new(), Face::Prompt));
         // Then the sessions' marks, none here (ADR 0121).
-        assert_eq!(modeline[1], (String::new(), Face::Warning));
-        assert_eq!(modeline[2], (String::new(), Face::Modeline));
+        assert_eq!(modeline[1], (String::new(), Face::SessionAlert));
+        assert_eq!(modeline[2], (String::new(), Face::SessionDone));
         assert_eq!(modeline[3], ("[bidi controls] ".to_owned(), Face::Warning));
         assert_eq!(modeline[4], ("-- a.txt  ".to_owned(), Face::Modeline));
         assert_eq!(modeline[5].1, Face::Modeline);
@@ -641,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sessions_marks_draw_waiting_as_a_warning_and_done_as_the_modeline() {
+    fn the_sessions_marks_draw_in_their_states_faces() {
         let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", ""));
         editor.set_frame_size(FrameSize {
             rows: 24,
@@ -669,8 +669,9 @@ mod tests {
                 }
             },
         );
-        assert_eq!(modeline[1], ("⚠ 2  ".to_owned(), Face::Warning));
-        assert_eq!(modeline[2], ("● 3  ".to_owned(), Face::Modeline));
+        // As `*Sessions*` draws their marks (ADR 0131).
+        assert_eq!(modeline[1], ("⚠ 2  ".to_owned(), Face::SessionAlert));
+        assert_eq!(modeline[2], ("● 3  ".to_owned(), Face::SessionDone));
     }
 
     #[test]

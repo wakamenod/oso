@@ -51,6 +51,7 @@ pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> co
 pub enum oso_render::CursorStyle
 pub oso_render::CursorStyle::Box
 pub oso_render::CursorStyle::Hollow
+pub oso_render::CursorStyle::None
 impl core::clone::Clone for oso_render::CursorStyle
 pub fn oso_render::CursorStyle::clone(&self) -> oso_render::CursorStyle
 impl core::cmp::Eq for oso_render::CursorStyle
@@ -105,6 +106,10 @@ pub oso_render::Face::ReviewOutdated
 pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
 pub oso_render::Face::SecondaryCursor
+pub oso_render::Face::SessionAlert
+pub oso_render::Face::SessionDone
+pub oso_render::Face::SessionQuiet
+pub oso_render::Face::SessionWorking
 pub oso_render::Face::SyntaxComment
 pub oso_render::Face::SyntaxConstant
 pub oso_render::Face::SyntaxFunction

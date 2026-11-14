@@ -48,6 +48,7 @@ pub mod rules;
 pub mod screen;
 pub mod send;
 pub mod spaces;
+pub mod spinner;
 pub mod start;
 pub mod state;
 pub mod tools;

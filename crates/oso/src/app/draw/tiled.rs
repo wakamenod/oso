@@ -9,7 +9,7 @@
 //! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{BufferId, Mode};
 use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, ReviewCells, Status};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
@@ -115,8 +115,8 @@ pub(super) fn tiled_status<'a>(
 
 /// A modeline's spans: warnings first, so that nothing can push them off the row, after
 /// `Agent` while the agent channel is on, dim, and bright while an agent is connected
-/// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` as a
-/// warning and `● N` as the modeline (ADR 0121). A name and the rest are shaped apart,
+/// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` and
+/// `● N` in their states' faces, as `*Sessions*` draws them (ADR 0121, ADR 0131). A name and the rest are shaped apart,
 /// so that neither changes how the other reads. A window that is not selected has its
 /// modeline in [`Face::ModelineInactive`] (ADR 0112).
 fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
@@ -132,8 +132,8 @@ fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
         .split_at(status.sessions.find('●').unwrap_or(status.sessions.len()));
     [
         span(status.agent, agent),
-        span(waiting, Face::Warning),
-        span(done, face),
+        span(waiting, Face::SessionAlert),
+        span(done, Face::SessionDone),
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], face),
         span(&status.project[..], face),
@@ -472,7 +472,10 @@ fn text<'a>(
         revision: buffer.revision(),
         screen,
         cursor,
-        cursor_style: if selected {
+        // `*Sessions*` in the side window marks point's row with the band (ADR 0131).
+        cursor_style: if editor.side_window() == Some(id) && buffer.mode() == Mode::Sessions {
+            CursorStyle::None
+        } else if selected {
             CursorStyle::Box
         } else {
             CursorStyle::Hollow
