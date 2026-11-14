@@ -522,6 +522,9 @@ each point below that differs from the decision, through the coordinator.
   built.
 - **A worktree with no session** has the mark `·`, one of the row marks, so that `n` and `p`
   stop on it.
+- **"A running session"** in the folding default means one of oso's own: a worktree where only
+  external sessions run starts folded, with their count on its row and their mark dim, until
+  the person opens it.
 - **Cost:** the tree of 20 worktrees, 40 sessions and 300 external sessions folded renders in
   64 µs at best of 10 in a release build, within 0.5 ms; a release-only test keeps it there.
   Paths are compared by their bytes, as comparing `Path`s by component took three times as
