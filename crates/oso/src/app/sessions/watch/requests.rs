@@ -6,6 +6,8 @@
 //!
 //! Must not depend on: how a frame is drawn, or key presses.
 
+use std::path::Path;
+
 use oso_core::buffer::BufferId;
 use oso_core::editor::{Editor, RowAction, SessionRequest};
 
@@ -175,6 +177,29 @@ impl App {
         }
     }
 
+    /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): its space, entered,
+    /// with the tree's window selected; else `find-file`'s prompt in it.
+    fn enter_worktree(&mut self, path: &Path) {
+        let spaces = &self.watch.spaces;
+        let space = spaces
+            .of_path(path)
+            .filter(|&at| spaces.get(at).is_some_and(|space| space.root == path));
+        match space {
+            Some(at) => {
+                if self.watch.spaces.current() != Some(at) {
+                    self.enter_space(at);
+                }
+                tree_buffer(&mut self.editor);
+            }
+            None => {
+                let effects = self.dispatcher.find_file_in(&mut self.editor, path);
+                if effects.redraw {
+                    self.request_redraw();
+                }
+            }
+        }
+    }
+
     /// Asks the worker to explain the last look at session `key`'s screen.
     fn explain_session(&mut self, key: SessionKey) {
         match &self.sessions {
@@ -198,7 +223,13 @@ impl App {
                 return self.watch.list.fold(&Line::Session(key));
             }
             Line::Header(_) => return,
-            // A project's or a worktree's row folds; step 2b gives a worktree's RET its space.
+            Line::Worktree(path) if action == RowAction::Show => return self.enter_worktree(&path),
+            Line::Worktree(_) if action == RowAction::Stop => {
+                return self.editor.message(
+                    "worktree-remove removes a worktree whose work is done, from a buffer in it or *Worktrees*",
+                );
+            }
+            // A project's row folds on `RET` too, as its worktrees are what it holds.
             Line::Project(_) | Line::Worktree(_) => {
                 if matches!(action, RowAction::Fold | RowAction::Show) {
                     self.watch.list.fold(&row);

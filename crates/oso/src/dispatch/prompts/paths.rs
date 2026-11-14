@@ -55,7 +55,7 @@ impl Dispatcher {
         if let Some(refused) = refused_in_a_prompt(editor) {
             return refused;
         }
-        if let Some(prompt) = open_path_prompt(editor, prompt, history, false) {
+        if let Some(prompt) = open_path_prompt(editor, prompt, history, false, None) {
             self.reading.push(Reading::run(id, prefix, prompt));
         }
         (redraw(), Ok(()))
@@ -80,7 +80,7 @@ impl Dispatcher {
                 ProjectPrompt::Search { .. } => "Search in directory:",
                 ProjectPrompt::Files { .. } => "Find file in directory:",
             };
-            if let Some(prompt) = open_path_prompt(editor, label, "project-directory", true) {
+            if let Some(prompt) = open_path_prompt(editor, label, "project-directory", true, None) {
                 self.reading.push(Reading {
                     then: Then::Directory(project),
                     ..Reading::run(id, None, prompt)
@@ -108,13 +108,36 @@ impl Dispatcher {
         if let Some(refused) = refused_in_a_prompt(editor) {
             return refused;
         }
-        if let Some(prompt) = open_path_prompt(editor, label, history, true) {
+        if let Some(prompt) = open_path_prompt(editor, label, history, true, None) {
             self.reading.push(Reading {
                 then: Then::DirectoryThenText(then),
                 ..Reading::run(id, prefix, prompt)
             });
         }
         (redraw(), Ok(()))
+    }
+
+    /// Opens `find-file`'s prompt in `dir`, as `C-x C-f` from a buffer there would: `RET` on the
+    /// row of a worktree of `*Sessions*` that no space is in (ADR 0131, step 2b). Nothing opens
+    /// while a prompt is selected.
+    pub fn find_file_in(&mut self, editor: &mut Editor, dir: &std::path::Path) -> Effects {
+        let found =
+            self.registry
+                .lookup("find-file")
+                .and_then(|id| match self.registry.get(id)?.args {
+                    ArgSpec::File { prompt, history } => Some((id, prompt, history)),
+                    _ => None,
+                });
+        let Some((id, label, history)) = found else {
+            return Effects::default();
+        };
+        if refused_in_a_prompt(editor).is_some() {
+            return redraw();
+        }
+        if let Some(prompt) = open_path_prompt(editor, label, history, false, Some(dir)) {
+            self.reading.push(Reading::run(id, None, prompt));
+        }
+        redraw()
     }
 
     /// Takes the directory read for `reading`, and opens its text prompt, which runs the
@@ -231,22 +254,26 @@ fn redraw() -> Effects {
 }
 
 /// Opens a prompt that says `label` and reads a path with `C-x C-f`'s completion, kept in the
-/// history `history`, starting at the shown buffer's directory, or the one oso started in, for a
-/// directory if `directory`. A relative path typed in place of it starts there too. `None` if it
+/// history `history`, starting at `start_in` if given, else the shown buffer's directory, or the
+/// one oso started in, for a directory if `directory`. A relative path typed in place of it starts there too. `None` if it
 /// could not open, which the prompt beneath says.
 fn open_path_prompt(
     editor: &mut Editor,
     label: &'static str,
     history: &'static str,
     directory: bool,
+    start_in: Option<&std::path::Path>,
 ) -> Option<oso_core::minibuffer::PromptId> {
     let start = editor.start_directory().to_path_buf();
-    let start_in = editor
-        .current()
-        .1
-        .path()
-        .and_then(std::path::Path::parent)
-        .map_or(start, std::path::Path::to_path_buf);
+    let start_in = match start_in {
+        Some(dir) => dir.to_path_buf(),
+        None => editor
+            .current()
+            .1
+            .path()
+            .and_then(std::path::Path::parent)
+            .map_or(start, std::path::Path::to_path_buf),
+    };
     let initial = oso_core::complete::typed_form(&start_in, true, editor.home());
     let opened = if directory {
         editor.open_directory_prompt(label, history, &initial, start_in)

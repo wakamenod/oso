@@ -4,7 +4,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host for the rest.
 //!
-//! Moving, folding, regrouping and explaining are `Look`. Showing a session puts its terminal
+//! Moving, by row or by heading, folding, regrouping and explaining are `Look`. Showing a session puts its terminal
 //! in front of the person's keys, pinning and archiving change which sessions ask for them,
 //! and resuming and stopping run or end a process: those are `Person`.
 
@@ -19,7 +19,13 @@ use oso_core::selection::SelectionSet;
 pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■·⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 /// What `?` says in `*Sessions*` (ADR 0131): the marks, then the keys.
-pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  TAB fold  s group  k stop  e explain";
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p worktrees  TAB fold  c new  w worktree  / switch  s group  k stop  e explain";
+
+/// The folds' marks, which begin a project's, a group's and a quiet row's line.
+const FOLDS: [char; 2] = ['▾', '▸'];
+
+/// The indent of a worktree's row in the tree (ADR 0131), and of a nested session's by state.
+const WORKTREE_INDENT: usize = 2;
 
 /// The commands of `*Sessions*`.
 pub const COMMANDS: &[Command] = &[
@@ -43,6 +49,22 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: previous,
+        state: None,
+    },
+    Command {
+        name: "sessions-next-heading",
+        doc: "Move to the next project, worktree or group row of `*Sessions*`.\n\nIn the list by state, the next group.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: next_heading,
+        state: None,
+    },
+    Command {
+        name: "sessions-previous-heading",
+        doc: "Move to the previous project, worktree or group row of `*Sessions*`.\n\nIn the list by state, the previous group.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: previous_heading,
         state: None,
     },
     row(
@@ -196,35 +218,67 @@ fn regroup(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn next(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    step(ctx, args.count())
+    step(ctx, args.count(), Stop::Row)
 }
 
 fn previous(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    step(ctx, args.count().saturating_neg())
+    step(ctx, args.count().saturating_neg(), Stop::Row)
 }
 
-/// Moves point `count` rows down, up if negative: to the start of a line that begins a row, a
-/// session's first line or a group's header. Stays at the last row it reaches.
-fn step(ctx: &mut Ctx<'_>, count: isize) -> Result<(), CommandError> {
+fn next_heading(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    step(ctx, args.count(), Stop::Heading)
+}
+
+fn previous_heading(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    step(ctx, args.count().saturating_neg(), Stop::Heading)
+}
+
+/// Where a move of point stops.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stop {
+    /// At any row: a session's first line, a worktree's, a project's or a group's.
+    Row,
+    /// At a project's, a worktree's or a group's row (ADR 0131).
+    Heading,
+}
+
+/// Moves point `count` rows down, up if negative, to the start of a line `stop` stops at.
+/// Stays at the last it reaches.
+fn step(ctx: &mut Ctx<'_>, count: isize, stop: Stop) -> Result<(), CommandError> {
     in_list(ctx)?;
     let (window, buffer) = ctx.editor.current();
     let text = buffer.text();
     let from = text.offset_to_point(window.selections.primary().cursor).row;
     let last = text.line_count().saturating_sub(1);
-    let starts_row = |row: usize| {
+    // A line's indent and its first mark, if it begins a row.
+    let row_at = |row: usize| {
         let (start, end) = (text.line_start(row), text.line_end(row));
-        let first = text
-            .chunks_in_range(start..end)
-            .flat_map(str::chars)
-            .find(|c| *c != ' ');
-        first.is_some_and(|c| ROW_MARKS.contains(c))
+        let mut chars = text.chunks_in_range(start..end).flat_map(str::chars);
+        let mut indent = 0;
+        let first = chars.find(|c| {
+            indent += usize::from(*c == ' ');
+            *c != ' '
+        });
+        first
+            .filter(|c| ROW_MARKS.contains(*c))
+            .map(|c| (indent, c))
+    };
+    let stops = |row: usize| match (stop, row_at(row)) {
+        (_, None) => false,
+        (Stop::Row, Some(_)) => true,
+        (Stop::Heading, Some((indent, mark))) => is_heading(indent, mark, || {
+            (0..row)
+                .rev()
+                .find_map(|r| row_at(r).filter(|(indent, _)| *indent == 0))
+                .map(|(_, mark)| mark)
+        }),
     };
     let mut row = from;
     for _ in 0..count.unsigned_abs() {
         let found = if count > 0 {
-            (row + 1..=last).find(|&r| starts_row(r))
+            (row + 1..=last).find(|&r| stops(r))
         } else {
-            (0..row).rev().find(|&r| starts_row(r))
+            (0..row).rev().find(|&r| stops(r))
         };
         match found {
             Some(found) => row = found,
@@ -239,6 +293,14 @@ fn step(ctx: &mut Ctx<'_>, count: isize) -> Result<(), CommandError> {
     ctx.editor.follow_cursor();
     ctx.request_redraw();
     Ok(())
+}
+
+/// Whether a row `indent` cells in that begins with `mark` is a heading: a fold's mark, or a
+/// worktree's row, at a worktree's indent under a project's row. `section` gives the mark of the
+/// nearest row above with no indent; by state, that of a nested session's parent.
+fn is_heading(indent: usize, mark: char, section: impl FnOnce() -> Option<char>) -> bool {
+    FOLDS.contains(&mark)
+        || (indent == WORKTREE_INDENT && section().is_some_and(|mark| FOLDS.contains(&mark)))
 }
 
 #[cfg(test)]

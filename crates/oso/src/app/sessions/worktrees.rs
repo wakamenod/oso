@@ -140,6 +140,14 @@ impl App {
 
     /// The selected buffer's project, if it is trusted to run git.
     pub(in crate::app) fn project_here(&self) -> Result<ProjectId, String> {
+        // In `*Sessions*`, the repository of the row at point (ADR 0131, step 2b).
+        if let Some(place) = self.sessions_row_place() {
+            let place = place?;
+            return self.trusted_project_of(place.repo()?).ok_or_else(|| {
+                "Worktree sessions need a trusted buffer of that project: trust-project first"
+                    .to_owned()
+            });
+        }
         let project = self.editor.current().1.project();
         project
             .filter(|&id| self.editor.project_trusted(id))
@@ -243,17 +251,25 @@ impl App {
                 .editor
                 .message("A brief is being written: send it with C-c C-c or drop it with C-c C-k");
         }
+        // From a row of `*Sessions*`, its session and its worktree's branch (ADR 0131).
+        let row = self.sessions_row_place().and_then(Result::ok);
+        let base = base.or_else(|| row.as_ref()?.base().map(str::to_owned));
+        let detached = if base.is_none() && row.as_ref().is_some_and(|row| row.detached()) {
+            " (that worktree is on no branch: this one starts at HEAD)"
+        } else {
+            ""
+        };
         let starting = self.editor.window().buffer();
-        let from = self
-            .hosting
-            .table
-            .by_buffer(starting)
-            .map(|session| Handover {
-                name: session.runs().then(|| session.name.clone()),
-                id: session.id.as_str().to_owned(),
-                directory: session.directory.clone(),
-            });
-        let parent = self.hosting.table.by_buffer(starting).map(|s| s.id.clone());
+        let session = match &row {
+            Some(row) => row.session.and_then(|key| self.hosting.table.get(key)),
+            None => self.hosting.table.by_buffer(starting),
+        };
+        let from = session.map(|session| Handover {
+            name: session.runs().then(|| session.name.clone()),
+            id: session.id.as_str().to_owned(),
+            directory: session.directory.clone(),
+        });
+        let parent = session.map(|s| s.id.clone());
         let place = slug::slug(&branch)
             .map(|slug| root.join(".claude/worktrees").join(slug))
             .unwrap_or_default();
@@ -277,7 +293,7 @@ impl App {
             },
         );
         self.editor.message(format!(
-            "Write the brief for {shown}: C-c C-c makes the worktree and starts its session, C-c C-k drops it"
+            "Write the brief for {shown}{detached}: C-c C-c makes the worktree and starts its session, C-c C-k drops it"
         ));
     }
 

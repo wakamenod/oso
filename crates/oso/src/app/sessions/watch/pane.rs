@@ -9,9 +9,14 @@
 //! Nothing here touches the disk: the worker `stat`s and the jobs run git. A project's trust is
 //! found through a buffer of it, a file's or a session's, as worktree sessions find it.
 
+mod mouse;
+mod rows;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+use oso_core::project::ProjectId;
 
 use crate::app::App;
 use crate::sessions::list::{Project, Tree, Worktree};
@@ -104,6 +109,13 @@ impl App {
     /// The trust a job for the repository at `root` runs under: through a buffer of it, or of
     /// one of its worktrees, in a project the editor trusts.
     fn trusted_project(&self, root: &Path) -> Option<crate::sessions::worktree::jobs::Trust> {
+        self.trusted_project_of(root)
+            .and_then(|project| self.trust_for(project).ok())
+    }
+
+    /// A trusted project of a buffer in the repository at `root` or in one of its worktrees
+    /// with a space.
+    pub(in crate::app) fn trusted_project_of(&self, root: &Path) -> Option<ProjectId> {
         let inside = |path: &Path| {
             path == root
                 || self
@@ -112,15 +124,13 @@ impl App {
                     .iter()
                     .any(|space| space.repo.as_deref() == Some(root) && space.root == path)
         };
-        let project = self
-            .editor
+        self.editor
             .buffers()
             .filter_map(|(_, buffer)| buffer.project())
             .find(|&id| {
                 self.editor.project_trusted(id)
                     && self.editor.project(id).is_some_and(|p| inside(p.root()))
-            })?;
-        self.trust_for(project).ok()
+            })
     }
 
     /// Tells the worker which projects' `worktrees` directories to watch, when that changed.
