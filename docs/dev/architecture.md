@@ -867,6 +867,17 @@ Full details are in [`security.md`](security.md).
     one goes unless it has been edited too, and then both stay. Instances run in
     process groups of their own, so Ctrl-C ends the supervisor and leaves their
     windows ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
+  - Running terminals go too, on Unix
+    ([ADR 0120](adr/0120-the-terminal.md), step 11): each terminal's thread stops reading
+    its PTY and writes libghostty-vt's snapshot of it, which travels as an item in base64.
+    After the import, the old instance hands the supervisor each PTY's master with
+    `SCM_RIGHTS` (`hand-over-terminals`), the `exit` that follows lets the terminals go,
+    nothing hung up, and only once it has gone does the new instance get the masters
+    (`import-terminals`) and read where it stopped. One instance reads each PTY at a time;
+    a restart that stops short leaves the terminals with the old one, which reads again.
+    Only the instance's parent gets terminals. A hosted session keeps its id, space and
+    baseline, and its bridge finds the new instance through the `<pid>-follows` record
+    beside its socket.
 - **Control socket:** agents can send keys, run commands, read state and take
   screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
   JSON Lines, and `oso ctl` is the client

@@ -59,7 +59,7 @@ exit status: 0 on a result, 1 on an error response, 2 if no request was made";
 
 /// How long to wait for the response. Longer than the server's own wait for
 /// the UI, so its timeout error arrives first.
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Runs `oso ctl` if the first argument is `ctl`, and returns its exit
 /// status.

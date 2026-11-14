@@ -120,6 +120,23 @@ impl Master {
     }
 }
 
+/// Handing a master to the instance that replaces this one under `oso dev` (ADR 0120, step
+/// 11): the supervisor carries it over the control socket.
+#[cfg(all(feature = "dev", unix))]
+impl Master {
+    /// Another descriptor for this terminal's master, close-on-exec, to send to the next
+    /// instance. Reads and writes through either are the same terminal's.
+    pub fn try_clone_fd(&self) -> io::Result<std::os::fd::OwnedFd> {
+        self.0.try_clone_fd()
+    }
+
+    /// The master `fd` is, as the instance this one replaces sent it. Refused unless it is a
+    /// terminal's master; made non-blocking, as [`open`] makes one.
+    pub fn from_fd(fd: std::os::fd::OwnedFd) -> io::Result<Master> {
+        imp::Master::from_fd(fd).map(Master)
+    }
+}
+
 /// Wakes the thread that waits in [`Master::wait`].
 #[derive(Debug, Clone)]
 pub struct Waker(imp::Waker);

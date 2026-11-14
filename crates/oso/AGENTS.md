@@ -16,7 +16,10 @@ often, so it must rebuild within 2 s.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
   `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired` and `terminals` do the work, `control`
-  answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
+  answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart;
+  its terminals go in `terminals/carry.rs` (the instance going) and `terminals/adopt.rs` (the
+  one coming), and their masters pass through the dev socket in `dev/fds.rs` (ADR 0120,
+  step 11).
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.

@@ -23,7 +23,7 @@ fn messages_hold_no_restart_and_change_no_generation() {
     editor.message("Wrote a.txt");
     assert_eq!(generation(&editor), before);
     assert_eq!(
-        check(&editor),
+        check(&editor, false),
         Ok(json!({ "generation": before, "unsaved": false }))
     );
     let state = export(&editor, &[], None, None).unwrap();
@@ -141,7 +141,7 @@ fn a_modified_file_behind_messages_is_carried() {
     };
     editor.apply_edits(id, &[edit]).unwrap();
     editor.toggle_messages();
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert!(parsed.buffers[parsed.window().shown].carried.is_some());
@@ -176,7 +176,7 @@ fn a_composition_holds_the_handover_and_an_exit_for_a_generation() {
     let preedit = oso_core::display_map::Preedit::new("にほん".into(), None);
     editor.set_preedit(Some(preedit));
     assert_eq!(
-        check(&editor),
+        check(&editor, false),
         Err("cannot hand over: a composition is open".into())
     );
     let refused = exit_allowed(&editor, Some(before)).unwrap_err();
@@ -188,7 +188,7 @@ fn a_composition_holds_the_handover_and_an_exit_for_a_generation() {
     );
     editor.set_preedit(None);
     assert_eq!(
-        check(&editor),
+        check(&editor, false),
         Ok(json!({ "generation": before, "unsaved": false }))
     );
 }
@@ -207,13 +207,13 @@ fn a_query_replace_holds_the_handover_and_an_exit_for_a_generation() {
     editor.replace_begin("a", "b", false).unwrap();
     assert!(editor.replace().is_some());
     assert_eq!(
-        check(&editor),
+        check(&editor, false),
         Err("cannot hand over: a search is under way".into())
     );
     let refused = exit_allowed(&editor, Some(before)).unwrap_err();
     assert!(refused.ends_with("a search is under way"), "{refused}");
     editor.replace_exit();
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
 }
 
 #[test]
@@ -222,7 +222,7 @@ fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
     let before = generation(&editor);
     editor.isearch_begin(false, false);
     assert_eq!(
-        check(&editor),
+        check(&editor, false),
         Err("cannot hand over: a search is under way".into())
     );
     assert!(export(&editor, &[], None, None).is_err());
@@ -230,7 +230,7 @@ fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
     assert!(refused.ends_with("a search is under way"), "{refused}");
     editor.isearch_exit();
     assert_eq!(
-        check(&editor),
+        check(&editor, false),
         Ok(json!({ "generation": before, "unsaved": false }))
     );
 }
@@ -246,14 +246,14 @@ fn a_jump_holds_the_handover_and_an_exit_for_a_generation() {
             editor.jump_show_labels();
         }
         assert_eq!(
-            check(&editor),
+            check(&editor, false),
             Err("cannot hand over: a jump is under way".into())
         );
         assert!(export(&editor, &[], None, None).is_err());
         let refused = exit_allowed(&editor, Some(before)).unwrap_err();
         assert!(refused.ends_with("a jump is under way"), "{refused}");
         assert!(editor.jump_end());
-        assert!(check(&editor).is_ok());
+        assert!(check(&editor, false).is_ok());
     }
     assert!(exit_allowed(&editor, Some(before)).is_ok());
 }
@@ -281,9 +281,9 @@ fn a_split_frame_hands_over_every_window_in_the_trees_order_with_its_layout() {
         .split_window(oso_core::frame::Way::Down, true)
         .unwrap();
     editor.current_mut().0.selections = SelectionSet::new(4);
-    assert!(check(&editor).is_ok(), "a split frame hands over");
+    assert!(check(&editor, false).is_ok(), "a split frame hands over");
     let state = export(&editor, &[], None, None).unwrap();
-    assert_eq!(state["version"], 4);
+    assert_eq!(state["version"], 5);
     assert_eq!(
         state["layout"],
         json!({ "across": [
@@ -346,10 +346,10 @@ fn windows_split_deeper_than_a_state_keeps_hold_the_handover_with_a_reason() {
     }
     assert!(editor.tiling().depth() > oso_core::frame::Tiling::MAX_DEPTH);
     let refused = "cannot hand over: the windows are split more than 16 deep";
-    assert_eq!(check(&editor), Err(refused.into()));
+    assert_eq!(check(&editor, false), Err(refused.into()));
     assert_eq!(export(&editor, &[], None, None), Err(refused.into()));
     editor.delete_other_windows();
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
 }
 
 #[test]
@@ -366,10 +366,10 @@ fn more_windows_than_a_state_keeps_hold_the_handover_with_a_reason() {
     };
     assert_eq!(editor.set_tiling(&tiling).unwrap().len(), 257);
     let refused = "cannot hand over: the frame has more than 256 windows";
-    assert_eq!(check(&editor), Err(refused.into()));
+    assert_eq!(check(&editor, false), Err(refused.into()));
     assert_eq!(export(&editor, &[], None, None), Err(refused.into()));
     editor.delete_window().unwrap();
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
 }
 
 #[test]
@@ -449,14 +449,14 @@ fn an_undo_under_way_holds_the_handover_and_an_exit_for_a_generation() {
     crate::channel::state::begin_a_large_undo(&mut editor);
     let before = generation(&editor);
     let held = Err("cannot hand over: an undo or a redo is under way".into());
-    assert_eq!(check(&editor), held);
+    assert_eq!(check(&editor, false), held);
     let refused = exit_allowed(&editor, Some(before)).unwrap_err();
     assert!(
         refused.ends_with("an undo or a redo is under way"),
         "{refused}"
     );
     editor.cancel_crossing();
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
 }
 
 #[test]
@@ -465,7 +465,7 @@ fn a_keyboard_macro_holds_the_handover_and_an_exit_for_a_generation() {
     let before = generation(&editor);
     editor.macro_start().unwrap();
     let held = Err("cannot hand over: a keyboard macro is being recorded or run".into());
-    assert_eq!(check(&editor), held);
+    assert_eq!(check(&editor, false), held);
     let refused = exit_allowed(&editor, Some(before)).unwrap_err();
     assert!(
         refused.ends_with("a keyboard macro is being recorded or run"),
@@ -476,11 +476,11 @@ fn a_keyboard_macro_holds_the_handover_and_an_exit_for_a_generation() {
         commit: false,
     }]);
     editor.macro_end().unwrap();
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
     editor.macro_call(None).unwrap();
-    assert_eq!(check(&editor), held);
+    assert_eq!(check(&editor, false), held);
     editor.macro_stop(None);
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
 }
 
 #[test]

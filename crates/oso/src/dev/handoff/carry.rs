@@ -52,6 +52,8 @@ impl Item {
 pub struct Exported {
     number: u64,
     items: Vec<Item>,
+    /// The first item that holds a terminal's state, which only the parent reads.
+    terminals_from: Option<usize>,
     at: Instant,
 }
 
@@ -60,8 +62,26 @@ impl Exported {
         Self {
             number,
             items,
+            terminals_from: None,
             at: Instant::now(),
         }
+    }
+
+    /// The number of the export.
+    pub fn number(&self) -> u64 {
+        self.number
+    }
+
+    /// Adds the terminals' states after the texts (ADR 0120, step 11).
+    pub fn extend_with_terminals(&mut self, items: Vec<Item>) {
+        self.terminals_from = Some(self.items.len());
+        self.items.extend(items);
+    }
+
+    /// Whether `item` of export `export` holds a terminal's state, for as long as this
+    /// export can be read.
+    pub fn holds_terminal(&self, export: u64, item: usize) -> bool {
+        export == self.number && self.terminals_from.is_some_and(|from| item >= from)
     }
 
     /// Whether this is too old for `export-text`, and can go.

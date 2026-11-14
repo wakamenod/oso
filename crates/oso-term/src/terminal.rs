@@ -6,6 +6,10 @@
 //!
 //! Must not depend on: anything the UI draws with; the thread's work is in `thread`.
 
+#[cfg(feature = "dev")]
+mod handoff;
+#[cfg(feature = "dev")]
+pub use handoff::{Adopt, Encoding, Exported, NotExported};
 #[cfg(unix)]
 mod thread;
 
@@ -66,6 +70,9 @@ enum Request {
     Palette(Palette),
     Recycle(Snapshot),
     HangUp,
+    /// `oso dev`'s restart (ADR 0120, step 11): see `handoff`.
+    #[cfg(feature = "dev")]
+    Handoff(handoff::Request),
 }
 
 /// Input for the program, as the UI gave it; the thread encodes it.
@@ -103,6 +110,9 @@ struct Shared {
     /// The child's process id while it runs and is not reaped; 0 before it starts and once
     /// the thread reaps it, or leaves it to a reaper.
     pid: AtomicU32,
+    /// How many times the thread read again after an export (ADR 0120, step 11).
+    #[cfg(feature = "dev")]
+    resumes: std::sync::atomic::AtomicU64,
 }
 
 impl Shared {
@@ -148,25 +158,46 @@ impl Terminal {
         wake: Box<dyn Fn() + Send>,
         hold_limit: Duration,
     ) -> io::Result<Terminal> {
+        #[cfg(unix)]
+        let work = move |channels: thread::Channels<'_>| thread::run(start, hold_limit, channels);
+        #[cfg(not(unix))]
+        let work = move |_: ()| drop((start, hold_limit));
+        Terminal::spawn(work, wake)
+    }
+
+    /// Starts the thread that does `work`, and the handle to it.
+    #[cfg(unix)]
+    fn spawn(
+        work: impl FnOnce(thread::Channels<'_>) + Send + 'static,
+        wake: Box<dyn Fn() + Send>,
+    ) -> io::Result<Terminal> {
         let (waker, wakeup) = pty::wake_pair()?;
         let (requests, requests_rx) = mpsc::channel();
         let (snapshots_tx, snapshots) = mpsc::channel();
         let shared = Arc::new(Shared::default());
-        spawn_thread(
-            start,
-            hold_limit,
-            wakeup,
-            requests_rx,
-            snapshots_tx,
-            Arc::clone(&shared),
-            wake,
-        )?;
+        let thread_shared = Arc::clone(&shared);
+        std::thread::Builder::new()
+            .name("oso-terminal".into())
+            .spawn(move || {
+                work(thread::Channels {
+                    wakeup: &wakeup,
+                    requests: &requests_rx,
+                    snapshots: &snapshots_tx,
+                    shared: &thread_shared,
+                    wake: &*wake,
+                });
+            })?;
         Ok(Terminal {
             requests,
             snapshots,
             waker,
             shared,
         })
+    }
+
+    #[cfg(not(unix))]
+    fn spawn(_work: impl FnOnce(()), _wake: Box<dyn Fn() + Send>) -> io::Result<Terminal> {
+        Err(io::ErrorKind::Unsupported.into())
     }
 
     /// The snapshot that is ready, if one is. The next is built only after this, once
@@ -294,44 +325,6 @@ impl fmt::Debug for Terminal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Terminal").finish_non_exhaustive()
     }
-}
-
-#[cfg(unix)]
-fn spawn_thread(
-    start: Start,
-    hold_limit: Duration,
-    wakeup: pty::Wakeup,
-    requests: mpsc::Receiver<Request>,
-    snapshots: mpsc::Sender<Snapshot>,
-    shared: Arc<Shared>,
-    wake: Box<dyn Fn() + Send>,
-) -> io::Result<()> {
-    std::thread::Builder::new()
-        .name("oso-terminal".into())
-        .spawn(move || {
-            let channels = thread::Channels {
-                wakeup: &wakeup,
-                requests: &requests,
-                snapshots: &snapshots,
-                shared: &shared,
-                wake: &*wake,
-            };
-            thread::run(start, hold_limit, channels);
-        })
-        .map(drop)
-}
-
-#[cfg(not(unix))]
-fn spawn_thread(
-    _start: Start,
-    _hold_limit: Duration,
-    _wakeup: pty::Wakeup,
-    _requests: mpsc::Receiver<Request>,
-    _snapshots: mpsc::Sender<Snapshot>,
-    _shared: Arc<Shared>,
-    _wake: Box<dyn Fn() + Send>,
-) -> io::Result<()> {
-    Err(io::ErrorKind::Unsupported.into())
 }
 
 #[cfg(test)]

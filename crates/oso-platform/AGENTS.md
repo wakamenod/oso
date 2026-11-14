@@ -11,7 +11,8 @@ listing a directory relative to itself, with the names of owners and groups and 
 zone's offset that a directory listing shows (ADR 0114, ADR 0134). The
 control sockets' transport lives in `control`, in every build, for the dev socket
 and the agent channel (ADR 0085); only the dev tooling and the agent channel
-listen. Process spawning lives in `process`, and pseudo-terminals in
+listen. Passing descriptors over a connection (`control/unix/rights.rs`) and a PTY master
+from a descriptor are `dev` only, for `oso dev`'s restart of terminals (ADR 0120, step 11). Process spawning lives in `process`, and pseudo-terminals in
 `process::pty`, in every build (ADR 0120). `notify` asks for the person's attention for agent
 sessions (ADR 0121). `random` reads the system's random bytes, for ids such as a hosted
 session's (ADR 0121). `window` holds the window layer's

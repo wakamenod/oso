@@ -397,3 +397,61 @@ fn the_account_shell_is_an_absolute_path_if_any() {
         assert!(shell.is_absolute(), "{}", shell.display());
     }
 }
+
+#[cfg(feature = "dev")]
+mod handed {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::time::{Duration, Instant};
+
+    use super::super::{Master, Size, open};
+
+    const SIZE: Size = Size {
+        rows: 24,
+        columns: 80,
+        width: 0,
+        height: 0,
+    };
+
+    /// What `master` reads within a second.
+    fn read_some(master: &Master) -> Vec<u8> {
+        let mut got = Vec::new();
+        let mut buf = [0u8; 256];
+        let since = Instant::now();
+        while got.is_empty() && since.elapsed() < Duration::from_secs(1) {
+            match master.read(&mut buf) {
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        got
+    }
+
+    #[test]
+    fn a_master_cloned_and_adopted_reads_what_the_slave_writes() {
+        let (master, slave) = open(SIZE).unwrap();
+        let fd = master.try_clone_fd().unwrap();
+        // SAFETY: `F_GETFD` reads the flags of a descriptor `fd` keeps open.
+        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
+        assert!(flags & libc::FD_CLOEXEC != 0, "the clone is close-on-exec");
+        let adopted = Master::from_fd(fd).unwrap();
+        drop(master);
+        let mut slave = std::fs::File::from(slave.0.0);
+        slave.write_all(b"after\n").unwrap();
+        assert!(!read_some(&adopted).is_empty(), "the adopted master reads");
+        // A size set through it is the terminal's.
+        adopted.resize(Size { rows: 30, ..SIZE }).unwrap();
+    }
+
+    #[test]
+    fn only_a_terminals_master_is_adopted() {
+        let (reader, _writer) = std::io::pipe().unwrap();
+        let error = Master::from_fd(reader.into()).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        let (_master, slave) = open(SIZE).unwrap();
+        assert!(Master::from_fd(slave.0.0).is_err(), "a slave is no master");
+    }
+}

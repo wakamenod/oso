@@ -18,6 +18,9 @@ impl App {
     /// shows asks for no frame of its own: it is looked at a few times a second instead,
     /// while its thread goes on parsing.
     pub(in crate::app) fn terminal_ready(&mut self, buffer: BufferId) {
+        // A terminal's thread also wakes the loop when it answers a restart's export.
+        #[cfg(feature = "dev")]
+        self.carry_terminals();
         if let Some(hosted) = self.terminals.map.get_mut(buffer) {
             hosted.ready = true;
             let shown = (self.editor.frame().windows().iter()).any(|(id, _)| {

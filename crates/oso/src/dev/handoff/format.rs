@@ -40,8 +40,9 @@ pub const MAX_HISTORIES: usize = 64;
 /// The longest name of a history.
 pub const MAX_HISTORY_NAME: usize = 64;
 
-/// The most items one state may carry: each buffer's text, kill entry and history.
-pub const MAX_ITEMS: usize = MAX_BUFFERS + kill::MAX_ENTRIES + MAX_HISTORIES;
+/// The most items one state may carry: each buffer's text, kill entry, history and terminal.
+pub const MAX_ITEMS: usize =
+    MAX_BUFFERS + kill::MAX_ENTRIES + MAX_HISTORIES + super::terminals::MAX_TERMINALS;
 
 /// The largest window side, in pixels: the largest texture wgpu's default
 /// limits allow, since the surface follows the window.
@@ -72,6 +73,10 @@ pub struct State {
     /// The kill ring's entries, the newest first.
     pub kills: Vec<KillState>,
     pub histories: Vec<HistoryState>,
+    /// The terminals it carries, whose masters come after the import (ADR 0120, step 11).
+    pub terminals: Vec<super::terminals::TerminalState>,
+    /// The instance that exported it and those it took over from, the newest last.
+    pub follows: Vec<u32>,
 }
 
 #[cfg(test)]
@@ -101,6 +106,8 @@ pub struct BufferEntry {
     pub opened_by_agent: bool,
     /// Whether its long lines wrap (ADR 0100), said only when they do.
     pub wraps: bool,
+    /// The carried terminal it stands for, by its place among the state's terminals.
+    pub terminal: Option<usize>,
     /// A directory listing, which is listed again (ADR 0134).
     pub listing: Option<ListingEntry>,
 }
@@ -189,7 +196,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
     let state = state.as_object().ok_or("the state is not an object")?;
     let version = match state.get("version").and_then(Value::as_u64) {
         // Its own version and those before it, version 3 as one window (ADR 0090, ADR 0112).
-        Some(version @ (2 | 3 | STATE_VERSION)) => version,
+        Some(version @ (2..=STATE_VERSION)) => version,
         Some(version) => {
             return Err(format!(
                 "the state has version {version}, and this build reads versions 2 to {STATE_VERSION}"
@@ -203,6 +210,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         parse_kills(state, &mut items)?,
         parse_histories(state, &mut items)?,
     );
+    let terminals = super::terminals::parse(state, &mut items)?;
     let entries = array(state, "buffers")?;
     if entries.len() > MAX_BUFFERS {
         return Err(format!("the state has more than {MAX_BUFFERS} buffers"));
@@ -223,6 +231,14 @@ pub fn parse(state: &Value) -> Result<State, String> {
     {
         return Err("the state carries the text of two buffers with no file".into());
     }
+    let mut stood_for = HashSet::new();
+    for terminal in buffers.iter().filter_map(|b| b.terminal) {
+        if terminal >= terminals.len() || !stood_for.insert(terminal) {
+            return Err(format!(
+                "no terminal {terminal}, or one buffer too many stands for it"
+            ));
+        }
+    }
     let windows = parse_windows(state, entries, version)?;
     Ok(State {
         export,
@@ -237,18 +253,20 @@ pub fn parse(state: &Value) -> Result<State, String> {
         electric_indent: super::look::parse_switch(state, "electric_indent")?,
         kills,
         histories,
+        terminals,
+        follows: super::terminals::parse_follows(state)?,
     })
 }
 
 /// The lengths of the items, and which have been claimed, each by one thing only.
 #[derive(Default)]
-struct Items {
+pub(super) struct Items {
     lengths: Vec<usize>,
     claimed: HashSet<usize>,
 }
 
 impl Items {
-    fn parse(state: &Map<String, Value>) -> Result<Self, String> {
+    pub(super) fn parse(state: &Map<String, Value>) -> Result<Self, String> {
         let items = array(state, "items")?;
         if items.len() > MAX_ITEMS {
             return Err(format!("the state has more than {MAX_ITEMS} items"));
@@ -275,7 +293,7 @@ impl Items {
     }
 
     /// Claims the item named in `object`, whose length must be the sum of `parts`, if given.
-    fn claim(
+    pub(super) fn claim(
         &mut self,
         object: &Map<String, Value>,
         parts: Option<&[usize]>,
@@ -380,12 +398,19 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         Some(Value::Bool(wraps)) => *wraps,
         Some(_) => return Err("a buffer's wraps is not true or false".into()),
     };
+    let terminal = match entry.get("terminal") {
+        None | Some(Value::Null) => None,
+        Some(_) if path.is_some() || carried.is_some() => {
+            return Err("a buffer with a file or a text stands for a terminal".into());
+        }
+        Some(_) => Some(size(entry, "terminal")?),
+    };
     let listing = match entry.get("listing") {
         None | Some(Value::Null) => None,
         Some(Value::Object(listing)) => Some(parse_listing(listing)?),
         Some(_) => return Err("a buffer's listing is not an object".into()),
     };
-    if listing.is_some() && (path.is_some() || carried.is_some()) {
+    if listing.is_some() && (path.is_some() || carried.is_some() || terminal.is_some()) {
         return Err("a listing has a path or a text".into());
     }
     Ok(BufferEntry {
@@ -393,6 +418,7 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         carried,
         opened_by_agent,
         wraps,
+        terminal,
         listing,
     })
 }

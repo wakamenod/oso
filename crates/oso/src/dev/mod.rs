@@ -8,6 +8,7 @@
 
 mod build_errors;
 pub mod ctl;
+pub mod fds;
 pub mod handoff;
 mod png;
 mod protocol;
@@ -28,8 +29,8 @@ use oso_platform::control::{CleanupGuard, ControlDir, Socket};
 use oso_render::Capture;
 use serde_json::json;
 
-pub use protocol::{ClipboardOp, ImeReport, Reply, UiOp, WheelAt};
-pub use server::UiRequest;
+pub use protocol::{ClipboardOp, EXIT_REFUSED, ImeReport, Reply, UiOp, WheelAt};
+pub use server::{Passed, UiRequest};
 pub use state::{
     ImeFacts, get_state, get_text, ime_state, screenshot_allowed, show_buffer, wheel_reply,
 };
@@ -153,6 +154,28 @@ impl DevState {
         // an error.
         if let Err(e) = spawned {
             log::warn!("cannot start the screenshot thread: {e}");
+        }
+    }
+}
+
+impl DevState {
+    /// Writes `<pid>-follows` on a thread of its own: the instances this one took over from,
+    /// one id a line, newest last, for a session's bridge pinned to one of them (ADR 0120,
+    /// step 11). It goes with the socket when this instance exits.
+    pub fn write_follows(&self, pids: &[u32]) {
+        let dir = self.dir.clone();
+        let text = crate::channel::mcp::follows_text(pids);
+        let spawned = thread::Builder::new()
+            .name("oso-follows".into())
+            .spawn(move || {
+                if let Err(e) =
+                    dir.write_private_file(crate::channel::mcp::FOLLOWS, text.as_bytes())
+                {
+                    log::warn!("oso dev: the instances this one follows were not written: {e}");
+                }
+            });
+        if let Err(e) = spawned {
+            log::warn!("cannot start the follows thread: {e}");
         }
     }
 }

@@ -167,6 +167,7 @@ impl App {
     pub(super) fn listing_handed_over(
         &mut self,
         entry: crate::dev::handoff::ListingEntry,
+        added: &mut Vec<BufferId>,
     ) -> BufferId {
         let options = Options {
             sort: if entry.by_date {
@@ -194,6 +195,7 @@ impl App {
         };
         self.dired.by_buffer.insert(id, listing);
         self.list_again(id);
+        added.push(id);
         id
     }
 

@@ -146,7 +146,10 @@ fn export_and_check_report_the_same_generation() {
     let editor = visiting(&absolute("/p/a.txt"), "abc\n");
     let exported = export(&editor, &[], None, None).unwrap();
     assert_eq!(exported["generation"], generation(&editor));
-    assert_eq!(check(&editor).unwrap()["generation"], generation(&editor));
+    assert_eq!(
+        check(&editor, false).unwrap()["generation"],
+        generation(&editor)
+    );
     assert_eq!(exported["version"], STATE_VERSION);
     assert!(parse(&exported).is_ok());
 }
@@ -433,7 +436,7 @@ fn a_running_save_holds_the_handover_and_a_guarded_exit_by_name() {
     assert_eq!(generation(&editor), clean);
 
     for message in [
-        check(&editor).unwrap_err(),
+        check(&editor, false).unwrap_err(),
         export(&editor, &[], None, None).unwrap_err(),
     ] {
         assert!(message.contains("a.txt"), "{message}");
@@ -446,7 +449,10 @@ fn a_running_save_holds_the_handover_and_a_guarded_exit_by_name() {
 
     editor.save_finished(job.buffer, job.content, written());
     assert!(editor.current().1.is_modified());
-    assert!(check(&editor).is_ok(), "carried, as the save is over");
+    assert!(
+        check(&editor, false).is_ok(),
+        "carried, as the save is over"
+    );
 }
 
 #[test]
@@ -455,9 +461,9 @@ fn a_finished_save_lets_the_handover_through() {
     type_text(&mut editor);
     editor.start_save().unwrap();
     let job = editor.take_save_jobs().pop().unwrap();
-    assert!(check(&editor).is_err());
+    assert!(check(&editor, false).is_err());
     editor.save_finished(job.buffer, job.content, written());
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
     assert!(export(&editor, &[], None, None).is_ok());
 }
 

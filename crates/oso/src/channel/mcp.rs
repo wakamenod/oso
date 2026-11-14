@@ -29,6 +29,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
+
+mod follows;
+use follows::follower;
+#[cfg(feature = "dev")]
+pub use follows::{FOLLOWS, follows_text};
 use serde_json::{Map, Value, json};
 
 use super::protocol::PROTOCOL_VERSION;
@@ -339,10 +344,15 @@ impl Target {
     /// is on. It looks for that one at most once each [`PROBE_EVERY`], and in between tells
     /// the agent what it found last. What goes wrong is said in full on stderr, and to the
     /// agent in fixed words.
+    ///
+    /// An instance `--pid` named that has gone may have been replaced by `oso dev`'s restart:
+    /// `follows` names the one that took over from it, if one did (ADR 0120, step 11), and
+    /// the bridge goes on with that one.
     fn connect<S>(
         &mut self,
         now: Instant,
         mut connect: impl FnMut(Option<u32>) -> io::Result<(u32, S)>,
+        follows: impl FnOnce(u32) -> Option<u32>,
     ) -> Result<(u32, S), String> {
         if let Some(pid) = self.pid {
             match connect(Some(pid)) {
@@ -350,6 +360,13 @@ impl Target {
                 Err(e) => {
                     say(&format!("connecting to pid {pid}: {e}"));
                     if self.given {
+                        if let Some(next) = follows(pid)
+                            && let Ok(found) = connect(Some(next))
+                        {
+                            say(&format!("pid {pid} has gone; pid {next} took over from it"));
+                            self.pid = Some(next);
+                            return Ok(found);
+                        }
                         return Err(told(&e, true));
                     }
                     // It has gone, as when oso restarts.
@@ -394,9 +411,11 @@ fn told(e: &io::Error, given: bool) -> String {
 /// program, and is the process that owns the socket, is spoken to: another process of the
 /// same user could listen in its place.
 fn connect(target: &mut Target) -> Result<Box<dyn Link>, String> {
-    let (found, stream) = target.connect(Instant::now(), |pid| {
-        ControlDir::open_existing()?.connect(Socket::Agent, pid)
-    })?;
+    let (found, stream) = target.connect(
+        Instant::now(),
+        |pid| ControlDir::open_existing()?.connect(Socket::Agent, pid),
+        follower,
+    )?;
     let peer = stream.peer();
     let is_oso = peer.runs_this_program
         && peer

@@ -21,14 +21,14 @@ fn a_modified_file_is_carried_with_what_was_known_of_it_and_no_text_in_the_state
     let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
     let id = editor.window().buffer();
     let facts = editor.buffer(id).unwrap().file_facts();
-    assert_eq!(check(&editor).unwrap()["unsaved"], false);
+    assert_eq!(check(&editor, false).unwrap()["unsaved"], false);
     type_text(&mut editor);
     assert_eq!(
-        check(&editor).unwrap()["unsaved"],
+        check(&editor, false).unwrap()["unsaved"],
         true,
         "it may hand over, not be closed"
     );
-    let (state, exported) = super::super::export(&editor, &[], None, &[], 7).unwrap();
+    let (state, exported) = super::super::export(&editor, &[], None, &[], 7, None).unwrap();
     assert!(
         !state.to_string().contains(TYPED),
         "the state names lengths only"
@@ -55,7 +55,7 @@ fn text_in_scratch_is_carried_and_an_empty_scratch_needs_nothing() {
     assert!(empty["buffers"][0]["text"].is_null());
     assert_eq!(empty["items"], json!([]));
     type_text(&mut editor);
-    assert!(check(&editor).is_ok());
+    assert!(check(&editor, false).is_ok());
     let state = export(&editor, &[], None, None).unwrap();
     assert!(state["buffers"][0]["path"].is_null());
     assert_eq!(state["buffers"][0]["text"]["item"], 0);
@@ -277,7 +277,7 @@ fn what_was_known_of_a_carried_file_round_trips() {
 #[test]
 fn bad_carried_fields_are_refused() {
     let bad: [(&str, Mutation); 11] = [
-        ("version 5", Box::new(|s| s["version"] = json!(5))),
+        ("version 6", Box::new(|s| s["version"] = json!(6))),
         (
             "no items",
             Box::new(|s| {

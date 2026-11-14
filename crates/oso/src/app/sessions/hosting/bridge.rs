@@ -20,6 +20,7 @@ impl App {
         connection: Connection,
         peer: &Peer,
         claim: &str,
+        parent_started: Option<std::time::SystemTime>,
         answer: impl FnOnce(bool) -> bool,
     ) -> Option<String> {
         let Some(id) = SessionId::parse(claim) else {
@@ -49,7 +50,7 @@ impl App {
         }
         self.hosting
             .table
-            .answer_claim(connection, peer, Some(&id), answer)
+            .answer_claim(connection, peer, Some(&id), parent_started, answer)
     }
 
     /// The bridge connection `connection` went, or every one did, when it is `None`.
