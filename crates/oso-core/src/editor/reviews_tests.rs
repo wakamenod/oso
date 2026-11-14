@@ -1,6 +1,6 @@
 //! The tests of the open reviews: adding and closing one, putting in its text with the cursors
 //! carried and waiting under a prompt, what a text or paint leaves for the host to free, the
-//! backgrounds of the rows in view, and the menu's counts by opening.
+//! backgrounds of the rows in view, the files marked behind, and the menu's counts by opening.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads or files.
 
@@ -174,6 +174,26 @@ fn a_new_text_waits_while_a_prompt_is_open() {
     let kind = crate::minibuffer::Kind::Number { history: None };
     editor.open_prompt("Go to line: ", kind).unwrap();
     assert!(editor.review_waits());
+}
+
+#[test]
+fn a_file_is_marked_behind_per_review_until_cleared_or_the_review_closes() {
+    let (mut editor, id) = editor_with_review();
+    let (other, _) = editor.add_review(ProjectId(0), "*review: staged p*".into());
+    assert!(!editor.review_file_behind(id, b"a.rs"));
+    editor.set_review_file_behind(id, b"a.rs", true);
+    editor.set_review_file_behind(id, b"a.rs", true);
+    assert!(editor.review_file_behind(id, b"a.rs"));
+    assert!(!editor.review_file_behind(id, b"b.rs"), "per file");
+    assert!(!editor.review_file_behind(other, b"a.rs"), "per review");
+    editor.set_review_file_behind(id, b"a.rs", false);
+    assert!(!editor.review_file_behind(id, b"a.rs"));
+    editor.set_review_file_behind(id, b"b.rs", true);
+    editor.remove_review(id);
+    assert!(!editor.review_file_behind(id, b"b.rs"), "forgotten with it");
+    // A review not open marks nothing.
+    editor.set_review_file_behind(id, b"b.rs", true);
+    assert!(!editor.review_file_behind(id, b"b.rs"));
 }
 
 #[test]

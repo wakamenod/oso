@@ -584,6 +584,8 @@ mod cursor_tests;
 #[cfg(test)]
 mod directory_and_text_tests;
 #[cfg(test)]
+mod draft_tests;
+#[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
 mod editorconfig_tests;

@@ -19,13 +19,20 @@
 //! - The text is cut near [`MAX_TEXT`]: the limit is looked at before each section, so the one
 //!   that passes it is whole, and the files after it show their header and a note.
 //! - Comments are carried here when a file has none to place, which costs hashing alone; a file
-//!   with comments is carried on the review's own thread, which reads old sides.
-//! - Nothing here logs a file's text.
+//!   with comments is carried on the review's own thread, which reads old sides, and keeps the
+//!   section it showed until that carry comes. A carry is applied by the UI only when the text
+//!   holding it goes in, so the model's reading of a file is the one its text shows.
+//! - Comments are cards among a file's lines, from the model's latest snapshot of them; a change
+//!   to a snapshot, or to whether agent cards fold, lays out again only the files it touches. A
+//!   file that leaves the listing with comments stays, after the others, until it has none.
+//! - Nothing here logs a file's text or a comment's.
 
+mod cards;
+mod file;
 mod section;
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry as Slot;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -33,11 +40,13 @@ use std::thread;
 
 use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, Reloaded};
-use oso_core::review::{Carried, Carry, Rows};
+use oso_core::review::{Carried, Carry, Comment, Rows, Shape};
 use oso_core::rope::Rope;
 use oso_core::syntax::Highlights;
 
 use super::{Entry, Reading};
+use cards::Cards;
+use file::{File, Gone, section_in};
 
 /// The most bytes a review's text holds: past it, files show their header alone.
 pub(crate) const MAX_TEXT: usize = 64 * 1024 * 1024;
@@ -51,18 +60,47 @@ pub(crate) enum Tell {
         more: usize,
         cut: bool,
     },
-    /// A file's new reading, and its comments to carry to it, if it is text.
+    /// A file's new reading, and how its comments are carried to it.
     File {
         reading: Arc<Reading>,
-        carry: Option<Carry>,
+        carry: Carrying,
     },
-    /// Comments to carry again to `reading`, as applying the last carry asked: dropped unless
-    /// it is still the file's current reading, whose own carry is then on its way.
+    /// Comments to carry here to `reading`, as applying the last carry asked, or as the
+    /// review's thread could not: dropped unless `reading` is still the file's current one,
+    /// the one waiting for its carry included.
     Carry { reading: Arc<Reading>, carry: Carry },
+    /// What the review's thread carried to `reading`; `cut_short` if matching ran out of time.
+    /// Dropped unless `reading` is still the file's current one, the one waiting for its carry
+    /// included.
+    Carried {
+        reading: Arc<Reading>,
+        carried: Carried,
+        cut_short: bool,
+    },
+    /// The model's comments on the file at `path` now, oldest first, and its reading of the
+    /// file.
+    Cards {
+        path: Box<[u8]>,
+        comments: Vec<Comment>,
+        reading: Option<Arc<Shape>>,
+    },
+    /// Whether agent cards fold to their first line.
+    Folded(bool),
     /// Every file of the listing that changed has been read.
     Read,
     /// What the review's title says under it, each a line: a failure, a lost trust.
     Said(Vec<String>),
+}
+
+/// How a file's comments are carried to its new reading.
+pub(crate) enum Carrying {
+    /// Here, as the file has no comment to place.
+    Here(Carry),
+    /// On the review's thread, whose result comes as [`Tell::Carried`]: until then the file
+    /// shows its reading before.
+    Elsewhere,
+    /// Not at all: the reading is not text.
+    Nothing,
 }
 
 /// A text for the review buffer, with what each of its lines is, its highlights, the comments
@@ -75,6 +113,8 @@ pub(crate) struct Text {
     pub(crate) highlights: Highlights,
     pub(crate) carried: Vec<(Arc<Reading>, Carried)>,
     pub(crate) reading: Option<(usize, usize)>,
+    /// Whether its agent cards show folded to their first line.
+    pub(crate) folded: bool,
 }
 
 /// Hands a text to the event loop; `false` once it is gone.
@@ -126,20 +166,17 @@ impl Drop for View {
     }
 }
 
-/// One file's place in the view.
-struct File {
-    entry: Entry,
-    reading: Option<Arc<Reading>>,
-    /// Its section as last laid out, and whether it was whole.
-    rendered: Option<(Arc<section::Rendered>, bool)>,
-}
-
 /// What the view thread keeps.
 struct State {
     title: String,
     said: Vec<String>,
     order: Vec<Box<[u8]>>,
     files: HashMap<Box<[u8]>, File>,
+    gone: BTreeMap<Box<[u8]>, Gone>,
+    /// Whether agent cards fold to their first line.
+    folded: bool,
+    /// The most bytes the text holds: [`MAX_TEXT`], less in tests.
+    max_text: usize,
     more: usize,
     /// Whether the listing was cut short.
     cut: bool,
@@ -162,6 +199,9 @@ impl State {
             said: Vec::new(),
             order: Vec::new(),
             files: HashMap::new(),
+            gone: BTreeMap::new(),
+            folded: false,
+            max_text: MAX_TEXT,
             more: 0,
             cut: false,
             reading: false,
@@ -175,65 +215,29 @@ impl State {
 
     fn take(&mut self, told: Tell) {
         match told {
-            Tell::Listed { entries, more, cut } => {
-                let same = self.more == more
-                    && self.cut == cut
-                    && self.order.len() == entries.len()
-                    && self
-                        .order
-                        .iter()
-                        .zip(entries.iter())
-                        .all(|(a, b)| *a == b.path);
-                self.dirty |= !same;
-                self.more = more;
-                self.cut = cut;
-                self.reading = true;
-                let mut files = std::mem::take(&mut self.files);
-                self.order = entries.iter().map(|entry| entry.path.clone()).collect();
-                for entry in entries.iter() {
-                    let file = match files.remove(&entry.path) {
-                        Some(file) => file,
-                        None => File {
-                            entry: entry.clone(),
-                            reading: None,
-                            rendered: None,
-                        },
-                    };
-                    self.files.insert(entry.path.clone(), file);
-                }
-            }
-            Tell::File { reading, carry } => {
-                if let Some(carry) = carry {
-                    self.carry(&reading, carry);
-                }
-                self.dirty = true;
-                let path = reading.entry.path.clone();
-                let file = match self.files.entry(path) {
-                    Slot::Occupied(file) => file.into_mut(),
-                    Slot::Vacant(vacant) => {
-                        // Not listed yet: it goes last.
-                        self.order.push(vacant.key().clone());
-                        vacant.insert(File {
-                            entry: reading.entry.clone(),
-                            reading: None,
-                            rendered: None,
-                        })
-                    }
-                };
-                file.entry = reading.entry.clone();
-                file.reading = Some(reading);
-                file.rendered = None;
-            }
+            Tell::Listed { entries, more, cut } => self.listed(&entries, more, cut),
+            Tell::File { reading, carry } => self.file(reading, carry),
             Tell::Carry { reading, carry } => {
-                let current = self
-                    .files
-                    .get(&reading.entry.path)
-                    .and_then(|file| file.reading.as_ref())
-                    .is_some_and(|now| Arc::ptr_eq(now, &reading));
-                if current {
-                    self.carry(&reading, carry);
+                if self.is_current(&reading) {
+                    let carried = carry_here(carry);
+                    self.carried(reading, carried, false);
                 }
             }
+            Tell::Carried {
+                reading,
+                carried,
+                cut_short,
+            } => {
+                if self.is_current(&reading) {
+                    self.carried(reading, carried, cut_short);
+                }
+            }
+            Tell::Cards {
+                path,
+                comments,
+                reading,
+            } => self.cards(path, Cards { comments, reading }),
+            Tell::Folded(folded) => self.fold(folded),
             Tell::Read => self.reading = false,
             Tell::Said(said) => {
                 self.dirty |= said != self.said;
@@ -242,11 +246,144 @@ impl State {
         }
     }
 
-    /// Carries a file's comments to `reading`. A file with no comment to place: nothing is
-    /// matched, only hunks hashed.
-    fn carry(&mut self, reading: &Arc<Reading>, carry: Carry) {
-        let carried = carry.run(|_, _| None, |_, _| Vec::new());
-        self.carried.push((Arc::clone(reading), carried));
+    /// Takes a new listing. A file that left a whole listing with comments stays, after the
+    /// others, as no longer changed. A cut listing tells nothing of the files it left out, as
+    /// the model's files keep them: one with comments stays shown as it was, after the listed
+    /// ones.
+    fn listed(&mut self, entries: &[Entry], more: usize, cut: bool) {
+        let whole = more == 0 && !cut;
+        let before = std::mem::take(&mut self.order);
+        let mut files = std::mem::take(&mut self.files);
+        self.order = entries.iter().map(|entry| entry.path.clone()).collect();
+        for entry in entries {
+            let file = match files.remove(&entry.path) {
+                Some(file) => file,
+                None => {
+                    let cards = self.gone.remove(&entry.path).map(|gone| gone.cards);
+                    File::new(entry.clone(), cards.unwrap_or_default())
+                }
+            };
+            self.files.insert(entry.path.clone(), file);
+        }
+        // In the order they were shown.
+        for path in &before {
+            let Some(file) = files.remove(path) else {
+                continue;
+            };
+            if file.cards.comments.is_empty() {
+                continue;
+            }
+            if whole {
+                let gone = Gone {
+                    withheld: file.withheld(),
+                    cards: file.cards,
+                    rendered: None,
+                };
+                self.gone.insert(path.clone(), gone);
+                self.dirty = true;
+            } else {
+                self.order.push(path.clone());
+                self.files.insert(path.clone(), file);
+            }
+        }
+        let same = self.more == more && self.cut == cut && before == self.order;
+        self.dirty |= !same;
+        self.more = more;
+        self.cut = cut;
+        self.reading = true;
+    }
+
+    /// Takes a file's new reading: shown now, or once its carry comes.
+    fn file(&mut self, reading: Arc<Reading>, carry: Carrying) {
+        let path = reading.entry.path.clone();
+        let file = match self.files.entry(path) {
+            Slot::Occupied(file) => file.into_mut(),
+            Slot::Vacant(vacant) => {
+                // Not listed yet: it goes last.
+                self.order.push(vacant.key().clone());
+                self.dirty = true;
+                let cards = self.gone.remove(vacant.key()).map(|gone| gone.cards);
+                let entry = reading.entry.clone();
+                vacant.insert(File::new(entry, cards.unwrap_or_default()))
+            }
+        };
+        match carry {
+            Carrying::Here(carry) => {
+                let carried = carry_here(carry);
+                file.show(Arc::clone(&reading), Some(carried.placed().into()), false);
+                self.carried.push((reading, carried));
+                self.dirty = true;
+            }
+            // The file shows its reading before until its carry comes.
+            Carrying::Elsewhere => file.pending = Some(reading),
+            Carrying::Nothing => {
+                file.show(reading, None, false);
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Folds agent cards to their first line, or unfolds them, laying out again only the files
+    /// an agent commented on.
+    fn fold(&mut self, folded: bool) {
+        if folded == self.folded {
+            return;
+        }
+        self.folded = folded;
+        let files = self.files.values_mut();
+        let files = files.map(|file| (&file.cards, &mut file.rendered));
+        let gone = self.gone.values_mut();
+        let gone = gone.map(|gone| (&gone.cards, &mut gone.rendered));
+        for (cards, rendered) in files.chain(gone) {
+            if cards.any_agent() {
+                *rendered = None;
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Whether `reading` is its file's current reading, the one waiting for its carry included.
+    fn is_current(&self, reading: &Arc<Reading>) -> bool {
+        self.files
+            .get(&reading.entry.path)
+            .and_then(File::current)
+            .is_some_and(|now| Arc::ptr_eq(now, reading))
+    }
+
+    /// Shows `reading`, the file's current one, its comments placed by `carried`, which goes in
+    /// the next text for the UI to apply.
+    fn carried(&mut self, reading: Arc<Reading>, carried: Carried, cut_short: bool) {
+        if let Some(file) = self.files.get_mut(&reading.entry.path) {
+            file.show(
+                Arc::clone(&reading),
+                Some(carried.placed().into()),
+                cut_short,
+            );
+            self.carried.push((reading, carried));
+            self.dirty = true;
+        }
+    }
+
+    /// Takes the model's snapshot of a file's comments. A file not listed keeps a section while
+    /// it has any.
+    fn cards(&mut self, path: Box<[u8]>, cards: Cards) {
+        if let Some(file) = self.files.get_mut(&path) {
+            file.cards = cards;
+            file.rendered = None;
+            self.dirty = true;
+        } else if cards.comments.is_empty() {
+            self.dirty |= self.gone.remove(&path).is_some();
+        } else {
+            // A file gone stays withheld once it was.
+            let withheld = self.gone.get(&path).is_some_and(|gone| gone.withheld);
+            let gone = Gone {
+                cards,
+                withheld,
+                rendered: None,
+            };
+            self.gone.insert(path, gone);
+            self.dirty = true;
+        }
     }
 
     /// The whole text, laid out from each file's section, those changed laid out again; or,
@@ -262,6 +399,7 @@ impl State {
                 highlights: highlights.clone(),
                 carried: std::mem::take(&mut self.carried),
                 reading,
+                folded: self.folded,
             };
         }
         let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
@@ -274,18 +412,25 @@ impl State {
         }
         sections.push(Arc::new(section::title(&self.title, &said)));
         let mut size = sections[0].bytes.len();
+        let folded = self.folded;
         for path in &self.order {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
             // A file past the limit shows its header alone; one read meanwhile is laid out anew.
-            let whole = size < MAX_TEXT;
-            let rendered = match (&file.rendered, &file.reading) {
-                (Some((rendered, was)), _) if *was == whole => Arc::clone(rendered),
-                (_, Some(reading)) => Arc::new(section::render(reading, whole)),
-                (_, None) => Arc::new(section::unread(&file.entry)),
-            };
-            file.rendered = Some((Arc::clone(&rendered), whole));
+            let room = self.max_text.saturating_sub(size);
+            let mut kept = file.rendered.take();
+            let rendered = section_in(&mut kept, room, || file.render(room, folded));
+            file.rendered = kept;
+            size += rendered.bytes.len();
+            sections.push(rendered);
+        }
+        for (path, gone) in &mut self.gone {
+            let room = self.max_text.saturating_sub(size);
+            let (cards, withheld) = (&gone.cards, gone.withheld);
+            let rendered = section_in(&mut gone.rendered, room, || {
+                section::gone(path, cards, room, folded, withheld)
+            });
             size += rendered.bytes.len();
             sections.push(rendered);
         }
@@ -323,6 +468,7 @@ impl State {
             highlights,
             carried: std::mem::take(&mut self.carried),
             reading,
+            folded,
         }
     }
 
@@ -337,6 +483,11 @@ impl State {
             (read, self.order.len())
         })
     }
+}
+
+/// Carries the comments of a file with none to place: nothing is matched, only hunks hashed.
+fn carry_here(carry: Carry) -> Carried {
+    carry.run(|_, _| None, |_, _| Vec::new())
 }
 
 /// Takes what is told, everything waiting at once, and hands out a text after each batch once
@@ -393,5 +544,7 @@ pub(crate) fn built(title: &str, told: Vec<Tell>) -> Text {
     state.build()
 }
 
+#[cfg(test)]
+mod carry_tests;
 #[cfg(test)]
 mod tests;

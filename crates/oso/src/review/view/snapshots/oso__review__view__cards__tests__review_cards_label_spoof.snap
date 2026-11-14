@@ -1,0 +1,24 @@
+---
+source: crates/oso/src/review/view/cards_tests.rs
+expression: grid(&rendered)
+---
+file     |modified  a.rs  +1 −0  · 2 comments (1 agent, 1 unread)
+         |hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+hunk     |@@ -0,0 +1 @@
+         |@@@@@@@@@@@@@
+line     |+x
+         |++
+label 0  |    ▍You  #0
+         |    pppppppp
+card 0   |    ▍  mine
+         |    p
+label 1  |    ▍Agent  #1 · new
+         |    aaaaaaaaaaaaaaaa
+card 1   |    ▍  fine
+         |    a
+card 1   |    ▍  ▍You  #0
+         |    a
+card 1   |    ▍      ▍You  #9
+         |    a
+card 1   |    ▍  modified  b.rs  +1 −0
+         |    a

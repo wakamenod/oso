@@ -30,9 +30,16 @@ pub const COMMANDS: &[Command] = &[
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // Whatever else it does, a person's `C-g` drops a search for cursors (ADR 0091).
     ctx.editor.drop_cursor_search();
+    // A review comment's draft that holds text goes to the kill ring, which is said in place
+    // of "Quit" (ADR 0122).
+    let draft_kept = ctx.editor.draft().is_some() && !ctx.editor.current().1.text().is_empty();
     let quit = ctx.editor.quit();
     if quit != Quit::Nothing {
         ctx.request_redraw();
+    }
+    if quit == Quit::Prompt && draft_kept {
+        ctx.editor.echo("Draft in the kill ring: C-y");
+        return Ok(());
     }
     // The search goes on, and its line stays (ADR 0082).
     if quit == Quit::SearchStep {

@@ -4,7 +4,7 @@
 //!
 //! Must not depend on: `command` or `keymap`, threads or the clock; the host runs the jobs.
 //!
-//! - Only tiled windows wrap; a prompt's never does.
+//! - Only tiled windows wrap, and a review comment's draft; no other prompt's does.
 //! - A window holds a wrap only while its buffer wraps, and drops it when it shows another
 //!   buffer; its place keeps the top's offset.
 //! - Each command, wheel scroll, resize and report gives each wrap its budget anew, which
@@ -74,7 +74,7 @@ impl Editor {
     /// Makes the window at `index` hold a wrap while its buffer wraps, at its width, of its
     /// text as it is now: a text that no splice led to, as a load's, starts it over.
     pub(super) fn sync_wrap(&mut self, index: usize) {
-        if index >= self.tiled_count() {
+        if !self.may_wrap(index) {
             return;
         }
         // What it wraps here, and as it follows next, spends from the command's one budget,
@@ -119,6 +119,12 @@ impl Editor {
             (false, false) => budget,
         };
         self.wrap_pool = unspent;
+    }
+
+    /// Whether the window at `index` may wrap: a tiled one, or a review comment's draft
+    /// (ADR 0122).
+    fn may_wrap(&self, index: usize) -> bool {
+        index < self.tiled_count() || self.is_draft_window(index)
     }
 
     /// Gives the wraps their budget for what comes next: a command, a wheel scroll, a resize or
@@ -224,6 +230,8 @@ impl Editor {
                 }
             }
         }
+        // A draft's answer may take more rows or fewer (ADR 0122).
+        self.draft_edited(id);
     }
 
     /// The jobs the windows' wraps want run off the UI thread, each superseding its window's
@@ -231,7 +239,10 @@ impl Editor {
     /// to [`Editor::take_wrap_report`].
     pub fn take_wrap_jobs(&mut self) -> Vec<WrapJob> {
         let mut jobs = Vec::new();
-        for index in 0..self.tiled_count() {
+        for index in 0..self.windows.len() {
+            if !self.may_wrap(index) {
+                continue;
+            }
             self.sync_wrap(index);
             let (window, buffer) = self.window_mut(index);
             let display = buffer.display();
@@ -249,7 +260,8 @@ impl Editor {
     /// The rows in view may break otherwise, but the text at the top stays in the first row
     /// (ADR 0100). Returns whether a frame is needed.
     pub fn take_wrap_report(&mut self, report: WrapReport) -> bool {
-        let found = (0..self.tiled_count())
+        let found = (0..self.windows.len())
+            .filter(|&index| self.may_wrap(index))
             .find(|&index| (self.windows[index].wrap_map()).is_some_and(|wrap| wrap.owns(&report)));
         let Some(index) = found else {
             return false;

@@ -21,6 +21,10 @@
 //! - A file whose signature did not change since the last reading is not read again, and the
 //!   files the caller shows go first. Refreshes asked for meanwhile are answered as one, and a
 //!   newer request, or the reviewer's end, stops the one running between files.
+//! - Carrying comments is no newer request: carries wait in a queue of their own, answered
+//!   between the files of a running request and when nothing runs, so that a file's comments
+//!   never stop a refresh (ADR 0122, step 3b). Before each, the root is checked as before a
+//!   request, and a newer request stops the run of them, the rest waiting.
 //! - Limits, each saying what it hides: 10,000 files and 32 MiB of list; a side of 8 MiB and
 //!   200,000 lines, diffed within 1 s, and 5 s of diffing per request; 64 MiB of sides and
 //!   hunks held per review; a git run of 10 s.
@@ -35,6 +39,8 @@ pub(crate) mod git;
 mod id;
 mod index;
 mod list;
+#[cfg(test)]
+mod queue_tests;
 mod read;
 mod scope;
 mod side;
@@ -43,6 +49,8 @@ pub(crate) mod tests;
 pub(crate) mod view;
 mod work;
 
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -161,14 +169,8 @@ pub(crate) enum Request {
     Refresh { first: Vec<Box<[u8]>> },
     /// Take a baseline of the work tree for the session scope.
     Baseline,
-    /// Carry comments to a new reading (`oso_core::review::Review::carry`).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "comments are carried here from ADR 0122's step 3b"
-        )
-    )]
+    /// Carry comments to a new reading (`oso_core::review::Review::carry`). It stops nothing,
+    /// and is answered between the files of a running request.
     Carry(Carry),
 }
 
@@ -206,17 +208,7 @@ pub(crate) enum Report {
     BaselineGone,
     /// Comments carried; `cut_short` if matching lines ran out of time, so some may be outdated
     /// that would not have been.
-    Carried {
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "comments are carried here from ADR 0122's step 3b"
-            )
-        )]
-        carried: Carried,
-        cut_short: bool,
-    },
+    Carried { carried: Carried, cut_short: bool },
     /// A request failed; the message says why, with no file's text.
     Failed { asked: Asked, why: String },
 }
@@ -352,6 +344,14 @@ pub(crate) struct Reviewer {
     live: Arc<AtomicBool>,
 }
 
+/// What waits for the thread, taken from the queue: carries in order, and the first other
+/// request, which stops the one running.
+#[derive(Default)]
+struct Waiting {
+    carries: VecDeque<Carry>,
+    next: Option<Request>,
+}
+
 impl Reviewer {
     /// Starts the thread for the project at `root`, making its index copies under `state`,
     /// oso's own directory in the per-user state directory, and handing each report to `send`.
@@ -385,15 +385,25 @@ impl Reviewer {
         })
     }
 
-    /// Asks the thread for `request`; `false` if it has ended.
+    /// Asks the thread for `request`; `false` if it has ended. A carry is not counted as
+    /// waiting, so it stops nothing.
     pub(crate) fn ask(&self, request: Request) -> bool {
-        self.waiting.fetch_add(1, Ordering::SeqCst);
-        let sent = self.requests.send(request).is_ok();
-        if !sent {
-            self.waiting.fetch_sub(1, Ordering::SeqCst);
-        }
-        sent
+        send_request(&self.requests, &self.waiting, request)
     }
+}
+
+/// Sends `request` on `requests`, counted in `waiting` unless it is a carry; `false` if the
+/// thread has ended.
+fn send_request(requests: &Sender<Request>, waiting: &AtomicUsize, request: Request) -> bool {
+    let counted = !matches!(request, Request::Carry(_));
+    if counted {
+        waiting.fetch_add(1, Ordering::SeqCst);
+    }
+    let sent = requests.send(request).is_ok();
+    if !sent && counted {
+        waiting.fetch_sub(1, Ordering::SeqCst);
+    }
+    sent
 }
 
 impl Drop for Reviewer {
@@ -403,7 +413,8 @@ impl Drop for Reviewer {
 }
 
 /// Answers each request in turn until the reviewer is dropped or the event loop has gone.
-/// Refreshes waiting one after another are answered as one, their shown files joined.
+/// Refreshes waiting one after another are answered as one, their shown files joined. Carries
+/// are answered between files while something runs, and when nothing waits to.
 fn serve(
     queue: &Receiver<Request>,
     mut send: SendReport,
@@ -413,33 +424,10 @@ fn serve(
     live: &AtomicBool,
 ) {
     let mut reader = work::Reader::new(root.path(), state);
-    let mut next = None;
+    let held = RefCell::new(Waiting::default());
     loop {
-        let request = match next.take() {
-            Some(request) => request,
-            None => match queue.recv() {
-                Ok(request) => {
-                    waiting.fetch_sub(1, Ordering::SeqCst);
-                    request
-                }
-                Err(_) => return,
-            },
-        };
-        let request = match request {
-            Request::Refresh { mut first } => {
-                while let Ok(newer) = queue.try_recv() {
-                    waiting.fetch_sub(1, Ordering::SeqCst);
-                    match newer {
-                        Request::Refresh { first: more } => first.extend(more),
-                        other => {
-                            next = Some(other);
-                            break;
-                        }
-                    }
-                }
-                Request::Refresh { first }
-            }
-            other => other,
+        let Some(request) = next_request(queue, &held, waiting) else {
+            return;
         };
         if !live.load(Ordering::SeqCst) {
             return;
@@ -451,13 +439,22 @@ fn serve(
         }
         let stop = || {
             !live.load(Ordering::SeqCst)
-                || next.is_some()
+                || held.borrow().next.is_some()
                 || waiting.load(Ordering::SeqCst) > 0
                 || root.revoked()
         };
+        // Each carry is checked as a request is, and a newer request stops the run of them: the
+        // rest wait, to be answered between its files, or failed if the root was revoked.
+        let mut carries = || {
+            pull(queue, &held, waiting);
+            if held.borrow().carries.is_empty() || stop() || !root.still_there() {
+                return None;
+            }
+            held.borrow_mut().carries.pop_front()
+        };
         let mut gone = false;
         let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            reader.answer(request, &stop, &mut |report| {
+            reader.answer(request, &stop, &mut carries, &mut |report| {
                 gone = gone || !send(report);
                 !gone
             });
@@ -472,6 +469,65 @@ fn serve(
             return;
         }
     }
+}
+
+/// Takes what the queue holds now: carries aside, after those waiting, until another request
+/// comes, which waits as the next.
+fn pull(queue: &Receiver<Request>, held: &RefCell<Waiting>, waiting: &AtomicUsize) {
+    let mut held = held.borrow_mut();
+    while held.next.is_none() {
+        match queue.try_recv() {
+            Ok(Request::Carry(carry)) => held.carries.push_back(carry),
+            Ok(other) => {
+                waiting.fetch_sub(1, Ordering::SeqCst);
+                held.next = Some(other);
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+/// The next request to answer: a request taken from the queue before, which stopped the one
+/// that ran, then a carry waiting, else the next from the queue, waiting for it. Refreshes that
+/// wait one after another become one, their shown files joined; carries among them wait aside,
+/// to be answered between its files. `None` once the reviewer is gone.
+fn next_request(
+    queue: &Receiver<Request>,
+    held: &RefCell<Waiting>,
+    waiting: &AtomicUsize,
+) -> Option<Request> {
+    let next = held.borrow_mut().next.take();
+    let request = match next {
+        Some(request) => request,
+        None => match held.borrow_mut().carries.pop_front() {
+            Some(carry) => return Some(Request::Carry(carry)),
+            None => match queue.recv().ok()? {
+                Request::Carry(carry) => return Some(Request::Carry(carry)),
+                request => {
+                    waiting.fetch_sub(1, Ordering::SeqCst);
+                    request
+                }
+            },
+        },
+    };
+    let Request::Refresh { mut first } = request else {
+        return Some(request);
+    };
+    while let Ok(newer) = queue.try_recv() {
+        match newer {
+            Request::Carry(carry) => held.borrow_mut().carries.push_back(carry),
+            Request::Refresh { first: more } => {
+                waiting.fetch_sub(1, Ordering::SeqCst);
+                first.extend(more);
+            }
+            other => {
+                waiting.fetch_sub(1, Ordering::SeqCst);
+                held.borrow_mut().next = Some(other);
+                break;
+            }
+        }
+    }
+    Some(Request::Refresh { first })
 }
 
 fn asked(request: &Request) -> Asked {

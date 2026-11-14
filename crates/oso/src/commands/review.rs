@@ -1,6 +1,7 @@
 //! The commands of a review (ADR 0122): opening one of a scope from the review menu or `M-x`,
 //! taking the session's baseline, and in a review buffer moving by hunk and file, reading the
-//! files again, burying it, listing its keys and killing it.
+//! files again, burying it, listing its keys and killing it. Its comments' commands are in
+//! `comments`.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state.
 //! The review's keys are listed here, in [`KEYS`], which `bindings` binds, so that `?` says the
@@ -15,7 +16,7 @@ mod menu;
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{Editor, ReviewId, ReviewRequest, ScopeKind};
+use oso_core::editor::{DraftFor, Editor, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::project::ProjectId;
 use oso_core::review::{Author, Seek};
 
@@ -30,6 +31,13 @@ pub const KEYS: &[(&str, &str)] = &[
     ("p", "review-previous-hunk"),
     ("N", "review-next-file"),
     ("P", "review-previous-file"),
+    ("}", "review-next-comment"),
+    ("{", "review-previous-comment"),
+    ("c", "review-comment"),
+    ("e", "review-edit-comment"),
+    ("k", "review-remove-comment"),
+    ("r", "review-resolve"),
+    ("a", "review-fold-agents"),
     ("g", "review-refresh"),
     ("q", "review-quit"),
     ("?", "review-keys"),
@@ -72,6 +80,10 @@ macro_rules! person_command {
         }
     };
 }
+
+mod comments;
+
+pub use comments::COMMANDS as COMMENT_COMMANDS;
 
 /// The commands of reviews.
 pub const COMMANDS: &[Command] = &[
@@ -188,7 +200,7 @@ pub const COMMANDS: &[Command] = &[
     },
     person_command!(
         "review-kill",
-        "Close the current review: its buffer and its workers.\n\nIt asks first while the review holds comments of yours that were not sent, which are lost with it. `C-x k` in a review buffer runs it.",
+        "Close the current review: its buffer and its workers.\n\nIt asks first while the review holds comments of yours that were not sent, an open draft among them, which are lost with it. `C-x k` in a review buffer runs it.",
         review_kill
     ),
 ];
@@ -437,6 +449,7 @@ fn keys_text() -> String {
     for (keys, name) in KEYS {
         let summary = COMMANDS
             .iter()
+            .chain(COMMENT_COMMANDS)
             .find(|command| command.name == *name)
             .and_then(|command| command.doc.lines().next())
             .unwrap_or_default();
@@ -446,14 +459,23 @@ fn keys_text() -> String {
     text
 }
 
-/// How many comments of the person's in the review `id` were not sent.
+/// How many comments of the person's in the review `id` were not sent, an open draft for it
+/// counted as one, unless it edits a comment counted already.
 pub(crate) fn unsent(editor: &Editor, id: ReviewId) -> usize {
-    editor.review(id).map_or(0, |review| {
-        review
-            .comments()
-            .filter(|comment| comment.author() == Author::Person && !comment.is_sent())
-            .count()
-    })
+    let Some(review) = editor.review(id) else {
+        return 0;
+    };
+    let unsent = |comment: &oso_core::review::Comment| {
+        comment.author() == Author::Person && !comment.is_sent()
+    };
+    let drafted = match editor.draft() {
+        Some((drafted, DraftFor::Edit { comment })) if drafted == id => {
+            !review.comment(*comment).is_some_and(unsent)
+        }
+        Some((drafted, _)) => drafted == id,
+        None => false,
+    };
+    review.comments().filter(|comment| unsent(comment)).count() + usize::from(drafted)
 }
 
 /// How many comments of the person's every open review holds that were not sent.

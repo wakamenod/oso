@@ -382,8 +382,23 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   the modeline says `reading n/m` until every file is read.
 - `n`/`p` go to the next or previous hunk, `N`/`P` to the next or previous file, each with a
   count; `g` reads the files again, those in view first; `q` goes back; `?` lists the keys.
-- `C-x k` closes the review, asking first while comments of yours that were not sent would be
-  lost; a review not shown is shown before the question.
+- Comments show as cards under their line, a bar in the author's face, `You  #7` or
+  `Agent  #12 · new` while unread, with replies further in. `c` comments on a line or a hunk's
+  header, or replies on a card; `e` edits your comment; `k` removes your comment with its thread,
+  which `C-y` yanks back as text, each comment after a line `You  #7` or `Agent  #12` (a thread
+  the agent wrote in stays in oso's kill ring, off the clipboard); `r` resolves a thread or opens
+  it again; `a` folds agent cards to their first line; `{`/`}` go to the previous or next comment.
+  A file's header counts its comments, the agent's and the unread. Outdated comments show above
+  the file's first hunk, and a file no longer changed keeps its comments at the end, under
+  `no longer changed  <path>`.
+- A comment is typed in a draft in the top float, which grows with its text to 10 rows and
+  wraps: `RET` breaks a line, `C-c C-c` keeps it, `C-g` drops it into oso's kill ring, off the
+  clipboard. A draft that holds secret text, or whose line or comment is gone, is not kept: it
+  stays open, and `C-g` keeps its text.
+- An agent's comment counts as read once you have had it whole on screen, unfolded, after a key
+  of yours.
+- `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
+  would be lost; a review not shown is shown before the question.
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 
