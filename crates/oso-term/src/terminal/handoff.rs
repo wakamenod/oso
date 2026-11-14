@@ -125,8 +125,9 @@ impl Terminal {
     }
 
     /// Stops reading the PTY and writes the terminal's state for the next instance, taking its
-    /// bytes from `budget`, which the terminals exported for the same restart share: a snapshot if `library` is [`Terminal::library`], else escape
-    /// sequences. Input still goes to the program, and what it writes waits in the kernel.
+    /// bytes from `budget`, which the terminals exported for the same restart share, as escape
+    /// sequences: the library's snapshot, for an instance with the same [`Terminal::library`],
+    /// is off until a patch to the library. Input still goes to the program, and what it writes waits in the kernel.
     /// The answer comes on the receiver, and the thread's `wake` is called. Reading starts
     /// again at [`Terminal::resume`], or by itself after `limits::PAUSE_MAX`; either counts
     /// in [`Terminal::resumes`].

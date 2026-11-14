@@ -29,6 +29,9 @@ use crate::snapshot::Snapshot;
 use crate::terminal::Request;
 use crate::terminal::handoff::{Adopt, Encoding, Exported, NotExported, Request as Asked};
 
+/// Whether a terminal exported for the same library is written as the library's snapshot.
+const SNAPSHOTS: bool = false;
+
 /// How often input waiting to be written is tried again while the thread reads nothing.
 const WRITE_AGAIN: Duration = Duration::from_millis(10);
 
@@ -92,7 +95,9 @@ impl Running<'_> {
         library: &str,
         budget: &std::sync::atomic::AtomicUsize,
     ) -> Result<Exported, NotExported> {
-        let written = if library == carry::library() {
+        // The library's snapshot is off until a patch to the library (ADR 0120, step 11 as
+        // built): every terminal travels as escape sequences.
+        let written = if SNAPSHOTS && library == carry::library() {
             Written::Snapshot
         } else {
             Written::Escapes

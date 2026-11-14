@@ -1499,6 +1499,17 @@ public items.
   master); `oso-term` gains `Terminal::{library, export, resume, resumes, release, adopt, attach,
   abandon}` with `Adopt`, `Encoding`, `Exported` and `NotExported`. All of it is behind the `dev`
   features.
+- **The snapshot is off until a patch to the library.** Until oso's third patch to
+  libghostty-vt lands ([ADR 0133](0133-keeping-terminals-over-an-update.md)'s prerequisite),
+  every terminal travels as the formatter's escape sequences, whatever the library
+  (`SNAPSHOTS` in `terminal/thread/handoff.rs`). The screen in use and its scrollback come
+  across, and a full-screen program's screen is redrawn from them; its other screen and a
+  sequence it had not finished do not. The snapshot's code stays, for the patch and its tests.
+- **The decoder's fuzz target** is `terminal::fuzz::restore` in oso-term: a terminal fed by
+  the grammar is written as the snapshot, restored at its size or another, then fed, drawn on
+  and sometimes written again. `OSO_TERM_FUZZ_DAMAGE` damages the records first, with their
+  CRC32C written again. On macOS, 30 minutes of ReleaseFast restored 129,200 snapshots
+  unchanged, with no stop.
 - **The library's archive is built once per key.** The `dev` feature gives oso-term a second
   set of features, and cargo runs a build script once per set, so `build.rs` keeps the archive
   in the target's profile directory, keyed by the sha256 of the lock, `build.rs`, the optimize
@@ -1506,7 +1517,7 @@ public items.
   files, and only when its sha256 matches the one recorded beside it; the tarballs, the patches
   and the packages are checked each time.
 - **Not done:** the floating terminal's position and the token carry once steps 9 and 10 exist;
-  the snapshot decoder's fuzz pass on the Mac mini and Linux is the step's follow-up.
+  the snapshot's return, with the library patch and its fuzz runs on macOS and Linux.
 
 Changes to accepted ADRs, each staying as written:
 

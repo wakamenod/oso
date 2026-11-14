@@ -43,8 +43,11 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
   changes in the lock. A bump drops a patch the release makes needless, or rebases it and
   updates the hashes. Change the library only through a patch there, never in `OUT_DIR`.
 - `oso dev`'s restart (ADR 0120, step 11) is behind the `dev` feature: a thread stops reading
-  and writes the library's snapshot (`terminal/thread/handoff.rs`, `engine/ghostty/carry.rs`),
-  and a terminal is adopted from one with its master attached later. Only one instance
+  and writes the terminal's state (`terminal/thread/handoff.rs`, `engine/ghostty/carry.rs`),
+  and a terminal is adopted from it with its master attached later. The state is escape
+  sequences until oso's third patch to the library lands; only then may `SNAPSHOTS` in
+  `terminal/thread/handoff.rs` turn the library's snapshot on, after `terminal::fuzz::restore`
+  runs clean with and without `OSO_TERM_FUZZ_DAMAGE`. Only one instance
   reads a PTY at a time: an exported terminal reads nothing and applies no resize until it
   resumes or is released, and a released one hangs nothing up and reaps nothing.
 - Terminals exist on Unix only for now: on Windows nothing is built and `Terminal::start`
