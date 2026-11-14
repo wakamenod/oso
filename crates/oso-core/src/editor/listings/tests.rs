@@ -49,6 +49,8 @@ fn a_listing_goes_in_with_point_on_a_name() {
     );
     assert!(given.is_none());
     let buffer = editor.buffer(id).unwrap();
+    let highlights = buffer.highlights().expect("highlights");
+    assert_eq!(highlights.at(3), Some(Highlight::DiredHeader));
     assert_eq!(buffer.text().to_string(), TEXT);
     assert_eq!(buffer.mode(), Mode::Directory);
     assert_eq!(buffer.name(), "d/");

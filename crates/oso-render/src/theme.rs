@@ -494,14 +494,15 @@ pub(crate) mod tests {
             Face::SessionWorking | Face::SessionQuiet | Face::SessionFront => {
                 &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
             }
-            // A listing's names are read as highlighted text is; those in a terminal's red and
-            // green, and its details, as a session's marks and quiet text are (ADR 0134).
-            Face::DiredHeader | Face::DiredDirectory | Face::DiredSymlink | Face::DiredSpecial => {
-                &SYNTAX_PAIRS
-            }
-            Face::DiredBrokenSymlink | Face::DiredExecutable | Face::DiredDetails => {
-                &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
-            }
+            // A listing's header is read as highlighted text is; its names in a terminal's
+            // colours, and its details, as a session's marks and quiet text are (ADR 0134).
+            Face::DiredHeader => &SYNTAX_PAIRS,
+            Face::DiredDirectory
+            | Face::DiredSymlink
+            | Face::DiredSpecial
+            | Face::DiredBrokenSymlink
+            | Face::DiredExecutable
+            | Face::DiredDetails => &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)],
             // A terminal's colours are read on the text's background, as highlighted text is,
             // but its blacks, greys and whites, which programs draw on one another (ADR 0120).
             Face::TerminalColor1

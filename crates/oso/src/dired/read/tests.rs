@@ -66,6 +66,12 @@ fn a_listing_reads_every_entry_with_dots_first_and_no_backups() {
     assert_eq!(names, [".", "..", "sub", "to-sub", "b.txt"]);
     let text = built.text.text().to_string();
     assert!(!text.contains("a.txt~"));
+    let face_at = |needle: &str| built.highlights.at(text.find(needle).unwrap());
+    assert_eq!(
+        face_at("sub\n"),
+        Some(oso_core::syntax::Highlight::DiredDirectory),
+        "{text}"
+    );
     #[cfg(unix)]
     assert!(text.contains("to-sub -> sub"), "{text}");
     assert!(built.resolved.is_some());

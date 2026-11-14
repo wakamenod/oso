@@ -291,14 +291,15 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         | Face::SessionDone
         | Face::SessionQuiet
         | Face::SessionFront => (session(face), BgMain),
-        // A listing's names in the colours of the syntax they are like, on the text's
-        // background, and its details as quiet as a session's (ADR 0134).
+        // A listing's names in a terminal's colours as `ls --color` gives them, which every
+        // theme has apart from its text, even one with few syntax colours; its header as a
+        // heading and its details as quiet as a session's (ADR 0134).
         Face::DiredHeader => (SynHeading, BgMain),
-        Face::DiredDirectory => (SynFunction, BgMain),
-        Face::DiredSymlink => (SynLink, BgMain),
+        Face::DiredDirectory => (Terminal(12), BgMain),
+        Face::DiredSymlink => (Terminal(14), BgMain),
         Face::DiredBrokenSymlink => (Terminal(9), BgMain),
         Face::DiredExecutable => (Terminal(10), BgMain),
-        Face::DiredSpecial => (SynConstant, BgMain),
+        Face::DiredSpecial => (Terminal(11), BgMain),
         Face::DiredDetails => (FgPrompt, BgMain),
     }
 }

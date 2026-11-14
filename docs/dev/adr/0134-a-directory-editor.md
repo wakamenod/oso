@@ -445,7 +445,11 @@ directory prompt (all (a)).
   binds them, so that `0 w` works.
 - **Restart:** `oso dev`'s handoff carries each listing as a buffer entry with no path and a
   `listing` object (directory, details, order, line), and the new instance lists it again.
-- **Faces:** seven `Highlight` variants and `oso_render::pane::Face`s. The theme's face map moved
+- **Faces:** seven `Highlight` variants and `oso_render::pane::Face`s. Names take a theme's
+  terminal colours as `ls --color` does (directories blue, links cyan, broken links red, files
+  someone may run green, pipes, sockets and devices yellow), since a theme with few syntax
+  colours, as `dusk`, draws its function and heading colours as its text; the header takes the
+  heading colour and the details the prompt's dim one. The theme's face map moved
   to a private child file, `oso-render/src/theme/faces.rs`, as the new faces took `theme.rs` past
   600 lines.
 - **Perf:** a report-only flow, `bench/dired.rs`, with `dired_first_rows_ms`, `dired_list_ms` and
